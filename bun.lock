@@ -47,23 +47,23 @@
       "name": "@maelstrom/demo",
       "version": "0.0.1",
     },
-    "packages/maelstrom/client": {
+    "client/core": {
       "name": "@maelstrom/client",
       "version": "0.0.1",
     },
-    "packages/maelstrom/protocol": {
-      "name": "@maelstrom/protocol",
-      "version": "0.0.1",
-    },
-    "packages/maelstrom/react": {
+    "client/react": {
       "name": "@maelstrom/react",
       "version": "0.0.1",
     },
-    "packages/maelstrom/server": {
+    "server/engine": {
       "name": "@maelstrom/server",
       "version": "0.0.1",
     },
-    "packages/maelstrom/types": {
+    "shared/protocol": {
+      "name": "@maelstrom/protocol",
+      "version": "0.0.1",
+    },
+    "shared/types": {
       "name": "@maelstrom/types",
       "version": "0.0.1",
     },
@@ -391,17 +391,17 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@maelstrom/client": ["@maelstrom/client@workspace:packages/maelstrom/client"],
+    "@maelstrom/client": ["@maelstrom/client@workspace:client/core"],
 
     "@maelstrom/demo": ["@maelstrom/demo@workspace:apps/demo"],
 
-    "@maelstrom/protocol": ["@maelstrom/protocol@workspace:packages/maelstrom/protocol"],
+    "@maelstrom/protocol": ["@maelstrom/protocol@workspace:shared/protocol"],
 
-    "@maelstrom/react": ["@maelstrom/react@workspace:packages/maelstrom/react"],
+    "@maelstrom/react": ["@maelstrom/react@workspace:client/react"],
 
-    "@maelstrom/server": ["@maelstrom/server@workspace:packages/maelstrom/server"],
+    "@maelstrom/server": ["@maelstrom/server@workspace:server/engine"],
 
-    "@maelstrom/types": ["@maelstrom/types@workspace:packages/maelstrom/types"],
+    "@maelstrom/types": ["@maelstrom/types@workspace:shared/types"],
 
     "@microsoft/api-extractor": ["@microsoft/api-extractor@7.53.3", "", { "dependencies": { "@microsoft/api-extractor-model": "7.31.3", "@microsoft/tsdoc": "~0.15.1", "@microsoft/tsdoc-config": "~0.17.1", "@rushstack/node-core-library": "5.18.0", "@rushstack/rig-package": "0.6.0", "@rushstack/terminal": "0.19.3", "@rushstack/ts-command-line": "5.1.3", "lodash": "~4.17.15", "minimatch": "10.0.3", "resolve": "~1.22.1", "semver": "~7.5.4", "source-map": "~0.6.1", "typescript": "5.8.2" }, "bin": { "api-extractor": "bin/api-extractor" } }, "sha512-p2HmQaMSVqMBj3bH3643f8xApKAqrF1jNpPsMCTQOYCYgfwLnvzsve8c+bgBWzCOBBgLK54PB6ZLIWMGLg8CZA=="],
 

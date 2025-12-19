@@ -7,19 +7,16 @@
       "path": "./apps/demo"
     },
     {
-      "path": "./packages/maelstrom/client"
+      "path": "./shared/protocol"
     },
     {
-      "path": "./packages/maelstrom/react"
+      "path": "./server/engine"
     },
     {
-      "path": "./packages/maelstrom/types"
+      "path": "./client/react"
     },
     {
-      "path": "./packages/maelstrom/protocol"
-    },
-    {
-      "path": "./packages/maelstrom/server"
+      "path": "./client/core"
     }
   ]
 }
