@@ -18,9 +18,24 @@
     "dist",
     "!**/*.tsbuildinfo"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "ai": "^4.0.0"
+  },
   "devDependencies": {
-    "@maelstrom/protocol": "workspace:*"
+    "@maelstrom/protocol": "workspace:*",
+    "@ai-sdk/anthropic": "^1.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "@ai-sdk/google": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@ai-sdk/anthropic": "^1.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "@ai-sdk/google": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": { "optional": true },
+    "@ai-sdk/openai": { "optional": true },
+    "@ai-sdk/google": { "optional": true }
   },
   "nx": {
     "name": "@maelstrom/engine"
