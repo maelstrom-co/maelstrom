@@ -1,5 +1,5 @@
 {
-  "name": "@maelstrom/server",
+  "name": "@maelstrom/engine",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,6 +19,9 @@
     "!**/*.tsbuildinfo"
   ],
   "dependencies": {},
+  "devDependencies": {
+    "@maelstrom/protocol": "workspace:*"
+  },
   "nx": {
     "name": "@maelstrom/engine"
   }
