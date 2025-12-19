@@ -1,4 +1,40 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-/* You can add global styles to this file, and also import other style files */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+}
+
+/* Vessel animations */
+.vessel-wrapper {
+  transition: transform 0.3s ease-out, width 0.3s ease-out, height 0.3s ease-out;
+}
+
+/* Intent input styling */
+.intent-input {
+  @apply bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+}
+
+.intent-input:focus {
+  @apply ring-2 ring-blue-500;
+}
+
+/* Vessel card styling */
+.vessel-card {
+  @apply bg-gray-800 rounded-lg shadow-lg overflow-hidden h-full;
+}
+
+.vessel-card-header {
+  @apply px-4 py-2 bg-gray-700 text-sm font-medium;
+}
+
+.vessel-card-body {
+  @apply p-4 h-full;
+}

@@ -23,8 +23,8 @@ export interface ChartProps {
 }
 
 /**
- * The Chart container that renders all vessel instances.
- * Automatically manages viewport dimensions and positions vessels.
+ * The Chart container that renders all vessel instances using CSS Grid.
+ * Vessel sizes are determined by their current variant's minSize.
  */
 export function Chart({
   className,
@@ -34,7 +34,7 @@ export function Chart({
   backgroundColor = 'transparent',
   children,
 }: ChartProps) {
-  const { state, cellSizePx, debug } = useMaelstromContext();
+  const { state, debug } = useMaelstromContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const updateDimensions = useChartDimensionsFromViewport();
 
@@ -55,21 +55,26 @@ export function Chart({
     return () => observer.disconnect();
   }, [updateDimensions]);
 
-  // Container style
+  const { columns, rows } = state.chartDimensions;
+
+  // CSS Grid container style using 1fr for flexible cell sizing
   const containerStyle: CSSProperties = useMemo(
     () => ({
-      position: 'relative',
+      display: 'grid',
+      gridTemplateColumns: `repeat(${columns}, 1fr)`,
+      gridTemplateRows: `repeat(${rows}, 1fr)`,
       width: '100%',
       height: '100%',
       overflow: 'hidden',
       backgroundColor,
+      position: 'relative',
       ...style,
     }),
-    [backgroundColor, style]
+    [columns, rows, backgroundColor, style]
   );
 
-  // Debug grid style
-  const gridStyle: CSSProperties = useMemo(
+  // Debug grid overlay style
+  const gridOverlayStyle: CSSProperties = useMemo(
     () => ({
       position: 'absolute',
       inset: 0,
@@ -77,11 +82,11 @@ export function Chart({
         linear-gradient(to right, ${gridColor} 1px, transparent 1px),
         linear-gradient(to bottom, ${gridColor} 1px, transparent 1px)
       `,
-      backgroundSize: `${cellSizePx}px ${cellSizePx}px`,
+      backgroundSize: `${100 / columns}% ${100 / rows}%`,
       pointerEvents: 'none',
       zIndex: 0,
     }),
-    [gridColor, cellSizePx]
+    [gridColor, columns, rows]
   );
 
   // Get all instances
@@ -89,7 +94,7 @@ export function Chart({
 
   return (
     <div ref={containerRef} className={className} style={containerStyle}>
-      {(showGrid || debug) && <div style={gridStyle} />}
+      {(showGrid || debug) && <div style={gridOverlayStyle} />}
       {instances.map((instance) => (
         <VesselRenderer key={instance.instanceId} instance={instance} />
       ))}
@@ -107,7 +112,7 @@ interface VesselRendererProps {
 }
 
 function VesselRenderer({ instance }: VesselRendererProps) {
-  const { state, cellSizePx } = useMaelstromContext();
+  const { state } = useMaelstromContext();
   const props = useVesselComponentProps(instance.instanceId);
 
   const registration = state.vessels.get(instance.vesselId);
@@ -116,23 +121,26 @@ function VesselRenderer({ instance }: VesselRendererProps) {
   }
 
   const Component = registration.component;
+  const vessel = registration.vessel;
 
-  // Calculate pixel position and size
-  const pixelX = instance.position.column * cellSizePx;
-  const pixelY = instance.position.row * cellSizePx;
-  const pixelWidth = instance.size.width * cellSizePx;
-  const pixelHeight = instance.size.height * cellSizePx;
+  // Get the current variant's minSize to determine grid span
+  const currentVariant = vessel.variants[instance.variant];
+  const variantSize = currentVariant?.minSize ?? { width: 1, height: 1 };
+
+  // CSS Grid placement using grid-column and grid-row
+  // Grid lines are 1-indexed, so we add 1 to the position
+  const gridColumnStart = instance.position.column + 1;
+  const gridRowStart = instance.position.row + 1;
+  const gridColumnEnd = gridColumnStart + variantSize.width;
+  const gridRowEnd = gridRowStart + variantSize.height;
 
   const wrapperStyle: CSSProperties = {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: pixelWidth,
-    height: pixelHeight,
-    transform: `translate3d(${pixelX}px, ${pixelY}px, 0)`,
-    transition: 'transform 0.3s ease-out, width 0.3s ease-out, height 0.3s ease-out',
-    willChange: 'transform',
+    gridColumn: `${gridColumnStart} / ${gridColumnEnd}`,
+    gridRow: `${gridRowStart} / ${gridRowEnd}`,
     zIndex: 1,
+    transition: 'all 0.3s ease-out',
+    minWidth: 0,
+    minHeight: 0,
   };
 
   return (
@@ -160,8 +168,9 @@ export function ChartDebugOverlay({
   showBoundaries = true,
   showLabels = true,
 }: ChartDebugOverlayProps) {
-  const { state, cellSizePx } = useMaelstromContext();
+  const { state } = useMaelstromContext();
   const instances = Array.from(state.instances.values());
+  const { columns, rows } = state.chartDimensions;
 
   return (
     <div
@@ -170,25 +179,30 @@ export function ChartDebugOverlay({
         inset: 0,
         pointerEvents: 'none',
         zIndex: 9999,
+        display: 'grid',
+        gridTemplateColumns: `repeat(${columns}, 1fr)`,
+        gridTemplateRows: `repeat(${rows}, 1fr)`,
       }}
     >
       {instances.map((instance) => {
-        const pixelX = instance.position.column * cellSizePx;
-        const pixelY = instance.position.row * cellSizePx;
-        const pixelWidth = instance.size.width * cellSizePx;
-        const pixelHeight = instance.size.height * cellSizePx;
+        const registration = state.vessels.get(instance.vesselId);
+        const variant = registration?.vessel.variants[instance.variant];
+        const size = variant?.minSize ?? { width: 1, height: 1 };
+
+        const gridColumnStart = instance.position.column + 1;
+        const gridRowStart = instance.position.row + 1;
+        const gridColumnEnd = gridColumnStart + size.width;
+        const gridRowEnd = gridRowStart + size.height;
 
         return (
           <div
             key={instance.instanceId}
             style={{
-              position: 'absolute',
-              left: pixelX,
-              top: pixelY,
-              width: pixelWidth,
-              height: pixelHeight,
+              gridColumn: `${gridColumnStart} / ${gridColumnEnd}`,
+              gridRow: `${gridRowStart} / ${gridRowEnd}`,
               border: showBoundaries ? '2px dashed rgba(255, 0, 0, 0.5)' : undefined,
               boxSizing: 'border-box',
+              position: 'relative',
             }}
           >
             {showLabels && (
@@ -209,8 +223,7 @@ export function ChartDebugOverlay({
                 <br />
                 {instance.variant}
                 <br />
-                ({instance.position.column}, {instance.position.row}) {instance.size.width}x
-                {instance.size.height}
+                ({instance.position.column}, {instance.position.row}) {size.width}x{size.height}
               </div>
             )}
           </div>

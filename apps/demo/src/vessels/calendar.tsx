@@ -1,0 +1,219 @@
+import type { Vessel } from "@maelstrom/protocol";
+import type {
+  VesselRegistration,
+  VesselComponentProps,
+} from "@maelstrom/react";
+
+// Calendar vessel definition
+export const calendarVessel: Vessel = {
+  id: "calendar",
+  name: "Calendar",
+  description:
+    "Calendar widget for viewing dates and scheduling. Can show month view, week view, or be collapsed to a minimal state.",
+  defaultVariant: "month",
+  variants: {
+    month: {
+      props: { view: "month" },
+      minSize: { width: 4, height: 4 },
+      actions: [
+        {
+          name: "showWeek",
+          description: "Switch to week view for more detail",
+          transitionsTo: "week",
+        },
+        {
+          name: "collapse",
+          description: "Minimize the calendar to save space",
+          transitionsTo: "collapsed",
+        },
+      ],
+    },
+    week: {
+      props: { view: "week" },
+      minSize: { width: 6, height: 3 },
+      actions: [
+        {
+          name: "showMonth",
+          description: "Switch back to month view",
+          transitionsTo: "month",
+        },
+        {
+          name: "collapse",
+          description: "Minimize the calendar",
+          transitionsTo: "collapsed",
+        },
+      ],
+    },
+    collapsed: {
+      props: { collapsed: true },
+      minSize: { width: 2, height: 1 },
+      actions: [
+        {
+          name: "expand",
+          description: "Expand the calendar to full view",
+          transitionsTo: "month",
+        },
+      ],
+    },
+  },
+};
+
+// Calendar component
+function CalendarComponent({
+  instance,
+  variantProps,
+  executeAction,
+}: VesselComponentProps) {
+  const view = variantProps.view as string | undefined;
+  const collapsed = variantProps.collapsed as boolean | undefined;
+
+  if (collapsed) {
+    return (
+      <div
+        className="vessel-card flex items-center justify-center cursor-pointer hover:bg-gray-700 transition-colors"
+        onClick={() => executeAction("expand")}
+      >
+        <div className="text-center">
+          <div className="text-2xl">📅</div>
+          <div className="text-xs text-gray-400">Calendar</div>
+        </div>
+      </div>
+    );
+  }
+
+  const today = new Date();
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  if (view === "week") {
+    // Week view
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay());
+
+    return (
+      <div className="vessel-card h-full flex flex-col">
+        <div className="vessel-card-header flex justify-between items-center">
+          <span>
+            📅 Week of {monthNames[startOfWeek.getMonth()]}{" "}
+            {startOfWeek.getDate()}
+          </span>
+          <div className="flex gap-1">
+            <button
+              onClick={() => executeAction("showMonth")}
+              className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
+            >
+              Month
+            </button>
+            <button
+              onClick={() => executeAction("collapse")}
+              className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
+            >
+              −
+            </button>
+          </div>
+        </div>
+        <div className="vessel-card-body flex-1">
+          <div className="grid grid-cols-7 gap-1 h-full">
+            {dayNames.map((day, i) => {
+              const date = new Date(startOfWeek);
+              date.setDate(startOfWeek.getDate() + i);
+              const isToday = date.toDateString() === today.toDateString();
+              return (
+                <div key={day} className="flex flex-col">
+                  <div className="text-xs text-gray-400 text-center">{day}</div>
+                  <div
+                    className={`flex-1 flex items-center justify-center rounded ${isToday ? "bg-blue-600" : "bg-gray-700"}`}
+                  >
+                    <span className="text-lg">{date.getDate()}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Month view (default)
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const daysInMonth = lastDay.getDate();
+  const startDay = firstDay.getDay();
+
+  const days = [];
+  for (let i = 0; i < startDay; i++) {
+    days.push(null);
+  }
+  for (let i = 1; i <= daysInMonth; i++) {
+    days.push(i);
+  }
+
+  return (
+    <div className="vessel-card h-full flex flex-col">
+      <div className="vessel-card-header flex justify-between items-center">
+        <span>
+          📅 {monthNames[today.getMonth()]} {today.getFullYear()}
+        </span>
+        <div className="flex gap-1">
+          <button
+            onClick={() => executeAction("showWeek")}
+            className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
+          >
+            Week
+          </button>
+          <button
+            onClick={() => executeAction("collapse")}
+            className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
+          >
+            −
+          </button>
+        </div>
+      </div>
+      <div className="vessel-card-body flex-1 flex flex-col">
+        <div className="grid grid-cols-7 gap-1 text-xs text-gray-400 mb-2">
+          {dayNames.map((day) => (
+            <div key={day} className="text-center">
+              {day}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1 flex-1">
+          {days.map((day, i) => (
+            <div
+              key={i}
+              className={`flex items-center justify-center text-sm rounded ${
+                day === today.getDate()
+                  ? "bg-blue-600 font-bold"
+                  : day
+                    ? "bg-gray-700 hover:bg-gray-600"
+                    : ""
+              }`}
+            >
+              {day}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Export registration
+export const calendarRegistration: VesselRegistration = {
+  vessel: calendarVessel,
+  component: CalendarComponent,
+};

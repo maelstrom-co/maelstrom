@@ -4,37 +4,26 @@
     "outDir": "dist",
     "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo",
     "jsx": "react-jsx",
-    "lib": [
-      "dom"
-    ],
-    "types": [
-      "node",
-      "@nx/react/typings/cssmodule.d.ts",
-      "@nx/react/typings/image.d.ts",
-      "vite/client"
-    ],
-    "rootDir": "src"
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node", "vinxi/types/client", "vinxi/types/server"]
   },
-  "exclude": [
-    "out-tsc",
-    "dist",
-    "src/**/*.spec.ts",
-    "src/**/*.test.ts",
-    "src/**/*.spec.tsx",
-    "src/**/*.test.tsx",
-    "src/**/*.spec.js",
-    "src/**/*.test.js",
-    "src/**/*.spec.jsx",
-    "src/**/*.test.jsx",
-    "vite.config.ts",
-    "vite.config.mts",
-    "vitest.config.ts",
-    "vitest.config.mts"
-  ],
+  "exclude": ["out-tsc", "dist", ".output", ".vinxi", "node_modules"],
   "include": [
-    "src/**/*.js",
-    "src/**/*.jsx",
     "src/**/*.ts",
-    "src/**/*.tsx"
+    "src/**/*.tsx",
+    "vite.config.ts"
+  ],
+  "references": [
+    {
+      "path": "../../client/react/tsconfig.lib.json"
+    },
+    {
+      "path": "../../shared/protocol/tsconfig.lib.json"
+    },
+    {
+      "path": "../../server/engine/tsconfig.lib.json"
+    }
   ]
 }
