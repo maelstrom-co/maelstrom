@@ -4,7 +4,7 @@ import { createEngine, createAISDKProvider } from "@maelstrom/engine";
 import type { ChartRequest } from "@maelstrom/protocol";
 
 // Create the engine with Gemini provider
-const provider = createAISDKProvider(google("gemini-2.5-flash"));
+const provider = createAISDKProvider(google("gemini-3-flash-preview"));
 const engine = createEngine({
   provider,
   timeout: 30000,

@@ -19,18 +19,18 @@
     "!**/*.tsbuildinfo"
   ],
   "dependencies": {
-    "ai": "^4.0.0"
+    "ai": "*"
   },
   "devDependencies": {
     "@maelstrom/protocol": "workspace:*",
-    "@ai-sdk/anthropic": "^1.0.0",
-    "@ai-sdk/openai": "^1.0.0",
-    "@ai-sdk/google": "^1.0.0"
+    "@ai-sdk/anthropic": "*",
+    "@ai-sdk/openai": "*",
+    "@ai-sdk/google": "*"
   },
   "peerDependencies": {
-    "@ai-sdk/anthropic": "^1.0.0",
-    "@ai-sdk/openai": "^1.0.0",
-    "@ai-sdk/google": "^1.0.0"
+    "@ai-sdk/anthropic": "*",
+    "@ai-sdk/openai": "*",
+    "@ai-sdk/google": "*"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/anthropic": {

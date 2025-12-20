@@ -1,5 +1,5 @@
 import { generateText } from 'ai';
-import type { LanguageModelV1 } from 'ai';
+import type { LanguageModel } from 'ai';
 import type { LLMProvider } from './types.js';
 
 /**
@@ -21,7 +21,7 @@ import type { LLMProvider } from './types.js';
  * const provider = createAISDKProvider(google('gemini-2.0-flash'));
  * ```
  */
-export function createAISDKProvider(model: LanguageModelV1): LLMProvider {
+export function createAISDKProvider(model: LanguageModel): LLMProvider {
   return {
     async complete(prompt: string, systemPrompt: string): Promise<string> {
       const result = await generateText({

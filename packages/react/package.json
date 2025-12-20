@@ -16,9 +16,9 @@
   },
   "devDependencies": {
     "@maelstrom/protocol": "workspace:*",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.1",
-    "jsdom": "^27.3.0"
+    "@testing-library/jest-dom": "*",
+    "@testing-library/react": "*",
+    "jsdom": "*"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
