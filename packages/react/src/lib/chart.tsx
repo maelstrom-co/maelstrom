@@ -1,5 +1,5 @@
 import { useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from 'react';
-import type { VesselInstance } from '@maelstrom/protocol';
+import type { VesselInstance, LayoutDirective } from '@maelstrom/protocol';
 import { useMaelstromContext } from './context';
 import { useChartDimensionsFromViewport, useVesselComponentProps } from './hooks';
 
@@ -89,14 +89,19 @@ export function Chart({
     [gridColor, columns, rows]
   );
 
-  // Get all instances
-  const instances = Array.from(state.instances.values());
+  // Render only what's in the layout directive (engine controls visibility)
+  const instancesToRender = state.layout
+    .map((directive) => {
+      const instance = state.instances.get(directive.instanceId);
+      return instance ? { instance, directive } : null;
+    })
+    .filter((item): item is { instance: VesselInstance; directive: LayoutDirective } => item !== null);
 
   return (
     <div ref={containerRef} className={className} style={containerStyle}>
       {(showGrid || debug) && <div style={gridOverlayStyle} />}
-      {instances.map((instance) => (
-        <VesselRenderer key={instance.instanceId} instance={instance} />
+      {instancesToRender.map(({ instance, directive }) => (
+        <VesselRenderer key={instance.instanceId} instance={instance} directive={directive} />
       ))}
       {children}
     </div>
@@ -109,9 +114,10 @@ export function Chart({
 
 interface VesselRendererProps {
   instance: VesselInstance;
+  directive: LayoutDirective;
 }
 
-function VesselRenderer({ instance }: VesselRendererProps) {
+function VesselRenderer({ instance, directive }: VesselRendererProps) {
   const { state } = useMaelstromContext();
   const props = useVesselComponentProps(instance.instanceId);
 
@@ -121,18 +127,16 @@ function VesselRenderer({ instance }: VesselRendererProps) {
   }
 
   const Component = registration.component;
-  const vessel = registration.vessel;
 
-  // Get the current variant's minSize to determine grid span
-  const currentVariant = vessel.variants[instance.variant];
-  const variantSize = currentVariant?.minSize ?? { width: 1, height: 1 };
+  // Use position and size from the layout directive (engine's instructions)
+  const { position, size } = directive;
 
   // CSS Grid placement using grid-column and grid-row
   // Grid lines are 1-indexed, so we add 1 to the position
-  const gridColumnStart = instance.position.column + 1;
-  const gridRowStart = instance.position.row + 1;
-  const gridColumnEnd = gridColumnStart + variantSize.width;
-  const gridRowEnd = gridRowStart + variantSize.height;
+  const gridColumnStart = position.column + 1;
+  const gridRowStart = position.row + 1;
+  const gridColumnEnd = gridColumnStart + size.width;
+  const gridRowEnd = gridRowStart + size.height;
 
   const wrapperStyle: CSSProperties = {
     gridColumn: `${gridColumnStart} / ${gridColumnEnd}`,
@@ -162,15 +166,22 @@ export interface ChartDebugOverlayProps {
 }
 
 /**
- * Debug overlay that shows instance positions and info
+ * Debug overlay that shows instance positions and info (based on current layout)
  */
 export function ChartDebugOverlay({
   showBoundaries = true,
   showLabels = true,
 }: ChartDebugOverlayProps) {
   const { state } = useMaelstromContext();
-  const instances = Array.from(state.instances.values());
   const { columns, rows } = state.chartDimensions;
+
+  // Use layout for what's rendered, look up instance for variant info
+  const layoutItems = state.layout
+    .map((directive) => {
+      const instance = state.instances.get(directive.instanceId);
+      return instance ? { instance, directive } : null;
+    })
+    .filter((item): item is { instance: VesselInstance; directive: LayoutDirective } => item !== null);
 
   return (
     <div
@@ -184,13 +195,11 @@ export function ChartDebugOverlay({
         gridTemplateRows: `repeat(${rows}, 1fr)`,
       }}
     >
-      {instances.map((instance) => {
-        const registration = state.vessels.get(instance.vesselId);
-        const variant = registration?.vessel.variants[instance.variant];
-        const size = variant?.minSize ?? { width: 1, height: 1 };
+      {layoutItems.map(({ instance, directive }) => {
+        const { position, size } = directive;
 
-        const gridColumnStart = instance.position.column + 1;
-        const gridRowStart = instance.position.row + 1;
+        const gridColumnStart = position.column + 1;
+        const gridRowStart = position.row + 1;
         const gridColumnEnd = gridColumnStart + size.width;
         const gridRowEnd = gridRowStart + size.height;
 
@@ -223,7 +232,7 @@ export function ChartDebugOverlay({
                 <br />
                 {instance.variant}
                 <br />
-                ({instance.position.column}, {instance.position.row}) {size.width}x{size.height}
+                ({position.column}, {position.row}) {size.width}x{size.height}
               </div>
             )}
           </div>

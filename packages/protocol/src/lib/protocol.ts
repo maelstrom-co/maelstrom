@@ -125,10 +125,12 @@ export interface ChartRequest {
     /** Session identifier for conversation continuity */
     sessionId: string;
   };
-  /** Currently visible Vessel instances with their state */
+  /** All Vessel instances with their state */
   instances: VesselInstanceState[];
   /** All registered Vessel definitions */
   vessels: Vessel[];
+  /** Current layout - which instances are visible and where (empty = all hidden) */
+  currentLayout?: LayoutDirective[];
 }
 
 /** Current state of a Vessel instance (for context) */

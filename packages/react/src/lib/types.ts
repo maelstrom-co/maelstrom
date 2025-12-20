@@ -56,8 +56,10 @@ export interface VesselComponentProps {
 export interface MaelstromState {
   /** Registered vessel definitions */
   vessels: Map<string, VesselRegistration>;
-  /** Active vessel instances */
+  /** Active vessel instances (tracks variant state) */
   instances: Map<string, VesselInstance>;
+  /** Current layout from engine - source of truth for what's rendered */
+  layout: LayoutDirective[];
   /** Current chart dimensions */
   chartDimensions: ChartDimensions;
   /** Connection state */

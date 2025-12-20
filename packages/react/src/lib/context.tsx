@@ -21,6 +21,7 @@ import type {
 const initialState: MaelstromState = {
   vessels: new Map(),
   instances: new Map(),
+  layout: [],
   chartDimensions: { columns: 12, rows: 8 },
   connectionState: 'disconnected',
   isProcessing: false,
@@ -46,7 +47,16 @@ function reducer(state: MaelstromState, action: MaelstromAction): MaelstromState
     case 'ADD_INSTANCE': {
       const newInstances = new Map(state.instances);
       newInstances.set(action.instance.instanceId, action.instance);
-      return { ...state, instances: newInstances };
+      // Also add to layout so new instances are visible by default
+      const newLayout = [
+        ...state.layout,
+        {
+          instanceId: action.instance.instanceId,
+          position: action.instance.position,
+          size: action.instance.size,
+        },
+      ];
+      return { ...state, instances: newInstances, layout: newLayout };
     }
     case 'UPDATE_INSTANCE': {
       const existing = state.instances.get(action.instanceId);
@@ -58,7 +68,11 @@ function reducer(state: MaelstromState, action: MaelstromAction): MaelstromState
     case 'REMOVE_INSTANCE': {
       const newInstances = new Map(state.instances);
       newInstances.delete(action.instanceId);
-      return { ...state, instances: newInstances };
+      // Also remove from layout
+      const newLayout = state.layout.filter(
+        (d) => d.instanceId !== action.instanceId
+      );
+      return { ...state, instances: newInstances, layout: newLayout };
     }
     case 'SET_CHART_DIMENSIONS':
       return { ...state, chartDimensions: action.dimensions };
@@ -69,6 +83,8 @@ function reducer(state: MaelstromState, action: MaelstromAction): MaelstromState
     case 'SET_ERROR':
       return { ...state, lastError: action.error };
     case 'APPLY_LAYOUT': {
+      // Store layout as source of truth for rendering
+      // Also update instance positions for consistency
       const newInstances = new Map(state.instances);
       for (const directive of action.directives) {
         const existing = newInstances.get(directive.instanceId);
@@ -80,7 +96,7 @@ function reducer(state: MaelstromState, action: MaelstromAction): MaelstromState
           });
         }
       }
-      return { ...state, instances: newInstances };
+      return { ...state, instances: newInstances, layout: action.directives };
     }
     case 'EXECUTE_ACTION': {
       const existing = state.instances.get(action.execution.instanceId);
@@ -219,6 +235,7 @@ export function MaelstromProvider({
         },
         instances,
         vessels,
+        currentLayout: state.layout,
       };
 
       if (debug) {
@@ -287,17 +304,15 @@ export function MaelstromProvider({
         }
       }
 
-      // Apply layout directives
-      if (response.layoutDirective.length > 0) {
-        dispatch({ type: 'APPLY_LAYOUT', directives: response.layoutDirective });
+      // Apply layout directives (this is the source of truth for what's rendered)
+      dispatch({ type: 'APPLY_LAYOUT', directives: response.layoutDirective });
 
-        const layoutEvent: LayoutAppliedEvent = {
-          type: 'layout_applied',
-          directives: response.layoutDirective,
-          timestamp: Date.now(),
-        };
-        emitEvent(layoutEvent);
-      }
+      const layoutEvent: LayoutAppliedEvent = {
+        type: 'layout_applied',
+        directives: response.layoutDirective,
+        timestamp: Date.now(),
+      };
+      emitEvent(layoutEvent);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       dispatch({ type: 'SET_ERROR', error: errorMessage });

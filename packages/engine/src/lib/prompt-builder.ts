@@ -24,13 +24,33 @@ export function buildPrompt(request: ChartRequest): string {
     `Dimensions: ${request.context.chartDimensions.columns} columns × ${request.context.chartDimensions.rows} rows\n`
   );
 
-  if (request.instances.length > 0) {
-    sections.push('\nInstances:');
-    for (const instance of request.instances) {
+  // Determine which instances are visible based on currentLayout
+  const currentLayout = request.currentLayout ?? [];
+  const visibleInstanceIds = new Set(
+    currentLayout.map((d) => d.instanceId)
+  );
+
+  const visibleInstances = request.instances.filter((i) =>
+    visibleInstanceIds.has(i.instanceId)
+  );
+  const hiddenInstances = request.instances.filter(
+    (i) => !visibleInstanceIds.has(i.instanceId)
+  );
+
+  if (visibleInstances.length > 0) {
+    sections.push('\nCurrently Visible:');
+    for (const instance of visibleInstances) {
       sections.push(serializeInstance(instance, request.vessels));
     }
   } else {
     sections.push('\nNo vessels currently visible.');
+  }
+
+  if (hiddenInstances.length > 0) {
+    sections.push('\n\nAvailable (hidden):');
+    for (const instance of hiddenInstances) {
+      sections.push(serializeInstance(instance, request.vessels));
+    }
   }
 
   // User Intent
@@ -114,7 +134,14 @@ export const DEFAULT_SYSTEM_PROMPT = `You are Maelstrom, an AI that orchestrates
 Your job is to:
 1. Understand the user's intent
 2. Decide which actions to execute on which Vessel instances
-3. Decide how to position and size Vessels on the Chart
+3. Decide which Vessels should be VISIBLE and how to position them
+
+VISIBILITY CONTROL:
+The layoutDirective is the source of truth for what's displayed:
+- Vessels included in layoutDirective are VISIBLE
+- Vessels NOT included in layoutDirective are HIDDEN
+- You must include ALL vessels you want visible in the layoutDirective
+- To hide a vessel, simply omit it from the layoutDirective
 
 Rules:
 - Only invoke actions that are available in the instance's current variant
@@ -122,6 +149,7 @@ Rules:
 - Position Vessels within the Chart bounds (0 to columns-1, 0 to rows-1)
 - Vessels should not overlap
 - Execute actions before layout (actions may change variants and sizes)
+- Only show vessels that are relevant to the user's current intent
 
 Respond with JSON only, in this exact format:
 {
@@ -134,4 +162,5 @@ Respond with JSON only, in this exact format:
   ]
 }
 
-If no changes are needed, return empty arrays for executionPlan and layoutDirective.`;
+Empty executionPlan means no actions to execute.
+Empty layoutDirective means hide all vessels.`;
