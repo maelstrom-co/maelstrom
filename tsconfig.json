@@ -7,16 +7,16 @@
       "path": "./apps/demo"
     },
     {
-      "path": "./shared/protocol"
+      "path": "./packages/protocol"
     },
     {
-      "path": "./server/engine"
+      "path": "./packages/client"
     },
     {
-      "path": "./client/react"
+      "path": "./packages/engine"
     },
     {
-      "path": "./client/core"
+      "path": "./packages/react"
     }
   ]
 }

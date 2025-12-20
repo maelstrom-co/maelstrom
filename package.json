@@ -45,9 +45,7 @@
   },
   "workspaces": [
     "apps/*",
-    "shared/*",
-    "client/*",
-    "server/*"
+    "packages/*"
   ],
   "nx": {
     "includedScripts": [],
