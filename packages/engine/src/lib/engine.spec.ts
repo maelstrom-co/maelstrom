@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import type { ChartRequest, Vessel } from '@maelstrom/protocol';
+import { describe, expect, it, vi } from 'vitest';
 import { createEngine } from './engine.js';
 import type { LLMProvider } from './types.js';
 import { EngineError } from './types.js';
-import type { ChartRequest, Vessel } from '@maelstrom/protocol';
 
 const calendarVessel: Vessel = {
   id: 'calendar',
@@ -14,14 +14,22 @@ const calendarVessel: Vessel = {
       props: { view: 'month' },
       minSize: { width: 4, height: 4 },
       actions: [
-        { name: 'showWeek', description: 'Switch to week view', transitionsTo: 'week' },
+        {
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+        },
       ],
     },
     week: {
       props: { view: 'week' },
       minSize: { width: 6, height: 3 },
       actions: [
-        { name: 'showMonth', description: 'Back to month', transitionsTo: 'month' },
+        {
+          name: 'showMonth',
+          description: 'Back to month',
+          transitionsTo: 'month',
+        },
       ],
     },
   },
@@ -58,11 +66,13 @@ describe('createEngine', () => {
   it('should process a request and return a response', async () => {
     const mockResponse = JSON.stringify({
       rationale: 'Switching to week view as requested',
-      executionPlan: [
-        { instanceId: 'calendar-1', action: 'showWeek' },
-      ],
+      executionPlan: [{ instanceId: 'calendar-1', action: 'showWeek' }],
       layoutDirective: [
-        { instanceId: 'calendar-1', position: { row: 0, column: 0 }, size: { width: 6, height: 3 } },
+        {
+          instanceId: 'calendar-1',
+          position: { row: 0, column: 0 },
+          size: { width: 6, height: 3 },
+        },
       ],
     });
 
@@ -93,20 +103,23 @@ describe('createEngine', () => {
 
     expect(provider.complete).toHaveBeenCalledWith(
       expect.any(String),
-      customPrompt
+      customPrompt,
     );
   });
 
   it('should retry on provider failure', async () => {
     const provider: LLMProvider = {
-      complete: vi.fn()
+      complete: vi
+        .fn()
         .mockRejectedValueOnce(new Error('Network error'))
         .mockRejectedValueOnce(new Error('Network error'))
-        .mockResolvedValueOnce(JSON.stringify({
-          rationale: 'Success on third try',
-          executionPlan: [],
-          layoutDirective: [],
-        })),
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            rationale: 'Success on third try',
+            executionPlan: [],
+            layoutDirective: [],
+          }),
+        ),
     };
 
     const engine = createEngine({
@@ -150,9 +163,11 @@ describe('createEngine', () => {
 
   it('should timeout if provider takes too long', async () => {
     const provider: LLMProvider = {
-      complete: vi.fn().mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 5000))
-      ),
+      complete: vi
+        .fn()
+        .mockImplementation(
+          () => new Promise((resolve) => setTimeout(resolve, 5000)),
+        ),
     };
 
     const engine = createEngine({

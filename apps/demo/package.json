@@ -9,6 +9,7 @@
     "start": "node .output/server/index.mjs"
   },
   "dependencies": {
+    "@maelstrom/audio": "workspace:*",
     "@maelstrom/engine": "workspace:*",
     "@maelstrom/protocol": "workspace:*",
     "@maelstrom/react": "workspace:*",
@@ -16,6 +17,7 @@
     "@tanstack/react-start": "*",
     "ai": "*",
     "@ai-sdk/google": "*",
+    "@ai-sdk/deepgram": "*",
     "react": "*",
     "react-dom": "*",
     "vite": "*"

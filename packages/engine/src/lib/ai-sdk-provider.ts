@@ -1,5 +1,5 @@
-import { generateText } from 'ai';
 import type { LanguageModel } from 'ai';
+import { generateText } from 'ai';
 import type { LLMProvider } from './types.js';
 
 /**

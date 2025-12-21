@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { buildPrompt } from './prompt-builder.js';
 import type { ChartRequest, Vessel } from '@maelstrom/protocol';
+import { describe, expect, it } from 'vitest';
+import { buildPrompt } from './prompt-builder.js';
 
 const calendarVessel: Vessel = {
   id: 'calendar',
@@ -12,15 +12,27 @@ const calendarVessel: Vessel = {
       props: { view: 'month' },
       minSize: { width: 4, height: 4 },
       actions: [
-        { name: 'showWeek', description: 'Switch to week view', transitionsTo: 'week' },
-        { name: 'collapse', description: 'Minimize', transitionsTo: 'collapsed' },
+        {
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+        },
+        {
+          name: 'collapse',
+          description: 'Minimize',
+          transitionsTo: 'collapsed',
+        },
       ],
     },
     week: {
       props: { view: 'week' },
       minSize: { width: 6, height: 3 },
       actions: [
-        { name: 'showMonth', description: 'Back to month', transitionsTo: 'month' },
+        {
+          name: 'showMonth',
+          description: 'Back to month',
+          transitionsTo: 'month',
+        },
       ],
     },
     collapsed: {

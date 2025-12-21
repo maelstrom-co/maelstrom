@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { createEngine } from './engine.js';
-import { createAISDKProvider } from './ai-sdk-provider.js';
 import type { ChartRequest, Vessel } from '@maelstrom/protocol';
+import { describe, expect, it } from 'vitest';
+import { createAISDKProvider } from './ai-sdk-provider.js';
+import { createEngine } from './engine.js';
 
 // Skip integration tests if no API key is set
 const GOOGLE_API_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -17,22 +17,38 @@ const calendarVessel: Vessel = {
       props: { view: 'month' },
       minSize: { width: 4, height: 4 },
       actions: [
-        { name: 'showWeek', description: 'Switch to week view', transitionsTo: 'week' },
-        { name: 'collapse', description: 'Minimize the calendar', transitionsTo: 'collapsed' },
+        {
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+        },
+        {
+          name: 'collapse',
+          description: 'Minimize the calendar',
+          transitionsTo: 'collapsed',
+        },
       ],
     },
     week: {
       props: { view: 'week' },
       minSize: { width: 6, height: 3 },
       actions: [
-        { name: 'showMonth', description: 'Switch to month view', transitionsTo: 'month' },
+        {
+          name: 'showMonth',
+          description: 'Switch to month view',
+          transitionsTo: 'month',
+        },
       ],
     },
     collapsed: {
       props: { collapsed: true },
       minSize: { width: 2, height: 1 },
       actions: [
-        { name: 'expand', description: 'Expand the calendar', transitionsTo: 'month' },
+        {
+          name: 'expand',
+          description: 'Expand the calendar',
+          transitionsTo: 'month',
+        },
       ],
     },
   },
@@ -48,14 +64,22 @@ const weatherVessel: Vessel = {
       props: { mode: 'current' },
       minSize: { width: 2, height: 2 },
       actions: [
-        { name: 'showForecast', description: 'Show extended forecast', transitionsTo: 'forecast' },
+        {
+          name: 'showForecast',
+          description: 'Show extended forecast',
+          transitionsTo: 'forecast',
+        },
       ],
     },
     forecast: {
       props: { mode: 'forecast' },
       minSize: { width: 4, height: 3 },
       actions: [
-        { name: 'showCurrent', description: 'Show current conditions', transitionsTo: 'current' },
+        {
+          name: 'showCurrent',
+          description: 'Show current conditions',
+          transitionsTo: 'current',
+        },
       ],
     },
   },
@@ -99,7 +123,7 @@ describeIntegration('Engine Integration (Google Gemini)', () => {
     // The LLM should recognize the intent to show week view
     // It should execute showWeek action on calendar-1
     const calendarAction = response.executionPlan.find(
-      (a) => a.instanceId === 'calendar-1'
+      (a) => a.instanceId === 'calendar-1',
     );
     expect(calendarAction).toBeDefined();
     expect(calendarAction?.action).toBe('showWeek');

@@ -1,5 +1,5 @@
-import type { EngineConnector } from '@maelstrom/react';
 import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
+import type { EngineConnector } from '@maelstrom/react';
 import { processChartRequest } from '../server/engine';
 
 /**

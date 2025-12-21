@@ -1,53 +1,48 @@
 // Re-export everything from the React bindings
 
-// Context & Provider
-export { MaelstromProvider, useMaelstromContext } from './context';
-
-// Hooks
-export {
-  useMaelstrom,
-  useVesselRegistration,
-  useVessel,
-  useCreateInstance,
-  useInstance,
-  useInstancesByVessel,
-  useRemoveInstance,
-  useInstanceVariant,
-  useInstanceActions,
-  useExecuteAction,
-  useChartDimensions,
-  useSetChartDimensions,
-  useChartDimensionsFromViewport,
-  useConnectionState,
-  useVesselComponentProps,
-} from './hooks';
-
+export type { ChartDebugOverlayProps, ChartProps } from './chart';
 // Components
 export { Chart, ChartDebugOverlay } from './chart';
+export type {
+  Engine,
+  HttpConnectorOptions,
+  MockConnectorOptions,
+  WebSocketConnectorOptions,
+} from './connectors';
 
 // Connectors
 export {
   createDirectConnector,
   createHttpConnector,
-  createWebSocketConnector,
   createMockConnector,
+  createWebSocketConnector,
 } from './connectors';
-
+// Context & Provider
+export { MaelstromProvider, useMaelstromContext } from './context';
+// Hooks
+export {
+  useChartDimensions,
+  useChartDimensionsFromViewport,
+  useConnectionState,
+  useCreateInstance,
+  useExecuteAction,
+  useInstance,
+  useInstanceActions,
+  useInstancesByVessel,
+  useInstanceVariant,
+  useMaelstrom,
+  useRemoveInstance,
+  useSetChartDimensions,
+  useVessel,
+  useVesselComponentProps,
+  useVesselRegistration,
+} from './hooks';
 // Types
 export type {
   ConnectionState,
   EngineConnector,
-  VesselRegistration,
-  VesselComponentProps,
-  MaelstromState,
   MaelstromProviderProps,
+  MaelstromState,
+  VesselComponentProps,
+  VesselRegistration,
 } from './types';
-
-export type {
-  Engine,
-  HttpConnectorOptions,
-  WebSocketConnectorOptions,
-  MockConnectorOptions,
-} from './connectors';
-
-export type { ChartProps, ChartDebugOverlayProps } from './chart';

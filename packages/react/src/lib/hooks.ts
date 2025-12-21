@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo } from 'react';
 import type {
-  Vessel,
-  VesselInstance,
   ChartDimensions,
-  VesselVariant,
+  Vessel,
   VesselAction,
+  VesselInstance,
+  VesselVariant,
 } from '@maelstrom/protocol';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useMaelstromContext } from './context';
-import type { VesselRegistration, ConnectionState, VesselComponentProps } from './types';
+import type {
+  ConnectionState,
+  VesselComponentProps,
+  VesselRegistration,
+} from './types';
 
 // ============================================================================
 // Core Hook
@@ -17,7 +21,8 @@ import type { VesselRegistration, ConnectionState, VesselComponentProps } from '
  * Main hook for accessing Maelstrom functionality
  */
 export function useMaelstrom() {
-  const { state, processIntent, cellSizePx, debug, sessionId } = useMaelstromContext();
+  const { state, processIntent, cellSizePx, debug, sessionId } =
+    useMaelstromContext();
 
   return {
     /** Process a user intent */
@@ -30,6 +35,8 @@ export function useMaelstrom() {
     isProcessing: state.isProcessing,
     /** Last error message */
     lastError: state.lastError,
+    /** Last engine response */
+    lastResponse: state.lastResponse,
     /** All vessel instances */
     instances: Array.from(state.instances.values()),
     /** Cell size in pixels */
@@ -78,12 +85,15 @@ export function useCreateInstance() {
   const { state, dispatch } = useMaelstromContext();
 
   return useCallback(
-    (vesselId: string, options?: {
-      instanceId?: string;
-      variant?: string;
-      position?: { row: number; column: number };
-      size?: { width: number; height: number };
-    }): VesselInstance | null => {
+    (
+      vesselId: string,
+      options?: {
+        instanceId?: string;
+        variant?: string;
+        position?: { row: number; column: number };
+        size?: { width: number; height: number };
+      },
+    ): VesselInstance | null => {
       const registration = state.vessels.get(vesselId);
       if (!registration) {
         console.warn(`[Maelstrom] Vessel '${vesselId}' is not registered`);
@@ -95,7 +105,9 @@ export function useCreateInstance() {
       const variantDef = vessel.variants[variant];
 
       if (!variantDef) {
-        console.warn(`[Maelstrom] Variant '${variant}' not found on vessel '${vesselId}'`);
+        console.warn(
+          `[Maelstrom] Variant '${variant}' not found on vessel '${vesselId}'`,
+        );
         return null;
       }
 
@@ -111,7 +123,7 @@ export function useCreateInstance() {
       dispatch({ type: 'ADD_INSTANCE', instance });
       return instance;
     },
-    [state.vessels, dispatch]
+    [state.vessels, dispatch],
   );
 }
 
@@ -129,8 +141,11 @@ export function useInstance(instanceId: string): VesselInstance | undefined {
 export function useInstancesByVessel(vesselId: string): VesselInstance[] {
   const { state } = useMaelstromContext();
   return useMemo(
-    () => Array.from(state.instances.values()).filter((i) => i.vesselId === vesselId),
-    [state.instances, vesselId]
+    () =>
+      Array.from(state.instances.values()).filter(
+        (i) => i.vesselId === vesselId,
+      ),
+    [state.instances, vesselId],
   );
 }
 
@@ -144,7 +159,7 @@ export function useRemoveInstance() {
     (instanceId: string) => {
       dispatch({ type: 'REMOVE_INSTANCE', instanceId });
     },
-    [dispatch]
+    [dispatch],
   );
 }
 
@@ -155,7 +170,9 @@ export function useRemoveInstance() {
 /**
  * Get the current variant definition for an instance
  */
-export function useInstanceVariant(instanceId: string): VesselVariant | undefined {
+export function useInstanceVariant(
+  instanceId: string,
+): VesselVariant | undefined {
   const { state } = useMaelstromContext();
   const instance = state.instances.get(instanceId);
   if (!instance) return undefined;
@@ -190,7 +207,9 @@ export function useExecuteAction(instanceId: string) {
 
       const registration = state.vessels.get(instance.vesselId);
       if (!registration) {
-        console.warn(`[Maelstrom] Vessel '${instance.vesselId}' not registered`);
+        console.warn(
+          `[Maelstrom] Vessel '${instance.vesselId}' not registered`,
+        );
         return;
       }
 
@@ -203,7 +222,7 @@ export function useExecuteAction(instanceId: string) {
       const action = variant.actions.find((a) => a.name === actionName);
       if (!action) {
         console.warn(
-          `[Maelstrom] Action '${actionName}' not available in variant '${instance.variant}'`
+          `[Maelstrom] Action '${actionName}' not available in variant '${instance.variant}'`,
         );
         return;
       }
@@ -235,7 +254,7 @@ export function useExecuteAction(instanceId: string) {
         timestamp: Date.now(),
       });
     },
-    [instanceId, state, dispatch, emitEvent]
+    [instanceId, state, dispatch, emitEvent],
   );
 }
 
@@ -261,7 +280,7 @@ export function useSetChartDimensions() {
     (dimensions: ChartDimensions) => {
       dispatch({ type: 'SET_CHART_DIMENSIONS', dimensions });
     },
-    [dispatch]
+    [dispatch],
   );
 }
 
@@ -278,7 +297,7 @@ export function useChartDimensionsFromViewport() {
       const rows = Math.floor(viewportHeight / cellSizePx);
       setDimensions({ columns, rows });
     },
-    [cellSizePx, setDimensions]
+    [cellSizePx, setDimensions],
   );
 }
 
@@ -301,7 +320,9 @@ export function useConnectionState(): ConnectionState {
 /**
  * Build props for a vessel component
  */
-export function useVesselComponentProps(instanceId: string): VesselComponentProps | null {
+export function useVesselComponentProps(
+  instanceId: string,
+): VesselComponentProps | null {
   const { state } = useMaelstromContext();
   const executeAction = useExecuteAction(instanceId);
 

@@ -1,7 +1,16 @@
-import { useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from 'react';
-import type { VesselInstance, LayoutDirective } from '@maelstrom/protocol';
+import type { LayoutDirective, VesselInstance } from '@maelstrom/protocol';
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import { useMaelstromContext } from './context';
-import { useChartDimensionsFromViewport, useVesselComponentProps } from './hooks';
+import {
+  useChartDimensionsFromViewport,
+  useVesselComponentProps,
+} from './hooks';
 
 // ============================================================================
 // Chart Container
@@ -70,7 +79,7 @@ export function Chart({
       position: 'relative',
       ...style,
     }),
-    [columns, rows, backgroundColor, style]
+    [columns, rows, backgroundColor, style],
   );
 
   // Debug grid overlay style
@@ -86,7 +95,7 @@ export function Chart({
       pointerEvents: 'none',
       zIndex: 0,
     }),
-    [gridColor, columns, rows]
+    [gridColor, columns, rows],
   );
 
   // Render only what's in the layout directive (engine controls visibility)
@@ -95,13 +104,22 @@ export function Chart({
       const instance = state.instances.get(directive.instanceId);
       return instance ? { instance, directive } : null;
     })
-    .filter((item): item is { instance: VesselInstance; directive: LayoutDirective } => item !== null);
+    .filter(
+      (
+        item,
+      ): item is { instance: VesselInstance; directive: LayoutDirective } =>
+        item !== null,
+    );
 
   return (
     <div ref={containerRef} className={className} style={containerStyle}>
       {(showGrid || debug) && <div style={gridOverlayStyle} />}
       {instancesToRender.map(({ instance, directive }) => (
-        <VesselRenderer key={instance.instanceId} instance={instance} directive={directive} />
+        <VesselRenderer
+          key={instance.instanceId}
+          instance={instance}
+          directive={directive}
+        />
       ))}
       {children}
     </div>
@@ -181,7 +199,12 @@ export function ChartDebugOverlay({
       const instance = state.instances.get(directive.instanceId);
       return instance ? { instance, directive } : null;
     })
-    .filter((item): item is { instance: VesselInstance; directive: LayoutDirective } => item !== null);
+    .filter(
+      (
+        item,
+      ): item is { instance: VesselInstance; directive: LayoutDirective } =>
+        item !== null,
+    );
 
   return (
     <div
@@ -209,7 +232,9 @@ export function ChartDebugOverlay({
             style={{
               gridColumn: `${gridColumnStart} / ${gridColumnEnd}`,
               gridRow: `${gridRowStart} / ${gridRowEnd}`,
-              border: showBoundaries ? '2px dashed rgba(255, 0, 0, 0.5)' : undefined,
+              border: showBoundaries
+                ? '2px dashed rgba(255, 0, 0, 0.5)'
+                : undefined,
               boxSizing: 'border-box',
               position: 'relative',
             }}
@@ -231,8 +256,8 @@ export function ChartDebugOverlay({
                 {instance.instanceId}
                 <br />
                 {instance.variant}
-                <br />
-                ({position.column}, {position.row}) {size.width}x{size.height}
+                <br />({position.column}, {position.row}) {size.width}x
+                {size.height}
               </div>
             )}
           </div>

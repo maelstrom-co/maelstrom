@@ -17,6 +17,12 @@
     },
     {
       "path": "./packages/react"
+    },
+    {
+      "path": "./tools/biome-plugin"
+    },
+    {
+      "path": "./packages/audio"
     }
   ]
 }

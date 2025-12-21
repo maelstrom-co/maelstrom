@@ -38,32 +38,28 @@ Vessels are pre-defined components, not dynamically generated. The LLM orchestra
 
 ```typescript
 const calendar: Vessel = {
-  id: 'calendar',
-  name: 'Calendar',
-  description: 'Calendar for scheduling and date selection',
-  defaultVariant: 'month',
+  id: "calendar",
+  name: "Calendar",
+  description: "Calendar for scheduling and date selection",
+  defaultVariant: "month",
   variants: {
-    'month': {
-      props: { view: 'month' },
+    month: {
+      props: { view: "month" },
       minSize: { w: 4, h: 4 },
       actions: [
-        { name: 'showWeek', description: 'Switch to week view', transitionsTo: 'week' },
-        { name: 'collapse', description: 'Minimize', transitionsTo: 'collapsed' },
+        { name: "showWeek", description: "Switch to week view", transitionsTo: "week" },
+        { name: "collapse", description: "Minimize", transitionsTo: "collapsed" },
       ],
     },
-    'week': {
-      props: { view: 'week' },
+    week: {
+      props: { view: "week" },
       minSize: { w: 6, h: 3 },
-      actions: [
-        { name: 'showMonth', description: 'Back to month', transitionsTo: 'month' },
-      ],
+      actions: [{ name: "showMonth", description: "Back to month", transitionsTo: "month" }],
     },
-    'collapsed': {
+    collapsed: {
       props: { collapsed: true },
       minSize: { w: 2, h: 1 },
-      actions: [
-        { name: 'expand', description: 'Expand', transitionsTo: 'month' },
-      ],
+      actions: [{ name: "expand", description: "Expand", transitionsTo: "month" }],
     },
   },
 };
@@ -120,21 +116,21 @@ The protocol defines the message contract. Transport (WebSocket, HTTP, etc.) is 
 
 ### Shared
 
-| Package | Description | Documentation |
-|---------|-------------|---------------|
+| Package                                    | Description                     | Documentation                         |
+| ------------------------------------------ | ------------------------------- | ------------------------------------- |
 | [`@maelstrom/protocol`](./shared/protocol) | Core types and message contract | [README](./shared/protocol/README.md) |
 
 ### Client
 
-| Package | Description | Documentation |
-|---------|-------------|---------------|
-| [`@maelstrom/client`](./client/core) | Framework-agnostic client library | [README](./client/core/README.md) |
-| [`@maelstrom/react`](./client/react) | React bindings and components | [README](./client/react/README.md) |
+| Package                              | Description                       | Documentation                      |
+| ------------------------------------ | --------------------------------- | ---------------------------------- |
+| [`@maelstrom/client`](./client/core) | Framework-agnostic client library | [README](./client/core/README.md)  |
+| [`@maelstrom/react`](./client/react) | React bindings and components     | [README](./client/react/README.md) |
 
 ### Server
 
-| Package | Description | Documentation |
-|---------|-------------|---------------|
+| Package                                | Description         | Documentation                       |
+| -------------------------------------- | ------------------- | ----------------------------------- |
 | [`@maelstrom/engine`](./server/engine) | LLM decision engine | [README](./server/engine/README.md) |
 
 ---

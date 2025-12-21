@@ -1,19 +1,28 @@
-import { describe, it, expect, vi } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
-import { render, screen } from '@testing-library/react';
-import { useEffect, type ReactNode } from 'react';
-import type { Vessel, ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
+import type {
+  ChartRequest,
+  MaelstromResponse,
+  Vessel,
+} from '@maelstrom/protocol';
 import {
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from '@testing-library/react';
+import { type ReactNode, useEffect } from 'react';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  Chart,
+  createMockConnector,
   MaelstromProvider,
+  useCreateInstance,
+  useExecuteAction,
+  useInstance,
   useMaelstrom,
   useVesselRegistration,
-  useCreateInstance,
-  useInstance,
-  useExecuteAction,
-  createMockConnector,
-  Chart,
 } from './react';
-import type { VesselRegistration, VesselComponentProps } from './types';
+import type { VesselComponentProps, VesselRegistration } from './types';
 
 // ============================================================================
 // Test Fixtures
@@ -29,33 +38,55 @@ const calendarVessel: Vessel = {
       props: { view: 'month' },
       minSize: { width: 4, height: 4 },
       actions: [
-        { name: 'showWeek', description: 'Show week view', transitionsTo: 'week' },
-        { name: 'collapse', description: 'Collapse calendar', transitionsTo: 'collapsed' },
+        {
+          name: 'showWeek',
+          description: 'Show week view',
+          transitionsTo: 'week',
+        },
+        {
+          name: 'collapse',
+          description: 'Collapse calendar',
+          transitionsTo: 'collapsed',
+        },
       ],
     },
     week: {
       props: { view: 'week' },
       minSize: { width: 6, height: 3 },
       actions: [
-        { name: 'showMonth', description: 'Show month view', transitionsTo: 'month' },
+        {
+          name: 'showMonth',
+          description: 'Show month view',
+          transitionsTo: 'month',
+        },
       ],
     },
     collapsed: {
       props: { collapsed: true },
       minSize: { width: 2, height: 1 },
       actions: [
-        { name: 'expand', description: 'Expand calendar', transitionsTo: 'month' },
+        {
+          name: 'expand',
+          description: 'Expand calendar',
+          transitionsTo: 'month',
+        },
       ],
     },
   },
 };
 
-function CalendarComponent({ instance, variantProps, executeAction }: VesselComponentProps) {
+function CalendarComponent({
+  instance,
+  variantProps,
+  executeAction,
+}: VesselComponentProps) {
   return (
     <div data-testid={`calendar-${instance.instanceId}`}>
       <span data-testid="variant">{instance.variant}</span>
       <span data-testid="view">{variantProps.view as string}</span>
-      <button onClick={() => executeAction('showWeek')}>Week</button>
+      <button type="button" onClick={() => executeAction('showWeek')}>
+        Week
+      </button>
     </div>
   );
 }
@@ -69,7 +100,9 @@ const calendarRegistration: VesselRegistration = {
 // Test Wrapper
 // ============================================================================
 
-function createWrapper(mockResponses?: (request: ChartRequest) => MaelstromResponse) {
+function createWrapper(
+  mockResponses?: (request: ChartRequest) => MaelstromResponse,
+) {
   const connector = createMockConnector({
     delay: 0,
     generateResponse: mockResponses,
@@ -103,13 +136,16 @@ describe('useMaelstrom', () => {
   });
 
   it('should process user intent', async () => {
-    const generateResponse = vi.fn((request: ChartRequest): MaelstromResponse => ({
-      type: 'maelstrom_response',
-      requestId: request.id,
-      rationale: 'Test response',
-      executionPlan: [],
-      layoutDirective: [],
-    }));
+    const generateResponse = vi.fn(
+      (request: ChartRequest): MaelstromResponse => ({
+        type: 'maelstrom_response',
+        requestId: request.id,
+        userMessage: '',
+        rationale: 'Test response',
+        executionPlan: [],
+        layoutDirective: [],
+      }),
+    );
 
     const { result } = renderHook(() => useMaelstrom(), {
       wrapper: createWrapper(generateResponse),
@@ -135,7 +171,7 @@ describe('useVesselRegistration', () => {
         useVesselRegistration(calendarRegistration);
         return useMaelstrom();
       },
-      { wrapper: createWrapper() }
+      { wrapper: createWrapper() },
     );
 
     // Registration happens on mount, so we need to check that we can create instances
@@ -156,7 +192,7 @@ describe('useCreateInstance', () => {
         const { instances } = useMaelstrom();
         return { createInstance, instances };
       },
-      { wrapper: createWrapper() }
+      { wrapper: createWrapper() },
     );
 
     act(() => {
@@ -179,7 +215,7 @@ describe('useCreateInstance', () => {
         const { instances } = useMaelstrom();
         return { createInstance, instances };
       },
-      { wrapper: createWrapper() }
+      { wrapper: createWrapper() },
     );
 
     act(() => {
@@ -197,7 +233,7 @@ describe('useCreateInstance', () => {
         const createInstance = useCreateInstance();
         return { createInstance };
       },
-      { wrapper: createWrapper() }
+      { wrapper: createWrapper() },
     );
 
     let instance: unknown;
@@ -218,7 +254,7 @@ describe('useInstance', () => {
         const instance = useInstance('cal-1');
         return { createInstance, instance };
       },
-      { wrapper: createWrapper() }
+      { wrapper: createWrapper() },
     );
 
     act(() => {
@@ -244,7 +280,7 @@ describe('useExecuteAction', () => {
         const instance = useInstance('cal-1');
         return { createInstance, executeAction, instance };
       },
-      { wrapper: createWrapper() }
+      { wrapper: createWrapper() },
     );
 
     act(() => {
@@ -272,7 +308,7 @@ describe('Chart', () => {
     render(
       <MaelstromProvider connector={connector}>
         <Chart data-testid="chart" />
-      </MaelstromProvider>
+      </MaelstromProvider>,
     );
 
     // Chart renders successfully
@@ -300,13 +336,15 @@ describe('Chart', () => {
       render(
         <MaelstromProvider connector={connector}>
           <TestComponent />
-        </MaelstromProvider>
+        </MaelstromProvider>,
       );
     });
 
     // The chart should render the calendar instance
     await waitFor(() => {
-      expect(screen.getByTestId('calendar-cal-render-test')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('calendar-cal-render-test'),
+      ).toBeInTheDocument();
     });
   });
 });
@@ -320,10 +358,9 @@ describe('processIntent', () => {
     const generateResponse = (request: ChartRequest): MaelstromResponse => ({
       type: 'maelstrom_response',
       requestId: request.id,
+      userMessage: '',
       rationale: 'Showing week view',
-      executionPlan: [
-        { instanceId: 'cal-1', action: 'showWeek' },
-      ],
+      executionPlan: [{ instanceId: 'cal-1', action: 'showWeek' }],
       layoutDirective: [],
     });
 
@@ -335,7 +372,7 @@ describe('processIntent', () => {
         const instance = useInstance('cal-1');
         return { createInstance, maelstrom, instance };
       },
-      { wrapper: createWrapper(generateResponse) }
+      { wrapper: createWrapper(generateResponse) },
     );
 
     act(() => {
@@ -357,6 +394,7 @@ describe('processIntent', () => {
     const generateResponse = (request: ChartRequest): MaelstromResponse => ({
       type: 'maelstrom_response',
       requestId: request.id,
+      userMessage: '',
       rationale: 'Moving calendar',
       executionPlan: [],
       layoutDirective: [
@@ -376,7 +414,7 @@ describe('processIntent', () => {
         const instance = useInstance('cal-1');
         return { createInstance, maelstrom, instance };
       },
-      { wrapper: createWrapper(generateResponse) }
+      { wrapper: createWrapper(generateResponse) },
     );
 
     act(() => {

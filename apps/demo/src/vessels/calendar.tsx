@@ -1,46 +1,46 @@
-import type { Vessel } from "@maelstrom/protocol";
+import type { Vessel } from '@maelstrom/protocol';
 import type {
-  VesselRegistration,
   VesselComponentProps,
-} from "@maelstrom/react";
+  VesselRegistration,
+} from '@maelstrom/react';
 
 // Calendar vessel definition
 export const calendarVessel: Vessel = {
-  id: "calendar",
-  name: "Calendar",
+  id: 'calendar',
+  name: 'Calendar',
   description:
-    "Calendar widget for viewing dates and scheduling. Can show month view, week view, or be collapsed to a minimal state.",
-  defaultVariant: "month",
+    'Calendar widget for viewing dates and scheduling. Can show month view, week view, or be collapsed to a minimal state.',
+  defaultVariant: 'month',
   variants: {
     month: {
-      props: { view: "month" },
+      props: { view: 'month' },
       minSize: { width: 4, height: 4 },
       actions: [
         {
-          name: "showWeek",
-          description: "Switch to week view for more detail",
-          transitionsTo: "week",
+          name: 'showWeek',
+          description: 'Switch to week view for more detail',
+          transitionsTo: 'week',
         },
         {
-          name: "collapse",
-          description: "Minimize the calendar to save space",
-          transitionsTo: "collapsed",
+          name: 'collapse',
+          description: 'Minimize the calendar to save space',
+          transitionsTo: 'collapsed',
         },
       ],
     },
     week: {
-      props: { view: "week" },
+      props: { view: 'week' },
       minSize: { width: 6, height: 3 },
       actions: [
         {
-          name: "showMonth",
-          description: "Switch back to month view",
-          transitionsTo: "month",
+          name: 'showMonth',
+          description: 'Switch back to month view',
+          transitionsTo: 'month',
         },
         {
-          name: "collapse",
-          description: "Minimize the calendar",
-          transitionsTo: "collapsed",
+          name: 'collapse',
+          description: 'Minimize the calendar',
+          transitionsTo: 'collapsed',
         },
       ],
     },
@@ -49,9 +49,9 @@ export const calendarVessel: Vessel = {
       minSize: { width: 2, height: 1 },
       actions: [
         {
-          name: "expand",
-          description: "Expand the calendar to full view",
-          transitionsTo: "month",
+          name: 'expand',
+          description: 'Expand the calendar to full view',
+          transitionsTo: 'month',
         },
       ],
     },
@@ -60,7 +60,6 @@ export const calendarVessel: Vessel = {
 
 // Calendar component
 function CalendarComponent({
-  instance,
   variantProps,
   executeAction,
 }: VesselComponentProps) {
@@ -69,36 +68,37 @@ function CalendarComponent({
 
   if (collapsed) {
     return (
-      <div
-        className="vessel-card flex items-center justify-center cursor-pointer hover:bg-gray-700 transition-colors"
-        onClick={() => executeAction("expand")}
+      <button
+        type="button"
+        className="vessel-card w-full h-full flex items-center justify-center cursor-pointer hover:bg-gray-700 transition-colors"
+        onClick={() => executeAction('expand')}
       >
         <div className="text-center">
           <div className="text-2xl">📅</div>
           <div className="text-xs text-gray-400">Calendar</div>
         </div>
-      </div>
+      </button>
     );
   }
 
   const today = new Date();
   const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  if (view === "week") {
+  if (view === 'week') {
     // Week view
     const startOfWeek = new Date(today);
     startOfWeek.setDate(today.getDate() - today.getDay());
@@ -107,18 +107,20 @@ function CalendarComponent({
       <div className="vessel-card h-full flex flex-col">
         <div className="vessel-card-header flex justify-between items-center">
           <span>
-            📅 Week of {monthNames[startOfWeek.getMonth()]}{" "}
+            📅 Week of {monthNames[startOfWeek.getMonth()]}{' '}
             {startOfWeek.getDate()}
           </span>
           <div className="flex gap-1">
             <button
-              onClick={() => executeAction("showMonth")}
+              type="button"
+              onClick={() => executeAction('showMonth')}
               className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
             >
               Month
             </button>
             <button
-              onClick={() => executeAction("collapse")}
+              type="button"
+              onClick={() => executeAction('collapse')}
               className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
             >
               −
@@ -135,7 +137,7 @@ function CalendarComponent({
                 <div key={day} className="flex flex-col">
                   <div className="text-xs text-gray-400 text-center">{day}</div>
                   <div
-                    className={`flex-1 flex items-center justify-center rounded ${isToday ? "bg-blue-600" : "bg-gray-700"}`}
+                    className={`flex-1 flex items-center justify-center rounded ${isToday ? 'bg-blue-600' : 'bg-gray-700'}`}
                   >
                     <span className="text-lg">{date.getDate()}</span>
                   </div>
@@ -170,13 +172,15 @@ function CalendarComponent({
         </span>
         <div className="flex gap-1">
           <button
-            onClick={() => executeAction("showWeek")}
+            type="button"
+            onClick={() => executeAction('showWeek')}
             className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
           >
             Week
           </button>
           <button
-            onClick={() => executeAction("collapse")}
+            type="button"
+            onClick={() => executeAction('collapse')}
             className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
           >
             −
@@ -194,13 +198,13 @@ function CalendarComponent({
         <div className="grid grid-cols-7 gap-1 flex-1">
           {days.map((day, i) => (
             <div
-              key={i}
+              key={day ?? `empty-${i}`}
               className={`flex items-center justify-center text-sm rounded ${
                 day === today.getDate()
-                  ? "bg-blue-600 font-bold"
+                  ? 'bg-blue-600 font-bold'
                   : day
-                    ? "bg-gray-700 hover:bg-gray-600"
-                    : ""
+                    ? 'bg-gray-700 hover:bg-gray-600'
+                    : ''
               }`}
             >
               {day}

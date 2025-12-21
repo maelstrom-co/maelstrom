@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { parseResponse } from './response-parser.js';
 import type { ChartRequest, Vessel } from '@maelstrom/protocol';
+import { describe, expect, it } from 'vitest';
+import { parseResponse } from './response-parser.js';
 import { EngineError } from './types.js';
 
 const calendarVessel: Vessel = {
@@ -13,14 +13,22 @@ const calendarVessel: Vessel = {
       props: { view: 'month' },
       minSize: { width: 4, height: 4 },
       actions: [
-        { name: 'showWeek', description: 'Switch to week view', transitionsTo: 'week' },
+        {
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+        },
       ],
     },
     week: {
       props: { view: 'week' },
       minSize: { width: 6, height: 3 },
       actions: [
-        { name: 'showMonth', description: 'Back to month', transitionsTo: 'month' },
+        {
+          name: 'showMonth',
+          description: 'Back to month',
+          transitionsTo: 'month',
+        },
       ],
     },
   },
@@ -51,11 +59,13 @@ describe('parseResponse', () => {
   it('should parse valid JSON response', () => {
     const llmResponse = JSON.stringify({
       rationale: 'Switching to week view',
-      executionPlan: [
-        { instanceId: 'calendar-1', action: 'showWeek' },
-      ],
+      executionPlan: [{ instanceId: 'calendar-1', action: 'showWeek' }],
       layoutDirective: [
-        { instanceId: 'calendar-1', position: { row: 0, column: 0 }, size: { width: 6, height: 3 } },
+        {
+          instanceId: 'calendar-1',
+          position: { row: 0, column: 0 },
+          size: { width: 6, height: 3 },
+        },
       ],
     });
 
@@ -125,7 +135,11 @@ Hope this helps!`;
       rationale: 'Test',
       executionPlan: [],
       layoutDirective: [
-        { instanceId: 'calendar-1', position: { row: 100, column: 100 }, size: { width: 4, height: 4 } },
+        {
+          instanceId: 'calendar-1',
+          position: { row: 100, column: 100 },
+          size: { width: 4, height: 4 },
+        },
       ],
     });
 
@@ -140,7 +154,9 @@ Hope this helps!`;
   });
 
   it('should throw when no JSON found', () => {
-    expect(() => parseResponse('Just some text without JSON', baseRequest)).toThrow(EngineError);
+    expect(() =>
+      parseResponse('Just some text without JSON', baseRequest),
+    ).toThrow(EngineError);
   });
 
   it('should handle empty execution plan and layout', () => {

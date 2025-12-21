@@ -8,6 +8,7 @@
     "@ai-sdk/anthropic": "^2.0.0",
     "@ai-sdk/google": "^2.0.0",
     "@ai-sdk/openai": "^2.0.0",
+    "@nx/devkit": "22.2.7",
     "@tanstack/react-router": "^1.141.8",
     "@tanstack/react-start": "^1.142.0",
     "ai": "^5.0.0",
@@ -18,13 +19,17 @@
   "devDependencies": {
     "@babel/core": "^7.14.5",
     "@babel/preset-react": "^7.14.5",
+    "@biomejs/biome": "^2.3.10",
+    "@nx/jest": "22.2.7",
     "@nx/js": "22.2.7",
+    "@nx/plugin": "22.2.7",
     "@nx/react": "22.2.7",
     "@nx/vite": "22.2.7",
     "@nx/vitest": "22.2.7",
     "@nx/web": "22.2.7",
     "@nx/workspace": "22.2.7",
     "@swc-node/register": "~1.9.1",
+    "@swc/cli": "~0.6.0",
     "@swc/core": "~1.5.7",
     "@swc/helpers": "~0.5.11",
     "@testing-library/dom": "10.4.0",
@@ -53,7 +58,8 @@
   },
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "tools/*"
   ],
   "nx": {
     "includedScripts": [],
@@ -69,4 +75,3 @@
     }
   }
 }
-

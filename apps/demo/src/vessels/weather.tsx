@@ -1,62 +1,62 @@
-import type { Vessel } from "@maelstrom/protocol";
+import type { Vessel } from '@maelstrom/protocol';
 import type {
-  VesselRegistration,
   VesselComponentProps,
-} from "@maelstrom/react";
+  VesselRegistration,
+} from '@maelstrom/react';
 
 // Weather vessel definition
 export const weatherVessel: Vessel = {
-  id: "weather",
-  name: "Weather",
+  id: 'weather',
+  name: 'Weather',
   description:
-    "Weather widget showing current conditions or extended forecast. Can display current weather, hourly forecast, or weekly forecast.",
-  defaultVariant: "current",
+    'Weather widget showing current conditions or extended forecast. Can display current weather, hourly forecast, or weekly forecast.',
+  defaultVariant: 'current',
   variants: {
     current: {
-      props: { mode: "current" },
+      props: { mode: 'current' },
       minSize: { width: 6, height: 4 },
       actions: [
         {
-          name: "showHourly",
-          description: "Show hourly forecast for today",
-          transitionsTo: "hourly",
+          name: 'showHourly',
+          description: 'Show hourly forecast for today',
+          transitionsTo: 'hourly',
         },
         {
-          name: "showWeekly",
-          description: "Show weekly forecast",
-          transitionsTo: "weekly",
+          name: 'showWeekly',
+          description: 'Show weekly forecast',
+          transitionsTo: 'weekly',
         },
       ],
     },
     hourly: {
-      props: { mode: "hourly" },
+      props: { mode: 'hourly' },
       minSize: { width: 6, height: 4 },
       actions: [
         {
-          name: "showCurrent",
-          description: "Show current conditions",
-          transitionsTo: "current",
+          name: 'showCurrent',
+          description: 'Show current conditions',
+          transitionsTo: 'current',
         },
         {
-          name: "showWeekly",
-          description: "Show weekly forecast",
-          transitionsTo: "weekly",
+          name: 'showWeekly',
+          description: 'Show weekly forecast',
+          transitionsTo: 'weekly',
         },
       ],
     },
     weekly: {
-      props: { mode: "weekly" },
+      props: { mode: 'weekly' },
       minSize: { width: 8, height: 3 },
       actions: [
         {
-          name: "showCurrent",
-          description: "Show current conditions",
-          transitionsTo: "current",
+          name: 'showCurrent',
+          description: 'Show current conditions',
+          transitionsTo: 'current',
         },
         {
-          name: "showHourly",
-          description: "Show hourly forecast",
-          transitionsTo: "hourly",
+          name: 'showHourly',
+          description: 'Show hourly forecast',
+          transitionsTo: 'hourly',
         },
       ],
     },
@@ -65,47 +65,48 @@ export const weatherVessel: Vessel = {
 
 // Mock weather data
 const mockWeather = {
-  current: { temp: 72, condition: "Sunny", icon: "☀️", humidity: 45, wind: 8 },
+  current: { temp: 72, condition: 'Sunny', icon: '☀️', humidity: 45, wind: 8 },
   hourly: [
-    { hour: "9AM", temp: 68, icon: "🌤️" },
-    { hour: "12PM", temp: 72, icon: "☀️" },
-    { hour: "3PM", temp: 75, icon: "☀️" },
-    { hour: "6PM", temp: 70, icon: "🌤️" },
-    { hour: "9PM", temp: 65, icon: "🌙" },
+    { hour: '9AM', temp: 68, icon: '🌤️' },
+    { hour: '12PM', temp: 72, icon: '☀️' },
+    { hour: '3PM', temp: 75, icon: '☀️' },
+    { hour: '6PM', temp: 70, icon: '🌤️' },
+    { hour: '9PM', temp: 65, icon: '🌙' },
   ],
   weekly: [
-    { day: "Mon", high: 75, low: 58, icon: "☀️" },
-    { day: "Tue", high: 72, low: 55, icon: "🌤️" },
-    { day: "Wed", high: 68, low: 52, icon: "🌧️" },
-    { day: "Thu", high: 70, low: 54, icon: "⛅" },
-    { day: "Fri", high: 73, low: 56, icon: "☀️" },
-    { day: "Sat", high: 76, low: 59, icon: "☀️" },
-    { day: "Sun", high: 74, low: 57, icon: "🌤️" },
+    { day: 'Mon', high: 75, low: 58, icon: '☀️' },
+    { day: 'Tue', high: 72, low: 55, icon: '🌤️' },
+    { day: 'Wed', high: 68, low: 52, icon: '🌧️' },
+    { day: 'Thu', high: 70, low: 54, icon: '⛅' },
+    { day: 'Fri', high: 73, low: 56, icon: '☀️' },
+    { day: 'Sat', high: 76, low: 59, icon: '☀️' },
+    { day: 'Sun', high: 74, low: 57, icon: '🌤️' },
   ],
 };
 
 // Weather component
 function WeatherComponent({
-  instance,
   variantProps,
   executeAction,
 }: VesselComponentProps) {
   const mode = variantProps.mode as string;
 
-  if (mode === "hourly") {
+  if (mode === 'hourly') {
     return (
       <div className="vessel-card h-full flex flex-col">
         <div className="vessel-card-header flex justify-between items-center">
           <span>🌡️ Hourly Forecast</span>
           <div className="flex gap-1">
             <button
-              onClick={() => executeAction("showCurrent")}
+              type="button"
+              onClick={() => executeAction('showCurrent')}
               className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
             >
               Now
             </button>
             <button
-              onClick={() => executeAction("showWeekly")}
+              type="button"
+              onClick={() => executeAction('showWeekly')}
               className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
             >
               Week
@@ -127,20 +128,22 @@ function WeatherComponent({
     );
   }
 
-  if (mode === "weekly") {
+  if (mode === 'weekly') {
     return (
       <div className="vessel-card h-full flex flex-col">
         <div className="vessel-card-header flex justify-between items-center">
           <span>📅 Weekly Forecast</span>
           <div className="flex gap-1">
             <button
-              onClick={() => executeAction("showCurrent")}
+              type="button"
+              onClick={() => executeAction('showCurrent')}
               className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
             >
               Now
             </button>
             <button
-              onClick={() => executeAction("showHourly")}
+              type="button"
+              onClick={() => executeAction('showHourly')}
               className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
             >
               Hourly
@@ -175,13 +178,15 @@ function WeatherComponent({
         <span>🌡️ Weather</span>
         <div className="flex gap-1">
           <button
-            onClick={() => executeAction("showHourly")}
+            type="button"
+            onClick={() => executeAction('showHourly')}
             className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
           >
             Hourly
           </button>
           <button
-            onClick={() => executeAction("showWeekly")}
+            type="button"
+            onClick={() => executeAction('showWeekly')}
             className="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-1 rounded"
           >
             Week

@@ -1,8 +1,8 @@
 import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
-import type { EngineConfig, RetryConfig } from './types.js';
-import { EngineError } from './types.js';
 import { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './prompt-builder.js';
 import { parseResponse } from './response-parser.js';
+import type { EngineConfig, RetryConfig } from './types.js';
+import { EngineError } from './types.js';
 
 /**
  * The Maelstrom decision engine.
@@ -40,7 +40,7 @@ export function createEngine(config: EngineConfig): Engine {
       // Call the LLM with retry and timeout
       const llmResponse = await retryWithBackoff(
         () => withTimeout(provider.complete(prompt, systemPrompt), timeout),
-        retryConfig
+        retryConfig,
       );
 
       // Parse the response
@@ -56,7 +56,7 @@ export function createEngine(config: EngineConfig): Engine {
  */
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
-  config: Required<RetryConfig>
+  config: Required<RetryConfig>,
 ): Promise<T> {
   let lastError: Error | undefined;
   let delay = config.initialDelayMs;
@@ -93,7 +93,7 @@ async function retryWithBackoff<T>(
   throw new EngineError(
     'LLM_ERROR',
     `Failed after ${config.maxAttempts} attempts: ${lastError?.message}`,
-    { cause: lastError }
+    { cause: lastError },
   );
 }
 
@@ -101,7 +101,7 @@ async function retryWithBackoff<T>(
  * Wraps a promise with a timeout.
  */
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout>;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -112,7 +112,9 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   try {
     return await Promise.race([promise, timeoutPromise]);
   } finally {
-    clearTimeout(timeoutId!);
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 

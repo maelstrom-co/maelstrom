@@ -1,17 +1,24 @@
-import { createContext, useContext, useReducer, useCallback, useEffect, useRef } from 'react';
 import type {
-  Vessel,
-  ChartRequest,
-  MaelstromEvent,
-  ActionStartedEvent,
   ActionCompletedEvent,
+  ActionStartedEvent,
+  ChartRequest,
   LayoutAppliedEvent,
+  MaelstromEvent,
+  Vessel,
 } from '@maelstrom/protocol';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useReducer,
+  useRef,
+} from 'react';
 import type {
-  MaelstromState,
-  MaelstromAction,
   EngineConnector,
+  MaelstromAction,
   MaelstromProviderProps,
+  MaelstromState,
 } from './types';
 
 // ============================================================================
@@ -26,13 +33,17 @@ const initialState: MaelstromState = {
   connectionState: 'disconnected',
   isProcessing: false,
   lastError: null,
+  lastResponse: null,
 };
 
 // ============================================================================
 // Reducer
 // ============================================================================
 
-function reducer(state: MaelstromState, action: MaelstromAction): MaelstromState {
+function reducer(
+  state: MaelstromState,
+  action: MaelstromAction,
+): MaelstromState {
   switch (action.type) {
     case 'REGISTER_VESSEL': {
       const newVessels = new Map(state.vessels);
@@ -70,7 +81,7 @@ function reducer(state: MaelstromState, action: MaelstromAction): MaelstromState
       newInstances.delete(action.instanceId);
       // Also remove from layout
       const newLayout = state.layout.filter(
-        (d) => d.instanceId !== action.instanceId
+        (d) => d.instanceId !== action.instanceId,
       );
       return { ...state, instances: newInstances, layout: newLayout };
     }
@@ -112,7 +123,7 @@ function reducer(state: MaelstromState, action: MaelstromAction): MaelstromState
 
       // Find the action
       const actionDef = currentVariant.actions.find(
-        (a) => a.name === action.execution.action
+        (a) => a.name === action.execution.action,
       );
       if (!actionDef) return state;
 
@@ -128,6 +139,8 @@ function reducer(state: MaelstromState, action: MaelstromAction): MaelstromState
 
       return state;
     }
+    case 'SET_LAST_RESPONSE':
+      return { ...state, lastResponse: action.response };
     default:
       return state;
   }
@@ -165,36 +178,50 @@ export function MaelstromProvider({
   cellSizePx = 80,
   debug = false,
   onEvent,
+  onResponse,
+  onError,
   children,
 }: MaelstromProviderProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const sessionId = useRef(providedSessionId || generateSessionId()).current;
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const onResponseRef = useRef(onResponse);
+  onResponseRef.current = onResponse;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   // Emit events
-  const emitEvent = useCallback((event: MaelstromEvent) => {
-    if (debug) {
-      console.log('[Maelstrom Event]', event);
-    }
-    onEventRef.current?.(event);
-  }, [debug]);
+  const emitEvent = useCallback(
+    (event: MaelstromEvent) => {
+      if (debug) {
+        console.log('[Maelstrom Event]', event);
+      }
+      onEventRef.current?.(event);
+    },
+    [debug],
+  );
 
   // Connect to engine on mount
   useEffect(() => {
     if (connector.connect) {
       dispatch({ type: 'SET_CONNECTION_STATE', state: 'connecting' });
-      connector.connect()
-        .then(() => dispatch({ type: 'SET_CONNECTION_STATE', state: 'connected' }))
-        .catch(() => dispatch({ type: 'SET_CONNECTION_STATE', state: 'error' }));
+      connector
+        .connect()
+        .then(() =>
+          dispatch({ type: 'SET_CONNECTION_STATE', state: 'connected' }),
+        )
+        .catch(() =>
+          dispatch({ type: 'SET_CONNECTION_STATE', state: 'error' }),
+        );
     } else {
       // No connection needed (e.g., direct function calls)
       dispatch({ type: 'SET_CONNECTION_STATE', state: 'connected' });
     }
 
     // Subscribe to connection state changes
-    const unsubscribe = connector.onConnectionStateChange?.(
-      (connectionState) => dispatch({ type: 'SET_CONNECTION_STATE', state: connectionState })
+    const unsubscribe = connector.onConnectionStateChange?.((connectionState) =>
+      dispatch({ type: 'SET_CONNECTION_STATE', state: connectionState }),
     );
 
     return () => {
@@ -204,125 +231,141 @@ export function MaelstromProvider({
   }, [connector]);
 
   // Process user intent
-  const processIntent = useCallback(async (intent: string) => {
-    if (state.isProcessing) {
-      if (debug) console.log('[Maelstrom] Already processing, skipping');
-      return;
-    }
-
-    dispatch({ type: 'SET_PROCESSING', isProcessing: true });
-    dispatch({ type: 'SET_ERROR', error: null });
-
-    try {
-      // Build request
-      const vessels: Vessel[] = Array.from(state.vessels.values()).map((r) => r.vessel);
-      const instances = Array.from(state.instances.values()).map((i) => ({
-        instanceId: i.instanceId,
-        vesselId: i.vesselId,
-        variant: i.variant,
-        position: i.position,
-        size: i.size,
-      }));
-
-      const request: ChartRequest = {
-        type: 'chart_request',
-        id: `req-${Date.now()}`,
-        context: {
-          userIntent: intent,
-          chartDimensions: state.chartDimensions,
-          timestamp: Date.now(),
-          sessionId,
-        },
-        instances,
-        vessels,
-        currentLayout: state.layout,
-      };
-
-      if (debug) {
-        console.log('[Maelstrom] Sending request:', request);
+  const processIntent = useCallback(
+    async (intent: string) => {
+      if (state.isProcessing) {
+        if (debug) console.log('[Maelstrom] Already processing, skipping');
+        return;
       }
 
-      // Send to engine
-      const response = await connector.process(request);
+      dispatch({ type: 'SET_PROCESSING', isProcessing: true });
+      dispatch({ type: 'SET_ERROR', error: null });
 
-      if (debug) {
-        console.log('[Maelstrom] Received response:', response);
-      }
+      try {
+        // Build request
+        const vessels: Vessel[] = Array.from(state.vessels.values()).map(
+          (r) => r.vessel,
+        );
+        const instances = Array.from(state.instances.values()).map((i) => ({
+          instanceId: i.instanceId,
+          vesselId: i.vesselId,
+          variant: i.variant,
+          position: i.position,
+          size: i.size,
+        }));
 
-      // Execute actions in order
-      for (const execution of response.executionPlan) {
-        const instance = state.instances.get(execution.instanceId);
-        if (!instance) continue;
+        const request: ChartRequest = {
+          type: 'chart_request',
+          id: `req-${Date.now()}`,
+          context: {
+            userIntent: intent,
+            chartDimensions: state.chartDimensions,
+            timestamp: Date.now(),
+            sessionId,
+          },
+          instances,
+          vessels,
+          currentLayout: state.layout,
+        };
 
-        const startEvent: ActionStartedEvent = {
-          type: 'action_started',
-          instanceId: execution.instanceId,
-          action: execution.action,
-          params: execution.params,
+        if (debug) {
+          console.log('[Maelstrom] Sending request:', request);
+        }
+
+        // Send to engine
+        const response = await connector.process(request);
+
+        if (debug) {
+          console.log('[Maelstrom] Received response:', response);
+        }
+
+        // Store the last response
+        dispatch({ type: 'SET_LAST_RESPONSE', response });
+
+        // Execute actions in order
+        for (const execution of response.executionPlan) {
+          const instance = state.instances.get(execution.instanceId);
+          if (!instance) continue;
+
+          const startEvent: ActionStartedEvent = {
+            type: 'action_started',
+            instanceId: execution.instanceId,
+            action: execution.action,
+            params: execution.params,
+            timestamp: Date.now(),
+          };
+          emitEvent(startEvent);
+
+          const startTime = Date.now();
+          const fromVariant = instance.variant;
+
+          try {
+            // Execute the action (state transition)
+            dispatch({ type: 'EXECUTE_ACTION', execution });
+
+            // Find the new variant
+            const vesselReg = state.vessels.get(instance.vesselId);
+            const actionDef = vesselReg?.vessel.variants[
+              instance.variant
+            ]?.actions.find((a) => a.name === execution.action);
+            const toVariant = actionDef?.transitionsTo || fromVariant;
+
+            const completedEvent: ActionCompletedEvent = {
+              type: 'action_completed',
+              instanceId: execution.instanceId,
+              action: execution.action,
+              fromVariant,
+              toVariant,
+              success: true,
+              duration: Date.now() - startTime,
+              timestamp: Date.now(),
+            };
+            emitEvent(completedEvent);
+          } catch (err) {
+            const completedEvent: ActionCompletedEvent = {
+              type: 'action_completed',
+              instanceId: execution.instanceId,
+              action: execution.action,
+              fromVariant,
+              toVariant: fromVariant,
+              success: false,
+              error: err instanceof Error ? err.message : 'Unknown error',
+              duration: Date.now() - startTime,
+              timestamp: Date.now(),
+            };
+            emitEvent(completedEvent);
+          }
+        }
+
+        // Apply layout directives (this is the source of truth for what's rendered)
+        dispatch({
+          type: 'APPLY_LAYOUT',
+          directives: response.layoutDirective,
+        });
+
+        const layoutEvent: LayoutAppliedEvent = {
+          type: 'layout_applied',
+          directives: response.layoutDirective,
           timestamp: Date.now(),
         };
-        emitEvent(startEvent);
+        emitEvent(layoutEvent);
 
-        const startTime = Date.now();
-        const fromVariant = instance.variant;
-
-        try {
-          // Execute the action (state transition)
-          dispatch({ type: 'EXECUTE_ACTION', execution });
-
-          // Find the new variant
-          const vesselReg = state.vessels.get(instance.vesselId);
-          const actionDef = vesselReg?.vessel.variants[instance.variant]?.actions.find(
-            (a) => a.name === execution.action
-          );
-          const toVariant = actionDef?.transitionsTo || fromVariant;
-
-          const completedEvent: ActionCompletedEvent = {
-            type: 'action_completed',
-            instanceId: execution.instanceId,
-            action: execution.action,
-            fromVariant,
-            toVariant,
-            success: true,
-            duration: Date.now() - startTime,
-            timestamp: Date.now(),
-          };
-          emitEvent(completedEvent);
-        } catch (err) {
-          const completedEvent: ActionCompletedEvent = {
-            type: 'action_completed',
-            instanceId: execution.instanceId,
-            action: execution.action,
-            fromVariant,
-            toVariant: fromVariant,
-            success: false,
-            error: err instanceof Error ? err.message : 'Unknown error',
-            duration: Date.now() - startTime,
-            timestamp: Date.now(),
-          };
-          emitEvent(completedEvent);
+        // Call onResponse callback so consumer can handle userMessage
+        onResponseRef.current?.(response);
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        dispatch({ type: 'SET_ERROR', error: error.message });
+        if (debug) {
+          console.error('[Maelstrom] Error:', err);
         }
+        // Call onError callback
+        onErrorRef.current?.(error);
+      } finally {
+        dispatch({ type: 'SET_PROCESSING', isProcessing: false });
       }
-
-      // Apply layout directives (this is the source of truth for what's rendered)
-      dispatch({ type: 'APPLY_LAYOUT', directives: response.layoutDirective });
-
-      const layoutEvent: LayoutAppliedEvent = {
-        type: 'layout_applied',
-        directives: response.layoutDirective,
-        timestamp: Date.now(),
-      };
-      emitEvent(layoutEvent);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      dispatch({ type: 'SET_ERROR', error: errorMessage });
-      if (debug) {
-        console.error('[Maelstrom] Error:', err);
-      }
-    } finally {
-      dispatch({ type: 'SET_PROCESSING', isProcessing: false });
-    }
-  }, [state, connector, sessionId, debug, emitEvent]);
+    },
+    [state, connector, sessionId, debug, emitEvent],
+  );
 
   const value: MaelstromContextValue = {
     state,
@@ -349,7 +392,9 @@ export function MaelstromProvider({
 export function useMaelstromContext(): MaelstromContextValue {
   const context = useContext(MaelstromContext);
   if (!context) {
-    throw new Error('useMaelstromContext must be used within a MaelstromProvider');
+    throw new Error(
+      'useMaelstromContext must be used within a MaelstromProvider',
+    );
   }
   return context;
 }

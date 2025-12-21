@@ -1,19 +1,23 @@
 import type {
-  Vessel,
-  VesselInstance,
+  ActionExecution,
   ChartDimensions,
   ChartRequest,
-  MaelstromResponse,
-  ActionExecution,
   LayoutDirective,
   MaelstromEvent,
+  MaelstromResponse,
+  Vessel,
+  VesselInstance,
 } from '@maelstrom/protocol';
 
 // ============================================================================
 // Connection Types
 // ============================================================================
 
-export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type ConnectionState =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'error';
 
 /**
  * Engine connector - abstraction over transport mechanism.
@@ -27,7 +31,9 @@ export interface EngineConnector {
   /** Optional: disconnect from the engine */
   disconnect?(): void;
   /** Optional: subscribe to connection state changes */
-  onConnectionStateChange?(callback: (state: ConnectionState) => void): () => void;
+  onConnectionStateChange?(
+    callback: (state: ConnectionState) => void,
+  ): () => void;
 }
 
 // ============================================================================
@@ -68,20 +74,27 @@ export interface MaelstromState {
   isProcessing: boolean;
   /** Last error message */
   lastError: string | null;
+  /** Last engine response */
+  lastResponse: MaelstromResponse | null;
 }
 
 export type MaelstromAction =
   | { type: 'REGISTER_VESSEL'; registration: VesselRegistration }
   | { type: 'UNREGISTER_VESSEL'; vesselId: string }
   | { type: 'ADD_INSTANCE'; instance: VesselInstance }
-  | { type: 'UPDATE_INSTANCE'; instanceId: string; updates: Partial<VesselInstance> }
+  | {
+      type: 'UPDATE_INSTANCE';
+      instanceId: string;
+      updates: Partial<VesselInstance>;
+    }
   | { type: 'REMOVE_INSTANCE'; instanceId: string }
   | { type: 'SET_CHART_DIMENSIONS'; dimensions: ChartDimensions }
   | { type: 'SET_CONNECTION_STATE'; state: ConnectionState }
   | { type: 'SET_PROCESSING'; isProcessing: boolean }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'APPLY_LAYOUT'; directives: LayoutDirective[] }
-  | { type: 'EXECUTE_ACTION'; execution: ActionExecution };
+  | { type: 'EXECUTE_ACTION'; execution: ActionExecution }
+  | { type: 'SET_LAST_RESPONSE'; response: MaelstromResponse | null };
 
 // ============================================================================
 // Provider Config
@@ -96,8 +109,17 @@ export interface MaelstromProviderProps {
   cellSizePx?: number;
   /** Enable debug mode */
   debug?: boolean;
-  /** Event handler */
+  /** Event handler for Maelstrom events */
   onEvent?: (event: MaelstromEvent) => void;
+  /**
+   * Called when the engine returns a response.
+   * Use this to handle userMessage (display in chat, speak via TTS, etc.)
+   */
+  onResponse?: (response: MaelstromResponse) => void;
+  /**
+   * Called when an error occurs during processing.
+   */
+  onError?: (error: Error) => void;
   /** Children */
   children: React.ReactNode;
 }

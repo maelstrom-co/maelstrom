@@ -48,9 +48,13 @@ export interface EngineConfig {
  */
 export class EngineError extends Error {
   constructor(
-    public readonly code: 'PARSE_ERROR' | 'VALIDATION_ERROR' | 'LLM_ERROR' | 'TIMEOUT',
+    public readonly code:
+      | 'PARSE_ERROR'
+      | 'VALIDATION_ERROR'
+      | 'LLM_ERROR'
+      | 'TIMEOUT',
     message: string,
-    public readonly details?: unknown
+    public readonly details?: unknown,
   ) {
     super(message);
     this.name = 'EngineError';

@@ -12,11 +12,7 @@
     "types": ["node", "vite/client"]
   },
   "exclude": ["out-tsc", "dist", ".output", ".vinxi", "node_modules"],
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "vite.config.ts"
-  ],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
   "references": [
     {
       "path": "../../packages/react/tsconfig.lib.json"
@@ -26,6 +22,9 @@
     },
     {
       "path": "../../packages/engine/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/audio/tsconfig.lib.json"
     }
   ]
 }

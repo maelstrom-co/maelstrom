@@ -1,9 +1,9 @@
 import type {
+  ActionParameter,
   ChartRequest,
   Vessel,
   VesselAction,
   VesselInstanceState,
-  ActionParameter,
 } from '@maelstrom/protocol';
 
 /**
@@ -21,20 +21,18 @@ export function buildPrompt(request: ChartRequest): string {
   // Current Chart State
   sections.push('\n## Current Chart State\n');
   sections.push(
-    `Dimensions: ${request.context.chartDimensions.columns} columns × ${request.context.chartDimensions.rows} rows\n`
+    `Dimensions: ${request.context.chartDimensions.columns} columns × ${request.context.chartDimensions.rows} rows\n`,
   );
 
   // Determine which instances are visible based on currentLayout
   const currentLayout = request.currentLayout ?? [];
-  const visibleInstanceIds = new Set(
-    currentLayout.map((d) => d.instanceId)
-  );
+  const visibleInstanceIds = new Set(currentLayout.map((d) => d.instanceId));
 
   const visibleInstances = request.instances.filter((i) =>
-    visibleInstanceIds.has(i.instanceId)
+    visibleInstanceIds.has(i.instanceId),
   );
   const hiddenInstances = request.instances.filter(
-    (i) => !visibleInstanceIds.has(i.instanceId)
+    (i) => !visibleInstanceIds.has(i.instanceId),
   );
 
   if (visibleInstances.length > 0) {
@@ -71,7 +69,7 @@ function serializeVessel(vessel: Vessel): string {
     const isDefault = variantName === vessel.defaultVariant;
     const defaultMarker = isDefault ? ' (default)' : '';
     lines.push(
-      `- ${variantName}${defaultMarker}: ${variant.minSize.width}×${variant.minSize.height} min`
+      `- ${variantName}${defaultMarker}: ${variant.minSize.width}×${variant.minSize.height} min`,
     );
 
     if (variant.actions.length > 0) {
@@ -108,7 +106,7 @@ function serializeAction(action: VesselAction): string {
 
 function serializeInstance(
   instance: VesselInstanceState,
-  vessels: Vessel[]
+  vessels: Vessel[],
 ): string {
   const vessel = vessels.find((v) => v.id === instance.vesselId);
   const variant = vessel?.variants[instance.variant];
@@ -135,6 +133,7 @@ Your job is to:
 1. Understand the user's intent
 2. Decide which actions to execute on which Vessel instances
 3. Decide which Vessels should be VISIBLE and how to position them
+4. Provide a friendly, conversational response to the user
 
 VISIBILITY CONTROL:
 The layoutDirective is the source of truth for what's displayed:
@@ -151,16 +150,30 @@ Rules:
 - Execute actions before layout (actions may change variants and sizes)
 - Only show vessels that are relevant to the user's current intent
 
-Respond with JSON only, in this exact format:
+REQUIRED RESPONSE FORMAT (JSON only):
 {
-  "rationale": "Brief explanation of your decision",
+  "userMessage": "...",
+  "rationale": "...",
+  "executionPlan": [...],
+  "layoutDirective": [...]
+}
+
+FIELD DESCRIPTIONS:
+- userMessage (REQUIRED): A friendly, conversational response to the user. This will be displayed in the chat UI and spoken aloud via text-to-speech. Examples: "Here's your calendar for this week.", "I've opened the weather widget for you.", "Sure, let me show you that."
+- rationale: Your internal reasoning for debugging. This is NOT shown to the user.
+- executionPlan: Array of actions to execute. Empty array [] if no actions needed.
+- layoutDirective: Array of vessel positions. Empty array [] hides all vessels.
+
+EXAMPLE RESPONSE:
+{
+  "userMessage": "Here's the weather for your location.",
+  "rationale": "User asked for weather. Showing weather vessel at top-right.",
   "executionPlan": [
-    { "instanceId": "...", "action": "...", "params": { ... } }
+    { "instanceId": "weather-1", "action": "refresh", "params": {} }
   ],
   "layoutDirective": [
-    { "instanceId": "...", "position": { "row": 0, "column": 0 }, "size": { "width": 4, "height": 4 } }
+    { "instanceId": "weather-1", "position": { "row": 0, "column": 8 }, "size": { "width": 4, "height": 3 } }
   ]
 }
 
-Empty executionPlan means no actions to execute.
-Empty layoutDirective means hide all vessels.`;
+IMPORTANT: Always include a helpful userMessage. Never leave it empty.`;

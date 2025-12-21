@@ -1,15 +1,16 @@
 import type {
-  MaelstromResponse,
   ActionExecution,
-  LayoutDirective,
   ChartRequest,
-  VesselInstanceState,
+  LayoutDirective,
+  MaelstromResponse,
   Vessel,
   VesselAction,
+  VesselInstanceState,
 } from '@maelstrom/protocol';
 import { EngineError } from './types.js';
 
 interface RawResponse {
+  userMessage?: string;
   rationale?: string;
   executionPlan?: unknown[];
   layoutDirective?: unknown[];
@@ -20,7 +21,7 @@ interface RawResponse {
  */
 export function parseResponse(
   llmResponse: string,
-  request: ChartRequest
+  request: ChartRequest,
 ): MaelstromResponse {
   // Extract JSON from response (may be wrapped in markdown code blocks)
   const json = extractJson(llmResponse);
@@ -33,7 +34,7 @@ export function parseResponse(
     throw new EngineError(
       'PARSE_ERROR',
       'Failed to parse LLM response as JSON',
-      { response: llmResponse }
+      { response: llmResponse },
     );
   }
 
@@ -41,6 +42,8 @@ export function parseResponse(
   const response: MaelstromResponse = {
     type: 'maelstrom_response',
     requestId: request.id,
+    userMessage:
+      typeof parsed.userMessage === 'string' ? parsed.userMessage : '',
     rationale: typeof parsed.rationale === 'string' ? parsed.rationale : '',
     executionPlan: validateExecutionPlan(parsed.executionPlan, request),
     layoutDirective: validateLayoutDirective(parsed.layoutDirective, request),
@@ -75,7 +78,7 @@ function extractJson(response: string): string {
  */
 function validateExecutionPlan(
   plan: unknown[] | undefined,
-  request: ChartRequest
+  request: ChartRequest,
 ): ActionExecution[] {
   if (!Array.isArray(plan)) {
     return [];
@@ -90,23 +93,25 @@ function validateExecutionPlan(
 
     // Verify instance exists
     const instance = request.instances.find(
-      (i: VesselInstanceState) => i.instanceId === item.instanceId
+      (i: VesselInstanceState) => i.instanceId === item.instanceId,
     );
     if (!instance) {
-      console.warn(
-        `Skipping action: instance "${item.instanceId}" not found`
-      );
+      console.warn(`Skipping action: instance "${item.instanceId}" not found`);
       continue;
     }
 
     // Verify action exists for current variant
-    const vessel = request.vessels.find((v: Vessel) => v.id === instance.vesselId);
+    const vessel = request.vessels.find(
+      (v: Vessel) => v.id === instance.vesselId,
+    );
     const variant = vessel?.variants[instance.variant];
-    const actionDef = variant?.actions.find((a: VesselAction) => a.name === item.action);
+    const actionDef = variant?.actions.find(
+      (a: VesselAction) => a.name === item.action,
+    );
 
     if (!actionDef) {
       console.warn(
-        `Skipping action: "${item.action}" not available in variant "${instance.variant}"`
+        `Skipping action: "${item.action}" not available in variant "${instance.variant}"`,
       );
       continue;
     }
@@ -126,7 +131,7 @@ function validateExecutionPlan(
  */
 function validateLayoutDirective(
   directives: unknown[] | undefined,
-  request: ChartRequest
+  request: ChartRequest,
 ): LayoutDirective[] {
   if (!Array.isArray(directives)) {
     return [];
@@ -145,7 +150,10 @@ function validateLayoutDirective(
     const size = item.size;
 
     // Validate position
-    if (typeof position.row !== 'number' || typeof position.column !== 'number') {
+    if (
+      typeof position.row !== 'number' ||
+      typeof position.column !== 'number'
+    ) {
       continue;
     }
 

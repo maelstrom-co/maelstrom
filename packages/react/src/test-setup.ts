@@ -20,7 +20,7 @@ global.ResizeObserver = class ResizeObserver {
           devicePixelContentBoxSize: [],
         },
       ],
-      this
+      this,
     );
   }
 

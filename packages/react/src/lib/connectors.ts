@@ -1,5 +1,5 @@
 import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
-import type { EngineConnector, ConnectionState } from './types';
+import type { ConnectionState, EngineConnector } from './types';
 
 // ============================================================================
 // Direct Engine Connector
@@ -41,7 +41,9 @@ export interface HttpConnectorOptions {
 /**
  * Creates a connector that calls an engine via HTTP POST.
  */
-export function createHttpConnector(options: HttpConnectorOptions): EngineConnector {
+export function createHttpConnector(
+  options: HttpConnectorOptions,
+): EngineConnector {
   const { baseUrl, timeout = 30000, headers = {} } = options;
 
   return {
@@ -92,9 +94,14 @@ export interface WebSocketConnectorOptions {
  * Creates a connector that communicates via WebSocket.
  */
 export function createWebSocketConnector(
-  options: WebSocketConnectorOptions
+  options: WebSocketConnectorOptions,
 ): EngineConnector {
-  const { url, timeout = 30000, reconnectAttempts = 3, reconnectDelay = 1000 } = options;
+  const {
+    url,
+    timeout = 30000,
+    reconnectAttempts = 3,
+    reconnectDelay = 1000,
+  } = options;
 
   let ws: WebSocket | null = null;
   const stateListeners = new Set<(state: ConnectionState) => void>();
@@ -108,7 +115,9 @@ export function createWebSocketConnector(
   >();
 
   function setConnectionState(state: ConnectionState) {
-    stateListeners.forEach((listener) => listener(state));
+    stateListeners.forEach((listener) => {
+      listener(state);
+    });
   }
 
   function handleMessage(event: MessageEvent) {
@@ -130,7 +139,10 @@ export function createWebSocketConnector(
         }
       }
     } catch {
-      console.error('[Maelstrom WebSocket] Failed to parse message:', event.data);
+      console.error(
+        '[Maelstrom WebSocket] Failed to parse message:',
+        event.data,
+      );
     }
   }
 
@@ -212,7 +224,7 @@ export function createWebSocketConnector(
         }, timeout);
 
         pendingRequests.set(request.id, { resolve, reject, timeoutId });
-        ws!.send(JSON.stringify(request));
+        ws?.send(JSON.stringify(request));
       });
     },
   };
@@ -232,7 +244,9 @@ export interface MockConnectorOptions {
 /**
  * Creates a mock connector for testing.
  */
-export function createMockConnector(options: MockConnectorOptions = {}): EngineConnector {
+export function createMockConnector(
+  options: MockConnectorOptions = {},
+): EngineConnector {
   const { delay = 100, generateResponse } = options;
 
   return {
@@ -248,6 +262,7 @@ export function createMockConnector(options: MockConnectorOptions = {}): EngineC
       return {
         type: 'maelstrom_response',
         requestId: request.id,
+        userMessage: '',
         rationale: 'Mock response - no actions taken',
         executionPlan: [],
         layoutDirective: request.instances.map((i) => ({
