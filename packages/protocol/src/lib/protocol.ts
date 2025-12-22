@@ -1,125 +1,5 @@
-// ============================================================================
-// Chart Types
-// ============================================================================
-
-/** Default chart cell size in pixels */
-export const DEFAULT_CHART_CELL_PX = 80;
-
-/** Position on the Chart (in chart units) */
-export interface ChartPosition {
-  /** Row index (0-based, from top) */
-  row: number;
-  /** Column index (0-based, from left) */
-  column: number;
-}
-
-/** Size in chart units */
-export interface ChartSize {
-  /** Width in chart cells */
-  width: number;
-  /** Height in chart cells */
-  height: number;
-}
-
-/** Available chart space */
-export interface ChartDimensions {
-  /** Number of available columns */
-  columns: number;
-  /** Number of available rows */
-  rows: number;
-}
-
-/** Configuration for the Chart */
-export interface ChartConfig {
-  /** Size of each chart cell in pixels. Defaults to DEFAULT_CHART_CELL_PX (80) */
-  cellSizePx?: number;
-}
-
-/** Pixel dimensions (for rendering) */
-export interface PixelDimensions {
-  width: number;
-  height: number;
-}
-
-// ============================================================================
-// Vessel Types
-// ============================================================================
-
-/** Definition of a Vessel as a state machine */
-export interface Vessel {
-  /** Unique identifier */
-  id: string;
-  /** Human-readable name */
-  name: string;
-  /** Semantic description for the LLM to understand purpose */
-  description: string;
-  /** The variant to start in */
-  defaultVariant: string;
-  /** Available variants (states) */
-  variants: Record<string, VesselVariant>;
-}
-
-/** A variant represents a distinct state of the Vessel */
-export interface VesselVariant {
-  /** State properties for this variant */
-  props: Record<string, unknown>;
-  /** Minimum size required to display this variant */
-  minSize: ChartSize;
-  /** Actions available when in this variant */
-  actions: VesselAction[];
-}
-
-/** An action that can be invoked on a Vessel */
-export interface VesselAction {
-  /** Action identifier (unique within the variant) */
-  name: string;
-  /** Description for the LLM */
-  description: string;
-  /** Parameter definitions */
-  parameters?: ActionParameter[];
-  /** Target variant after this action executes. Undefined = no state change */
-  transitionsTo?: string;
-}
-
-/** Parameter definition for an action */
-export interface ActionParameter {
-  name: string;
-  type: 'string' | 'number' | 'boolean' | 'object';
-  description: string;
-  required?: boolean;
-  defaultValue?: unknown;
-  enum?: unknown[];
-}
-
-/** Runtime instance of a Vessel */
-export interface VesselInstance {
-  /** Unique instance ID */
-  instanceId: string;
-  /** ID of the Vessel type */
-  vesselId: string;
-  /** Current variant name */
-  variant: string;
-  /** Current position on the Chart */
-  position: ChartPosition;
-  /** Current size (>= variant's minSize) */
-  size: ChartSize;
-}
-
-// ============================================================================
-// Protocol Messages
-// ============================================================================
-
-/** Audio context metadata when intent originated from speech */
-export interface AudioContext {
-  /** Was this transcribed from speech? */
-  fromSpeech: boolean;
-  /** Confidence of transcription (0-1) */
-  confidence?: number;
-  /** Detected language code (e.g., 'en-US') */
-  language?: string;
-  /** Duration of audio in seconds */
-  durationInSeconds?: number;
-}
+import type { ChartDimensions, ChartPosition, ChartSize } from './chart.js';
+import type { Vessel } from './vessel.js';
 
 /** Request from client to engine */
 export interface ChartRequest {
@@ -136,8 +16,6 @@ export interface ChartRequest {
     timestamp: number;
     /** Session identifier for conversation continuity */
     sessionId: string;
-    /** Audio metadata when intent originated from speech */
-    audioContext?: AudioContext;
   };
   /** All Vessel instances with their state */
   instances: VesselInstanceState[];
@@ -251,57 +129,10 @@ export interface LayoutAppliedEvent {
   timestamp: number;
 }
 
-// ============================================================================
-// Audio Event Types
-// ============================================================================
-
-export interface AudioTranscriptionStartedEvent {
-  type: 'audio_transcription_started';
-  timestamp: number;
-}
-
-export interface AudioTranscriptionResultEvent {
-  type: 'audio_transcription_result';
-  /** The transcribed text */
-  text: string;
-  /** Whether this is a final result (vs interim) */
-  isFinal: boolean;
-  /** Confidence score (0-1), if available */
-  confidence?: number;
-  timestamp: number;
-}
-
-export interface AudioTranscriptionEndedEvent {
-  type: 'audio_transcription_ended';
-  /** The final complete transcript */
-  finalTranscript: string;
-  timestamp: number;
-}
-
-export interface AudioSpeechStartedEvent {
-  type: 'audio_speech_started';
-  /** The text being spoken */
-  text: string;
-  timestamp: number;
-}
-
-export interface AudioSpeechEndedEvent {
-  type: 'audio_speech_ended';
-  timestamp: number;
-}
-
-export type AudioEvent =
-  | AudioTranscriptionStartedEvent
-  | AudioTranscriptionResultEvent
-  | AudioTranscriptionEndedEvent
-  | AudioSpeechStartedEvent
-  | AudioSpeechEndedEvent;
-
 export type MaelstromEvent =
   | ActionStartedEvent
   | ActionCompletedEvent
-  | LayoutAppliedEvent
-  | AudioEvent;
+  | LayoutAppliedEvent;
 
 // ============================================================================
 // Utility Types

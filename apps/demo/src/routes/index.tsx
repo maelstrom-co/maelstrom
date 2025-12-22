@@ -44,7 +44,7 @@ function HomePage() {
 }
 
 interface DemoAppProps {
-  speakRef: React.MutableRefObject<((text: string) => Promise<void>) | null>;
+  speakRef: React.RefObject<((text: string) => Promise<void>) | null>;
 }
 
 function DemoApp({ speakRef }: DemoAppProps) {
