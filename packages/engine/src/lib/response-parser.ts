@@ -5,7 +5,7 @@ import type {
   MaelstromResponse,
   Vessel,
   VesselAction,
-  VesselInstanceState,
+  VesselInstanceSnapshot,
 } from '@maelstrom/protocol';
 import { EngineError } from './types.js';
 
@@ -93,7 +93,7 @@ function validateExecutionPlan(
 
     // Verify instance exists
     const instance = request.instances.find(
-      (i: VesselInstanceState) => i.instanceId === item.instanceId,
+      (i: VesselInstanceSnapshot) => i.instanceId === item.instanceId,
     );
     if (!instance) {
       console.warn(`Skipping action: instance "${item.instanceId}" not found`);

@@ -49,11 +49,16 @@ const baseRequest: ChartRequest = {
       instanceId: 'calendar-1',
       vesselId: 'calendar',
       variant: 'month',
+    },
+  ],
+  vessels: [calendarVessel],
+  layout: [
+    {
+      instanceId: 'calendar-1',
       position: { row: 0, column: 0 },
       size: { width: 4, height: 4 },
     },
   ],
-  vessels: [calendarVessel],
 };
 
 function createMockProvider(response: string): LLMProvider {

@@ -40,6 +40,9 @@
   "include": ["src/**/*.js", "src/**/*.jsx", "src/**/*.ts", "src/**/*.tsx"],
   "references": [
     {
+      "path": "../client/tsconfig.lib.json"
+    },
+    {
       "path": "../protocol/tsconfig.lib.json"
     }
   ]

@@ -1,10 +1,12 @@
 import type {
   ActionParameter,
   ChartRequest,
+  LayoutDirective,
   Vessel,
   VesselAction,
-  VesselInstanceState,
+  VesselInstanceSnapshot,
 } from '@maelstrom/protocol';
+import { computeAvailableIslands, serializeIslands } from './islands.js';
 
 /**
  * Builds the LLM prompt from a ChartRequest.
@@ -24,9 +26,10 @@ export function buildPrompt(request: ChartRequest): string {
     `Dimensions: ${request.context.chartDimensions.columns} columns × ${request.context.chartDimensions.rows} rows\n`,
   );
 
-  // Determine which instances are visible based on currentLayout
-  const currentLayout = request.currentLayout ?? [];
-  const visibleInstanceIds = new Set(currentLayout.map((d) => d.instanceId));
+  // Determine which instances are visible based on layout
+  const layout = request.layout;
+  const visibleInstanceIds = new Set(layout.map((d) => d.instanceId));
+  const layoutMap = new Map(layout.map((d) => [d.instanceId, d]));
 
   const visibleInstances = request.instances.filter((i) =>
     visibleInstanceIds.has(i.instanceId),
@@ -38,7 +41,8 @@ export function buildPrompt(request: ChartRequest): string {
   if (visibleInstances.length > 0) {
     sections.push('\nCurrently Visible:');
     for (const instance of visibleInstances) {
-      sections.push(serializeInstance(instance, request.vessels));
+      const directive = layoutMap.get(instance.instanceId);
+      sections.push(serializeInstance(instance, request.vessels, directive));
     }
   } else {
     sections.push('\nNo vessels currently visible.');
@@ -50,6 +54,14 @@ export function buildPrompt(request: ChartRequest): string {
       sections.push(serializeInstance(instance, request.vessels));
     }
   }
+
+  // Available Space (computed islands)
+  const islands = computeAvailableIslands(
+    request.context.chartDimensions,
+    request.layout,
+  );
+  sections.push('\n\n## Available Space\n');
+  sections.push(serializeIslands(islands));
 
   // User Intent
   sections.push('\n\n## User Intent\n');
@@ -105,15 +117,21 @@ function serializeAction(action: VesselAction): string {
 }
 
 function serializeInstance(
-  instance: VesselInstanceState,
+  instance: VesselInstanceSnapshot,
   vessels: Vessel[],
+  directive?: LayoutDirective,
 ): string {
   const vessel = vessels.find((v) => v.id === instance.vesselId);
   const variant = vessel?.variants[instance.variant];
 
   let line = `\n- ${instance.instanceId} (${instance.vesselId})`;
-  line += ` at row=${instance.position.row}, col=${instance.position.column}`;
-  line += ` size=${instance.size.width}×${instance.size.height}`;
+
+  // Position/size comes from layout directive if available
+  if (directive) {
+    line += ` at row=${directive.position.row}, col=${directive.position.column}`;
+    line += ` size=${directive.size.width}×${directive.size.height}`;
+  }
+
   line += `, variant: ${instance.variant}`;
 
   if (variant && variant.actions.length > 0) {
@@ -141,6 +159,14 @@ The layoutDirective is the source of truth for what's displayed:
 - Vessels NOT included in layoutDirective are HIDDEN
 - You must include ALL vessels you want visible in the layoutDirective
 - To hide a vessel, simply omit it from the layoutDirective
+
+AVAILABLE SPACE:
+You will be provided with "Available Space" showing free regions on the chart.
+- Use these regions when positioning new or moved vessels
+- Each region shows its size and position
+- If no free space is available, consider hiding less relevant vessels first
+- Vessels can be placed anywhere within an available region
+- Vessels should not overlap with each other
 
 Rules:
 - Only invoke actions that are available in the instance's current variant

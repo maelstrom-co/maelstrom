@@ -1,4 +1,5 @@
-import type { LayoutDirective, VesselInstance } from '@maelstrom/protocol';
+import type { LayoutDirective } from '@maelstrom/protocol';
+import type { VesselInstance } from '@maelstrom/client';
 import {
   type CSSProperties,
   type ReactNode,
@@ -136,15 +137,13 @@ interface VesselRendererProps {
 }
 
 function VesselRenderer({ instance, directive }: VesselRendererProps) {
-  const { state } = useMaelstromContext();
+  const { componentRegistry } = useMaelstromContext();
   const props = useVesselComponentProps(instance.instanceId);
 
-  const registration = state.vessels.get(instance.vesselId);
-  if (!registration || !props) {
+  const Component = componentRegistry.get(instance.vesselId);
+  if (!Component || !props) {
     return null;
   }
-
-  const Component = registration.component;
 
   // Use position and size from the layout directive (engine's instructions)
   const { position, size } = directive;

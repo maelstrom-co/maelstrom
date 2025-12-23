@@ -97,6 +97,9 @@
     "packages/client": {
       "name": "@maelstrom/client",
       "version": "0.0.1",
+      "dependencies": {
+        "@maelstrom/protocol": "workspace:*",
+      },
     },
     "packages/engine": {
       "name": "@maelstrom/engine",
@@ -128,8 +131,11 @@
     "packages/react": {
       "name": "@maelstrom/react",
       "version": "0.0.1",
-      "devDependencies": {
+      "dependencies": {
+        "@maelstrom/client": "workspace:*",
         "@maelstrom/protocol": "workspace:*",
+      },
+      "devDependencies": {
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
         "jsdom": "*",

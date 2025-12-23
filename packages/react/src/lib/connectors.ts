@@ -1,5 +1,5 @@
 import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
-import type { ConnectionState, EngineConnector } from './types';
+import type { ConnectionState, EngineConnector } from '@maelstrom/client';
 
 // ============================================================================
 // Direct Engine Connector
@@ -265,11 +265,7 @@ export function createMockConnector(
         userMessage: '',
         rationale: 'Mock response - no actions taken',
         executionPlan: [],
-        layoutDirective: request.instances.map((i) => ({
-          instanceId: i.instanceId,
-          position: i.position,
-          size: i.size,
-        })),
+        layoutDirective: request.layout,
       };
     },
   };

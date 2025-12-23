@@ -58,6 +58,7 @@ describe('buildPrompt', () => {
       },
       instances: [],
       vessels: [calendarVessel],
+      layout: [],
     };
 
     const prompt = buildPrompt(request);
@@ -79,6 +80,7 @@ describe('buildPrompt', () => {
       },
       instances: [],
       vessels: [calendarVessel],
+      layout: [],
     };
 
     const prompt = buildPrompt(request);
@@ -101,6 +103,7 @@ describe('buildPrompt', () => {
       },
       instances: [],
       vessels: [calendarVessel],
+      layout: [],
     };
 
     const prompt = buildPrompt(request);
@@ -123,11 +126,16 @@ describe('buildPrompt', () => {
           instanceId: 'calendar-1',
           vesselId: 'calendar',
           variant: 'month',
+        },
+      ],
+      vessels: [calendarVessel],
+      layout: [
+        {
+          instanceId: 'calendar-1',
           position: { row: 0, column: 0 },
           size: { width: 4, height: 4 },
         },
       ],
-      vessels: [calendarVessel],
     };
 
     const prompt = buildPrompt(request);
@@ -149,6 +157,7 @@ describe('buildPrompt', () => {
       },
       instances: [],
       vessels: [calendarVessel],
+      layout: [],
     };
 
     const prompt = buildPrompt(request);

@@ -1,164 +1,44 @@
-import type {
-  ActionCompletedEvent,
-  ActionStartedEvent,
-  ChartRequest,
-  LayoutAppliedEvent,
-  MaelstromEvent,
-  Vessel,
-} from '@maelstrom/protocol';
+import type { MaelstromEvent } from '@maelstrom/protocol';
+import {
+  createOrchestrator,
+  type MaelstromState,
+  type Orchestrator,
+  type StateAction,
+} from '@maelstrom/client';
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
 } from 'react';
-import type {
-  EngineConnector,
-  MaelstromAction,
-  MaelstromProviderProps,
-  MaelstromState,
-} from './types';
-
-// ============================================================================
-// Initial State
-// ============================================================================
-
-const initialState: MaelstromState = {
-  vessels: new Map(),
-  instances: new Map(),
-  layout: [],
-  chartDimensions: { columns: 12, rows: 8 },
-  connectionState: 'disconnected',
-  isProcessing: false,
-  lastError: null,
-  lastResponse: null,
-};
-
-// ============================================================================
-// Reducer
-// ============================================================================
-
-function reducer(
-  state: MaelstromState,
-  action: MaelstromAction,
-): MaelstromState {
-  switch (action.type) {
-    case 'REGISTER_VESSEL': {
-      const newVessels = new Map(state.vessels);
-      newVessels.set(action.registration.vessel.id, action.registration);
-      return { ...state, vessels: newVessels };
-    }
-    case 'UNREGISTER_VESSEL': {
-      const newVessels = new Map(state.vessels);
-      newVessels.delete(action.vesselId);
-      return { ...state, vessels: newVessels };
-    }
-    case 'ADD_INSTANCE': {
-      const newInstances = new Map(state.instances);
-      newInstances.set(action.instance.instanceId, action.instance);
-      // Also add to layout so new instances are visible by default
-      const newLayout = [
-        ...state.layout,
-        {
-          instanceId: action.instance.instanceId,
-          position: action.instance.position,
-          size: action.instance.size,
-        },
-      ];
-      return { ...state, instances: newInstances, layout: newLayout };
-    }
-    case 'UPDATE_INSTANCE': {
-      const existing = state.instances.get(action.instanceId);
-      if (!existing) return state;
-      const newInstances = new Map(state.instances);
-      newInstances.set(action.instanceId, { ...existing, ...action.updates });
-      return { ...state, instances: newInstances };
-    }
-    case 'REMOVE_INSTANCE': {
-      const newInstances = new Map(state.instances);
-      newInstances.delete(action.instanceId);
-      // Also remove from layout
-      const newLayout = state.layout.filter(
-        (d) => d.instanceId !== action.instanceId,
-      );
-      return { ...state, instances: newInstances, layout: newLayout };
-    }
-    case 'SET_CHART_DIMENSIONS':
-      return { ...state, chartDimensions: action.dimensions };
-    case 'SET_CONNECTION_STATE':
-      return { ...state, connectionState: action.state };
-    case 'SET_PROCESSING':
-      return { ...state, isProcessing: action.isProcessing };
-    case 'SET_ERROR':
-      return { ...state, lastError: action.error };
-    case 'APPLY_LAYOUT': {
-      // Store layout as source of truth for rendering
-      // Also update instance positions for consistency
-      const newInstances = new Map(state.instances);
-      for (const directive of action.directives) {
-        const existing = newInstances.get(directive.instanceId);
-        if (existing) {
-          newInstances.set(directive.instanceId, {
-            ...existing,
-            position: directive.position,
-            size: directive.size,
-          });
-        }
-      }
-      return { ...state, instances: newInstances, layout: action.directives };
-    }
-    case 'EXECUTE_ACTION': {
-      const existing = state.instances.get(action.execution.instanceId);
-      if (!existing) return state;
-
-      // Find the vessel definition
-      const vesselReg = state.vessels.get(existing.vesselId);
-      if (!vesselReg) return state;
-
-      // Find the current variant's actions
-      const currentVariant = vesselReg.vessel.variants[existing.variant];
-      if (!currentVariant) return state;
-
-      // Find the action
-      const actionDef = currentVariant.actions.find(
-        (a) => a.name === action.execution.action,
-      );
-      if (!actionDef) return state;
-
-      // Transition to new variant if specified
-      if (actionDef.transitionsTo) {
-        const newInstances = new Map(state.instances);
-        newInstances.set(existing.instanceId, {
-          ...existing,
-          variant: actionDef.transitionsTo,
-        });
-        return { ...state, instances: newInstances };
-      }
-
-      return state;
-    }
-    case 'SET_LAST_RESPONSE':
-      return { ...state, lastResponse: action.response };
-    default:
-      return state;
-  }
-}
+import type { MaelstromProviderProps, VesselComponentProps, VesselRegistration } from './types';
 
 // ============================================================================
 // Context
 // ============================================================================
 
 interface MaelstromContextValue {
+  /** The underlying orchestrator instance */
+  orchestrator: Orchestrator;
+  /** Get current state (triggers re-render on change) */
   state: MaelstromState;
-  dispatch: React.Dispatch<MaelstromAction>;
-  connector: EngineConnector;
-  sessionId: string;
-  cellSizePx: number;
-  debug: boolean;
-  emitEvent: (event: MaelstromEvent) => void;
+  /** Dispatch a state action */
+  dispatch: (action: StateAction) => void;
+  /** Component registry (React-specific) */
+  componentRegistry: Map<string, React.ComponentType<VesselComponentProps>>;
+  /** Register a vessel with its React component */
+  registerVessel: (registration: VesselRegistration) => void;
+  /** Unregister a vessel */
+  unregisterVessel: (vesselId: string) => void;
+  /** Process user intent */
   processIntent: (intent: string) => Promise<void>;
+  /** Cell size in pixels */
+  cellSizePx: number;
+  /** Debug mode */
+  debug: boolean;
 }
 
 const MaelstromContext = createContext<MaelstromContextValue | null>(null);
@@ -167,14 +47,9 @@ const MaelstromContext = createContext<MaelstromContextValue | null>(null);
 // Provider
 // ============================================================================
 
-let sessionCounter = 0;
-function generateSessionId(): string {
-  return `session-${Date.now()}-${++sessionCounter}`;
-}
-
 export function MaelstromProvider({
   connector,
-  sessionId: providedSessionId,
+  sessionId,
   cellSizePx = 80,
   debug = false,
   onEvent,
@@ -182,8 +57,28 @@ export function MaelstromProvider({
   onError,
   children,
 }: MaelstromProviderProps) {
-  const [state, dispatch] = useReducer(reducer, initialState);
-  const sessionId = useRef(providedSessionId || generateSessionId()).current;
+  // Create orchestrator once
+  const orchestrator = useMemo(
+    () =>
+      createOrchestrator(connector, {
+        sessionId,
+        cellSizePx,
+        debug,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [], // Only create once
+  );
+
+  // React-specific component registry
+  const componentRegistry = useMemo(
+    () => new Map<string, React.ComponentType<VesselComponentProps>>(),
+    [],
+  );
+
+  // Force re-render on state changes
+  const [, forceRender] = useReducer((x) => x + 1, 0);
+
+  // Keep refs to callbacks to avoid re-subscribing
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
   const onResponseRef = useRef(onResponse);
@@ -191,191 +86,83 @@ export function MaelstromProvider({
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
-  // Emit events
-  const emitEvent = useCallback(
-    (event: MaelstromEvent) => {
-      if (debug) {
-        console.log('[Maelstrom Event]', event);
-      }
-      onEventRef.current?.(event);
-    },
-    [debug],
-  );
-
-  // Connect to engine on mount
+  // Subscribe to orchestrator state changes
   useEffect(() => {
-    if (connector.connect) {
-      dispatch({ type: 'SET_CONNECTION_STATE', state: 'connecting' });
-      connector
-        .connect()
-        .then(() =>
-          dispatch({ type: 'SET_CONNECTION_STATE', state: 'connected' }),
-        )
-        .catch(() =>
-          dispatch({ type: 'SET_CONNECTION_STATE', state: 'error' }),
-        );
-    } else {
-      // No connection needed (e.g., direct function calls)
-      dispatch({ type: 'SET_CONNECTION_STATE', state: 'connected' });
-    }
+    return orchestrator.subscribe(() => forceRender());
+  }, [orchestrator]);
 
-    // Subscribe to connection state changes
-    const unsubscribe = connector.onConnectionStateChange?.((connectionState) =>
-      dispatch({ type: 'SET_CONNECTION_STATE', state: connectionState }),
-    );
+  // Subscribe to events
+  useEffect(() => {
+    return orchestrator.onEvent((event: MaelstromEvent) => {
+      onEventRef.current?.(event);
+    });
+  }, [orchestrator]);
+
+  // Connect on mount
+  useEffect(() => {
+    orchestrator.connect().catch((err) => {
+      if (debug) {
+        console.error('[Maelstrom] Connection error:', err);
+      }
+    });
 
     return () => {
-      unsubscribe?.();
-      connector.disconnect?.();
+      orchestrator.disconnect();
     };
-  }, [connector]);
+  }, [orchestrator, debug]);
 
-  // Process user intent
+  // Dispatch wrapper
+  const dispatch = useCallback(
+    (action: StateAction) => {
+      orchestrator.dispatch(action);
+    },
+    [orchestrator],
+  );
+
+  // Register vessel with React component
+  const registerVessel = useCallback(
+    (registration: VesselRegistration) => {
+      orchestrator.getRegistry().register(registration.vessel);
+      componentRegistry.set(registration.vessel.id, registration.component);
+      forceRender();
+    },
+    [orchestrator, componentRegistry],
+  );
+
+  // Unregister vessel
+  const unregisterVessel = useCallback(
+    (vesselId: string) => {
+      orchestrator.getRegistry().unregister(vesselId);
+      componentRegistry.delete(vesselId);
+      forceRender();
+    },
+    [orchestrator, componentRegistry],
+  );
+
+  // Process intent wrapper with callbacks
   const processIntent = useCallback(
     async (intent: string) => {
-      if (state.isProcessing) {
-        if (debug) console.log('[Maelstrom] Already processing, skipping');
-        return;
-      }
-
-      dispatch({ type: 'SET_PROCESSING', isProcessing: true });
-      dispatch({ type: 'SET_ERROR', error: null });
-
       try {
-        // Build request
-        const vessels: Vessel[] = Array.from(state.vessels.values()).map(
-          (r) => r.vessel,
-        );
-        const instances = Array.from(state.instances.values()).map((i) => ({
-          instanceId: i.instanceId,
-          vesselId: i.vesselId,
-          variant: i.variant,
-          position: i.position,
-          size: i.size,
-        }));
-
-        const request: ChartRequest = {
-          type: 'chart_request',
-          id: `req-${Date.now()}`,
-          context: {
-            userIntent: intent,
-            chartDimensions: state.chartDimensions,
-            timestamp: Date.now(),
-            sessionId,
-          },
-          instances,
-          vessels,
-          currentLayout: state.layout,
-        };
-
-        if (debug) {
-          console.log('[Maelstrom] Sending request:', request);
-        }
-
-        // Send to engine
-        const response = await connector.process(request);
-
-        if (debug) {
-          console.log('[Maelstrom] Received response:', response);
-        }
-
-        // Store the last response
-        dispatch({ type: 'SET_LAST_RESPONSE', response });
-
-        // Execute actions in order
-        for (const execution of response.executionPlan) {
-          const instance = state.instances.get(execution.instanceId);
-          if (!instance) continue;
-
-          const startEvent: ActionStartedEvent = {
-            type: 'action_started',
-            instanceId: execution.instanceId,
-            action: execution.action,
-            params: execution.params,
-            timestamp: Date.now(),
-          };
-          emitEvent(startEvent);
-
-          const startTime = Date.now();
-          const fromVariant = instance.variant;
-
-          try {
-            // Execute the action (state transition)
-            dispatch({ type: 'EXECUTE_ACTION', execution });
-
-            // Find the new variant
-            const vesselReg = state.vessels.get(instance.vesselId);
-            const actionDef = vesselReg?.vessel.variants[
-              instance.variant
-            ]?.actions.find((a) => a.name === execution.action);
-            const toVariant = actionDef?.transitionsTo || fromVariant;
-
-            const completedEvent: ActionCompletedEvent = {
-              type: 'action_completed',
-              instanceId: execution.instanceId,
-              action: execution.action,
-              fromVariant,
-              toVariant,
-              success: true,
-              duration: Date.now() - startTime,
-              timestamp: Date.now(),
-            };
-            emitEvent(completedEvent);
-          } catch (err) {
-            const completedEvent: ActionCompletedEvent = {
-              type: 'action_completed',
-              instanceId: execution.instanceId,
-              action: execution.action,
-              fromVariant,
-              toVariant: fromVariant,
-              success: false,
-              error: err instanceof Error ? err.message : 'Unknown error',
-              duration: Date.now() - startTime,
-              timestamp: Date.now(),
-            };
-            emitEvent(completedEvent);
-          }
-        }
-
-        // Apply layout directives (this is the source of truth for what's rendered)
-        dispatch({
-          type: 'APPLY_LAYOUT',
-          directives: response.layoutDirective,
-        });
-
-        const layoutEvent: LayoutAppliedEvent = {
-          type: 'layout_applied',
-          directives: response.layoutDirective,
-          timestamp: Date.now(),
-        };
-        emitEvent(layoutEvent);
-
-        // Call onResponse callback so consumer can handle userMessage
+        const response = await orchestrator.processIntent(intent);
         onResponseRef.current?.(response);
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
-        dispatch({ type: 'SET_ERROR', error: error.message });
-        if (debug) {
-          console.error('[Maelstrom] Error:', err);
-        }
-        // Call onError callback
         onErrorRef.current?.(error);
-      } finally {
-        dispatch({ type: 'SET_PROCESSING', isProcessing: false });
       }
     },
-    [state, connector, sessionId, debug, emitEvent],
+    [orchestrator],
   );
 
   const value: MaelstromContextValue = {
-    state,
+    orchestrator,
+    state: orchestrator.getState(),
     dispatch,
-    connector,
-    sessionId,
+    componentRegistry,
+    registerVessel,
+    unregisterVessel,
+    processIntent,
     cellSizePx,
     debug,
-    emitEvent,
-    processIntent,
   };
 
   return (
@@ -386,9 +173,13 @@ export function MaelstromProvider({
 }
 
 // ============================================================================
-// Hook
+// Context Hook
 // ============================================================================
 
+/**
+ * Internal hook to access the Maelstrom context.
+ * Use the hooks from './hooks' for public API.
+ */
 export function useMaelstromContext(): MaelstromContextValue {
   const context = useContext(MaelstromContext);
   if (!context) {

@@ -14,8 +14,11 @@
       "default": "./dist/index.js"
     }
   },
+  "dependencies": {
+    "@maelstrom/client": "workspace:*",
+    "@maelstrom/protocol": "workspace:*"
+  },
   "devDependencies": {
-    "@maelstrom/protocol": "workspace:*",
     "@testing-library/jest-dom": "*",
     "@testing-library/react": "*",
     "jsdom": "*"

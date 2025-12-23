@@ -107,11 +107,16 @@ describeIntegration('Engine Integration (Google Gemini)', () => {
           instanceId: 'calendar-1',
           vesselId: 'calendar',
           variant: 'month',
+        },
+      ],
+      vessels: [calendarVessel, weatherVessel],
+      layout: [
+        {
+          instanceId: 'calendar-1',
           position: { row: 0, column: 0 },
           size: { width: 4, height: 4 },
         },
       ],
-      vessels: [calendarVessel, weatherVessel],
     };
 
     const response = await engine.process(request);
@@ -149,18 +154,26 @@ describeIntegration('Engine Integration (Google Gemini)', () => {
           instanceId: 'calendar-1',
           vesselId: 'calendar',
           variant: 'month',
-          position: { row: 0, column: 0 },
-          size: { width: 4, height: 4 },
         },
         {
           instanceId: 'weather-1',
           vesselId: 'weather',
           variant: 'current',
+        },
+      ],
+      vessels: [calendarVessel, weatherVessel],
+      layout: [
+        {
+          instanceId: 'calendar-1',
+          position: { row: 0, column: 0 },
+          size: { width: 4, height: 4 },
+        },
+        {
+          instanceId: 'weather-1',
           position: { row: 0, column: 5 },
           size: { width: 2, height: 2 },
         },
       ],
-      vessels: [calendarVessel, weatherVessel],
     };
 
     const response = await engine.process(request);

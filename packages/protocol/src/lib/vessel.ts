@@ -1,4 +1,4 @@
-import type { ChartPosition, ChartSize } from './chart.js';
+import type { ChartSize } from './chart.js';
 
 /** Definition of a Vessel as a state machine */
 export interface Vessel {
@@ -44,18 +44,4 @@ export interface ActionParameter {
   required?: boolean;
   defaultValue?: unknown;
   enum?: unknown[];
-}
-
-/** Runtime instance of a Vessel */
-export interface VesselInstance {
-  /** Unique instance ID */
-  instanceId: string;
-  /** ID of the Vessel type */
-  vesselId: string;
-  /** Current variant name */
-  variant: string;
-  /** Current position on the Chart */
-  position: ChartPosition;
-  /** Current size (>= variant's minSize) */
-  size: ChartSize;
 }

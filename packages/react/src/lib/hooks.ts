@@ -2,9 +2,9 @@ import type {
   ChartDimensions,
   Vessel,
   VesselAction,
-  VesselInstance,
   VesselVariant,
 } from '@maelstrom/protocol';
+import type { VesselInstance } from '@maelstrom/client';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useMaelstromContext } from './context';
 import type {
@@ -21,7 +21,7 @@ import type {
  * Main hook for accessing Maelstrom functionality
  */
 export function useMaelstrom() {
-  const { state, processIntent, cellSizePx, debug, sessionId } =
+  const { state, processIntent, cellSizePx, debug, orchestrator } =
     useMaelstromContext();
 
   return {
@@ -44,7 +44,7 @@ export function useMaelstrom() {
     /** Debug mode enabled */
     debug,
     /** Session ID */
-    sessionId,
+    sessionId: orchestrator.getConfig().sessionId,
   };
 }
 
@@ -56,22 +56,22 @@ export function useMaelstrom() {
  * Register a vessel definition with its React component
  */
 export function useVesselRegistration(registration: VesselRegistration): void {
-  const { dispatch } = useMaelstromContext();
+  const { registerVessel, unregisterVessel } = useMaelstromContext();
 
   useEffect(() => {
-    dispatch({ type: 'REGISTER_VESSEL', registration });
+    registerVessel(registration);
     return () => {
-      dispatch({ type: 'UNREGISTER_VESSEL', vesselId: registration.vessel.id });
+      unregisterVessel(registration.vessel.id);
     };
-  }, [dispatch, registration]);
+  }, [registerVessel, unregisterVessel, registration]);
 }
 
 /**
  * Get a registered vessel definition
  */
 export function useVessel(vesselId: string): Vessel | undefined {
-  const { state } = useMaelstromContext();
-  return state.vessels.get(vesselId)?.vessel;
+  const { orchestrator } = useMaelstromContext();
+  return orchestrator.getRegistry().get(vesselId);
 }
 
 // ============================================================================
@@ -82,7 +82,7 @@ export function useVessel(vesselId: string): Vessel | undefined {
  * Create a new vessel instance
  */
 export function useCreateInstance() {
-  const { state, dispatch } = useMaelstromContext();
+  const { orchestrator, dispatch } = useMaelstromContext();
 
   return useCallback(
     (
@@ -94,13 +94,12 @@ export function useCreateInstance() {
         size?: { width: number; height: number };
       },
     ): VesselInstance | null => {
-      const registration = state.vessels.get(vesselId);
-      if (!registration) {
+      const vessel = orchestrator.getRegistry().get(vesselId);
+      if (!vessel) {
         console.warn(`[Maelstrom] Vessel '${vesselId}' is not registered`);
         return null;
       }
 
-      const vessel = registration.vessel;
       const variant = options?.variant || vessel.defaultVariant;
       const variantDef = vessel.variants[variant];
 
@@ -123,7 +122,7 @@ export function useCreateInstance() {
       dispatch({ type: 'ADD_INSTANCE', instance });
       return instance;
     },
-    [state.vessels, dispatch],
+    [orchestrator, dispatch],
   );
 }
 
@@ -173,14 +172,14 @@ export function useRemoveInstance() {
 export function useInstanceVariant(
   instanceId: string,
 ): VesselVariant | undefined {
-  const { state } = useMaelstromContext();
+  const { state, orchestrator } = useMaelstromContext();
   const instance = state.instances.get(instanceId);
   if (!instance) return undefined;
 
-  const registration = state.vessels.get(instance.vesselId);
-  if (!registration) return undefined;
+  const vessel = orchestrator.getRegistry().get(instance.vesselId);
+  if (!vessel) return undefined;
 
-  return registration.vessel.variants[instance.variant];
+  return vessel.variants[instance.variant];
 }
 
 /**
@@ -195,7 +194,7 @@ export function useInstanceActions(instanceId: string): VesselAction[] {
  * Execute an action on an instance
  */
 export function useExecuteAction(instanceId: string) {
-  const { dispatch, state, emitEvent } = useMaelstromContext();
+  const { dispatch, state, orchestrator } = useMaelstromContext();
 
   return useCallback(
     (actionName: string, params?: Record<string, unknown>) => {
@@ -205,15 +204,15 @@ export function useExecuteAction(instanceId: string) {
         return;
       }
 
-      const registration = state.vessels.get(instance.vesselId);
-      if (!registration) {
+      const vessel = orchestrator.getRegistry().get(instance.vesselId);
+      if (!vessel) {
         console.warn(
           `[Maelstrom] Vessel '${instance.vesselId}' not registered`,
         );
         return;
       }
 
-      const variant = registration.vessel.variants[instance.variant];
+      const variant = vessel.variants[instance.variant];
       if (!variant) {
         console.warn(`[Maelstrom] Variant '${instance.variant}' not found`);
         return;
@@ -227,34 +226,13 @@ export function useExecuteAction(instanceId: string) {
         return;
       }
 
-      emitEvent({
-        type: 'action_started',
-        instanceId,
-        action: actionName,
-        params,
-        timestamp: Date.now(),
-      });
-
-      const startTime = Date.now();
-      const fromVariant = instance.variant;
-
       dispatch({
         type: 'EXECUTE_ACTION',
         execution: { instanceId, action: actionName, params },
-      });
-
-      emitEvent({
-        type: 'action_completed',
-        instanceId,
-        action: actionName,
-        fromVariant,
-        toVariant: action.transitionsTo || fromVariant,
-        success: true,
-        duration: Date.now() - startTime,
-        timestamp: Date.now(),
+        registry: orchestrator.getRegistry(),
       });
     },
-    [instanceId, state, dispatch, emitEvent],
+    [instanceId, state, dispatch, orchestrator],
   );
 }
 
@@ -323,16 +301,16 @@ export function useConnectionState(): ConnectionState {
 export function useVesselComponentProps(
   instanceId: string,
 ): VesselComponentProps | null {
-  const { state } = useMaelstromContext();
+  const { state, orchestrator } = useMaelstromContext();
   const executeAction = useExecuteAction(instanceId);
 
   const instance = state.instances.get(instanceId);
   if (!instance) return null;
 
-  const registration = state.vessels.get(instance.vesselId);
-  if (!registration) return null;
+  const vessel = orchestrator.getRegistry().get(instance.vesselId);
+  if (!vessel) return null;
 
-  const variant = registration.vessel.variants[instance.variant];
+  const variant = vessel.variants[instance.variant];
   if (!variant) return null;
 
   return {

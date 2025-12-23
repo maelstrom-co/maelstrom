@@ -17,21 +17,19 @@ export interface ChartRequest {
     /** Session identifier for conversation continuity */
     sessionId: string;
   };
-  /** All Vessel instances with their state */
-  instances: VesselInstanceState[];
+  /** All Vessel instances with their current variant state */
+  instances: VesselInstanceSnapshot[];
   /** All registered Vessel definitions */
   vessels: Vessel[];
   /** Current layout - which instances are visible and where (empty = all hidden) */
-  currentLayout?: LayoutDirective[];
+  layout: LayoutDirective[];
 }
 
-/** Current state of a Vessel instance (for context) */
-export interface VesselInstanceState {
+/** Snapshot of a Vessel instance's state (for wire transfer) */
+export interface VesselInstanceSnapshot {
   instanceId: string;
   vesselId: string;
   variant: string;
-  position: ChartPosition;
-  size: ChartSize;
 }
 
 /** TTS configuration for speech output */
