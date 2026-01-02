@@ -1,16 +1,30 @@
 import { google } from '@ai-sdk/google';
-import { createAISDKProvider, createEngine } from '@maelstrom/engine';
+import {
+  createAISDKProvider,
+  createEngine,
+  createInMemoryHistoryStore,
+} from '@maelstrom/engine';
 import type { ChartRequest } from '@maelstrom/protocol';
 import { createServerFn } from '@tanstack/react-start';
 
-// Create the engine with Gemini provider
+// Create the engine with Gemini provider and conversation history
 const provider = createAISDKProvider(google('gemini-3-flash-preview'));
+const historyStore = createInMemoryHistoryStore({
+  sessionTtlMs: 60 * 60 * 1000, // 1 hour
+  maxEntriesPerSession: 50,
+});
+
 const engine = createEngine({
   provider,
   timeout: 30000,
   retry: {
     maxAttempts: 2,
     initialDelayMs: 500,
+  },
+  history: {
+    store: historyStore,
+    contentLevel: 'full',
+    maxEntries: 20,
   },
 });
 

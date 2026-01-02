@@ -1,3 +1,9 @@
+import type {
+  AIMessage,
+  HistoryConfig,
+  HistoryStore,
+} from './history/index.js';
+
 /**
  * Abstract LLM provider interface.
  * Implement this to integrate with any LLM provider.
@@ -10,6 +16,20 @@ export interface LLMProvider {
    * @returns The LLM's text response
    */
   complete(prompt: string, systemPrompt: string): Promise<string>;
+
+  /**
+   * Send a conversation with history to the LLM.
+   * If not implemented, the engine will fall back to `complete()`.
+   * @param messages - Conversation history as messages
+   * @param currentPrompt - The current turn's prompt
+   * @param systemPrompt - The system prompt
+   * @returns The LLM's text response
+   */
+  completeWithHistory?(
+    messages: AIMessage[],
+    currentPrompt: string,
+    systemPrompt: string,
+  ): Promise<string>;
 }
 
 /**
@@ -41,6 +61,12 @@ export interface EngineConfig {
 
   /** Retry configuration for failed LLM requests */
   retry?: RetryConfig;
+
+  /** History configuration (optional - enables history if provided) */
+  history?: HistoryConfig & {
+    /** The history store to use */
+    store: HistoryStore;
+  };
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { LanguageModel } from 'ai';
 import { generateText } from 'ai';
+import type { AIMessage } from './history/index.js';
 import type { LLMProvider } from './types.js';
 
 /**
@@ -28,6 +29,29 @@ export function createAISDKProvider(model: LanguageModel): LLMProvider {
         model,
         system: systemPrompt,
         prompt,
+      });
+
+      return result.text;
+    },
+
+    async completeWithHistory(
+      messages: AIMessage[],
+      currentPrompt: string,
+      systemPrompt: string,
+    ): Promise<string> {
+      // Convert history messages and append current prompt as user message
+      const aiMessages = [
+        ...messages.map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
+        { role: 'user' as const, content: currentPrompt },
+      ];
+
+      const result = await generateText({
+        model,
+        system: systemPrompt,
+        messages: aiMessages,
       });
 
       return result.text;

@@ -1,4 +1,5 @@
 import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
+import { createHistoryManager } from './history/index.js';
 import { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './prompt-builder.js';
 import { parseResponse } from './response-parser.js';
 import type { EngineConfig, RetryConfig } from './types.js';
@@ -12,6 +13,11 @@ export interface Engine {
    * Process a chart request and return decisions.
    */
   process(request: ChartRequest): Promise<MaelstromResponse>;
+
+  /**
+   * Clear history for a session (if history is enabled).
+   */
+  clearSessionHistory?(sessionId: string): Promise<void>;
 }
 
 /**
@@ -23,6 +29,7 @@ export function createEngine(config: EngineConfig): Engine {
     systemPrompt = DEFAULT_SYSTEM_PROMPT,
     timeout = 30000,
     retry = {},
+    history: historyConfig,
   } = config;
 
   const retryConfig: Required<RetryConfig> = {
@@ -32,22 +39,63 @@ export function createEngine(config: EngineConfig): Engine {
     backoffMultiplier: retry.backoffMultiplier ?? 2,
   };
 
+  // Create history manager if configured
+  const historyManager = historyConfig
+    ? createHistoryManager(historyConfig.store, {
+        contentLevel: historyConfig.contentLevel,
+        maxEntries: historyConfig.maxEntries,
+        maxTokens: historyConfig.maxTokens,
+        sessionTtlMs: historyConfig.sessionTtlMs,
+      })
+    : null;
+
   return {
     async process(request: ChartRequest): Promise<MaelstromResponse> {
       // Build the prompt from the request
       const prompt = buildPrompt(request);
 
-      // Call the LLM with retry and timeout
-      const llmResponse = await retryWithBackoff(
-        () => withTimeout(provider.complete(prompt, systemPrompt), timeout),
-        retryConfig,
-      );
+      let llmResponse: string;
+
+      // Use history-aware completion if available and configured
+      const completeWithHistory = provider.completeWithHistory;
+      if (historyManager && completeWithHistory) {
+        const sessionId = request.context.sessionId;
+        const historyMessages =
+          await historyManager.getMessagesForSession(sessionId);
+
+        llmResponse = await retryWithBackoff(
+          () =>
+            withTimeout(
+              completeWithHistory(historyMessages, prompt, systemPrompt),
+              timeout,
+            ),
+          retryConfig,
+        );
+      } else {
+        // Fallback to simple completion
+        llmResponse = await retryWithBackoff(
+          () => withTimeout(provider.complete(prompt, systemPrompt), timeout),
+          retryConfig,
+        );
+      }
 
       // Parse the response
       const response = parseResponse(llmResponse, request);
 
+      // Record to history if enabled
+      if (historyManager) {
+        await historyManager.recordTurn(request, response);
+      }
+
       return response;
     },
+
+    // Expose history clearing if history is enabled
+    ...(historyManager && {
+      async clearSessionHistory(sessionId: string): Promise<void> {
+        await historyManager.clearSession(sessionId);
+      },
+    }),
   };
 }
 

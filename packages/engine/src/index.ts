@@ -9,3 +9,20 @@ export { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './lib/prompt-builder.js';
 // Types
 export type { EngineConfig, LLMProvider, RetryConfig } from './lib/types.js';
 export { EngineError } from './lib/types.js';
+
+// History
+export type {
+  AIMessage,
+  HistoryConfig,
+  HistoryContentLevel,
+  HistoryEntry,
+  HistoryManager,
+  HistoryStore,
+  InMemoryHistoryStore,
+  InMemoryStoreConfig,
+} from './lib/history/index.js';
+export {
+  createHistoryManager,
+  createInMemoryHistoryStore,
+  DEFAULT_HISTORY_CONFIG,
+} from './lib/history/index.js';

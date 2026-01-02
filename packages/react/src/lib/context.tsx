@@ -14,7 +14,11 @@ import {
   useReducer,
   useRef,
 } from 'react';
-import type { MaelstromProviderProps, VesselComponentProps, VesselRegistration } from './types';
+import type {
+  MaelstromProviderProps,
+  VesselComponentProps,
+  VesselRegistration,
+} from './types';
 
 // ============================================================================
 // Context
@@ -57,16 +61,12 @@ export function MaelstromProvider({
   onError,
   children,
 }: MaelstromProviderProps) {
-  // Create orchestrator once
+  // Create orchestrator when connector or sessionId changes
+  // cellSizePx and debug are not passed here - they're used directly from props
+  // in the context value, making them reactive without recreating the orchestrator
   const orchestrator = useMemo(
-    () =>
-      createOrchestrator(connector, {
-        sessionId,
-        cellSizePx,
-        debug,
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [], // Only create once
+    () => createOrchestrator(connector, { sessionId }),
+    [connector, sessionId],
   );
 
   // React-specific component registry

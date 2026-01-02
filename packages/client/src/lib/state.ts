@@ -5,7 +5,11 @@ import type {
   MaelstromResponse,
 } from '@maelstrom/protocol';
 import type { VesselRegistry } from './registry.js';
-import type { ConnectionState, MaelstromState, VesselInstance } from './types.js';
+import type {
+  ConnectionState,
+  MaelstromState,
+  VesselInstance,
+} from './types.js';
 
 // ============================================================================
 // State Actions
@@ -24,7 +28,11 @@ export type StateAction =
   | { type: 'SET_PROCESSING'; isProcessing: boolean }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'APPLY_LAYOUT'; directives: LayoutDirective[] }
-  | { type: 'EXECUTE_ACTION'; execution: ActionExecution; registry: VesselRegistry }
+  | {
+      type: 'EXECUTE_ACTION';
+      execution: ActionExecution;
+      registry: VesselRegistry;
+    }
   | { type: 'SET_LAST_RESPONSE'; response: MaelstromResponse | null };
 
 // ============================================================================

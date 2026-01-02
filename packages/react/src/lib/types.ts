@@ -1,9 +1,18 @@
-import type { MaelstromEvent, MaelstromResponse, Vessel } from '@maelstrom/protocol';
+import type {
+  MaelstromEvent,
+  MaelstromResponse,
+  Vessel,
+} from '@maelstrom/protocol';
 import type { EngineConnector, VesselInstance } from '@maelstrom/client';
 import type React from 'react';
 
 // Re-export commonly used types from client for convenience
-export type { ConnectionState, EngineConnector, MaelstromState, VesselInstance } from '@maelstrom/client';
+export type {
+  ConnectionState,
+  EngineConnector,
+  MaelstromState,
+  VesselInstance,
+} from '@maelstrom/client';
 
 // ============================================================================
 // React-specific Types

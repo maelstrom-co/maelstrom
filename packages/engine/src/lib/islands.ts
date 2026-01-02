@@ -106,7 +106,8 @@ function findRectanglesInHistogram(
 
     let startIndex = c;
     while (stack.length > 0 && stack[stack.length - 1].height > currentHeight) {
-      const top = stack.pop()!;
+      const top = stack.pop();
+      if (!top) break;
       const width = c - top.index;
       const height = top.height;
 
@@ -127,7 +128,10 @@ function findRectanglesInHistogram(
     }
 
     if (currentHeight > 0) {
-      if (stack.length === 0 || stack[stack.length - 1].height < currentHeight) {
+      if (
+        stack.length === 0 ||
+        stack[stack.length - 1].height < currentHeight
+      ) {
         stack.push({ index: startIndex, height: currentHeight });
       }
     }
