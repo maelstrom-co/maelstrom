@@ -34,7 +34,10 @@ export const processChartRequest = createServerFn({ method: 'POST' })
   .inputValidator((data: ChartRequest) => data)
   .handler(async ({ data }) => {
     console.log('[Maelstrom Server] Processing request:', data.id);
-    console.log('[Maelstrom Server] User intent:', data.context.userIntent);
+    console.log(
+      '[Maelstrom Server] Update reasons:',
+      data.context.updateReasons,
+    );
 
     try {
       const response = await engine.process(data);

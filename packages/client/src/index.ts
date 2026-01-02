@@ -12,3 +12,7 @@ export type { StateAction } from './lib/state.js';
 // Orchestrator
 export { createOrchestrator } from './lib/orchestrator.js';
 export type { Orchestrator } from './lib/orchestrator.js';
+
+// Update Queue
+export { createUpdateQueue } from './lib/update-queue.js';
+export type { UpdateQueue, UpdateQueueConfig } from './lib/update-queue.js';

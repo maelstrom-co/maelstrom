@@ -48,38 +48,39 @@ Vessels are the fundamental building blocks of a Maelstrom application. Each Ves
 
 Each Vessel declares:
 
-| Property | Purpose |
-|----------|---------|
-| `id` | Unique identifier for the Vessel |
-| `name` | Human-readable name |
-| `description` | Semantic description for the LLM to understand purpose |
-| `defaultVariant` | Starting variant when the Vessel is created |
-| `variants` | Map of variant names to variant definitions |
+| Property         | Purpose                                                |
+| ---------------- | ------------------------------------------------------ |
+| `id`             | Unique identifier for the Vessel                       |
+| `name`           | Human-readable name                                    |
+| `description`    | Semantic description for the LLM to understand purpose |
+| `defaultVariant` | Starting variant when the Vessel is created            |
+| `variants`       | Map of variant names to variant definitions            |
 
 #### Variants
 
 Each variant represents a discrete state of the Vessel:
 
-| Property | Purpose |
-|----------|---------|
-| `props` | State properties for this variant (e.g., `{ view: 'month' }`) |
-| `minSize` | Minimum chart size required to display this variant |
-| `actions` | Actions available when in this variant |
+| Property  | Purpose                                                       |
+| --------- | ------------------------------------------------------------- |
+| `props`   | State properties for this variant (e.g., `{ view: 'month' }`) |
+| `minSize` | Minimum chart size required to display this variant           |
+| `actions` | Actions available when in this variant                        |
 
 #### Actions
 
 Actions are transitions in the state machine:
 
-| Property | Purpose |
-|----------|---------|
-| `name` | Action identifier |
-| `description` | What this action does (for LLM) |
-| `parameters` | Optional parameters for the action |
+| Property        | Purpose                                       |
+| --------------- | --------------------------------------------- |
+| `name`          | Action identifier                             |
+| `description`   | What this action does (for LLM)               |
+| `parameters`    | Optional parameters for the action            |
 | `transitionsTo` | Target variant (undefined if no state change) |
 
 #### Why State Machines?
 
 This design allows the LLM to:
+
 1. Know exactly what actions are available in the current variant
 2. Predict the size a Vessel will need after a transition
 3. Make intelligent trade-offs (e.g., "collapse Calendar to fit Weather")
@@ -106,6 +107,7 @@ The Chart manages the visual arrangement of Vessels on screen using a grid-based
 ```
 
 **Key Properties:**
+
 - **Grid Unit**: Configurable (default 80px × 80px)
 - **Available Grid**: Calculated from Chart container size: `cols = floor(containerWidth / gridUnit)`
 - **Coordinates**: Always integers (the LLM never deals with pixels)
@@ -121,6 +123,7 @@ Available: 12 cols × 8 rows
 ```
 
 This design allows:
+
 - Full-viewport Charts (container = viewport)
 - Split layouts (Chart beside other content)
 - Nested Charts (Chart inside another component)
@@ -152,7 +155,9 @@ The engine is the "brain" of the system. It takes context as input and produces 
 ```
 {
   context: {
-    userIntent: "Show me my calendar for next week",
+    updateReasons: [
+      { type: "user_intent", intent: "Show me my calendar for next week" }
+    ],
     chartDimensions: { cols: 12, rows: 8 },
     sessionId: "...",
     timestamp: 1234567890
@@ -163,6 +168,12 @@ The engine is the "brain" of the system. It takes context as input and produces 
   vessels: [...]  // All registered Vessel definitions
 }
 ```
+
+Update reasons can include types such as:
+
+- `user_intent`: Explicit user request
+- `chart_resize`: The chart container was resized
+- `vessel_mutation`: A vessel's state was changed externally
 
 #### Output: MaelstromResponse
 
@@ -198,10 +209,12 @@ The protocol defines the structure of messages between client and engine, indepe
 #### Message Types
 
 **Client → Engine:**
+
 - `ChartRequest`: User intent + current state
 - `PingMessage`: Heartbeat (if using persistent connection)
 
 **Engine → Client:**
+
 - `MaelstromResponse`: Execution plan + layout directives
 - `ErrorResponse`: Error information
 - `PongMessage`: Heartbeat response
@@ -210,11 +223,11 @@ The protocol defines the structure of messages between client and engine, indepe
 
 The protocol only defines message shapes. Transport is a separate concern:
 
-| Transport | Use Case |
-|-----------|----------|
+| Transport | Use Case                          |
+| --------- | --------------------------------- |
 | WebSocket | Real-time, persistent connections |
-| HTTP | Stateless, request/response |
-| In-memory | Testing, embedded deployments |
+| HTTP      | Stateless, request/response       |
+| In-memory | Testing, embedded deployments     |
 
 ---
 
@@ -264,6 +277,7 @@ The client MUST execute the response in this strict order:
 4. **Handle Overflow**: Manage Vessels that don't fit
 
 This order matters because:
+
 - Actions transition Vessels to new variants
 - New variants have different minSize requirements
 - Layout must allocate at least the minSize for each variant
@@ -299,11 +313,13 @@ The engine constructs prompts that include:
 5. **User intent**: What the user wants
 
 The LLM knows:
+
 - What actions are available in each instance's current variant
 - What variant each action transitions to
 - What size each variant requires
 
 The LLM returns structured JSON with:
+
 - Rationale (for debugging/logging)
 - Execution plan (actions to invoke, must be valid for current variant)
 - Layout directive (where to place Vessels, size must meet variant minSize)
@@ -315,12 +331,14 @@ The LLM returns structured JSON with:
 ### Hallucinated Coordinates
 
 If the LLM returns coordinates outside the Chart grid:
+
 - Clamp to nearest valid position
 - Log warning for debugging
 
 ### Invalid Actions
 
 If the LLM references an action that doesn't exist or isn't available in the current variant:
+
 - Skip the action
 - Log warning
 - Continue with remaining actions
@@ -328,6 +346,7 @@ If the LLM references an action that doesn't exist or isn't available in the cur
 ### Malformed Responses
 
 If the LLM returns invalid JSON or unexpected structure:
+
 - Return error to client
 - Client can retry or show error state
 
@@ -337,16 +356,17 @@ If the LLM returns invalid JSON or unexpected structure:
 
 The client emits events throughout the lifecycle for observability:
 
-| Event | When |
-|-------|------|
-| `requestSent` | Client sends request to engine |
-| `responseReceived` | Engine response arrives |
-| `actionStarted` | Before executing an action |
-| `actionCompleted` | After action completes (success or failure) |
-| `layoutApplied` | After layout directives are applied |
-| `connectionStateChanged` | Transport connection state changes |
+| Event                    | When                                        |
+| ------------------------ | ------------------------------------------- |
+| `requestSent`            | Client sends request to engine              |
+| `responseReceived`       | Engine response arrives                     |
+| `actionStarted`          | Before executing an action                  |
+| `actionCompleted`        | After action completes (success or failure) |
+| `layoutApplied`          | After layout directives are applied         |
+| `connectionStateChanged` | Transport connection state changes          |
 
 These enable:
+
 - Debugging during development
 - Analytics in production
 - UI feedback (spinners, etc.)
@@ -380,12 +400,14 @@ These enable:
 ### Streaming Responses
 
 Currently, the engine returns complete responses. Future versions may support streaming for:
+
 - Showing partial results as they're generated
 - Better perceived performance
 
 ### Additional Transports
 
 Future transport implementations:
+
 - `@maelstrom/transport-ws`: WebSocket transport
 - `@maelstrom/transport-http`: HTTP transport
 - `@maelstrom/transport-worker`: Web Worker transport

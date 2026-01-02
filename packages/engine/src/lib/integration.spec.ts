@@ -97,7 +97,9 @@ describeIntegration('Engine Integration (Google Gemini)', () => {
       type: 'chart_request',
       id: 'integration-test-1',
       context: {
-        userIntent: 'Show me the weekly calendar view',
+        updateReasons: [
+          { type: 'user_intent', intent: 'Show me the weekly calendar view' },
+        ],
         chartDimensions: { columns: 12, rows: 8 },
         timestamp: Date.now(),
         sessionId: 'integration-session',
@@ -144,7 +146,12 @@ describeIntegration('Engine Integration (Google Gemini)', () => {
       type: 'chart_request',
       id: 'integration-test-2',
       context: {
-        userIntent: 'Minimize the calendar and show the weather forecast',
+        updateReasons: [
+          {
+            type: 'user_intent',
+            intent: 'Minimize the calendar and show the weather forecast',
+          },
+        ],
         chartDimensions: { columns: 12, rows: 8 },
         timestamp: Date.now(),
         sessionId: 'integration-session',

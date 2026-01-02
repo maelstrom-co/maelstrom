@@ -235,7 +235,8 @@ interface ChartRequest {
   type: 'chart_request';
   id: string;
   context: {
-    userIntent: string;
+    /** Reasons that triggered this update (can be batched) */
+    updateReasons: UpdateReason[];
     chartDimensions: ChartDimensions;
     timestamp: number;
     sessionId: string;
@@ -245,6 +246,12 @@ interface ChartRequest {
   /** All registered Vessel definitions */
   vessels: Vessel[];
 }
+
+/** Update reason types */
+type UpdateReason =
+  | { type: 'user_intent'; intent: string }
+  | { type: 'chart_resize'; previous: ChartDimensions; current: ChartDimensions }
+  | { type: 'vessel_mutation'; instanceId: string; changes: string };
 
 /**
  * Current state of a Vessel instance (for context)

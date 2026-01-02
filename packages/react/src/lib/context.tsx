@@ -1,10 +1,10 @@
-import type { MaelstromEvent } from '@maelstrom/protocol';
 import {
   createOrchestrator,
   type MaelstromState,
   type Orchestrator,
   type StateAction,
 } from '@maelstrom/client';
+import type { MaelstromEvent } from '@maelstrom/protocol';
 import {
   createContext,
   useCallback,

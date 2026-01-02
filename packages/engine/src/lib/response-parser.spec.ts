@@ -38,7 +38,7 @@ const baseRequest: ChartRequest = {
   type: 'chart_request',
   id: 'test-1',
   context: {
-    userIntent: 'Show week view',
+    updateReasons: [{ type: 'user_intent', intent: 'Show week view' }],
     chartDimensions: { columns: 12, rows: 8 },
     timestamp: Date.now(),
     sessionId: 'session-1',

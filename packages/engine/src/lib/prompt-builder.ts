@@ -2,6 +2,7 @@ import type {
   ActionParameter,
   ChartRequest,
   LayoutDirective,
+  UpdateReason,
   Vessel,
   VesselAction,
   VesselInstanceSnapshot,
@@ -63,11 +64,42 @@ export function buildPrompt(request: ChartRequest): string {
   sections.push('\n\n## Available Space\n');
   sections.push(serializeIslands(islands));
 
-  // User Intent
-  sections.push('\n\n## User Intent\n');
-  sections.push(`"${request.context.userIntent}"`);
+  // Update Triggers
+  sections.push('\n\n## Update Triggers\n');
+  sections.push(serializeUpdateReasons(request.context.updateReasons));
 
   return sections.join('\n');
+}
+
+/**
+ * Serialize update reasons into a human-readable format for the LLM.
+ */
+function serializeUpdateReasons(reasons: UpdateReason[]): string {
+  if (reasons.length === 0) {
+    return 'No specific trigger (system check)';
+  }
+
+  const lines: string[] = [];
+
+  for (const reason of reasons) {
+    switch (reason.type) {
+      case 'user_intent':
+        lines.push(`- User said: "${reason.intent}"`);
+        break;
+      case 'chart_resize':
+        lines.push(
+          `- Chart resized: ${reason.previous.columns}×${reason.previous.rows} → ${reason.current.columns}×${reason.current.rows}`,
+        );
+        break;
+      case 'vessel_mutation':
+        lines.push(
+          `- Vessel "${reason.instanceId}" was modified: ${reason.changes}`,
+        );
+        break;
+    }
+  }
+
+  return lines.join('\n');
 }
 
 function serializeVessel(vessel: Vessel): string {
@@ -148,10 +180,28 @@ function serializeInstance(
 export const DEFAULT_SYSTEM_PROMPT = `You are Maelstrom, an AI that orchestrates UI components called Vessels.
 
 Your job is to:
-1. Understand the user's intent
+1. Understand the update triggers (user intent, chart resize, or vessel mutations)
 2. Decide which actions to execute on which Vessel instances
 3. Decide which Vessels should be VISIBLE and how to position them
 4. Provide a friendly, conversational response to the user
+
+UPDATE TRIGGERS:
+You may receive different types of update triggers:
+- "User said: ..." - The user explicitly requested something. Respond conversationally.
+- "Chart resized: ..." - The display area changed. Adjust layout to fit the new dimensions. Keep in mind that:
+  - If the chart has restricted space, elements far apart may need to be moved closer together.
+  - If the chart has a lot of space, elements close together may need to be moved further apart.
+  - Whenever possible, try to keep at least one cell of space between elements.
+- "Vessel modified: ..." - A vessel's state changed externally. Consider if layout adjustments are needed.
+
+When handling resize or mutation triggers (without user intent):
+- Keep the userMessage brief or informative (e.g., "Adjusted layout for new screen size.")
+- Focus on maintaining a good layout rather than explaining changes in detail
+- Only make changes if necessary; if the current layout still works, keep it
+
+When handling user intents:
+- Respond conversationally and helpfully
+- Explain what you're doing in the userMessage
 
 VISIBILITY CONTROL:
 The layoutDirective is the source of truth for what's displayed:
@@ -174,7 +224,7 @@ Rules:
 - Position Vessels within the Chart bounds (0 to columns-1, 0 to rows-1)
 - Vessels should not overlap
 - Execute actions before layout (actions may change variants and sizes)
-- Only show vessels that are relevant to the user's current intent
+- Only show vessels that are relevant to the user's current intent or that fit well in the available space
 
 REQUIRED RESPONSE FORMAT (JSON only):
 {
@@ -185,12 +235,12 @@ REQUIRED RESPONSE FORMAT (JSON only):
 }
 
 FIELD DESCRIPTIONS:
-- userMessage (REQUIRED): A friendly, conversational response to the user. This will be displayed in the chat UI and spoken aloud via text-to-speech. Examples: "Here's your calendar for this week.", "I've opened the weather widget for you.", "Sure, let me show you that."
+- userMessage (REQUIRED): A friendly, conversational response to the user. This will be displayed in the chat UI and spoken aloud via text-to-speech. For resize/mutation triggers, keep it brief. Examples: "Here's your calendar for this week.", "Adjusted layout for the new screen size.", "I've reorganized your widgets to fit better."
 - rationale: Your internal reasoning for debugging. This is NOT shown to the user.
 - executionPlan: Array of actions to execute. Empty array [] if no actions needed.
 - layoutDirective: Array of vessel positions. Empty array [] hides all vessels.
 
-EXAMPLE RESPONSE:
+EXAMPLE RESPONSE (User Intent):
 {
   "userMessage": "Here's the weather for your location.",
   "rationale": "User asked for weather. Showing weather vessel at top-right.",
@@ -199,6 +249,19 @@ EXAMPLE RESPONSE:
   ],
   "layoutDirective": [
     { "instanceId": "weather-1", "position": { "row": 0, "column": 8 }, "size": { "width": 4, "height": 3 } }
+  ]
+}
+
+EXAMPLE RESPONSE (Chart Resize):
+{
+  "userMessage": "Adjusted layout for the new screen size.",
+  "rationale": "Chart resized to smaller dimensions. Collapsed calendar to make room.",
+  "executionPlan": [
+    { "instanceId": "calendar-1", "action": "collapse" }
+  ],
+  "layoutDirective": [
+    { "instanceId": "calendar-1", "position": { "row": 0, "column": 0 }, "size": { "width": 2, "height": 2 } },
+    { "instanceId": "weather-1", "position": { "row": 0, "column": 2 }, "size": { "width": 3, "height": 2 } }
   ]
 }
 

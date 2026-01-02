@@ -1,6 +1,45 @@
 import type { ChartDimensions, ChartPosition, ChartSize } from './chart.js';
 import type { Vessel } from './vessel.js';
 
+// ============================================================================
+// Update Reason Types
+// ============================================================================
+
+/** Reason for triggering an engine update - user intent */
+export interface UserIntentReason {
+  type: 'user_intent';
+  /** The user's natural language intent */
+  intent: string;
+}
+
+/** Reason for triggering an engine update - chart resize */
+export interface ChartResizeReason {
+  type: 'chart_resize';
+  /** Previous chart dimensions */
+  previous: ChartDimensions;
+  /** Current chart dimensions */
+  current: ChartDimensions;
+}
+
+/** Reason for triggering an engine update - vessel state mutation */
+export interface VesselMutationReason {
+  type: 'vessel_mutation';
+  /** The instance that was mutated */
+  instanceId: string;
+  /** Description of what changed */
+  changes: string;
+}
+
+/** Union of all possible update reasons */
+export type UpdateReason =
+  | UserIntentReason
+  | ChartResizeReason
+  | VesselMutationReason;
+
+// ============================================================================
+// Request/Response Types
+// ============================================================================
+
 /** Request from client to engine */
 export interface ChartRequest {
   type: 'chart_request';
@@ -8,8 +47,8 @@ export interface ChartRequest {
   id: string;
   /** Request context */
   context: {
-    /** The user's natural language intent */
-    userIntent: string;
+    /** Reasons that triggered this update (can be batched) */
+    updateReasons: UpdateReason[];
     /** Current Chart dimensions */
     chartDimensions: ChartDimensions;
     /** Unix timestamp */

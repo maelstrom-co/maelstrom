@@ -51,7 +51,7 @@ describe('buildPrompt', () => {
       type: 'chart_request',
       id: 'test-1',
       context: {
-        userIntent: 'Show calendar',
+        updateReasons: [{ type: 'user_intent', intent: 'Show calendar' }],
         chartDimensions: { columns: 12, rows: 8 },
         timestamp: Date.now(),
         sessionId: 'session-1',
@@ -73,7 +73,7 @@ describe('buildPrompt', () => {
       type: 'chart_request',
       id: 'test-1',
       context: {
-        userIntent: 'Show calendar',
+        updateReasons: [{ type: 'user_intent', intent: 'Show calendar' }],
         chartDimensions: { columns: 12, rows: 8 },
         timestamp: Date.now(),
         sessionId: 'session-1',
@@ -96,7 +96,7 @@ describe('buildPrompt', () => {
       type: 'chart_request',
       id: 'test-1',
       context: {
-        userIntent: 'Show calendar',
+        updateReasons: [{ type: 'user_intent', intent: 'Show calendar' }],
         chartDimensions: { columns: 15, rows: 10 },
         timestamp: Date.now(),
         sessionId: 'session-1',
@@ -116,7 +116,7 @@ describe('buildPrompt', () => {
       type: 'chart_request',
       id: 'test-1',
       context: {
-        userIntent: 'Show week view',
+        updateReasons: [{ type: 'user_intent', intent: 'Show week view' }],
         chartDimensions: { columns: 12, rows: 8 },
         timestamp: Date.now(),
         sessionId: 'session-1',
@@ -145,12 +145,14 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('Available: showWeek');
   });
 
-  it('should include user intent', () => {
+  it('should include update triggers', () => {
     const request: ChartRequest = {
       type: 'chart_request',
       id: 'test-1',
       context: {
-        userIntent: 'Show my weekly schedule',
+        updateReasons: [
+          { type: 'user_intent', intent: 'Show my weekly schedule' },
+        ],
         chartDimensions: { columns: 12, rows: 8 },
         timestamp: Date.now(),
         sessionId: 'session-1',
@@ -162,7 +164,7 @@ describe('buildPrompt', () => {
 
     const prompt = buildPrompt(request);
 
-    expect(prompt).toContain('## User Intent');
-    expect(prompt).toContain('Show my weekly schedule');
+    expect(prompt).toContain('## Update Triggers');
+    expect(prompt).toContain('User said: "Show my weekly schedule"');
   });
 });
