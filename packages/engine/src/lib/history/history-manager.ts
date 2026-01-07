@@ -1,4 +1,8 @@
-import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
+import type {
+  ChartRequest,
+  MaelstromResponse,
+  UpdateReason,
+} from '@maelstrom/protocol';
 import type {
   AIMessage,
   HistoryConfig,
@@ -6,6 +10,21 @@ import type {
   HistoryStore,
 } from './types.js';
 import { DEFAULT_HISTORY_CONFIG } from './types.js';
+
+/**
+ * Extracts the user intent string from update reasons.
+ * Returns undefined if no user_intent reason exists.
+ */
+function extractUserIntent(updateReasons: UpdateReason[]): string | undefined {
+  const intents = updateReasons
+    .filter(
+      (r): r is Extract<UpdateReason, { type: 'user_intent' }> =>
+        r.type === 'user_intent',
+    )
+    .map((r) => r.intent);
+
+  return intents.length > 0 ? intents.join(' ') : undefined;
+}
 
 /**
  * Manages conversation history for the engine.
@@ -55,11 +74,14 @@ export function createHistoryManager(
   function entriesToMessages(entries: HistoryEntry[]): AIMessage[] {
     const messages: AIMessage[] = [];
 
-    for (const entry of entries) {
+    // Only include entries with user intent (skip resize/mutation-only entries)
+    const conversationalEntries = entries.filter((e) => e.userIntent);
+
+    for (const entry of conversationalEntries) {
       // User turn
       messages.push({
         role: 'user',
-        content: entry.userIntent,
+        content: entry.userIntent as string,
       });
 
       // Assistant turn - build content based on available data
@@ -99,11 +121,15 @@ export function createHistoryManager(
     request: ChartRequest,
     response: MaelstromResponse,
   ): HistoryEntry {
+    const { updateReasons } = request.context;
+    const userIntent = extractUserIntent(updateReasons);
+
     const base: HistoryEntry = {
       id: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       sessionId: request.context.sessionId,
       timestamp: request.context.timestamp,
-      userIntent: request.context.userIntent,
+      updateReasons,
+      userIntent,
       userMessage: response.userMessage,
     };
 

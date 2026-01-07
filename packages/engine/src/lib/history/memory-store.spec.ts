@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInMemoryHistoryStore } from './memory-store.js';
 import type { HistoryEntry } from './types.js';
 
@@ -11,6 +11,7 @@ function createEntry(
     id: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     sessionId,
     timestamp: Date.now(),
+    updateReasons: [{ type: 'user_intent', intent: userIntent }],
     userIntent,
     userMessage: `Response to: ${userIntent}`,
     ...overrides,

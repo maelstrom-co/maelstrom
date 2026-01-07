@@ -11,7 +11,7 @@ function createRequest(
     type: 'chart_request',
     id: `req-${Date.now()}`,
     context: {
-      userIntent,
+      updateReasons: [{ type: 'user_intent', intent: userIntent }],
       chartDimensions: { columns: 12, rows: 8 },
       timestamp: Date.now(),
       sessionId,
@@ -83,7 +83,10 @@ describe('createHistoryManager', () => {
       const entries = await manager.getEntries('session-1');
       expect(entries[0].fullRequest).toBeDefined();
       expect(entries[0].fullResponse).toBeDefined();
-      expect(entries[0].fullRequest?.context.userIntent).toBe('Show calendar');
+      expect(entries[0].fullRequest?.context.updateReasons[0]).toEqual({
+        type: 'user_intent',
+        intent: 'Show calendar',
+      });
     });
 
     it('should exclude rationale for minimal level', async () => {

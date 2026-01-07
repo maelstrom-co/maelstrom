@@ -1,4 +1,4 @@
-import type { LanguageModel } from 'ai';
+import type { LanguageModel, ModelMessage } from 'ai';
 import { generateText } from 'ai';
 import type { AIMessage } from './history/index.js';
 import type { LLMProvider } from './types.js';
@@ -40,12 +40,15 @@ export function createAISDKProvider(model: LanguageModel): LLMProvider {
       systemPrompt: string,
     ): Promise<string> {
       // Convert history messages and append current prompt as user message
-      const aiMessages = [
-        ...messages.map((m) => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        })),
-        { role: 'user' as const, content: currentPrompt },
+      // Explicitly type as ModelMessage[] for AI SDK 5.x compatibility
+      const aiMessages: ModelMessage[] = [
+        ...messages.map(
+          (m): ModelMessage => ({
+            role: m.role,
+            content: m.content,
+          }),
+        ),
+        { role: 'user', content: currentPrompt },
       ];
 
       const result = await generateText({

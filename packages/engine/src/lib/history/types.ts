@@ -1,4 +1,8 @@
-import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
+import type {
+  ChartRequest,
+  MaelstromResponse,
+  UpdateReason,
+} from '@maelstrom/protocol';
 
 /**
  * Content detail levels for history entries.
@@ -18,8 +22,10 @@ export interface HistoryEntry {
   sessionId: string;
   /** Timestamp of the interaction */
   timestamp: number;
-  /** User's intent/message */
-  userIntent: string;
+  /** The reasons that triggered this update */
+  updateReasons: UpdateReason[];
+  /** Derived user intent from updateReasons (convenience field, may be empty) */
+  userIntent?: string;
   /** Assistant's response message */
   userMessage: string;
   /** LLM's reasoning (standard/full levels) */
