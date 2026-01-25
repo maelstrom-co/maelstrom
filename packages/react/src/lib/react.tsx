@@ -19,6 +19,10 @@ export {
 } from './connectors';
 // Context & Provider
 export { MaelstromProvider, useMaelstromContext } from './context';
+
+// Error Boundary (for advanced use cases)
+export { ErrorBoundary } from './error-boundary';
+
 // Hooks
 export {
   useChartDimensions,
@@ -37,12 +41,25 @@ export {
   useVesselComponentProps,
   useVesselRegistration,
 } from './hooks';
+
+// Loading Components
+export type { VesselLoadErrorProps } from './loading';
+export { VesselLoadError, VesselLoadingSkeleton } from './loading';
+
+// Registration Helper
+export { vesselRegistration } from './registration';
+
 // Types
 export type {
   ConnectionState,
   EngineConnector,
+  LazyVesselComponentLoader,
   MaelstromProviderProps,
   MaelstromState,
   VesselComponentProps,
+  VesselLoadingSkeletonProps,
   VesselRegistration,
 } from './types';
+
+// Utilities
+export { isLazyLoader } from './types';

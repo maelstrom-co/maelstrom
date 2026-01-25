@@ -1,67 +1,4 @@
-import type { Vessel } from '@maelstrom/protocol';
-import type {
-  VesselComponentProps,
-  VesselRegistration,
-} from '@maelstrom/react';
-
-// Weather vessel definition
-export const weatherVessel: Vessel = {
-  id: 'weather',
-  name: 'Weather',
-  description:
-    'Weather widget showing current conditions or extended forecast. Can display current weather, hourly forecast, or weekly forecast.',
-  defaultVariant: 'current',
-  variants: {
-    current: {
-      props: { mode: 'current' },
-      minSize: { width: 6, height: 4 },
-      actions: [
-        {
-          name: 'showHourly',
-          description: 'Show hourly forecast for today',
-          transitionsTo: 'hourly',
-        },
-        {
-          name: 'showWeekly',
-          description: 'Show weekly forecast',
-          transitionsTo: 'weekly',
-        },
-      ],
-    },
-    hourly: {
-      props: { mode: 'hourly' },
-      minSize: { width: 6, height: 4 },
-      actions: [
-        {
-          name: 'showCurrent',
-          description: 'Show current conditions',
-          transitionsTo: 'current',
-        },
-        {
-          name: 'showWeekly',
-          description: 'Show weekly forecast',
-          transitionsTo: 'weekly',
-        },
-      ],
-    },
-    weekly: {
-      props: { mode: 'weekly' },
-      minSize: { width: 8, height: 3 },
-      actions: [
-        {
-          name: 'showCurrent',
-          description: 'Show current conditions',
-          transitionsTo: 'current',
-        },
-        {
-          name: 'showHourly',
-          description: 'Show hourly forecast',
-          transitionsTo: 'hourly',
-        },
-      ],
-    },
-  },
-};
+import type { VesselComponentProps } from '@maelstrom/react';
 
 // Mock weather data
 const mockWeather = {
@@ -84,8 +21,8 @@ const mockWeather = {
   ],
 };
 
-// Weather component
-function WeatherComponent({
+// Weather component - default export required for React.lazy()
+export default function WeatherComponent({
   variantProps,
   executeAction,
 }: VesselComponentProps) {
@@ -205,9 +142,3 @@ function WeatherComponent({
     </div>
   );
 }
-
-// Export registration
-export const weatherRegistration: VesselRegistration = {
-  vessel: weatherVessel,
-  component: WeatherComponent,
-};

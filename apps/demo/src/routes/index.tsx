@@ -10,8 +10,8 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createServerFnConnector } from '../lib/connector';
 import { useServerAudio } from '../lib/use-server-audio';
-import { calendarRegistration } from '../vessels/calendar';
-import { weatherRegistration } from '../vessels/weather';
+import { calendarRegistration } from '../vessels/calendar.vessel';
+import { weatherRegistration } from '../vessels/weather.vessel';
 
 export const Route = createFileRoute('/')({
   component: HomePage,

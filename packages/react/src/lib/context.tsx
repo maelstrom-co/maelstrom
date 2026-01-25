@@ -7,6 +7,7 @@ import {
 import type { MaelstromEvent } from '@maelstrom/protocol';
 import {
   createContext,
+  lazy,
   useCallback,
   useContext,
   useEffect,
@@ -17,8 +18,10 @@ import {
 import type {
   MaelstromProviderProps,
   VesselComponentProps,
+  VesselLoadingSkeletonProps,
   VesselRegistration,
 } from './types';
+import { isLazyLoader } from './types';
 
 // ============================================================================
 // Context
@@ -33,6 +36,13 @@ interface MaelstromContextValue {
   dispatch: (action: StateAction) => void;
   /** Component registry (React-specific) */
   componentRegistry: Map<string, React.ComponentType<VesselComponentProps>>;
+  /** Loading component registry for lazy-loaded vessels */
+  loadingRegistry: Map<
+    string,
+    React.ComponentType<VesselLoadingSkeletonProps>
+  >;
+  /** Tracks which vessels were registered with lazy loading */
+  lazyVesselIds: Set<string>;
   /** Register a vessel with its React component */
   registerVessel: (registration: VesselRegistration) => void;
   /** Unregister a vessel */
@@ -72,6 +82,15 @@ export function MaelstromProvider({
   // React-specific component registry
   const componentRegistry = useMemo(
     () => new Map<string, React.ComponentType<VesselComponentProps>>(),
+    [],
+  );
+
+  // Track which vessels use lazy loading
+  const lazyVesselIds = useMemo(() => new Set<string>(), []);
+
+  // Loading component registry for lazy-loaded vessels
+  const loadingRegistry = useMemo(
+    () => new Map<string, React.ComponentType<VesselLoadingSkeletonProps>>(),
     [],
   );
 
@@ -119,14 +138,48 @@ export function MaelstromProvider({
     [orchestrator],
   );
 
-  // Register vessel with React component
+  // Register vessel with React component (supports both eager and lazy loading)
   const registerVessel = useCallback(
     (registration: VesselRegistration) => {
+      // Always register vessel metadata (for LLM decisions)
       orchestrator.getRegistry().register(registration.vessel);
-      componentRegistry.set(registration.vessel.id, registration.component);
+
+      const { id } = registration.vessel;
+      const { component } = registration;
+
+      // Check if this is a lazy loader or an eager component
+      if (isLazyLoader(component)) {
+        // Wrap with React.lazy() - this creates a lazy component
+        // React.lazy() caches the resolved component internally
+        const LazyComponent = lazy(component);
+        componentRegistry.set(id, LazyComponent);
+        lazyVesselIds.add(id);
+
+        // Store the loading component if provided
+        if (registration.loadingComponent) {
+          loadingRegistry.set(id, registration.loadingComponent);
+        } else {
+          // Warn if lazy vessel doesn't have a custom loading component
+          console.warn(
+            `[Maelstrom] Lazy vessel "${id}" registered without a loading component. Using default skeleton.\nConsider providing a custom loading component via vesselRegistration().`,
+          );
+        }
+
+        if (debug) {
+          console.log(`[Maelstrom] Registered lazy vessel: ${id}`);
+        }
+      } else {
+        // Eager component - store directly
+        componentRegistry.set(id, component);
+
+        if (debug) {
+          console.log(`[Maelstrom] Registered eager vessel: ${id}`);
+        }
+      }
+
       forceRender();
     },
-    [orchestrator, componentRegistry],
+    [orchestrator, componentRegistry, loadingRegistry, lazyVesselIds, debug],
   );
 
   // Unregister vessel
@@ -134,9 +187,11 @@ export function MaelstromProvider({
     (vesselId: string) => {
       orchestrator.getRegistry().unregister(vesselId);
       componentRegistry.delete(vesselId);
+      loadingRegistry.delete(vesselId);
+      lazyVesselIds.delete(vesselId);
       forceRender();
     },
-    [orchestrator, componentRegistry],
+    [orchestrator, componentRegistry, loadingRegistry, lazyVesselIds],
   );
 
   // Process intent wrapper with callbacks
@@ -158,6 +213,8 @@ export function MaelstromProvider({
     state: orchestrator.getState(),
     dispatch,
     componentRegistry,
+    loadingRegistry,
+    lazyVesselIds,
     registerVessel,
     unregisterVessel,
     processIntent,

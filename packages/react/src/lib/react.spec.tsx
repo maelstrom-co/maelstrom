@@ -15,14 +15,20 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   Chart,
   createMockConnector,
+  isLazyLoader,
   MaelstromProvider,
   useCreateInstance,
   useExecuteAction,
   useInstance,
   useMaelstrom,
   useVesselRegistration,
+  vesselRegistration,
 } from './react';
-import type { VesselComponentProps, VesselRegistration } from './types';
+import type {
+  VesselComponentProps,
+  VesselLoadingSkeletonProps,
+  VesselRegistration,
+} from './types';
 
 // ============================================================================
 // Test Fixtures
@@ -428,6 +434,259 @@ describe('processIntent', () => {
     await waitFor(() => {
       expect(result.current.instance?.position).toEqual({ row: 2, column: 3 });
       expect(result.current.instance?.size).toEqual({ width: 6, height: 4 });
+    });
+  });
+});
+
+// ============================================================================
+// Lazy Loading Tests
+// ============================================================================
+
+describe('isLazyLoader', () => {
+  it('should identify lazy loader functions', () => {
+    const lazyLoader = () => Promise.resolve({ default: CalendarComponent });
+    expect(isLazyLoader(lazyLoader)).toBe(true);
+  });
+
+  it('should not identify function components as lazy loaders', () => {
+    expect(isLazyLoader(CalendarComponent)).toBe(false);
+  });
+
+  it('should not identify class components as lazy loaders', async () => {
+    const React = await import('react');
+    // eslint-disable-next-line react/prefer-stateless-function
+    class ClassComponent extends React.Component<VesselComponentProps> {
+      override render() {
+        return null;
+      }
+    }
+    expect(isLazyLoader(ClassComponent)).toBe(false);
+  });
+});
+
+describe('Lazy Vessel Loading', () => {
+  it('should register a lazy vessel', async () => {
+    const lazyRegistration: VesselRegistration = {
+      vessel: calendarVessel,
+      component: () => Promise.resolve({ default: CalendarComponent }),
+    };
+
+    const { result } = renderHook(
+      () => {
+        useVesselRegistration(lazyRegistration);
+        const createInstance = useCreateInstance();
+        const { instances } = useMaelstrom();
+        return { createInstance, instances };
+      },
+      { wrapper: createWrapper() },
+    );
+
+    act(() => {
+      result.current.createInstance('calendar', {
+        instanceId: 'lazy-cal-1',
+        position: { row: 0, column: 0 },
+      });
+    });
+
+    expect(result.current.instances).toHaveLength(1);
+    expect(result.current.instances[0].instanceId).toBe('lazy-cal-1');
+  });
+
+  it('should render lazy component with loading state and then content', async () => {
+    // Create a delayed lazy loader to observe loading state
+    let resolveComponent: (value: { default: typeof CalendarComponent }) => void;
+    const componentPromise = new Promise<{ default: typeof CalendarComponent }>(
+      (resolve) => {
+        resolveComponent = resolve;
+      },
+    );
+
+    const lazyRegistration: VesselRegistration = {
+      vessel: calendarVessel,
+      component: () => componentPromise,
+    };
+
+    const connector = createMockConnector({ delay: 0 });
+
+    function TestComponent() {
+      useVesselRegistration(lazyRegistration);
+      const createInstance = useCreateInstance();
+      const { instances } = useMaelstrom();
+
+      useEffect(() => {
+        if (instances.length === 0) {
+          createInstance('calendar', { instanceId: 'lazy-test-1' });
+        }
+      }, [createInstance, instances.length]);
+
+      return <Chart showGrid />;
+    }
+
+    await act(async () => {
+      render(
+        <MaelstromProvider connector={connector}>
+          <TestComponent />
+        </MaelstromProvider>,
+      );
+    });
+
+    // Should show loading skeleton initially
+    await waitFor(() => {
+      expect(screen.getByText(/Loading Calendar/i)).toBeInTheDocument();
+    });
+
+    // Resolve the lazy component
+    await act(async () => {
+      resolveComponent!({ default: CalendarComponent });
+    });
+
+    // Now should show the actual component
+    await waitFor(() => {
+      expect(screen.getByTestId('calendar-lazy-test-1')).toBeInTheDocument();
+    });
+  });
+
+  it('should cache lazy components after first load', async () => {
+    let loadCount = 0;
+
+    const lazyRegistration: VesselRegistration = {
+      vessel: calendarVessel,
+      component: () => {
+        loadCount++;
+        return Promise.resolve({ default: CalendarComponent });
+      },
+    };
+
+    const connector = createMockConnector({ delay: 0 });
+
+    function TestComponent() {
+      useVesselRegistration(lazyRegistration);
+      const createInstance = useCreateInstance();
+      const { instances } = useMaelstrom();
+
+      useEffect(() => {
+        if (instances.length === 0) {
+          createInstance('calendar', { instanceId: 'cache-test-1' });
+        }
+      }, [createInstance, instances.length]);
+
+      return <Chart showGrid />;
+    }
+
+    const { rerender } = await act(async () =>
+      render(
+        <MaelstromProvider connector={connector}>
+          <TestComponent />
+        </MaelstromProvider>,
+      ),
+    );
+
+    // Wait for the component to render
+    await waitFor(() => {
+      expect(screen.getByTestId('calendar-cache-test-1')).toBeInTheDocument();
+    });
+
+    // Re-render should not trigger another load
+    await act(async () => {
+      rerender(
+        <MaelstromProvider connector={connector}>
+          <TestComponent />
+        </MaelstromProvider>,
+      );
+    });
+
+    // Component should only be loaded once (React.lazy caches)
+    expect(loadCount).toBe(1);
+  });
+});
+
+// ============================================================================
+// vesselRegistration Helper Tests
+// ============================================================================
+
+describe('vesselRegistration', () => {
+  // Mock loading component for tests
+  function MockLoadingSkeleton({ vesselId }: VesselLoadingSkeletonProps) {
+    return <div data-testid={`loading-${vesselId}`}>Loading...</div>;
+  }
+
+  it('should create registration for eager component without loading', () => {
+    const registration = vesselRegistration(calendarVessel, CalendarComponent);
+
+    expect(registration.vessel).toBe(calendarVessel);
+    expect(registration.component).toBe(CalendarComponent);
+    expect(registration.loadingComponent).toBeUndefined();
+  });
+
+  it('should create registration for lazy component with loading', () => {
+    const lazyLoader = () => Promise.resolve({ default: CalendarComponent });
+    const registration = vesselRegistration(
+      calendarVessel,
+      lazyLoader,
+      MockLoadingSkeleton,
+    );
+
+    expect(registration.vessel).toBe(calendarVessel);
+    expect(registration.component).toBe(lazyLoader);
+    expect(registration.loadingComponent).toBe(MockLoadingSkeleton);
+  });
+
+  it('should use custom loading component when provided', async () => {
+    // Create a delayed lazy loader to observe loading state
+    let resolveComponent: (value: {
+      default: typeof CalendarComponent;
+    }) => void;
+    const componentPromise = new Promise<{ default: typeof CalendarComponent }>(
+      (resolve) => {
+        resolveComponent = resolve;
+      },
+    );
+
+    const registration = vesselRegistration(
+      calendarVessel,
+      () => componentPromise,
+      MockLoadingSkeleton,
+    );
+
+    const connector = createMockConnector({ delay: 0 });
+
+    function TestComponent() {
+      useVesselRegistration(registration);
+      const createInstance = useCreateInstance();
+      const { instances } = useMaelstrom();
+
+      useEffect(() => {
+        if (instances.length === 0) {
+          createInstance('calendar', { instanceId: 'custom-loading-test' });
+        }
+      }, [createInstance, instances.length]);
+
+      return <Chart showGrid />;
+    }
+
+    await act(async () => {
+      render(
+        <MaelstromProvider connector={connector}>
+          <TestComponent />
+        </MaelstromProvider>,
+      );
+    });
+
+    // Should show custom loading component (not default skeleton)
+    await waitFor(() => {
+      expect(screen.getByTestId('loading-calendar')).toBeInTheDocument();
+    });
+
+    // Resolve the lazy component
+    await act(async () => {
+      resolveComponent!({ default: CalendarComponent });
+    });
+
+    // Now should show the actual component
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('calendar-custom-loading-test'),
+      ).toBeInTheDocument();
     });
   });
 });

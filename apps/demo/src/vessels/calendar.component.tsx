@@ -1,65 +1,7 @@
-import type { Vessel } from '@maelstrom/protocol';
-import type {
-  VesselComponentProps,
-  VesselRegistration,
-} from '@maelstrom/react';
+import type { VesselComponentProps } from '@maelstrom/react';
 
-// Calendar vessel definition
-export const calendarVessel: Vessel = {
-  id: 'calendar',
-  name: 'Calendar',
-  description:
-    'Calendar widget for viewing dates and scheduling. Can show month view, week view, or be collapsed to a minimal state.',
-  defaultVariant: 'month',
-  variants: {
-    month: {
-      props: { view: 'month' },
-      minSize: { width: 4, height: 4 },
-      actions: [
-        {
-          name: 'showWeek',
-          description: 'Switch to week view for more detail',
-          transitionsTo: 'week',
-        },
-        {
-          name: 'collapse',
-          description: 'Minimize the calendar to save space',
-          transitionsTo: 'collapsed',
-        },
-      ],
-    },
-    week: {
-      props: { view: 'week' },
-      minSize: { width: 6, height: 3 },
-      actions: [
-        {
-          name: 'showMonth',
-          description: 'Switch back to month view',
-          transitionsTo: 'month',
-        },
-        {
-          name: 'collapse',
-          description: 'Minimize the calendar',
-          transitionsTo: 'collapsed',
-        },
-      ],
-    },
-    collapsed: {
-      props: { collapsed: true },
-      minSize: { width: 2, height: 1 },
-      actions: [
-        {
-          name: 'expand',
-          description: 'Expand the calendar to full view',
-          transitionsTo: 'month',
-        },
-      ],
-    },
-  },
-};
-
-// Calendar component
-function CalendarComponent({
+// Calendar component - default export required for React.lazy()
+export default function CalendarComponent({
   variantProps,
   executeAction,
 }: VesselComponentProps) {
@@ -215,9 +157,3 @@ function CalendarComponent({
     </div>
   );
 }
-
-// Export registration
-export const calendarRegistration: VesselRegistration = {
-  vessel: calendarVessel,
-  component: CalendarComponent,
-};

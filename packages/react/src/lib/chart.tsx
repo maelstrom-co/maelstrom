@@ -3,15 +3,18 @@ import type { VesselInstance } from '@maelstrom/client';
 import {
   type CSSProperties,
   type ReactNode,
+  Suspense,
   useEffect,
   useMemo,
   useRef,
 } from 'react';
 import { useMaelstromContext } from './context';
+import { ErrorBoundary } from './error-boundary';
 import {
   useChartDimensionsFromViewport,
   useVesselComponentProps,
 } from './hooks';
+import { VesselLoadError, VesselLoadingSkeleton } from './loading';
 
 // ============================================================================
 // Chart Container
@@ -137,13 +140,23 @@ interface VesselRendererProps {
 }
 
 function VesselRenderer({ instance, directive }: VesselRendererProps) {
-  const { componentRegistry } = useMaelstromContext();
+  const {
+    componentRegistry,
+    loadingRegistry,
+    orchestrator,
+    lazyVesselIds,
+    debug,
+  } = useMaelstromContext();
   const props = useVesselComponentProps(instance.instanceId);
 
   const Component = componentRegistry.get(instance.vesselId);
   if (!Component || !props) {
     return null;
   }
+
+  // Get vessel metadata for the loading skeleton
+  const vessel = orchestrator.getRegistry().get(instance.vesselId);
+  const isLazy = lazyVesselIds.has(instance.vesselId);
 
   // Use position and size from the layout directive (engine's instructions)
   const { position, size } = directive;
@@ -164,9 +177,44 @@ function VesselRenderer({ instance, directive }: VesselRendererProps) {
     minHeight: 0,
   };
 
+  // Use custom loading component if provided, otherwise fall back to default
+  const LoadingComponent =
+    loadingRegistry.get(instance.vesselId) || VesselLoadingSkeleton;
+  const loadingFallback = (
+    <LoadingComponent vesselId={instance.vesselId} vesselName={vessel?.name} />
+  );
+
+  // For lazy components, wrap in Suspense with error boundary
+  // For eager components, render directly (Suspense has no effect)
+  const content = isLazy ? (
+    <ErrorBoundary
+      fallback={(error, retry) => (
+        <VesselLoadError
+          vesselId={instance.vesselId}
+          error={error}
+          retry={retry}
+        />
+      )}
+      onError={(error) => {
+        if (debug) {
+          console.error(
+            `[Maelstrom] Failed to load vessel component: ${instance.vesselId}`,
+            error,
+          );
+        }
+      }}
+    >
+      <Suspense fallback={loadingFallback}>
+        <Component {...props} />
+      </Suspense>
+    </ErrorBoundary>
+  ) : (
+    <Component {...props} />
+  );
+
   return (
     <div style={wrapperStyle} data-instance-id={instance.instanceId}>
-      <Component {...props} />
+      {content}
     </div>
   );
 }
