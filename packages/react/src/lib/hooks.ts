@@ -78,11 +78,14 @@ export function useVessel(vesselId: string): Vessel | undefined {
 // Instance Management
 // ============================================================================
 
+type PositionValue = { row: number; column: number };
+type PositionFn = (dimensions: ChartDimensions) => PositionValue;
+
 /**
  * Create a new vessel instance
  */
 export function useCreateInstance() {
-  const { orchestrator, dispatch } = useMaelstromContext();
+  const { orchestrator, dispatch, state } = useMaelstromContext();
 
   return useCallback(
     (
@@ -90,7 +93,7 @@ export function useCreateInstance() {
       options?: {
         instanceId?: string;
         variant?: string;
-        position?: { row: number; column: number };
+        position?: PositionValue | PositionFn;
         size?: { width: number; height: number };
       },
     ): VesselInstance | null => {
@@ -111,18 +114,27 @@ export function useCreateInstance() {
       }
 
       const instanceId = options?.instanceId || `${vesselId}-${Date.now()}`;
+
+      let position: PositionValue = { row: 0, column: 0 };
+      if (options?.position) {
+        position =
+          typeof options.position === 'function'
+            ? options.position(state.chartDimensions)
+            : options.position;
+      }
+
       const instance: VesselInstance = {
         instanceId,
         vesselId,
         variant,
-        position: options?.position || { row: 0, column: 0 },
+        position,
         size: options?.size || variantDef.minSize,
       };
 
       dispatch({ type: 'ADD_INSTANCE', instance });
       return instance;
     },
-    [orchestrator, dispatch],
+    [orchestrator, dispatch, state.chartDimensions],
   );
 }
 

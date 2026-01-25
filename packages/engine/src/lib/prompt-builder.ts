@@ -145,6 +145,10 @@ function serializeAction(action: VesselAction): string {
     str += ` → ${action.transitionsTo}`;
   }
 
+  if (action.description) {
+    str += ` "${action.description}"`;
+  }
+
   return str;
 }
 

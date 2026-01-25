@@ -61,11 +61,17 @@ function DemoApp({ speakRef }: DemoAppProps) {
     if (instances.length === 0) {
       createInstance('calendar', {
         instanceId: 'calendar-1',
-        position: { row: 0, column: 0 },
+        position: (chart) => ({
+          row: Math.floor((chart.rows - 4) / 2),
+          column: Math.floor((chart.columns - 8) / 2),
+        }),
       });
       createInstance('weather', {
         instanceId: 'weather-1',
-        position: { row: 0, column: 5 },
+        position: (chart) => ({
+          row: Math.floor((chart.rows - 4) / 2),
+          column: Math.floor((chart.columns - 8) / 2) + 5,
+        }),
       });
     }
   }, [createInstance, instances.length]);
