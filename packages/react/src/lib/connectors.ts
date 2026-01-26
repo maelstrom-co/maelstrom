@@ -1,5 +1,5 @@
-import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
 import type { ConnectionState, EngineConnector } from '@maelstrom/client';
+import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
 
 // ============================================================================
 // Direct Engine Connector

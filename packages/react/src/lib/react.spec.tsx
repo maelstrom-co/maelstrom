@@ -494,7 +494,9 @@ describe('Lazy Vessel Loading', () => {
 
   it('should render lazy component with loading state and then content', async () => {
     // Create a delayed lazy loader to observe loading state
-    let resolveComponent: (value: { default: typeof CalendarComponent }) => void;
+    let resolveComponent: (value: {
+      default: typeof CalendarComponent;
+    }) => void;
     const componentPromise = new Promise<{ default: typeof CalendarComponent }>(
       (resolve) => {
         resolveComponent = resolve;
@@ -537,7 +539,7 @@ describe('Lazy Vessel Loading', () => {
 
     // Resolve the lazy component
     await act(async () => {
-      resolveComponent!({ default: CalendarComponent });
+      resolveComponent?.({ default: CalendarComponent });
     });
 
     // Now should show the actual component
@@ -679,7 +681,7 @@ describe('vesselRegistration', () => {
 
     // Resolve the lazy component
     await act(async () => {
-      resolveComponent!({ default: CalendarComponent });
+      resolveComponent?.({ default: CalendarComponent });
     });
 
     // Now should show the actual component

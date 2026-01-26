@@ -3,30 +3,27 @@
 // These providers require API keys and should only be used in server environments.
 // They integrate with various cloud STT/TTS services.
 
-// Re-export types for convenience
-export type {
-  TranscriptionResult,
-  TranscriptionSegment,
-  TranscribeOptions,
-  TranscriptionProvider,
-  SpeechGenerationOptions,
-  SpeechGenerationResult,
-  SpeechGenerationProvider,
-} from './lib/types.js';
-
 // AI SDK Providers
 export {
-  createAISDKTranscription,
   type AISDKTranscriptionOptions,
+  createAISDKTranscription,
 } from './lib/stt/ai-sdk-stt.js';
-
 export {
-  createAISDKSpeech,
   type AISDKSpeechOptions,
+  createAISDKSpeech,
 } from './lib/tts/ai-sdk-tts.js';
-
 // Custom Providers
 export {
-  createCartesiaTTS,
   type CartesiaTTSOptions,
+  createCartesiaTTS,
 } from './lib/tts/cartesia-tts.js';
+// Re-export types for convenience
+export type {
+  SpeechGenerationOptions,
+  SpeechGenerationProvider,
+  SpeechGenerationResult,
+  TranscribeOptions,
+  TranscriptionProvider,
+  TranscriptionResult,
+  TranscriptionSegment,
+} from './lib/types.js';

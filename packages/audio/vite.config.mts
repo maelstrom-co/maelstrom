@@ -1,12 +1,18 @@
 /// <reference types='vitest' />
+
+import * as path from 'node:path';
 import { defineConfig } from 'vite';
 import dts from 'vite-plugin-dts';
-import * as path from 'path';
 
 export default defineConfig(() => ({
   root: import.meta.dirname,
   cacheDir: '../../node_modules/.vite/packages/audio',
-  plugins: [dts({ entryRoot: 'src', tsconfigPath: path.join(import.meta.dirname, 'tsconfig.lib.json') })],
+  plugins: [
+    dts({
+      entryRoot: 'src',
+      tsconfigPath: path.join(import.meta.dirname, 'tsconfig.lib.json'),
+    }),
+  ],
   // Configuration for building your library.
   // See: https://vite.dev/guide/build.html#library-mode
   build: {
@@ -25,11 +31,11 @@ export default defineConfig(() => ({
       },
       name: '@maelstrom/audio',
       // Change this to the formats you want to support.
-      formats: ['es' as const]
+      formats: ['es' as const],
     },
     rollupOptions: {
       // External packages that should not be bundled into your library.
-      external: []
+      external: [],
     },
   },
   test: {
@@ -42,6 +48,6 @@ export default defineConfig(() => ({
     coverage: {
       reportsDirectory: './test-output/vitest/coverage',
       provider: 'v8' as const,
-    }
+    },
   },
 }));

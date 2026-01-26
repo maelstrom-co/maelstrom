@@ -1,4 +1,17 @@
 // Types
+
+// History Manager
+export type {
+  AssistantMessageInput,
+  HistoryManager,
+} from './history-manager.js';
+export { createHistoryManager } from './history-manager.js';
+// In-Memory Store
+export type {
+  InMemoryHistoryStore,
+  InMemoryStoreConfig,
+} from './memory-store.js';
+export { createInMemoryHistoryStore } from './memory-store.js';
 export type {
   AIMessage,
   HistoryConfig,
@@ -7,14 +20,3 @@ export type {
   HistoryStore,
 } from './types.js';
 export { DEFAULT_HISTORY_CONFIG } from './types.js';
-
-// History Manager
-export type { HistoryManager } from './history-manager.js';
-export { createHistoryManager } from './history-manager.js';
-
-// In-Memory Store
-export type {
-  InMemoryHistoryStore,
-  InMemoryStoreConfig,
-} from './memory-store.js';
-export { createInMemoryHistoryStore } from './memory-store.js';

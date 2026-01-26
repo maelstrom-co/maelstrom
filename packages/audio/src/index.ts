@@ -4,20 +4,20 @@
 // For client-side utilities, use: import { ... } from '@maelstrom/audio/client'
 
 export type {
+  SpeechGenerationOptions,
+  SpeechGenerationProvider,
+  SpeechGenerationResult,
   // STT Types
   STTConfig,
   STTEvent,
   STTProvider,
-  TranscriptionResult,
-  TranscriptionSegment,
   TranscribeOptions,
   TranscriptionProvider,
+  TranscriptionResult,
+  TranscriptionSegment,
   // TTS Types
   TTSConfig,
   TTSEvent,
   TTSProvider,
   VoiceInfo,
-  SpeechGenerationOptions,
-  SpeechGenerationResult,
-  SpeechGenerationProvider,
 } from './lib/types.js';

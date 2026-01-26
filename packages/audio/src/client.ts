@@ -54,8 +54,13 @@ export interface AudioRecorder {
 export function createAudioRecorder(
   options: AudioRecorderOptions = {},
 ): AudioRecorder {
-  const { mimeType = 'audio/webm', onDataAvailable, onStart, onStop, onError } =
-    options;
+  const {
+    mimeType = 'audio/webm',
+    onDataAvailable,
+    onStart,
+    onStop,
+    onError,
+  } = options;
 
   let mediaRecorder: MediaRecorder | null = null;
   let audioChunks: Blob[] = [];
@@ -78,7 +83,9 @@ export function createAudioRecorder(
 
         mediaRecorder.onstart = () => onStart?.();
         mediaRecorder.onerror = (event) =>
-          onError?.(new Error((event as ErrorEvent).message || 'Recording error'));
+          onError?.(
+            new Error((event as ErrorEvent).message || 'Recording error'),
+          );
 
         mediaRecorder.start();
       } catch (err) {
@@ -173,15 +180,16 @@ export function createAudioPlayer(): AudioPlayer {
       currentSource.buffer = audioBuffer;
       currentSource.connect(audioContext.destination);
 
+      const source = currentSource;
       return new Promise((resolve) => {
-        currentSource!.onended = () => {
+        source.onended = () => {
           playing = false;
           currentSource = null;
           resolve();
         };
 
         playing = true;
-        currentSource!.start();
+        source.start();
       });
     },
 

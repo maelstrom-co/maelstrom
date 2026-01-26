@@ -37,10 +37,7 @@ interface MaelstromContextValue {
   /** Component registry (React-specific) */
   componentRegistry: Map<string, React.ComponentType<VesselComponentProps>>;
   /** Loading component registry for lazy-loaded vessels */
-  loadingRegistry: Map<
-    string,
-    React.ComponentType<VesselLoadingSkeletonProps>
-  >;
+  loadingRegistry: Map<string, React.ComponentType<VesselLoadingSkeletonProps>>;
   /** Tracks which vessels were registered with lazy loading */
   lazyVesselIds: Set<string>;
   /** Register a vessel with its React component */

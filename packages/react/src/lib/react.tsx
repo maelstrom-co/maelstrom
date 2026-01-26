@@ -51,6 +51,7 @@ export { vesselRegistration } from './registration';
 
 // Types
 export type {
+  AssistantMessage,
   ConnectionState,
   EngineConnector,
   LazyVesselComponentLoader,

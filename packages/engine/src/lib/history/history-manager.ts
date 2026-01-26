@@ -27,6 +27,14 @@ function extractUserIntent(updateReasons: UpdateReason[]): string | undefined {
 }
 
 /**
+ * Message to inject into history without LLM processing.
+ */
+export interface AssistantMessageInput {
+  sessionId: string;
+  message: string;
+}
+
+/**
  * Manages conversation history for the engine.
  * Handles storage, retrieval, and conversion to AI SDK message format.
  */
@@ -40,6 +48,12 @@ export interface HistoryManager {
    * Record a conversation turn.
    */
   recordTurn(request: ChartRequest, response: MaelstromResponse): Promise<void>;
+
+  /**
+   * Add an assistant message to history without a corresponding user turn.
+   * Useful for injecting programmatic messages into the conversation.
+   */
+  addAssistantMessage(input: AssistantMessageInput): Promise<void>;
 
   /**
    * Clear session history.
@@ -74,20 +88,29 @@ export function createHistoryManager(
   function entriesToMessages(entries: HistoryEntry[]): AIMessage[] {
     const messages: AIMessage[] = [];
 
-    // Only include entries with user intent (skip resize/mutation-only entries)
-    const conversationalEntries = entries.filter((e) => e.userIntent);
+    for (const entry of entries) {
+      const isStandaloneAssistant =
+        !entry.userIntent && entry.updateReasons.length === 0;
 
-    for (const entry of conversationalEntries) {
-      // User turn
+      if (isStandaloneAssistant) {
+        messages.push({
+          role: 'assistant',
+          content: entry.userMessage,
+        });
+        continue;
+      }
+
+      if (!entry.userIntent) {
+        continue;
+      }
+
       messages.push({
         role: 'user',
-        content: entry.userIntent as string,
+        content: entry.userIntent,
       });
 
-      // Assistant turn - build content based on available data
       let assistantContent = entry.userMessage;
 
-      // Include additional context for non-minimal levels
       if (resolvedConfig.contentLevel !== 'minimal') {
         if (entry.rationale) {
           assistantContent += `\n\n[Internal reasoning: ${entry.rationale}]`;
@@ -175,6 +198,17 @@ export function createHistoryManager(
 
     async getEntries(sessionId: string): Promise<HistoryEntry[]> {
       return store.getEntries(sessionId);
+    },
+
+    async addAssistantMessage(input: AssistantMessageInput): Promise<void> {
+      const entry: HistoryEntry = {
+        id: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        sessionId: input.sessionId,
+        timestamp: Date.now(),
+        updateReasons: [],
+        userMessage: input.message,
+      };
+      await store.addEntry(entry);
     },
   };
 }

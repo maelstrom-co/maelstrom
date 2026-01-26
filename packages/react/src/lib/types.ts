@@ -8,6 +8,7 @@ import type React from 'react';
 
 // Re-export commonly used types from client for convenience
 export type {
+  AssistantMessage,
   ConnectionState,
   EngineConnector,
   MaelstromState,

@@ -1,5 +1,5 @@
-import type { LayoutDirective } from '@maelstrom/protocol';
 import type { VesselInstance } from '@maelstrom/client';
+import type { LayoutDirective } from '@maelstrom/protocol';
 import {
   type CSSProperties,
   type ReactNode,

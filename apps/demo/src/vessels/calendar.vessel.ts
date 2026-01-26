@@ -61,5 +61,5 @@ export const calendarVessel: Vessel = {
 export const calendarRegistration = vesselRegistration(
   calendarVessel,
   () => import('./calendar.component'),
-  CalendarSkeleton
+  CalendarSkeleton,
 );

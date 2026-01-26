@@ -10,14 +10,9 @@
     "moduleResolution": "nodenext",
     "forceConsistentCasingInFileNames": true,
     "lib": ["es2022", "dom"],
-    "types": [
-      "node",
-      "vite/client"
-    ]
+    "types": ["node", "vite/client"]
   },
-  "include": [
-    "src/**/*.ts"
-  ],
+  "include": ["src/**/*.ts"],
   "references": [],
   "exclude": [
     "vite.config.ts",

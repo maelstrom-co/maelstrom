@@ -1,4 +1,5 @@
 import { google } from '@ai-sdk/google';
+import type { AssistantMessage } from '@maelstrom/engine';
 import {
   createAISDKProvider,
   createEngine,
@@ -46,6 +47,23 @@ export const processChartRequest = createServerFn({ method: 'POST' })
       // Cast to any to bypass TanStack Start's strict Record<string, {}> constraint
       // biome-ignore lint/suspicious/noExplicitAny: TanStack Start type constraint workaround
       return response as any;
+    } catch (error) {
+      console.error('[Maelstrom Server] Error:', error);
+      throw error;
+    }
+  });
+
+export const addAssistantMessage = createServerFn({ method: 'POST' })
+  .inputValidator((data: AssistantMessage) => data)
+  .handler(async ({ data }) => {
+    console.log(
+      '[Maelstrom Server] Adding assistant message:',
+      data.message.slice(0, 50),
+    );
+
+    try {
+      await engine.addAssistantMessage?.(data);
+      return { success: true };
     } catch (error) {
       console.error('[Maelstrom Server] Error:', error);
       throw error;

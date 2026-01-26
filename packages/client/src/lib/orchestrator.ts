@@ -12,6 +12,7 @@ import { createVesselRegistry } from './registry.js';
 import type { StateAction } from './state.js';
 import { createInitialState, stateReducer } from './state.js';
 import type {
+  AssistantMessage,
   ClientConfig,
   EngineConnector,
   MaelstromState,
@@ -65,6 +66,13 @@ export interface Orchestrator {
 
   /** Subscribe to Maelstrom events */
   onEvent(listener: (event: MaelstromEvent) => void): () => void;
+
+  /**
+   * Add an assistant message to history without LLM processing.
+   * Useful for injecting programmatic messages into the conversation.
+   * Only available if the connector supports it.
+   */
+  addAssistantMessage?(message: string): Promise<void>;
 }
 
 interface ResolvedConfig {
@@ -457,5 +465,14 @@ export function createOrchestrator(
       eventListeners.add(listener);
       return () => eventListeners.delete(listener);
     },
+    ...(connector.addAssistantMessage && {
+      async addAssistantMessage(message: string): Promise<void> {
+        const assistantMessage: AssistantMessage = {
+          sessionId: resolvedConfig.sessionId,
+          message,
+        };
+        await connector.addAssistantMessage?.(assistantMessage);
+      },
+    }),
   };
 }

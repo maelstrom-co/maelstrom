@@ -117,7 +117,9 @@ export function createCartesiaTTS(
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Cartesia API error: ${response.status} - ${errorText}`);
+        throw new Error(
+          `Cartesia API error: ${response.status} - ${errorText}`,
+        );
       }
 
       const audioBuffer = await response.arrayBuffer();

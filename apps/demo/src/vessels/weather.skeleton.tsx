@@ -4,7 +4,7 @@ import type { VesselLoadingSkeletonProps } from '@maelstrom/react';
  * Custom loading skeleton for the Weather vessel.
  * Displays a pulsing placeholder that matches the weather component's layout.
  */
-export function WeatherSkeleton({ vesselName }: VesselLoadingSkeletonProps) {
+export function WeatherSkeleton(_props: VesselLoadingSkeletonProps) {
   return (
     <div className="vessel-card h-full flex flex-col animate-pulse">
       <div className="vessel-card-header flex justify-between items-center">

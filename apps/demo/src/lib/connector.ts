@@ -1,6 +1,6 @@
 import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
-import type { EngineConnector } from '@maelstrom/react';
-import { processChartRequest } from '../server/engine';
+import type { AssistantMessage, EngineConnector } from '@maelstrom/react';
+import { addAssistantMessage, processChartRequest } from '../server/engine';
 
 /**
  * Creates a connector that uses TanStack Start server functions.
@@ -9,9 +9,11 @@ import { processChartRequest } from '../server/engine';
 export function createServerFnConnector(): EngineConnector {
   return {
     async process(request: ChartRequest): Promise<MaelstromResponse> {
-      // Call the server function - TanStack Start handles the network layer
       const response = await processChartRequest({ data: request });
       return response as MaelstromResponse;
+    },
+    async addAssistantMessage(message: AssistantMessage): Promise<void> {
+      await addAssistantMessage({ data: message });
     },
   };
 }

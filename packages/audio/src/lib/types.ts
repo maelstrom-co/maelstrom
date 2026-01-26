@@ -182,4 +182,3 @@ export interface SpeechGenerationProvider {
     options?: SpeechGenerationOptions,
   ): Promise<SpeechGenerationResult>;
 }
-

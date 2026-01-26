@@ -6,6 +6,14 @@ import type { EngineConfig, RetryConfig } from './types.js';
 import { EngineError } from './types.js';
 
 /**
+ * Message to inject into history without LLM processing.
+ */
+export interface AssistantMessage {
+  sessionId: string;
+  message: string;
+}
+
+/**
  * The Maelstrom decision engine.
  */
 export interface Engine {
@@ -18,6 +26,13 @@ export interface Engine {
    * Clear history for a session (if history is enabled).
    */
   clearSessionHistory?(sessionId: string): Promise<void>;
+
+  /**
+   * Add an assistant message to history without LLM processing.
+   * Useful for injecting programmatic messages into the conversation.
+   * Only available when history is enabled.
+   */
+  addAssistantMessage?(message: AssistantMessage): Promise<void>;
 }
 
 /**
@@ -94,6 +109,9 @@ export function createEngine(config: EngineConfig): Engine {
     ...(historyManager && {
       async clearSessionHistory(sessionId: string): Promise<void> {
         await historyManager.clearSession(sessionId);
+      },
+      async addAssistantMessage(message: AssistantMessage): Promise<void> {
+        await historyManager.addAssistantMessage(message);
       },
     }),
   };

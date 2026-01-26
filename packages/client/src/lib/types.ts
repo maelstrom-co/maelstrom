@@ -59,6 +59,14 @@ export type ConnectionState =
   | 'error';
 
 /**
+ * Message to inject into history without LLM processing.
+ */
+export interface AssistantMessage {
+  sessionId: string;
+  message: string;
+}
+
+/**
  * Engine connector - abstraction over transport mechanism.
  * Can be implemented for WebSocket, HTTP, or direct in-memory calls.
  */
@@ -73,6 +81,8 @@ export interface EngineConnector {
   onConnectionStateChange?(
     callback: (state: ConnectionState) => void,
   ): () => void;
+  /** Optional: add an assistant message to history without LLM processing */
+  addAssistantMessage?(message: AssistantMessage): Promise<void>;
 }
 
 // ============================================================================

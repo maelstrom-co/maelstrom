@@ -1,10 +1,10 @@
+import type { VesselInstance } from '@maelstrom/client';
 import type {
   ChartDimensions,
   Vessel,
   VesselAction,
   VesselVariant,
 } from '@maelstrom/protocol';
-import type { VesselInstance } from '@maelstrom/client';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useMaelstromContext } from './context';
 import type {
@@ -24,9 +24,20 @@ export function useMaelstrom() {
   const { state, processIntent, cellSizePx, debug, orchestrator } =
     useMaelstromContext();
 
+  const addAssistantMessage = useCallback(
+    async (message: string): Promise<void> => {
+      await orchestrator.addAssistantMessage?.(message);
+    },
+    [orchestrator],
+  );
+
   return {
     /** Process a user intent */
     processIntent,
+    /** Add an assistant message to history without LLM processing */
+    addAssistantMessage: orchestrator.addAssistantMessage
+      ? addAssistantMessage
+      : undefined,
     /** Current chart dimensions */
     chartDimensions: state.chartDimensions,
     /** Connection state */

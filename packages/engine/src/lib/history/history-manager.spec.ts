@@ -220,6 +220,48 @@ describe('createHistoryManager', () => {
     });
   });
 
+  describe('addAssistantMessage', () => {
+    it('should add a standalone assistant message to history', async () => {
+      const store = createInMemoryHistoryStore();
+      const manager = createHistoryManager(store);
+
+      await manager.addAssistantMessage({
+        sessionId: 'session-1',
+        message: 'Welcome! How can I help you today?',
+      });
+
+      const entries = await manager.getEntries('session-1');
+      expect(entries).toHaveLength(1);
+      expect(entries[0].userMessage).toBe('Welcome! How can I help you today?');
+      expect(entries[0].userIntent).toBeUndefined();
+      expect(entries[0].updateReasons).toEqual([]);
+    });
+
+    it('should include assistant message in messages for session', async () => {
+      const store = createInMemoryHistoryStore();
+      const manager = createHistoryManager(store, { contentLevel: 'minimal' });
+
+      await manager.addAssistantMessage({
+        sessionId: 'session-1',
+        message: 'Welcome!',
+      });
+
+      const request = createRequest('Show calendar');
+      const response = createResponse(request.id, 'Here is your calendar');
+      await manager.recordTurn(request, response);
+
+      const messages = await manager.getMessagesForSession('session-1');
+
+      expect(messages).toHaveLength(3);
+      expect(messages[0]).toEqual({ role: 'assistant', content: 'Welcome!' });
+      expect(messages[1]).toEqual({ role: 'user', content: 'Show calendar' });
+      expect(messages[2]).toEqual({
+        role: 'assistant',
+        content: 'Here is your calendar',
+      });
+    });
+  });
+
   describe('execution summary', () => {
     it('should summarize no actions', async () => {
       const store = createInMemoryHistoryStore();
