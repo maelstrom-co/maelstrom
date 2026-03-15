@@ -1,10 +1,7 @@
 import type { CSSProperties } from 'react';
-import type { VesselLoadingSkeletonProps } from './types';
 
-/**
- * Default loading skeleton shown while a lazy vessel component is being loaded.
- * Provides a pulsing animation to indicate loading state.
- */
+import type { VesselLoadingSkeletonProps } from './types.js';
+
 export function VesselLoadingSkeleton({
   vesselId,
   vesselName,
@@ -44,6 +41,7 @@ export function VesselLoadingSkeleton({
         role="img"
         aria-label="Loading"
       >
+        <title>Loading</title>
         <circle cx="12" cy="12" r="10" opacity="0.25" />
         <path d="M12 2a10 10 0 0 1 10 10" opacity="0.75">
           <animateTransform
@@ -61,18 +59,12 @@ export function VesselLoadingSkeleton({
   );
 }
 
-/**
- * Props for the vessel load error component
- */
 export interface VesselLoadErrorProps {
   vesselId: string;
   error: Error;
   retry?: () => void;
 }
 
-/**
- * Error fallback when a lazy vessel component fails to load.
- */
 export function VesselLoadError({
   vesselId,
   error,

@@ -16,7 +16,11 @@
   },
   "dependencies": {
     "@maelstrom/client": "workspace:*",
-    "@maelstrom/protocol": "workspace:*"
+    "@maelstrom/protocol": "workspace:*",
+    "@maelstrom/voice": "workspace:*",
+    "@tanstack/store": "*",
+    "@tanstack/react-store": "*",
+    "onnxruntime-web": "*"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "*",

@@ -44,6 +44,9 @@
     },
     {
       "path": "../protocol/tsconfig.lib.json"
+    },
+    {
+      "path": "../voice/tsconfig.lib.json"
     }
   ]
 }

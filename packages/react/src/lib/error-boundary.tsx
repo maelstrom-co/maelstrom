@@ -11,10 +11,6 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-/**
- * Error boundary for catching lazy loading failures.
- * Provides a retry mechanism by resetting the error state.
- */
 export class ErrorBoundary extends Component<
   ErrorBoundaryProps,
   ErrorBoundaryState
