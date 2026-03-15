@@ -18,5 +18,7 @@
     "dist",
     "!**/*.tsbuildinfo"
   ],
-  "dependencies": {}
+  "dependencies": {
+    "zod": "*"
+  }
 }

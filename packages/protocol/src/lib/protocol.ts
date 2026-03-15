@@ -1,4 +1,11 @@
-import type { ChartDimensions, ChartPosition, ChartSize } from './chart.js';
+import type { ActionExecution } from './action-runner.js';
+import type {
+  ChartDimensions,
+  ChartPosition,
+  ChartSize,
+  LayoutMode,
+  TilingNode,
+} from './chart.js';
 import type { Vessel } from './vessel.js';
 
 // ============================================================================
@@ -55,13 +62,15 @@ export interface ChartRequest {
     timestamp: number;
     /** Session identifier for conversation continuity */
     sessionId: string;
+    /** Layout mode for the chart */
+    layoutMode: LayoutMode;
   };
   /** All Vessel instances with their current variant state */
   instances: VesselInstanceSnapshot[];
   /** All registered Vessel definitions */
   vessels: Vessel[];
-  /** Current layout - which instances are visible and where (empty = all hidden) */
-  layout: LayoutDirective[];
+  /** Current layout (mode-specific) */
+  layout: GridLayout | TilingLayout;
 }
 
 /** Snapshot of a Vessel instance's state (for wire transfer) */
@@ -79,41 +88,58 @@ export interface SpeechOutput {
   voice?: string;
 }
 
+// ============================================================================
+// Layout Types
+// ============================================================================
+
+/** Grid layout - array of positioned instances */
+export interface GridLayout {
+  type: 'grid';
+  /** Position and size for each visible instance */
+  positions: GridPosition[];
+}
+
+/** Position of an instance in grid layout */
+export interface GridPosition {
+  /** Target Vessel instance */
+  instanceId: string;
+  /** Position on the Chart */
+  position: ChartPosition;
+  /** Size to allocate (must be >= variant's minSize) */
+  size: ChartSize;
+}
+
+/** Tiling layout - binary tree structure with instance declarations */
+export interface TilingLayout {
+  type: 'tiling';
+  /** Binary tree as preorder traversal */
+  tree: TilingNode[];
+  /** All instances that should exist (existing + new) with their variants */
+  instances: VesselInstanceSnapshot[];
+}
+
+/** Union of layout types */
+export type Layout = GridLayout | TilingLayout;
+
+// ============================================================================
+// Response Types
+// ============================================================================
+
 /** Response from engine to client */
 export interface MaelstromResponse {
   type: 'maelstrom_response';
   /** Correlates to request ID */
   requestId: string;
-  /** User-facing conversational message (displayed as text or spoken via TTS) */
+  /** User-facing conversational message (displayed as text or spsuccessen via TTS) */
   userMessage: string;
   /** LLM's internal reasoning for debugging/transparency (not shown to user) */
   rationale: string;
   /** Actions to execute (in order) */
   executionPlan: ActionExecution[];
-  /** Layout changes to apply after actions complete */
-  layoutDirective: LayoutDirective[];
+  /** Layout (mode-specific) - determines visible instances and their arrangement */
+  layout: GridLayout | TilingLayout;
   /** Optional TTS configuration for userMessage */
   speechOutput?: SpeechOutput;
-}
-
-/** An action to execute on a Vessel instance */
-export interface ActionExecution {
-  /** Target Vessel instance */
-  instanceId: string;
-  /** Action name (must be valid for current variant) */
-  action: string;
-  /** Action parameters */
-  params?: Record<string, unknown>;
-}
-
-/** Instruction to position a Vessel on the Chart */
-export interface LayoutDirective {
-  /** Target Vessel instance */
-  instanceId: string;
-  /** New position on the Chart */
-  position: ChartPosition;
-  /** Size to allocate (must be >= variant's minSize) */
-  size: ChartSize;
 }
 
 /** Error response from engine */
@@ -135,10 +161,6 @@ export type ErrorCode =
   | 'LLM_ERROR'
   | 'TIMEOUT'
   | 'INTERNAL_ERROR';
-
-// ============================================================================
-// Event Types
-// ============================================================================
 
 export interface ActionStartedEvent {
   type: 'action_started';
@@ -162,7 +184,7 @@ export interface ActionCompletedEvent {
 
 export interface LayoutAppliedEvent {
   type: 'layout_applied';
-  directives: LayoutDirective[];
+  layout: GridLayout | TilingLayout;
   timestamp: number;
 }
 
@@ -171,10 +193,46 @@ export type MaelstromEvent =
   | ActionCompletedEvent
   | LayoutAppliedEvent;
 
-// ============================================================================
 // Utility Types
 // ============================================================================
 
-export type Result<T, E = Error> =
-  | { success: true; value: T }
-  | { success: false; error: E };
+export type Success<T> = {
+  readonly success: true;
+  readonly value: T;
+};
+
+export type Err<E extends Error = Error> = {
+  readonly success: false;
+  readonly error: E;
+};
+
+export type Result<T, E extends Error = Error> = Success<T> | Err<E>;
+
+export const Success = <T>(value?: T): Success<T | undefined> => ({
+  success: true,
+  value,
+});
+
+export const Err = <E extends Error = Error>(error: E): Err<E> => ({
+  success: false,
+  error,
+});
+
+export const isSuccess = <T, E extends Error>(
+  r: Result<T, E>,
+): r is Success<T> => r.success;
+
+export const isErr = <T, E extends Error>(r: Result<T, E>): r is Err<E> =>
+  !r.success;
+
+// ============================================================================
+// Type Guards
+// ============================================================================
+
+export function isGridLayout(layout: Layout): layout is GridLayout {
+  return layout.type === 'grid';
+}
+
+export function isTilingLayout(layout: Layout): layout is TilingLayout {
+  return layout.type === 'tiling';
+}
