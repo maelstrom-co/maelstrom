@@ -16,6 +16,10 @@
     }
   },
   "dependencies": {
-    "@maelstrom/protocol": "workspace:*"
+    "@maelstrom/protocol": "workspace:*",
+    "@tanstack/store": "*"
+  },
+  "devDependencies": {
+    "@sinonjs/fake-timers": "*"
   }
 }

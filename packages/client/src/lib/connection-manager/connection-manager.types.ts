@@ -1,0 +1,27 @@
+import type { ConnectionManagerState } from './connection-manager.state.js';
+
+export interface ConnectionOptions {
+  maxRetries: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+  backoffMultiplier: number;
+  circuitBreakerTimeoutMs: number;
+}
+
+export const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = {
+  maxRetries: 5,
+  initialDelayMs: 1000,
+  maxDelayMs: 30000,
+  backoffMultiplier: 2,
+  circuitBreakerTimeoutMs: 60000,
+};
+
+/**
+ * Configuration options for the ConnectionManager.
+ */
+export interface ConnectionManagerOptions extends Partial<ConnectionOptions> {
+  /** Enable debug logging (default: false) */
+  debug?: boolean;
+  /** Initial state override (default: createInitialConnectionManagerState()) */
+  initialState?: ConnectionManagerState;
+}

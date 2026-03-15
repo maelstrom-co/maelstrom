@@ -1,0 +1,393 @@
+import type {
+  ChartRequest,
+  MaelstromResponse,
+  VoiceClientMessage,
+  VoiceServerMessage,
+} from '@maelstrom/protocol';
+
+import { RequestCorrelator } from '../../utils/request-correlator.js';
+import type {
+  AudioFrameMeta,
+  ConnectorCapabilities,
+  ConnectorEvent,
+  PushConnector,
+  Unsubscribe,
+  VoiceConnector,
+} from '../connector.types.js';
+import { parseAudioFrame } from './utils.js';
+
+/**
+ * Configuration options for Voice WebSocket connector.
+ */
+export interface VoiceWebSocketConnectorOptions {
+  /** WebSocket URL */
+  url: string;
+  /** Session ID for the connection */
+  sessionId?: string;
+  /** Language for voice recognition (default: 'en') */
+  language?: string;
+  /** Request timeout in ms (default: 30000) */
+  timeout?: number;
+  /** Connection establishment timeout in milliseconds (default: 10000) */
+  connectTimeoutMs?: number;
+  /** Enable debug logging (default: false) */
+  debug?: boolean;
+}
+
+/**
+ * Voice-enabled WebSocket connector.
+ *
+ * Implements both `VoiceConnector` (audio streaming) and `PushConnector`
+ * (server-initiated engine responses).
+ *
+ * Connection state management is handled by ConnectionManager.
+ *
+ * @example
+ * ```typescript
+ * import { ConnectionManager, VoiceWebSocketConnector } from '@maelstrom/client';
+ *
+ * const connector = new VoiceWebSocketConnector({
+ *   url: 'wss://api.example.com/voice',
+ *   sessionId: 'session-123',
+ * });
+ *
+ * const manager = new ConnectionManager(store, connector);
+ * await manager.connect();
+ *
+ * connector.startListening();
+ * ```
+ */
+export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
+  readonly #url: string;
+  readonly #sessionId: string;
+  readonly #language: string;
+  readonly #timeout: number;
+  readonly #connectTimeoutMs: number;
+  readonly #debug: boolean;
+
+  readonly capabilities: ConnectorCapabilities = {
+    voice: true,
+    streaming: true,
+    stateful: true,
+  };
+
+  #ws: WebSocket | null = null;
+  #correlator = new RequestCorrelator();
+
+  /** Transport-level event handlers (disconnected, error) */
+  #handlers = new Set<(event: ConnectorEvent) => void>();
+
+  #voiceMessageListeners = new Set<(message: VoiceServerMessage) => void>();
+  #binaryAudioListeners = new Set<
+    (data: Uint8Array, meta: AudioFrameMeta) => void
+  >();
+  #pushMessageListeners = new Set<(response: MaelstromResponse) => void>();
+
+  constructor(options: VoiceWebSocketConnectorOptions) {
+    this.#url = options.url;
+    this.#sessionId = options.sessionId ?? 'default';
+    this.#language = options.language ?? 'en';
+    this.#timeout = options.timeout ?? 30000;
+    this.#connectTimeoutMs = options.connectTimeoutMs ?? 10_000;
+    this.#debug = options.debug ?? false;
+  }
+
+  /**
+   * Establishes WebSocket connection.
+   */
+  async connect(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        const urlObj = new URL(this.#url);
+        urlObj.searchParams.set('sessionId', this.#sessionId);
+        urlObj.searchParams.set('language', this.#language);
+
+        this.#ws = new WebSocket(urlObj.toString());
+        this.#ws.binaryType = 'arraybuffer';
+
+        const timeoutId = setTimeout(() => {
+          cleanup();
+          this.#ws?.close();
+          this.#ws = null;
+          reject(
+            new Error(
+              `WebSocket connection timed out after ${this.#connectTimeoutMs}ms`,
+            ),
+          );
+        }, this.#connectTimeoutMs);
+
+        const onOpen = () => {
+          cleanup();
+          this.#setupEventHandlers();
+          resolve();
+        };
+
+        const onError = () => {
+          cleanup();
+          reject(new Error('WebSocket connection error'));
+        };
+
+        const onClose = () => {
+          cleanup();
+          reject(new Error('WebSocket closed during connection'));
+        };
+
+        const cleanup = () => {
+          clearTimeout(timeoutId);
+          this.#ws?.removeEventListener('open', onOpen);
+          this.#ws?.removeEventListener('error', onError);
+          this.#ws?.removeEventListener('close', onClose);
+        };
+
+        this.#ws.addEventListener('open', onOpen);
+        this.#ws.addEventListener('error', onError);
+        this.#ws.addEventListener('close', onClose);
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  /**
+   * Closes the WebSocket connection and rejects all pending requests.
+   */
+  async disconnect(): Promise<void> {
+    this.#correlator.rejectAll(new Error('Disconnected'));
+    if (this.#ws) {
+      this.#ws.close();
+      this.#ws = null;
+    }
+  }
+
+  /**
+   * Subscribe to transport-level events (disconnected, error).
+   */
+  subscribe(handler: (event: ConnectorEvent) => void): Unsubscribe {
+    this.#handlers.add(handler);
+    return () => {
+      this.#handlers.delete(handler);
+    };
+  }
+
+  /**
+   * Sends a request and waits for the correlated response.
+   */
+  async process(request: ChartRequest): Promise<MaelstromResponse> {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+
+    if (this.#debug) {
+      console.log(
+        `[VoiceConnector] Sending maelstrom.process request: ${request.id}`,
+        request.context.updateReasons.map((r) => r.type),
+      );
+    }
+
+    const promise = this.#correlator.create(request.id, this.#timeout);
+
+    const message: VoiceClientMessage = {
+      type: 'client.maelstrom.process',
+      timestamp: performance.now(),
+      request,
+    };
+    this.#ws?.send(JSON.stringify(message));
+
+    return promise;
+  }
+
+  // ============================================================================
+  // VoiceConnector methods
+  // ============================================================================
+
+  /**
+   * Send audio chunk to server for transcription.
+   */
+  sendAudioChunk(chunk: {
+    data: Uint8Array;
+    sampleRate: number;
+    encoding: string;
+    isFinal: boolean;
+  }): void {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      if (this.#debug) {
+        console.warn('[VoiceConnector] WebSocket not connected');
+      }
+      return;
+    }
+
+    if (chunk.isFinal) {
+      this.#ws.send(new Uint8Array(0));
+    } else {
+      this.#ws.send(chunk.data);
+    }
+  }
+
+  /**
+   * Start listening for voice input.
+   */
+  startListening(language?: string): void {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      if (this.#debug) {
+        console.warn('[VoiceConnector] WebSocket not connected');
+      }
+      return;
+    }
+
+    const message: VoiceClientMessage = {
+      type: 'client.audio_capture.ready',
+      timestamp: performance.now(),
+      sessionId: this.#sessionId,
+      language: language || this.#language,
+      interimResults: true,
+    };
+    this.#ws.send(JSON.stringify(message));
+  }
+
+  /**
+   * Stop listening for voice input.
+   */
+  stopListening(): void {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      if (this.#debug) {
+        console.warn('[VoiceConnector] WebSocket not connected');
+      }
+      return;
+    }
+
+    const message: VoiceClientMessage = {
+      type: 'client.audio_capture.closed',
+      timestamp: performance.now(),
+      sessionId: this.#sessionId,
+    };
+    this.#ws.send(JSON.stringify(message));
+  }
+
+  /**
+   * Subscribe to voice messages from server.
+   */
+  onVoiceMessage(callback: (message: VoiceServerMessage) => void): Unsubscribe {
+    this.#voiceMessageListeners.add(callback);
+    return () => this.#voiceMessageListeners.delete(callback);
+  }
+
+  /**
+   * Subscribe to binary audio output from server (TTS).
+   */
+  onBinaryAudio(
+    callback: (data: Uint8Array, meta: AudioFrameMeta) => void,
+  ): Unsubscribe {
+    this.#binaryAudioListeners.add(callback);
+    return () => this.#binaryAudioListeners.delete(callback);
+  }
+
+  /**
+   * Send a voice message to the server.
+   */
+  sendVoiceMessage(message: VoiceClientMessage): void {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      if (this.#debug) {
+        console.warn('[VoiceConnector] WebSocket not connected');
+      }
+      return;
+    }
+
+    this.#ws.send(JSON.stringify(message));
+  }
+
+  // ============================================================================
+  // PushConnector methods
+  // ============================================================================
+
+  /**
+   * Subscribe to unsolicited (server-initiated) engine responses.
+   */
+  onPushMessage(callback: (response: MaelstromResponse) => void): Unsubscribe {
+    this.#pushMessageListeners.add(callback);
+    return () => this.#pushMessageListeners.delete(callback);
+  }
+
+  // ============================================================================
+  // Private
+  // ============================================================================
+
+  #setupEventHandlers(): void {
+    if (!this.#ws) return;
+
+    this.#ws.onmessage = (event) => {
+      this.#handleMessage(event);
+    };
+
+    this.#ws.onclose = (event) => {
+      this.#correlator.rejectAll(new Error('WebSocket closed'));
+      const isClean = event.code === 1000;
+      this.#handlers.forEach((h) => {
+        h({
+          type: 'disconnected',
+          clean: isClean,
+          message: event.reason || `Connection closed with code ${event.code}`,
+        });
+      });
+    };
+
+    this.#ws.onerror = () => {
+      this.#handlers.forEach((h) => {
+        h({ type: 'error', error: new Error('WebSocket error occurred') });
+      });
+    };
+  }
+
+  #handleMessage(event: MessageEvent): void {
+    // Handle binary audio data (binaryType is set to 'arraybuffer')
+    if (event.data instanceof ArrayBuffer) {
+      const raw = new Uint8Array(event.data);
+      if (this.#debug) {
+        console.log(
+          `[VoiceConnector] Received binary audio: ${raw.length} bytes`,
+        );
+      }
+      const { data, meta } = parseAudioFrame(raw);
+      this.#binaryAudioListeners.forEach((listener) => {
+        listener(data, meta);
+      });
+      return;
+    }
+
+    // Handle JSON messages
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'engine.maelstrom.response' && data.requestId) {
+        const resolved = this.#correlator.resolve(
+          data.requestId,
+          data.response,
+        );
+        if (!resolved) {
+          // Voice-initiated response — not tied to a pending request
+          this.#voiceMessageListeners.forEach((listener) => {
+            listener(data as VoiceServerMessage);
+          });
+          if (data.response) {
+            this.#pushMessageListeners.forEach((listener) => {
+              listener(data.response as MaelstromResponse);
+            });
+          }
+        }
+      } else if (data.type === 'engine.error' && data.requestId) {
+        this.#correlator.reject(
+          data.requestId,
+          new Error(data.error || 'Engine error'),
+        );
+      } else {
+        // All other messages are voice messages
+        this.#voiceMessageListeners.forEach((listener) => {
+          listener(data as VoiceServerMessage);
+        });
+      }
+    } catch {
+      if (this.#debug) {
+        console.error('[VoiceConnector] Failed to parse message:', event.data);
+      }
+    }
+  }
+}

@@ -6,7 +6,7 @@ import dts from 'vite-plugin-dts';
 
 export default defineConfig(() => ({
   root: __dirname,
-  cacheDir: '../../node_modules/.vite/packages/maelstrom/core',
+  cacheDir: '../../node_modules/.vite/packages/maelstrom/client',
   plugins: [
     dts({
       entryRoot: 'src',
@@ -29,7 +29,7 @@ export default defineConfig(() => ({
     lib: {
       // Could also be a dictionary or array of multiple entry points.
       entry: 'src/index.ts',
-      name: '@maelstrom/core',
+      name: '@maelstrom/client',
       fileName: 'index',
       // Change this to the formats you want to support.
       // Don't forget to update your package.json as well.
@@ -37,11 +37,11 @@ export default defineConfig(() => ({
     },
     rollupOptions: {
       // External packages that should not be bundled into your library.
-      external: [],
+      external: ['@maelstrom/protocol', '@tanstack/store'],
     },
   },
   test: {
-    name: '@maelstrom/core',
+    name: '@maelstrom/client',
     watch: false,
     globals: true,
     environment: 'node',
