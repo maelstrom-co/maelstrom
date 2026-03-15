@@ -25,10 +25,21 @@
   "devDependencies": {
     "@testing-library/jest-dom": "*",
     "@testing-library/react": "*",
+    "happy-dom": "*",
     "jsdom": "*"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
+  },
+  "nx": {
+    "targets": {
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
   }
 }

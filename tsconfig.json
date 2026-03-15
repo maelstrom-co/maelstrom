@@ -20,6 +20,9 @@
     },
     {
       "path": "./tools/biome-plugin"
+    },
+    {
+      "path": "./packages/voice"
     }
   ]
 }

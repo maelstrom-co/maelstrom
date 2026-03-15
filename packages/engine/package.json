@@ -27,6 +27,14 @@
     "@maelstrom/protocol": "workspace:*"
   },
   "nx": {
-    "name": "@maelstrom/engine"
+    "name": "@maelstrom/engine",
+    "targets": {
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
   }
 }

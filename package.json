@@ -7,8 +7,8 @@
   "dependencies": {
     "@ai-sdk/google": "^2.0.0",
     "@nx/devkit": "22.2.7",
-    "@tanstack/ai": "^0.8.0",
-    "@tanstack/ai-gemini": "^0.8.0",
+    "@tanstack/ai": "0.6.1",
+    "@tanstack/ai-gemini": "^0.7.0",
     "@tanstack/react-router": "^1.141.8",
     "@tanstack/react-start": "^1.142.0",
     "@tanstack/react-store": "^0.7.0",
@@ -19,7 +19,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "6.29.0",
-    "zod": "^3.25.0"
+    "zod": "^4.3.5"
   },
   "devDependencies": {
     "@babel/core": "^7.14.5",

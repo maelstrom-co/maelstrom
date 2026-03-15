@@ -18,5 +18,15 @@
     "@maelstrom/client": "workspace:*",
     "@maelstrom/protocol": "workspace:*",
     "onnxruntime-web": "*"
+  },
+  "nx": {
+    "targets": {
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
   }
 }
