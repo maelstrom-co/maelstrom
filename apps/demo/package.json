@@ -9,7 +9,6 @@
     "start": "node .output/server/index.mjs"
   },
   "dependencies": {
-    "@maelstrom/audio": "workspace:*",
     "@maelstrom/engine": "workspace:*",
     "@maelstrom/protocol": "workspace:*",
     "@maelstrom/react": "workspace:*",

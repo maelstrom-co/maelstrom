@@ -22,9 +22,6 @@
     },
     {
       "path": "../../packages/engine/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/audio/tsconfig.lib.json"
     }
   ]
 }

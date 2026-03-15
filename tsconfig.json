@@ -20,9 +20,6 @@
     },
     {
       "path": "./tools/biome-plugin"
-    },
-    {
-      "path": "./packages/audio"
     }
   ]
 }

@@ -1,4 +1,3 @@
-import type { MaelstromResponse } from '@maelstrom/protocol';
 import {
   Chart,
   MaelstromProvider,
@@ -7,9 +6,8 @@ import {
   useVesselRegistration,
 } from '@maelstrom/react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createServerFnConnector } from '../lib/connector';
-import { useServerAudio } from '../lib/use-server-audio';
 import { calendarRegistration } from '../vessels/calendar.vessel';
 import { weatherRegistration } from '../vessels/weather.vessel';
 
@@ -21,33 +19,18 @@ export const Route = createFileRoute('/')({
 const connector = createServerFnConnector();
 
 function HomePage() {
-  // Reference to speak function from audio hook (will be set by DemoApp)
-  const speakRef = useRef<((text: string) => Promise<void>) | null>(null);
-
-  const handleResponse = useCallback((response: MaelstromResponse) => {
-    // Speak the userMessage if available
-    if (response.userMessage && speakRef.current) {
-      speakRef.current(response.userMessage);
-    }
-  }, []);
-
   return (
     <MaelstromProvider
       connector={connector}
       sessionId="demo-session"
-      onResponse={handleResponse}
       debug
     >
-      <DemoApp speakRef={speakRef} />
+      <DemoApp />
     </MaelstromProvider>
   );
 }
 
-interface DemoAppProps {
-  speakRef: React.RefObject<((text: string) => Promise<void>) | null>;
-}
-
-function DemoApp({ speakRef }: DemoAppProps) {
+function DemoApp() {
   // Register vessels
   useVesselRegistration(calendarRegistration);
   useVesselRegistration(weatherRegistration);
@@ -95,7 +78,7 @@ function DemoApp({ speakRef }: DemoAppProps) {
       </main>
 
       {/* Intent input */}
-      <IntentInput speakRef={speakRef} />
+      <IntentInput />
     </div>
   );
 }
@@ -125,40 +108,9 @@ function StatusIndicator() {
   );
 }
 
-interface IntentInputProps {
-  speakRef: React.MutableRefObject<((text: string) => Promise<void>) | null>;
-}
-
-function IntentInput({ speakRef }: IntentInputProps) {
+function IntentInput() {
   const [intent, setIntent] = useState('');
   const { processIntent, isProcessing, lastError } = useMaelstrom();
-
-  const {
-    isRecording,
-    isTranscribing,
-    isSpeaking,
-    transcript,
-    toggleRecording,
-    speak,
-    error: audioError,
-  } = useServerAudio({
-    autoProcessIntent: true,
-    processIntent,
-  });
-
-  // Set the speak function ref so the parent can use it in onResponse
-  useEffect(() => {
-    speakRef.current = speak;
-  }, [speak, speakRef]);
-
-  const isVoiceBusy = isRecording || isTranscribing;
-
-  // Update intent field with voice transcript
-  useEffect(() => {
-    if (transcript && !isRecording) {
-      setIntent(transcript);
-    }
-  }, [transcript, isRecording]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,60 +127,30 @@ function IntentInput({ speakRef }: IntentInputProps) {
     'Switch the calendar back to month view',
   ];
 
-  const getPlaceholder = () => {
-    if (isRecording) return 'Recording...';
-    if (isTranscribing) return 'Transcribing...';
-    return 'Tell Maelstrom what you want to do...';
-  };
-
-  const getMicButtonClass = () => {
-    if (isRecording) return 'bg-red-600 hover:bg-red-700 animate-pulse';
-    if (isTranscribing) return 'bg-yellow-600 animate-pulse';
-    return 'bg-gray-700 hover:bg-gray-600';
-  };
-
   return (
     <div className="bg-gray-800 border-t border-gray-700 p-4">
       <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
         <div className="flex gap-2">
-          {/* Voice input button */}
-          <button
-            type="button"
-            onClick={toggleRecording}
-            disabled={isProcessing || isTranscribing}
-            className={`px-4 py-3 rounded-lg font-medium transition-colors ${getMicButtonClass()} disabled:bg-gray-600 disabled:cursor-not-allowed`}
-            title={isRecording ? 'Stop recording' : 'Start voice input'}
-          >
-            {isRecording ? <MicrophoneOnIcon /> : <MicrophoneOffIcon />}
-          </button>
-
           <input
             type="text"
-            value={isRecording ? '' : intent}
+            value={intent}
             onChange={(e) => setIntent(e.target.value)}
-            placeholder={getPlaceholder()}
+            placeholder="Tell Maelstrom what you want to do..."
             className="intent-input flex-1"
-            disabled={isProcessing || isVoiceBusy}
+            disabled={isProcessing}
           />
           <button
             type="submit"
-            disabled={isProcessing || !intent.trim() || isVoiceBusy}
+            disabled={isProcessing || !intent.trim()}
             className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-6 py-3 rounded-lg font-medium transition-colors"
           >
             {isProcessing ? 'Processing...' : 'Send'}
           </button>
         </div>
 
-        {/* Status indicators */}
-        {isSpeaking && (
-          <div className="mt-2 text-sm text-blue-400 animate-pulse">
-            Speaking...
-          </div>
-        )}
-
-        {(lastError || audioError) && (
+        {lastError && (
           <div className="mt-2 text-sm text-red-400">
-            Error: {lastError || audioError?.message}
+            Error: {lastError}
           </div>
         )}
 
@@ -240,7 +162,6 @@ function IntentInput({ speakRef }: IntentInputProps) {
               type="button"
               onClick={() => setIntent(suggestion)}
               className="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-full text-gray-300 transition-colors"
-              disabled={isVoiceBusy}
             >
               {suggestion}
             </button>
@@ -248,41 +169,5 @@ function IntentInput({ speakRef }: IntentInputProps) {
         </div>
       </form>
     </div>
-  );
-}
-
-function MicrophoneOnIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      className="h-5 w-5"
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path
-        fillRule="evenodd"
-        d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
-function MicrophoneOffIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      className="h-5 w-5"
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path
-        fillRule="evenodd"
-        d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"
-        clipRule="evenodd"
-      />
-    </svg>
   );
 }
