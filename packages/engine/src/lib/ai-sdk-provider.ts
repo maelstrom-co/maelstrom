@@ -1,63 +1,64 @@
-import type { LanguageModel, ModelMessage } from 'ai';
-import { generateText } from 'ai';
-import type { AIMessage } from './history/index.js';
-import type { LLMProvider } from './types.js';
+import { chat } from '@tanstack/ai';
+import { type GeminiTextModel, geminiText } from '@tanstack/ai-gemini';
 
-/**
- * Creates an LLMProvider from an AI SDK model.
- *
- * @example
- * ```typescript
- * import { anthropic } from '@ai-sdk/anthropic';
- * import { createAISDKProvider } from '@maelstrom/engine';
- *
- * const provider = createAISDKProvider(anthropic('claude-sonnet-4-20250514'));
- * ```
- *
- * @example
- * ```typescript
- * import { google } from '@ai-sdk/google';
- * import { createAISDKProvider } from '@maelstrom/engine';
- *
- * const provider = createAISDKProvider(google('gemini-2.0-flash'));
- * ```
- */
-export function createAISDKProvider(model: LanguageModel): LLMProvider {
+import {
+  GridResponseSchema,
+  type LayoutMode,
+  TilingResponseSchema,
+} from '@maelstrom/protocol';
+
+import type { AIMessage } from './history/index.js';
+import type { LLMProvider, LLMResponse } from './types.js';
+
+export type { GeminiTextModel };
+
+function getSchemaForMode(layoutMode: LayoutMode) {
+  return layoutMode === 'grid' ? GridResponseSchema : TilingResponseSchema;
+}
+
+export function createTanStackProvider(model: GeminiTextModel): LLMProvider {
+  const adapter = geminiText(model);
+
   return {
-    async complete(prompt: string, systemPrompt: string): Promise<string> {
-      const result = await generateText({
-        model,
-        system: systemPrompt,
-        prompt,
+    async complete(
+      prompt: string,
+      systemPrompt: string,
+      layoutMode: LayoutMode,
+    ): Promise<LLMResponse> {
+      const result = await chat({
+        adapter,
+        messages: [{ role: 'user', content: prompt }],
+        systemPrompts: [systemPrompt],
+        outputSchema: getSchemaForMode(layoutMode),
+        stream: false,
       });
 
-      return result.text;
+      return result;
     },
 
     async completeWithHistory(
       messages: AIMessage[],
       currentPrompt: string,
       systemPrompt: string,
-    ): Promise<string> {
-      // Convert history messages and append current prompt as user message
-      // Explicitly type as ModelMessage[] for AI SDK 5.x compatibility
-      const aiMessages: ModelMessage[] = [
-        ...messages.map(
-          (m): ModelMessage => ({
-            role: m.role,
-            content: m.content,
-          }),
-        ),
-        { role: 'user', content: currentPrompt },
+      layoutMode: LayoutMode,
+    ): Promise<LLMResponse> {
+      const chatMessages = [
+        ...messages.map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
+        { role: 'user' as const, content: currentPrompt },
       ];
 
-      const result = await generateText({
-        model,
-        system: systemPrompt,
-        messages: aiMessages,
+      const result = await chat({
+        adapter,
+        messages: chatMessages,
+        systemPrompts: [systemPrompt],
+        outputSchema: getSchemaForMode(layoutMode),
+        stream: false,
       });
 
-      return result.text;
+      return result;
     },
   };
 }

@@ -9,7 +9,8 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "forceConsistentCasingInFileNames": true,
-    "types": ["node", "vite/client"]
+    "types": ["node", "vite/client"],
+    "plugins": [{ "name": "@effect/language-service" }]
   },
   "include": ["src/**/*.ts"],
   "references": [

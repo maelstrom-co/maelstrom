@@ -1,8 +1,19 @@
 import type {
+  GridResponse,
+  LayoutMode,
+  TilingResponse,
+} from '@maelstrom/protocol';
+
+import type {
   AIMessage,
   HistoryConfig,
   HistoryStore,
 } from './history/index.js';
+import type { VoiceConfig } from './voice/types.js';
+
+export type GridLLMResponse = GridResponse;
+export type TilingLLMResponse = TilingResponse;
+export type LLMResponse = GridLLMResponse | TilingLLMResponse;
 
 /**
  * Abstract LLM provider interface.
@@ -10,12 +21,17 @@ import type {
  */
 export interface LLMProvider {
   /**
-   * Send a prompt to the LLM and get a response.
+   * Send a prompt to the LLM and get a structured response.
    * @param prompt - The user/context prompt
    * @param systemPrompt - The system prompt
-   * @returns The LLM's text response
+   * @param layoutMode - The layout mode to use (determines response schema)
+   * @returns The structured Maelstrom response
    */
-  complete(prompt: string, systemPrompt: string): Promise<string>;
+  complete(
+    prompt: string,
+    systemPrompt: string,
+    layoutMode: LayoutMode,
+  ): Promise<LLMResponse>;
 
   /**
    * Send a conversation with history to the LLM.
@@ -23,13 +39,15 @@ export interface LLMProvider {
    * @param messages - Conversation history as messages
    * @param currentPrompt - The current turn's prompt
    * @param systemPrompt - The system prompt
-   * @returns The LLM's text response
+   * @param layoutMode - The layout mode to use (determines response schema)
+   * @returns The structured Maelstrom response
    */
   completeWithHistory?(
     messages: AIMessage[],
     currentPrompt: string,
     systemPrompt: string,
-  ): Promise<string>;
+    layoutMode: LayoutMode,
+  ): Promise<LLMResponse>;
 }
 
 /**
@@ -67,6 +85,9 @@ export interface EngineConfig {
     /** The history store to use */
     store: HistoryStore;
   };
+
+  /** Voice configuration (optional - enables voice mode if provided) */
+  voice?: VoiceConfig;
 }
 
 /**
@@ -78,7 +99,10 @@ export class EngineError extends Error {
       | 'PARSE_ERROR'
       | 'VALIDATION_ERROR'
       | 'LLM_ERROR'
-      | 'TIMEOUT',
+      | 'TIMEOUT'
+      | 'STT_ERROR'
+      | 'TTS_ERROR'
+      | 'VOICE_ERROR',
     message: string,
     public readonly details?: unknown,
   ) {

@@ -2,43 +2,24 @@ import type {
   ChartDimensions,
   ChartPosition,
   ChartSize,
-  LayoutDirective,
+  GridPosition,
 } from '@maelstrom/protocol';
 
-/**
- * A contiguous available region on the chart.
- */
 export interface Island {
-  /** Top-left position of the free region */
   position: ChartPosition;
-  /** Size of the available region */
   size: ChartSize;
 }
 
-/**
- * Computes available islands (free rectangular regions) on the chart.
- *
- * The algorithm:
- * 1. Creates an occupancy grid from the current layout
- * 2. Finds maximal rectangles of free cells using a histogram-based approach
- * 3. Returns islands sorted by area (largest first)
- *
- * @param dimensions - The chart dimensions (columns × rows)
- * @param layout - Current layout directives (occupied regions)
- * @returns Array of available islands, sorted by area descending
- */
 export function computeAvailableIslands(
   dimensions: ChartDimensions,
-  layout: LayoutDirective[],
+  layout: GridPosition[],
 ): Island[] {
   const { columns, rows } = dimensions;
 
-  // Create occupancy grid (true = occupied)
   const grid: boolean[][] = Array(rows)
     .fill(null)
     .map(() => Array(columns).fill(false));
 
-  // Mark occupied cells
   for (const directive of layout) {
     const { position, size } = directive;
     for (let r = position.row; r < position.row + size.height; r++) {
@@ -50,19 +31,13 @@ export function computeAvailableIslands(
     }
   }
 
-  // Find all maximal free rectangles using the histogram method
   const islands = findMaximalRectangles(grid, rows, columns);
 
-  // Sort by area (largest first)
   return islands.sort(
     (a, b) => b.size.width * b.size.height - a.size.width * a.size.height,
   );
 }
 
-/**
- * Finds maximal free rectangles in a grid using histogram-based approach.
- * Returns non-overlapping rectangles that cover all free space.
- */
 function findMaximalRectangles(
   grid: boolean[][],
   rows: number,
@@ -70,29 +45,20 @@ function findMaximalRectangles(
 ): Island[] {
   const islands: Island[] = [];
 
-  // Build height histogram for each row
-  // heights[c] = number of consecutive free cells above (including current row)
   const heights: number[] = Array(columns).fill(0);
 
   for (let r = 0; r < rows; r++) {
-    // Update heights for current row
     for (let c = 0; c < columns; c++) {
       heights[c] = grid[r][c] ? 0 : heights[c] + 1;
     }
 
-    // Find rectangles in this histogram using stack-based approach
     const rowRectangles = findRectanglesInHistogram(heights, r);
     islands.push(...rowRectangles);
   }
 
-  // Deduplicate and merge overlapping rectangles
   return deduplicateIslands(islands);
 }
 
-/**
- * Finds all maximal rectangles in a histogram.
- * Uses a stack-based approach to find largest rectangles.
- */
 function findRectanglesInHistogram(
   heights: number[],
   currentRow: number,
@@ -140,13 +106,9 @@ function findRectanglesInHistogram(
   return rectangles;
 }
 
-/**
- * Removes duplicate and contained rectangles, keeping only maximal ones.
- */
 function deduplicateIslands(islands: Island[]): Island[] {
   if (islands.length === 0) return [];
 
-  // Sort by area descending
   const sorted = [...islands].sort(
     (a, b) => b.size.width * b.size.height - a.size.width * a.size.height,
   );
@@ -154,12 +116,10 @@ function deduplicateIslands(islands: Island[]): Island[] {
   const result: Island[] = [];
 
   for (const island of sorted) {
-    // Check if this island is contained within any existing result
     const isContained = result.some((existing) =>
       rectangleContains(existing, island),
     );
 
-    // Check if this island is a duplicate
     const isDuplicate = result.some(
       (existing) =>
         existing.position.row === island.position.row &&
@@ -176,9 +136,6 @@ function deduplicateIslands(islands: Island[]): Island[] {
   return result;
 }
 
-/**
- * Checks if rectangle A fully contains rectangle B.
- */
 function rectangleContains(a: Island, b: Island): boolean {
   return (
     a.position.row <= b.position.row &&
@@ -188,9 +145,6 @@ function rectangleContains(a: Island, b: Island): boolean {
   );
 }
 
-/**
- * Serializes islands to a human-readable format for the LLM prompt.
- */
 export function serializeIslands(islands: Island[]): string {
   if (islands.length === 0) {
     return 'No free space available. Consider hiding or resizing existing vessels.';

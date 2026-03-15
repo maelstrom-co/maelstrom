@@ -1,9 +1,13 @@
 import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
+
+import type { AssistantMessage } from './history/history-manager.js';
 import { createHistoryManager } from './history/index.js';
-import { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './prompt-builder.js';
-import { parseResponse } from './response-parser.js';
-import type { EngineConfig, RetryConfig } from './types.js';
+import { buildPrompt } from './prompt-builder.js';
+import { buildResponse } from './response-parser.js';
+import type { EngineConfig, LLMResponse, RetryConfig } from './types.js';
 import { EngineError } from './types.js';
+
+export type { AssistantMessage } from './history/history-manager.js';
 
 /**
  * Message to inject into history without LLM processing.
@@ -41,7 +45,7 @@ export interface Engine {
 export function createEngine(config: EngineConfig): Engine {
   const {
     provider,
-    systemPrompt = DEFAULT_SYSTEM_PROMPT,
+    systemPrompt: customSystemPrompt,
     timeout = 30000,
     retry = {},
     history: historyConfig,
@@ -54,24 +58,26 @@ export function createEngine(config: EngineConfig): Engine {
     backoffMultiplier: retry.backoffMultiplier ?? 2,
   };
 
-  // Create history manager if configured
   const historyManager = historyConfig
     ? createHistoryManager(historyConfig.store, {
         contentLevel: historyConfig.contentLevel,
         maxEntries: historyConfig.maxEntries,
-        maxTokens: historyConfig.maxTokens,
-        sessionTtlMs: historyConfig.sessionTtlMs,
+        ...(historyConfig.maxTokens !== undefined && {
+          maxTokens: historyConfig.maxTokens,
+        }),
+        ...(historyConfig.sessionTtlMs !== undefined && {
+          sessionTtlMs: historyConfig.sessionTtlMs,
+        }),
       })
     : null;
 
   return {
     async process(request: ChartRequest): Promise<MaelstromResponse> {
-      // Build the prompt from the request
-      const prompt = buildPrompt(request);
+      const { prompt, systemPrompt } = buildPrompt(request, customSystemPrompt);
+      const layoutMode = request.context.layoutMode;
 
-      let llmResponse: string;
+      let llmResponse: LLMResponse;
 
-      // Use history-aware completion if available and configured
       const completeWithHistory = provider.completeWithHistory;
       if (historyManager && completeWithHistory) {
         const sessionId = request.context.sessionId;
@@ -81,23 +87,29 @@ export function createEngine(config: EngineConfig): Engine {
         llmResponse = await retryWithBackoff(
           () =>
             withTimeout(
-              completeWithHistory(historyMessages, prompt, systemPrompt),
+              completeWithHistory(
+                historyMessages,
+                prompt,
+                systemPrompt,
+                layoutMode,
+              ),
               timeout,
             ),
           retryConfig,
         );
       } else {
-        // Fallback to simple completion
         llmResponse = await retryWithBackoff(
-          () => withTimeout(provider.complete(prompt, systemPrompt), timeout),
+          () =>
+            withTimeout(
+              provider.complete(prompt, systemPrompt, layoutMode),
+              timeout,
+            ),
           retryConfig,
         );
       }
 
-      // Parse the response
-      const response = parseResponse(llmResponse, request);
+      const response = buildResponse(llmResponse, request);
 
-      // Record to history if enabled
       if (historyManager) {
         await historyManager.recordTurn(request, response);
       }
@@ -105,7 +117,6 @@ export function createEngine(config: EngineConfig): Engine {
       return response;
     },
 
-    // Expose history clearing if history is enabled
     ...(historyManager && {
       async clearSessionHistory(sessionId: string): Promise<void> {
         await historyManager.clearSession(sessionId);
@@ -117,9 +128,6 @@ export function createEngine(config: EngineConfig): Engine {
   };
 }
 
-/**
- * Retries a function with exponential backoff.
- */
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   config: Required<RetryConfig>,
@@ -133,25 +141,12 @@ async function retryWithBackoff<T>(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
-      // Don't retry on parse errors (LLM gave bad response, retrying won't help)
-      if (error instanceof EngineError && error.code === 'PARSE_ERROR') {
-        throw error;
-      }
-
-      // Don't retry on validation errors
-      if (error instanceof EngineError && error.code === 'VALIDATION_ERROR') {
-        throw error;
-      }
-
-      // Last attempt, throw the error
       if (attempt === config.maxAttempts) {
         break;
       }
 
-      // Wait before retrying
       await sleep(delay);
 
-      // Increase delay for next attempt
       delay = Math.min(delay * config.backoffMultiplier, config.maxDelayMs);
     }
   }
@@ -163,9 +158,6 @@ async function retryWithBackoff<T>(
   );
 }
 
-/**
- * Wraps a promise with a timeout.
- */
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 

@@ -19,29 +19,12 @@
     "!**/*.tsbuildinfo"
   ],
   "dependencies": {
-    "ai": "*"
+    "@tanstack/ai": "*",
+    "@tanstack/ai-gemini": "*",
+    "effect": "*"
   },
   "devDependencies": {
-    "@maelstrom/protocol": "workspace:*",
-    "@ai-sdk/anthropic": "*",
-    "@ai-sdk/openai": "*",
-    "@ai-sdk/google": "*"
-  },
-  "peerDependencies": {
-    "@ai-sdk/anthropic": "*",
-    "@ai-sdk/openai": "*",
-    "@ai-sdk/google": "*"
-  },
-  "peerDependenciesMeta": {
-    "@ai-sdk/anthropic": {
-      "optional": true
-    },
-    "@ai-sdk/openai": {
-      "optional": true
-    },
-    "@ai-sdk/google": {
-      "optional": true
-    }
+    "@maelstrom/protocol": "workspace:*"
   },
   "nx": {
     "name": "@maelstrom/engine"

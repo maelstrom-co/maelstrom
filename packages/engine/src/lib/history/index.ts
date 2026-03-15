@@ -1,12 +1,5 @@
-// Types
-
-// History Manager
-export type {
-  AssistantMessageInput,
-  HistoryManager,
-} from './history-manager.js';
+export type { HistoryManager } from './history-manager.js';
 export { createHistoryManager } from './history-manager.js';
-// In-Memory Store
 export type {
   InMemoryHistoryStore,
   InMemoryStoreConfig,
