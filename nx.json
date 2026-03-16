@@ -64,6 +64,11 @@
       "cache": true,
       "dependsOn": ["^build"],
       "inputs": ["production", "^production"]
+    },
+    "nx-release-publish": {
+      "options": {
+        "registry": "https://npm.pkg.github.com"
+      }
     }
   },
   "generators": {
@@ -104,6 +109,7 @@
     "changelog": {
       "projectChangelogs": false,
       "workspaceChangelog": {
+        "file": false,
         "createRelease": "github"
       }
     }

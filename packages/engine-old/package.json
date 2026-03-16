@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/engine-old",
-  "version": "0.0.2-prealpha.0",
+  "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -19,7 +19,6 @@
     "!**/*.tsbuildinfo"
   ],
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
     "access": "restricted"
   },
   "dependencies": {
