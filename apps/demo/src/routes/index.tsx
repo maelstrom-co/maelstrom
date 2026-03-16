@@ -1,13 +1,14 @@
 import {
-  Chart,
   MaelstromProvider,
-  useCreateInstance,
+  TilingChart,
   useMaelstrom,
+  useMaelstromVoice,
   useVesselRegistration,
+  VoiceOrb,
 } from '@maelstrom-co/react-old';
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
-import { createServerFnConnector } from '../lib/connector';
+import { useMemo, useState } from 'react';
+import { createDemoConnector } from '../lib/connector';
 import { calendarRegistration } from '../vessels/calendar.vessel';
 import { weatherRegistration } from '../vessels/weather.vessel';
 
@@ -15,49 +16,34 @@ export const Route = createFileRoute('/')({
   component: HomePage,
 });
 
-// Create connector once
-const connector = createServerFnConnector();
-
 function HomePage() {
+  const connector = useMemo(() => createDemoConnector(), []);
+
   return (
-    <MaelstromProvider
-      connector={connector}
-      sessionId="demo-session"
-      debug
-    >
+    <MaelstromProvider connector={connector} debug>
+      <VesselRegistrations />
       <DemoApp />
     </MaelstromProvider>
   );
 }
 
-function DemoApp() {
-  // Register vessels
+function VesselRegistrations() {
   useVesselRegistration(calendarRegistration);
   useVesselRegistration(weatherRegistration);
+  return null;
+}
 
-  const createInstance = useCreateInstance();
-  const { instances } = useMaelstrom();
+function DemoApp() {
+  const { processIntent, isProcessing, connectionStatus } = useMaelstrom();
 
-  // Create initial instances on mount
-  // Sizes come from variant minSize, positions are grid coordinates
-  useEffect(() => {
-    if (instances.length === 0) {
-      createInstance('calendar', {
-        instanceId: 'calendar-1',
-        position: (chart) => ({
-          row: Math.floor((chart.rows - 4) / 2),
-          column: Math.floor((chart.columns - 8) / 2),
-        }),
-      });
-      createInstance('weather', {
-        instanceId: 'weather-1',
-        position: (chart) => ({
-          row: Math.floor((chart.rows - 4) / 2),
-          column: Math.floor((chart.columns - 8) / 2) + 5,
-        }),
-      });
-    }
-  }, [createInstance, instances.length]);
+  const voice = useMaelstromVoice({
+    greeting:
+      "Hello! I'm the Maelstrom demo assistant. I can help you arrange the calendar and weather widgets. What would you like to do?",
+    onTranscript: (text, isFinal) => {
+      if (!isFinal || !text.trim() || isProcessing) return;
+      processIntent(text);
+    },
+  });
 
   return (
     <div className="h-screen flex flex-col">
@@ -66,15 +52,39 @@ function DemoApp() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white">Maelstrom Demo</h1>
-            <p className="text-sm text-gray-400">AI-Orchestrated Dynamic UI</p>
+            <p className="text-sm text-gray-400">
+              AI-Orchestrated Dynamic UI
+            </p>
           </div>
-          <StatusIndicator />
+          <div className="flex items-center gap-3">
+            <VoiceOrb
+              state={
+                voice.isListening
+                  ? 'listening'
+                  : voice.isSpeaking
+                    ? 'speaking'
+                    : voice.isProcessing
+                      ? 'processing'
+                      : 'idle'
+              }
+              audioLevel={voice.audioLevel}
+              size={40}
+              onClick={() => {
+                if (voice.isListening) {
+                  voice.stopListening();
+                } else {
+                  voice.startListening();
+                }
+              }}
+            />
+            <StatusIndicator />
+          </div>
         </div>
       </header>
 
       {/* Main content */}
       <main className="flex-1 relative">
-        <Chart showGrid />
+        <TilingChart />
       </main>
 
       {/* Intent input */}
@@ -84,7 +94,7 @@ function DemoApp() {
 }
 
 function StatusIndicator() {
-  const { connectionState, isProcessing } = useMaelstrom();
+  const { connectionStatus, isProcessing } = useMaelstrom();
 
   return (
     <div className="flex items-center gap-2">
@@ -95,11 +105,11 @@ function StatusIndicator() {
       )}
       <div
         className={`w-2 h-2 rounded-full ${
-          connectionState === 'connected'
+          connectionStatus === 'connected'
             ? 'bg-green-500'
-            : connectionState === 'connecting'
+            : connectionStatus === 'connecting'
               ? 'bg-yellow-500'
-              : connectionState === 'error'
+              : connectionStatus === 'error'
                 ? 'bg-red-500'
                 : 'bg-gray-500'
         }`}
@@ -150,7 +160,7 @@ function IntentInput() {
 
         {lastError && (
           <div className="mt-2 text-sm text-red-400">
-            Error: {lastError}
+            Error: {lastError.message}
           </div>
         )}
 

@@ -22,6 +22,9 @@
     },
     {
       "path": "../../packages/engine-old/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/client/tsconfig.lib.json"
     }
   ]
 }

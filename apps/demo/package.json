@@ -4,19 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite dev --port 3000",
+    "dev": "bun run src/server/ws-server.ts & vite dev --port 3000",
+    "dev:ws": "bun run src/server/ws-server.ts",
+    "dev:client": "vite dev --port 3000",
     "build": "vite build",
     "start": "node .output/server/index.mjs"
   },
   "dependencies": {
+    "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/engine-old": "workspace:*",
     "@maelstrom-co/protocol-old": "workspace:*",
     "@maelstrom-co/react-old": "workspace:*",
     "@tanstack/react-router": "*",
     "@tanstack/react-start": "*",
-    "ai": "*",
-    "@ai-sdk/google": "*",
-    "@ai-sdk/deepgram": "*",
+    "hono": "*",
     "react": "*",
     "react-dom": "*",
     "vite": "*"
