@@ -38,6 +38,8 @@ Copy `.env.example` to `.env` and configure API keys for LLM providers:
 - `OPENAI_API_KEY` - OpenAI
 - `ANTHROPIC_API_KEY` - Anthropic Claude
 
+Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `.npmrc` at the repo root configures registry resolution and requires `GITHUB_TOKEN` to be set for installing or publishing scoped packages.
+
 ## Architecture
 
 ```

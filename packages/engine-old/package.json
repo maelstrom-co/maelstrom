@@ -18,6 +18,10 @@
     "dist",
     "!**/*.tsbuildinfo"
   ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "dependencies": {
     "@tanstack/ai": "catalog:",
     "@tanstack/ai-gemini": "catalog:",

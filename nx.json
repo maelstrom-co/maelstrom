@@ -85,8 +85,28 @@
     }
   },
   "release": {
+    "projects": ["packages/*"],
+    "projectsRelationship": "fixed",
     "version": {
-      "preVersionCommand": "bunx nx run-many -t build"
+      "preVersionCommand": "bunx nx run-many -t build",
+      "conventionalCommits": true,
+      "currentVersionResolver": "git-tag",
+      "versionActionsOptions": {
+        "skipLockFileUpdate": true
+      }
+    },
+    "releaseTag": {
+      "pattern": "v{version}",
+      "strictPreid": false
+    },
+    "git": {
+      "commitMessage": "chore(release): {version}"
+    },
+    "changelog": {
+      "projectChangelogs": false,
+      "workspaceChangelog": {
+        "createRelease": "github"
+      }
     }
   }
 }
