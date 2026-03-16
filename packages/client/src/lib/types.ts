@@ -21,3 +21,4 @@ export function isPromise(obj: unknown): obj is Promise<unknown> {
     'then' in obj &&
     typeof (obj as Record<string, unknown>).then === 'function'
   );
+}
