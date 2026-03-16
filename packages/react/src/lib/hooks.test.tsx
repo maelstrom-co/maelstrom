@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import type { AnyActionRunner as GenericActionRunner } from '@maelstrom/client';
+import { Err, type Result, Success } from '@maelstrom/protocol';
 import { cleanup, render } from '@testing-library/react';
 import { Window } from 'happy-dom';
 import React from 'react';
-
-import type { AnyActionRunner as GenericActionRunner } from '@maelstrom/client';
-import { Err, type Result, Success } from '@maelstrom/protocol';
 
 // Setup happy-dom
 const happyWindow = new Window();
