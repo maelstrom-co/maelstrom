@@ -18,6 +18,11 @@
     "dist",
     "!**/*.tsbuildinfo"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/voice-old"
+  },
   "publishConfig": {
     "access": "restricted"
   },
