@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
 
-import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol';
+import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol-old';
 
 import { createMockResponse } from '../../../test-utils/mocks.js';
 import type {

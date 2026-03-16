@@ -4,8 +4,8 @@ import {
   createAISDKProvider,
   createEngine,
   createInMemoryHistoryStore,
-} from '@maelstrom-co/engine';
-import type { ChartRequest } from '@maelstrom-co/protocol';
+} from '@maelstrom-co/engine-old';
+import type { ChartRequest } from '@maelstrom-co/protocol-old';
 import { createServerFn } from '@tanstack/react-start';
 
 // Create the engine with Gemini provider and conversation history

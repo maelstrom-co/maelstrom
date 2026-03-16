@@ -15,7 +15,7 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
-      "path": "../protocol/tsconfig.lib.json"
+      "path": "../protocol-old/tsconfig.lib.json"
     }
   ],
   "exclude": [

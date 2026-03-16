@@ -71,9 +71,9 @@
       "dependencies": {
         "@ai-sdk/deepgram": "*",
         "@ai-sdk/google": "*",
-        "@maelstrom-co/engine": "workspace:*",
-        "@maelstrom-co/protocol": "workspace:*",
-        "@maelstrom-co/react": "workspace:*",
+        "@maelstrom-co/engine-old": "workspace:*",
+        "@maelstrom-co/protocol-old": "workspace:*",
+        "@maelstrom-co/react-old": "workspace:*",
         "@tanstack/react-router": "*",
         "@tanstack/react-start": "*",
         "ai": "*",
@@ -96,15 +96,15 @@
       "name": "@maelstrom-co/client",
       "version": "0.0.1",
       "dependencies": {
-        "@maelstrom-co/protocol": "workspace:*",
+        "@maelstrom-co/protocol-old": "workspace:*",
         "@tanstack/store": "*",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "*",
       },
     },
-    "packages/engine": {
-      "name": "@maelstrom-co/engine",
+    "packages/engine-old": {
+      "name": "@maelstrom-co/engine-old",
       "version": "0.0.1",
       "dependencies": {
         "@tanstack/ai": "*",
@@ -112,23 +112,23 @@
         "effect": "*",
       },
       "devDependencies": {
-        "@maelstrom-co/protocol": "workspace:*",
+        "@maelstrom-co/protocol-old": "workspace:*",
       },
     },
-    "packages/protocol": {
-      "name": "@maelstrom-co/protocol",
+    "packages/protocol-old": {
+      "name": "@maelstrom-co/protocol-old",
       "version": "0.0.1",
       "dependencies": {
         "zod": "*",
       },
     },
-    "packages/react": {
-      "name": "@maelstrom-co/react",
+    "packages/react-old": {
+      "name": "@maelstrom-co/react-old",
       "version": "0.0.1",
       "dependencies": {
         "@maelstrom-co/client": "workspace:*",
-        "@maelstrom-co/protocol": "workspace:*",
-        "@maelstrom-co/voice": "workspace:*",
+        "@maelstrom-co/protocol-old": "workspace:*",
+        "@maelstrom-co/voice-old": "workspace:*",
         "@tanstack/react-store": "*",
         "@tanstack/store": "*",
         "onnxruntime-web": "*",
@@ -144,12 +144,12 @@
         "react-dom": ">=18.0.0",
       },
     },
-    "packages/voice": {
-      "name": "@maelstrom-co/voice",
+    "packages/voice-old": {
+      "name": "@maelstrom-co/voice-old",
       "version": "0.0.1",
       "dependencies": {
         "@maelstrom-co/client": "workspace:*",
-        "@maelstrom-co/protocol": "workspace:*",
+        "@maelstrom-co/protocol-old": "workspace:*",
         "onnxruntime-web": "*",
       },
     },
@@ -608,13 +608,13 @@
 
     "@maelstrom-co/demo": ["@maelstrom-co/demo@workspace:apps/demo"],
 
-    "@maelstrom-co/engine": ["@maelstrom-co/engine@workspace:packages/engine"],
+    "@maelstrom-co/engine-old": ["@maelstrom-co/engine-old@workspace:packages/engine-old"],
 
-    "@maelstrom-co/protocol": ["@maelstrom-co/protocol@workspace:packages/protocol"],
+    "@maelstrom-co/protocol-old": ["@maelstrom-co/protocol-old@workspace:packages/protocol-old"],
 
-    "@maelstrom-co/react": ["@maelstrom-co/react@workspace:packages/react"],
+    "@maelstrom-co/react-old": ["@maelstrom-co/react-old@workspace:packages/react-old"],
 
-    "@maelstrom-co/voice": ["@maelstrom-co/voice@workspace:packages/voice"],
+    "@maelstrom-co/voice-old": ["@maelstrom-co/voice-old@workspace:packages/voice-old"],
 
     "@microsoft/api-extractor": ["@microsoft/api-extractor@7.55.2", "", { "dependencies": { "@microsoft/api-extractor-model": "7.32.2", "@microsoft/tsdoc": "~0.16.0", "@microsoft/tsdoc-config": "~0.18.0", "@rushstack/node-core-library": "5.19.1", "@rushstack/rig-package": "0.6.0", "@rushstack/terminal": "0.19.5", "@rushstack/ts-command-line": "5.1.5", "diff": "~8.0.2", "lodash": "~4.17.15", "minimatch": "10.0.3", "resolve": "~1.22.1", "semver": "~7.5.4", "source-map": "~0.6.1", "typescript": "5.8.2" }, "bin": { "api-extractor": "bin/api-extractor" } }, "sha512-1jlWO4qmgqYoVUcyh+oXYRztZde/pAi7cSVzBz/rc+S7CoVzDasy8QE13dx6sLG4VRo8SfkkLbFORR6tBw4uGQ=="],
 
@@ -3006,13 +3006,13 @@
 
     "@maelstrom-co/client/@tanstack/store": ["@tanstack/store@0.8.0", "", {}, "sha512-Om+BO0YfMZe//X2z0uLF2j+75nQga6TpTJgLJQBiq85aOyZNIhkCgleNcud2KQg4k4v9Y9l+Uhru3qWMPGTOzQ=="],
 
-    "@maelstrom-co/engine/@tanstack/ai": ["@tanstack/ai@0.8.0", "", { "dependencies": { "@tanstack/ai-event-client": "0.1.0", "partial-json": "^0.1.7" } }, "sha512-rcvALkrH6mSEeyZyVHaZiwXKMpNC18YKG6Ao/QDcDP68hLBnIXwYBDq+kmRWgAW6fN2VWwue+PrcH4LgB7fj1w=="],
+    "@maelstrom-co/engine-old/@tanstack/ai": ["@tanstack/ai@0.8.0", "", { "dependencies": { "@tanstack/ai-event-client": "0.1.0", "partial-json": "^0.1.7" } }, "sha512-rcvALkrH6mSEeyZyVHaZiwXKMpNC18YKG6Ao/QDcDP68hLBnIXwYBDq+kmRWgAW6fN2VWwue+PrcH4LgB7fj1w=="],
 
-    "@maelstrom-co/engine/@tanstack/ai-gemini": ["@tanstack/ai-gemini@0.8.2", "", { "dependencies": { "@google/genai": "^1.43.0" }, "peerDependencies": { "@tanstack/ai": "^0.8.0" } }, "sha512-wFi98cbSyNgwWw6EmVK487gRnLz3YPeLbLVuJxIZfXYg1AA9VtY6e0XUAaBeAGb69P9OnuN7R9z2v76OXpb8bg=="],
+    "@maelstrom-co/engine-old/@tanstack/ai-gemini": ["@tanstack/ai-gemini@0.8.2", "", { "dependencies": { "@google/genai": "^1.43.0" }, "peerDependencies": { "@tanstack/ai": "^0.8.0" } }, "sha512-wFi98cbSyNgwWw6EmVK487gRnLz3YPeLbLVuJxIZfXYg1AA9VtY6e0XUAaBeAGb69P9OnuN7R9z2v76OXpb8bg=="],
 
-    "@maelstrom-co/react/@tanstack/react-store": ["@tanstack/react-store@0.8.0", "", { "dependencies": { "@tanstack/store": "0.8.0", "use-sync-external-store": "^1.6.0" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-1vG9beLIuB7q69skxK9r5xiLN3ztzIPfSQSs0GfeqWGO2tGIyInZx0x1COhpx97RKaONSoAb8C3dxacWksm1ow=="],
+    "@maelstrom-co/react-old/@tanstack/react-store": ["@tanstack/react-store@0.8.0", "", { "dependencies": { "@tanstack/store": "0.8.0", "use-sync-external-store": "^1.6.0" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-1vG9beLIuB7q69skxK9r5xiLN3ztzIPfSQSs0GfeqWGO2tGIyInZx0x1COhpx97RKaONSoAb8C3dxacWksm1ow=="],
 
-    "@maelstrom-co/react/@tanstack/store": ["@tanstack/store@0.8.0", "", {}, "sha512-Om+BO0YfMZe//X2z0uLF2j+75nQga6TpTJgLJQBiq85aOyZNIhkCgleNcud2KQg4k4v9Y9l+Uhru3qWMPGTOzQ=="],
+    "@maelstrom-co/react-old/@tanstack/store": ["@tanstack/store@0.8.0", "", {}, "sha512-Om+BO0YfMZe//X2z0uLF2j+75nQga6TpTJgLJQBiq85aOyZNIhkCgleNcud2KQg4k4v9Y9l+Uhru3qWMPGTOzQ=="],
 
     "@microsoft/api-extractor/minimatch": ["minimatch@10.0.3", "", { "dependencies": { "@isaacs/brace-expansion": "^5.0.0" } }, "sha512-IPZ167aShDZZUMdRk66cyQAW3qr0WzbHkPdMYa8bzZhlHhO3jALbKdxcaak7W9FfT2rZNpQuUu4Od7ILEpXSaw=="],
 

@@ -1,4 +1,4 @@
-import type { VesselLoadingSkeletonProps } from '@maelstrom-co/react';
+import type { VesselLoadingSkeletonProps } from '@maelstrom-co/react-old';
 
 /**
  * Custom loading skeleton for the Weather vessel.

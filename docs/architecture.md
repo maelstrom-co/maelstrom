@@ -16,7 +16,7 @@ Maelstrom is designed as a layered architecture with clear separation of concern
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Framework Bindings                           │
-│  @maelstrom-co/react (or Vue, Svelte, etc. in the future)          │
+│  @maelstrom-co/react-old (or Vue, Svelte, etc. in the future)          │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
@@ -26,13 +26,13 @@ Maelstrom is designed as a layered architecture with clear separation of concern
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Protocol                                     │
-│  @maelstrom-co/protocol - Message definitions (transport-agnostic) │
+│  @maelstrom-co/protocol-old - Message definitions (transport-agnostic) │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │ (Any transport: WS, HTTP, etc.)
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Maelstrom Engine                            │
-│  @maelstrom-co/engine - LLM decision logic                         │
+│  @maelstrom-co/engine-old - LLM decision logic                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -376,14 +376,14 @@ These enable:
 ## Package Dependencies
 
 ```
-@maelstrom-co/protocol     (foundation: types + messages)
+@maelstrom-co/protocol-old     (foundation: types + messages)
          │
     ┌────┴────┐
     ▼         ▼
-@maelstrom-co/client   @maelstrom-co/engine
+@maelstrom-co/client   @maelstrom-co/engine-old
          │
          ▼
-@maelstrom-co/react
+@maelstrom-co/react-old
 ```
 
 ### Why This Structure?

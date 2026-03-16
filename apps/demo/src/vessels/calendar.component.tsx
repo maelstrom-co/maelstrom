@@ -1,4 +1,4 @@
-import type { VesselComponentProps } from '@maelstrom-co/react';
+import type { VesselComponentProps } from '@maelstrom-co/react-old';
 
 // Calendar component - default export required for React.lazy()
 export default function CalendarComponent({

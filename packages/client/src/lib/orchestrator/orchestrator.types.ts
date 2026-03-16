@@ -1,4 +1,4 @@
-import type { LayoutMode } from '@maelstrom-co/protocol';
+import type { LayoutMode } from '@maelstrom-co/protocol-old';
 
 import type { ConnectionOptions } from '../connection-manager/connection-manager.types.js';
 

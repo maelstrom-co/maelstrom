@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { LayoutMode } from '@maelstrom-co/protocol';
-import { defineVessel } from '@maelstrom-co/protocol';
+import type { LayoutMode } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol-old';
 
 import type { VesselInstance } from '../types.js';
 import { buildChartRequest } from './build-chart-request.js';

@@ -9,9 +9,9 @@
     "start": "node .output/server/index.mjs"
   },
   "dependencies": {
-    "@maelstrom-co/engine": "workspace:*",
-    "@maelstrom-co/protocol": "workspace:*",
-    "@maelstrom-co/react": "workspace:*",
+    "@maelstrom-co/engine-old": "workspace:*",
+    "@maelstrom-co/protocol-old": "workspace:*",
+    "@maelstrom-co/react-old": "workspace:*",
     "@tanstack/react-router": "*",
     "@tanstack/react-start": "*",
     "ai": "*",

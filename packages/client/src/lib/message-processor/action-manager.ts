@@ -2,7 +2,7 @@ import {
   type ActionExecution,
   Success,
   type Vessel,
-} from '@maelstrom-co/protocol';
+} from '@maelstrom-co/protocol-old';
 
 import { isPromise } from '../types.js';
 import { Logger } from '../utils/logger.js';

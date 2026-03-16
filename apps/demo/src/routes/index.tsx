@@ -4,7 +4,7 @@ import {
   useCreateInstance,
   useMaelstrom,
   useVesselRegistration,
-} from '@maelstrom-co/react';
+} from '@maelstrom-co/react-old';
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { createServerFnConnector } from '../lib/connector';

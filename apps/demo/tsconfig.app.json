@@ -15,13 +15,13 @@
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
   "references": [
     {
-      "path": "../../packages/react/tsconfig.lib.json"
+      "path": "../../packages/react-old/tsconfig.lib.json"
     },
     {
-      "path": "../../packages/protocol/tsconfig.lib.json"
+      "path": "../../packages/protocol-old/tsconfig.lib.json"
     },
     {
-      "path": "../../packages/engine/tsconfig.lib.json"
+      "path": "../../packages/engine-old/tsconfig.lib.json"
     }
   ]
 }

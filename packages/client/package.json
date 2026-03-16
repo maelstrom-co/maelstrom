@@ -16,7 +16,7 @@
     }
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "workspace:*",
+    "@maelstrom-co/protocol-old": "workspace:*",
     "@tanstack/store": "*"
   },
   "devDependencies": {

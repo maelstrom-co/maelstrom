@@ -1,4 +1,4 @@
-import type { Vessel } from '@maelstrom-co/protocol';
+import type { Vessel } from '@maelstrom-co/protocol-old';
 
 /**
  * Event fired when a vessel is registered.

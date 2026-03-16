@@ -7,22 +7,22 @@
       "path": "./apps/demo"
     },
     {
-      "path": "./packages/protocol"
-    },
-    {
       "path": "./packages/client"
-    },
-    {
-      "path": "./packages/engine"
-    },
-    {
-      "path": "./packages/react"
     },
     {
       "path": "./tools/biome-plugin"
     },
     {
-      "path": "./packages/voice"
+      "path": "./packages/protocol-old"
+    },
+    {
+      "path": "./packages/engine-old"
+    },
+    {
+      "path": "./packages/react-old"
+    },
+    {
+      "path": "./packages/voice-old"
     }
   ]
 }

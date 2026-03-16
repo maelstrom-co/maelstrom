@@ -1,5 +1,5 @@
-import type { Vessel } from '@maelstrom-co/protocol';
-import { vesselRegistration } from '@maelstrom-co/react';
+import type { Vessel } from '@maelstrom-co/protocol-old';
+import { vesselRegistration } from '@maelstrom-co/react-old';
 import { WeatherSkeleton } from './weather.skeleton';
 
 // Weather vessel definition - always eagerly loaded for LLM decisions

@@ -22,7 +22,7 @@ nx run-many -t build
 nx run-many -t test
 
 # Run tests for a specific package
-nx test @maelstrom-co/react
+nx test @maelstrom-co/react-old
 
 # Type check all packages
 nx run-many -t typecheck
@@ -41,16 +41,16 @@ Copy `.env.example` to `.env` and configure API keys for LLM providers:
 ## Architecture
 
 ```
-@maelstrom-co/protocol  (foundation: shared types, zod schemas, message contract)
+@maelstrom-co/protocol-old  (foundation: shared types, zod schemas, message contract)
          │
     ┌────┴────┐
     ▼         ▼
-@maelstrom-co/client   @maelstrom-co/engine
+@maelstrom-co/client   @maelstrom-co/engine-old
 (framework-agnostic) (LLM decision core: @tanstack/ai + Effect)
     │
     ├────────────┐
     ▼            ▼
-@maelstrom-co/react  @maelstrom-co/voice
+@maelstrom-co/react-old  @maelstrom-co/voice-old
 (React bindings)  (audio capture/playback, VAD)
 ```
 
@@ -58,11 +58,11 @@ Copy `.env.example` to `.env` and configure API keys for LLM providers:
 
 | Package | Path | Purpose |
 |---------|------|---------|
-| `@maelstrom-co/protocol` | `packages/protocol/` | Core types, zod schemas, and message definitions (transport-agnostic) |
+| `@maelstrom-co/protocol-old` | `packages/protocol/` | Core types, zod schemas, and message definitions (transport-agnostic) |
 | `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Message Processor, Orchestrator |
-| `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai + Effect, voice providers (Deepgram STT, Cartesia TTS) |
-| `@maelstrom-co/react` | `packages/react/` | React components, hooks, voice UI (VoiceButton, VoiceOrb), tiling charts |
-| `@maelstrom-co/voice` | `packages/voice/` | Client-side audio: capture, playback, VAD (Silero via onnxruntime-web), voice sessions |
+| `@maelstrom-co/engine-old` | `packages/engine/` | LLM decision engine using @tanstack/ai + Effect, voice providers (Deepgram STT, Cartesia TTS) |
+| `@maelstrom-co/react-old` | `packages/react/` | React components, hooks, voice UI (VoiceButton, VoiceOrb), tiling charts |
+| `@maelstrom-co/voice-old` | `packages/voice/` | Client-side audio: capture, playback, VAD (Silero via onnxruntime-web), voice sessions |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts

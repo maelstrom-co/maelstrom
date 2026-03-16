@@ -6,7 +6,7 @@ import type {
   TilingLayout,
   UpdateReason,
   Vessel,
-} from '@maelstrom-co/protocol';
+} from '@maelstrom-co/protocol-old';
 
 import type { VesselInstance } from '../types.js';
 

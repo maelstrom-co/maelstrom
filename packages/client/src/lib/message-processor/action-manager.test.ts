@@ -6,7 +6,7 @@ import {
   Err,
   isErr,
   Success,
-} from '@maelstrom-co/protocol';
+} from '@maelstrom-co/protocol-old';
 
 import { ActionManager } from './action-manager.js';
 import type { ActionRunner } from './action-runner.types.js';

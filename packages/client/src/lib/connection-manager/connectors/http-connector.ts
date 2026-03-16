@@ -1,4 +1,4 @@
-import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol';
+import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol-old';
 
 import type {
   ConnectorCapabilities,

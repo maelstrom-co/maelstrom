@@ -1,4 +1,4 @@
-import type { VesselLoadingSkeletonProps } from '@maelstrom-co/react';
+import type { VesselLoadingSkeletonProps } from '@maelstrom-co/react-old';
 
 const DAY_PLACEHOLDERS = ['d0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6'];
 const CELL_PLACEHOLDERS = Array.from({ length: 35 }, (_, i) => `c${i}`);

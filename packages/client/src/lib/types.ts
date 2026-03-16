@@ -1,4 +1,4 @@
-import type { ChartPosition, ChartSize } from '@maelstrom-co/protocol';
+import type { ChartPosition, ChartSize } from '@maelstrom-co/protocol-old';
 
 /** Runtime instance of a Vessel */
 export interface VesselInstance {

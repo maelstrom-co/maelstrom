@@ -1,0 +1,32 @@
+{
+  "name": "@maelstrom-co/voice-old",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/protocol-old": "workspace:*",
+    "onnxruntime-web": "*"
+  },
+  "nx": {
+    "targets": {
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

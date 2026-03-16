@@ -1,4 +1,4 @@
-import type { ChartDimensions } from '@maelstrom-co/protocol';
+import type { ChartDimensions } from '@maelstrom-co/protocol-old';
 
 export type ChartManagerState = {
   chartDimensions: ChartDimensions;

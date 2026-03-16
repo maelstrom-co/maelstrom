@@ -1,4 +1,4 @@
-import type { VesselComponentProps } from '@maelstrom-co/react';
+import type { VesselComponentProps } from '@maelstrom-co/react-old';
 
 // Mock weather data
 const mockWeather = {
