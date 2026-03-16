@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
-import type { VoiceServerMessage } from '@maelstrom/protocol';
+import type { VoiceServerMessage } from '@maelstrom-co/protocol';
 
 import type { AudioChunk, AudioFrameMeta, VoiceConnector } from '../types.js';
 import type { VoiceSessionState } from './voice-session.js';

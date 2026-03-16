@@ -1,5 +1,5 @@
 {
-  "name": "@maelstrom/react",
+  "name": "@maelstrom-co/react",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -8,16 +8,16 @@
   "exports": {
     "./package.json": "./package.json",
     ".": {
-      "@maelstrom/source": "./src/index.ts",
+      "@maelstrom-co/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
   },
   "dependencies": {
-    "@maelstrom/client": "workspace:*",
-    "@maelstrom/protocol": "workspace:*",
-    "@maelstrom/voice": "workspace:*",
+    "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/protocol": "workspace:*",
+    "@maelstrom-co/voice": "workspace:*",
     "@tanstack/store": "*",
     "@tanstack/react-store": "*",
     "onnxruntime-web": "*"

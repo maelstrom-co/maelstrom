@@ -1,4 +1,4 @@
-# @maelstrom/client
+# @maelstrom-co/client
 
 Framework-agnostic client core for Maelstrom.
 

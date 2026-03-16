@@ -1,4 +1,4 @@
-import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
+import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol';
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import type {
@@ -33,7 +33,7 @@ export interface WebSocketConnectorOptions {
  *
  * @example
  * ```typescript
- * import { ConnectionManager, WebSocketConnector } from '@maelstrom/client';
+ * import { ConnectionManager, WebSocketConnector } from '@maelstrom-co/client';
  *
  * const connector = new WebSocketConnector({
  *   url: 'wss://api.example.com/ws',

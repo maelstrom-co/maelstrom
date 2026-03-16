@@ -5,7 +5,7 @@
  * integrating STT and TTS providers for real-time voice conversations.
  */
 
-import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
+import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol';
 
 import type { Engine } from '../engine.js';
 import { createEngine } from '../engine.js';

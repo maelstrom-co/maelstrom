@@ -1,4 +1,4 @@
-import type { ChartRequest, MaelstromResponse } from '@maelstrom/protocol';
+import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol';
 
 import type {
   ConnectorCapabilities,
@@ -28,7 +28,7 @@ export interface HttpConnectorOptions {
  *
  * @example
  * ```typescript
- * import { HttpConnector } from '@maelstrom/client';
+ * import { HttpConnector } from '@maelstrom-co/client';
  *
  * const connector = new HttpConnector({
  *   baseUrl: 'https://api.example.com',

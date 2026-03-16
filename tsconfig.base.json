@@ -16,6 +16,6 @@
     "skipLibCheck": true,
     "strict": true,
     "target": "es2022",
-    "customConditions": ["@maelstrom/source"]
+    "customConditions": ["@maelstrom-co/source"]
   }
 }

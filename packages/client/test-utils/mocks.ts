@@ -1,4 +1,4 @@
-import type { MaelstromResponse, TilingLayout } from '@maelstrom/protocol';
+import type { MaelstromResponse, TilingLayout } from '@maelstrom-co/protocol';
 
 export const createMockResponse = (
   requestId: string,

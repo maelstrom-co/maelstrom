@@ -1,4 +1,4 @@
-import type { Vessel } from '@maelstrom/protocol';
+import type { Vessel } from '@maelstrom-co/protocol';
 
 export type VesselManagerState = {
   vessels: Map<string, Vessel>;

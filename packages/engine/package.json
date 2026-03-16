@@ -1,5 +1,5 @@
 {
-  "name": "@maelstrom/engine",
+  "name": "@maelstrom-co/engine",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -8,7 +8,7 @@
   "exports": {
     "./package.json": "./package.json",
     ".": {
-      "@maelstrom/source": "./src/index.ts",
+      "@maelstrom-co/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
@@ -24,10 +24,10 @@
     "effect": "*"
   },
   "devDependencies": {
-    "@maelstrom/protocol": "workspace:*"
+    "@maelstrom-co/protocol": "workspace:*"
   },
   "nx": {
-    "name": "@maelstrom/engine",
+    "name": "@maelstrom-co/engine",
     "targets": {
       "test": {
         "command": "bun test",

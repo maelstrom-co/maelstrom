@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 
-import type { ChartDimensions } from '@maelstrom/protocol';
+import type { ChartDimensions } from '@maelstrom-co/protocol';
 
 import type { ChartManagerEvents } from './chart-manager.js';
 import { ChartManager } from './chart-manager.js';

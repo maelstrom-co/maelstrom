@@ -3,7 +3,7 @@ import type {
   MaelstromResponse,
   VoiceClientMessage,
   VoiceServerMessage,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import type {
@@ -44,7 +44,7 @@ export interface VoiceWebSocketConnectorOptions {
  *
  * @example
  * ```typescript
- * import { ConnectionManager, VoiceWebSocketConnector } from '@maelstrom/client';
+ * import { ConnectionManager, VoiceWebSocketConnector } from '@maelstrom-co/client';
  *
  * const connector = new VoiceWebSocketConnector({
  *   url: 'wss://api.example.com/voice',

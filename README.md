@@ -118,20 +118,20 @@ The protocol defines the message contract. Transport (WebSocket, HTTP, etc.) is 
 
 | Package                                    | Description                     | Documentation                         |
 | ------------------------------------------ | ------------------------------- | ------------------------------------- |
-| [`@maelstrom/protocol`](./shared/protocol) | Core types and message contract | [README](./shared/protocol/README.md) |
+| [`@maelstrom-co/protocol`](./shared/protocol) | Core types and message contract | [README](./shared/protocol/README.md) |
 
 ### Client
 
 | Package                              | Description                       | Documentation                      |
 | ------------------------------------ | --------------------------------- | ---------------------------------- |
-| [`@maelstrom/client`](./client/core) | Framework-agnostic client library | [README](./client/core/README.md)  |
-| [`@maelstrom/react`](./client/react) | React bindings and components     | [README](./client/react/README.md) |
+| [`@maelstrom-co/client`](./client/core) | Framework-agnostic client library | [README](./client/core/README.md)  |
+| [`@maelstrom-co/react`](./client/react) | React bindings and components     | [README](./client/react/README.md) |
 
 ### Server
 
 | Package                                | Description         | Documentation                       |
 | -------------------------------------- | ------------------- | ----------------------------------- |
-| [`@maelstrom/engine`](./server/engine) | LLM decision engine | [README](./server/engine/README.md) |
+| [`@maelstrom-co/engine`](./server/engine) | LLM decision engine | [README](./server/engine/README.md) |
 
 ---
 
@@ -190,7 +190,7 @@ This is an Nx monorepo using:
 - **TypeScript** - Type-safe code across all packages
 - **Vite** - Fast builds and dev server
 - **Vitest** - Testing framework
-- **React 19** - UI framework (for `@maelstrom/react`)
+- **React 19** - UI framework (for `@maelstrom-co/react`)
 
 ### Commands
 

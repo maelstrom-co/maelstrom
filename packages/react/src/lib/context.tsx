@@ -16,8 +16,8 @@ import {
   type MessageProcessingState,
   Orchestrator,
   type RequestCoordinatorState,
-} from '@maelstrom/client';
-import type { LayoutMode } from '@maelstrom/protocol';
+} from '@maelstrom-co/client';
+import type { LayoutMode } from '@maelstrom-co/protocol';
 
 import type {
   MaelstromProviderProps,

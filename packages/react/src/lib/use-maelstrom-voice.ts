@@ -4,9 +4,9 @@ import type {
   VADStreamOptions,
   VoiceConnector,
   VoiceSessionState,
-} from '@maelstrom/voice';
-import { VoiceSession } from '@maelstrom/voice';
-import { VoiceError } from '@maelstrom/protocol';
+} from '@maelstrom-co/voice';
+import { VoiceSession } from '@maelstrom-co/voice';
+import { VoiceError } from '@maelstrom-co/protocol';
 
 import { useMaelstromContext } from './context.js';
 

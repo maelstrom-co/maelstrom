@@ -5,7 +5,7 @@ import {
   GridResponseSchema,
   type LayoutMode,
   TilingResponseSchema,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 import type { AIMessage } from './history/index.js';
 import type { LLMProvider, LLMResponse } from './types.js';

@@ -3,7 +3,7 @@ import type {
   ChartPosition,
   ChartSize,
   GridPosition,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 export interface Island {
   position: ChartPosition;

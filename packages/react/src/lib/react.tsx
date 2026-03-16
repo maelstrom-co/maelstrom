@@ -1,12 +1,12 @@
-// Connector types and functions - re-exported from @maelstrom/client
+// Connector types and functions - re-exported from @maelstrom-co/client
 export type {
   VoiceWebSocketConnectorOptions,
   WebSocketConnectorOptions,
-} from '@maelstrom/client';
+} from '@maelstrom-co/client';
 export {
   VoiceWebSocketConnector,
   WebSocketConnector,
-} from '@maelstrom/client';
+} from '@maelstrom-co/client';
 
 export type { AudioSetup } from './audio-utils.js';
 export {

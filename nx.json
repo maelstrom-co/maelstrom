@@ -45,7 +45,7 @@
       }
     },
     {
-      "plugin": "@maelstrom/biome-plugin",
+      "plugin": "@maelstrom-co/biome-plugin",
       "options": {
         "lintTargetName": "lint",
         "formatTargetName": "format",

@@ -1,10 +1,10 @@
-import type { EngineConnector } from '@maelstrom/client';
+import type { EngineConnector } from '@maelstrom-co/client';
 import type {
   VoiceClientMessage,
   VoiceServerMessage,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
-export type { EngineConnector } from '@maelstrom/client';
+export type { EngineConnector } from '@maelstrom-co/client';
 
 export type VoiceSessionState = 'idle' | 'listening' | 'silence' | 'speaking';
 

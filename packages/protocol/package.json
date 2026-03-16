@@ -1,5 +1,5 @@
 {
-  "name": "@maelstrom/protocol",
+  "name": "@maelstrom-co/protocol",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -8,7 +8,7 @@
   "exports": {
     "./package.json": "./package.json",
     ".": {
-      "@maelstrom/source": "./src/index.ts",
+      "@maelstrom-co/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"

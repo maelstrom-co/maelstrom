@@ -9,7 +9,7 @@ import {
   VADProcessor,
   type VADState,
   type VADStreamOptions,
-} from '@maelstrom/voice';
+} from '@maelstrom-co/voice';
 
 const VAD_WINDOW_SIZE = 512; // Silero VAD requires 512 samples per inference
 

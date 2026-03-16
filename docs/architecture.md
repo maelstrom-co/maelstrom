@@ -16,23 +16,23 @@ Maelstrom is designed as a layered architecture with clear separation of concern
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Framework Bindings                           │
-│  @maelstrom/react (or Vue, Svelte, etc. in the future)          │
+│  @maelstrom-co/react (or Vue, Svelte, etc. in the future)          │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Client Core                                  │
-│  @maelstrom/client - Vessel Registry, Chart, Event System       │
+│  @maelstrom-co/client - Vessel Registry, Chart, Event System       │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Protocol                                     │
-│  @maelstrom/protocol - Message definitions (transport-agnostic) │
+│  @maelstrom-co/protocol - Message definitions (transport-agnostic) │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │ (Any transport: WS, HTTP, etc.)
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Maelstrom Engine                            │
-│  @maelstrom/engine - LLM decision logic                         │
+│  @maelstrom-co/engine - LLM decision logic                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -376,14 +376,14 @@ These enable:
 ## Package Dependencies
 
 ```
-@maelstrom/protocol     (foundation: types + messages)
+@maelstrom-co/protocol     (foundation: types + messages)
          │
     ┌────┴────┐
     ▼         ▼
-@maelstrom/client   @maelstrom/engine
+@maelstrom-co/client   @maelstrom-co/engine
          │
          ▼
-@maelstrom/react
+@maelstrom-co/react
 ```
 
 ### Why This Structure?
@@ -408,12 +408,12 @@ Currently, the engine returns complete responses. Future versions may support st
 
 Future transport implementations:
 
-- `@maelstrom/transport-ws`: WebSocket transport
-- `@maelstrom/transport-http`: HTTP transport
-- `@maelstrom/transport-worker`: Web Worker transport
+- `@maelstrom-co/transport-ws`: WebSocket transport
+- `@maelstrom-co/transport-http`: HTTP transport
+- `@maelstrom-co/transport-worker`: Web Worker transport
 
 ### Additional Framework Bindings
 
-- `@maelstrom/vue`: Vue.js bindings
-- `@maelstrom/svelte`: Svelte bindings
-- `@maelstrom/solid`: SolidJS bindings
+- `@maelstrom-co/vue`: Vue.js bindings
+- `@maelstrom-co/svelte`: Svelte bindings
+- `@maelstrom-co/solid`: SolidJS bindings

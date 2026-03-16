@@ -24,7 +24,7 @@ export default defineConfig({
     },
     lib: {
       entry: 'src/index.ts',
-      name: '@maelstrom/engine',
+      name: '@maelstrom-co/engine',
       fileName: 'index',
       formats: ['es' as const],
     },
@@ -34,12 +34,12 @@ export default defineConfig({
         '@tanstack/ai',
         '@tanstack/ai-gemini',
         'effect',
-        '@maelstrom/protocol',
+        '@maelstrom-co/protocol',
       ],
     },
   },
   test: {
-    name: '@maelstrom/engine',
+    name: '@maelstrom-co/engine',
     watch: false,
     globals: true,
     environment: 'node',

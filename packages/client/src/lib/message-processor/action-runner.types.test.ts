@@ -1,12 +1,12 @@
 /**
  * Type tests for ActionRunner
  *
- * Run `nx typecheck @maelstrom/client` to verify these tests.
+ * Run `nx typecheck @maelstrom-co/client` to verify these tests.
  */
 
 import { describe, it } from 'bun:test';
 
-import { defineVessel, Success } from '@maelstrom/protocol';
+import { defineVessel, Success } from '@maelstrom-co/protocol';
 
 import type {
   ActionRunner,

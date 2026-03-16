@@ -2,7 +2,7 @@ import type {
   ChartRequest,
   MaelstromResponse,
   UpdateReason,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 import type {
   AIMessage,

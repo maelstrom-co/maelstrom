@@ -2,7 +2,7 @@
  * Client-specific types for action execution and vessel management.
  *
  * These types provide compile-time type safety for action runners and execution plans,
- * building on top of the wire-format types from @maelstrom/protocol.
+ * building on top of the wire-format types from @maelstrom-co/protocol.
  */
 
 import type {
@@ -10,7 +10,7 @@ import type {
   ActionParameter,
   Result,
   Vessel,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 // ============================================================================
 // Type Mapping Utilities

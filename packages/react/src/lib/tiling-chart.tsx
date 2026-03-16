@@ -9,8 +9,8 @@ import {
   useState,
 } from 'react';
 
-import type { VesselInstance } from '@maelstrom/client';
-import { isTilingLayout } from '@maelstrom/protocol';
+import type { VesselInstance } from '@maelstrom-co/client';
+import { isTilingLayout } from '@maelstrom-co/protocol';
 
 import { useMaelstromContext } from './context.js';
 import { ErrorBoundary } from './error-boundary.js';

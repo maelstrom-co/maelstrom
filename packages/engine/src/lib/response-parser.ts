@@ -7,7 +7,7 @@ import type {
   Vessel,
   VesselAction,
   VesselInstanceSnapshot,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 import type { LLMResponse } from './types.js';
 

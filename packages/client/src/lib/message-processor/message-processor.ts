@@ -1,6 +1,6 @@
 import { Store } from '@tanstack/store';
 
-import type { MaelstromResponse } from '@maelstrom/protocol';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';

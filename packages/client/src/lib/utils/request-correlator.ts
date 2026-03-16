@@ -1,4 +1,4 @@
-import type { MaelstromResponse } from '@maelstrom/protocol';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 
 /**
  * Request correlator for matching requests with responses.

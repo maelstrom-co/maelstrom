@@ -1,6 +1,6 @@
 import { Store } from '@tanstack/store';
 
-import type { ChartDimensions, ChartResizeReason } from '@maelstrom/protocol';
+import type { ChartDimensions, ChartResizeReason } from '@maelstrom-co/protocol';
 
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';

@@ -5,7 +5,7 @@ import {
   type ActionExecution,
   defineVessel,
   Success,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 import { ActionManager } from './action-manager.js';
 import type {

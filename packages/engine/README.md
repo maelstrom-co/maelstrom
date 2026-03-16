@@ -1,4 +1,4 @@
-# @maelstrom/engine
+# @maelstrom-co/engine
 
 The Maelstrom decision engine.
 
@@ -9,7 +9,7 @@ This package contains the core logic that processes user intent and produces exe
 ## Installation
 
 ```bash
-npm install @maelstrom/engine
+npm install @maelstrom-co/engine
 ```
 
 ---
@@ -17,7 +17,7 @@ npm install @maelstrom/engine
 ## Quick Start
 
 ```typescript
-import { createEngine, AnthropicProvider } from '@maelstrom/engine';
+import { createEngine, AnthropicProvider } from '@maelstrom-co/engine';
 
 const engine = createEngine({
   provider: new AnthropicProvider({ apiKey: process.env.ANTHROPIC_API_KEY }),
@@ -80,7 +80,7 @@ interface LLMProvider {
 ### AnthropicProvider
 
 ```typescript
-import { AnthropicProvider } from '@maelstrom/engine';
+import { AnthropicProvider } from '@maelstrom-co/engine';
 
 const provider = new AnthropicProvider({
   apiKey: 'sk-...',
@@ -91,7 +91,7 @@ const provider = new AnthropicProvider({
 ### OpenAIProvider
 
 ```typescript
-import { OpenAIProvider } from '@maelstrom/engine';
+import { OpenAIProvider } from '@maelstrom-co/engine';
 
 const provider = new OpenAIProvider({
   apiKey: 'sk-...',

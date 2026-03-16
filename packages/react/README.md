@@ -1,4 +1,4 @@
-# @maelstrom/react
+# @maelstrom-co/react
 
 React bindings for Maelstrom.
 
@@ -17,7 +17,7 @@ import {
   Chart,
   useVesselRegistration,
   useCreateInstance,
-} from '@maelstrom/react';
+} from '@maelstrom-co/react';
 import { calendarRegistration } from './vessels/calendar.vessel';
 
 function App() {
@@ -55,7 +55,7 @@ For components bundled with the app, no loading component is needed:
 
 ```tsx
 // calendar.vessel.ts
-import { vesselRegistration } from '@maelstrom/react';
+import { vesselRegistration } from '@maelstrom-co/react';
 import CalendarComponent from './calendar.component';
 
 export const calendarRegistration = vesselRegistration(
@@ -70,7 +70,7 @@ For lazy-loaded components, a loading component is required:
 
 ```tsx
 // calendar.vessel.ts
-import { vesselRegistration } from '@maelstrom/react';
+import { vesselRegistration } from '@maelstrom-co/react';
 import { CalendarSkeleton } from './calendar.skeleton';
 
 export const calendarRegistration = vesselRegistration(
@@ -86,7 +86,7 @@ Create a skeleton component that matches your vessel's layout:
 
 ```tsx
 // calendar.skeleton.tsx
-import type { VesselLoadingSkeletonProps } from '@maelstrom/react';
+import type { VesselLoadingSkeletonProps } from '@maelstrom-co/react';
 
 export function CalendarSkeleton({ vesselId, vesselName }: VesselLoadingSkeletonProps) {
   return (
@@ -104,7 +104,7 @@ Vessel components must use a default export for lazy loading compatibility:
 
 ```tsx
 // calendar.component.tsx
-import type { VesselComponentProps } from '@maelstrom/react';
+import type { VesselComponentProps } from '@maelstrom-co/react';
 
 export default function CalendarComponent({
   instance,
@@ -117,4 +117,4 @@ export default function CalendarComponent({
 
 ## Running unit tests
 
-Run `nx test @maelstrom/react` to execute the unit tests via [Vitest](https://vitest.dev/).
+Run `nx test @maelstrom-co/react` to execute the unit tests via [Vitest](https://vitest.dev/).

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { TilingNode } from '@maelstrom/protocol';
+import type { TilingNode } from '@maelstrom-co/protocol';
 
 import {
   computeTilingLayout,

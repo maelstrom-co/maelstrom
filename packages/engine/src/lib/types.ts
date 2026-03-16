@@ -2,7 +2,7 @@ import type {
   GridResponse,
   LayoutMode,
   TilingResponse,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 import type {
   AIMessage,

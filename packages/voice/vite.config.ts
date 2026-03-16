@@ -22,16 +22,16 @@ export default defineConfig(() => ({
     },
     lib: {
       entry: 'src/index.ts',
-      name: '@maelstrom/voice',
+      name: '@maelstrom-co/voice',
       fileName: 'index',
       formats: ['es' as const],
     },
     rollupOptions: {
-      external: ['@maelstrom/client', '@maelstrom/protocol', 'onnxruntime-web'],
+      external: ['@maelstrom-co/client', '@maelstrom-co/protocol', 'onnxruntime-web'],
     },
   },
   test: {
-    name: '@maelstrom/voice',
+    name: '@maelstrom-co/voice',
     watch: false,
     globals: true,
     environment: 'node',

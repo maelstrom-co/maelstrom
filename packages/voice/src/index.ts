@@ -1,5 +1,5 @@
-// @maelstrom/client-old — Voice-only APIs
-// All non-voice functionality has moved to @maelstrom/client
+// @maelstrom-co/client-old — Voice-only APIs
+// All non-voice functionality has moved to @maelstrom-co/client
 
 // Re-export voice message types for convenience (still in protocol)
 export type {
@@ -18,7 +18,7 @@ export type {
   VoiceReadyMessage,
   VoiceServerMessage,
   VoiceStateMessage,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 // Audio capture
 export type { AudioCaptureOptions } from './lib/audio-capture/index.js';

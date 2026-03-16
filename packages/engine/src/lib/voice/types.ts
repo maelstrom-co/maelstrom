@@ -372,8 +372,8 @@ export interface VoiceEngine {
    * Waits for final transcription if still listening.
    */
   processVoiceInput(
-    request: import('@maelstrom/protocol').ChartRequest,
-  ): Promise<import('@maelstrom/protocol').MaelstromResponse>;
+    request: import('@maelstrom-co/protocol').ChartRequest,
+  ): Promise<import('@maelstrom-co/protocol').MaelstromResponse>;
 
   /**
    * Handle a VAD event from the client.

@@ -33,7 +33,7 @@ import type {
   MaelstromResponse,
   VoiceClientMessage,
   VoiceServerMessage,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 // ============================================================================
 // Connection Status

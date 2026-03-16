@@ -10,7 +10,7 @@ import type {
   VesselAction,
   VesselInstanceSnapshot,
   VesselVariant,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 export interface PromptBuilderResult {
   prompt: string;

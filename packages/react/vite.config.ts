@@ -31,7 +31,7 @@ export default defineConfig(() => ({
     lib: {
       // Could also be a dictionary or array of multiple entry points.
       entry: 'src/index.ts',
-      name: '@maelstrom/react',
+      name: '@maelstrom-co/react',
       fileName: 'index',
       // Change this to the formats you want to support.
       // Don't forget to update your package.json as well.
@@ -43,9 +43,9 @@ export default defineConfig(() => ({
         'react',
         'react-dom',
         'react/jsx-runtime',
-        '@maelstrom/client',
-        '@maelstrom/protocol',
-        '@maelstrom/voice',
+        '@maelstrom-co/client',
+        '@maelstrom-co/protocol',
+        '@maelstrom-co/voice',
         '@tanstack/store',
         '@tanstack/react-store',
         'onnxruntime-web',
@@ -53,7 +53,7 @@ export default defineConfig(() => ({
     },
   },
   test: {
-    name: '@maelstrom/react',
+    name: '@maelstrom-co/react',
     watch: false,
     globals: true,
     environment: 'jsdom',

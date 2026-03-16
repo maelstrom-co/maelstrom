@@ -1,4 +1,4 @@
-import type { LayoutMode } from '@maelstrom/protocol';
+import type { LayoutMode } from '@maelstrom-co/protocol';
 
 import type {
   MessageProcessingState,

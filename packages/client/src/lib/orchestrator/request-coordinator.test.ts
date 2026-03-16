@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import type { ChartRequest } from '@maelstrom/protocol';
+import type { ChartRequest } from '@maelstrom-co/protocol';
 
 import { createMockResponse } from '../../../test-utils/mocks.js';
 import type {

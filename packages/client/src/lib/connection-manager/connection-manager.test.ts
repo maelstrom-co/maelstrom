@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
 
-import type { MaelstromResponse } from '@maelstrom/protocol';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 
 import type { ConnectionManagerEvents } from './connection-manager.js';
 import { ConnectionManager } from './connection-manager.js';

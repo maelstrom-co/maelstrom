@@ -1,4 +1,4 @@
-# @maelstrom/protocol
+# @maelstrom-co/protocol
 
 Shared types and transport-agnostic message contract for Maelstrom.
 
@@ -9,7 +9,7 @@ This package defines the cross-cutting concerns between client and engine: TypeS
 ## Installation
 
 ```bash
-npm install @maelstrom/protocol
+npm install @maelstrom-co/protocol
 ```
 
 ---

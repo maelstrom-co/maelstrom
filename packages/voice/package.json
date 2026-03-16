@@ -1,5 +1,5 @@
 {
-  "name": "@maelstrom/voice",
+  "name": "@maelstrom-co/voice",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -8,15 +8,15 @@
   "exports": {
     "./package.json": "./package.json",
     ".": {
-      "@maelstrom/source": "./src/index.ts",
+      "@maelstrom-co/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
   },
   "dependencies": {
-    "@maelstrom/client": "workspace:*",
-    "@maelstrom/protocol": "workspace:*",
+    "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/protocol": "workspace:*",
     "onnxruntime-web": "*"
   },
   "nx": {

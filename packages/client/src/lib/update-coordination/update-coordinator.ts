@@ -1,4 +1,4 @@
-import type { UpdateReason } from '@maelstrom/protocol';
+import type { UpdateReason } from '@maelstrom-co/protocol';
 
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';

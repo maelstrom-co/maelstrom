@@ -2,7 +2,7 @@ import type {
   ChartRequest,
   MaelstromResponse,
   UpdateReason,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 /**
  * Content detail levels for history entries.

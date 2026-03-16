@@ -3,7 +3,7 @@ import type {
   MaelstromResponse,
   UpdateReason,
   VesselMutationReason,
-} from '@maelstrom/protocol';
+} from '@maelstrom-co/protocol';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';

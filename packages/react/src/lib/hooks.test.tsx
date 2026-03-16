@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { AnyActionRunner as GenericActionRunner } from '@maelstrom/client';
-import { Err, type Result, Success } from '@maelstrom/protocol';
+import type { AnyActionRunner as GenericActionRunner } from '@maelstrom-co/client';
+import { Err, type Result, Success } from '@maelstrom-co/protocol';
 import { cleanup, render } from '@testing-library/react';
 import { Window } from 'happy-dom';
 import React from 'react';

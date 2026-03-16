@@ -11,7 +11,7 @@
  *
  * @example
  * ```typescript
- * import { Orchestrator, WebSocketConnector } from '@maelstrom/client';
+ * import { Orchestrator, WebSocketConnector } from '@maelstrom-co/client';
  *
  * const connector = new WebSocketConnector({ url: 'ws://localhost:8080' });
  * const orchestrator = new Orchestrator(connector, { debug: true });
