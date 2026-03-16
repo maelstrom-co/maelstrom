@@ -41,26 +41,28 @@ Copy `.env.example` to `.env` and configure API keys for LLM providers:
 ## Architecture
 
 ```
-@maelstrom/protocol  (foundation: shared types and message contract)
+@maelstrom/protocol  (foundation: shared types, zod schemas, message contract)
          │
     ┌────┴────┐
     ▼         ▼
 @maelstrom/client   @maelstrom/engine
-(framework-agnostic) (LLM decision core)
-         │
-         ▼
-@maelstrom/react
-(React bindings)
+(framework-agnostic) (LLM decision core: @tanstack/ai + Effect)
+    │
+    ├────────────┐
+    ▼            ▼
+@maelstrom/react  @maelstrom/voice
+(React bindings)  (audio capture/playback, VAD)
 ```
 
 ### Package Locations
 
 | Package | Path | Purpose |
 |---------|------|---------|
-| `@maelstrom/protocol` | `packages/protocol/` | Core types and message definitions (transport-agnostic) |
-| `@maelstrom/client` | `packages/client/` | Framework-agnostic client: Vessel Registry, Chart, Event System |
-| `@maelstrom/react` | `packages/react/` | React components and hooks |
-| `@maelstrom/engine` | `packages/engine/` | LLM decision engine using Vercel AI SDK |
+| `@maelstrom/protocol` | `packages/protocol/` | Core types, zod schemas, and message definitions (transport-agnostic) |
+| `@maelstrom/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Message Processor, Orchestrator |
+| `@maelstrom/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai + Effect, voice providers (Deepgram STT, Cartesia TTS) |
+| `@maelstrom/react` | `packages/react/` | React components, hooks, voice UI (VoiceButton, VoiceOrb), tiling charts |
+| `@maelstrom/voice` | `packages/voice/` | Client-side audio: capture, playback, VAD (Silero via onnxruntime-web), voice sessions |
 | `@maelstrom/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts
@@ -86,10 +88,11 @@ When processing engine responses, the client MUST execute in this order:
 
 - **Monorepo**: Nx workspace with Bun package manager
 - **Build**: Vite + SWC
-- **Testing**: Vitest with Testing Library
+- **Testing**: Bun test (packages), Vitest with Testing Library (apps)
 - **Frontend**: React 19, TanStack Router/Start
 - **Styling**: Tailwind CSS
-- **LLM**: Vercel AI SDK (`ai` package) with pluggable providers
+- **LLM**: @tanstack/ai with @tanstack/ai-gemini, Effect for functional composition
+- **Voice**: Deepgram (STT), Cartesia (TTS), Silero VAD via onnxruntime-web
 
 ## Nx Workspace Notes
 
