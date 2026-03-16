@@ -89,7 +89,6 @@
     "projectsRelationship": "fixed",
     "version": {
       "preVersionCommand": "bunx nx run-many -t build",
-      "conventionalCommits": true,
       "currentVersionResolver": "git-tag",
       "versionActionsOptions": {
         "skipLockFileUpdate": true
