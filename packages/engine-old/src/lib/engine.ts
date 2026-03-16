@@ -1,4 +1,7 @@
-import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol-old';
+import type {
+  ChartRequest,
+  MaelstromResponse,
+} from '@maelstrom-co/protocol-old';
 
 import type { AssistantMessage } from './history/history-manager.js';
 import { createHistoryManager } from './history/index.js';

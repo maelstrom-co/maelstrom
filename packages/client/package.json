@@ -17,10 +17,10 @@
   },
   "dependencies": {
     "@maelstrom-co/protocol-old": "workspace:*",
-    "@tanstack/store": "*"
+    "@tanstack/store": "catalog:"
   },
   "devDependencies": {
-    "@sinonjs/fake-timers": "*"
+    "@sinonjs/fake-timers": "catalog:"
   },
   "nx": {
     "targets": {

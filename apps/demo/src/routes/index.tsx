@@ -34,7 +34,7 @@ function VesselRegistrations() {
 }
 
 function DemoApp() {
-  const { processIntent, isProcessing, connectionStatus } = useMaelstrom();
+  const { processIntent, isProcessing } = useMaelstrom();
 
   const voice = useMaelstromVoice({
     greeting:
@@ -52,9 +52,7 @@ function DemoApp() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white">Maelstrom Demo</h1>
-            <p className="text-sm text-gray-400">
-              AI-Orchestrated Dynamic UI
-            </p>
+            <p className="text-sm text-gray-400">AI-Orchestrated Dynamic UI</p>
           </div>
           <div className="flex items-center gap-3">
             <VoiceOrb

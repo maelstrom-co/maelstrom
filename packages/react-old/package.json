@@ -18,15 +18,15 @@
     "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/protocol-old": "workspace:*",
     "@maelstrom-co/voice-old": "workspace:*",
-    "@tanstack/store": "*",
-    "@tanstack/react-store": "*",
-    "onnxruntime-web": "*"
+    "@tanstack/store": "catalog:",
+    "@tanstack/react-store": "catalog:",
+    "onnxruntime-web": "catalog:"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "*",
-    "@testing-library/react": "*",
-    "happy-dom": "*",
-    "jsdom": "*"
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "happy-dom": "catalog:",
+    "jsdom": "catalog:"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

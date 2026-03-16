@@ -84,7 +84,7 @@ describe('ActionManager', () => {
           instanceId: 'instance-1',
           action: 'testAction',
           params: {},
-        } as ActionExecution,
+        } as unknown as ActionExecution,
       ]);
 
       expect(result.actions).toHaveLength(1);

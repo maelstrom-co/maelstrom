@@ -11,7 +11,11 @@ import {
 } from 'react';
 
 import type { VesselInstance } from '@maelstrom-co/client';
-import type { ChartSize, GridLayout, TilingLayout } from '@maelstrom-co/protocol-old';
+import type {
+  ChartSize,
+  GridLayout,
+  TilingLayout,
+} from '@maelstrom-co/protocol-old';
 import { isGridLayout, isTilingLayout } from '@maelstrom-co/protocol-old';
 
 import { useMaelstromContext } from './context.js';

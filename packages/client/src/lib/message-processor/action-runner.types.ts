@@ -75,10 +75,9 @@ type OptionalParamKeys<Params extends ReadonlyArray<ActionParameter>> =
 type ParamTypeFor<
   Params extends ReadonlyArray<ActionParameter>,
   Name extends string,
-> =
-  ParamForName<Params, Name> extends { type: infer T }
-    ? ParamTypeToTS<T & string>
-    : unknown;
+> = ParamForName<Params, Name> extends { type: infer T }
+  ? ParamTypeToTS<T & string>
+  : unknown;
 
 /**
  * Builds a params object type from a parameter definition array.

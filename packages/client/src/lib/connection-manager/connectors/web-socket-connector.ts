@@ -1,4 +1,7 @@
-import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol-old';
+import type {
+  ChartRequest,
+  MaelstromResponse,
+} from '@maelstrom-co/protocol-old';
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import type {

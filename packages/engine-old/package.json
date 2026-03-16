@@ -19,9 +19,9 @@
     "!**/*.tsbuildinfo"
   ],
   "dependencies": {
-    "@tanstack/ai": "*",
-    "@tanstack/ai-gemini": "*",
-    "effect": "*"
+    "@tanstack/ai": "catalog:",
+    "@tanstack/ai-gemini": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@maelstrom-co/protocol-old": "workspace:*"

@@ -117,7 +117,7 @@ describe('MessageProcessor (Event Loop)', () => {
         'action-1',
       );
       // Corrupt the layout to trigger an error during processing
-      (badResponse as Record<string, unknown>).layout = {
+      (badResponse as unknown as Record<string, unknown>).layout = {
         type: 'invalid' as 'tiling',
       };
 
@@ -151,7 +151,7 @@ describe('MessageProcessor (Event Loop)', () => {
         'instance-1',
         'action-1',
       );
-      (badResponse as Record<string, unknown>).layout = {
+      (badResponse as unknown as Record<string, unknown>).layout = {
         type: 'invalid' as 'tiling',
       };
 
@@ -173,7 +173,7 @@ describe('MessageProcessor (Event Loop)', () => {
         'instance-1',
         'action-1',
       );
-      (badResponse as Record<string, unknown>).layout = {
+      (badResponse as unknown as Record<string, unknown>).layout = {
         type: 'invalid' as 'tiling',
       };
 

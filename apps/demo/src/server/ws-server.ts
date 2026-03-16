@@ -105,7 +105,11 @@ app.get(
       provider,
       timeout: 30000,
       retry: { maxAttempts: 2, initialDelayMs: 500 },
-      history: { store: historyStore, contentLevel: 'full' as const, maxEntries: 20 },
+      history: {
+        store: historyStore,
+        contentLevel: 'full' as const,
+        maxEntries: 20,
+      },
       systemPrompt: getDefaultSystemPrompt('tiling') + CUSTOM_INSTRUCTIONS,
     };
 
@@ -116,11 +120,11 @@ app.get(
             ...baseConfig,
             voice: {
               stt: createDeepgramSTT({
-                apiKey: process.env.DEEPGRAM_API_KEY!,
+                apiKey: process.env.DEEPGRAM_API_KEY as string,
               }),
               tts: createCartesiaTTS({
                 defaultVoiceId: 'e8e5fffb-252c-436d-b842-8879b84445b6',
-                apiKey: process.env.CARTESIA_API_KEY!,
+                apiKey: process.env.CARTESIA_API_KEY as string,
               }),
               mode: 'continuous',
               language,
@@ -331,8 +335,7 @@ app.get(
           sendMessage({
             type: 'engine.error',
             sessionId,
-            error:
-              error instanceof Error ? error.message : 'Invalid message',
+            error: error instanceof Error ? error.message : 'Invalid message',
             timestamp: performance.now(),
           });
         }

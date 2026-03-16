@@ -1,11 +1,10 @@
-import { chat } from '@tanstack/ai';
-import { type GeminiTextModel, geminiText } from '@tanstack/ai-gemini';
-
 import {
   GridResponseSchema,
   type LayoutMode,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol-old';
+import { chat } from '@tanstack/ai';
+import { type GeminiTextModel, geminiText } from '@tanstack/ai-gemini';
 
 import type { AIMessage } from './history/index.js';
 import type { LLMProvider, LLMResponse } from './types.js';
