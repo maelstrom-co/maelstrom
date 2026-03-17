@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/protocol-old",
-  "version": "0.0.2-prealpha.0",
+  "version": "0.0.3-prealpha.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
