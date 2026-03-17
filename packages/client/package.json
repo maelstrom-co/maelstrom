@@ -27,7 +27,7 @@
     "access": "restricted"
   },
   "dependencies": {
-    "@maelstrom-co/protocol-old": "workspace:*",
+    "@maelstrom-co/protocol-old": "0.0.3-prealpha.0",
     "@tanstack/store": "catalog:"
   },
   "devDependencies": {

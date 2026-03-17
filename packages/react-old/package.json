@@ -27,9 +27,9 @@
     "access": "restricted"
   },
   "dependencies": {
-    "@maelstrom-co/client": "workspace:*",
-    "@maelstrom-co/protocol-old": "workspace:*",
-    "@maelstrom-co/voice-old": "workspace:*",
+    "@maelstrom-co/client": "0.0.3-prealpha.0",
+    "@maelstrom-co/protocol-old": "0.0.3-prealpha.0",
+    "@maelstrom-co/voice-old": "0.0.3-prealpha.0",
     "@tanstack/store": "catalog:",
     "@tanstack/react-store": "catalog:",
     "onnxruntime-web": "catalog:"

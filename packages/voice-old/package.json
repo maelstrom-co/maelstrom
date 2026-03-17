@@ -27,8 +27,8 @@
     "access": "restricted"
   },
   "dependencies": {
-    "@maelstrom-co/client": "workspace:*",
-    "@maelstrom-co/protocol-old": "workspace:*",
+    "@maelstrom-co/client": "0.0.3-prealpha.0",
+    "@maelstrom-co/protocol-old": "0.0.3-prealpha.0",
     "onnxruntime-web": "catalog:"
   },
   "nx": {
