@@ -9,6 +9,7 @@ on:
 permissions:
   actions: read
   contents: read
+  id-token: write
 
 jobs:
   main:
@@ -25,6 +26,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - uses: nrwl/nx-set-shas@v4
 
-      - run: bunx nx affected -t lint test build
+      - name: Run lint, test, build, typecheck
+        run: bunx nx run-many -t format lint test build typecheck
       - run: bunx nx fix-ci
         if: always()
+
