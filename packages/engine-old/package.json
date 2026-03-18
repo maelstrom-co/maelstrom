@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/engine-old",
-  "version": "0.0.4-prealpha.0",
+  "version": "0.0.5-prealpha.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -32,7 +32,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@maelstrom-co/protocol-old": "0.0.4-prealpha.0"
+    "@maelstrom-co/protocol-old": "0.0.5-prealpha.0"
   },
   "nx": {
     "name": "@maelstrom-co/engine-old",
