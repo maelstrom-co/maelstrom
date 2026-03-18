@@ -90,7 +90,7 @@ export class VADProcessor {
     const sampleRate = config.sampleRate ?? SAMPLE_RATE;
     const streamOptions = config.streamOptions ?? {};
 
-    this.#modelPath = config.modelPath ?? '/models/silero_vad.v5.onnx';
+    this.#modelPath = config.modelPath ?? 'https://pub-fa2f334103a642e4985ac6016c6e7180.r2.dev/silero_vad.v5.onnx';
     this.#defaultThreshold = streamOptions.activationThreshold ?? 0.7;
     this.#activationThreshold = this.#defaultThreshold;
 

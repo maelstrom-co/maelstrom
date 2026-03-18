@@ -50,7 +50,9 @@ export class SileroVAD {
   /**
    * Load the ONNX model. Must be called before process().
    */
-  async load(modelPath: string = '/models/silero_vad.v5.onnx'): Promise<void> {
+  async load(
+    modelPath: string = 'https://pub-fa2f334103a642e4985ac6016c6e7180.r2.dev/silero_vad.v5.onnx',
+  ): Promise<void> {
     if (this.#isLoaded) return;
     // Configure WASM backend
     ort.env.wasm.wasmPaths =

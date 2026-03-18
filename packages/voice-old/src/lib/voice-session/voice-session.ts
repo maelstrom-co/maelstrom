@@ -413,6 +413,14 @@ export class VoiceSession {
    */
   async #drainVadQueue(): Promise<void> {
     if (this.#vadProcessing) return;
+    // The model may not be loaded yet (e.g. audio arrives during prepareAudio()
+    // before vad.load() resolves, or via the engine.stt.ready fire-and-forget
+    // path). Silently discard queued frames — they'll be irrelevant by the time
+    // the model is ready and the pipeline is properly started.
+    if (!this.#state.vad.ready) {
+      this.#vadQueue.length = 0;
+      return;
+    }
     this.#vadProcessing = true;
 
     try {
@@ -815,6 +823,11 @@ export class VoiceSession {
       try {
         this.#state.error = null;
 
+        // Load the VAD model before starting capture so that audio chunks
+        // emitted by the AudioWorklet immediately after capture.start() don't
+        // race against an unloaded ONNX session.
+        await this.#state.vad.load();
+
         await this.#state.capture.start();
 
         // AudioCapture.start() doesn't throw on error - it emits 'error' event.
@@ -822,8 +835,6 @@ export class VoiceSession {
         if (!this.#state.capture.isReady) {
           throw new DOMException('Microphone access denied', 'NotAllowedError');
         }
-
-        await this.#state.vad.load();
 
         this.#state.isAudioPipelineReady = true;
 
