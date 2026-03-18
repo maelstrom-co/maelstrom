@@ -1,5 +1,3 @@
-/// <reference types='vitest/config' />
-
 import * as path from 'node:path';
 import { defineConfig } from 'vite';
 import dts from 'vite-plugin-dts';
@@ -38,18 +36,6 @@ export default defineConfig(() => ({
     rollupOptions: {
       // External packages that should not be bundled into your library.
       external: ['@maelstrom-co/protocol-old', '@tanstack/store'],
-    },
-  },
-  test: {
-    name: '@maelstrom-co/client',
-    watch: false,
-    globals: true,
-    environment: 'node',
-    include: ['{src,tests}/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
-    reporters: ['default'],
-    coverage: {
-      reportsDirectory: './test-output/vitest/coverage',
-      provider: 'v8' as const,
     },
   },
 }));
