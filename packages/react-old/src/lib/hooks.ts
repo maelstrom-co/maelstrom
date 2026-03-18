@@ -1,6 +1,3 @@
-import { useStore } from '@tanstack/react-store';
-import { useCallback, useEffect, useRef } from 'react';
-
 import type {
   ActionRunner,
   ConnectionStatus,
@@ -13,6 +10,8 @@ import type {
   VesselAction,
   VesselVariant,
 } from '@maelstrom-co/protocol-old';
+import { useStore } from '@tanstack/react-store';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { useMaelstromContext } from './context.js';
 import type { VesselComponentProps, VesselRegistration } from './types.js';
@@ -195,7 +194,7 @@ export function useConnectionStatus(): ConnectionStatus {
 export function useVesselComponentProps(
   instanceId: string,
 ): VesselComponentProps | null {
-  const { debug } = useMaelstromContext();
+  const { debug, orchestrator } = useMaelstromContext();
 
   const instance = useInstance(instanceId);
   const vessel = useVessel(instance?.vesselId ?? '');
@@ -203,16 +202,17 @@ export function useVesselComponentProps(
   const executeAction = useCallback(
     (actionName: string, params?: Record<string, unknown>) => {
       if (debug) {
-        console.log(
-          `[Maelstrom] executeAction stub called: ${actionName}`,
-          params,
-        );
+        console.log(`[Maelstrom] executeAction: ${actionName}`, params);
       }
-      console.warn(
-        `[Maelstrom] executeAction is not yet implemented. Action '${actionName}' was not executed.`,
-      );
+      void orchestrator.messageProcessor.actionManager.executeActions([
+        {
+          instanceId,
+          action: actionName,
+          ...(params && { paramsJson: JSON.stringify(params) }),
+        },
+      ]);
     },
-    [debug],
+    [orchestrator, instanceId, debug],
   );
 
   if (!instance || !vessel) return null;
@@ -256,9 +256,10 @@ export function useVesselActions<V extends Vessel = Vessel>(
       },
     });
 
-    orchestrator.messageProcessor
-      .getActionManager()
-      .registerRunner(instanceId, stableRunner);
+    orchestrator.messageProcessor.actionManager.registerRunner(
+      instanceId,
+      stableRunner,
+    );
 
     return () => {
       if (debug) {
@@ -266,9 +267,7 @@ export function useVesselActions<V extends Vessel = Vessel>(
           `[Maelstrom] Unregistering action runner for instance "${instanceId}"`,
         );
       }
-      orchestrator.messageProcessor
-        .getActionManager()
-        .unregisterRunner(instanceId);
+      orchestrator.messageProcessor.actionManager.unregisterRunner(instanceId);
     };
   }, [instanceId, orchestrator, debug]);
 }

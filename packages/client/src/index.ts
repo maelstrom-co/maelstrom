@@ -33,7 +33,11 @@ export type { ChartManagerOptions } from './lib/chart-manager/chart-manager.type
 export type { ConnectionManagerEvents } from './lib/connection-manager/connection-manager.js';
 export { ConnectionManager } from './lib/connection-manager/connection-manager.js';
 export type { ConnectionManagerState } from './lib/connection-manager/connection-manager.state.js';
-export type { ConnectionManagerOptions } from './lib/connection-manager/connection-manager.types.js';
+// Connection options (owned by ConnectionManager)
+export type {
+  ConnectionManagerOptions,
+  ConnectionOptions,
+} from './lib/connection-manager/connection-manager.types.js';
 // Connector types (client-specific transport interfaces)
 export type {
   AssistantMessage,
@@ -48,8 +52,6 @@ export type {
   Unsubscribe,
   VoiceConnector,
 } from './lib/connection-manager/connector.types.js';
-// Connection options (owned by ConnectionManager)
-export type { ConnectionOptions } from './lib/connection-manager/connection-manager.types.js';
 // Connector functions and constants (not types)
 export { AUDIO_FRAME_FLAGS } from './lib/connection-manager/connector.types.js';
 export type { HttpConnectorOptions } from './lib/connection-manager/connectors/http-connector.js';

@@ -1,3 +1,11 @@
+import {
+  type ConnectionManagerState,
+  type EngineConnector,
+  type MessageProcessingState,
+  Orchestrator,
+  type RequestCoordinatorState,
+} from '@maelstrom-co/client';
+import type { LayoutMode } from '@maelstrom-co/protocol-old';
 import type { Store } from '@tanstack/store';
 import {
   createContext,
@@ -10,15 +18,6 @@ import {
   useRef,
   useState,
 } from 'react';
-
-import {
-  type ConnectionManagerState,
-  type EngineConnector,
-  type MessageProcessingState,
-  Orchestrator,
-  type RequestCoordinatorState,
-} from '@maelstrom-co/client';
-import type { LayoutMode } from '@maelstrom-co/protocol-old';
 
 import type {
   MaelstromProviderProps,
@@ -59,21 +58,19 @@ export function MaelstromProvider({
   onError,
   children,
 }: MaelstromProviderProps) {
-  // Use a factory ref + useState so that each mount cycle (including React
-  // StrictMode's deliberate unmount→remount) gets a *fresh* Orchestrator.
-  // useMemo is intentionally NOT used here: it reuses the same instance
-  // across StrictMode's remount, meaning the cleanup disposes the orchestrator
-  // and the remount then uses an already-disposed one.
-  const orchestratorRef = useRef<Orchestrator | null>(null);
-  const [orchestrator] = useState(() => {
-    const instance = new Orchestrator(connector, {
+  // orchestratorRef always points to the live instance for the current mount.
+  // useState provides the initial value for the first render; the useEffect
+  // below replaces it on every real mount (including StrictMode's remount).
+  const orchestratorRef = useRef<Orchestrator>(
+    new Orchestrator(connector, {
       ...(sessionId && { sessionId }),
       layoutMode,
       debug,
-    });
-    orchestratorRef.current = instance;
-    return instance;
-  });
+    }),
+  );
+  const [orchestrator, setOrchestrator] = useState(
+    () => orchestratorRef.current,
+  );
 
   const componentRegistry = useMemo(
     () => new Map<string, React.ComponentType<VesselComponentProps>>(),
@@ -98,8 +95,19 @@ export function MaelstromProvider({
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: connector/sessionId/layoutMode are intentionally excluded the are stable module-level or useMemo values. Only debug can change at runtime.
   useEffect(() => {
-    const instance = orchestratorRef.current!;
+    // Create a fresh Orchestrator on every real mount. This is the key fix
+    // for React StrictMode: the cleanup from the first mount disposes the
+    // orchestrator, and the remount needs a brand-new instance — not the
+    // same disposed one that useState returns on remount.
+    const instance = new Orchestrator(connector, {
+      ...(sessionId && { sessionId }),
+      layoutMode,
+      debug,
+    });
+    orchestratorRef.current = instance;
+    setOrchestrator(instance);
 
     instance.connect().catch((err) => {
       if (debug) {
@@ -110,8 +118,6 @@ export function MaelstromProvider({
     return () => {
       void instance.dispose();
     };
-    // orchestrator is stable per mount (useState), so this only re-runs when
-    // debug changes. orchestratorRef always points to the current instance.
   }, [debug]);
 
   const registerVessel = useCallback(

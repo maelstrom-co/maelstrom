@@ -1,8 +1,8 @@
-import { Store } from '@tanstack/store';
 import type {
   ChartRequest,
   MaelstromResponse,
 } from '@maelstrom-co/protocol-old';
+import { Store } from '@tanstack/store';
 
 import type { EngineConnector } from '../connection-manager/connector.types.js';
 import { Logger } from '../utils/logger.js';

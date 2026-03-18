@@ -74,7 +74,7 @@ describe('MessageProcessor (Event Loop)', () => {
         const response = createMockResponse('req-1', 'vessel-1-1', 'action-1');
 
         // Register a runner that never resolves, keeping the processor busy
-        slowProcessor.getActionManager().registerRunner('vessel-1-1', {
+        slowProcessor.actionManager.registerRunner('vessel-1-1', {
           'action-1': () => new Promise<never>(() => {}),
         });
 

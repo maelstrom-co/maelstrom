@@ -1,6 +1,5 @@
-import { Store } from '@tanstack/store';
-
 import type { MaelstromResponse } from '@maelstrom-co/protocol-old';
+import { Store } from '@tanstack/store';
 
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
@@ -68,7 +67,7 @@ export class MessageProcessor {
     return this.#messageQueue.length;
   }
 
-  getActionManager(): ActionManager {
+  get actionManager(): ActionManager {
     return this.#actionManager;
   }
 

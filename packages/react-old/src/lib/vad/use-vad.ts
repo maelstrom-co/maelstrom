@@ -2,14 +2,13 @@
 //
 //
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-
 import {
   type VADEvent,
   VADProcessor,
   type VADState,
   type VADStreamOptions,
 } from '@maelstrom-co/voice-old';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const VAD_WINDOW_SIZE = 512; // Silero VAD requires 512 samples per inference
 

@@ -1,10 +1,9 @@
-import { Store } from '@tanstack/store';
-
 import type {
   Vessel,
   VesselValidationResult,
 } from '@maelstrom-co/protocol-old';
 import { validateVessel } from '@maelstrom-co/protocol-old';
+import { Store } from '@tanstack/store';
 
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';

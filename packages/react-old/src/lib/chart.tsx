@@ -1,3 +1,10 @@
+import type { VesselInstance } from '@maelstrom-co/client';
+import type {
+  ChartSize,
+  GridLayout,
+  TilingLayout,
+} from '@maelstrom-co/protocol-old';
+import { isGridLayout, isTilingLayout } from '@maelstrom-co/protocol-old';
 import { useStore } from '@tanstack/react-store';
 import {
   type CSSProperties,
@@ -9,14 +16,6 @@ import {
   useMemo,
   useRef,
 } from 'react';
-
-import type { VesselInstance } from '@maelstrom-co/client';
-import type {
-  ChartSize,
-  GridLayout,
-  TilingLayout,
-} from '@maelstrom-co/protocol-old';
-import { isGridLayout, isTilingLayout } from '@maelstrom-co/protocol-old';
 
 import { useMaelstromContext } from './context.js';
 import { ErrorBoundary } from './error-boundary.js';
@@ -38,8 +37,6 @@ export interface ChartProps {
 
 export const Chart = memo(function Chart(props: ChartProps) {
   const { layoutMode } = useMaelstromContext();
-
-  console.log('Layout', layoutMode);
 
   if (layoutMode === 'tiling') {
     return (

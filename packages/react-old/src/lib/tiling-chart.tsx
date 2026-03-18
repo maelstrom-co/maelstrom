@@ -1,3 +1,5 @@
+import type { VesselInstance } from '@maelstrom-co/client';
+import { isTilingLayout } from '@maelstrom-co/protocol-old';
 import { useStore } from '@tanstack/react-store';
 import {
   type CSSProperties,
@@ -8,9 +10,6 @@ import {
   useRef,
   useState,
 } from 'react';
-
-import type { VesselInstance } from '@maelstrom-co/client';
-import { isTilingLayout } from '@maelstrom-co/protocol-old';
 
 import { useMaelstromContext } from './context.js';
 import { ErrorBoundary } from './error-boundary.js';

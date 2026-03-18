@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import type { VoiceError } from '@maelstrom-co/protocol-old';
 
 import type {
   VADStreamOptions,
@@ -6,7 +6,7 @@ import type {
   VoiceSessionState,
 } from '@maelstrom-co/voice-old';
 import { VoiceSession } from '@maelstrom-co/voice-old';
-import { VoiceError } from '@maelstrom-co/protocol-old';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useMaelstromContext } from './context.js';
 
@@ -110,10 +110,10 @@ export function useMaelstromVoice(
   }, []);
 
   const startListening = useCallback(async () => {
-    if (!sessionRef.current) {
-      setError(new VoiceError('UNKNOWN', 'Voice not supported'));
-      return;
-    }
+    // sessionRef.current may be transiently null between the destroy/recreate
+    // cycle (e.g. StrictMode remount or orchestrator refresh). Silently ignore
+    // rather than surfacing a misleading "Voice not supported" error.
+    if (!sessionRef.current) return;
     await sessionRef.current.startListening();
   }, []);
 

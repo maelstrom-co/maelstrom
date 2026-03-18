@@ -90,7 +90,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('should place single vessel in full container', () => {
-    const tree = parseTilingTree(['instance-1'])!;
+    const tree = parseTilingTree(['instance-1']);
     const tiles = computeTilingLayout(tree, CONTAINER, 0);
 
     expect(tiles).toEqual([
@@ -102,7 +102,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('should split vertically', () => {
-    const tree = parseTilingTree(['V', 'left', 'right'])!;
+    const tree = parseTilingTree(['V', 'left', 'right']);
     const tiles = computeTilingLayout(tree, CONTAINER, 0);
 
     expect(tiles).toEqual([
@@ -112,7 +112,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('should split horizontally', () => {
-    const tree = parseTilingTree(['H', 'top', 'bottom'])!;
+    const tree = parseTilingTree(['H', 'top', 'bottom']);
     const tiles = computeTilingLayout(tree, CONTAINER, 0);
 
     expect(tiles).toEqual([
@@ -122,7 +122,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('should skip null leaves', () => {
-    const tree = parseTilingTree(['V', null, 'right'])!;
+    const tree = parseTilingTree(['V', null, 'right']);
     const tiles = computeTilingLayout(tree, CONTAINER, 0);
 
     expect(tiles).toEqual([
@@ -131,7 +131,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('should apply padding', () => {
-    const tree = parseTilingTree(['instance-1'])!;
+    const tree = parseTilingTree(['instance-1']);
     const tiles = computeTilingLayout(tree, CONTAINER, 10);
 
     expect(tiles).toEqual([
@@ -140,7 +140,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('should apply padding on split children', () => {
-    const tree = parseTilingTree(['V', 'left', 'right'])!;
+    const tree = parseTilingTree(['V', 'left', 'right']);
     const tiles = computeTilingLayout(tree, CONTAINER, 10);
 
     expect(tiles).toEqual([
@@ -150,7 +150,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('should clamp to zero when padding exceeds dimensions', () => {
-    const tree = parseTilingTree(['instance-1'])!;
+    const tree = parseTilingTree(['instance-1']);
     const smallContainer: Rect = { x: 0, y: 0, width: 4, height: 4 };
     const tiles = computeTilingLayout(tree, smallContainer, 10);
 
@@ -159,7 +159,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('should merge duplicate instance IDs using bounding box', () => {
-    const tree = parseTilingTree(['V', 'same', 'same'])!;
+    const tree = parseTilingTree(['V', 'same', 'same']);
     const tiles = computeTilingLayout(tree, CONTAINER, 0);
 
     expect(tiles).toHaveLength(1);
@@ -168,7 +168,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('should handle non-zero container origin', () => {
-    const tree = parseTilingTree(['instance-1'])!;
+    const tree = parseTilingTree(['instance-1']);
     const offset: Rect = { x: 10, y: 20, width: 100, height: 100 };
     const tiles = computeTilingLayout(tree, offset, 0);
 

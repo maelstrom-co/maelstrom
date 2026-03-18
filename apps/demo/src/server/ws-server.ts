@@ -14,10 +14,6 @@
  * Usage: bun run apps/demo/src/server/ws-server.ts
  */
 
-import { Hono } from 'hono';
-import { createBunWebSocket } from 'hono/bun';
-import { cors } from 'hono/cors';
-
 import {
   createCartesiaTTS,
   createDeepgramSTT,
@@ -33,6 +29,9 @@ import type {
   VoiceClientMessage,
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
+import { Hono } from 'hono';
+import { createBunWebSocket } from 'hono/bun';
+import { cors } from 'hono/cors';
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
 

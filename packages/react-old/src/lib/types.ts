@@ -1,11 +1,10 @@
-import type React from 'react';
-
 import type { EngineConnector, VesselInstance } from '@maelstrom-co/client';
 import type {
   LayoutMode,
   MaelstromResponse,
   Vessel,
 } from '@maelstrom-co/protocol-old';
+import type React from 'react';
 
 export type {
   ConnectionStatus,

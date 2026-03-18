@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import FakeTimers from '@sinonjs/fake-timers';
-
 import type { UpdateReason } from '@maelstrom-co/protocol-old';
+import FakeTimers from '@sinonjs/fake-timers';
 
 import type { UpdateCoordinatorEvents } from './update-coordinator.js';
 import { UpdateCoordinator } from './update-coordinator.js';

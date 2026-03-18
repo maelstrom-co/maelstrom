@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import FakeTimers from '@sinonjs/fake-timers';
-
 import type { MaelstromResponse } from '@maelstrom-co/protocol-old';
+import FakeTimers from '@sinonjs/fake-timers';
 
 import { RequestCorrelator } from './request-correlator.js';
 
