@@ -8,6 +8,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
 } from 'react';
 
 import {
@@ -58,15 +59,21 @@ export function MaelstromProvider({
   onError,
   children,
 }: MaelstromProviderProps) {
-  const orchestrator = useMemo(
-    () =>
-      new Orchestrator(connector, {
-        ...(sessionId && { sessionId }),
-        layoutMode,
-        debug,
-      }),
-    [connector, sessionId, layoutMode, debug],
-  );
+  // Use a factory ref + useState so that each mount cycle (including React
+  // StrictMode's deliberate unmount→remount) gets a *fresh* Orchestrator.
+  // useMemo is intentionally NOT used here: it reuses the same instance
+  // across StrictMode's remount, meaning the cleanup disposes the orchestrator
+  // and the remount then uses an already-disposed one.
+  const orchestratorRef = useRef<Orchestrator | null>(null);
+  const [orchestrator] = useState(() => {
+    const instance = new Orchestrator(connector, {
+      ...(sessionId && { sessionId }),
+      layoutMode,
+      debug,
+    });
+    orchestratorRef.current = instance;
+    return instance;
+  });
 
   const componentRegistry = useMemo(
     () => new Map<string, React.ComponentType<VesselComponentProps>>(),
@@ -92,16 +99,20 @@ export function MaelstromProvider({
   onErrorRef.current = onError;
 
   useEffect(() => {
-    orchestrator.connect().catch((err) => {
+    const instance = orchestratorRef.current!;
+
+    instance.connect().catch((err) => {
       if (debug) {
         console.error('[Maelstrom] Connection error:', err);
       }
     });
 
     return () => {
-      void orchestrator.dispose();
+      void instance.dispose();
     };
-  }, [orchestrator, debug]);
+    // orchestrator is stable per mount (useState), so this only re-runs when
+    // debug changes. orchestratorRef always points to the current instance.
+  }, [debug]);
 
   const registerVessel = useCallback(
     (registration: VesselRegistration) => {

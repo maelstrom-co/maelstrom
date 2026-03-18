@@ -97,12 +97,25 @@ export function useMaelstrom(): {
 export function useVesselRegistration(registration: VesselRegistration): void {
   const { registerVessel, unregisterVessel } = useMaelstromContext();
 
+  // Keep a ref to the latest registration so the effect body always has the
+  // most up-to-date vessel definition without re-running mount/unmount on
+  // every data change (which would cause unregister→register churn and, if
+  // the VesselManager were disposed mid-cycle, a crash).
+  const registrationRef = useRef(registration);
+  registrationRef.current = registration;
+
+  const vesselId = registration.vessel.id;
+
   useEffect(() => {
-    registerVessel(registration);
+    registerVessel(registrationRef.current);
     return () => {
-      unregisterVessel(registration.vessel.id);
+      unregisterVessel(vesselId);
     };
-  }, [registerVessel, unregisterVessel, registration]);
+    // vesselId is the stable identity; registerVessel/unregisterVessel are
+    // stable callbacks from context. We intentionally exclude `registration`
+    // from deps — its identity changing (e.g. on query refetch) should NOT
+    // trigger a full unregister/re-register cycle.
+  }, [registerVessel, unregisterVessel, vesselId]);
 }
 
 export function useVessel(vesselId: string): Vessel | undefined {
