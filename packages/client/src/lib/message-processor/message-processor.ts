@@ -83,10 +83,10 @@ export class MessageProcessor {
     }
     return new Promise((resolve) => {
       const cleanup = () => {
-        unsub();
+        sub.unsubscribe();
         this.#idleResolvers.delete(resolve);
       };
-      const unsub = this.store.subscribe(() => {
+      const sub = this.store.subscribe(() => {
         if (
           this.store.state.status === 'idle' &&
           this.#messageQueue.length === 0

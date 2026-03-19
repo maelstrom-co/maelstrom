@@ -42,12 +42,6 @@
       }
     },
     {
-      "plugin": "@nx/vitest",
-      "options": {
-        "testTargetName": "test"
-      }
-    },
-    {
       "plugin": "@maelstrom-co/biome-plugin",
       "options": {
         "lintTargetName": "lint",
@@ -94,8 +88,7 @@
       },
       "library": {
         "style": "tailwind",
-        "linter": "none",
-        "unitTestRunner": "vitest"
+        "linter": "none"
       }
     }
   },

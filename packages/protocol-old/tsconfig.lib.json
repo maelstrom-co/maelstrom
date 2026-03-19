@@ -6,8 +6,6 @@
     "outDir": "dist",
     "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo",
     "emitDeclarationOnly": true,
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
     "forceConsistentCasingInFileNames": true,
     "types": ["node", "vite/client"]
   },

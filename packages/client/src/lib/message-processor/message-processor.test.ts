@@ -164,7 +164,7 @@ describe('MessageProcessor (Event Loop)', () => {
 
     it('should set status to error then recover to idle', async () => {
       const statusTransitions: string[] = [];
-      const unsub = processor.store.subscribe(() => {
+      const sub = processor.store.subscribe(() => {
         statusTransitions.push(processor.store.state.status);
       });
 
@@ -180,7 +180,7 @@ describe('MessageProcessor (Event Loop)', () => {
       processor.processMessage(badResponse);
       await processor.waitForIdle();
 
-      unsub();
+      sub.unsubscribe();
 
       expect(statusTransitions).toContain('error');
       expect(processor.store.state.status).toBe('idle');
