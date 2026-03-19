@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/client",
-  "version": "0.0.6-prealpha.0",
+  "version": "0.0.7-prealpha.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -27,7 +27,7 @@
     "access": "restricted"
   },
   "dependencies": {
-    "@maelstrom-co/protocol-old": "0.0.6-prealpha.0",
+    "@maelstrom-co/protocol-old": "0.0.7-prealpha.0",
     "@tanstack/store": "catalog:"
   },
   "devDependencies": {
