@@ -1,0 +1,76 @@
+name: Publish PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+concurrency:
+  group: publish-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish Preview Packages
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Set preview version
+        id: version
+        run: |
+          VERSION="0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing version: $VERSION"
+
+      - name: Version packages
+        run: bunx nx release version ${{ steps.version.outputs.version }} --git-commit false --git-tag false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish packages
+        run: bunx nx release publish --tag pr-${{ github.event.pull_request.number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on PR
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-tag: pr-preview-packages
+          body: |
+            **Preview packages published** for commit ${{ github.event.pull_request.head.sha }}
+
+            **Version:** `${{ steps.version.outputs.version }}`
+            **Tag:** `pr-${{ github.event.pull_request.number }}`
+
+            ```sh
+            bun add @maelstrom-co/protocol-old@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/client@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/engine-old@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/react-old@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/voice-old@${{ steps.version.outputs.version }}
+            ```
+
+            Or install by tag:
+            ```sh
+            bun add @maelstrom-co/client@pr-${{ github.event.pull_request.number }}
+            ```
