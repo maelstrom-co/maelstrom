@@ -41,6 +41,7 @@ export function createEngine(config: EngineConfig): Engine {
   const {
     provider,
     systemPrompt: customSystemPrompt,
+    systemPromptExtension,
     timeout = 30000,
     retry = {},
     history: historyConfig,
@@ -68,7 +69,11 @@ export function createEngine(config: EngineConfig): Engine {
 
   return {
     async process(request: ChartRequest): Promise<MaelstromResponse> {
-      const { prompt, systemPrompt } = buildPrompt(request, customSystemPrompt);
+      const { prompt, systemPrompt } = buildPrompt(
+        request,
+        customSystemPrompt,
+        systemPromptExtension,
+      );
       const layoutMode = request.context.layoutMode;
 
       let llmResponse: LLMResponse;

@@ -22,7 +22,11 @@ export function buildResponse(
     requestId: request.id,
     userMessage: llmResponse.userMessage,
     rationale: llmResponse.rationale,
-    executionPlan: validateExecutionPlan(llmResponse.executionPlan, request),
+    executionPlan: validateExecutionPlan(
+      llmResponse.executionPlan,
+      request,
+      layout,
+    ),
     layout,
   };
 }
@@ -53,27 +57,60 @@ function buildLayout(
 function validateExecutionPlan<V extends Vessel = Vessel>(
   plan: LLMResponse['executionPlan'],
   request: ChartRequest,
+  layout: GridLayout | TilingLayout,
 ): ActionExecution<V, string>[] {
   const valid: ActionExecution<V, string>[] = [];
+  const knownInstances = new Map(
+    request.instances.map((instance) => [instance.instanceId, instance]),
+  );
+
+  if (layout.type === 'tiling') {
+    for (const instance of layout.instances) {
+      if (knownInstances.has(instance.instanceId)) continue;
+
+      knownInstances.set(instance.instanceId, {
+        instanceId: instance.instanceId,
+        vesselId: instance.vesselId,
+        variant: instance.variant,
+      });
+    }
+  }
+
+  // Validate against a simulated per-instance variant state so a single plan can
+  // include deterministic follow-up actions that only become legal after an
+  // earlier transition in the same executionPlan.
+  const simulatedVariants = new Map(
+    Array.from(knownInstances.values(), (instance) => [
+      instance.instanceId,
+      instance.variant,
+    ]),
+  );
 
   for (const item of plan) {
-    const instance = request.instances.find(
-      (i: VesselInstanceSnapshot) => i.instanceId === item.instanceId,
-    );
+    const instance = knownInstances.get(item.instanceId) as
+      | VesselInstanceSnapshot
+      | {
+          instanceId: string;
+          vesselId: string;
+          variant: string;
+        }
+      | undefined;
     if (!instance) {
       console.warn(`Skipping action: instance "${item.instanceId}" not found`);
       continue;
     }
 
     const vessel = request.vessels.find((v) => v.id === instance.vesselId);
-    const variant = vessel?.variants[instance.variant];
+    const currentVariant =
+      simulatedVariants.get(item.instanceId) ?? instance.variant;
+    const variant = vessel?.variants[currentVariant];
     const actionDef = variant?.actions.find(
       (a: VesselAction) => a.name === item.action,
     );
 
     if (!actionDef) {
       console.warn(
-        `Skipping action: "${item.action}" not available in variant "${instance.variant}"`,
+        `Skipping action: "${item.action}" not available in variant "${currentVariant}"`,
       );
       continue;
     }
@@ -92,6 +129,12 @@ function validateExecutionPlan<V extends Vessel = Vessel>(
       }
     }
     valid.push(parsedAction);
+
+    if (actionDef.transitionsTo) {
+      // Carry the transition forward so later actions for this instance are
+      // checked against the state the client will reach after executing prior steps.
+      simulatedVariants.set(item.instanceId, actionDef.transitionsTo);
+    }
   }
 
   return valid;

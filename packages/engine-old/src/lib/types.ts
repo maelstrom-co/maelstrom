@@ -71,8 +71,14 @@ export interface EngineConfig {
   /** LLM provider instance */
   provider: LLMProvider;
 
-  /** Custom system prompt (optional, uses default if not provided) */
+  /** Full system prompt override (optional, uses default if not provided) */
   systemPrompt?: string;
+
+  /**
+   * Additional app-specific instructions appended to the default system prompt.
+   * Ignored when `systemPrompt` is provided.
+   */
+  systemPromptExtension?: string;
 
   /** Request timeout in ms (default: 30000) */
   timeout?: number;

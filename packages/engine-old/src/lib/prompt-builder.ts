@@ -41,6 +41,7 @@ interface BuilderState {
 export function createPromptBuilder(
   request: ChartRequest,
   customSystemPrompt?: string,
+  systemPromptExtension?: string,
 ): PromptBuilder {
   const layoutMode = request.context.layoutMode;
   const state: BuilderState = {
@@ -81,8 +82,12 @@ export function createPromptBuilder(
     build(): PromptBuilderResult {
       const sections = [state.vessels, state.chartState, state.updateTriggers];
       const prompt = sections.filter(Boolean).join('\n\n');
+      const defaultSystemPrompt = getDefaultSystemPrompt(layoutMode);
       const systemPrompt =
-        customSystemPrompt ?? getDefaultSystemPrompt(layoutMode);
+        customSystemPrompt ??
+        (systemPromptExtension
+          ? `${defaultSystemPrompt}${systemPromptExtension}`
+          : defaultSystemPrompt);
 
       return {
         prompt,
@@ -98,8 +103,9 @@ export function createPromptBuilder(
 export function buildPrompt(
   request: ChartRequest,
   customSystemPrompt?: string,
+  systemPromptExtension?: string,
 ): PromptBuilderResult {
-  return createPromptBuilder(request, customSystemPrompt)
+  return createPromptBuilder(request, customSystemPrompt, systemPromptExtension)
     .buildVesselsSection()
     .buildChartStateSection()
     .buildUpdateTriggersSection()
@@ -349,7 +355,7 @@ Rules:
 
 ACTION PARAMETERS:
 When an action requires parameters, encode them as a JSON string in the paramsJson field.
-Example: {"orderId":"abc-123"} or {"markerSlugs":["glucose","hemoglobin"]}
+Example: {"entityId":"abc-123"} or {"selectedIds":["alpha","beta"]}
 If no parameters are needed, omit paramsJson entirely.
 
 Rules:
@@ -428,7 +434,7 @@ To give a vessel MORE space, include it multiple times in different leaves:
 
 ACTION PARAMETERS:
 When an action requires parameters, encode them as a JSON string in the paramsJson field.
-Example: {"orderId":"abc-123"} or {"markerSlugs":["glucose","hemoglobin"]}
+Example: {"entityId":"abc-123"} or {"selectedIds":["alpha","beta"]}
 If no parameters are needed, omit paramsJson entirely.
 
 Rules:
@@ -436,8 +442,11 @@ Rules:
 - Execute actions before layout (actions may change variants)
 - The tree must be valid: each split node (H/V) must have exactly 2 children
 - Only show vessels that are relevant to the user's current intent
-- When creating new instances, use descriptive identifiers (e.g., "calendar-appointments", "biomarkers-glucose")
+- When creating new instances, use descriptive identifiers that reflect the content shown (e.g., "calendar-appointments", "comparison-left")
 - Include ALL existing instances you want to keep in the instances array
 - CRITICAL: When creating a new instance that needs specific data or state, add an action for it in the executionPlan array
+- CRITICAL: If you create a new instance that depends on a follow-up action to become useful, the response is incomplete unless that action is present in executionPlan
+- CRITICAL: Do NOT say a panel is showing specific data, entities, filters, comparisons, or selections unless the matching action is present in executionPlan
+- CRITICAL: userMessage and rationale must describe only the state that will exist after the declared executionPlan runs; never claim configuration that is not backed by actions
 
 IMPORTANT: Always include a helpful userMessage. Never leave it empty.`;
