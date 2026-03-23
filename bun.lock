@@ -14,7 +14,6 @@
         "@nx/plugin": "22.5.4",
         "@nx/react": "22.5.4",
         "@nx/vite": "22.5.4",
-        "@nx/vitest": "22.5.4",
         "@nx/web": "22.5.4",
         "@nx/workspace": "22.5.4",
         "@sinonjs/fake-timers": "15.1.1",
@@ -77,7 +76,7 @@
     },
     "packages/client": {
       "name": "@maelstrom-co/client",
-      "version": "0.0.4-prealpha.0",
+      "version": "0.0.7-prealpha.0",
       "dependencies": {
         "@maelstrom-co/protocol-old": "0.0.4-prealpha.0",
         "@tanstack/store": "catalog:",
@@ -88,7 +87,7 @@
     },
     "packages/engine-old": {
       "name": "@maelstrom-co/engine-old",
-      "version": "0.0.4-prealpha.0",
+      "version": "0.0.7-prealpha.0",
       "dependencies": {
         "@tanstack/ai": "catalog:",
         "@tanstack/ai-gemini": "catalog:",
@@ -100,14 +99,14 @@
     },
     "packages/protocol-old": {
       "name": "@maelstrom-co/protocol-old",
-      "version": "0.0.4-prealpha.0",
+      "version": "0.0.7-prealpha.0",
       "dependencies": {
         "zod": "catalog:",
       },
     },
     "packages/react-old": {
       "name": "@maelstrom-co/react-old",
-      "version": "0.0.4-prealpha.0",
+      "version": "0.0.7-prealpha.0",
       "dependencies": {
         "@maelstrom-co/client": "0.0.4-prealpha.0",
         "@maelstrom-co/protocol-old": "0.0.4-prealpha.0",
@@ -129,7 +128,7 @@
     },
     "packages/voice-old": {
       "name": "@maelstrom-co/voice-old",
-      "version": "0.0.4-prealpha.0",
+      "version": "0.0.7-prealpha.0",
       "dependencies": {
         "@maelstrom-co/client": "0.0.4-prealpha.0",
         "@maelstrom-co/protocol-old": "0.0.4-prealpha.0",

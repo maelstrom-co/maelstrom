@@ -97,14 +97,14 @@
       "packages/*"
     ],
     "projectsRelationship": "fixed",
+    "git": {
+      "commitMessage": "chore(release): {version}"
+    },
     "version": {
       "preVersionCommand": "bunx nx run-many -t build",
       "currentVersionResolver": "git-tag",
       "versionActionsOptions": {
         "skipLockFileUpdate": true
-      },
-      "git": {
-        "commitMessage": "chore(release): {version}"
       }
     },
     "releaseTag": {
