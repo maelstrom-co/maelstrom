@@ -1,10 +1,7 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "namedInputs": {
-    "default": [
-      "{projectRoot}/**/*",
-      "sharedGlobals"
-    ],
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
       "default",
       "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
@@ -52,22 +49,15 @@
   ],
   "targetDefaults": {
     "test": {
-      "dependsOn": [
-        "^build"
-      ],
+      "dependsOn": ["^build"],
       "options": {
         "passWithNoTests": true
       }
     },
     "@nx/js:tsc": {
       "cache": true,
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "production",
-        "^production"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     },
     "nx-release-publish": {
       "options": {
@@ -93,18 +83,16 @@
     }
   },
   "release": {
-    "projects": [
-      "packages/*"
-    ],
+    "projects": ["packages/*"],
     "projectsRelationship": "fixed",
-    "git": {
-      "commitMessage": "chore(release): {version}"
-    },
     "version": {
       "preVersionCommand": "bunx nx run-many -t build",
       "currentVersionResolver": "git-tag",
       "versionActionsOptions": {
         "skipLockFileUpdate": true
+      },
+      "git": {
+        "commitMessage": "chore(release): {version}"
       }
     },
     "releaseTag": {
