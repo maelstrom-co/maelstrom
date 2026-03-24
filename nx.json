@@ -81,7 +81,8 @@
       },
       "library": {
         "style": "tailwind",
-        "linter": "none"
+        "linter": "none",
+        "unitTestRunner": "none"
       }
     }
   },

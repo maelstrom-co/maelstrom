@@ -23,6 +23,9 @@
     },
     {
       "path": "./packages/voice-old"
+    },
+    {
+      "path": "./packages/react"
     }
   ]
 }
