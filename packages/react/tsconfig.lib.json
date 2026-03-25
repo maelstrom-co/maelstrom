@@ -37,6 +37,9 @@
   "references": [
     {
       "path": "../protocol-old/tsconfig.lib.json"
+    },
+    {
+      "path": "../client/tsconfig.lib.json"
     }
   ]
 }

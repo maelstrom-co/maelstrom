@@ -1,0 +1,152 @@
+import { Orchestrator } from '@maelstrom-co/client';
+import type { EngineConnector } from '@maelstrom-co/client';
+import type { LayoutMode } from '@maelstrom-co/protocol-old';
+import type { ComponentType, ReactNode } from 'react';
+import { lazy, useEffect, useMemo, useRef, useState } from 'react';
+
+import type { ResolvedMaelstromConfig } from './config-types.js';
+import { resolveConfig } from './config-types.js';
+import type { MaelstromContextPair, MaelstromContextValue } from './context.js';
+import type { AnyVesselEntry, LazyVesselEntry, TypedVesselProps } from './vessel-entry-types.js';
+
+/** Props for the Maelstrom Provider component. */
+export interface MaelstromProviderProps {
+  /** Engine connector — should be a stable reference; changing it recreates the Orchestrator. */
+  connector: EngineConnector;
+  /** Session ID for conversation continuity. Auto-generated if omitted. */
+  sessionId?: string;
+  /** Layout algorithm used by the engine. */
+  layoutMode?: LayoutMode;
+  /** Grid cell size in pixels. Overrides the factory default. */
+  cellSizePx?: number;
+  /** Enable debug logging. Overrides the factory default. */
+  debug?: boolean;
+  /** Called on connection and processIntent errors. Errors also surface via useMaelstrom(). */
+  onError?: (error: Error) => void;
+  children: ReactNode;
+}
+
+export function createProvider(
+  contextPair: MaelstromContextPair,
+  vesselEntries: readonly AnyVesselEntry[],
+  factoryConfig: Partial<ResolvedMaelstromConfig>,
+) {
+  const { Context } = contextPair;
+
+  return function MaelstromProvider({
+    connector,
+    sessionId,
+    layoutMode,
+    cellSizePx,
+    debug,
+    onError,
+    children,
+  }: MaelstromProviderProps) {
+    // Resolve config: Provider overrides → factory defaults → hardcoded defaults
+    const config = useMemo(
+      () => resolveConfig(factoryConfig, { cellSizePx, debug }),
+      [cellSizePx, debug],
+    );
+
+    // Build registries once from static entries
+    const { componentRegistry, loadingRegistry, lazyVesselIds } = useMemo(
+      () => buildRegistries(vesselEntries),
+      [], // vesselEntries is stable (from factory closure)
+    );
+
+    // Stable ref for onError — allows hook to call without triggering re-renders
+    const onErrorRef = useRef(onError);
+    onErrorRef.current = onError;
+
+    // Orchestrator lifecycle — creates fresh instance per mount, disposes on unmount.
+    // StrictMode safe: cleanup disposes the first instance, second setup creates a new one.
+    const [orchestrator, setOrchestrator] = useState<InstanceType<typeof Orchestrator> | null>(null);
+
+    useEffect(() => {
+      let instance: Orchestrator;
+      try {
+        instance = new Orchestrator(connector, {
+          ...(sessionId && { sessionId }),
+          ...(layoutMode && { layoutMode }),
+          debug: config.debug,
+        });
+
+        // Register all static vessels
+        for (const entry of vesselEntries) {
+          instance.vesselManager.registerVessel(entry.vessel);
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error('[Maelstrom] Failed to create Orchestrator:', error);
+        onErrorRef.current?.(error);
+        return;
+      }
+
+      setOrchestrator(instance);
+
+      instance.connect().catch((err) => {
+        const error = err instanceof Error ? err : new Error(String(err));
+        onErrorRef.current?.(error);
+      });
+
+      return () => {
+        instance.dispose().catch((err) => {
+          console.error('[Maelstrom] Dispose error:', err);
+        });
+      };
+    }, [connector, sessionId, layoutMode, config.debug]);
+
+    // Context value — recomputes when orchestrator or config changes
+    // (registry refs are static but listed to satisfy exhaustive-deps)
+    const value: MaelstromContextValue | null = useMemo(() => {
+      if (!orchestrator) return null;
+      return {
+        orchestrator,
+        config,
+        onErrorRef,
+        componentRegistry,
+        loadingRegistry,
+        lazyVesselIds,
+        vesselEntries,
+      };
+    }, [orchestrator, config, componentRegistry, loadingRegistry, lazyVesselIds]);
+
+    // TODO(MAE-86): Retain previous orchestrator during transitions to avoid
+    // unmounting children when connector/sessionId/layoutMode change mid-session.
+    // Currently returns null (unmounts children for one frame) while the new
+    // orchestrator is created inside useEffect.
+    if (!value) return null;
+
+    return <Context.Provider value={value}>{children}</Context.Provider>;
+  };
+}
+
+function isLazyEntry(entry: AnyVesselEntry): entry is LazyVesselEntry<any> {
+  return 'loadingComponent' in entry;
+}
+
+/**
+ * Build component + loading registries from static vessel entries.
+ *
+ * Lazy entries are wrapped with React.lazy(). Any component that renders a lazy
+ * vessel must be wrapped in a <Suspense> boundary — the Chart component handles
+ * this internally.
+ */
+function buildRegistries(entries: readonly AnyVesselEntry[]) {
+  const componentRegistry = new Map<string, ComponentType<TypedVesselProps<any>>>();
+  const loadingRegistry = new Map<string, ComponentType<{ vesselId: string }>>();
+  const lazyVesselIds = new Set<string>();
+
+  for (const entry of entries) {
+    const id = entry.vessel.id;
+    if (isLazyEntry(entry)) {
+      componentRegistry.set(id, lazy(entry.component));
+      loadingRegistry.set(id, entry.loadingComponent);
+      lazyVesselIds.add(id);
+    } else {
+      componentRegistry.set(id, entry.component);
+    }
+  }
+
+  return { componentRegistry, loadingRegistry, lazyVesselIds };
+}

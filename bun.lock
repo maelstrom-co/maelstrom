@@ -79,7 +79,7 @@
       "name": "@maelstrom-co/client",
       "version": "0.0.8-prealpha.0",
       "dependencies": {
-        "@maelstrom-co/protocol-old": "0.0.4-prealpha.0",
+        "@maelstrom-co/protocol-old": "0.0.8-prealpha.0",
         "@tanstack/store": "catalog:",
       },
       "devDependencies": {
@@ -109,7 +109,13 @@
       "name": "@maelstrom-co/react",
       "version": "0.0.8-prealpha.0",
       "dependencies": {
+        "@maelstrom-co/client": "0.0.8-prealpha.0",
         "@maelstrom-co/protocol-old": "0.0.8-prealpha.0",
+        "@tanstack/react-store": "catalog:",
+      },
+      "devDependencies": {
+        "@testing-library/react": "catalog:",
+        "happy-dom": "catalog:",
       },
       "peerDependencies": {
         "react": ">=18.0.0",

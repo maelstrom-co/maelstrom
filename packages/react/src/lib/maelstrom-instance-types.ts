@@ -1,8 +1,12 @@
-import type { AnyVesselEntry } from './vessel-entry-types.js';
+import type { ComponentType } from 'react';
 
-/** Return type of createMaelstrom — will grow in later slices */
-export interface MaelstromInstance<
-  T extends readonly AnyVesselEntry[],
-> {
+import type { AnyVesselEntry } from './vessel-entry-types.js';
+import type { MaelstromProviderProps } from './provider.js';
+import type { MaelstromState } from './maelstrom-state-types.js';
+
+/** Return type of createMaelstrom() */
+export interface MaelstromInstance<T extends readonly AnyVesselEntry[]> {
   vessels: T;
+  Provider: ComponentType<MaelstromProviderProps>;
+  useMaelstrom: () => MaelstromState;
 }

@@ -32,6 +32,8 @@ export default defineConfig(() => ({
         'react-dom',
         'react/jsx-runtime',
         '@maelstrom-co/protocol-old',
+        '@maelstrom-co/client',
+        '@tanstack/react-store',
       ],
     },
   },
