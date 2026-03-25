@@ -38,10 +38,10 @@ export function TilingChart({
   backgroundColor = 'transparent',
   children,
 }: TilingChartProps) {
-  const { messageProcessorStore, tilingPadding, debug } = useMaelstromContext();
+  const { commandProcessorStore, tilingPadding, debug } = useMaelstromContext();
   const containerRef = useRef<HTMLDivElement>(null);
-  const layout = useStore(messageProcessorStore, (state) => state.layout);
-  const instances = useStore(messageProcessorStore, (state) => state.instances);
+  const layout = useStore(commandProcessorStore, (state) => state.layout);
+  const instances = useStore(commandProcessorStore, (state) => state.instances);
   const [containerRect, setContainerRect] = useState<Rect>({
     x: 0,
     y: 0,

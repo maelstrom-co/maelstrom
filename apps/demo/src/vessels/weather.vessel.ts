@@ -56,6 +56,10 @@ export const weatherVessel: Vessel = {
           description: 'Show hourly forecast',
           transitionsTo: 'hourly',
         },
+        {
+          name: 'selectDay',
+          description: 'Select a day for the forecast',
+        },
       ],
     },
   },

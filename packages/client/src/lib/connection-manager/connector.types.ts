@@ -372,7 +372,8 @@ export interface EngineConnector {
  * ```typescript
  * if ('onPushMessage' in connector) {
  *   (connector as PushConnector).onPushMessage((response) => {
- *     void messageProcessor.processMessage(response);
+ *     commandProcessor.setLayout(response.layout);
+ *     commandProcessor.executeActions(response.executionPlan);
  *   });
  * }
  * ```

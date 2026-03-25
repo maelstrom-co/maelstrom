@@ -5,7 +5,9 @@ import type {
 } from '@maelstrom-co/client';
 import type {
   ChartDimensions,
+  GridLayout,
   MaelstromResponse,
+  TilingLayout,
   Vessel,
   VesselAction,
   VesselVariant,
@@ -36,7 +38,7 @@ export function useMaelstrom(): {
   sessionId: string;
 } {
   const {
-    messageProcessorStore,
+    commandProcessorStore,
     connectionManagerStore,
     requestCoordinatorStore,
     processIntent,
@@ -62,8 +64,8 @@ export function useMaelstrom(): {
     requestCoordinatorStore,
     (state) => state.lastResponse,
   );
-  const lastError = useStore(messageProcessorStore, (state) => state.lastError);
-  const instances = useStore(messageProcessorStore, (state) =>
+  const lastError = useStore(commandProcessorStore, (state) => state.lastError);
+  const instances = useStore(commandProcessorStore, (state) =>
     Array.from(state.instances.values()),
   );
 
@@ -125,15 +127,15 @@ export function useVessel(vesselId: string): Vessel | undefined {
 }
 
 export function useInstance(instanceId: string): VesselInstance | undefined {
-  const { messageProcessorStore } = useMaelstromContext();
-  return useStore(messageProcessorStore, (state) =>
+  const { commandProcessorStore } = useMaelstromContext();
+  return useStore(commandProcessorStore, (state) =>
     state.instances.get(instanceId),
   );
 }
 
 export function useInstancesByVessel(vesselId: string): VesselInstance[] {
-  const { messageProcessorStore } = useMaelstromContext();
-  return useStore(messageProcessorStore, (state) =>
+  const { commandProcessorStore } = useMaelstromContext();
+  return useStore(commandProcessorStore, (state) =>
     Array.from(state.instances.values()).filter((i) => i.vesselId === vesselId),
   );
 }
@@ -204,7 +206,7 @@ export function useVesselComponentProps(
       if (debug) {
         console.log(`[Maelstrom] executeAction: ${actionName}`, params);
       }
-      void orchestrator.messageProcessor.actionManager.executeActions([
+      void orchestrator.commandProcessor.executeActions([
         {
           instanceId,
           action: actionName,
@@ -256,10 +258,7 @@ export function useVesselActions<V extends Vessel = Vessel>(
       },
     });
 
-    orchestrator.messageProcessor.actionManager.registerRunner(
-      instanceId,
-      stableRunner,
-    );
+    orchestrator.commandProcessor.registerRunner(instanceId, stableRunner);
 
     return () => {
       if (debug) {
@@ -267,7 +266,18 @@ export function useVesselActions<V extends Vessel = Vessel>(
           `[Maelstrom] Unregistering action runner for instance "${instanceId}"`,
         );
       }
-      orchestrator.messageProcessor.actionManager.unregisterRunner(instanceId);
+      orchestrator.commandProcessor.unregisterRunner(instanceId);
     };
   }, [instanceId, orchestrator, debug]);
+}
+
+export function useSetLayout() {
+  const { orchestrator } = useMaelstromContext();
+
+  return useCallback(
+    (layout: GridLayout | TilingLayout) => {
+      orchestrator.commandProcessor.setLayout(layout);
+    },
+    [orchestrator],
+  );
 }

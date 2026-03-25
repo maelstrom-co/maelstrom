@@ -109,7 +109,7 @@ describe('Orchestrator', () => {
       expect(orchestrator.connectionManager).toBeDefined();
       expect(orchestrator.vesselManager).toBeDefined();
       expect(orchestrator.chartManager).toBeDefined();
-      expect(orchestrator.messageProcessor).toBeDefined();
+      expect(orchestrator.commandProcessor).toBeDefined();
       expect(orchestrator.requestCoordinator).toBeDefined();
 
       orchestrator.dispose();
@@ -255,7 +255,7 @@ describe('Orchestrator', () => {
       const connector = createMockConnector();
       const { orchestrator } = createTestOrchestrator(connector);
 
-      orchestrator.messageProcessor.store.setState((s) => ({
+      orchestrator.commandProcessor.store.setState((s) => ({
         ...s,
         instances: new Map([
           [
@@ -564,7 +564,7 @@ describe('Orchestrator', () => {
 
   // --------------------------------------------------------------------------
   // Bug regression: processIntent ordering (Issue #2)
-  // resolveFlushPromises must be called AFTER processMessage so that
+  // resolveFlushPromises must be called AFTER command dispatch so that
   // flush consumers see fully updated store state (including action execution).
   // --------------------------------------------------------------------------
 
@@ -583,9 +583,9 @@ describe('Orchestrator', () => {
       });
       const { orchestrator } = createTestOrchestrator(connector);
 
-      // Track when message processing completes
-      orchestrator.messageProcessor.events.on('message_complete', () => {
-        callOrder.push('message_complete');
+      // Track when command processing completes
+      orchestrator.commandProcessor.events.on('command_complete', () => {
+        callOrder.push('command_complete');
       });
 
       // Schedule update so flush has something pending
@@ -617,14 +617,18 @@ describe('Orchestrator', () => {
 
       await Promise.all([intentPromise, flushPromise]);
 
-      // Wait for the fire-and-forget processMessage to complete
-      await orchestrator.messageProcessor.waitForIdle();
+      // Wait for the fire-and-forget commands to complete
+      await orchestrator.commandProcessor.waitForIdle();
 
-      // flush_resolved fires before message_complete because processMessage
-      // is now fire-and-forget: layout+instances are applied synchronously,
-      // then resolveFlushPromises runs immediately, while message_complete
-      // fires later after async action execution.
-      expect(callOrder).toEqual(['flush_resolved', 'message_complete']);
+      // The orchestrator dispatches TWO commands per response (setLayout + executeActions).
+      // setLayout is synchronous — its command_complete fires immediately during dispatch.
+      // Then resolveFlushPromises runs, and flush_resolved fires on the next microtick.
+      // Finally executeActions completes asynchronously, firing the second command_complete.
+      expect(callOrder).toEqual([
+        'command_complete',
+        'flush_resolved',
+        'command_complete',
+      ]);
 
       orchestrator.dispose();
     });
@@ -675,7 +679,7 @@ describe('Orchestrator', () => {
       processResolve(mockResponse);
 
       // The flush promise must resolve — the timer handler calls
-      // resolveFlushPromises after processMessage completes.
+      // resolveFlushPromises after command dispatch completes.
       // Use Promise.race with a fake-timer timeout to detect hangs.
       const timeoutPromise = new Promise<'timeout'>((resolve) =>
         setTimeout(() => resolve('timeout'), 5000),

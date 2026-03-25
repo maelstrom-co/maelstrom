@@ -151,15 +151,15 @@ function GridChart({
   backgroundColor = 'transparent',
   children,
 }: ChartProps) {
-  const { messageProcessorStore, debug, orchestrator } = useMaelstromContext();
+  const { commandProcessorStore, debug, orchestrator } = useMaelstromContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const updateDimensions = useChartDimensionsFromViewport();
   const chartDimensions = useStore(
     orchestrator.chartManager.store,
     (state) => state.chartDimensions,
   );
-  const layout = useStore(messageProcessorStore, (state) => state.layout);
-  const instances = useStore(messageProcessorStore, (state) => state.instances);
+  const layout = useStore(commandProcessorStore, (state) => state.layout);
+  const instances = useStore(commandProcessorStore, (state) => state.instances);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -346,13 +346,13 @@ export function ChartDebugOverlay({
   showBoundaries = true,
   showLabels = true,
 }: ChartDebugOverlayProps) {
-  const { messageProcessorStore, orchestrator } = useMaelstromContext();
+  const { commandProcessorStore, orchestrator } = useMaelstromContext();
   const chartDimensions = useStore(
     orchestrator.chartManager.store,
     (state) => state.chartDimensions,
   );
-  const layout = useStore(messageProcessorStore, (state) => state.layout);
-  const instances = useStore(messageProcessorStore, (state) => state.instances);
+  const layout = useStore(commandProcessorStore, (state) => state.layout);
+  const instances = useStore(commandProcessorStore, (state) => state.instances);
   const { columns, rows } = chartDimensions;
 
   const getMinSize = (instanceId: string): ChartSize => {

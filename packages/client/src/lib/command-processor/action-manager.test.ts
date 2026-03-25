@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import FakeTimers from '@sinonjs/fake-timers';
 
 import {
   type ActionExecution,
@@ -9,7 +10,10 @@ import {
 } from '@maelstrom-co/protocol-old';
 
 import { ActionManager } from './action-manager.js';
-import type { ActionRunner } from './action-runner.types.js';
+import type {
+  ActionRunner,
+  BatchExecutionResult,
+} from './action-runner.types.js';
 
 // Mock vessel for testing
 const mockVessel = defineVessel({
@@ -32,7 +36,7 @@ describe('ActionManager', () => {
   let manager: ActionManager;
 
   function createTestManager() {
-    manager = new ActionManager({ defaultTimeoutMs: 100 });
+    manager = new ActionManager({ readinessTimeoutMs: 100 });
   }
 
   beforeEach(() => {
@@ -415,6 +419,104 @@ describe('ActionManager', () => {
       await manager.executeActions(executionPlan);
 
       expect(receivedParams).toEqual({ testParam: 'value' });
+    });
+  });
+
+  describe('execution timeout', () => {
+    let clock: ReturnType<typeof FakeTimers.install>;
+
+    beforeEach(() => {
+      clock = FakeTimers.install({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      clock.uninstall();
+    });
+
+    it('should fail action that exceeds execution timeout', async () => {
+      const timeoutManager = new ActionManager({
+        readinessTimeoutMs: 100,
+        executionTimeoutMs: 50,
+      });
+
+      timeoutManager.registerRunner<MockVessel>('instance-1', {
+        testAction: () => new Promise<never>(() => {}),
+      });
+
+      let result: BatchExecutionResult | null = null;
+      timeoutManager
+        .executeActions<MockVessel>([
+          { instanceId: 'instance-1', action: 'testAction' },
+        ])
+        .then((_result) => {
+          result = _result;
+        });
+
+      await clock.tickAsync(50);
+
+      expect(result).not.toBeNull();
+      expect(result!.failureCount).toBe(1);
+      expect(result!.allSucceeded).toBe(false);
+      expect(result!.actions[0].result.success).toBe(false);
+      expect(
+        isErr(result!.actions[0].result) &&
+          result!.actions[0].result.error.message,
+      ).toContain('timed out after 50ms');
+    });
+
+    it('should not timeout sync handlers', async () => {
+      const timeoutManager = new ActionManager({
+        readinessTimeoutMs: 100,
+        executionTimeoutMs: 50,
+      });
+
+      timeoutManager.registerRunner<MockVessel>('instance-1', {
+        testAction: () => Success(undefined),
+      });
+
+      let result: BatchExecutionResult | null = null;
+      timeoutManager
+        .executeActions<MockVessel>([
+          { instanceId: 'instance-1', action: 'testAction' },
+        ])
+        .then((_result) => {
+          result = _result;
+        });
+
+      await clock.tickAsync(0);
+
+      expect(result).not.toBeNull();
+      expect(result!.successCount).toBe(1);
+      expect(result!.allSucceeded).toBe(true);
+    });
+
+    it('should not timeout actions that complete within the limit', async () => {
+      const timeoutManager = new ActionManager({
+        readinessTimeoutMs: 100,
+        executionTimeoutMs: 200,
+      });
+
+      timeoutManager.registerRunner<MockVessel>('instance-1', {
+        testAction: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return Success(undefined);
+        },
+      });
+
+      let result: BatchExecutionResult | null = null;
+      timeoutManager
+        .executeActions<MockVessel>([
+          { instanceId: 'instance-1', action: 'testAction' },
+        ])
+        .then((_result) => {
+          result = _result;
+        });
+
+      await clock.tickAsync(10);
+
+      expect(result).not.toBeNull();
+      expect(result!.successCount).toBe(1);
+      expect(result!.allSucceeded).toBe(true);
     });
   });
 

@@ -78,7 +78,7 @@ app.get(
       c.req.query('sessionId') || `session-${performance.now()}`;
     const language = c.req.query('language') || 'en';
 
-    const provider = createTanStackProvider('gemini-2.5-flash');
+    const provider = createTanStackProvider('gemini-3.1-flash-lite-preview');
 
     let ws: { send: (data: string | ArrayBuffer) => void } | null = null;
 

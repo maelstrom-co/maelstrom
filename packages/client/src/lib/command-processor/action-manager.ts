@@ -52,14 +52,17 @@ export class ActionManager {
   #runners: Map<string, AnyActionRunner> = new Map();
   #readinessWaiters: Map<string, Set<() => void>> = new Map();
   #logger: Logger;
-  #defaultTimeoutMs: number;
+  #readinessTimeoutMs: number;
+  #executionTimeoutMs: number;
 
   constructor(options?: {
     logger?: Logger;
-    defaultTimeoutMs?: number | undefined;
+    readinessTimeoutMs?: number | undefined;
+    executionTimeoutMs?: number | undefined;
   }) {
     this.#logger = options?.logger ?? new Logger(false);
-    this.#defaultTimeoutMs = options?.defaultTimeoutMs ?? 500;
+    this.#readinessTimeoutMs = options?.readinessTimeoutMs ?? 500;
+    this.#executionTimeoutMs = options?.executionTimeoutMs ?? 30_000;
   }
 
   /**
@@ -220,7 +223,7 @@ export class ActionManager {
           // Wait for runner to be ready before executing
           const isReady = await this.waitForReady(
             instanceId,
-            this.#defaultTimeoutMs,
+            this.#readinessTimeoutMs,
           );
 
           if (!isReady) {
@@ -375,7 +378,11 @@ export class ActionManager {
         // Handle both sync (Result) and async (Promise<Result>) handlers
         // without unnecessary Promise wrapping overhead for sync handlers
         const result = isPromise(handlerResult)
-          ? await handlerResult
+          ? await this.#withExecutionTimeout(
+              handlerResult,
+              instanceId,
+              execution.action,
+            )
           : handlerResult;
 
         const duration = performance.now() - startTime;
@@ -411,5 +418,34 @@ export class ActionManager {
     }
 
     return records;
+  }
+
+  /**
+   * Race an async handler result against the configured execution timeout.
+   * Throws if the handler does not resolve within the timeout.
+   */
+  async #withExecutionTimeout<T>(
+    promise: Promise<T>,
+    instanceId: string,
+    action: string,
+  ): Promise<T> {
+    if (this.#executionTimeoutMs <= 0) return promise;
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(
+          new Error(
+            `Action "${action}" on instance "${instanceId}" timed out after ${this.#executionTimeoutMs}ms`,
+          ),
+        );
+      }, this.#executionTimeoutMs);
+    });
+
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutId!);
+    }
   }
 }

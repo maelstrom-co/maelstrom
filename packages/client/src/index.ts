@@ -7,7 +7,7 @@
  *
  * Architecture:
  * - ConnectionManager: Handles connection lifecycle with retries and circuit breaker
- * - MessageProcessor: Event Loop pattern for processing messages sequentially
+ * - CommandProcessor: Event Loop pattern for processing commands sequentially
  *
  * @example
  * ```typescript
@@ -66,21 +66,30 @@ export type { VoiceWebSocketConnectorOptions } from './lib/connection-manager/co
 export { VoiceWebSocketConnector } from './lib/connection-manager/connectors/voice-web-socket-connector.js';
 export type { WebSocketConnectorOptions } from './lib/connection-manager/connectors/web-socket-connector.js';
 export { WebSocketConnector } from './lib/connection-manager/connectors/web-socket-connector.js';
+// Command Processor
+export type {
+  Command,
+  ExecuteActionsCommand,
+  SetLayoutCommand,
+} from './lib/command-processor/command.types.js';
+export type { CommandProcessorEvents } from './lib/command-processor/command-processor.js';
+export { CommandProcessor } from './lib/command-processor/command-processor.js';
+export {
+  type CommandProcessingState,
+  type CommandProcessingStatus,
+  createInitialCommandProcessingState,
+} from './lib/command-processor/command-processor.state.js';
+export type { CommandProcessorOptions } from './lib/command-processor/command-processor.types.js';
 // Action Manager
-export { ActionManager } from './lib/message-processor/action-manager.js';
+export { ActionManager } from './lib/command-processor/action-manager.js';
 export type {
   ActionRecord,
   ActionRunner,
   AnyActionRunner,
   BatchExecutionResult,
-} from './lib/message-processor/action-runner.types.js';
+} from './lib/command-processor/action-runner.types.js';
 // Layout Manager
-export { applyLayout } from './lib/message-processor/layout-manager.js';
-export type { MessageProcessorEvents } from './lib/message-processor/message-processor.js';
-// Message Processor
-export { MessageProcessor } from './lib/message-processor/message-processor.js';
-export type { MessageProcessorOptions } from './lib/message-processor/message-processor.types.js';
-export type { MessageProcessingState } from './lib/message-processor/types.js';
+export { applyLayout } from './lib/command-processor/layout-manager.js';
 // Orchestrator
 export { buildChartRequest } from './lib/orchestrator/build-chart-request.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';

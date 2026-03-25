@@ -12,7 +12,7 @@ import type {
   EngineConnector,
   PushConnector,
 } from '../connection-manager/connector.types.js';
-import { MessageProcessor } from '../message-processor/message-processor.js';
+import { CommandProcessor } from '../command-processor/command-processor.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
@@ -52,7 +52,7 @@ export class Orchestrator {
 
   // Composed microkernels
   readonly #connectionManager: ConnectionManager;
-  readonly #messageProcessor: MessageProcessor;
+  readonly #commandProcessor: CommandProcessor;
   readonly #updateCoordinator: UpdateCoordinator;
   readonly #vesselManager: VesselManager;
   readonly #chartManager: ChartManager;
@@ -72,7 +72,7 @@ export class Orchestrator {
       debug: this.#config.debug,
       ...this.#config.connection,
     });
-    this.#messageProcessor = new MessageProcessor({
+    this.#commandProcessor = new CommandProcessor({
       debug: this.#config.debug,
       defaultActionWaitTimeoutMs: this.#config.readyTimeoutMs,
     });
@@ -102,8 +102,8 @@ export class Orchestrator {
     return this.#connectionManager;
   }
 
-  get messageProcessor(): MessageProcessor {
-    return this.#messageProcessor;
+  get commandProcessor(): CommandProcessor {
+    return this.#commandProcessor;
   }
 
   get vesselManager(): VesselManager {
@@ -160,7 +160,7 @@ export class Orchestrator {
 
     const request = this.#newRequest(updates);
     const response = await this.#requestCoordinator.send(request);
-    this.#messageProcessor.processMessage(response);
+    this.#dispatchResponse(response);
     this.#requestCoordinator.resolveFlushPromises(response);
     return response;
   }
@@ -185,7 +185,7 @@ export class Orchestrator {
 
     const request = this.#newRequest(updates);
     const response = await this.#requestCoordinator.send(request);
-    this.#messageProcessor.processMessage(response);
+    this.#dispatchResponse(response);
     this.#requestCoordinator.resolveFlushPromises(response);
     return response;
   }
@@ -236,7 +236,7 @@ export class Orchestrator {
     this.#chartManager.dispose();
     this.#vesselManager.dispose();
     this.#updateCoordinator.dispose();
-    this.#messageProcessor.dispose();
+    this.#commandProcessor.dispose();
     this.#requestCoordinator.dispose();
   }
 
@@ -287,7 +287,7 @@ export class Orchestrator {
         try {
           const request = this.#newRequest(event.updates);
           const response = await this.#requestCoordinator.send(request);
-          this.#messageProcessor.processMessage(response);
+          this.#dispatchResponse(response);
           this.#requestCoordinator.resolveFlushPromises(response);
         } catch (err) {
           this.#logger.info(
@@ -303,20 +303,27 @@ export class Orchestrator {
       const unsubPush = (this.#connector as PushConnector).onPushMessage(
         (response: MaelstromResponse) => {
           this.#logger.info('Received push message, processing');
-          void this.#messageProcessor.processMessage(response);
+          this.#dispatchResponse(response);
         },
       );
       this.#unsubscribers.push(unsubPush);
     }
   }
 
+  #dispatchResponse(response: MaelstromResponse): void {
+    this.#commandProcessor.dispatch(
+      { kind: 'set_layout', layout: response.layout },
+      { kind: 'execute_actions', executionPlan: response.executionPlan },
+    );
+  }
+
   #newRequest(updates: UpdateReason[]) {
     return buildChartRequest({
       requestId: `req-${Date.now()}-${++this.#requestCounter}`,
       updates,
-      instances: this.#messageProcessor.store.state.instances,
+      instances: this.#commandProcessor.store.state.instances,
       chartDimensions: this.#chartManager.store.state.chartDimensions,
-      layout: this.#messageProcessor.store.state.layout,
+      layout: this.#commandProcessor.store.state.layout,
       vessels: this.#vesselManager.getAll(),
       config: this.#config,
     });

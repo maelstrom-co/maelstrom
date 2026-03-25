@@ -1,7 +1,7 @@
 import {
   type ConnectionManagerState,
   type EngineConnector,
-  type MessageProcessingState,
+  type CommandProcessingState,
   Orchestrator,
   type RequestCoordinatorState,
 } from '@maelstrom-co/client';
@@ -30,7 +30,7 @@ import { isLazyLoader } from './types.js';
 interface MaelstromContextValue {
   orchestrator: Orchestrator;
   connector: EngineConnector;
-  messageProcessorStore: Store<MessageProcessingState>;
+  commandProcessorStore: Store<CommandProcessingState>;
   connectionManagerStore: Store<ConnectionManagerState>;
   requestCoordinatorStore: Store<RequestCoordinatorState>;
   componentRegistry: Map<string, React.ComponentType<VesselComponentProps>>;
@@ -86,7 +86,7 @@ export function MaelstromProvider({
 
   const [, forceRender] = useReducer((x) => x + 1, 0);
 
-  const messageProcessorStore = orchestrator.messageProcessor.store;
+  const commandProcessorStore = orchestrator.commandProcessor.store;
   const connectionManagerStore = orchestrator.connectionManager.store;
   const requestCoordinatorStore = orchestrator.requestCoordinator.store;
 
@@ -184,7 +184,7 @@ export function MaelstromProvider({
     () => ({
       orchestrator,
       connector,
-      messageProcessorStore,
+      commandProcessorStore,
       connectionManagerStore,
       requestCoordinatorStore,
       componentRegistry,
@@ -201,7 +201,7 @@ export function MaelstromProvider({
     [
       orchestrator,
       connector,
-      messageProcessorStore,
+      commandProcessorStore,
       connectionManagerStore,
       requestCoordinatorStore,
       componentRegistry,

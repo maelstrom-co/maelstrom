@@ -28,6 +28,7 @@ export {
   useInstanceVariant,
   useMaelstrom,
   useSetChartDimensions,
+  useSetLayout,
   useVessel,
   useVesselActions,
   useVesselComponentProps,
