@@ -3,6 +3,7 @@ import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import { createMaelstromContext } from './context.js';
 import { createProvider } from './provider.js';
 import { createUseMaelstrom } from './use-maelstrom.js';
+import { createChart } from './chart/chart.js';
 
 /** Compile-time guard: rejects entries where any vessel ID has widened to `string` */
 type AssertNarrowIds<T extends readonly AnyVesselEntry[]> =
@@ -13,6 +14,7 @@ type AssertNarrowIds<T extends readonly AnyVesselEntry[]> =
 export interface CreateMaelstromConfig<T extends readonly AnyVesselEntry[]> {
   vessels: AssertNarrowIds<T> & T;
   cellSizePx?: number;
+  tilingPaddingPx?: number;
   debug?: boolean;
 }
 
@@ -23,12 +25,14 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
   const contextPair = createMaelstromContext();
   const factoryConfig = {
     cellSizePx: config.cellSizePx,
+    tilingPaddingPx: config.tilingPaddingPx,
     debug: config.debug,
   };
 
   return {
     vessels: config.vessels,
     Provider: createProvider(contextPair, config.vessels, factoryConfig),
+    Chart: createChart(contextPair),
     useMaelstrom: createUseMaelstrom(contextPair),
   };
 }

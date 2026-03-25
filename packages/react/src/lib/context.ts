@@ -19,6 +19,8 @@ export interface MaelstromContextValue {
   lazyVesselIds: Set<string>;
   /** The static vessel entries from createMaelstrom config */
   vesselEntries: readonly AnyVesselEntry[];
+  /** Guard: only one Chart may be mounted per Provider */
+  chartMountedRef: MutableRefObject<boolean>;
 }
 
 /** Create a new per-factory React context */

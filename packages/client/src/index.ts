@@ -24,6 +24,14 @@
 // Chart Manager
 export type { ChartManagerEvents } from './lib/chart-manager/chart-manager.js';
 export { ChartManager } from './lib/chart-manager/chart-manager.js';
+export type {
+  ComputedTile,
+  Rect,
+  TilingLeafNode,
+  TilingSplitNode,
+  TilingTreeNode,
+} from './lib/chart-manager/tiling.js';
+export { computeTilingLayout, parseTilingTree } from './lib/chart-manager/tiling.js';
 export {
   type ChartManagerState,
   createInitialChartManagerState,

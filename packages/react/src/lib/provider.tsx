@@ -19,6 +19,8 @@ export interface MaelstromProviderProps {
   layoutMode?: LayoutMode;
   /** Grid cell size in pixels. Overrides the factory default. */
   cellSizePx?: number;
+  /** Tiling layout gap in pixels. Overrides the factory default. */
+  tilingPaddingPx?: number;
   /** Enable debug logging. Overrides the factory default. */
   debug?: boolean;
   /** Called on connection and processIntent errors. Errors also surface via useMaelstrom(). */
@@ -38,14 +40,15 @@ export function createProvider(
     sessionId,
     layoutMode,
     cellSizePx,
+    tilingPaddingPx,
     debug,
     onError,
     children,
   }: MaelstromProviderProps) {
     // Resolve config: Provider overrides → factory defaults → hardcoded defaults
     const config = useMemo(
-      () => resolveConfig(factoryConfig, { cellSizePx, debug }),
-      [cellSizePx, debug],
+      () => resolveConfig(factoryConfig, { cellSizePx, tilingPaddingPx, debug }),
+      [cellSizePx, tilingPaddingPx, debug],
     );
 
     // Build registries once from static entries
@@ -57,6 +60,9 @@ export function createProvider(
     // Stable ref for onError — allows hook to call without triggering re-renders
     const onErrorRef = useRef(onError);
     onErrorRef.current = onError;
+
+    // Guard: only one Chart may be mounted per Provider
+    const chartMountedRef = useRef(false);
 
     // Orchestrator lifecycle — creates fresh instance per mount, disposes on unmount.
     // StrictMode safe: cleanup disposes the first instance, second setup creates a new one.
@@ -108,6 +114,7 @@ export function createProvider(
         loadingRegistry,
         lazyVesselIds,
         vesselEntries,
+        chartMountedRef,
       };
     }, [orchestrator, config, componentRegistry, loadingRegistry, lazyVesselIds]);
 

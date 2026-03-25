@@ -22,3 +22,4 @@ export type { MaelstromInstance } from './lib/maelstrom-instance-types.js';
 export type { MaelstromState } from './lib/maelstrom-state-types.js';
 export type { MaelstromProviderProps } from './lib/provider.js';
 export type { CreateMaelstromConfig } from './lib/create-maelstrom.js';
+export type { ChartProps } from './lib/chart/chart.js';
