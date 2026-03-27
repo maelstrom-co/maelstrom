@@ -11,6 +11,9 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  NX_NO_CLOUD: ${{ vars.NX_NO_CLOUD }}
+
 jobs:
   main:
     runs-on: ubuntu-latest
