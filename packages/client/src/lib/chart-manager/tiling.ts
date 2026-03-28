@@ -109,7 +109,12 @@ export function computeTilingLayout(
       const bottomHeight = rect.height - topHeight;
 
       if (node.left) {
-        traverse(node.left, { x: rect.x, y: rect.y, width: rect.width, height: topHeight });
+        traverse(node.left, {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: topHeight,
+        });
       }
       if (node.right) {
         traverse(node.right, {
@@ -124,7 +129,12 @@ export function computeTilingLayout(
       const rightWidth = rect.width - leftWidth;
 
       if (node.left) {
-        traverse(node.left, { x: rect.x, y: rect.y, width: leftWidth, height: rect.height });
+        traverse(node.left, {
+          x: rect.x,
+          y: rect.y,
+          width: leftWidth,
+          height: rect.height,
+        });
       }
       if (node.right) {
         traverse(node.right, {

@@ -1,9 +1,5 @@
 import { describe, it, expect, spyOn, afterEach } from 'bun:test';
-import {
-  parseTilingTree,
-  computeTilingLayout,
-  type Rect,
-} from './tiling.js';
+import { parseTilingTree, computeTilingLayout, type Rect } from './tiling.js';
 
 const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 afterEach(() => warnSpy.mockClear());
@@ -61,16 +57,12 @@ describe('parseTilingTree', () => {
 
   it('warns when trailing tokens remain unconsumed', () => {
     parseTilingTree(['inst-1', 'inst-2']);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('unconsumed'),
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('unconsumed'));
   });
 
   it('warns when split node has missing children', () => {
     parseTilingTree(['H', 'inst-1']);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('missing'),
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('missing'));
   });
 });
 
@@ -133,4 +125,3 @@ describe('computeTilingLayout', () => {
     expect(tiles[0].rect).toEqual({ x: 0, y: 0, width: 800, height: 600 });
   });
 });
-

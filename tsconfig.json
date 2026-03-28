@@ -26,6 +26,9 @@
     },
     {
       "path": "./packages/react"
+    },
+    {
+      "path": "./tools/astro-plugin"
     }
   ]
 }

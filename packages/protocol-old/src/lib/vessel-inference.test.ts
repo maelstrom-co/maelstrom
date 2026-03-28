@@ -1,6 +1,10 @@
 import { describe, it } from 'bun:test';
 
-import type { ActionNames, VariantNames, VariantPropsUnion } from './vessel-inference.js';
+import type {
+  ActionNames,
+  VariantNames,
+  VariantPropsUnion,
+} from './vessel-inference.js';
 import type { TestVessel } from './__tests__/test-vessel.fixture';
 
 describe('VariantNames', () => {

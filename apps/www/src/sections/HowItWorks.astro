@@ -1,0 +1,321 @@
+---
+import CodeWindow from '../components/CodeWindow.astro';
+import { Code } from 'astro:components';
+import ScrollArea from '../islands/ScrollArea.tsx';
+import { oceanTheme } from '../lib/ocean-theme';
+
+const steps = [
+  {
+    number: '01',
+    title: 'Describe Your Components',
+    description: 'Each component gets a Vessel — a declaration that tells the AI everything it needs to know: available states, actions it can trigger, and minimum size requirements.',
+    accentClass: 'text-cyan',
+    dotClass: 'bg-cyan shadow-[0_0_12px_rgba(0,240,255,0.5)]',
+    filename: 'orders.vessel.ts',
+    lang: 'typescript' as const,
+    code: `import { defineVessel } from '@maelstrom-co/protocol';
+
+export const ordersVessel = defineVessel({
+  id: 'orders',
+  name: 'Orders Panel',
+  description: 'Displays a list of orders',
+  defaultVariant: 'list',
+  variants: {
+    list: {
+      minSize: { width: 4, height: 3 },
+      actions: [
+        { name: 'selectOrder',
+          params: [{ name: 'orderId', type: 'string' }],
+          transitionsTo: 'details' },
+      ],
+    },
+    details: {
+      minSize: { width: 6, height: 5 },
+      actions: [
+        { name: 'close', transitionsTo: 'list' },
+      ],
+    },
+  },
+});`,
+  },
+  {
+    number: '02',
+    title: 'User Intent',
+    description: "Voice or text — same API. The user says what they want, and the AI figures out the rest.",
+    accentClass: 'text-blue',
+    dotClass: 'bg-blue shadow-[0_0_12px_rgba(0,102,255,0.5)]',
+    filename: 'Dashboard.tsx',
+    lang: 'tsx' as const,
+    code: `import { useMaelstrom } from '@maelstrom-co/react';
+
+function Dashboard() {
+  const { processIntent } = useMaelstrom();
+
+  // That's it. One line.
+  // "Show me pending orders"
+  // "Open order 1847"
+  // "Compare revenue vs last quarter"
+  await processIntent(userMessage);
+}`,
+  },
+  {
+    number: '03',
+    title: 'Engine Decides',
+    description: 'The AI sees your entire UI — every vessel, every state, every pixel of available space. It returns a precise plan: which actions to fire and where to place each component.',
+    accentClass: 'text-violet',
+    dotClass: 'bg-violet shadow-[0_0_12px_rgba(107,0,255,0.5)]',
+    filename: 'MaelstromResponse',
+    lang: 'typescript' as const,
+    code: `// Engine returns actions + layout
+{
+  userMessage: "Opening order #1847",
+  executionPlan: [
+    { instanceId: 'orders-1',
+      action: 'selectOrder',
+      params: { orderId: '1847' } }
+  ],
+  layout: {
+    type: 'tiling',
+    tree: ['orders-1'],
+    instances: [
+      { instanceId: 'orders-1',
+        vesselId: 'orders',
+        variant: 'details' },
+    ],
+  },
+}`,
+  },
+  {
+    number: '04',
+    title: 'UI Responds',
+    description: "Components transition, the layout shifts, everything updates — instantly and type-safe. Your code stays predictable while the AI orchestrates the experience.",
+    accentClass: 'text-seafoam',
+    dotClass: 'bg-seafoam shadow-[0_0_12px_rgba(0,255,163,0.5)]',
+    filename: 'App.tsx',
+    lang: 'tsx' as const,
+    code: `import { useVesselActions } from '@maelstrom-co/react';
+
+function OrdersVessel() {
+  // Type-safe action handlers
+  useVesselActions('orders-1', {
+    selectOrder: async ({ orderId }) => {
+      loadOrder(orderId);
+      return Success();
+    },
+    close: async () => {
+      return Success();
+    },
+  });
+
+  return <OrdersPanel />;
+}`,
+  },
+];
+---
+
+<section id="how-it-works" class="relative">
+  <!-- Section atmospheric glow -->
+  <div class="absolute inset-0 pointer-events-none" aria-hidden="true">
+    <div class="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-cyan/[0.015] rounded-full blur-[150px]" />
+    <div class="absolute top-3/4 right-1/4 w-[500px] h-[400px] bg-violet/[0.01] rounded-full blur-[120px]" />
+  </div>
+
+  <!-- Header — sticky, fades in/out via JS -->
+  <div class="md:sticky md:top-[15vh] z-20 pt-20 md:pt-28 pb-12 md:pb-16 px-6 text-center pointer-events-none hiw-header" style="opacity: 0;">
+    <p class="section-kicker mb-4">Architecture</p>
+    <h2 class="font-display text-4xl md:text-5xl lg:text-6xl font-bold text-text mb-6">
+      How It Works
+    </h2>
+    <p class="text-lg md:text-xl text-text-muted max-w-2xl mx-auto leading-relaxed">
+      You describe your components to the AI — what they can do, what states they have, how much space they need. The AI reads these descriptions like a menu.
+    </p>
+  </div>
+
+  <!-- Desktop: Scrollytelling -->
+  <div class="hidden md:flex relative max-w-7xl mx-auto px-6 md:px-16">
+    <!-- Left: scrolling description cards -->
+    <div class="w-[40%] relative">
+      {steps.map((step, i) => (
+        <div
+          class="hiw-step min-h-screen flex items-center"
+          data-step={i}
+        >
+          <div class="hiw-card max-w-sm transition-all duration-700 ease-out">
+            <div class="flex items-center gap-3 mb-5">
+              <div class={`w-2 h-2 rounded-full ${step.dotClass}`} />
+              <span class={`font-mono text-xs tracking-[0.2em] ${step.accentClass}`}>{step.number}</span>
+            </div>
+            <h3 class="font-display text-2xl lg:text-3xl font-bold text-text mb-4 leading-tight">
+              {step.title}
+            </h3>
+            <p class="text-text-muted leading-relaxed text-base lg:text-lg">
+              {step.description}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <!-- Right: sticky code panel -->
+    <div class="w-[60%] pl-8 lg:pl-12">
+      <div class="sticky top-0 h-screen flex items-center">
+        <div class="hiw-code-stack grid grid-cols-1 grid-rows-1 w-full">
+          {steps.map((step, i) => (
+            <div
+              class={`hiw-code col-start-1 row-start-1 transition-all duration-500 ease-out ${i === 0 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}
+              data-code={i}
+            >
+              <CodeWindow filename={step.filename}>
+                <div class="p-5 text-sm leading-relaxed">
+                  <Code code={step.code} lang={step.lang} theme={oceanTheme} />
+                </div>
+              </CodeWindow>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile: stacked -->
+  <div class="md:hidden px-6 pt-8 pb-32 space-y-16">
+    {steps.map((step) => (
+      <div data-scroll-reveal>
+        <div class="mb-6">
+          <div class="flex items-center gap-3 mb-4">
+            <div class={`w-2 h-2 rounded-full ${step.dotClass}`} />
+            <span class={`font-mono text-xs tracking-[0.2em] ${step.accentClass}`}>{step.number}</span>
+          </div>
+          <h3 class="font-display text-xl font-bold text-text mb-2">
+            {step.title}
+          </h3>
+          <p class="text-text-muted text-sm leading-relaxed">
+            {step.description}
+          </p>
+        </div>
+        <CodeWindow filename={step.filename}>
+          <ScrollArea orientation="horizontal" client:visible>
+            <div class="p-4 text-xs">
+              <Code code={step.code} lang={step.lang} theme={oceanTheme} />
+            </div>
+          </ScrollArea>
+        </CodeWindow>
+      </div>
+    ))}
+  </div>
+</section>
+
+<style>
+  .hiw-header {
+    transition: opacity 0.15s ease-out;
+  }
+
+  /* Description cards: dim when inactive, full when active */
+  .hiw-step .hiw-card {
+    opacity: 0.2;
+    transform: translateY(8px);
+  }
+
+  .hiw-step.active .hiw-card {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hiw-header {
+      animation: none;
+      opacity: 1;
+    }
+  }
+</style>
+
+<script>
+  function initScrollytelling() {
+    const section = document.getElementById('how-it-works');
+    const header = document.querySelector<HTMLElement>('.hiw-header');
+    const steps = document.querySelectorAll<HTMLElement>('.hiw-step');
+    const codePanels = document.querySelectorAll<HTMLElement>('.hiw-code');
+    if (!section || !header || !steps.length || !codePanels.length) return;
+
+    let activeStep = -1;
+    let ticking = false;
+
+    function setActive(index: number) {
+      if (index === activeStep) return;
+      activeStep = index;
+
+      steps.forEach((step, i) => {
+        step.classList.toggle('active', i === index);
+      });
+
+      codePanels.forEach((panel, i) => {
+        if (i === index) {
+          panel.classList.remove('opacity-0', 'translate-y-4', 'pointer-events-none');
+          panel.classList.add('opacity-100', 'translate-y-0');
+        } else {
+          panel.classList.add('opacity-0', 'translate-y-4', 'pointer-events-none');
+          panel.classList.remove('opacity-100', 'translate-y-0');
+        }
+      });
+    }
+
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        if (!section || !header) { ticking = false; return; }
+        const vh = window.innerHeight;
+        const sectionRect = section.getBoundingClientRect();
+        const progress = -sectionRect.top / vh;
+
+        // Header: fade in early (while prev section still visible), hold, fade out before steps overlap
+        let headerOpacity: number;
+        if (progress < -0.8) {
+          headerOpacity = 0;
+        } else if (progress < -0.1) {
+          headerOpacity = (progress + 0.8) / 0.7;
+        } else if (progress < 0.05) {
+          headerOpacity = 1;
+        } else if (progress < 0.2) {
+          headerOpacity = 1 - (progress - 0.05) / 0.15;
+        } else {
+          headerOpacity = 0;
+        }
+        header.style.opacity = String(Math.max(0, Math.min(1, headerOpacity)));
+
+        // Steps: find closest to viewport center
+        const viewportCenter = vh * 0.45;
+        let closestStep = 0;
+        let closestDist = Infinity;
+
+        steps.forEach((step, i) => {
+          const rect = step.getBoundingClientRect();
+          const stepCenter = rect.top + rect.height / 2;
+          const dist = Math.abs(stepCenter - viewportCenter);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestStep = i;
+          }
+        });
+
+        setActive(closestStep);
+        ticking = false;
+      });
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    return () => window.removeEventListener('scroll', onScroll);
+  }
+
+  let cleanupPrev: (() => void) | undefined;
+
+  function init() {
+    cleanupPrev?.();
+    cleanupPrev = initScrollytelling();
+  }
+
+  init();
+  document.addEventListener('astro:page-load', init);
+</script>

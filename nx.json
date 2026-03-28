@@ -45,6 +45,15 @@
         "formatTargetName": "format",
         "checkTargetName": "check"
       }
+    },
+    {
+      "plugin": "@maelstrom-co/astro-plugin",
+      "options": {
+        "buildTargetName": "build",
+        "devTargetName": "dev",
+        "previewTargetName": "preview",
+        "typecheckTargetName": "typecheck"
+      }
     }
   ],
   "targetDefaults": {

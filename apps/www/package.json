@@ -1,0 +1,28 @@
+{
+  "name": "@maelstrom-co/www",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@astrojs/react": "catalog:",
+    "@astrojs/sitemap": "catalog:",
+    "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/protocol-old": "workspace:*",
+    "@maelstrom-co/react-old": "workspace:*",
+    "@radix-ui/react-scroll-area": "catalog:",
+    "astro": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "resend": "catalog:"
+  },
+  "devDependencies": {
+    "@astrojs/check": "catalog:",
+    "@astrojs/cloudflare": "catalog:",
+    "@cloudflare/workers-types": "^4.20260317.1",
+    "@tailwindcss/vite": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:"
+  }
+}

@@ -18,12 +18,15 @@ jobs:
   main:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           filter: tree:0
           fetch-depth: 0
 
-      - uses: oven-sh/setup-bun@v1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
@@ -31,6 +34,5 @@ jobs:
 
       - name: Run lint, test, build, typecheck
         run: bunx nx run-many -t format lint test build typecheck
-      - run: bunx nx fix-ci
-        if: always()
-
+      # - run: bunx nx fix-ci
+      #   if: always()
