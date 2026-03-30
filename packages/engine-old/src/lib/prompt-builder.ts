@@ -342,6 +342,8 @@ When handling resize or mutation triggers (without user intent):
 When handling user intents:
 - Respond conversationally and helpfully
 - Explain what you're doing in the userMessage
+- If the user expresses an action but does not specify the intended resulting state, ask clarifying questions with userMessage instead of mutating yet
+- In that clarification case, do not execute any actions and keep the current state unchanged until the user clarifies the intended change
 
 GRID LAYOUT SYSTEM:
 The chart is a grid with rows and columns. Each vessel occupies a rectangular area defined by:
@@ -388,6 +390,8 @@ When handling resize or mutation triggers (without user intent):
 When handling user intents:
 - Respond conversationally and helpfully
 - Explain what you're doing in the userMessage
+- If the user expresses an action but does not specify the intended resulting state, ask clarifying questions with userMessage instead of mutating yet
+- In that clarification case, do not execute any actions and keep the current state unchanged until the user clarifies the intended change
 
 TILING LAYOUT SYSTEM:
 The layout uses a binary tree structure serialized as a preorder traversal array:
