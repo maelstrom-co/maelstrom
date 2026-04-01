@@ -56,4 +56,3 @@ vitest.config.*.timestamp*
 # Astro
 .astro/
 .wrangler/
-*.tsbuildinfo

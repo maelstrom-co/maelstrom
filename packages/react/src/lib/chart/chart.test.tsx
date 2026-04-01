@@ -1,5 +1,4 @@
 import { describe, it, expect, afterEach, beforeAll, spyOn } from 'bun:test';
-import { Window } from 'happy-dom';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
 import type { MaelstromResponse, ChartRequest } from '@maelstrom-co/protocol-old';
 
@@ -7,12 +6,6 @@ import { createMaelstrom } from '../create-maelstrom.js';
 import { vessel } from '../vessel.js';
 import { testVessel } from '../__tests__/test-vessel.fixture.js';
 import { createMockConnector } from '../__tests__/mock-connector.js';
-
-const happyWindow = new Window();
-// @ts-expect-error
-globalThis.document = happyWindow.document;
-// @ts-expect-error
-globalThis.window = happyWindow;
 
 // Mock ResizeObserver (happy-dom may not implement it)
 type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;

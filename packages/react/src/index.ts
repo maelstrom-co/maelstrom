@@ -9,6 +9,8 @@ export type {
   ActionNames,
 } from '@maelstrom-co/protocol-old';
 
+export type { ActionRunner } from '@maelstrom-co/client';
+
 export type {
   TypedVesselProps,
   VesselEntry,

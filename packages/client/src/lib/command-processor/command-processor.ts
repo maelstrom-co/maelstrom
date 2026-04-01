@@ -33,6 +33,13 @@ export type CommandProcessorEvents = {
     error: Error;
     timestamp: number;
   };
+  /** Fired when one or more actions in a batch fail or are skipped. */
+  action_error: {
+    instanceId: string;
+    action: string;
+    error: Error | undefined;
+    timestamp: number;
+  };
 };
 
 /**
@@ -240,7 +247,18 @@ export class CommandProcessor {
           break;
         }
         case 'execute_actions': {
-          await this.#actionManager.executeActions(command.executionPlan);
+          const result =
+            await this.#actionManager.executeActions(command.executionPlan);
+          for (const record of result.actions) {
+            if (!record.result.success) {
+              this.#emitter.emit('action_error', {
+                instanceId: record.instanceId,
+                action: record.action,
+                error: 'error' in record.result ? record.result.error : undefined,
+                timestamp: performance.now(),
+              });
+            }
+          }
           break;
         }
       }

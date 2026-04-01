@@ -1,18 +1,10 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { Window } from 'happy-dom';
 import { render, cleanup, act } from '@testing-library/react';
 
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
-
-// Setup happy-dom
-const happyWindow = new Window();
-// @ts-expect-error - happy-dom types don't perfectly match DOM types
-globalThis.document = happyWindow.document;
-// @ts-expect-error - happy-dom types don't perfectly match DOM types
-globalThis.window = happyWindow;
 
 const entry = vessel(testVessel, () => null);
 

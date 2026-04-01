@@ -1,15 +1,15 @@
 import type { ComponentType } from 'react';
 import type { Vessel } from '@maelstrom-co/protocol-old';
 
-import type { ActionNames, VariantPropsUnion } from '@maelstrom-co/protocol-old';
+import type { ActionNames, ExtractActionParams, VariantPropsUnion } from '@maelstrom-co/protocol-old';
 
 /** Typed props delivered to a vessel component */
 export interface TypedVesselProps<V extends Vessel> {
   instanceId: string;
   variantProps: VariantPropsUnion<V>;
-  executeAction: (
-    name: ActionNames<V>,
-    params?: Record<string, unknown>,
+  executeAction: <N extends ActionNames<V>>(
+    name: N,
+    params?: ExtractActionParams<V, N>,
   ) => void;
 }
 
@@ -37,3 +37,14 @@ export type AnyVesselEntry<T extends Vessel = any> = VesselEntry<T> | LazyVessel
 /** Extract vessel IDs from a tuple of vessel entries */
 export type VesselIds<TVessels extends readonly AnyVesselEntry[]> =
   TVessels[number]['vessel']['id'];
+
+/**
+ * Extract the Vessel definition type from a tuple of entries by its literal ID.
+ *
+ * @example
+ * type CalendarVessel = ExtractVesselByIdFromEntries<typeof entries, 'calendar'>;
+ */
+export type ExtractVesselByIdFromEntries<
+  T extends readonly AnyVesselEntry[],
+  Id extends VesselIds<T>,
+> = Extract<T[number], { vessel: { id: Id } }>['vessel'];

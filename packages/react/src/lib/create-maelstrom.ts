@@ -4,6 +4,8 @@ import { createMaelstromContext } from './context.js';
 import { createProvider } from './provider.js';
 import { createUseMaelstrom } from './use-maelstrom.js';
 import { createChart } from './chart/chart.js';
+import { createUseVessel } from './use-vessel.js';
+import { createUseActions } from './use-actions.js';
 
 /** Compile-time guard: rejects entries where any vessel ID has widened to `string` */
 type AssertNarrowIds<T extends readonly AnyVesselEntry[]> =
@@ -34,5 +36,7 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     Provider: createProvider(contextPair, config.vessels, factoryConfig),
     Chart: createChart(contextPair),
     useMaelstrom: createUseMaelstrom(contextPair),
+    useVessel: createUseVessel<T>(contextPair),
+    useActions: createUseActions<T>(contextPair),
   };
 }
