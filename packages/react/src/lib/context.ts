@@ -28,6 +28,9 @@ export function createMaelstromContext() {
   const Context = createContext<MaelstromContextValue | null>(null);
   Context.displayName = 'MaelstromContext';
 
+  // Mutable ref for non-hook access (registerVessel)
+  const contextRef: MutableRefObject<MaelstromContextValue | null> = { current: null };
+
   function useMaelstromContext(): MaelstromContextValue {
     const ctx = useContext(Context);
     if (!ctx) {
@@ -38,7 +41,7 @@ export function createMaelstromContext() {
     return ctx;
   }
 
-  return { Context, useMaelstromContext } as const;
+  return { Context, useMaelstromContext, contextRef } as const;
 }
 
 export type MaelstromContextPair = ReturnType<typeof createMaelstromContext>;

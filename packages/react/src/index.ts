@@ -19,6 +19,8 @@ export type {
   VesselIds,
 } from './lib/vessel-entry-types.js';
 
+export type { UntypedVesselProps, DynamicVesselHandle } from './lib/dynamic-vessel-types.js';
+
 // Types — factory & instance
 export type { MaelstromInstance } from './lib/maelstrom-instance-types.js';
 export type { MaelstromState } from './lib/maelstrom-state-types.js';

@@ -6,6 +6,7 @@ import { lazy, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ResolvedMaelstromConfig } from './config-types.js';
 import { resolveConfig } from './config-types.js';
+import { useLatestRef } from './use-latest-ref.js';
 import type { MaelstromContextPair, MaelstromContextValue } from './context.js';
 import type { AnyVesselEntry, LazyVesselEntry, TypedVesselProps } from './vessel-entry-types.js';
 
@@ -58,8 +59,7 @@ export function createProvider(
     );
 
     // Stable ref for onError — allows hook to call without triggering re-renders
-    const onErrorRef = useRef(onError);
-    onErrorRef.current = onError;
+    const onErrorRef = useLatestRef(onError);
 
     // Guard: only one Chart may be mounted per Provider
     const chartMountedRef = useRef(false);
@@ -117,6 +117,17 @@ export function createProvider(
         chartMountedRef,
       };
     }, [orchestrator, config, componentRegistry, loadingRegistry, lazyVesselIds]);
+
+    // Keep contextRef in sync for non-hook access (registerVessel).
+    // Set synchronously during render so registerVessel works inside useMemo.
+    // Cleanup on unmount clears the ref to prevent stale access.
+    const { contextRef } = contextPair;
+    contextRef.current = value;
+    useEffect(() => {
+      return () => {
+        contextRef.current = null;
+      };
+    }, []);
 
     // TODO(MAE-86): Retain previous orchestrator during transitions to avoid
     // unmounting children when connector/sessionId/layoutMode change mid-session.
