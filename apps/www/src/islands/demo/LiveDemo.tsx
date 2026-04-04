@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { MaelstromProvider, TilingChart, useMaelstrom, useVesselRegistration } from '@maelstrom-co/react-old';
-import { DemoConnector, DEMO_PROMPT_1, DEMO_PROMPT_2 } from './connector';
+import { DemoConnector, DEMO_STEPS } from './connector';
 import { weatherRegistration, calendarRegistration, notesRegistration, tasksRegistration } from './registrations';
 
 // ── Vessel Registrations (must be inside MaelstromProvider) ──────────
@@ -60,12 +60,12 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
     if (phaseRef.current !== 'idle') return;
 
     // Step 1: type + process first prompt
-    typeAndProcess(DEMO_PROMPT_1, () => {
+    typeAndProcess(DEMO_STEPS[1].prompt!, () => {
       setPhase('rearranged');
 
       // Step 2: after a pause, type + process second prompt
       timeoutRef.current = setTimeout(() => {
-        typeAndProcess(DEMO_PROMPT_2, () => {
+        typeAndProcess(DEMO_STEPS[2].prompt!, () => {
           setPhase('rearranged');
           // Auto-replay after showing final state
           timeoutRef.current = setTimeout(() => onRequestResetRef.current(), 6000);

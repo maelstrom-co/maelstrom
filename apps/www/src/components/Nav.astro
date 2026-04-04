@@ -1,9 +1,5 @@
 ---
-const navLinks = [
-  { label: 'How It Works', href: '#how-it-works' },
-  { label: 'Demo', href: '#demo' },
-  { label: 'Docs', href: '#' },
-];
+import { navLinks, GITHUB_REPO_URL } from '../data/navigation';
 ---
 
 <nav class="site-nav fixed top-0 inset-x-0 z-50 transition-all duration-300" aria-label="Main navigation">
@@ -38,7 +34,7 @@ const navLinks = [
     <!-- Right side -->
     <div class="flex items-center gap-2">
       <a
-        href="https://github.com/maelstrom-co"
+        href={GITHUB_REPO_URL}
         target="_blank"
         rel="noopener noreferrer"
         aria-label="GitHub repository"

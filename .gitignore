@@ -56,3 +56,6 @@ vitest.config.*.timestamp*
 # Astro
 .astro/
 .wrangler/
+
+# Superpowers (generated plans)
+docs/superpowers/

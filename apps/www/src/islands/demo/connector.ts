@@ -1,6 +1,15 @@
 import type { EngineConnector, ConnectorCapabilities, ConnectorEvent, Unsubscribe } from '@maelstrom-co/client';
 import type { ChartRequest, MaelstromResponse, TilingLayout } from '@maelstrom-co/protocol-old';
 
+interface DemoStep {
+  /** The user prompt that triggers this step. Undefined for the initial layout. */
+  prompt?: string;
+  userMessage: string;
+  rationale: string;
+  executionPlan: Array<{ instanceId: string; action: string; params?: Record<string, unknown> }>;
+  layout: TilingLayout;
+}
+
 const INITIAL_LAYOUT: TilingLayout = {
   type: 'tiling',
   tree: [
@@ -32,8 +41,6 @@ const REARRANGED_LAYOUT: TilingLayout = {
   ],
 };
 
-// Step 3: Tasks gets prominent placement, other vessels compress
-// Step 3: Only tasks visible — maximized
 const TASKS_FOCUSED_LAYOUT: TilingLayout = {
   type: 'tiling',
   tree: ['tasks-1'],
@@ -42,19 +49,7 @@ const TASKS_FOCUSED_LAYOUT: TilingLayout = {
   ],
 };
 
-export const DEMO_PROMPT_1 = 'Show me the weather forecast and expand the calendar to week view';
-export const DEMO_PROMPT_2 = 'Expand tasks and add "Review PR #42"';
-
-// DemoStep uses a permissive params type since we're constructing
-// wire-format responses (same as JSON.parse would produce from a real engine)
-interface DemoStep {
-  userMessage: string;
-  rationale: string;
-  executionPlan: Array<{ instanceId: string; action: string; params?: Record<string, unknown> }>;
-  layout: TilingLayout;
-}
-
-const DEMO_STEPS: DemoStep[] = [
+export const DEMO_STEPS: DemoStep[] = [
   {
     userMessage: '',
     rationale: 'Initial layout',
@@ -62,12 +57,14 @@ const DEMO_STEPS: DemoStep[] = [
     layout: INITIAL_LAYOUT,
   },
   {
+    prompt: 'Show me the weather forecast and expand the calendar to week view',
     userMessage: "Here's your weather forecast with the calendar in week view.",
     rationale: 'Expanded weather to show forecast details. Switched calendar to week view for daily visibility.',
     executionPlan: [],
     layout: REARRANGED_LAYOUT,
   },
   {
+    prompt: 'Expand tasks and add "Review PR #42"',
     userMessage: 'Done — tasks panel expanded and "Review PR #42" added.',
     rationale: 'Moved tasks to prominent position. Executed addTask action with title. Compressed weather and calendar.',
     executionPlan: [

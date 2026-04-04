@@ -1,24 +1,7 @@
 ---
 import SectionWrapper from '../components/SectionWrapper.astro';
 import WaitlistForm from '../islands/WaitlistForm.tsx';
-
-const features = [
-  {
-    icon: 'M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2',
-    title: 'Managed Voice',
-    desc: 'Zero-config voice — STT and TTS out of the box',
-  },
-  {
-    icon: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z',
-    title: 'Pro Engine',
-    desc: 'Multi-model routing, response caching, and edge deployment',
-  },
-  {
-    icon: 'M12 20V10M18 20V4M6 20v-4',
-    title: 'Analytics',
-    desc: 'Intent patterns, layout heatmaps, vessel usage',
-  },
-];
+import { cloudFeatures } from '../data/content';
 ---
 
 <SectionWrapper id="cloud" class="py-20 md:py-44 px-6 relative">
@@ -38,7 +21,7 @@ const features = [
 
     <!-- Feature teasers -->
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-14" data-scroll-reveal>
-      {features.map((f) => (
+      {cloudFeatures.map((f) => (
         <div
           class="px-5 py-5 rounded-xl text-center"
           style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05);"

@@ -247,14 +247,16 @@ export class CommandProcessor {
           break;
         }
         case 'execute_actions': {
-          const result =
-            await this.#actionManager.executeActions(command.executionPlan);
+          const result = await this.#actionManager.executeActions(
+            command.executionPlan,
+          );
           for (const record of result.actions) {
             if (!record.result.success) {
               this.#emitter.emit('action_error', {
                 instanceId: record.instanceId,
                 action: record.action,
-                error: 'error' in record.result ? record.result.error : undefined,
+                error:
+                  'error' in record.result ? record.result.error : undefined,
                 timestamp: performance.now(),
               });
             }

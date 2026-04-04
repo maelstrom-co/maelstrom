@@ -8,7 +8,9 @@
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.astro", "astro.config.ts"],
   "exclude": [
     "dist",
-    "node_modules"
+    "node_modules",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
   ],
   "references": [
     {
