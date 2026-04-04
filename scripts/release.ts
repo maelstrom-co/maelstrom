@@ -7,15 +7,21 @@ const { values } = parseArgs({
     'dry-run': { type: 'boolean', short: 'd', default: true },
     verbose: { type: 'boolean', default: false },
     'skip-publish': { type: 'boolean', default: false },
+    'first-release': { type: 'boolean', default: false },
+    preid: { type: 'string' },
   },
 });
 
 const dryRun = values['dry-run'] ?? true;
 const verbose = values.verbose ?? false;
+const firstRelease = values['first-release'] ?? false;
+const preid = values.preid;
 
 const { workspaceVersion, projectsVersionData, releaseGraph } =
   await releaseVersion({
     specifier: values.version,
+    preid,
+    firstRelease,
     dryRun,
     verbose,
   });
@@ -24,6 +30,7 @@ await releaseChangelog({
   releaseGraph,
   versionData: projectsVersionData,
   version: workspaceVersion,
+  firstRelease,
   dryRun,
   verbose,
 });
@@ -35,6 +42,7 @@ if (values['skip-publish']) {
 
 const publishResults = await releasePublish({
   releaseGraph,
+  firstRelease,
   dryRun,
   verbose,
 });
