@@ -6,6 +6,7 @@ import type {
 } from '@maelstrom-co/protocol-old';
 import { Store } from '@tanstack/store';
 
+import type { Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
 import { ActionManager } from './action-manager.js';
@@ -100,14 +101,13 @@ export class CommandProcessor {
   registerRunner<V extends Vessel>(
     instanceId: string,
     runner: ActionRunner<V>,
-  ): void {
-    this.#actionManager.registerRunner(instanceId, runner);
+  ): Unsubscribe {
+    return this.#actionManager.registerRunner(instanceId, runner);
   }
 
   /**
-   * Unregister a runner for an instance.
-   *
-   * @param instanceId - The instance ID to unregister
+   * @deprecated Use the disposer returned by {@link registerRunner} instead.
+   * Remove after react-old migration (MAE-80).
    */
   unregisterRunner(instanceId: string): void {
     this.#actionManager.unregisterRunner(instanceId);

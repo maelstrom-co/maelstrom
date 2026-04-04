@@ -7,5 +7,4 @@ export type {
   CircuitStatus,
   ConnectionStatus,
   EngineConnector,
-  Unsubscribe,
 } from './connector.types.js';

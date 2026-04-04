@@ -60,7 +60,6 @@ export type {
   ConnectorEvent,
   EngineConnector,
   PushConnector,
-  Unsubscribe,
   VoiceConnector,
 } from './lib/connection-manager/connector.types.js';
 // Connector functions and constants (not types)
@@ -96,8 +95,10 @@ export { ActionManager } from './lib/command-processor/action-manager.js';
 export type {
   ActionRecord,
   ActionRunner,
+  AllVariantActionNames,
   AnyActionRunner,
   BatchExecutionResult,
+  ExtractActionParams,
 } from './lib/command-processor/action-runner.types.js';
 // Layout Manager
 export { applyLayout } from './lib/command-processor/layout-manager.js';
@@ -116,7 +117,7 @@ export type {
 export { RequestCoordinator } from './lib/orchestrator/request-coordinator.js';
 export type { RequestCoordinatorOptions } from './lib/orchestrator/request-coordinator.types.js';
 // Types
-export type { VesselInstance } from './lib/types.js';
+export type { Unsubscribe, VesselInstance } from './lib/types.js';
 export type { UpdateCoordinatorEvents } from './lib/update-coordination/update-coordinator.js';
 // Update Coordination
 export { UpdateCoordinator } from './lib/update-coordination/update-coordinator.js';

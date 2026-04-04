@@ -8,8 +8,8 @@ import { createInitialConnectionManagerState } from './connection-manager.state.
 import type {
   ConnectorEvent,
   EngineConnector,
-  Unsubscribe,
 } from './connector.types.js';
+import type { Unsubscribe } from '../types.js';
 
 /**
  * Creates a mock connector implementing the EngineConnector interface.

@@ -1,15 +1,17 @@
 import type { ComponentType } from 'react';
 import type { Vessel } from '@maelstrom-co/protocol-old';
 
-import type { ActionNames, ExtractActionParams, VariantPropsUnion } from '@maelstrom-co/protocol-old';
+import type { AllVariantActionNames, ExtractActionParams } from '@maelstrom-co/client';
+import type { VariantPropsUnion } from '@maelstrom-co/protocol-old';
 
 /** Typed props delivered to a vessel component */
 export interface TypedVesselProps<V extends Vessel> {
   instanceId: string;
   variantProps: VariantPropsUnion<V>;
-  executeAction: <N extends ActionNames<V>>(
-    name: N,
-    params?: ExtractActionParams<V, N>,
+  executeAction: <N extends AllVariantActionNames<V>>(
+    ...args: ExtractActionParams<V, N> extends undefined
+      ? [name: N]
+      : [name: N, params: ExtractActionParams<V, N>]
   ) => void;
 }
 

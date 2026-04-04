@@ -10,8 +10,8 @@ import type {
   ConnectorEvent,
   EngineConnector,
   PushConnector,
-  Unsubscribe,
 } from '../connection-manager/connector.types.js';
+import type { Unsubscribe } from '../types.js';
 import { Orchestrator } from './orchestrator.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
 

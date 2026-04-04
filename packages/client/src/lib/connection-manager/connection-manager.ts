@@ -15,8 +15,8 @@ import {
 import type {
   ConnectionStatus,
   EngineConnector,
-  Unsubscribe,
 } from './connector.types.js';
+import type { Unsubscribe } from '../types.js';
 
 /**
  * Event payloads emitted by ConnectionManager.

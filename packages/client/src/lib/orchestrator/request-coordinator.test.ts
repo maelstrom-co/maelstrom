@@ -6,8 +6,8 @@ import { createMockResponse } from '../../../test-utils/mocks.js';
 import type {
   ConnectorEvent,
   EngineConnector,
-  Unsubscribe,
 } from '../connection-manager/connector.types.js';
+import type { Unsubscribe } from '../types.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
 import { RequestCoordinator } from './request-coordinator.js';
 

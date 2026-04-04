@@ -35,6 +35,8 @@ import type {
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
 
+import type { Unsubscribe } from '../types.js';
+
 // ============================================================================
 // Connection Status
 // ============================================================================
@@ -53,15 +55,6 @@ export type ConnectionStatus =
 // ============================================================================
 
 export type CircuitStatus = 'closed' | 'open' | 'half_open';
-
-// ============================================================================
-// Unsubscribe
-// ============================================================================
-
-/**
- * Unsubscribe function returned by all event subscription methods.
- */
-export type Unsubscribe = () => void;
 
 // ============================================================================
 // Connector Capabilities

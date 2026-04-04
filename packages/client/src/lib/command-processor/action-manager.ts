@@ -4,7 +4,7 @@ import {
   type Vessel,
 } from '@maelstrom-co/protocol-old';
 
-import { isPromise } from '../types.js';
+import { isPromise, type Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
 import type {
   ActionRecord,
@@ -84,8 +84,9 @@ export class ActionManager {
   registerRunner<V extends Vessel>(
     instanceId: string,
     runner: ActionRunner<V>,
-  ): void {
-    this.#runners.set(instanceId, runner as AnyActionRunner);
+  ): Unsubscribe {
+    const registeredRunner = runner as AnyActionRunner;
+    this.#runners.set(instanceId, registeredRunner);
     this.#logger.info(`Registered runner for instance "${instanceId}"`);
 
     // Resolve any waiters waiting for this instance
@@ -96,12 +97,26 @@ export class ActionManager {
       }
       this.#readinessWaiters.delete(instanceId);
     }
+
+    // Return disposer that checks identity before removal
+    return () => {
+      if (this.#runners.get(instanceId) === registeredRunner) {
+        this.#runners.delete(instanceId);
+        this.#logger.info(`Disposed runner for instance "${instanceId}"`);
+      } else {
+        this.#logger.debug(
+          `Dispose skipped for instance "${instanceId}": runner identity changed`,
+        );
+      }
+    };
   }
 
   /**
    * Unregister a runner for an instance.
    *
-   * @param instanceId - The instance ID to unregister
+   * @deprecated Use the disposer returned by {@link registerRunner} instead —
+   * it identity-checks before removal, preventing cross-unmount bugs.
+   * Remove after react-old migration (MAE-80).
    */
   unregisterRunner(instanceId: string): void {
     this.#runners.delete(instanceId);

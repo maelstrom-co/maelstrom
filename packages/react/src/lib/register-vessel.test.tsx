@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { useState, useMemo } from 'react';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
+import type { ActionRunner } from '@maelstrom-co/client';
 import type { MaelstromResponse, Vessel } from '@maelstrom-co/protocol-old';
 import { defineVessel, Success } from '@maelstrom-co/protocol-old';
 import { act, cleanup, render } from '@testing-library/react';
-import { useMemo } from 'react';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
@@ -48,13 +49,16 @@ const widgetVessel = defineVessel({
 
 afterEach(() => cleanup());
 
-function makeResponse(instances: VesselInstance[]): MaelstromResponse {
+function makeResponse(
+  instances: VesselInstance[],
+  executionPlan: Array<{ instanceId: string; action: string }> = [],
+): MaelstromResponse {
   return {
     type: 'maelstrom_response',
     requestId: 'req-1',
     userMessage: '',
     rationale: '',
-    executionPlan: [],
+    executionPlan: executionPlan as MaelstromResponse['executionPlan'],
     layout: {
       type: 'tiling',
       tree: [],
@@ -286,6 +290,88 @@ describe('m.registerVessel()', () => {
 
     expect(orderInstanceProps?.vesselId).toBe('orders');
     expect(widgetInstanceProps?.vesselId).toBe('widget');
+  });
+
+  it('handle.useActions disposer does not remove another component\'s runner', async () => {
+    const m = createMaelstrom({ vessels: [orderEntry] });
+    const widgetEntry = vessel(widgetVessel, () => null);
+
+    const widgetInstance: VesselInstance = {
+      instanceId: 'widget-1',
+      vesselId: 'widget',
+      variant: 'default',
+      position: { column: 0, row: 0 },
+      size: { width: 1, height: 1 },
+    };
+
+    let requestCount = 0;
+    const connector = createMockConnector({
+      process: async () => {
+        requestCount++;
+        return makeResponse(
+          [widgetInstance],
+          requestCount >= 2 ? [{ instanceId: 'widget-1', action: 'activate' }] : [],
+        );
+      },
+    });
+
+    const handlerA = mock(() => Success(undefined));
+    const runnerA: ActionRunner<typeof widgetVessel> = { activate: handlerA };
+
+    const handlerB = mock(() => Success(undefined));
+    const runnerB: ActionRunner<typeof widgetVessel> = { activate: handlerB };
+
+    let state: { processIntent: (i: string) => Promise<void> } | undefined;
+    let setShowA: (v: boolean) => void;
+
+    // Shared handle ref — assigned in App, read by children
+    let handle: ReturnType<typeof m.registerVessel<typeof widgetVessel>>;
+
+    function ComponentA() {
+      handle.useActions('widget-1', runnerA);
+      return null;
+    }
+
+    function ComponentB() {
+      handle.useActions('widget-1', runnerB);
+      return null;
+    }
+
+    function App() {
+      state = m.useMaelstrom();
+      handle = useMemo(() => m.registerVessel(widgetEntry), []);
+      const [showA, _setShowA] = useState(true);
+      setShowA = _setShowA;
+      return (
+        <>
+          {showA && <ComponentA />}
+          <ComponentB />
+        </>
+      );
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <App />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => {
+      await state!.processIntent('show widget');
+    });
+
+    // Unmount ComponentA — its disposer should NOT remove ComponentB's runner
+    await act(() => setShowA!(false));
+
+    // Trigger action — ComponentB's handler should still work
+    await act(async () => {
+      await state!.processIntent('activate widget');
+    });
+
+    expect(handlerA).not.toHaveBeenCalled();
+    expect(handlerB).toHaveBeenCalledTimes(1);
   });
 
   it('registerVessel throws on invalid vessel', async () => {

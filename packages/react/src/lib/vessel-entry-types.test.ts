@@ -1,6 +1,8 @@
 import { describe, it } from 'bun:test';
 import { defineVessel } from '@maelstrom-co/protocol-old';
 
+import type { ExtractActionParams } from '@maelstrom-co/client';
+
 import type { TypedVesselProps, VesselIds, ExtractVesselByIdFromEntries } from './vessel-entry-types.js';
 import { vessel } from './vessel.js';
 import { testVessel, type TestVessel } from './__tests__/test-vessel.fixture';
@@ -10,8 +12,8 @@ describe('TypedVesselProps', () => {
     const _props: TypedVesselProps<TestVessel> = {
       instanceId: 'inst-1',
       variantProps: { variant: 'list', view: 'list', pageSize: 10 },
-      executeAction: (name, params) => {
-        void [name, params];
+      executeAction: (...args) => {
+        void args;
       },
     };
     _props.executeAction('selectOrder', { orderId: 'ord-1' });
@@ -26,7 +28,7 @@ describe('TypedVesselProps', () => {
       variantProps: { variant: 'list', view: 'list', pageSize: 10 },
       executeAction: () => {},
     };
-    // @ts-expect-error - 'wrongKey' does not exist in type '{ orderId: unknown }'
+    // @ts-expect-error - 'wrongKey' does not exist in type '{ orderId: string }'
     props.executeAction('selectOrder', { wrongKey: 'ord-1' });
     // @ts-expect-error - excess property 'wrongKey' not allowed alongside valid key
     props.executeAction('selectOrder', { orderId: 'ord-1', wrongKey: '' });
@@ -56,14 +58,43 @@ describe('TypedVesselProps', () => {
     void [_select, _refresh, _close];
   });
 
-  it('allows calling parameterized actions without params (optional)', () => {
+  it('maps action params to concrete types (not unknown)', () => {
+    // The TestVessel's selectOrder action has parameter orderId of type 'string'.
+    // After the fix, ExtractActionParams should map it to string, not unknown.
+    type SelectParams = ExtractActionParams<TestVessel, 'selectOrder'>;
+    // If this were unknown, assigning string would pass but the reverse wouldn't
+    type _OrderIdIsString = SelectParams extends { orderId: string }
+      ? string extends SelectParams['orderId']
+        ? true
+        : never
+      : never;
+    const _check: _OrderIdIsString = true;
+    void _check;
+
+    // @ts-expect-error - orderId should be string, not number
+    const _badParam: SelectParams = { orderId: 123 };
+    void _badParam;
+  });
+
+  it('rejects parameterized actions called without params', () => {
     const props: TypedVesselProps<TestVessel> = {
       instanceId: 'inst-1',
       variantProps: { variant: 'list', view: 'list', pageSize: 10 },
       executeAction: () => {},
     };
-    // params is optional in the generic signature
+    // @ts-expect-error - selectOrder requires { orderId: string }
     props.executeAction('selectOrder');
+    void props;
+  });
+
+  it('rejects spurious params on parameterless actions', () => {
+    const props: TypedVesselProps<TestVessel> = {
+      instanceId: 'inst-1',
+      variantProps: { variant: 'list', view: 'list', pageSize: 10 },
+      executeAction: () => {},
+    };
+    // @ts-expect-error - refresh takes no params
+    props.executeAction('refresh', { extra: true });
     void props;
   });
 });

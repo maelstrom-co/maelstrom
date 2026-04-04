@@ -8,8 +8,8 @@ import type {
   ConnectorCapabilities,
   ConnectorEvent,
   EngineConnector,
-  Unsubscribe,
 } from '../connector.types.js';
+import type { Unsubscribe } from '../../types.js';
 
 /**
  * Configuration options for WebSocket connector.

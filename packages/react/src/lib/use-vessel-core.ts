@@ -47,7 +47,7 @@ export function createUseVesselCore(contextPair: MaelstromContextPair) {
       [orchestrator, instanceId],
     );
 
-    const optimistic = useOptimisticVariant(instance, vessel, onActionError);
+    const optimistic = useOptimisticVariant(instance, vessel, onActionError, { debug: config.debug });
 
     const optimisticCurrentRef = useLatestRef(optimistic.current);
     const instanceRef = useLatestRef(instance);

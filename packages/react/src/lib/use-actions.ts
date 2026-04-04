@@ -1,12 +1,10 @@
-import { useEffect } from 'react';
-import type { ActionRunner } from '@maelstrom-co/client';
+import { useEffect } from 'react'
+import { useStore } from '@tanstack/react-store'
+import type { ActionRunner } from '@maelstrom-co/client'
 
-import type { MaelstromContextPair } from './context.js';
-import type {
-  AnyVesselEntry,
-  ExtractVesselByIdFromEntries,
-  VesselIds,
-} from './vessel-entry-types.js';
+import type { MaelstromContextPair } from './context.js'
+import type { AnyVesselEntry, ExtractVesselByIdFromEntries, VesselIds, } from './vessel-entry-types.js'
+import { warnOnce } from './warn-once.js'
 
 /**
  * Factory that creates the m.useActions() hook bound to a specific Maelstrom context.
@@ -19,8 +17,8 @@ import type {
  * to prevent unnecessary re-registrations on each render.
  *
  * Limitation: only one useActions call per instanceId is supported. If two components
- * register runners for the same instanceId, the second overwrites the first, and
- * unmounting either will unregister the active runner.
+ * register runners for the same instanceId, the second overwrites the first.
+ * Disposal is identity-checked, so unmounting the first will not affect the second's runner.
  */
 export function createUseActions<const T extends readonly AnyVesselEntry[]>(
   contextPair: MaelstromContextPair,
@@ -28,22 +26,33 @@ export function createUseActions<const T extends readonly AnyVesselEntry[]>(
   const { useMaelstromContext } = contextPair;
 
   return function useActions<Id extends VesselIds<T>>(
-    // vesselId is unused at runtime but required to narrow ActionRunner<V> to the correct vessel type
-    _vesselId: Id,
+    vesselId: Id,
     instanceId: string,
     runner: ActionRunner<ExtractVesselByIdFromEntries<T, Id>>,
   ): void {
     const { orchestrator } = useMaelstromContext();
 
+    const instance = useStore(orchestrator.commandProcessor.store, (s) =>
+      s.instances.get(instanceId),
+    );
+
     useEffect(() => {
-      orchestrator.commandProcessor.registerRunner(
+      if (instance && instance.vesselId !== vesselId) {
+        warnOnce(
+          `useActions:${instanceId}:${vesselId}`,
+          `[Maelstrom] useActions: instance "${instanceId}" belongs to vessel "${instance.vesselId}", not "${vesselId}"`,
+        );
+      }
+    }, [instance, instanceId, vesselId]);
+
+    // TODO: Consider deferred validation (check after a timeout) for cases where
+    // the instance hasn't registered yet at mount time.
+
+    useEffect(() => {
+      return orchestrator.commandProcessor.registerRunner(
         instanceId,
         runner,
       );
-
-      return () => {
-        orchestrator.commandProcessor.unregisterRunner(instanceId);
-      };
     }, [orchestrator, instanceId, runner]);
   };
 }

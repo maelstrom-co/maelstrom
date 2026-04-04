@@ -11,9 +11,9 @@ import type {
   ConnectorCapabilities,
   ConnectorEvent,
   PushConnector,
-  Unsubscribe,
   VoiceConnector,
 } from '../connector.types.js';
+import type { Unsubscribe } from '../../types.js';
 import { parseAudioFrame } from './utils.js';
 
 /**

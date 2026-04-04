@@ -99,6 +99,61 @@ describe('ActionManager', () => {
       expect(manager.getRegisteredInstances()).toEqual([]);
     });
 
+    it('registerRunner returns a disposer function', () => {
+      const runner: ActionRunner<MockVessel> = {
+        testAction: async () => Success(undefined),
+      };
+
+      const disposer = manager.registerRunner<MockVessel>('instance-1', runner);
+
+      expect(typeof disposer).toBe('function');
+    });
+
+    it('disposer removes the runner when identity matches', () => {
+      const runner: ActionRunner<MockVessel> = {
+        testAction: async () => Success(undefined),
+      };
+
+      const disposer = manager.registerRunner<MockVessel>('instance-1', runner);
+      expect(manager.hasRunner('instance-1')).toBe(true);
+
+      disposer();
+      expect(manager.hasRunner('instance-1')).toBe(false);
+    });
+
+    it('disposer does not remove a different runner registered for the same instanceId', () => {
+      const runnerA: ActionRunner<MockVessel> = {
+        testAction: async () => Success(undefined),
+      };
+      const runnerB: ActionRunner<MockVessel> = {
+        testAction: async () => Err(new Error('runner B')),
+      };
+
+      const disposerA = manager.registerRunner<MockVessel>(
+        'instance-1',
+        runnerA,
+      );
+      manager.registerRunner<MockVessel>('instance-1', runnerB);
+
+      // Calling disposerA should NOT remove runnerB
+      disposerA();
+      expect(manager.hasRunner('instance-1')).toBe(true);
+    });
+
+    it('disposer is idempotent', () => {
+      const runner: ActionRunner<MockVessel> = {
+        testAction: async () => Success(undefined),
+      };
+
+      const disposer = manager.registerRunner<MockVessel>('instance-1', runner);
+      disposer();
+      expect(manager.hasRunner('instance-1')).toBe(false);
+
+      // Second call should be a no-op (no error)
+      disposer();
+      expect(manager.hasRunner('instance-1')).toBe(false);
+    });
+
     it('should support multiple instances with different runners', () => {
       const runner1: ActionRunner<MockVessel> = {
         testAction: async () => Success(undefined),

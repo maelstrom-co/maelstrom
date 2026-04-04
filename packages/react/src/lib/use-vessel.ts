@@ -7,6 +7,7 @@ import type {
   TypedVesselProps,
   VesselIds,
 } from './vessel-entry-types.js';
+import { warnOnce } from './warn-once.js';
 
 
 /**
@@ -22,23 +23,20 @@ export function createUseVessel<const T extends readonly AnyVesselEntry[]>(
     vesselId: Id,
     instanceId: string,
   ): TypedVesselProps<ExtractVesselByIdFromEntries<T, Id>> | null {
-    const { orchestrator, config } = useMaelstromContext();
+    const { orchestrator } = useMaelstromContext();
 
-    // Subscribe to instance for vesselId-mismatch guard (core doesn't expose this)
     const instance = useStore(orchestrator.commandProcessor.store, (s) =>
       s.instances.get(instanceId),
     );
 
     const core = useVesselCore(vesselId, instanceId);
 
-    // Guard: instance must exist and belong to the requested vessel type
     if (!instance) return null;
     if (instance.vesselId !== vesselId) {
-      if (config.debug) {
-        console.warn(
-          `[Maelstrom] useVessel: instance "${instanceId}" belongs to vessel "${instance.vesselId}", not "${vesselId}"`,
-        );
-      }
+      warnOnce(
+        `useVessel:${instanceId}:${vesselId}`,
+        `[Maelstrom] useVessel: instance "${instanceId}" belongs to vessel "${instance.vesselId}", not "${vesselId}"`,
+      );
       return null;
     }
 

@@ -27,7 +27,10 @@ export function useOptimisticVariant(
   instance: { variant: string } | undefined,
   vessel: Vessel | undefined,
   onActionError: (handler: () => void) => Unsubscribe,
+  options: { timeoutMs?: number; debug?: boolean } = {},
 ): OptimisticVariantState {
+  const { timeoutMs = 10_000, debug = false } = options;
+
   const [optimisticVariant, setOptimisticVariant] = useState<string | null>(
     null,
   );
@@ -41,6 +44,22 @@ export function useOptimisticVariant(
   useEffect(() => {
     return onActionError(() => setOptimisticVariant(null));
   }, [onActionError]);
+
+  // Auto-clear optimistic state if engine never responds
+  useEffect(() => {
+    if (optimisticVariant === null || timeoutMs <= 0) return;
+
+    const timeoutId = setTimeout(() => {
+      if (debug) {
+        console.warn(
+          `[Maelstrom] useOptimisticVariant: optimistic state "${optimisticVariant}" timed out after ${timeoutMs}ms — engine did not respond. Rolling back.`,
+        );
+      }
+      setOptimisticVariant(null);
+    }, timeoutMs);
+
+    return () => clearTimeout(timeoutId);
+  }, [optimisticVariant, timeoutMs, debug]);
 
   const optimisticRef = useLatestRef(optimisticVariant);
   const instanceRef = useLatestRef(instance);

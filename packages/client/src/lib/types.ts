@@ -1,5 +1,8 @@
 import type { ChartPosition, ChartSize } from '@maelstrom-co/protocol-old';
 
+/** Teardown callback returned by subscriptions and registrations. */
+export type Unsubscribe = () => void;
+
 /** Runtime instance of a Vessel */
 export interface VesselInstance {
   /** Unique instance ID */

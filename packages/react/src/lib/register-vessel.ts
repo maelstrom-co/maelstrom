@@ -74,10 +74,7 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
         const { orchestrator } = useMaelstromContext();
 
         useEffect(() => {
-          orchestrator.commandProcessor.registerRunner(instanceId, runner);
-          return () => {
-            orchestrator.commandProcessor.unregisterRunner(instanceId);
-          };
+          return orchestrator.commandProcessor.registerRunner(instanceId, runner);
         }, [orchestrator, instanceId, runner]);
       },
 
