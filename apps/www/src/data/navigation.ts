@@ -4,7 +4,7 @@ export const INSTALL_COMMAND = 'npm install @maelstrom-co/react';
 export const navLinks = [
   { label: 'How It Works', href: '#how-it-works' },
   { label: 'Demo', href: '#demo' },
-  { label: 'Docs', href: '#' },
+  { label: 'Docs', href: 'https://docs.maelstrom-ai.co' },
 ] as const;
 
 export const socialLinks = [

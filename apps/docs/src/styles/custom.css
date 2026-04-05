@@ -1,0 +1,100 @@
+@layer base, starlight, theme, components, utilities;
+
+@import '@astrojs/starlight-tailwind';
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@import './theme-vars.css';
+@import './code-blocks.css';
+@import './sidebar.css';
+@import './layout.css';
+@import './toc.css';
+@import './components.css';
+
+@theme {
+  /* ── Breakpoint: matches Starlight's mobile/desktop split ────────── */
+  --breakpoint-desktop: 50rem;
+
+  /* ── Typography (matching apps/www) ──────────────────────────────── */
+  --font-sans: var(--font-body, 'General Sans'), system-ui, sans-serif;
+  --font-mono: var(--font-code, 'IBM Plex Mono'), monospace;
+  --font-display: var(--font-heading, 'Clash Display'), system-ui, sans-serif;
+
+  /* ── Accent: Cyan from the ocean palette ─────────────────────────── */
+  --color-accent-50: #e6feff;
+  --color-accent-100: #b3fcff;
+  --color-accent-200: #80faff;
+  --color-accent-300: #4df7ff;
+  --color-accent-400: #1af5ff;
+  --color-accent-500: #00f0ff;
+  --color-accent-600: #00c0cc;
+  --color-accent-700: #009099;
+  --color-accent-800: #006066;
+  --color-accent-900: #003033;
+  --color-accent-950: #001a1a;
+
+  /* ── Gray: Ocean-tinted navy scale ───────────────────────────────── */
+  --color-gray-50: #e8f0f8;
+  --color-gray-100: #c4d4e4;
+  --color-gray-200: #9ab4cc;
+  --color-gray-300: #7a9ab5;
+  --color-gray-400: #5a7a95;
+  --color-gray-500: #3a5a75;
+  --color-gray-600: #1a3a55;
+  --color-gray-700: #0f2b4a;
+  --color-gray-800: #0a1e35;
+  --color-gray-900: #050a14;
+  --color-gray-950: #030508;
+}
+
+/* ── Base content styling ──────────────────────────────────────────── */
+
+/* Headings use Clash Display (matching landing page) */
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6),
+starlight-toc h2 {
+  font-family: var(--font-display);
+}
+
+/* Content width and spacing */
+:root {
+  --sl-content-width: 52rem;
+  --sl-content-pad-x: 2rem;
+}
+
+/* Thin scrollbar on content area */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-idle) transparent;
+}
+
+html:hover {
+  scrollbar-color: var(--scrollbar-hover) transparent;
+}
+
+/* ── Noise texture overlay (matching www) ───────────────────────── */
+.main-frame::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px;
+}
+
+:root[data-theme='light'] .main-frame::before {
+  opacity: 0.02;
+}
+
+/* h2 gradient bottom border */
+.sl-markdown-content h2 {
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, rgba(0, 240, 255, 0.3), rgba(0, 102, 255, 0.15), transparent) 1;
+  padding-bottom: 0.5rem;
+}
+
+:root[data-theme='light'] .sl-markdown-content h2 {
+  border-image: linear-gradient(90deg, rgba(0, 102, 255, 0.2), rgba(0, 102, 255, 0.08), transparent) 1;
+}

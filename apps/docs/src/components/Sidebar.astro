@@ -1,0 +1,320 @@
+---
+import config from 'virtual:starlight/user-config';
+import Search from 'virtual:starlight/components/Search';
+import SocialIcons from 'virtual:starlight/components/SocialIcons';
+import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
+import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.astro';
+import SidebarSublist from '@astrojs/starlight/components/SidebarSublist.astro';
+import { icons } from './icons';
+
+const { sidebar } = Astro.locals.starlightRoute;
+
+const shouldRenderSearch =
+  config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
+
+const frameworks = [
+  { id: 'react', label: 'React', icon: icons.react },
+  { id: 'vanilla', label: 'Vanilla JS', icon: icons.vanilla },
+  { id: 'solid', label: 'Solid', icon: icons.solid, comingSoon: true },
+];
+---
+
+{/* ── Top chrome (desktop only) ──────────────────────────────────── */}
+<div class="sidebar-chrome">
+  <a href="https://maelstrom-ai.co" class="sidebar-logo">
+    <Fragment set:html={icons.maelstrom} />
+    <span>Maelstrom</span>
+  </a>
+
+  {shouldRenderSearch && (
+    <div class="sidebar-search">
+      <Search />
+    </div>
+  )}
+
+  <framework-selector class="framework-selector">
+    <button type="button" class="framework-trigger" aria-expanded="false" aria-haspopup="listbox">
+      <span class="framework-icon" set:html={icons.react} />
+      <span class="framework-label">React</span>
+      <span class="framework-chevron" set:html={icons.chevronDown} />
+    </button>
+    <ul class="framework-menu" role="listbox" aria-label="Select framework">
+      {frameworks.map((fw) => (
+        <li
+          role="option"
+          data-framework={fw.id}
+          class:list={[{ 'coming-soon': fw.comingSoon }]}
+          aria-selected={fw.id === 'react' ? 'true' : 'false'}
+        >
+          <span class="fw-option-icon" set:html={fw.icon} />
+          <span class="fw-option-label">{fw.label}</span>
+          {fw.comingSoon && <span class="badge-soon">Soon</span>}
+        </li>
+      ))}
+    </ul>
+  </framework-selector>
+
+  <hr class="sidebar-divider" />
+</div>
+
+{/* ── Scrollable nav ─────────────────────────────────────────────── */}
+<SidebarPersister>
+  <SidebarSublist sublist={sidebar} />
+</SidebarPersister>
+
+{/* ── Bottom bar (all breakpoints) ────────────────────────────────── */}
+<div class="sidebar-bottom">
+  <div class="sidebar-bottom-links">
+    <SocialIcons />
+  </div>
+  <ThemeSelect />
+</div>
+
+<style>
+  /* ── Top chrome ──────────────────────────────────────────────── */
+  .sidebar-chrome {
+    display: none;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding-bottom: 0.25rem;
+  }
+
+  @media (min-width: 50rem) {
+    .sidebar-chrome {
+      display: flex;
+    }
+  }
+
+  .sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--sl-color-white);
+    text-decoration: none;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1rem;
+    white-space: nowrap;
+  }
+
+  .sidebar-logo :global(svg) {
+    color: #00f0ff;
+    flex-shrink: 0;
+  }
+
+  .sidebar-logo:hover {
+    opacity: 0.8;
+  }
+
+  .sidebar-search {
+    width: 100%;
+  }
+
+  .sidebar-search :global(button[data-open-modal]) {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .sidebar-divider {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    margin: 0;
+  }
+
+  :global([data-theme='light']) .sidebar-divider {
+    border-top-color: rgba(10, 30, 53, 0.08);
+  }
+
+  /* ── Framework selector ──────────────────────────────────────── */
+  .framework-selector {
+    position: relative;
+    width: 100%;
+  }
+
+  .framework-trigger {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--sl-color-gray-2);
+    font-family: var(--font-sans);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .framework-trigger:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .framework-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+  .framework-label {
+    flex: 1;
+    text-align: left;
+  }
+
+  .framework-chevron {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: transform 0.2s;
+  }
+
+  .framework-trigger[aria-expanded='true'] .framework-chevron {
+    transform: rotate(180deg);
+  }
+
+  .framework-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 10;
+    list-style: none;
+    margin: 0;
+    padding: 0.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg-sidebar);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .framework-trigger[aria-expanded='true'] + .framework-menu {
+    display: block;
+  }
+
+  .framework-menu li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    color: var(--sl-color-gray-3);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .framework-menu li:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--sl-color-gray-1);
+  }
+
+  .framework-menu li[aria-selected='true'] {
+    color: #00f0ff;
+    background: rgba(0, 240, 255, 0.06);
+  }
+
+  /* Fix icon alignment in options */
+  .fw-option-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+  }
+
+  .fw-option-icon :global(svg) {
+    width: 16px;
+    height: 16px;
+  }
+
+  .fw-option-label {
+    flex: 1;
+  }
+
+  /* Fix vanilla icon visibility when selected (stroke icon on cyan) */
+  .framework-menu li[aria-selected='true'] .fw-option-icon {
+    color: #00f0ff;
+  }
+
+  .framework-menu li.coming-soon {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .framework-menu li.coming-soon:hover {
+    background: transparent;
+    color: var(--sl-color-gray-3);
+  }
+
+  .badge-soon {
+    margin-left: auto;
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.1em 0.5em;
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--sl-color-gray-4);
+  }
+
+  /* Light mode framework selector */
+  :global([data-theme='light']) .framework-trigger {
+    border-color: rgba(10, 30, 53, 0.1);
+    background: rgba(10, 30, 53, 0.02);
+  }
+
+  :global([data-theme='light']) .framework-trigger:hover {
+    border-color: rgba(10, 30, 53, 0.18);
+    background: rgba(10, 30, 53, 0.04);
+  }
+
+  :global([data-theme='light']) .framework-menu {
+    border-color: rgba(10, 30, 53, 0.1);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  }
+
+  :global([data-theme='light']) .framework-menu li:hover {
+    background: rgba(10, 30, 53, 0.04);
+  }
+
+  :global([data-theme='light']) .framework-menu li[aria-selected='true'] {
+    color: #0066ff;
+    background: rgba(0, 102, 255, 0.06);
+  }
+
+  /* ── Bottom bar ──────────────────────────────────────────────── */
+  .sidebar-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  :global([data-theme='light']) .sidebar-bottom {
+    border-top-color: rgba(10, 30, 53, 0.08);
+  }
+
+  .sidebar-bottom-links {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  /* Remove the default divider after social icons */
+  .sidebar-bottom-links :global(.social-icons::after),
+  .sidebar-bottom-links :global(a)::after {
+    display: none;
+  }
+</style>
+
+<script>
+  import '../lib/framework-selector';
+</script>

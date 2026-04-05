@@ -1,0 +1,47 @@
+---
+import { icons } from './icons';
+---
+
+<div class="header">
+  <a href="/" class="site-logo">
+    <Fragment set:html={icons.maelstrom} />
+    <span>Maelstrom</span>
+  </a>
+</div>
+
+<style>
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 100%;
+    gap: 0.5rem;
+  }
+
+  .site-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--sl-color-white);
+    text-decoration: none;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1rem;
+    white-space: nowrap;
+  }
+
+  .site-logo :global(svg) {
+    color: #00f0ff;
+    flex-shrink: 0;
+  }
+
+  .site-logo:hover {
+    opacity: 0.8;
+  }
+
+  @media (min-width: 50rem) {
+    .header {
+      display: none;
+    }
+  }
+</style>

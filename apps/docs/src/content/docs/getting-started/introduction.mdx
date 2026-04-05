@@ -1,0 +1,42 @@
+---
+title: Introduction
+description: What is Maelstrom and why does it exist?
+---
+
+Maelstrom is an AI-orchestrated dynamic UI framework. An LLM acts as an intelligent orchestrator that arranges, controls, and interacts with UI components based on user intent and available screen space.
+
+## What problem does it solve?
+
+Traditional UIs are static — developers hardcode layouts, navigation flows, and component states at build time. Maelstrom flips this: the LLM decides which components to show, in what arrangement, and in which state, based on what the user is trying to accomplish.
+
+## Who is it for?
+
+Maelstrom is designed for React developers building AI-powered applications where the UI should adapt dynamically to user intent — dashboards, data explorers, multi-tool interfaces, and conversational UIs.
+
+## How it works
+
+1. **You define Vessels** — UI components with typed variants and actions
+2. **The LLM orchestrates** — based on user intent, it decides which Vessels to show and how to arrange them
+3. **The Chart renders** — a grid-based layout system positions Vessels using CSS transforms
+
+```tsx title="App.tsx"
+import { createMaelstrom, vessel } from '@maelstrom-co/react';
+
+const m = createMaelstrom({
+  vessels: [weatherVessel, calendarVessel, taskVessel],
+});
+
+function App() {
+  return (
+    <m.Provider connector={connector}>
+      <m.Chart />
+    </m.Provider>
+  );
+}
+```
+
+## Next steps
+
+- [Quick Start](/getting-started/quick-start) — get a working example in minutes
+- [Core Concepts](/getting-started/core-concepts) — understand Vessels, Charts, and the Engine
+- [Build Your First Dashboard](/tutorials/first-dashboard) — full tutorial

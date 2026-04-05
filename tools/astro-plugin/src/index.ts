@@ -1,11 +1,11 @@
-import { dirname, join } from 'node:path';
 import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import {
   type CreateNodesContextV2,
   type CreateNodesV2,
-  type TargetConfiguration,
   createNodesFromFiles,
   joinPathFragments,
+  type TargetConfiguration,
 } from '@nx/devkit';
 
 export interface AstroPluginOptions {
@@ -24,15 +24,8 @@ const defaultOptions: Required<AstroPluginOptions> = {
 
 export const createNodesV2: CreateNodesV2<AstroPluginOptions> = [
   '**/astro.config.{ts,mjs}',
-  async (configFiles, options, context) => {
-    return await createNodesFromFiles(
-      (configFile, options, context) =>
-        createNodesInternal(configFile, options, context),
-      configFiles,
-      options,
-      context,
-    );
-  },
+  (configFiles, options, context) =>
+    createNodesFromFiles(createNodesInternal, configFiles, options ?? {}, context),
 ];
 
 function createNodesInternal(
@@ -44,9 +37,7 @@ function createNodesInternal(
   const opts = { ...defaultOptions, ...options };
 
   // Validate that this is a project directory (has package.json or project.json)
-  const siblingFiles = readdirSync(
-    join(context.workspaceRoot, projectRoot),
-  );
+  const siblingFiles = readdirSync(join(context.workspaceRoot, projectRoot));
   if (
     !siblingFiles.includes('package.json') &&
     !siblingFiles.includes('project.json')

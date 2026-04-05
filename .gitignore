@@ -60,3 +60,5 @@ vitest.config.*.timestamp*
 # AI generated plans
 docs/superpowers/
 .planning
+
+.playwright-mcp/

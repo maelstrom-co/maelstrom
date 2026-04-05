@@ -1,0 +1,93 @@
+---
+title: Core Concepts
+description: Understand Vessels, Charts, the Engine, and how they work together.
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Maelstrom has four core concepts that work together to create AI-orchestrated UIs.
+
+<CardGrid>
+  <Card title="Vessels" icon="puzzle">
+    State machines representing UI components. Each vessel has variants. A variant is a compound of discrete states with size requirements. A vessel also declares actions as transitions between its variants for the LLM to invoke.
+  </Card>
+  <Card title="Chart" icon="seti:layout">
+    Grid-based layout system. The LLM works with integer grid coordinates — column and row units, not pixels. Grid calculations are based on the Chart container size, not the browser viewport.
+  </Card>
+  <Card title="Engine" icon="rocket">
+    Stateless decision core on the server. Takes context as: user intent, current state and chart dimensions. It returns an execution plan in the form of actions to invoke and layout directives (where to position Vessels).
+  </Card>
+  <Card title="Protocol" icon="document">
+    Shared types, Zod schemas, and message definitions. Transport-agnostic contract between client and engine.
+  </Card>
+</CardGrid>
+
+## Vessels
+
+A Vessel is the fundamental unit in Maelstrom. Think of it as a UI component with an explicit state machine that the LLM can reason about.
+
+### Variants
+
+Each Vessel has one or more **variants** — discrete states that define how the component looks and behaves. A variant specifies its minimum grid size, the props it receives, and what actions are available.
+
+### Actions
+
+Actions are transitions between variants that the LLM can invoke. Each action has a name, a human-readable description (so the LLM knows when to use it), and a target variant.
+
+```typescript
+const weatherVessel = defineVessel({
+  id: 'weather',
+  name: 'Weather Widget',
+  description: 'Shows weather information for a location',
+  defaultVariant: 'compact',
+  variants: {
+    compact: {
+      description: 'Shows temperature and conditions',
+      props: { location: 'San Francisco', temp: 72 },
+      minSize: { width: 2, height: 1 },
+      actions: [
+        { name: 'expand', description: 'Show detailed forecast', transitionsTo: 'detailed' },
+      ],
+    },
+    detailed: {
+      description: 'Shows 5-day forecast with hourly breakdown',
+      props: { location: 'San Francisco', forecast: [] },
+      minSize: { width: 4, height: 3 },
+      actions: [
+        { name: 'collapse', description: 'Return to compact view', transitionsTo: 'compact' },
+      ],
+    },
+  },
+});
+```
+
+## Chart
+
+The Chart is a grid-based layout container. The LLM positions Vessels using integer grid coordinates. Maelstrom supports two layout modes:
+
+### Grid Mode
+
+Explicit row/column positioning with width/height. Each Vessel gets a precise position on the grid. Best for dashboard-style layouts where you want full control over placement.
+
+### Tiling Mode
+
+Binary tree layout using horizontal and vertical splits that fills available space. The LLM describes the layout as nested splits rather than coordinates. Best for responsive, space-filling layouts.
+
+## Engine
+
+The Engine runs server-side and processes user intent. When a user says "show me the weather and my calendar", the Engine:
+
+1. Reads the available Vessels, their current variants, and the Chart dimensions
+2. Decides which Vessels to display and in which variants
+3. Returns actions to execute and a layout to apply
+
+## Execution Order
+
+When processing Engine responses, the client executes in this order:
+
+1. **Execute actions** (transitions variants)
+2. **Get new sizes** (from variant `minSize`)
+3. **Apply layout** (CSS transforms)
+4. **Handle overflow**
+
+This ordering is critical — layout depends on knowing the final sizes after variant transitions.

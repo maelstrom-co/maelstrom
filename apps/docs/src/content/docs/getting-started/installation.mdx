@@ -1,0 +1,85 @@
+---
+title: Installation
+description: Install Maelstrom packages and configure your environment.
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+## Packages
+
+Maelstrom is distributed as a set of scoped packages:
+
+| Package | Purpose |
+|---------|---------|
+| `@maelstrom-co/react` | React bindings — `createMaelstrom()`, `vessel()`, hooks, components |
+| `@maelstrom-co/client` | Framework-agnostic client — Orchestrator, connectors, managers |
+| `@maelstrom-co/protocol` | Shared types, Zod schemas, message definitions |
+| `@maelstrom-co/engine` | Server-side LLM decision engine |
+| `@maelstrom-co/voice` | Voice capture, playback, VAD (optional) |
+
+## Install
+
+Most applications need `@maelstrom-co/react` (which includes `client` and `protocol` as dependencies) and `@maelstrom-co/engine` for the server:
+
+<Tabs>
+  <TabItem label="npm">
+  ```bash
+  # Client-side
+  npm install @maelstrom-co/react
+
+  # Server-side
+  npm install @maelstrom-co/engine
+  ```
+  </TabItem>
+  <TabItem label="bun">
+  ```bash
+  # Client-side
+  bun add @maelstrom-co/react
+
+  # Server-side
+  bun add @maelstrom-co/engine
+  ```
+  </TabItem>
+  <TabItem label="pnpm">
+  ```bash
+  # Client-side
+  pnpm add @maelstrom-co/react
+
+  # Server-side
+  pnpm add @maelstrom-co/engine
+  ```
+  </TabItem>
+</Tabs>
+
+## Peer dependencies
+
+`@maelstrom-co/react` requires:
+- `react` >= 18.0.0
+- `react-dom` >= 18.0.0
+
+## Environment variables
+
+The Engine requires an LLM provider API key:
+
+```bash
+# .env
+GOOGLE_GENERATIVE_AI_API_KEY=your-key  # Google Gemini
+OPENAI_API_KEY=your-key                # OpenAI
+ANTHROPIC_API_KEY=your-key             # Anthropic Claude
+```
+
+<Aside type="tip">
+  Only one LLM provider key is needed. Choose whichever provider you prefer.
+</Aside>
+
+## Voice (optional)
+
+For voice features, install the voice package:
+
+```bash
+npm install @maelstrom-co/voice
+```
+
+<Aside type="caution">
+  The voice package includes `onnxruntime-web` (~5MB Wasm), which is why it's a separate optional package.
+</Aside>
