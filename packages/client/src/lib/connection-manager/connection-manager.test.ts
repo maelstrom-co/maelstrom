@@ -5,10 +5,7 @@ import FakeTimers from '@sinonjs/fake-timers';
 import type { ConnectionManagerEvents } from './connection-manager.js';
 import { ConnectionManager } from './connection-manager.js';
 import { createInitialConnectionManagerState } from './connection-manager.state.js';
-import type {
-  ConnectorEvent,
-  EngineConnector,
-} from './connector.types.js';
+import type { ConnectorEvent, EngineConnector } from './connector.types.js';
 import type { Unsubscribe } from '../types.js';
 
 /**

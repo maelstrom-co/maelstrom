@@ -12,10 +12,7 @@ import {
   type ConnectionOptions,
   DEFAULT_CONNECTION_OPTIONS,
 } from './connection-manager.types.js';
-import type {
-  ConnectionStatus,
-  EngineConnector,
-} from './connector.types.js';
+import type { ConnectionStatus, EngineConnector } from './connector.types.js';
 import type { Unsubscribe } from '../types.js';
 
 /**
