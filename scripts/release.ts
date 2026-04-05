@@ -20,7 +20,7 @@ import { createRemoteReleaseClient } from 'nx/src/command-line/release/utils/rem
 const { values } = parseArgs({
   options: {
     version: { type: 'string' },
-    'dry-run': { type: 'boolean', short: 'd', default: true },
+    'dry-run': { type: 'boolean', short: 'd', default: false },
     verbose: { type: 'boolean', default: false },
     'skip-publish': { type: 'boolean', default: false },
     'first-release': { type: 'boolean', default: false },
@@ -28,7 +28,7 @@ const { values } = parseArgs({
   },
 });
 
-const dryRun = values['dry-run'] ?? true;
+const dryRun = values['dry-run'] ?? false;
 const verbose = values.verbose ?? false;
 const firstRelease = values['first-release'] ?? false;
 const preid = values.preid;
