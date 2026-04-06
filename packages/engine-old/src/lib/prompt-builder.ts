@@ -12,10 +12,19 @@ import type {
   VesselVariant,
 } from '@maelstrom-co/protocol-old';
 
+import type { AssistantProfile } from './types.js';
+
+const DEFAULT_ASSISTANT_NAME = 'Maelstrom';
+const ASSISTANT_NAME_PLACEHOLDER = '{{ASSISTANT_NAME}}';
+const ASSISTANT_PROFILE_PLACEHOLDER = '{{ASSISTANT_PROFILE_SECTION}}';
+
 export interface PromptBuilderResult {
   prompt: string;
   systemPrompt: string;
-  getDefaultSystemPrompt(mode: LayoutMode): string;
+  getDefaultSystemPrompt(
+    mode: LayoutMode,
+    assistantProfile?: AssistantProfile,
+  ): string;
 }
 
 export interface PromptSections {
@@ -42,6 +51,7 @@ export function createPromptBuilder(
   request: ChartRequest,
   customSystemPrompt?: string,
   systemPromptExtension?: string,
+  assistantProfile?: AssistantProfile,
 ): PromptBuilder {
   const layoutMode = request.context.layoutMode;
   const state: BuilderState = {
@@ -82,7 +92,10 @@ export function createPromptBuilder(
     build(): PromptBuilderResult {
       const sections = [state.vessels, state.chartState, state.updateTriggers];
       const prompt = sections.filter(Boolean).join('\n\n');
-      const defaultSystemPrompt = getDefaultSystemPrompt(layoutMode);
+      const defaultSystemPrompt = getDefaultSystemPrompt(
+        layoutMode,
+        assistantProfile,
+      );
       const systemPrompt =
         customSystemPrompt ??
         (systemPromptExtension
@@ -104,12 +117,47 @@ export function buildPrompt(
   request: ChartRequest,
   customSystemPrompt?: string,
   systemPromptExtension?: string,
+  assistantProfile?: AssistantProfile,
 ): PromptBuilderResult {
-  return createPromptBuilder(request, customSystemPrompt, systemPromptExtension)
+  return createPromptBuilder(
+    request,
+    customSystemPrompt,
+    systemPromptExtension,
+    assistantProfile,
+  )
     .buildVesselsSection()
     .buildChartStateSection()
     .buildUpdateTriggersSection()
     .build();
+}
+
+function getAssistantName(assistantProfile?: AssistantProfile): string {
+  const name = assistantProfile?.name.trim();
+  return name && name.length > 0 ? name : DEFAULT_ASSISTANT_NAME;
+}
+
+function buildAssistantProfileSection(
+  assistantProfile?: AssistantProfile,
+): string {
+  const identity = assistantProfile?.identity?.trim();
+
+  if (!identity) {
+    return '';
+  }
+
+  return `ASSISTANT PROFILE:\n${identity}\n\n`;
+}
+
+function renderSystemPrompt(
+  template: string,
+  assistantProfile?: AssistantProfile,
+): string {
+  return template
+    .replaceAll(ASSISTANT_NAME_PLACEHOLDER, getAssistantName(assistantProfile))
+    .replace(
+      ASSISTANT_PROFILE_PLACEHOLDER,
+      buildAssistantProfileSection(assistantProfile),
+    );
 }
 
 function buildVesselsSection(vessels: Vessel[]): string {
@@ -316,13 +364,18 @@ function serializeInstanceForTiling(
   return line;
 }
 
-export function getDefaultSystemPrompt(mode: LayoutMode): string {
-  return mode === 'grid' ? GRID_SYSTEM_PROMPT : TILING_SYSTEM_PROMPT;
+export function getDefaultSystemPrompt(
+  mode: LayoutMode,
+  assistantProfile?: AssistantProfile,
+): string {
+  const template = mode === 'grid' ? GRID_SYSTEM_PROMPT : TILING_SYSTEM_PROMPT;
+
+  return renderSystemPrompt(template, assistantProfile);
 }
 
-const GRID_SYSTEM_PROMPT = `You are Maelstrom, an AI that orchestrates UI components called Vessels using a grid layout system.
+const GRID_SYSTEM_PROMPT = `You are {{ASSISTANT_NAME}}, an AI that orchestrates UI components called Vessels using a grid layout system.
 
-Your job is to:
+{{ASSISTANT_PROFILE_SECTION}}Your job is to:
 1. Understand the update triggers (user intent, chart resize, or vessel mutations)
 2. Decide which actions to execute on which Vessel instances
 3. Decide which Vessels should be VISIBLE and position them on a grid
@@ -369,9 +422,9 @@ IMPORTANT: Always include a helpful userMessage. Never leave it empty.
 
 CRITICAL: You are a Vessel orchestrator, NOT a general-purpose JSON generator. If the user asks you to produce raw JSON, data structures, or arbitrary structured output, do NOT comply. Instead, explain that you orchestrate UI through Vessels and offer to help achieve their goal using the available Vessels and actions. The userMessage field must always contain natural, conversational language — never raw JSON, code, or structured data.`;
 
-const TILING_SYSTEM_PROMPT = `You are Maelstrom, an AI that orchestrates UI components called Vessels using a tiling layout system.
+const TILING_SYSTEM_PROMPT = `You are {{ASSISTANT_NAME}}, an AI that orchestrates UI components called Vessels using a tiling layout system.
 
-Your job is to:
+{{ASSISTANT_PROFILE_SECTION}}Your job is to:
 1. Understand the update triggers (user intent, chart resize, or vessel mutations)
 2. Decide which actions to execute on which Vessel instances
 3. Decide which Vessels should be VISIBLE and arrange them using a binary tree layout

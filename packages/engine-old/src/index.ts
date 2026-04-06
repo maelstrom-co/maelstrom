@@ -35,6 +35,7 @@ export {
 } from './lib/prompt-builder.js';
 // Types
 export type {
+  AssistantProfile,
   EngineConfig,
   LLMProvider,
   LLMResponse,

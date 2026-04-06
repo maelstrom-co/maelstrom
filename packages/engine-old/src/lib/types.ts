@@ -64,6 +64,11 @@ export interface RetryConfig {
   backoffMultiplier?: number;
 }
 
+export interface AssistantProfile {
+  name: string;
+  identity?: string;
+}
+
 /**
  * Configuration for the Maelstrom engine.
  */
@@ -73,6 +78,8 @@ export interface EngineConfig {
 
   /** Full system prompt override (optional, uses default if not provided) */
   systemPrompt?: string;
+
+  assistantProfile?: AssistantProfile;
 
   /**
    * Additional app-specific instructions appended to the default system prompt.

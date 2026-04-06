@@ -41,6 +41,7 @@ export function createEngine(config: EngineConfig): Engine {
   const {
     provider,
     systemPrompt: customSystemPrompt,
+    assistantProfile,
     systemPromptExtension,
     timeout = 30000,
     retry = {},
@@ -73,6 +74,7 @@ export function createEngine(config: EngineConfig): Engine {
         request,
         customSystemPrompt,
         systemPromptExtension,
+        assistantProfile,
       );
       const layoutMode = request.context.layoutMode;
 
