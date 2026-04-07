@@ -164,13 +164,18 @@
         "@tanstack/react-store": "catalog:",
       },
       "devDependencies": {
+        "@maelstrom-co/voice-old": "workspace:*",
         "@testing-library/react": "catalog:",
         "happy-dom": "catalog:",
       },
       "peerDependencies": {
+        "@maelstrom-co/voice-old": "0.0.8-prealpha.0",
         "react": ">=18.0.0",
         "react-dom": ">=18.0.0",
       },
+      "optionalPeers": [
+        "@maelstrom-co/voice-old",
+      ],
     },
     "packages/react-old": {
       "name": "@maelstrom-co/react-old",

@@ -108,6 +108,7 @@ export function createProvider(
       if (!orchestrator) return null;
       return {
         orchestrator,
+        connector,
         config,
         onErrorRef,
         componentRegistry,
@@ -116,7 +117,7 @@ export function createProvider(
         vesselEntries,
         chartMountedRef,
       };
-    }, [orchestrator, config, componentRegistry, loadingRegistry, lazyVesselIds]);
+    }, [orchestrator, connector, config, componentRegistry, loadingRegistry, lazyVesselIds]);
 
     // Keep contextRef in sync for non-hook access (registerVessel).
     // Set synchronously during render so registerVessel works inside useMemo.

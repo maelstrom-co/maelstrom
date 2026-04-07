@@ -20,6 +20,7 @@
     "**/*.test.ts",
     "**/*.spec.tsx",
     "**/*.test.tsx",
+    "**/*.test.isolated.tsx",
     "**/*.spec.js",
     "**/*.test.js",
     "**/*.spec.jsx",
@@ -36,6 +37,9 @@
     "src/**/*.tsx"
   ],
   "references": [
+    {
+      "path": "../voice-old/tsconfig.lib.json"
+    },
     {
       "path": "../protocol-old/tsconfig.lib.json"
     },

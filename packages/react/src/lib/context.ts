@@ -1,4 +1,4 @@
-import type { Orchestrator } from '@maelstrom-co/client';
+import type { EngineConnector, Orchestrator } from '@maelstrom-co/client';
 import type { ComponentType, MutableRefObject } from 'react';
 import { createContext, useContext } from 'react';
 
@@ -8,6 +8,7 @@ import type { AnyVesselEntry, TypedVesselProps } from './vessel-entry-types.js';
 /** Internal context value — not part of public API */
 export interface MaelstromContextValue {
   orchestrator: Orchestrator;
+  connector: EngineConnector;
   config: ResolvedMaelstromConfig;
   /** Ref to onError callback from Provider props — allows hook to call it without re-renders */
   onErrorRef: MutableRefObject<((error: Error) => void) | undefined>;

@@ -8,6 +8,8 @@ import { createUseVessel } from './use-vessel.js';
 import { createUseActions } from './use-actions.js';
 import { createUseInstance } from './use-instance.js';
 import { createRegisterVessel } from './register-vessel.js';
+import { createUseVoice } from './voice/use-voice.js';
+import { createVoiceOrb } from './voice/voice-orb.js';
 
 /** Compile-time guard: rejects entries where any vessel ID has widened to `string` */
 type AssertNarrowIds<T extends readonly AnyVesselEntry[]> =
@@ -33,6 +35,8 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     debug: config.debug,
   };
 
+  const useVoice = createUseVoice(contextPair);
+
   return {
     vessels: config.vessels,
     Provider: createProvider(contextPair, config.vessels, factoryConfig),
@@ -41,6 +45,8 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     useVessel: createUseVessel<T>(contextPair),
     useActions: createUseActions<T>(contextPair),
     useInstance: createUseInstance(contextPair),
+    useVoice,
+    VoiceOrb: createVoiceOrb(useVoice),
     registerVessel: createRegisterVessel(contextPair),
   };
 }

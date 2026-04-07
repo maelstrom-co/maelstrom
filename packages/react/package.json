@@ -32,12 +32,19 @@
     "@tanstack/react-store": "catalog:"
   },
   "devDependencies": {
+    "@maelstrom-co/voice-old": "workspace:*",
     "@testing-library/react": "catalog:",
     "happy-dom": "catalog:"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
-    "react-dom": ">=18.0.0"
+    "react-dom": ">=18.0.0",
+    "@maelstrom-co/voice-old": "0.0.8-prealpha.0"
+  },
+  "peerDependenciesMeta": {
+    "@maelstrom-co/voice-old": {
+      "optional": true
+    }
   },
   "nx": {
     "targets": {
