@@ -59,12 +59,33 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Find previous preview comment
+        uses: peter-evans/find-comment@v3
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- pr-preview-packages -->'
+          direction: last
+
+      - name: Minimize previous preview comment
+        if: steps.find-comment.outputs.comment-id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api graphql -f query='
+            mutation {
+              minimizeComment(input: {subjectId: "${{ steps.find-comment.outputs.comment-node-id }}", classifier: OUTDATED}) {
+                minimizedComment { isMinimized }
+              }
+            }'
+
       - name: Comment on PR
         uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ github.event.pull_request.number }}
-          comment-tag: pr-preview-packages
           body: |
+            <!-- pr-preview-packages -->
             **Preview packages published** for commit ${{ github.event.pull_request.head.sha }}
 
             **Version:** `${{ steps.version.outputs.version }}`
