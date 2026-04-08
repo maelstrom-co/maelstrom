@@ -17,9 +17,11 @@
     "@maelstrom-co/react-old": "workspace:*",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
+    "clsx": "^2.1.1",
     "hono": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "tailwind-merge": "^3.5.0",
     "vite": "catalog:"
   },
   "devDependencies": {

@@ -1,9 +1,8 @@
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol-old';
 import { vesselRegistration } from '@maelstrom-co/react-old';
 import { WeatherSkeleton } from './weather.skeleton';
 
-// Weather vessel definition - always eagerly loaded for LLM decisions
-export const weatherVessel: Vessel = {
+export const weatherVessel = defineVessel({
   id: 'weather',
   name: 'Weather',
   description:
@@ -11,7 +10,7 @@ export const weatherVessel: Vessel = {
   defaultVariant: 'current',
   variants: {
     current: {
-      props: { mode: 'current' },
+      props: {},
       minSize: { width: 6, height: 4 },
       actions: [
         {
@@ -27,7 +26,7 @@ export const weatherVessel: Vessel = {
       ],
     },
     hourly: {
-      props: { mode: 'hourly' },
+      props: {},
       minSize: { width: 6, height: 4 },
       actions: [
         {
@@ -43,7 +42,7 @@ export const weatherVessel: Vessel = {
       ],
     },
     weekly: {
-      props: { mode: 'weekly' },
+      props: {},
       minSize: { width: 8, height: 3 },
       actions: [
         {
@@ -56,17 +55,11 @@ export const weatherVessel: Vessel = {
           description: 'Show hourly forecast',
           transitionsTo: 'hourly',
         },
-        {
-          name: 'selectDay',
-          description: 'Select a day for the forecast',
-        },
       ],
     },
   },
-};
+});
 
-// Lazy registration - component is loaded on first render
-// Uses vesselRegistration helper which requires a loading component for lazy loading
 export const weatherRegistration = vesselRegistration(
   weatherVessel,
   () => import('./weather.component'),

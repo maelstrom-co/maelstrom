@@ -1,33 +1,32 @@
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol-old';
 import { vesselRegistration } from '@maelstrom-co/react-old';
 import { CalendarSkeleton } from './calendar.skeleton';
 
-// Calendar vessel definition - always eagerly loaded for LLM decisions
-export const calendarVessel: Vessel = {
+export const calendarVessel = defineVessel({
   id: 'calendar',
   name: 'Calendar',
   description:
-    'Calendar widget for viewing dates and scheduling. Can show month view, week view, or be collapsed to a minimal state.',
+    'Calendar widget for viewing dates and scheduling. Supports month view, week view, and day view with hourly time blocks.',
   defaultVariant: 'month',
   variants: {
     month: {
-      props: { view: 'month' },
+      props: {},
       minSize: { width: 4, height: 4 },
       actions: [
         {
           name: 'showWeek',
-          description: 'Switch to week view for more detail',
+          description: 'Switch to week view for event timeline',
           transitionsTo: 'week',
         },
         {
-          name: 'collapse',
-          description: 'Minimize the calendar to save space',
-          transitionsTo: 'collapsed',
+          name: 'showDay',
+          description: 'Switch to day view for hourly schedule',
+          transitionsTo: 'day',
         },
       ],
     },
     week: {
-      props: { view: 'week' },
+      props: {},
       minSize: { width: 6, height: 3 },
       actions: [
         {
@@ -36,28 +35,31 @@ export const calendarVessel: Vessel = {
           transitionsTo: 'month',
         },
         {
-          name: 'collapse',
-          description: 'Minimize the calendar',
-          transitionsTo: 'collapsed',
+          name: 'showDay',
+          description: 'Switch to day view',
+          transitionsTo: 'day',
         },
       ],
     },
-    collapsed: {
-      props: { collapsed: true },
-      minSize: { width: 2, height: 1 },
+    day: {
+      props: {},
+      minSize: { width: 4, height: 4 },
       actions: [
         {
-          name: 'expand',
-          description: 'Expand the calendar to full view',
+          name: 'showMonth',
+          description: 'Switch to month view',
           transitionsTo: 'month',
+        },
+        {
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
         },
       ],
     },
   },
-};
+});
 
-// Lazy registration - component is loaded on first render
-// Uses vesselRegistration helper which requires a loading component for lazy loading
 export const calendarRegistration = vesselRegistration(
   calendarVessel,
   () => import('./calendar.component'),

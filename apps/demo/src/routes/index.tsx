@@ -10,6 +10,8 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { createDemoConnector } from '../lib/connector';
 import { calendarRegistration } from '../vessels/calendar.vessel';
+import { journalRegistration } from '../vessels/journal.vessel';
+import { tasksRegistration } from '../vessels/tasks.vessel';
 import { weatherRegistration } from '../vessels/weather.vessel';
 
 export const Route = createFileRoute('/')({
@@ -30,6 +32,8 @@ function HomePage() {
 function VesselRegistrations() {
   useVesselRegistration(calendarRegistration);
   useVesselRegistration(weatherRegistration);
+  useVesselRegistration(journalRegistration);
+  useVesselRegistration(tasksRegistration);
   return null;
 }
 
@@ -38,7 +42,7 @@ function DemoApp() {
 
   const voice = useMaelstromVoice({
     greeting:
-      "Hello! I'm the Maelstrom demo assistant. I can help you arrange the calendar and weather widgets. What would you like to do?",
+      "Hello! I'm the Maelstrom demo assistant. I can help you manage your calendar, weather, journal, and tasks. Try asking me to rearrange your dashboard or perform actions like adding tasks or writing journal entries.",
     onTranscript: (text, isFinal) => {
       if (!isFinal || !text.trim() || isProcessing) return;
       processIntent(text);
@@ -129,10 +133,10 @@ function IntentInput() {
   };
 
   const suggestions = [
-    'Show me the weekly calendar view',
-    'Minimize the calendar and show the weather forecast',
-    'Expand the weather to show hourly forecast',
-    'Switch the calendar back to month view',
+    'Expand the weather forecast and show me today\'s calendar',
+    'Start a journal entry about the sprint retro and take notes',
+    'Add \'Deploy v2.0\' to my tasks and check off \'Setup CI\'',
+    'Clear the board and just show the weekly weather',
   ];
 
   return (
