@@ -29,6 +29,7 @@ function createMockConnector(
       (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
         () => {},
     ),
+    addAssistantMessage: mock(() => Promise.resolve()),
     ...overrides,
   };
 }

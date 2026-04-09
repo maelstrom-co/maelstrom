@@ -19,6 +19,10 @@
  *   subscribe(_handler: (event: ConnectorEvent) => void): Unsubscribe {
  *     return () => {}; // HTTP never fires transport events
  *   }
+ *   async addAssistantMessage(msg: AssistantMessage): Promise<void> {
+ *     const res = await fetch('/api/assistant-message', { method: 'POST', body: JSON.stringify(msg) });
+ *     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+ *   }
  * }
  *
  * // WebSocket connector
@@ -143,6 +147,7 @@ export type ConnectorEvent =
  * - [ ] `process()`: Handle request/response correlation, throw on errors
  * - [ ] `subscribe()`: Emit `disconnected` on close, `error` on errors
  * - [ ] `capabilities`: Set `stateful: true` for WebSocket/WebRTC
+ * - [ ] `addAssistantMessage()`: Inject assistant message into conversation history
  *
  * ## Minimal HTTP Example (Stateless)
  *
@@ -170,6 +175,14 @@ export type ConnectorEvent =
  *   subscribe(_handler: (event: ConnectorEvent) => void): Unsubscribe {
  *     // HTTP never fires transport events
  *     return () => {};
+ *   }
+ *
+ *   async addAssistantMessage(msg: AssistantMessage): Promise<void> {
+ *     const res = await fetch('/api/assistant-message', {
+ *       method: 'POST',
+ *       body: JSON.stringify(msg),
+ *     });
+ *     if (!res.ok) throw new Error(`HTTP ${res.status}`);
  *   }
  * }
  * ```
@@ -235,6 +248,11 @@ export type ConnectorEvent =
  *         error: new Error('WebSocket error'),
  *       }));
  *     };
+ *   }
+ *
+ *   async addAssistantMessage(msg: AssistantMessage): Promise<void> {
+ *     // Fire-and-forget — server does not send an ack for this message type
+ *     this.ws?.send(JSON.stringify({ type: 'client.history.add_assistant_message', ...msg }));
  *   }
  * }
  * ```
@@ -346,9 +364,8 @@ export interface EngineConnector {
   /**
    * Add an assistant message to conversation history without LLM processing.
    * Used for programmatic messages (greetings, notifications).
-   * Optional — only connectors that support this feature need to implement it.
    */
-  addAssistantMessage?(message: AssistantMessage): Promise<void>;
+  addAssistantMessage(message: AssistantMessage): Promise<void>;
 }
 
 // ============================================================================

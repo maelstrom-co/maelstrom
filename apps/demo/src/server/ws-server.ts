@@ -246,13 +246,30 @@ app.get(
               console.log(
                 `[Demo WS] Speaking: "${message.text.substring(0, 50)}..."`,
               );
-              engine.addAssistantMessage?.({
-                sessionId,
-                message: message.text,
-              });
-              engine.speak(message.text).catch((err: unknown) => {
+              try {
+                await engine.addAssistantMessage({
+                  sessionId,
+                  message: message.text,
+                });
+                await engine.speak(message.text);
+              } catch (err: unknown) {
                 console.error(`[Demo WS] Speak error: ${err}`);
-              });
+              }
+              break;
+            }
+
+            case 'client.history.add_assistant_message': {
+              console.log(
+                `[Demo WS] Adding assistant message: "${message.message.substring(0, 50)}..."`,
+              );
+              try {
+                await engine.addAssistantMessage({
+                  sessionId,
+                  message: message.message,
+                });
+              } catch (err: unknown) {
+                console.error(`[Demo WS] Add assistant message error: ${err}`);
+              }
               break;
             }
 

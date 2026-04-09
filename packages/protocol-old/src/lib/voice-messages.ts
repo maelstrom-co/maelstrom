@@ -197,6 +197,18 @@ export interface SpeakMessageCommand extends TimeEvent {
 }
 
 /**
+ * Client requests adding an assistant message to conversation history
+ * without triggering TTS. Used by non-voice connectors for programmatic
+ * messages (greetings, notifications, etc.)
+ */
+export interface AddAssistantMessageCommand extends TimeEvent {
+  type: 'client.history.add_assistant_message';
+  sessionId: string;
+  /** Text to add to conversation history */
+  message: string;
+}
+
+/**
  * Client requests the Maelstrom engine to process a chart request.
  * Allows voice interactions to trigger chart updates.
  */
@@ -245,19 +257,7 @@ export interface VADSpeechEndMessage {
 /**
  * All voice-related messages that can be sent over the wire.
  */
-export type VoiceMessage =
-  | AudioInputMessage
-  | StartListeningMessage
-  | StopListeningMessage
-  | TranscriptMessage
-  | AudioOutputMessage
-  | VADSpeechEndMessage
-  | VADSpeechStartMessage
-  | VoiceStateMessage
-  | VoiceReadyMessage
-  | VoiceErrorMessage
-  | MaelstromProcessMessageCommand
-  | MaelstromResponseMessage;
+export type VoiceMessage = VoiceClientMessage | VoiceServerMessage;
 
 /**
  * Messages sent from client to server (voice-related).
@@ -267,6 +267,7 @@ export type VoiceClientMessage =
   | StartListeningMessage
   | StopListeningMessage
   | SpeakMessageCommand
+  | AddAssistantMessageCommand
   | VADSpeechStartMessage
   | VADSpeechEndMessage
   | MaelstromProcessMessageCommand;

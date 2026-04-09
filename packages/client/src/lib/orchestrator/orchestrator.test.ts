@@ -33,6 +33,7 @@ function createMockConnector(
       (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
         () => {},
     ),
+    addAssistantMessage: mock(() => Promise.resolve()),
     ...overrides,
   };
 }
@@ -511,14 +512,10 @@ describe('Orchestrator', () => {
       await orchestrator.addAssistantMessage('Hello');
 
       expect(addAssistantMessage).toHaveBeenCalledTimes(1);
-
-      orchestrator.dispose();
-    });
-
-    it('should throw when connector does not support it', async () => {
-      const { orchestrator } = createTestOrchestrator();
-
-      await expect(orchestrator.addAssistantMessage('Hello')).rejects.toThrow();
+      expect(addAssistantMessage).toHaveBeenCalledWith({
+        sessionId: orchestrator.getConfig().sessionId,
+        message: 'Hello',
+      });
 
       orchestrator.dispose();
     });

@@ -1,4 +1,5 @@
 import type {
+  AssistantMessage,
   ConnectorCapabilities,
   ConnectorEvent,
   Unsubscribe,
@@ -67,6 +68,9 @@ export function createMockVoiceConnector(overrides?: {
       return () => {};
     },
     sendVoiceMessage() {
+      // no-op
+    },
+    async addAssistantMessage(_message: AssistantMessage) {
       // no-op
     },
   };

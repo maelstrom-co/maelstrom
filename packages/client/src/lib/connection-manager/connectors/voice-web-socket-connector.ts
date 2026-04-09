@@ -7,6 +7,7 @@ import type {
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import type {
+  AssistantMessage,
   AudioFrameMeta,
   ConnectorCapabilities,
   ConnectorEvent,
@@ -293,6 +294,29 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
     }
 
     this.#ws.send(JSON.stringify(message));
+  }
+
+  // ============================================================================
+  // addAssistantMessage
+  // ============================================================================
+
+  /**
+   * Injects an assistant message into conversation history and triggers TTS.
+   * Sends `client.voice.speak` — the server records history and starts playback.
+   * Fire-and-forget: resolves once the frame is queued locally, not on server confirmation.
+   */
+  async addAssistantMessage(message: AssistantMessage): Promise<void> {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+
+    const voiceMessage: VoiceClientMessage = {
+      type: 'client.voice.speak',
+      timestamp: performance.now(),
+      sessionId: message.sessionId,
+      text: message.message,
+    };
+    this.#ws.send(JSON.stringify(voiceMessage));
   }
 
   // ============================================================================

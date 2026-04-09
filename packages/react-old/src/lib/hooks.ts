@@ -20,7 +20,7 @@ import type { VesselComponentProps, VesselRegistration } from './types.js';
 
 export function useMaelstrom(): {
   processIntent: (intent: string) => Promise<void>;
-  addAssistantMessage: ((message: string) => Promise<void>) | undefined;
+  addAssistantMessage: (message: string) => Promise<void>;
   chartDimensions: ChartDimensions;
   connectionStatus: ConnectionStatus;
   isProcessing: boolean;
@@ -45,7 +45,6 @@ export function useMaelstrom(): {
     cellSizePx,
     debug,
     orchestrator,
-    connector,
   } = useMaelstromContext();
 
   const chartDimensions = useStore(
@@ -76,13 +75,9 @@ export function useMaelstrom(): {
     [orchestrator],
   );
 
-  const canAddAssistantMessage = 'addAssistantMessage' in connector;
-
   return {
     processIntent,
-    addAssistantMessage: canAddAssistantMessage
-      ? addAssistantMessage
-      : undefined,
+    addAssistantMessage,
     chartDimensions,
     connectionStatus,
     isProcessing,

@@ -635,16 +635,16 @@ export function createVoiceEngine(
       vadListeners.clear();
       audioOutputListeners.clear();
     },
+
+    addAssistantMessage(message: Parameters<Engine['addAssistantMessage']>[0]) {
+      return baseEngine.addAssistantMessage(message);
+    },
   };
 
   // Conditionally add optional base engine methods
   if (baseEngine.clearSessionHistory) {
     (voiceEngine as Engine & VoiceEngine).clearSessionHistory =
       baseEngine.clearSessionHistory.bind(baseEngine);
-  }
-  if (baseEngine.addAssistantMessage) {
-    (voiceEngine as Engine & VoiceEngine).addAssistantMessage =
-      baseEngine.addAssistantMessage.bind(baseEngine);
   }
 
   return voiceEngine;

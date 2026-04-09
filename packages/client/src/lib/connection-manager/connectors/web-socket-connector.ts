@@ -2,14 +2,14 @@ import type {
   ChartRequest,
   MaelstromResponse,
 } from '@maelstrom-co/protocol-old';
-
+import type { Unsubscribe } from '../../types.js';
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import type {
+  AssistantMessage,
   ConnectorCapabilities,
   ConnectorEvent,
   EngineConnector,
 } from '../connector.types.js';
-import type { Unsubscribe } from '../../types.js';
 
 /**
  * Configuration options for WebSocket connector.
@@ -151,6 +151,26 @@ export class WebSocketConnector implements EngineConnector {
     const promise = this.#correlator.create(request.id, this.#timeout);
     this.#ws.send(JSON.stringify(request));
     return promise;
+  }
+
+  /**
+   * Sends an assistant message to the server.
+   * Fire-and-forget — the server does not send an ack for this message type.
+   * Throws if the WebSocket is not connected.
+   */
+  async addAssistantMessage(message: AssistantMessage): Promise<void> {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+
+    this.#ws.send(
+      JSON.stringify({
+        type: 'client.history.add_assistant_message',
+        timestamp: performance.now(),
+        sessionId: message.sessionId,
+        message: message.message,
+      }),
+    );
   }
 
   #setupEventHandlers(): void {

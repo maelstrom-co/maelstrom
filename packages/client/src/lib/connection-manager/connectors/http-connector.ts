@@ -2,13 +2,13 @@ import type {
   ChartRequest,
   MaelstromResponse,
 } from '@maelstrom-co/protocol-old';
-
+import type { Unsubscribe } from '../../types.js';
 import type {
+  AssistantMessage,
   ConnectorCapabilities,
   ConnectorEvent,
   EngineConnector,
 } from '../connector.types.js';
-import type { Unsubscribe } from '../../types.js';
 
 /**
  * Configuration options for HTTP connector.
@@ -83,17 +83,28 @@ export class HttpConnector implements EngineConnector {
    * Sends a request to the API endpoint.
    */
   async process(request: ChartRequest): Promise<MaelstromResponse> {
+    return this.#postJson<MaelstromResponse>('/process', request);
+  }
+
+  async addAssistantMessage(message: AssistantMessage): Promise<void> {
+    await this.#postJson('/assistant-message', message);
+  }
+
+  /**
+   * Shared POST helper with timeout, headers, and error handling.
+   */
+  async #postJson<T = unknown>(path: string, body: unknown): Promise<T> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.#timeout);
 
     try {
-      const response = await fetch(`${this.#baseUrl}/process`, {
+      const response = await fetch(`${this.#baseUrl}${path}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...this.#headers,
         },
-        body: JSON.stringify(request),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
 
@@ -102,7 +113,8 @@ export class HttpConnector implements EngineConnector {
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      return response.json() as Promise<MaelstromResponse>;
+      const text = await response.text();
+      return (text ? JSON.parse(text) : undefined) as T;
     } finally {
       clearTimeout(timeoutId);
     }

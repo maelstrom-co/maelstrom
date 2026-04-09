@@ -1,22 +1,32 @@
-import type { EngineConnector, ConnectorCapabilities, ConnectorEvent, Unsubscribe } from '@maelstrom-co/client';
-import type { ChartRequest, MaelstromResponse, TilingLayout } from '@maelstrom-co/protocol-old';
+import type {
+  AssistantMessage,
+  ConnectorCapabilities,
+  ConnectorEvent,
+  EngineConnector,
+  Unsubscribe,
+} from '@maelstrom-co/client';
+import type {
+  ChartRequest,
+  MaelstromResponse,
+  TilingLayout,
+} from '@maelstrom-co/protocol-old';
 
 interface DemoStep {
   /** The user prompt that triggers this step. Undefined for the initial layout. */
   prompt?: string;
   userMessage: string;
   rationale: string;
-  executionPlan: Array<{ instanceId: string; action: string; params?: Record<string, unknown> }>;
+  executionPlan: Array<{
+    instanceId: string;
+    action: string;
+    params?: Record<string, unknown>;
+  }>;
   layout: TilingLayout;
 }
 
 const INITIAL_LAYOUT: TilingLayout = {
   type: 'tiling',
-  tree: [
-    'H',
-    'V', 'weather-1', 'notes-1',
-    'V', 'calendar-1', 'tasks-1',
-  ],
+  tree: ['H', 'V', 'weather-1', 'notes-1', 'V', 'calendar-1', 'tasks-1'],
   instances: [
     { instanceId: 'weather-1', vesselId: 'weather', variant: 'compact' },
     { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' },
@@ -27,12 +37,7 @@ const INITIAL_LAYOUT: TilingLayout = {
 
 const REARRANGED_LAYOUT: TilingLayout = {
   type: 'tiling',
-  tree: [
-    'H',
-    'weather-1',
-    'V', 'calendar-1',
-    'H', 'notes-1', 'tasks-1',
-  ],
+  tree: ['H', 'weather-1', 'V', 'calendar-1', 'H', 'notes-1', 'tasks-1'],
   instances: [
     { instanceId: 'weather-1', vesselId: 'weather', variant: 'full' },
     { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'week' },
@@ -44,9 +49,7 @@ const REARRANGED_LAYOUT: TilingLayout = {
 const TASKS_FOCUSED_LAYOUT: TilingLayout = {
   type: 'tiling',
   tree: ['tasks-1'],
-  instances: [
-    { instanceId: 'tasks-1', vesselId: 'tasks', variant: 'list' },
-  ],
+  instances: [{ instanceId: 'tasks-1', vesselId: 'tasks', variant: 'list' }],
 };
 
 export const DEMO_STEPS: DemoStep[] = [
@@ -59,23 +62,33 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     prompt: 'Show me the weather forecast and expand the calendar to week view',
     userMessage: "Here's your weather forecast with the calendar in week view.",
-    rationale: 'Expanded weather to show forecast details. Switched calendar to week view for daily visibility.',
+    rationale:
+      'Expanded weather to show forecast details. Switched calendar to week view for daily visibility.',
     executionPlan: [],
     layout: REARRANGED_LAYOUT,
   },
   {
     prompt: 'Expand tasks and add "Review PR #42"',
     userMessage: 'Done — tasks panel expanded and "Review PR #42" added.',
-    rationale: 'Moved tasks to prominent position. Executed addTask action with title. Compressed weather and calendar.',
+    rationale:
+      'Moved tasks to prominent position. Executed addTask action with title. Compressed weather and calendar.',
     executionPlan: [
-      { instanceId: 'tasks-1', action: 'addTask', params: { title: 'Review PR #42' } },
+      {
+        instanceId: 'tasks-1',
+        action: 'addTask',
+        params: { title: 'Review PR #42' },
+      },
     ],
     layout: TASKS_FOCUSED_LAYOUT,
   },
 ];
 
 export class DemoConnector implements EngineConnector {
-  readonly capabilities: ConnectorCapabilities = { voice: false, streaming: false, stateful: true };
+  readonly capabilities: ConnectorCapabilities = {
+    voice: false,
+    streaming: false,
+    stateful: true,
+  };
   private requestCount = 0;
 
   async connect(): Promise<void> {}
@@ -100,6 +113,10 @@ export class DemoConnector implements EngineConnector {
       executionPlan: step.executionPlan,
       layout: step.layout,
     } as MaelstromResponse;
+  }
+
+  async addAssistantMessage(_message: AssistantMessage): Promise<void> {
+    // no-op for demo
   }
 
   subscribe(_handler: (event: ConnectorEvent) => void): Unsubscribe {

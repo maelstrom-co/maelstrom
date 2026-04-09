@@ -208,10 +208,6 @@ export class Orchestrator {
   // ==========================================================================
 
   async addAssistantMessage(message: string): Promise<void> {
-    if (!this.#connector.addAssistantMessage) {
-      throw new Error('Connector does not support addAssistantMessage');
-    }
-
     const assistantMessage: AssistantMessage = {
       sessionId: this.#config.sessionId,
       message,

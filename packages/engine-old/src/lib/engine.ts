@@ -29,9 +29,9 @@ export interface Engine {
   /**
    * Add an assistant message to history without LLM processing.
    * Useful for injecting programmatic messages into the conversation.
-   * Only available when history is enabled.
+   * Throws if history is not configured.
    */
-  addAssistantMessage?(message: AssistantMessage): Promise<void>;
+  addAssistantMessage(message: AssistantMessage): Promise<void>;
 }
 
 /**
@@ -123,10 +123,17 @@ export function createEngine(config: EngineConfig): Engine {
       async clearSessionHistory(sessionId: string): Promise<void> {
         await historyManager.clearSession(sessionId);
       },
-      async addAssistantMessage(message: AssistantMessage): Promise<void> {
-        await historyManager.addAssistantMessage(message);
-      },
     }),
+
+    async addAssistantMessage(message: AssistantMessage): Promise<void> {
+      if (!historyManager) {
+        throw new EngineError(
+          'LLM_ERROR',
+          'addAssistantMessage requires history to be enabled',
+        );
+      }
+      await historyManager.addAssistantMessage(message);
+    },
   };
 }
 

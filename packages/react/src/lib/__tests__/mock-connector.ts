@@ -1,4 +1,4 @@
-import type { EngineConnector, ConnectorCapabilities, ConnectorEvent, Unsubscribe } from '@maelstrom-co/client';
+import type { AssistantMessage, EngineConnector, ConnectorCapabilities, ConnectorEvent, Unsubscribe } from '@maelstrom-co/client';
 import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol-old';
 
 export function createMockConnector(overrides?: {
@@ -39,6 +39,10 @@ export function createMockConnector(overrides?: {
         const idx = subscribers.indexOf(handler);
         if (idx >= 0) subscribers.splice(idx, 1);
       };
+    },
+
+    async addAssistantMessage(_message: AssistantMessage): Promise<void> {
+      // no-op for tests
     },
   };
 }
