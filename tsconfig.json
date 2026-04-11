@@ -29,6 +29,12 @@
     },
     {
       "path": "./tools/astro-plugin"
+    },
+    {
+      "path": "./packages/protocol"
+    },
+    {
+      "path": "./packages/engine"
     }
   ]
 }
