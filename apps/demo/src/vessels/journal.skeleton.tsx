@@ -1,7 +1,6 @@
-import type { VesselLoadingSkeletonProps } from '@maelstrom-co/react-old';
 import { VesselCard } from '../components/vessel-card';
 
-export function JournalSkeleton(_props: VesselLoadingSkeletonProps) {
+export function JournalSkeleton(_props: { vesselId: string }) {
   return (
     <VesselCard accent="seafoam" label="Journal" meta="Loading...">
       <div className="flex-1 space-y-3 animate-pulse">

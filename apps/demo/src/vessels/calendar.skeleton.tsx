@@ -1,7 +1,6 @@
-import type { VesselLoadingSkeletonProps } from '@maelstrom-co/react-old';
 import { VesselCard } from '../components/vessel-card';
 
-export function CalendarSkeleton(_props: VesselLoadingSkeletonProps) {
+export function CalendarSkeleton(_props: { vesselId: string }) {
   return (
     <VesselCard accent="blue" label="Calendar" meta="Loading...">
       <div className="flex-1 flex flex-col gap-2 animate-pulse">

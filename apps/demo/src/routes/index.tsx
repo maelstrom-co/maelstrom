@@ -1,18 +1,7 @@
-import {
-  MaelstromProvider,
-  TilingChart,
-  useMaelstrom,
-  useMaelstromVoice,
-  useVesselRegistration,
-  VoiceOrb,
-} from '@maelstrom-co/react-old';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { createDemoConnector } from '../lib/connector';
-import { calendarRegistration } from '../vessels/calendar.vessel';
-import { journalRegistration } from '../vessels/journal.vessel';
-import { tasksRegistration } from '../vessels/tasks.vessel';
-import { weatherRegistration } from '../vessels/weather.vessel';
+import { m } from '../lib/maelstrom';
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -22,25 +11,16 @@ function HomePage() {
   const connector = useMemo(() => createDemoConnector(), []);
 
   return (
-    <MaelstromProvider connector={connector} debug>
-      <VesselRegistrations />
+    <m.Provider connector={connector} debug>
       <DemoApp />
-    </MaelstromProvider>
+    </m.Provider>
   );
 }
 
-function VesselRegistrations() {
-  useVesselRegistration(calendarRegistration);
-  useVesselRegistration(weatherRegistration);
-  useVesselRegistration(journalRegistration);
-  useVesselRegistration(tasksRegistration);
-  return null;
-}
-
 function DemoApp() {
-  const { processIntent, isProcessing } = useMaelstrom();
+  const { processIntent, isProcessing } = m.useMaelstrom();
 
-  const voice = useMaelstromVoice({
+  m.useVoice({
     greeting:
       "Hello! I'm the Maelstrom demo assistant. I can help you manage your calendar, weather, journal, and tasks. Try asking me to rearrange your dashboard or perform actions like adding tasks or writing journal entries.",
     onTranscript: (text, isFinal) => {
@@ -59,26 +39,7 @@ function DemoApp() {
             <p className="text-sm text-gray-400">AI-Orchestrated Dynamic UI</p>
           </div>
           <div className="flex items-center gap-3">
-            <VoiceOrb
-              state={
-                voice.isListening
-                  ? 'listening'
-                  : voice.isSpeaking
-                    ? 'speaking'
-                    : voice.isProcessing
-                      ? 'processing'
-                      : 'idle'
-              }
-              audioLevel={voice.audioLevel}
-              size={40}
-              onClick={() => {
-                if (voice.isListening) {
-                  voice.stopListening();
-                } else {
-                  voice.startListening();
-                }
-              }}
-            />
+            <m.VoiceOrb size={40} />
             <StatusIndicator />
           </div>
         </div>
@@ -86,7 +47,7 @@ function DemoApp() {
 
       {/* Main content */}
       <main className="flex-1 relative">
-        <TilingChart />
+        <m.Chart />
       </main>
 
       {/* Intent input */}
@@ -96,7 +57,7 @@ function DemoApp() {
 }
 
 function StatusIndicator() {
-  const { connectionStatus, isProcessing } = useMaelstrom();
+  const { connectionStatus, isProcessing } = m.useMaelstrom();
 
   return (
     <div className="flex items-center gap-2">
@@ -122,7 +83,7 @@ function StatusIndicator() {
 
 function IntentInput() {
   const [intent, setIntent] = useState('');
-  const { processIntent, isProcessing, lastError } = useMaelstrom();
+  const { processIntent, isProcessing, lastError } = m.useMaelstrom();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -204,36 +204,43 @@ app.get(
           });
         }
 
-        sendMessage({
-          type: 'engine.stt.ready',
-          sessionId,
-          timestamp: performance.now(),
-        });
+        if (isVoiceEngine(engine)) {
+          sendMessage({
+            type: 'engine.stt.ready',
+            sessionId,
+            timestamp: performance.now(),
+          });
+        }
       },
 
       onMessage: async (event: MessageEvent) => {
         try {
           const data = event.data;
 
-          // Handle binary audio data
-          if (data instanceof ArrayBuffer && isVoiceEngine(engine)) {
-            engine.sendAudioChunk({
-              data: new Uint8Array(data),
-              sampleRate: 16000,
-              encoding: 'linear16',
-              timestamp: performance.now(),
-            });
+          // Handle binary audio data — always intercept before JSON.parse
+          // to avoid parse errors when voice keys are missing
+          if (data instanceof ArrayBuffer) {
+            if (isVoiceEngine(engine)) {
+              engine.sendAudioChunk({
+                data: new Uint8Array(data),
+                sampleRate: 16000,
+                encoding: 'linear16',
+                timestamp: performance.now(),
+              });
+            }
             return;
           }
 
-          if (data instanceof Blob && isVoiceEngine(engine)) {
-            const arrayBuffer = await data.arrayBuffer();
-            engine.sendAudioChunk({
-              data: new Uint8Array(arrayBuffer),
-              sampleRate: 16000,
-              encoding: 'linear16',
-              timestamp: performance.now(),
-            });
+          if (data instanceof Blob) {
+            if (isVoiceEngine(engine)) {
+              const arrayBuffer = await data.arrayBuffer();
+              engine.sendAudioChunk({
+                data: new Uint8Array(arrayBuffer),
+                sampleRate: 16000,
+                encoding: 'linear16',
+                timestamp: performance.now(),
+              });
+            }
             return;
           }
 

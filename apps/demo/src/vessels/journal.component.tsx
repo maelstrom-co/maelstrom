@@ -1,9 +1,8 @@
 import { Success } from '@maelstrom-co/protocol-old';
-import type { VesselComponentProps } from '@maelstrom-co/react-old';
-import { useVesselActions } from '@maelstrom-co/react-old';
+import type { TypedVesselProps } from '@maelstrom-co/react';
 import { useState } from 'react';
 import { VesselCard } from '../components/vessel-card';
-
+import { m } from '../lib/maelstrom';
 import type { journalVessel } from './journal.vessel';
 
 interface JournalEntry {
@@ -28,11 +27,14 @@ const SEED_ENTRIES: JournalEntry[] = [
   },
 ];
 
-export default function JournalComponent({ instance }: VesselComponentProps) {
+export default function JournalComponent({
+  instanceId,
+  variantProps,
+}: TypedVesselProps<typeof journalVessel>) {
   const [entries, setEntries] = useState<JournalEntry[]>(SEED_ENTRIES);
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
 
-  useVesselActions<typeof journalVessel>(instance.instanceId, {
+  m.useActions('journal', instanceId, {
     createEntry: async ({ title }) => {
       const newEntry: JournalEntry = {
         id: crypto.randomUUID(),
@@ -65,7 +67,7 @@ export default function JournalComponent({ instance }: VesselComponentProps) {
     },
   });
 
-  const isEntryView = instance.variant === 'entry';
+  const isEntryView = variantProps.variant === 'entry';
   const activeEntry = entries.find((e) => e.id === activeEntryId);
 
   if (isEntryView && activeEntry) {

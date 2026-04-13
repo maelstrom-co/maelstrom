@@ -1,5 +1,6 @@
-import type { VesselComponentProps } from '@maelstrom-co/react-old';
+import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
+import type { calendarVessel } from './calendar.vessel';
 
 const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -24,8 +25,10 @@ const TODAY_EVENTS = [
 
 const DAY_HOURS = ['8:00', '9:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
 
-export default function CalendarComponent({ instance }: VesselComponentProps) {
-  const variant = instance.variant;
+export default function CalendarComponent({
+  variantProps,
+}: TypedVesselProps<typeof calendarVessel>) {
+  const variant = variantProps.variant;
 
   if (variant === 'week') {
     const todayIdx = new Date().getDay();

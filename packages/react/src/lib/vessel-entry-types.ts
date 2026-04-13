@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import type { Vessel } from '@maelstrom-co/protocol-old';
 
-import type { AllVariantActionNames, ExtractActionParams } from '@maelstrom-co/client';
+import type { ActionRunner, AllVariantActionNames, ExtractActionParams } from '@maelstrom-co/client';
 import type { VariantPropsUnion } from '@maelstrom-co/protocol-old';
 
 /** Typed props delivered to a vessel component */
@@ -50,3 +50,11 @@ export type ExtractVesselByIdFromEntries<
   T extends readonly AnyVesselEntry[],
   Id extends VesselIds<T>,
 > = Extract<T[number], { vessel: { id: Id } }>['vessel'];
+
+/**
+ * Pre-computed lookup mapping vessel IDs to their ActionRunner types.
+ * Avoids deep generic resolution at call sites (helps tsc --build inference).
+ */
+export type ActionRunnerLookup<T extends readonly AnyVesselEntry[]> = {
+  [E in T[number] as E['vessel']['id']]: ActionRunner<E['vessel']>;
+};

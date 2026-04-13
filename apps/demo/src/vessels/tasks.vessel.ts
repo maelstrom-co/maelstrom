@@ -1,5 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol-old';
-import { vesselRegistration } from '@maelstrom-co/react-old';
+import { vessel } from '@maelstrom-co/react';
 import { TasksSkeleton } from './tasks.skeleton';
 
 export const tasksVessel = defineVessel({
@@ -54,7 +54,7 @@ export const tasksVessel = defineVessel({
   },
 });
 
-export const tasksRegistration = vesselRegistration(
+export const tasksEntry = vessel(
   tasksVessel,
   () => import('./tasks.component'),
   TasksSkeleton,

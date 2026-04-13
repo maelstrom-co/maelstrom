@@ -1,8 +1,8 @@
 import type { ComponentType } from 'react';
 import type { Vessel } from '@maelstrom-co/protocol-old';
-import type { ActionRunner } from '@maelstrom-co/client';
 
 import type {
+  ActionRunnerLookup,
   AnyVesselEntry,
   ExtractVesselByIdFromEntries,
   TypedVesselProps,
@@ -55,7 +55,7 @@ export interface MaelstromInstance<T extends readonly AnyVesselEntry[]> {
   useActions: <Id extends VesselIds<T>>(
     vesselId: Id,
     instanceId: string,
-    runner: ActionRunner<ExtractVesselByIdFromEntries<T, Id>>,
+    runner: ActionRunnerLookup<T>[Id],
   ) => void;
 
   /**

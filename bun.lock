@@ -56,7 +56,7 @@
         "@maelstrom-co/client": "workspace:*",
         "@maelstrom-co/engine-old": "workspace:*",
         "@maelstrom-co/protocol-old": "workspace:*",
-        "@maelstrom-co/react-old": "workspace:*",
+        "@maelstrom-co/react": "workspace:*",
         "@tanstack/react-router": "catalog:",
         "@tanstack/react-start": "catalog:",
         "clsx": "^2.1.1",
@@ -174,8 +174,8 @@
       "name": "@maelstrom-co/react",
       "version": "0.0.9-prealpha.0",
       "dependencies": {
-        "@maelstrom-co/client": "0.0.8-prealpha.0",
-        "@maelstrom-co/protocol-old": "0.0.8-prealpha.0",
+        "@maelstrom-co/client": "0.0.9-prealpha.0",
+        "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
         "@tanstack/react-store": "catalog:",
       },
       "devDependencies": {

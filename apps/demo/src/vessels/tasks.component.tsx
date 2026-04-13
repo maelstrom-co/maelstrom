@@ -1,9 +1,8 @@
 import { Success } from '@maelstrom-co/protocol-old';
-import type { VesselComponentProps } from '@maelstrom-co/react-old';
-import { useVesselActions } from '@maelstrom-co/react-old';
+import type { TypedVesselProps } from '@maelstrom-co/react';
 import { useState } from 'react';
 import { VesselCard } from '../components/vessel-card';
-
+import { m } from '../lib/maelstrom';
 import type { tasksVessel } from './tasks.vessel';
 
 interface Subtask {
@@ -43,10 +42,12 @@ function CheckIcon() {
   );
 }
 
-export default function TasksComponent({ instance }: VesselComponentProps) {
+export default function TasksComponent({
+  instanceId,
+}: TypedVesselProps<typeof tasksVessel>) {
   const [tasks, setTasks] = useState<Task[]>(SEED_TASKS);
 
-  useVesselActions<typeof tasksVessel>(instance.instanceId, {
+  m.useActions('tasks', instanceId, {
     addTask: async ({ title }) => {
       setTasks((prev) => [
         ...prev,

@@ -1,5 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol-old';
-import { vesselRegistration } from '@maelstrom-co/react-old';
+import { vessel } from '@maelstrom-co/react';
 import { JournalSkeleton } from './journal.skeleton';
 
 export const journalVessel = defineVessel({
@@ -44,7 +44,7 @@ export const journalVessel = defineVessel({
   },
 });
 
-export const journalRegistration = vesselRegistration(
+export const journalEntry = vessel(
   journalVessel,
   () => import('./journal.component'),
   JournalSkeleton,

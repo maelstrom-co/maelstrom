@@ -1,5 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol-old';
-import { vesselRegistration } from '@maelstrom-co/react-old';
+import { vessel } from '@maelstrom-co/react';
 import { WeatherSkeleton } from './weather.skeleton';
 
 export const weatherVessel = defineVessel({
@@ -60,7 +60,7 @@ export const weatherVessel = defineVessel({
   },
 });
 
-export const weatherRegistration = vesselRegistration(
+export const weatherEntry = vessel(
   weatherVessel,
   () => import('./weather.component'),
   WeatherSkeleton,

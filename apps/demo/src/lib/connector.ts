@@ -1,4 +1,4 @@
-import { VoiceWebSocketConnector } from '@maelstrom-co/react-old';
+import { VoiceWebSocketConnector } from '@maelstrom-co/client';
 
 const SESSION_ID = `demo-session-${Date.now()}`;
 

@@ -1,5 +1,6 @@
-import type { VesselComponentProps } from '@maelstrom-co/react-old';
+import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
+import type { weatherVessel } from './weather.vessel';
 
 const HOURLY = [
   { hour: '9AM', temp: 68, icon: '🌤️' },
@@ -22,8 +23,10 @@ const WEEKLY = [
 const MIN_TEMP = 52;
 const MAX_TEMP = 76;
 
-export default function WeatherComponent({ instance }: VesselComponentProps) {
-  const variant = instance.variant;
+export default function WeatherComponent({
+  variantProps,
+}: TypedVesselProps<typeof weatherVessel>) {
+  const variant = variantProps.variant;
 
   if (variant === 'hourly') {
     return (

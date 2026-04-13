@@ -1,7 +1,6 @@
-import type { VesselLoadingSkeletonProps } from '@maelstrom-co/react-old';
 import { VesselCard } from '../components/vessel-card';
 
-export function WeatherSkeleton(_props: VesselLoadingSkeletonProps) {
+export function WeatherSkeleton(_props: { vesselId: string }) {
   return (
     <VesselCard accent="cyan" label="Weather" meta="Loading...">
       <div className="flex-1 flex flex-col items-center justify-center gap-3 animate-pulse">

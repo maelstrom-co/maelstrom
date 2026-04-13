@@ -1,7 +1,6 @@
-import type { VesselLoadingSkeletonProps } from '@maelstrom-co/react-old';
 import { VesselCard } from '../components/vessel-card';
 
-export function TasksSkeleton(_props: VesselLoadingSkeletonProps) {
+export function TasksSkeleton(_props: { vesselId: string }) {
   return (
     <VesselCard accent="violet" label="Tasks" meta="Loading...">
       <div className="h-1 w-full rounded-full bg-violet-accent/8 mb-3" />

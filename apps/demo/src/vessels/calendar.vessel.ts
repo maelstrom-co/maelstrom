@@ -1,5 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol-old';
-import { vesselRegistration } from '@maelstrom-co/react-old';
+import { vessel } from '@maelstrom-co/react';
 import { CalendarSkeleton } from './calendar.skeleton';
 
 export const calendarVessel = defineVessel({
@@ -60,7 +60,7 @@ export const calendarVessel = defineVessel({
   },
 });
 
-export const calendarRegistration = vesselRegistration(
+export const calendarEntry = vessel(
   calendarVessel,
   () => import('./calendar.component'),
   CalendarSkeleton,

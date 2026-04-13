@@ -381,11 +381,22 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
     try {
       const data = JSON.parse(event.data);
 
+      if (this.#debug) {
+        console.log(
+          `[VoiceConnector] Received JSON: type=${data.type}, voiceListeners=${this.#voiceMessageListeners.size}, pushListeners=${this.#pushMessageListeners.size}`,
+        );
+      }
+
       if (data.type === 'engine.maelstrom.response' && data.requestId) {
         const resolved = this.#correlator.resolve(
           data.requestId,
           data.response,
         );
+        if (this.#debug) {
+          console.log(
+            `[VoiceConnector] engine.maelstrom.response requestId=${data.requestId} correlated=${resolved}`,
+          );
+        }
         if (!resolved) {
           // Voice-initiated response — not tied to a pending request
           this.#voiceMessageListeners.forEach((listener) => {
