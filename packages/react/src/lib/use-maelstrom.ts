@@ -1,31 +1,18 @@
-import { useStore } from '@tanstack/react-store';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import type { MaelstromContextPair } from './context.js';
 import type { MaelstromState } from './maelstrom-state-types.js';
+import { useStoreSelector } from './use-store-selector.js';
 
 export function createUseMaelstrom(contextPair: MaelstromContextPair) {
   const { useMaelstromContext } = contextPair;
 
-  return function useMaelstrom(): MaelstromState {
-    const { orchestrator, onErrorRef } = useMaelstromContext();
+  function useMaelstrom(): MaelstromState;
+  function useMaelstrom<T>(selector: (state: MaelstromState) => T): T;
+  function useMaelstrom<T>(selector?: (state: MaelstromState) => T): MaelstromState | T {
+    const { orchestrator, onErrorRef, config } = useMaelstromContext();
 
     const [lastError, setLastError] = useState<Error | null>(null);
-
-    const connectionStatus = useStore(
-      orchestrator.connectionManager.store,
-      (s) => s.connectionStatus,
-    );
-
-    const connectionError = useStore(
-      orchestrator.connectionManager.store,
-      (s) => s.connectionError,
-    );
-
-    const isProcessing = useStore(
-      orchestrator.requestCoordinator.store,
-      (s) => s.isProcessing,
-    );
 
     const processIntent = useCallback(
       async (intent: string): Promise<void> => {
@@ -35,19 +22,43 @@ export function createUseMaelstrom(contextPair: MaelstromContextPair) {
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           setLastError(error);
+          if (config.debug && !onErrorRef.current) {
+            console.warn('[Maelstrom] processIntent failed:', error);
+          }
           onErrorRef.current?.(error);
         }
       },
       [orchestrator, onErrorRef],
     );
 
-    return {
-      processIntent,
-      connectionStatus,
-      connectionError,
-      isProcessing,
-      lastError,
-      sessionId: orchestrator.getConfig().sessionId,
+    // Keep refs for values managed by React state (not external stores)
+    // so they can be read inside buildSnapshot without stale closures
+    const processIntentRef = useRef(processIntent);
+    processIntentRef.current = processIntent;
+    const lastErrorRef = useRef(lastError);
+    lastErrorRef.current = lastError;
+
+    const stores = useMemo(
+      () => [orchestrator.connectionManager.store, orchestrator.requestCoordinator.store],
+      [orchestrator],
+    );
+
+    const buildSnapshot = (): MaelstromState => {
+      const connState = orchestrator.connectionManager.store.state;
+      const reqState = orchestrator.requestCoordinator.store.state;
+      return {
+        processIntent: processIntentRef.current,
+        connectionStatus: connState.connectionStatus,
+        connectionError: connState.connectionError,
+        isProcessing: reqState.isProcessing,
+        lastError: lastErrorRef.current,
+        sessionId: orchestrator.getConfig().sessionId,
+      };
     };
-  };
+
+    if (selector) return useStoreSelector(stores, buildSnapshot, selector);
+    return useStoreSelector(stores, buildSnapshot);
+  }
+
+  return useMaelstrom;
 }

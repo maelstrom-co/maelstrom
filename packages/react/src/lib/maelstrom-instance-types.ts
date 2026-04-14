@@ -20,7 +20,21 @@ export interface MaelstromInstance<T extends readonly AnyVesselEntry[]> {
   vessels: T;
   Provider: ComponentType<MaelstromProviderProps>;
   Chart: ComponentType<ChartProps>;
-  useMaelstrom: () => MaelstromState;
+  /**
+   * Returns reactive Maelstrom state. Call with no args for the full state,
+   * or pass a selector to subscribe to a slice and avoid re-renders when
+   * unrelated fields change. Derived objects are shallow-compared.
+   *
+   * @example
+   * const { processIntent, isProcessing } = m.useMaelstrom();
+   *
+   * @example
+   * const isProcessing = m.useMaelstrom((s) => s.isProcessing);
+   */
+  useMaelstrom: {
+    <TSelected>(selector: (state: MaelstromState) => TSelected): TSelected;
+    (): MaelstromState;
+  };
 
   /**
    * Returns typed vessel props for the given vessel ID and instance ID.
