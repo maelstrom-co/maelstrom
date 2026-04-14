@@ -1017,6 +1017,84 @@ describe('VoiceSession', () => {
       session.destroy();
     });
 
+    it('drops stale audio after interrupt until server announces a new speaking turn', async () => {
+      const session = new VoiceSession({
+        connector: mockConnector,
+        vadOptions: { activationThreshold: 0.8 },
+      });
+
+      await session.startListening();
+
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.1, -0.1, 0.2, -0.2]), {
+        cancellable: true,
+      });
+      await flush();
+      expect(session.isSpeaking).toBe(true);
+
+      session.interrupt();
+      await flush();
+      expect(session.isSpeaking).toBe(false);
+
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.3, -0.3, 0.4, -0.4]), {
+        cancellable: true,
+      });
+      await flush();
+      expect(session.isSpeaking).toBe(false);
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.voice.state',
+        sessionId: 'test',
+        state: 'speaking',
+        previousState: 'processing',
+        timestamp: Date.now(),
+      });
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.5, -0.5, 0.6, -0.6]), {
+        cancellable: true,
+      });
+      await flush();
+      expect(session.isSpeaking).toBe(true);
+
+      session.destroy();
+    });
+
+    it('accepts a new assistant turn when the server announces TTS directly', async () => {
+      const session = new VoiceSession({
+        connector: mockConnector,
+        vadOptions: { activationThreshold: 0.8 },
+      });
+
+      await session.startListening();
+
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.1, -0.1, 0.2, -0.2]), {
+        cancellable: true,
+      });
+      await flush();
+      expect(session.isSpeaking).toBe(true);
+
+      session.interrupt();
+      await flush();
+      expect(session.isSpeaking).toBe(false);
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.tts.sent',
+        sessionId: 'test',
+        text: 'Fresh response',
+        timestamp: Date.now(),
+        data: new Uint8Array(0),
+        format: 'pcm',
+        sampleRate: 24000,
+        sequence: 0,
+        isFinal: false,
+      });
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.3, -0.3, 0.4, -0.4]), {
+        cancellable: true,
+      });
+      await flush();
+      expect(session.isSpeaking).toBe(true);
+
+      session.destroy();
+    });
+
     it('is safe to call when not speaking', () => {
       const session = new VoiceSession({
         connector: mockConnector,

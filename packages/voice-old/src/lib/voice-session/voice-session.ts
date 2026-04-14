@@ -183,6 +183,7 @@ interface VoiceSessionInnerState {
   userAudioLevel: number;
   /** Whether current audio stream can be interrupted by user speech */
   currentAudioCancellable: boolean;
+  suppressIncomingAssistantAudio: boolean;
 
   userIsTalking: boolean;
   isInitializing: boolean;
@@ -313,6 +314,7 @@ export class VoiceSession {
       isAudioPipelineReady: false,
       userAudioLevel: 0,
       currentAudioCancellable: true,
+      suppressIncomingAssistantAudio: false,
       userIsTalking: false,
       isInitializing: false,
       hasUserInitiatedListening: false,
@@ -341,7 +343,11 @@ export class VoiceSession {
         case 'engine.stt.ready':
           this.#handleServerReady(message);
           break;
+        case 'engine.voice.state':
+          this.#handleVoiceState(message);
+          break;
         case 'engine.tts.sent':
+          this.#allowIncomingAssistantAudio('server announced a new TTS turn');
           if (message.text) {
             this.#opts.onSpeechStarted?.(message.text);
           }
@@ -453,6 +459,15 @@ export class VoiceSession {
   #wirePlayback(): void {
     this.#unsubscribeBinary = this.#opts.connector.onBinaryAudio(
       (data, meta) => {
+        if (this.#state.suppressIncomingAssistantAudio) {
+          if (this.#opts.debugMode) {
+            console.log(
+              '[VoiceSession] Dropping stale assistant audio after interrupt',
+            );
+          }
+          return;
+        }
+
         this.#state.currentAudioCancellable = meta.cancellable;
         this.#state.playback.enqueue(data);
         this.#opts.onAudioOutput?.(data);
@@ -494,9 +509,34 @@ export class VoiceSession {
       if (this.#opts.debugMode) {
         console.log('[VoiceSession] Barge-in triggered');
       }
+      this.#suppressIncomingAssistantAudio('barge-in');
       this.#state.playback.interrupt();
       this.#state.isSpeaking = false;
       this.#emitStateChange();
+    }
+  }
+
+  #suppressIncomingAssistantAudio(reason: string): void {
+    this.#state.suppressIncomingAssistantAudio = true;
+
+    if (this.#opts.debugMode) {
+      console.log(
+        `[VoiceSession] Suppressing incoming assistant audio after ${reason}`,
+      );
+    }
+  }
+
+  #allowIncomingAssistantAudio(reason: string): void {
+    if (!this.#state.suppressIncomingAssistantAudio) {
+      return;
+    }
+
+    this.#state.suppressIncomingAssistantAudio = false;
+
+    if (this.#opts.debugMode) {
+      console.log(
+        `[VoiceSession] Accepting assistant audio again after ${reason}`,
+      );
     }
   }
 
@@ -659,6 +699,18 @@ export class VoiceSession {
     }
 
     this.prepareAudio().catch(() => {});
+  }
+
+  #handleVoiceState(message: VoiceServerMessage): void {
+    if (message.type !== 'engine.voice.state') return;
+
+    if (this.#opts.debugMode) {
+      console.log(`[VoiceSession] Server voice state: ${message.state}`);
+    }
+
+    if (message.state === 'speaking') {
+      this.#allowIncomingAssistantAudio('server entered speaking state');
+    }
   }
 
   #handleVoiceError(message: VoiceServerMessage): void {
@@ -969,6 +1021,7 @@ export class VoiceSession {
    * feedback. The redundant 'end' event handler is a no-op when already false.
    */
   interrupt(): void {
+    this.#suppressIncomingAssistantAudio('manual interrupt');
     this.#state.playback.interrupt();
     this.#state.isSpeaking = false;
     this.#emitStateChange();
