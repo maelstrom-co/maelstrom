@@ -1,3 +1,4 @@
+import type { SessionId } from '@maelstrom-co/protocol-old';
 import { Store } from '@tanstack/store';
 
 import { Logger } from '../utils/logger.js';
@@ -60,6 +61,7 @@ export class ConnectionManager {
   readonly events: EventSubscriber<ConnectionManagerEvents> = this.#emitter;
   #connector: EngineConnector;
   #options: ConnectionOptions;
+  #sessionId: SessionId;
   /** Single unsubscribe for the connector's event stream. */
   #unsubscribeConnector: Unsubscribe | null = null;
   #sleepTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -69,15 +71,13 @@ export class ConnectionManager {
   #isIntentionalDisconnect = false;
   readonly #logger: Logger;
 
-  constructor(
-    connector: EngineConnector,
-    options: ConnectionManagerOptions = {},
-  ) {
-    const { debug, initialState, ...connectionOptions } = options;
+  constructor(connector: EngineConnector, options: ConnectionManagerOptions) {
+    const { debug, initialState, sessionId, ...connectionOptions } = options;
     this.store = new Store<ConnectionManagerState>(
       initialState ?? createInitialConnectionManagerState(),
     );
     this.#connector = connector;
+    this.#sessionId = sessionId;
     this.#options = { ...DEFAULT_CONNECTION_OPTIONS, ...connectionOptions };
     this.#logger = new Logger(debug ?? false, 'ConnectionManager');
   }
@@ -162,7 +162,7 @@ export class ConnectionManager {
       });
 
       try {
-        await this.#connector.connect();
+        await this.#connector.connect(this.#sessionId);
 
         this.#logger.info('Connected successfully');
         this.#setConnectionStatus('connected');
@@ -291,7 +291,7 @@ export class ConnectionManager {
       });
 
       try {
-        await this.#connector.connect();
+        await this.#connector.connect(this.#sessionId);
 
         this.#setConnectionStatus('connected');
         this.#setupConnectorSubscription();

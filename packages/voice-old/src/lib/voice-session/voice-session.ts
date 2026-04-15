@@ -83,7 +83,7 @@
  * ```
  */
 import type { VoiceServerMessage } from '@maelstrom-co/protocol-old';
-import { VoiceError } from '@maelstrom-co/protocol-old';
+import { MessageId, VoiceError } from '@maelstrom-co/protocol-old';
 
 import { AudioCapture } from '../audio-capture/index.js';
 import { AudioPlayback } from '../audio-playback/index.js';
@@ -237,6 +237,10 @@ export class VoiceSession {
   #unsubscribePlaybackStart: (() => void) | null = null;
   #unsubscribePlaybackEnd: (() => void) | null = null;
 
+  // Intentionally never reset. The server session survives client reconnects,
+  // so a greeting sent once is already in the server's conversation history —
+  // re-sending on `engine.stt.ready` after reconnect would duplicate it.
+  #greetingSent = false;
   #listeners = new Map<
     VoiceSessionEvent,
     Set<VoiceSessionEventMap[VoiceSessionEvent]>
@@ -685,7 +689,8 @@ export class VoiceSession {
       console.log('[VoiceSession] Server ready');
     }
 
-    if (this.#opts.greeting) {
+    if (this.#opts.greeting && !this.#greetingSent) {
+      this.#greetingSent = true;
       if (this.#opts.debugMode) {
         console.log('[VoiceSession] Sending greeting');
       }
@@ -694,7 +699,7 @@ export class VoiceSession {
         sessionId: message.sessionId,
         timestamp: performance.now(),
         text: this.#opts.greeting,
-        dedupeKey: 'greeting',
+        id: MessageId(),
       });
     }
 

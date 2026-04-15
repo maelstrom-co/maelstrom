@@ -1,6 +1,7 @@
 import type {
   ChartRequest,
   MaelstromResponse,
+  SessionId,
 } from '@maelstrom-co/protocol-old';
 import type { Unsubscribe } from '../../types.js';
 import type {
@@ -64,8 +65,12 @@ export class HttpConnector implements EngineConnector {
   /**
    * No-op. HTTP is per-request — there is no persistent connection to establish.
    * Override this to implement a health check if desired.
+   *
+   * Note: the sessionId is not stored because HTTP requests carry session context
+   * in the request body. Subclasses that need session correlation should override
+   * this method and store the sessionId.
    */
-  async connect(): Promise<void> {}
+  async connect(_sessionId: SessionId): Promise<void> {}
 
   /**
    * No-op. HTTP is stateless — nothing to clean up.

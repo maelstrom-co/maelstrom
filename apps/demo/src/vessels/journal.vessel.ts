@@ -17,7 +17,11 @@ export const journalVessel = defineVessel({
           name: 'createEntry',
           description: 'Create a new journal entry and open it for writing',
           parameters: [
-            { name: 'title', type: 'string', description: 'Title of the entry' },
+            {
+              name: 'title',
+              type: 'string',
+              description: 'Title of the entry',
+            },
           ],
           transitionsTo: 'entry',
         },
@@ -29,9 +33,14 @@ export const journalVessel = defineVessel({
       actions: [
         {
           name: 'writeContent',
-          description: 'Append text to the current journal entry. Works like a scribe taking dictation.',
+          description:
+            'Append text to the current journal entry. Works like a scribe taking dictation.',
           parameters: [
-            { name: 'text', type: 'string', description: 'Text to append to the entry' },
+            {
+              name: 'text',
+              type: 'string',
+              description: 'Text to append to the entry',
+            },
           ],
         },
         {

@@ -24,29 +24,49 @@ export const tasksVessel = defineVessel({
           name: 'removeTask',
           description: 'Remove a task by title',
           parameters: [
-            { name: 'title', type: 'string', description: 'Title of the task to remove' },
+            {
+              name: 'title',
+              type: 'string',
+              description: 'Title of the task to remove',
+            },
           ],
         },
         {
           name: 'checkTask',
           description: 'Mark a task as complete',
           parameters: [
-            { name: 'title', type: 'string', description: 'Title of the task to check' },
+            {
+              name: 'title',
+              type: 'string',
+              description: 'Title of the task to check',
+            },
           ],
         },
         {
           name: 'uncheckTask',
           description: 'Mark a task as incomplete',
           parameters: [
-            { name: 'title', type: 'string', description: 'Title of the task to uncheck' },
+            {
+              name: 'title',
+              type: 'string',
+              description: 'Title of the task to uncheck',
+            },
           ],
         },
         {
           name: 'addSubtask',
           description: 'Add a subtask under an existing task',
           parameters: [
-            { name: 'taskTitle', type: 'string', description: 'Title of the parent task' },
-            { name: 'subtaskTitle', type: 'string', description: 'Title of the subtask to add' },
+            {
+              name: 'taskTitle',
+              type: 'string',
+              description: 'Title of the parent task',
+            },
+            {
+              name: 'subtaskTitle',
+              type: 'string',
+              description: 'Title of the subtask to add',
+            },
           ],
         },
       ],

@@ -5,7 +5,7 @@ import type {
   Unsubscribe,
   VoiceConnector,
 } from '@maelstrom-co/client';
-import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol-old';
+import type { ChartRequest, MaelstromResponse, SessionId } from '@maelstrom-co/protocol-old';
 
 export function createMockVoiceConnector(overrides?: {
   process?: (request: ChartRequest) => Promise<MaelstromResponse>;
@@ -19,7 +19,7 @@ export function createMockVoiceConnector(overrides?: {
       stateful: true,
     } satisfies ConnectorCapabilities,
 
-    async connect() {
+    async connect(_sessionId: SessionId) {
       // no-op
     },
 

@@ -3,6 +3,7 @@ import type {
   ChartRequest,
   GridLayout,
   LayoutMode,
+  SessionId,
   TilingLayout,
   UpdateReason,
   Vessel,
@@ -23,7 +24,7 @@ export function buildChartRequest(params: {
   chartDimensions: ChartDimensions;
   layout: GridLayout | TilingLayout | null;
   vessels: Vessel[];
-  config: { sessionId: string; layoutMode: LayoutMode };
+  config: { sessionId: SessionId; layoutMode: LayoutMode };
 }): ChartRequest {
   const {
     requestId,

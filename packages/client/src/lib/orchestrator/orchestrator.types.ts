@@ -1,4 +1,5 @@
-import type { LayoutMode } from '@maelstrom-co/protocol-old';
+import type { LayoutMode, SessionId } from '@maelstrom-co/protocol-old';
+import { SessionId as SessionIdFactory } from '@maelstrom-co/protocol-old';
 
 import type { ConnectionOptions } from '../connection-manager/connection-manager.types.js';
 
@@ -7,7 +8,7 @@ import type { ConnectionOptions } from '../connection-manager/connection-manager
  */
 export interface OrchestratorOptions {
   /** Session ID for conversation continuity. Auto-generated if omitted. */
-  sessionId?: string;
+  sessionId?: SessionId;
   /** Layout mode (default: 'tiling') */
   layoutMode?: LayoutMode;
   /** Enable debug logging (default: false) */
@@ -26,7 +27,7 @@ export interface OrchestratorOptions {
  * Resolved configuration with defaults applied.
  */
 export interface ResolvedOrchestratorOptions {
-  sessionId: string;
+  sessionId: SessionId;
   layoutMode: LayoutMode;
   debug: boolean;
   debounceDelayMs: number;
@@ -36,20 +37,13 @@ export interface ResolvedOrchestratorOptions {
 }
 
 /**
- * Generates a unique session ID.
- */
-export function generateSessionId(): string {
-  return `session-${crypto.randomUUID()}`;
-}
-
-/**
  * Resolves orchestrator options with defaults.
  */
 export function resolveOrchestratorOptions(
   options: OrchestratorOptions = {},
 ): ResolvedOrchestratorOptions {
   return {
-    sessionId: options.sessionId || generateSessionId(),
+    sessionId: options.sessionId ?? SessionIdFactory(),
     layoutMode: options.layoutMode ?? 'tiling',
     debug: options.debug ?? false,
     debounceDelayMs: options.debounceDelayMs ?? 300,
@@ -72,6 +66,6 @@ export function resolveOrchestratorOptions(
 export interface OrchestratorViewState {
   isProcessing: boolean;
   isConnected: boolean;
-  sessionId: string;
+  sessionId: SessionId;
   layoutMode: LayoutMode;
 }

@@ -13,9 +13,17 @@ import type {
 import { DEFAULT_HISTORY_CONFIG } from './types.js';
 
 /**
- * Message to inject into history without LLM processing.
+ * Engine-side payload for injecting an assistant message into history without
+ * LLM processing. Named distinctly from client's `AssistantMessage` because
+ * this shape carries `sessionId` (engine records per session) whereas the
+ * client-side interface (`@maelstrom-co/client`) omits it — the connector
+ * supplies it from the session established during `connect()`.
+ * `id` is a plain string here because this type crosses a serialization
+ * boundary and `engine-old` does not depend on protocol-old's branded types.
  */
-export interface AssistantMessage {
+export interface AssistantMessageInput {
+  /** Unique message identifier. Used for deduplication and history correlation. */
+  id: string;
   sessionId: string;
   message: string;
 }
@@ -54,7 +62,7 @@ export interface HistoryManager {
    * Add an assistant message to history without a corresponding user turn.
    * Useful for injecting programmatic messages into the conversation.
    */
-  addAssistantMessage(input: AssistantMessage): Promise<void>;
+  addAssistantMessage(input: AssistantMessageInput): Promise<void>;
 
   /**
    * Clear session history.
@@ -204,9 +212,9 @@ export function createHistoryManager(
       return store.getEntries(sessionId);
     },
 
-    async addAssistantMessage(input: AssistantMessage): Promise<void> {
+    async addAssistantMessage(input: AssistantMessageInput): Promise<void> {
       const entry: HistoryEntry = {
-        id: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        id: input.id,
         sessionId: input.sessionId,
         timestamp: Date.now(),
         updateReasons: [],

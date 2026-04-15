@@ -94,9 +94,9 @@ function IntentInput() {
   };
 
   const suggestions = [
-    'Expand the weather forecast and show me today\'s calendar',
+    "Expand the weather forecast and show me today's calendar",
     'Start a journal entry about the sprint retro and take notes',
-    'Add \'Deploy v2.0\' to my tasks and check off \'Setup CI\'',
+    "Add 'Deploy v2.0' to my tasks and check off 'Setup CI'",
     'Clear the board and just show the weekly weather',
   ];
 

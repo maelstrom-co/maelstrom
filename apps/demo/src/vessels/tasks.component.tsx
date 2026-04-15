@@ -99,14 +99,19 @@ export default function TasksComponent({
   const progress = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
 
   return (
-    <VesselCard accent="violet" label="Tasks" meta={`${doneCount}/${totalCount}`}>
+    <VesselCard
+      accent="violet"
+      label="Tasks"
+      meta={`${doneCount}/${totalCount}`}
+    >
       {/* Progress bar */}
       <div className="h-1 w-full rounded-full bg-violet-accent/8 mb-3">
         <div
           className="h-full rounded-full transition-all duration-500"
           style={{
             width: `${progress}%`,
-            background: 'linear-gradient(90deg, rgba(107, 0, 255, 0.4), rgba(107, 0, 255, 0.7))',
+            background:
+              'linear-gradient(90deg, rgba(107, 0, 255, 0.4), rgba(107, 0, 255, 0.7))',
             boxShadow: '0 0 8px rgba(107, 0, 255, 0.3)',
           }}
         />
@@ -141,7 +146,10 @@ export default function TasksComponent({
             {task.subtasks.length > 0 && (
               <div className="ml-6 mt-1 space-y-1.5">
                 {task.subtasks.map((sub) => (
-                  <div key={sub.id} className="flex items-center gap-2 animate-fade-in">
+                  <div
+                    key={sub.id}
+                    className="flex items-center gap-2 animate-fade-in"
+                  >
                     <div
                       className={
                         sub.done

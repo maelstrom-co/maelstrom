@@ -1,6 +1,7 @@
 import type {
   ChartRequest,
   MaelstromResponse,
+  SessionId,
 } from '@maelstrom-co/protocol-old';
 import type { Unsubscribe } from '../../types.js';
 import { RequestCorrelator } from '../../utils/request-correlator.js';
@@ -58,6 +59,7 @@ export class WebSocketConnector implements EngineConnector {
   };
 
   #ws: WebSocket | null = null;
+  #sessionId: SessionId | null = null;
   #correlator = new RequestCorrelator();
   #handlers = new Set<(event: ConnectorEvent) => void>();
 
@@ -71,7 +73,8 @@ export class WebSocketConnector implements EngineConnector {
    * Establishes WebSocket connection.
    * Throws on failure — ConnectionManager will handle retries.
    */
-  async connect(): Promise<void> {
+  async connect(sessionId: SessionId): Promise<void> {
+    this.#sessionId = sessionId;
     return new Promise((resolve, reject) => {
       try {
         this.#ws = new WebSocket(this.#url);
@@ -162,12 +165,18 @@ export class WebSocketConnector implements EngineConnector {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
+    if (this.#sessionId === null) {
+      throw new Error(
+        'WebSocketConnector.addAssistantMessage called before connect() completed',
+      );
+    }
 
     this.#ws.send(
       JSON.stringify({
         type: 'client.history.add_assistant_message',
         timestamp: performance.now(),
-        sessionId: message.sessionId,
+        sessionId: this.#sessionId,
+        id: message.id,
         message: message.message,
       }),
     );

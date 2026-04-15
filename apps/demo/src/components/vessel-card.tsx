@@ -11,12 +11,15 @@ interface VesselCardProps {
   className?: string;
 }
 
-const accentStyles: Record<Accent, {
-  bg: string;
-  border: string;
-  glow: string;
-  text: string;
-}> = {
+const accentStyles: Record<
+  Accent,
+  {
+    bg: string;
+    border: string;
+    glow: string;
+    text: string;
+  }
+> = {
   cyan: {
     bg: 'from-cyan-accent/8 to-cyan-accent/4',
     border: 'border-cyan-accent/12',
@@ -43,7 +46,13 @@ const accentStyles: Record<Accent, {
   },
 };
 
-export function VesselCard({ accent, label, meta, children, className }: VesselCardProps) {
+export function VesselCard({
+  accent,
+  label,
+  meta,
+  children,
+  className,
+}: VesselCardProps) {
   const styles = accentStyles[accent];
 
   return (
@@ -74,9 +83,7 @@ export function VesselCard({ accent, label, meta, children, className }: VesselC
             {label}
           </span>
           {meta && (
-            <span className="text-[11px] text-gray-500 font-mono">
-              {meta}
-            </span>
+            <span className="text-[11px] text-gray-500 font-mono">{meta}</span>
           )}
         </div>
 

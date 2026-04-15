@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { MaelstromResponse } from '@maelstrom-co/protocol-old';
+import { SessionId } from '@maelstrom-co/protocol-old';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import type { ConnectionManagerEvents } from './connection-manager.js';
@@ -25,7 +26,7 @@ function createMockConnector(): EngineConnector & {
       stateful: true,
     },
 
-    connect: mock(() => Promise.resolve()),
+    connect: mock((_sessionId: SessionId) => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
 
     process: mock(() =>
@@ -77,7 +78,9 @@ describe('ConnectionManager', () => {
 
   describe('initialization', () => {
     it('should not mutate state on initialization', () => {
-      manager = new ConnectionManager(mockConnector);
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+      });
 
       expect(manager.store.state).toEqual(
         createInitialConnectionManagerState(),
@@ -85,7 +88,9 @@ describe('ConnectionManager', () => {
     });
 
     it('should initialize with disconnected state', () => {
-      manager = new ConnectionManager(mockConnector);
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+      });
 
       expect(manager.store.state.connectionStatus).toBe('disconnected');
       expect(manager.store.state.circuitBreakerStatus).toBe('closed');
@@ -96,6 +101,7 @@ describe('ConnectionManager', () => {
   describe('connection status transitions', () => {
     beforeEach(() => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 3,
         initialDelayMs: 100,
         maxDelayMs: 1000,
@@ -152,6 +158,12 @@ describe('ConnectionManager', () => {
       expect(manager.store.state.connectionError).toBe(error);
     });
 
+    it('should pass sessionId to connector.connect()', async () => {
+      await manager.connect();
+
+      expect(mockConnector.connect).toHaveBeenCalledWith('test-session');
+    });
+
     it('should record lastConnectedAt timestamp on successful connection', async () => {
       const beforeConnect = Date.now();
 
@@ -166,7 +178,9 @@ describe('ConnectionManager', () => {
 
   describe('event-based state management', () => {
     beforeEach(() => {
-      manager = new ConnectionManager(mockConnector);
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+      });
     });
 
     it('should transition to connected after successful connect()', async () => {
@@ -234,6 +248,7 @@ describe('ConnectionManager', () => {
 
     it('should not fire events twice after auto-reconnect (no subscription leak)', async () => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 5,
         initialDelayMs: 10,
         maxDelayMs: 100,
@@ -276,6 +291,7 @@ describe('ConnectionManager', () => {
   describe('auto-reconnect', () => {
     it('should reconnect after unexpected disconnect', async () => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 3,
         initialDelayMs: 10,
         maxDelayMs: 100,
@@ -302,8 +318,35 @@ describe('ConnectionManager', () => {
       expect(manager.store.state.connectionRetryCount).toBe(0);
     });
 
+    it('should pass the same sessionId to connector.connect() on auto-reconnect', async () => {
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 3,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+      });
+
+      await manager.connect();
+      (mockConnector.connect as ReturnType<typeof mock>).mockClear();
+
+      // Simulate unexpected drop
+      mockConnector.triggerEvent({
+        type: 'disconnected',
+        clean: false,
+        message: 'Dropped',
+      });
+
+      // Wait for the scheduled reconnect
+      await clock.tickAsync(50);
+
+      expect(mockConnector.connect).toHaveBeenCalledWith('test-session');
+    });
+
     it('should not auto-reconnect on clean disconnect', async () => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 3,
         initialDelayMs: 10,
         maxDelayMs: 100,
@@ -336,6 +379,7 @@ describe('ConnectionManager', () => {
 
     it('should open circuit breaker after exhausting retry budget', async () => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 2,
         initialDelayMs: 10,
         maxDelayMs: 100,
@@ -372,6 +416,7 @@ describe('ConnectionManager', () => {
 
     it('should emit connection_attempt and connection_error events during auto-reconnect', async () => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 3,
         initialDelayMs: 10,
         maxDelayMs: 100,
@@ -410,6 +455,7 @@ describe('ConnectionManager', () => {
 
     it('should cancel pending auto-reconnect on disconnect()', async () => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 5,
         initialDelayMs: 1000,
         maxDelayMs: 5000,
@@ -449,6 +495,7 @@ describe('ConnectionManager', () => {
       // maxRetries × maxRetries = 9 total attempts instead of 3.
       // This test guards against that by asserting exactly maxRetries attempts.
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 3,
         initialDelayMs: 10,
         maxDelayMs: 100,
@@ -482,7 +529,9 @@ describe('ConnectionManager', () => {
 
   describe('disconnect', () => {
     beforeEach(() => {
-      manager = new ConnectionManager(mockConnector);
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+      });
     });
 
     it('should transition to disconnected state', async () => {
@@ -529,6 +578,7 @@ describe('ConnectionManager', () => {
       const error = new Error('Connection failed');
       mockConnector.connect = mock(() => Promise.reject(error));
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 3,
         initialDelayMs: 10,
       });
@@ -550,6 +600,7 @@ describe('ConnectionManager', () => {
 
     beforeEach(() => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 3,
         initialDelayMs: 100,
         maxDelayMs: 1000,
@@ -596,6 +647,7 @@ describe('ConnectionManager', () => {
 
     it('should use exponential backoff timing between retries', async () => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 3,
         initialDelayMs: 100,
         maxDelayMs: 1000,
@@ -686,6 +738,7 @@ describe('ConnectionManager', () => {
       Math.random = mock(() => 0.5);
 
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 5,
         initialDelayMs: 500,
         maxDelayMs: 1000,
@@ -732,6 +785,7 @@ describe('ConnectionManager', () => {
       const error = new Error('Connection failed');
 
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 3,
         initialDelayMs: 0,
         maxDelayMs: 0,
@@ -748,6 +802,7 @@ describe('ConnectionManager', () => {
   describe('circuit breaker pattern', () => {
     beforeEach(() => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 2,
         initialDelayMs: 0,
         maxDelayMs: 0,
@@ -834,6 +889,7 @@ describe('ConnectionManager', () => {
 
     it('should emit circuit_closed event on successful connection', async () => {
       manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
         maxRetries: 2,
         initialDelayMs: 10,
         maxDelayMs: 100,
@@ -854,7 +910,9 @@ describe('ConnectionManager', () => {
 
   describe('dispose', () => {
     beforeEach(() => {
-      manager = new ConnectionManager(mockConnector);
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+      });
     });
 
     it('should disconnect on dispose', async () => {

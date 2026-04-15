@@ -45,18 +45,27 @@ export default function WeatherComponent({
             const pct = ((h.temp - MIN_TEMP) / (MAX_TEMP - MIN_TEMP)) * 100;
             const isMax = h.temp === 75;
             return (
-              <div key={h.hour} className="flex-1 flex flex-col items-center gap-1.5">
+              <div
+                key={h.hour}
+                className="flex-1 flex flex-col items-center gap-1.5"
+              >
                 <span className="text-base">{h.icon}</span>
-                <span className="text-xs text-gray-400 font-mono">{h.temp}°</span>
+                <span className="text-xs text-gray-400 font-mono">
+                  {h.temp}°
+                </span>
                 <div
                   className="w-full rounded-sm border border-cyan-accent/10"
                   style={{
                     height: `${pct}%`,
                     background: `linear-gradient(to top, rgba(0, 240, 255, ${isMax ? '0.3' : '0.15'}), rgba(0, 240, 255, 0.04))`,
-                    boxShadow: isMax ? '0 0 8px rgba(0, 240, 255, 0.15)' : 'none',
+                    boxShadow: isMax
+                      ? '0 0 8px rgba(0, 240, 255, 0.15)'
+                      : 'none',
                   }}
                 />
-                <span className="text-xs text-gray-500 font-mono">{h.hour}</span>
+                <span className="text-xs text-gray-500 font-mono">
+                  {h.hour}
+                </span>
               </div>
             );
           })}

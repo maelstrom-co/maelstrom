@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type {
   ChartRequest,
   MaelstromResponse,
+  SessionId,
 } from '@maelstrom-co/protocol-old';
 import FakeTimers from '@sinonjs/fake-timers';
 
@@ -24,7 +25,7 @@ function createMockConnector(
 ): EngineConnector {
   return {
     capabilities: { voice: false, streaming: false, stateful: false },
-    connect: mock(() => Promise.resolve()),
+    connect: mock((_sessionId: SessionId) => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
     process: mock(() =>
       Promise.resolve(createMockResponse('req-1', 'instance-1', 'show')),
@@ -433,6 +434,18 @@ describe('Orchestrator', () => {
       orchestrator.dispose();
     });
 
+    it('should pass sessionId to connector.connect()', async () => {
+      const connector = createMockConnector();
+      const { orchestrator } = createTestOrchestrator(connector);
+
+      await orchestrator.connect();
+
+      const sessionId = orchestrator.getConfig().sessionId;
+      expect(connector.connect).toHaveBeenCalledWith(sessionId);
+
+      orchestrator.dispose();
+    });
+
     it('should delegate disconnect to connection manager', async () => {
       const { orchestrator } = createTestOrchestrator();
 
@@ -512,10 +525,14 @@ describe('Orchestrator', () => {
       await orchestrator.addAssistantMessage('Hello');
 
       expect(addAssistantMessage).toHaveBeenCalledTimes(1);
-      expect(addAssistantMessage).toHaveBeenCalledWith({
-        sessionId: orchestrator.getConfig().sessionId,
-        message: 'Hello',
-      });
+      const call = (addAssistantMessage as ReturnType<typeof mock>).mock
+        .calls[0][0] as { id: string; message: string; sessionId?: string };
+      expect(typeof call.id).toBe('string');
+      expect(call.id.length).toBeGreaterThan(0);
+      expect(call.message).toBe('Hello');
+      // Contract: the client-side AssistantMessage must NOT carry sessionId —
+      // the connector supplies it from the session established during connect().
+      expect(call.sessionId).toBeUndefined();
 
       orchestrator.dispose();
     });

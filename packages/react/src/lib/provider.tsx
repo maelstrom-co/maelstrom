@@ -1,4 +1,4 @@
-import { Orchestrator } from '@maelstrom-co/client';
+import { Orchestrator, SessionId } from '@maelstrom-co/client';
 import type { EngineConnector } from '@maelstrom-co/client';
 import type { LayoutMode } from '@maelstrom-co/protocol-old';
 import type { ComponentType, ReactNode } from 'react';
@@ -64,6 +64,26 @@ export function createProvider(
     // Guard: only one Chart may be mounted per Provider
     const chartMountedRef = useRef(false);
 
+    // Stable session ID: use the prop if provided, otherwise generate once on mount.
+    // Changing the sessionId prop after mount is ignored — unmount and remount the Provider instead.
+    const [stableSessionId] = useState(() => SessionId(sessionId));
+    const initialSessionIdRef = useRef(sessionId);
+    const hasWarnedSessionChangeRef = useRef(false);
+
+    useEffect(() => {
+      if (
+        !hasWarnedSessionChangeRef.current &&
+        sessionId !== initialSessionIdRef.current
+      ) {
+        hasWarnedSessionChangeRef.current = true;
+        console.warn(
+          '[Maelstrom] sessionId prop changed after initial mount. ' +
+            'This is ignored — sessionId is captured once on mount. ' +
+            'To switch sessions, unmount and remount the Provider with a new key.',
+        );
+      }
+    }, [sessionId]);
+
     // Orchestrator lifecycle — creates fresh instance per mount, disposes on unmount.
     // StrictMode safe: cleanup disposes the first instance, second setup creates a new one.
     const [orchestrator, setOrchestrator] = useState<InstanceType<typeof Orchestrator> | null>(null);
@@ -72,7 +92,7 @@ export function createProvider(
       let instance: Orchestrator;
       try {
         instance = new Orchestrator(connector, {
-          ...(sessionId && { sessionId }),
+          sessionId: stableSessionId,
           ...(layoutMode && { layoutMode }),
           debug: config.debug,
         });
@@ -100,7 +120,7 @@ export function createProvider(
           console.error('[Maelstrom] Dispose error:', err);
         });
       };
-    }, [connector, sessionId, layoutMode, config.debug]);
+    }, [connector, stableSessionId, layoutMode, config.debug]);
 
     // Context value — recomputes when orchestrator or config changes
     // (registry refs are static but listed to satisfy exhaustive-deps)

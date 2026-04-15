@@ -4,14 +4,31 @@ import type { calendarVessel } from './calendar.vessel';
 
 const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const EVENTS: Record<string, { time: string; title: string; duration: string; color: string }[]> = {
-  Mon: [{ time: '9:00', title: 'Team standup', duration: '30m', color: '#0066ff' }],
+const EVENTS: Record<
+  string,
+  { time: string; title: string; duration: string; color: string }[]
+> = {
+  Mon: [
+    { time: '9:00', title: 'Team standup', duration: '30m', color: '#0066ff' },
+  ],
   Tue: [],
   Wed: [
     { time: '14:00', title: 'Design review', duration: '1h', color: '#00f0ff' },
-    { time: '16:00', title: 'Sprint planning', duration: '45m', color: '#6b00ff' },
+    {
+      time: '16:00',
+      title: 'Sprint planning',
+      duration: '45m',
+      color: '#6b00ff',
+    },
   ],
-  Thu: [{ time: '10:00', title: '1:1 with lead', duration: '30m', color: '#0066ff' }],
+  Thu: [
+    {
+      time: '10:00',
+      title: '1:1 with lead',
+      duration: '30m',
+      color: '#0066ff',
+    },
+  ],
   Fri: [{ time: '15:00', title: 'Demo day', duration: '1h', color: '#00f0ff' }],
   Sat: [],
   Sun: [],
@@ -20,10 +37,26 @@ const EVENTS: Record<string, { time: string; title: string; duration: string; co
 const TODAY_EVENTS = [
   { time: '9:00', title: 'Team standup', duration: '30m', color: '#0066ff' },
   { time: '14:00', title: 'Design review', duration: '1h', color: '#00f0ff' },
-  { time: '16:00', title: 'Sprint planning', duration: '45m', color: '#6b00ff' },
+  {
+    time: '16:00',
+    title: 'Sprint planning',
+    duration: '45m',
+    color: '#6b00ff',
+  },
 ];
 
-const DAY_HOURS = ['8:00', '9:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+const DAY_HOURS = [
+  '8:00',
+  '9:00',
+  '10:00',
+  '11:00',
+  '12:00',
+  '13:00',
+  '14:00',
+  '15:00',
+  '16:00',
+  '17:00',
+];
 
 export default function CalendarComponent({
   variantProps,
@@ -68,8 +101,12 @@ export default function CalendarComponent({
                         borderLeft: `2px solid ${event.color}60`,
                       }}
                     >
-                      <div className="text-[11px] text-white/80 truncate">{event.title}</div>
-                      <div className="text-[10px] text-gray-500 font-mono">{event.time}</div>
+                      <div className="text-[11px] text-white/80 truncate">
+                        {event.title}
+                      </div>
+                      <div className="text-[10px] text-gray-500 font-mono">
+                        {event.time}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -101,7 +138,9 @@ export default function CalendarComponent({
                     }}
                   >
                     <div className="text-sm text-white/80">{event.title}</div>
-                    <div className="text-xs text-gray-500 font-mono mt-0.5">{event.duration}</div>
+                    <div className="text-xs text-gray-500 font-mono mt-0.5">
+                      {event.duration}
+                    </div>
                   </div>
                 ) : (
                   <div className="flex-1 h-px bg-white/5" />
@@ -117,8 +156,18 @@ export default function CalendarComponent({
   // Month view (default)
   const today = new Date();
   const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
   const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -139,7 +188,9 @@ export default function CalendarComponent({
       <div className="flex-1 flex flex-col">
         <div className="grid grid-cols-7 gap-1 text-xs text-gray-500 mb-2">
           {dayNames.map((day) => (
-            <div key={day} className="text-center font-mono">{day}</div>
+            <div key={day} className="text-center font-mono">
+              {day}
+            </div>
           ))}
         </div>
         <div className="grid grid-cols-7 gap-1 flex-1">

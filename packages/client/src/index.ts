@@ -110,6 +110,9 @@ export type {
   OrchestratorViewState,
   ResolvedOrchestratorOptions,
 } from './lib/orchestrator/orchestrator.types.js';
+// Identity primitives re-exported from protocol for convenience.
+// Each name exports both the branded type and the factory function.
+export { MessageId, SessionId } from '@maelstrom-co/protocol-old';
 export type {
   RequestCoordinatorEvents,
   RequestCoordinatorState,

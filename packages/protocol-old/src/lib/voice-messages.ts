@@ -190,10 +190,10 @@ export interface VoiceErrorMessage extends TimeEvent {
 export interface SpeakMessageCommand extends TimeEvent {
   type: 'client.voice.speak';
   sessionId: string;
+  /** Unique message identifier. Used for deduplication and history correlation. */
+  id: string;
   /** Text to speak and add to history */
   text: string;
-  /** Optional identifier to prevent duplicate messages (e.g., 'greeting') */
-  dedupeKey?: string;
 }
 
 /**
@@ -204,6 +204,8 @@ export interface SpeakMessageCommand extends TimeEvent {
 export interface AddAssistantMessageCommand extends TimeEvent {
   type: 'client.history.add_assistant_message';
   sessionId: string;
+  /** Unique message identifier. Used for deduplication and history correlation. */
+  id: string;
   /** Text to add to conversation history */
   message: string;
 }

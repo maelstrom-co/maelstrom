@@ -4,6 +4,7 @@ import type {
   UpdateReason,
   VesselMutationReason,
 } from '@maelstrom-co/protocol-old';
+import { MessageId } from '@maelstrom-co/protocol-old';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
@@ -70,6 +71,7 @@ export class Orchestrator {
     // Create microkernels
     this.#connectionManager = new ConnectionManager(connector, {
       debug: this.#config.debug,
+      sessionId: this.#config.sessionId,
       ...this.#config.connection,
     });
     this.#commandProcessor = new CommandProcessor({
@@ -209,7 +211,7 @@ export class Orchestrator {
 
   async addAssistantMessage(message: string): Promise<void> {
     const assistantMessage: AssistantMessage = {
-      sessionId: this.#config.sessionId,
+      id: MessageId(),
       message,
     };
     await this.#connector.addAssistantMessage(assistantMessage);

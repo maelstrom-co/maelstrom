@@ -16,13 +16,15 @@ const SEED_ENTRIES: JournalEntry[] = [
   {
     id: '1',
     title: 'Project kickoff',
-    content: 'Discussed roadmap and milestones for Q2. Team aligned on priorities.',
+    content:
+      'Discussed roadmap and milestones for Q2. Team aligned on priorities.',
     date: 'Apr 3, 2026',
   },
   {
     id: '2',
     title: 'Architecture review',
-    content: 'Reviewed the new module boundaries. Agreed to split the auth service.',
+    content:
+      'Reviewed the new module boundaries. Agreed to split the auth service.',
     date: 'Apr 4, 2026',
   },
 ];
@@ -82,7 +84,9 @@ export default function JournalComponent({
           </div>
           <div className="flex-1 text-sm text-white/70 leading-relaxed whitespace-pre-wrap">
             {activeEntry.content || (
-              <span className="text-gray-600 italic">Waiting for content...</span>
+              <span className="text-gray-600 italic">
+                Waiting for content...
+              </span>
             )}
           </div>
           <div className="flex items-center gap-1.5 mt-3 text-xs text-seafoam-accent/50 font-mono">
@@ -96,15 +100,23 @@ export default function JournalComponent({
 
   // List view (default)
   return (
-    <VesselCard accent="seafoam" label="Journal" meta={`${entries.length} entries`}>
+    <VesselCard
+      accent="seafoam"
+      label="Journal"
+      meta={`${entries.length} entries`}
+    >
       <div className="flex-1 space-y-1">
         {entries.map((entry) => (
           <div
             key={entry.id}
             className="py-2.5 border-b border-seafoam-accent/6"
           >
-            <div className="text-sm font-medium text-white/85">{entry.title}</div>
-            <div className="text-xs text-gray-500 font-mono mt-0.5">{entry.date}</div>
+            <div className="text-sm font-medium text-white/85">
+              {entry.title}
+            </div>
+            <div className="text-xs text-gray-500 font-mono mt-0.5">
+              {entry.date}
+            </div>
             {entry.content && (
               <div className="text-xs text-gray-500 mt-1 line-clamp-2">
                 {entry.content}

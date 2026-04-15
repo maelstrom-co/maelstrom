@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { LayoutMode } from '@maelstrom-co/protocol-old';
-import { defineVessel } from '@maelstrom-co/protocol-old';
+import { defineVessel, SessionId } from '@maelstrom-co/protocol-old';
 
 import type { VesselInstance } from '../types.js';
 import { buildChartRequest } from './build-chart-request.js';
@@ -28,7 +28,7 @@ function buildParams(overrides: Record<string, unknown> = {}) {
     chartDimensions: { columns: 12, rows: 8 },
     layout: null,
     vessels: [testVessel],
-    config: { sessionId: 'session-1', layoutMode: 'tiling' as LayoutMode },
+    config: { sessionId: SessionId('session-1'), layoutMode: 'tiling' as LayoutMode },
     ...overrides,
   };
 }
@@ -79,7 +79,7 @@ describe('buildChartRequest', () => {
   it('should default to empty grid layout when layout is null and mode is grid', () => {
     const request = buildChartRequest(
       buildParams({
-        config: { sessionId: 'session-1', layoutMode: 'grid' as LayoutMode },
+        config: { sessionId: SessionId('session-1'), layoutMode: 'grid' as LayoutMode },
       }),
     );
 

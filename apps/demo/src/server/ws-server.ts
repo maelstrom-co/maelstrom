@@ -255,6 +255,7 @@ app.get(
               );
               try {
                 await engine.addAssistantMessage({
+                  id: message.id,
                   sessionId,
                   message: message.text,
                 });
@@ -271,6 +272,7 @@ app.get(
               );
               try {
                 await engine.addAssistantMessage({
+                  id: message.id,
                   sessionId,
                   message: message.message,
                 });

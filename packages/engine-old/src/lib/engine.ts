@@ -3,14 +3,14 @@ import type {
   MaelstromResponse,
 } from '@maelstrom-co/protocol-old';
 
-import type { AssistantMessage } from './history/history-manager.js';
+import type { AssistantMessageInput } from './history/history-manager.js';
 import { createHistoryManager } from './history/index.js';
 import { buildPrompt } from './prompt-builder.js';
 import { buildResponse } from './response-parser.js';
 import type { EngineConfig, LLMResponse, RetryConfig } from './types.js';
 import { EngineError } from './types.js';
 
-export type { AssistantMessage } from './history/history-manager.js';
+export type { AssistantMessageInput } from './history/history-manager.js';
 
 /**
  * The Maelstrom decision engine.
@@ -31,7 +31,7 @@ export interface Engine {
    * Useful for injecting programmatic messages into the conversation.
    * Throws if history is not configured.
    */
-  addAssistantMessage(message: AssistantMessage): Promise<void>;
+  addAssistantMessage(message: AssistantMessageInput): Promise<void>;
 }
 
 /**
@@ -125,7 +125,7 @@ export function createEngine(config: EngineConfig): Engine {
       },
     }),
 
-    async addAssistantMessage(message: AssistantMessage): Promise<void> {
+    async addAssistantMessage(message: AssistantMessageInput): Promise<void> {
       if (!historyManager) {
         throw new EngineError(
           'LLM_ERROR',
