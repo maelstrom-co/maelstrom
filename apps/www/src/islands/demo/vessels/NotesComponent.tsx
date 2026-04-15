@@ -1,8 +1,9 @@
-import type { VesselComponentProps } from '@maelstrom-co/react-old';
+import type { TypedVesselProps } from '@maelstrom-co/react';
 
+import type { notesVessel } from './notes.vessel';
 import VesselCard from './VesselCard';
 
-export default function NotesComponent(_props: VesselComponentProps) {
+export default function NotesComponent(_props: TypedVesselProps<typeof notesVessel>) {
   return (
     <VesselCard accent="#00ffa3" label="Notes" meta="Mar 24">
       <div className="text-[11px] text-text-muted/60 font-medium mb-2">Meeting Notes</div>

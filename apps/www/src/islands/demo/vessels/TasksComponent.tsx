@@ -1,8 +1,8 @@
 import { Success } from '@maelstrom-co/protocol-old';
-import type { VesselComponentProps } from '@maelstrom-co/react-old';
-import { useVesselActions } from '@maelstrom-co/react-old';
+import type { TypedVesselProps } from '@maelstrom-co/react';
 import { useState } from 'react';
 
+import { m } from '../maelstrom';
 import type { tasksVessel } from './tasks.vessel';
 import VesselCard from './VesselCard';
 
@@ -11,10 +11,10 @@ const TASKS = [
   { title: 'Setup CI', done: true },
 ];
 
-export default function TasksComponent({ instance }: VesselComponentProps) {
+export default function TasksComponent({ instanceId }: TypedVesselProps<typeof tasksVessel>) {
   const [extraTasks, setExtraTasks] = useState<string[]>([]);
 
-  useVesselActions<typeof tasksVessel>(instance.instanceId, {
+  m.useActions('tasks', instanceId, {
     addTask: async ({ title }) => {
       setExtraTasks((prev) => [...prev, title]);
       return Success<undefined>();

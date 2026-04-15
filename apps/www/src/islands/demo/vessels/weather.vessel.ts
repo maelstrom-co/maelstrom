@@ -1,6 +1,6 @@
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol-old';
 
-export const weatherVessel: Vessel = {
+export const weatherVessel = defineVessel({
   id: 'weather',
   name: 'Weather',
   description: 'Weather widget showing current conditions and forecast.',
@@ -21,4 +21,4 @@ export const weatherVessel: Vessel = {
       ],
     },
   },
-};
+});

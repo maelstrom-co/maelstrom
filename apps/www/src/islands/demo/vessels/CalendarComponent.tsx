@@ -1,5 +1,6 @@
-import type { VesselComponentProps } from '@maelstrom-co/react-old';
+import type { TypedVesselProps } from '@maelstrom-co/react';
 
+import type { calendarVessel } from './calendar.vessel';
 import VesselCard from './VesselCard';
 
 const EVENTS = [
@@ -8,8 +9,8 @@ const EVENTS = [
   { time: '16:00', title: 'Sprint planning', duration: '45m', color: '#6b00ff' },
 ];
 
-export default function CalendarComponent({ instance }: VesselComponentProps) {
-  const isWeek = instance.variant === 'week';
+export default function CalendarComponent({ variantProps }: TypedVesselProps<typeof calendarVessel>) {
+  const isWeek = variantProps.variant === 'week';
   const visibleEvents = isWeek ? EVENTS : EVENTS.slice(0, 2);
 
   return (

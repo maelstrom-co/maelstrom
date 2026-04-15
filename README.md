@@ -125,7 +125,7 @@ The protocol defines the message contract. Transport (WebSocket, HTTP, etc.) is 
 | Package                              | Description                       | Documentation                      |
 | ------------------------------------ | --------------------------------- | ---------------------------------- |
 | [`@maelstrom-co/client`](./client/core) | Framework-agnostic client library | [README](./client/core/README.md)  |
-| [`@maelstrom-co/react-old`](./client/react) | React bindings and components     | [README](./client/react/README.md) |
+| [`@maelstrom-co/react`](./packages/react) | React bindings and components     | [README](./packages/react/README.md) |
 
 ### Server
 
@@ -190,7 +190,7 @@ This is an Nx monorepo using:
 - **TypeScript** - Type-safe code across all packages
 - **Vite** - Fast builds and dev server
 - **Vitest** - Testing framework
-- **React 19** - UI framework (for `@maelstrom-co/react-old`)
+- **React 19** - UI framework (for `@maelstrom-co/react`)
 
 ### Commands
 

@@ -1,5 +1,6 @@
-import type { VesselComponentProps } from '@maelstrom-co/react-old';
+import type { TypedVesselProps } from '@maelstrom-co/react';
 
+import type { weatherVessel } from './weather.vessel';
 import VesselCard from './VesselCard';
 
 const DAYS = ['Thu', 'Fri', 'Sat', 'Sun', 'Mon'];
@@ -8,8 +9,8 @@ const ICONS = ['⛅', '☀️', '☀️', '⛅', '🌤'];
 const MIN_TEMP = 64;
 const MAX_TEMP = 76;
 
-export default function WeatherComponent({ instance }: VesselComponentProps) {
-  const isFull = instance.variant === 'full';
+export default function WeatherComponent({ variantProps }: TypedVesselProps<typeof weatherVessel>) {
+  const isFull = variantProps.variant === 'full';
 
   return (
     <VesselCard accent="#00f0ff" label={isFull ? 'Weather Forecast' : 'Weather'} meta="San Francisco">

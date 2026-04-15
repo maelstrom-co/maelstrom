@@ -1,24 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { MaelstromProvider, TilingChart, useMaelstrom, useVesselRegistration } from '@maelstrom-co/react-old';
 import { DemoConnector, DEMO_STEPS } from './connector';
-import { weatherRegistration, calendarRegistration, notesRegistration, tasksRegistration } from './registrations';
-
-// ── Vessel Registrations (must be inside MaelstromProvider) ──────────
-
-function DemoVesselRegistrations() {
-  useVesselRegistration(weatherRegistration);
-  useVesselRegistration(calendarRegistration);
-  useVesselRegistration(notesRegistration);
-  useVesselRegistration(tasksRegistration);
-  return null;
-}
+import { m } from './maelstrom';
 
 // ── Demo UI (uses useMaelstrom for real orchestrator integration) ────
 
 function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
-  const { processIntent, isProcessing, lastResponse, connectionStatus } = useMaelstrom();
+  const { processIntent, isProcessing, connectionStatus } = m.useMaelstrom();
   const [typedText, setTypedText] = useState('');
   const [phase, setPhase] = useState<'idle' | 'typing' | 'processing' | 'rearranged'>('idle');
+  const [rationale, setRationale] = useState<string | null>(null);
   const initializedRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -37,7 +27,7 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
     if (intervalRef.current) clearInterval(intervalRef.current);
   }, []);
 
-  const typeAndProcess = useCallback((prompt: string, onDone: () => void) => {
+  const typeAndProcess = useCallback((prompt: string, stepIndex: number, onDone: () => void) => {
     setTypedText('');
     setPhase('typing');
 
@@ -50,6 +40,7 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
         timeoutRef.current = setTimeout(async () => {
           setPhase('processing');
           await processIntentRef.current(prompt);
+          setRationale(DEMO_STEPS[stepIndex].rationale);
           onDone();
         }, 500);
       }
@@ -60,12 +51,12 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
     if (phaseRef.current !== 'idle') return;
 
     // Step 1: type + process first prompt
-    typeAndProcess(DEMO_STEPS[1].prompt!, () => {
+    typeAndProcess(DEMO_STEPS[1].prompt!, 1, () => {
       setPhase('rearranged');
 
       // Step 2: after a pause, type + process second prompt
       timeoutRef.current = setTimeout(() => {
-        typeAndProcess(DEMO_STEPS[2].prompt!, () => {
+        typeAndProcess(DEMO_STEPS[2].prompt!, 2, () => {
           setPhase('rearranged');
           // Auto-replay after showing final state
           timeoutRef.current = setTimeout(() => onRequestResetRef.current(), 6000);
@@ -95,7 +86,7 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
     return () => { clearTimeout(initTimer); cleanup(); };
   }, [connectionStatus, runDemo, cleanup]);
 
-  const showRationale = phase === 'rearranged' && lastResponse;
+  const showRationale = phase === 'rearranged' && rationale;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -200,7 +191,7 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
             </div>
           )}
 
-          <TilingChart backgroundColor="transparent" />
+          <m.Chart style={{ backgroundColor: 'transparent' }} />
         </div>
       </div>
 
@@ -224,7 +215,7 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
           </div>
           <p className="text-xs text-text-muted font-mono leading-relaxed">
             <span className="text-cyan/70 mr-1">reasoning</span>
-            {lastResponse?.rationale ?? '\u00A0'}
+            {rationale ?? '\u00A0'}
           </p>
         </div>
       </div>
@@ -256,9 +247,8 @@ export default function LiveDemo() {
   const connector = useMemo(() => new DemoConnector(), [cycleKey]);
 
   return (
-    <MaelstromProvider key={cycleKey} connector={connector} layoutMode="tiling" tilingPadding={4}>
-      <DemoVesselRegistrations />
+    <m.Provider key={cycleKey} connector={connector} layoutMode="tiling" tilingPaddingPx={4}>
       <DemoUI onRequestReset={() => setCycleKey((k) => k + 1)} />
-    </MaelstromProvider>
+    </m.Provider>
   );
 }

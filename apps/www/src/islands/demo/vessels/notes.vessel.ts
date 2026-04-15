@@ -1,6 +1,6 @@
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol-old';
 
-export const notesVessel: Vessel = {
+export const notesVessel = defineVessel({
   id: 'notes',
   name: 'Notes',
   description: 'Quick notes widget.',
@@ -12,4 +12,4 @@ export const notesVessel: Vessel = {
       actions: [],
     },
   },
-};
+});

@@ -19,9 +19,6 @@
       "path": "./packages/engine-old"
     },
     {
-      "path": "./packages/react-old"
-    },
-    {
       "path": "./packages/voice-old"
     },
     {

@@ -12,7 +12,7 @@
     "@astrojs/sitemap": "catalog:",
     "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/protocol-old": "workspace:*",
-    "@maelstrom-co/react-old": "workspace:*",
+    "@maelstrom-co/react": "workspace:*",
     "@radix-ui/react-scroll-area": "catalog:",
     "astro": "catalog:",
     "react": "catalog:",
@@ -27,6 +27,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "tailwindcss": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vite-tsconfig-paths": "catalog:"
   }
 }

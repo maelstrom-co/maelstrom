@@ -1,6 +1,6 @@
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol-old';
 
-export const calendarVessel: Vessel = {
+export const calendarVessel = defineVessel({
   id: 'calendar',
   name: 'Calendar',
   description: 'Calendar showing events. Supports month and week views.',
@@ -21,4 +21,4 @@ export const calendarVessel: Vessel = {
       ],
     },
   },
-};
+});

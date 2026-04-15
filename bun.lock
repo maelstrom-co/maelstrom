@@ -109,7 +109,7 @@
         "@astrojs/sitemap": "catalog:",
         "@maelstrom-co/client": "workspace:*",
         "@maelstrom-co/protocol-old": "workspace:*",
-        "@maelstrom-co/react-old": "workspace:*",
+        "@maelstrom-co/react": "workspace:*",
         "@radix-ui/react-scroll-area": "catalog:",
         "astro": "catalog:",
         "react": "catalog:",
@@ -125,6 +125,7 @@
         "@types/react-dom": "catalog:",
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
+        "vite-tsconfig-paths": "catalog:",
       },
     },
     "packages/client": {
@@ -140,7 +141,7 @@
     },
     "packages/engine": {
       "name": "@maelstrom-co/engine",
-      "version": "0.0.8-prealpha.0",
+      "version": "0.0.9-prealpha.0",
       "dependencies": {
         "@maelstrom-co/protocol": "0.0.8-prealpha.0",
         "@tanstack/ai": "catalog:",
@@ -161,7 +162,7 @@
     },
     "packages/protocol": {
       "name": "@maelstrom-co/protocol",
-      "version": "0.0.8-prealpha.0",
+      "version": "0.0.9-prealpha.0",
     },
     "packages/protocol-old": {
       "name": "@maelstrom-co/protocol-old",
@@ -191,28 +192,6 @@
       "optionalPeers": [
         "@maelstrom-co/voice-old",
       ],
-    },
-    "packages/react-old": {
-      "name": "@maelstrom-co/react-old",
-      "version": "0.0.9-prealpha.0",
-      "dependencies": {
-        "@maelstrom-co/client": "0.0.9-prealpha.0",
-        "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
-        "@maelstrom-co/voice-old": "0.0.9-prealpha.0",
-        "@tanstack/react-store": "catalog:",
-        "@tanstack/store": "catalog:",
-        "onnxruntime-web": "catalog:",
-      },
-      "devDependencies": {
-        "@testing-library/jest-dom": "catalog:",
-        "@testing-library/react": "catalog:",
-        "happy-dom": "catalog:",
-        "jsdom": "catalog:",
-      },
-      "peerDependencies": {
-        "react": ">=18.0.0",
-        "react-dom": ">=18.0.0",
-      },
     },
     "packages/voice-old": {
       "name": "@maelstrom-co/voice-old",
@@ -844,8 +823,6 @@
     "@maelstrom-co/protocol-old": ["@maelstrom-co/protocol-old@workspace:packages/protocol-old"],
 
     "@maelstrom-co/react": ["@maelstrom-co/react@workspace:packages/react"],
-
-    "@maelstrom-co/react-old": ["@maelstrom-co/react-old@workspace:packages/react-old"],
 
     "@maelstrom-co/voice-old": ["@maelstrom-co/voice-old@workspace:packages/voice-old"],
 

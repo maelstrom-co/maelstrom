@@ -34,6 +34,7 @@ export default defineConfig(() => ({
         '@maelstrom-co/protocol-old',
         '@maelstrom-co/client',
         '@tanstack/react-store',
+        '@maelstrom-co/voice-old',
       ],
     },
   },

@@ -16,7 +16,7 @@ Maelstrom is designed as a layered architecture with clear separation of concern
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Framework Bindings                           │
-│  @maelstrom-co/react-old (or Vue, Svelte, etc. in the future)          │
+│  @maelstrom-co/react (or Vue, Svelte, etc. in the future)              │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
@@ -383,7 +383,7 @@ These enable:
 @maelstrom-co/client   @maelstrom-co/engine-old
          │
          ▼
-@maelstrom-co/react-old
+@maelstrom-co/react
 ```
 
 ### Why This Structure?

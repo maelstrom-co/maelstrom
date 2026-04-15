@@ -13,7 +13,7 @@ const steps = [
     dotClass: 'bg-cyan shadow-[0_0_12px_rgba(0,240,255,0.5)]',
     filename: 'orders.vessel.ts',
     lang: 'typescript' as const,
-    code: `import { defineVessel } from '@maelstrom-co/protocol';
+    code: `import { defineVessel } from '@maelstrom-co/protocol-old';
 
 export const ordersVessel = defineVessel({
   id: 'orders',
@@ -22,17 +22,20 @@ export const ordersVessel = defineVessel({
   defaultVariant: 'list',
   variants: {
     list: {
+      props: {},
       minSize: { width: 4, height: 3 },
       actions: [
         { name: 'selectOrder',
-          params: [{ name: 'orderId', type: 'string' }],
+          description: 'Open a specific order',
+          parameters: [{ name: 'orderId', type: 'string', description: 'Order ID' }],
           transitionsTo: 'details' },
       ],
     },
     details: {
+      props: {},
       minSize: { width: 6, height: 5 },
       actions: [
-        { name: 'close', transitionsTo: 'list' },
+        { name: 'close', description: 'Return to list', transitionsTo: 'list' },
       ],
     },
   },
@@ -40,16 +43,34 @@ export const ordersVessel = defineVessel({
   },
   {
     number: '02',
-    title: 'User Intent',
-    description: "Voice or text — same API. The user says what they want, and the AI figures out the rest.",
+    title: 'Create Your Instance',
+    description: "Wire vessels to components and create a typed Maelstrom instance. One factory call gives you everything — Provider, Chart, and fully typed hooks.",
     accentClass: 'text-blue',
     dotClass: 'bg-blue shadow-[0_0_12px_rgba(0,102,255,0.5)]',
+    filename: 'maelstrom.ts',
+    lang: 'typescript' as const,
+    code: `import { createMaelstrom, vessel } from '@maelstrom-co/react';
+import { ordersVessel } from './orders.vessel';
+import OrdersComponent from './OrdersComponent';
+
+const ordersEntry = vessel(ordersVessel, OrdersComponent);
+
+export const m = createMaelstrom({
+  vessels: [ordersEntry],
+});`,
+  },
+  {
+    number: '03',
+    title: 'User Intent',
+    description: "Voice or text — same API. The user says what they want, and the AI figures out the rest.",
+    accentClass: 'text-seafoam',
+    dotClass: 'bg-seafoam shadow-[0_0_12px_rgba(0,255,163,0.5)]',
     filename: 'Dashboard.tsx',
     lang: 'tsx' as const,
-    code: `import { useMaelstrom } from '@maelstrom-co/react';
+    code: `import { m } from './maelstrom';
 
 function Dashboard() {
-  const { processIntent } = useMaelstrom();
+  const { processIntent } = m.useMaelstrom();
 
   // That's it. One line.
   // "Show me pending orders"
@@ -59,7 +80,7 @@ function Dashboard() {
 }`,
   },
   {
-    number: '03',
+    number: '04',
     title: 'Engine Decides',
     description: 'The AI sees your entire UI — every vessel, every state, every pixel of available space. It returns a precise plan: which actions to fire and where to place each component.',
     accentClass: 'text-violet',
@@ -86,18 +107,19 @@ function Dashboard() {
 }`,
   },
   {
-    number: '04',
+    number: '05',
     title: 'UI Responds',
     description: "Components transition, the layout shifts, everything updates — instantly and type-safe. Your code stays predictable while the AI orchestrates the experience.",
-    accentClass: 'text-seafoam',
-    dotClass: 'bg-seafoam shadow-[0_0_12px_rgba(0,255,163,0.5)]',
+    accentClass: 'text-cyan',
+    dotClass: 'bg-cyan shadow-[0_0_12px_rgba(0,240,255,0.5)]',
     filename: 'App.tsx',
     lang: 'tsx' as const,
-    code: `import { useVesselActions } from '@maelstrom-co/react';
+    code: `import { Success } from '@maelstrom-co/protocol-old';
+import { m } from './maelstrom';
 
-function OrdersVessel() {
+function OrdersVessel({ instanceId }) {
   // Type-safe action handlers
-  useVesselActions('orders-1', {
+  m.useActions('orders', instanceId, {
     selectOrder: async ({ orderId }) => {
       loadOrder(orderId);
       return Success();

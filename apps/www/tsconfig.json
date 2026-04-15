@@ -14,7 +14,7 @@
   ],
   "references": [
     {
-      "path": "../../packages/react-old"
+      "path": "../../packages/react"
     },
     {
       "path": "../../packages/protocol-old"

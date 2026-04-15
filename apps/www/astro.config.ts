@@ -3,6 +3,7 @@ import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, fontProviders } from 'astro/config';
+import tsConfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
   site: 'https://maelstrom-ai.co',
@@ -10,7 +11,7 @@ export default defineConfig({
   adapter: cloudflare(),
   integrations: [react(), sitemap()],
   vite: {
-    plugins: [tailwindcss()],
+    plugins: [tsConfigPaths({ root: '../..' }), tailwindcss()],
   },
   srcDir: './src',
   outDir: './dist',
