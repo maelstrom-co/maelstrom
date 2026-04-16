@@ -649,7 +649,11 @@ describe('m.useVessel() — optimistic transitions', () => {
   });
 
   it('does not set optimistic variant when transitionsTo references a non-existent variant', async () => {
-    // Vessel with a transitionsTo pointing to a variant that doesn't exist
+    // VesselSchema now rejects transitionsTo → non-existent variants at
+    // registration time, so we construct a valid vessel (both variants present)
+    // and then mutate the live object *after* registration to simulate state
+    // drift at runtime. This still exercises the defensive branch in
+    // useOptimisticVariant.applyTransition as belt-and-suspenders.
     const badVessel = defineVessel({
       id: 'bad-transitions',
       name: 'Bad Transitions',
@@ -666,6 +670,13 @@ describe('m.useVessel() — optimistic transitions', () => {
               transitionsTo: 'ghost-variant',
             },
           ],
+        },
+        // Valid at registration so VesselSchema passes — deleted below to
+        // simulate runtime drift before the action fires.
+        'ghost-variant': {
+          props: {},
+          minSize: { width: 1, height: 1 },
+          actions: [],
         },
       },
     });
@@ -721,7 +732,11 @@ describe('m.useVessel() — optimistic transitions', () => {
 
     expect(props!.variantProps.variant).toBe('main');
 
-    // executeAction with transitionsTo pointing to non-existent variant
+    // Simulate runtime drift: the action still points at 'ghost-variant',
+    // but the target variant no longer exists on the live vessel object.
+    delete (badVessel.variants as Record<string, unknown>)['ghost-variant'];
+
+    // executeAction with transitionsTo pointing to a now-missing variant
     await act(async () => {
       props!.executeAction('goToGhost');
     });

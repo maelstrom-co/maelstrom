@@ -1,10 +1,10 @@
+import type { MaelstromResponse, Result } from '@maelstrom-co/protocol';
+import { err, isErr, ok } from '@maelstrom-co/protocol';
 import type { ChartRequest } from '@maelstrom-co/protocol-old';
 import {
   GridResponseSchema,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol-old';
-import type { MaelstromResponse, Result } from '@maelstrom-co/protocol';
-import { err, isErr, ok } from '@maelstrom-co/protocol';
 import { chat } from '@tanstack/ai';
 
 import type { EngineConfig } from './config.js';
@@ -149,18 +149,25 @@ export function createEngine(config: EngineConfig): Engine {
       }
 
       logger.debug('LLM response received', { requestId: request.id });
-      const responseResult = processResponse(
-        llmResult.value,
-        request,
-        logger,
-      );
-      if (isErr(responseResult)) {
+      const processed = processResponse(llmResult.value, request, logger);
+      if (isErr(processed)) {
         logger.error('Failed to process LLM response', {
           requestId: request.id,
-          error: responseResult.error.message,
+          error: processed.error.message,
+        });
+        return processed;
+      }
+
+      // Strip engine-internal diagnostics before crossing the engine boundary.
+      const { diagnostics, ...response } = processed.value;
+      if (diagnostics.skippedActions.length > 0) {
+        logger.info('Response processed with skipped actions', {
+          requestId: request.id,
+          skipped: diagnostics.skippedActions.length,
+          total: llmResult.value.executionPlan.length,
         });
       }
-      return responseResult;
+      return ok(response);
     },
   };
 }

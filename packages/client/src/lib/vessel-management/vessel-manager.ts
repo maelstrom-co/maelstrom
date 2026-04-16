@@ -96,7 +96,7 @@ export class VesselManager {
 
     this.#logger.info(`Registered vessel "${vessel.id}"`);
 
-    return { valid: true, issues: [] };
+    return { valid: true };
   }
 
   /**

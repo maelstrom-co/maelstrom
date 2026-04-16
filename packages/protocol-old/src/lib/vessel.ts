@@ -49,6 +49,35 @@ export const VesselSchema = z
         path: ['defaultVariant'],
       });
     }
+
+    // Validate each variant's actions: unique names + transitionsTo graph integrity.
+    // Catching these at schema time means the engine's runtime simulation can trust
+    // that every reachable variant exists and that action lookups are unambiguous.
+    for (const [variantName, variant] of Object.entries(vessel.variants)) {
+      const seenActionNames = new Set<string>();
+      for (let i = 0; i < variant.actions.length; i++) {
+        const action = variant.actions[i];
+        if (!action) continue;
+
+        if (seenActionNames.has(action.name)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Duplicate action name "${action.name}" in variant "${variantName}"`,
+            path: ['variants', variantName, 'actions', i, 'name'],
+          });
+        } else {
+          seenActionNames.add(action.name);
+        }
+
+        if (action.transitionsTo && !vessel.variants[action.transitionsTo]) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Action "${action.name}" in variant "${variantName}" transitions to non-existent variant "${action.transitionsTo}"`,
+            path: ['variants', variantName, 'actions', i, 'transitionsTo'],
+          });
+        }
+      }
+    }
   });
 
 // ============================================================================
@@ -63,15 +92,24 @@ export type VesselAction = z.infer<typeof VesselActionSchema>;
 export type VesselVariant = z.infer<typeof VesselVariantSchema>;
 /** Definition of a Vessel as a state machine */
 export type Vessel = z.infer<typeof VesselSchema>;
-/** The result of validating a Vessel object. */
-export interface VesselValidationResult {
-  valid: boolean;
-  issues: Array<{
-    code: string;
-    path: (string | number | symbol)[];
-    message: string;
-  }>;
+/** A single validation issue surfaced by {@link validateVessel}. */
+export interface ValidationIssue {
+  readonly code: string;
+  readonly path: readonly (string | number)[];
+  readonly message: string;
 }
+
+/**
+ * The result of validating a Vessel object.
+ *
+ * Discriminated union: the `issues` array is only present (and non-empty by
+ * convention) when `valid` is `false`. The success variant carries no
+ * payload, so constructing `{ valid: true, issues: [...] }` or
+ * `{ valid: false, issues: [] }` is a compile error.
+ */
+export type VesselValidationResult =
+  | { readonly valid: true }
+  | { readonly valid: false; readonly issues: readonly ValidationIssue[] };
 
 /**
  * Helper to define a vessel while preserving literal types.
@@ -93,14 +131,16 @@ export function validateVessel(vessel: unknown): VesselValidationResult {
   const result = VesselSchema.safeParse(vessel);
 
   if (result.success) {
-    return { valid: true, issues: [] };
+    return { valid: true };
   }
 
   return {
     valid: false,
     issues: result.error.issues.map((issue) => ({
       code: issue.code,
-      path: issue.path,
+      path: issue.path.filter(
+        (p): p is string | number => typeof p !== 'symbol',
+      ),
       message: issue.message,
     })),
   };

@@ -67,7 +67,6 @@ describe('VesselManager', () => {
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(true);
-      expect(result.issues).toHaveLength(0);
       expect(manager.has(vessel.id)).toBe(true);
     });
 
@@ -116,6 +115,7 @@ describe('VesselManager', () => {
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
+      if (result.valid) return;
       expect(result.issues.length).toBeGreaterThan(0);
       expect(result.issues[0].message).toContain('id');
     });
@@ -125,6 +125,7 @@ describe('VesselManager', () => {
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
+      if (result.valid) return;
       expect(result.issues.length).toBeGreaterThan(0);
     });
 
@@ -133,6 +134,7 @@ describe('VesselManager', () => {
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
+      if (result.valid) return;
       expect(result.issues.length).toBeGreaterThan(0);
     });
 
@@ -141,6 +143,7 @@ describe('VesselManager', () => {
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
+      if (result.valid) return;
       expect(result.issues.length).toBeGreaterThan(0);
     });
 
@@ -149,6 +152,7 @@ describe('VesselManager', () => {
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
+      if (result.valid) return;
       expect(result.issues.length).toBeGreaterThan(0);
     });
 
