@@ -12,7 +12,6 @@ import { err, InstanceId, isErr, ok } from '@maelstrom-co/protocol';
 import type {
   ChartRequest,
   GridResponse,
-  TilingResponse,
   Vessel,
   VesselAction,
   VesselInstanceSnapshot,
@@ -22,12 +21,7 @@ import type {
 import type { EngineError } from '../errors.js';
 import { parseError } from '../errors.js';
 import type { Logger } from '../logger.js';
-
-// ---------------------------------------------------------------------------
-// Internal type aliases
-// ---------------------------------------------------------------------------
-
-export type LLMOutput = GridResponse | TilingResponse;
+import type { LLMOutput } from '../pipeline/call-llm.js';
 
 type RawActionExecution = GridResponse['executionPlan'][number];
 
