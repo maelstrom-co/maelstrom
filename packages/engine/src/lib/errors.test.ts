@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  cancellationError,
   parseError,
   providerError,
   timeoutError,
@@ -25,12 +26,19 @@ describe('Error constructors', () => {
     expect(e.stack).toBeString();
   });
 
-  test('validationError creates tagged error with stack', () => {
+  test('validationError creates tagged error with field', () => {
     const e = validationError('missing field', 'name');
     expect(e._tag).toBe('ValidationError');
     expect(e.message).toBe('missing field');
     expect(e.field).toBe('name');
     expect(e.stack).toBeString();
+  });
+
+  test('validationError creates tagged error without field', () => {
+    const e = validationError('general validation failure');
+    expect(e._tag).toBe('ValidationError');
+    expect(e.message).toBe('general validation failure');
+    expect(e.field).toBeUndefined();
   });
 
   test('timeoutError creates tagged error with stack', () => {
@@ -52,6 +60,14 @@ describe('Error constructors', () => {
   test('timeoutError rejects Infinity', () => {
     expect(() => timeoutError('bad', Infinity)).toThrow(RangeError);
   });
+
+  test('cancellationError creates tagged error with stack', () => {
+    const e = cancellationError('aborted by user', 'user cancel');
+    expect(e._tag).toBe('CancellationError');
+    expect(e.message).toBe('aborted by user');
+    expect(e.reason).toBe('user cancel');
+    expect(e.stack).toBeString();
+  });
 });
 
 describe('EngineError pattern matching', () => {
@@ -61,6 +77,7 @@ describe('EngineError pattern matching', () => {
       providerError('b', undefined),
       validationError('c'),
       timeoutError('d', 1000),
+      cancellationError('e', 'reason'),
     ];
 
     const tags = errors.map((e) => {
@@ -73,6 +90,8 @@ describe('EngineError pattern matching', () => {
           return 'validation';
         case 'TimeoutError':
           return 'timeout';
+        case 'CancellationError':
+          return 'cancellation';
         default: {
           const _exhaustive: never = e;
           throw new Error(`Unknown tag: ${(_exhaustive as EngineError)._tag}`);
@@ -80,6 +99,12 @@ describe('EngineError pattern matching', () => {
       }
     });
 
-    expect(tags).toEqual(['parse', 'provider', 'validation', 'timeout']);
+    expect(tags).toEqual([
+      'parse',
+      'provider',
+      'validation',
+      'timeout',
+      'cancellation',
+    ]);
   });
 });

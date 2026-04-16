@@ -25,8 +25,8 @@ export default defineConfig({
     rollupOptions: {
       external: [
         '@maelstrom-co/protocol',
+        '@maelstrom-co/protocol-old',
         '@tanstack/ai',
-        '@tanstack/ai-gemini',
       ],
     },
   },

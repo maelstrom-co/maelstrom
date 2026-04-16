@@ -28,8 +28,8 @@
   },
   "dependencies": {
     "@maelstrom-co/protocol": "0.0.9-prealpha.0",
-    "@tanstack/ai": "catalog:",
-    "@tanstack/ai-gemini": "catalog:"
+    "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
+    "@tanstack/ai": "catalog:"
   },
   "nx": {
     "name": "@maelstrom-co/engine",

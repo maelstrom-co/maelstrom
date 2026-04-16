@@ -144,8 +144,8 @@
       "version": "0.0.9-prealpha.0",
       "dependencies": {
         "@maelstrom-co/protocol": "0.0.8-prealpha.0",
+        "@maelstrom-co/protocol-old": "0.0.8-prealpha.0",
         "@tanstack/ai": "catalog:",
-        "@tanstack/ai-gemini": "catalog:",
       },
     },
     "packages/engine-old": {
@@ -185,7 +185,7 @@
         "happy-dom": "catalog:",
       },
       "peerDependencies": {
-        "@maelstrom-co/voice-old": "0.0.8-prealpha.0",
+        "@maelstrom-co/voice-old": "0.0.9-prealpha.0",
         "react": ">=18.0.0",
         "react-dom": ">=18.0.0",
       },

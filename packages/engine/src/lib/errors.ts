@@ -26,11 +26,19 @@ export interface TimeoutError {
   readonly stack?: string;
 }
 
+export interface CancellationError {
+  readonly _tag: 'CancellationError';
+  readonly message: string;
+  readonly reason: unknown;
+  readonly stack?: string;
+}
+
 export type EngineError =
   | ParseError
   | ProviderError
   | ValidationError
-  | TimeoutError;
+  | TimeoutError
+  | CancellationError;
 
 const captureStack = (message: string): string | undefined =>
   new Error(message).stack;
@@ -78,3 +86,13 @@ export const timeoutError = (
     stack: captureStack(message),
   };
 };
+
+export const cancellationError = (
+  message: string,
+  reason: unknown,
+): CancellationError => ({
+  _tag: 'CancellationError',
+  message,
+  reason,
+  stack: captureStack(message),
+});

@@ -1,5 +1,14 @@
+// Engine
+export type { Engine } from './lib/engine.js';
+export { createEngine } from './lib/engine.js';
+
+// Config
+export type { EngineConfig } from './lib/config.js';
+export { resolveConfig } from './lib/config.js';
+
 // Error types + constructors
 export type {
+  CancellationError,
   EngineError,
   ParseError,
   ProviderError,
@@ -7,19 +16,33 @@ export type {
   TimeoutError,
 } from './lib/errors.js';
 export {
+  cancellationError,
   parseError,
   providerError,
   validationError,
   timeoutError,
 } from './lib/errors.js';
 
-// Config
-export type { EngineConfig } from './lib/config.js';
-export { resolveConfig } from './lib/config.js';
-
 // Logger
 export type { Logger } from './lib/logger.js';
 export { consoleLogger } from './lib/logger.js';
 
-// Utilities
-export { generateId } from './lib/utils/id.js';
+// Prompt sections — types and constants
+export type {
+  PromptSection,
+  SectionCustomizer,
+  SectionExtension,
+  SystemSectionKey,
+  SystemSectionOverrides,
+  UserSectionKey,
+  UserSectionOverrides,
+} from './lib/prompt/sections.js';
+export { SystemSection, UserSection } from './lib/prompt/sections.js';
+
+// Prompt builder
+export type {
+  PromptOptions,
+  PromptResult,
+  PromptVars,
+} from './lib/prompt/prompt-builder.js';
+export { buildPrompt, buildSystemPrompt } from './lib/prompt/prompt-builder.js';
