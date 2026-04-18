@@ -1,5 +1,6 @@
 import type { AssistantMessage, EngineConnector, ConnectorCapabilities, ConnectorEvent, Unsubscribe } from '@maelstrom-co/client';
-import type { ChartRequest, MaelstromResponse, SessionId } from '@maelstrom-co/protocol-old';
+import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol-old';
+import type { SessionId } from '@maelstrom-co/protocol';
 
 export function createMockConnector(overrides?: {
   process?: (request: ChartRequest) => Promise<MaelstromResponse>;

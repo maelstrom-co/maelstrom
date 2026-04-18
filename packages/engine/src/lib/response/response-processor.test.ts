@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { InstanceId, isErr, isOk } from '@maelstrom-co/protocol';
+import { InstanceId, isErr, isOk, MessageId, SessionId } from '@maelstrom-co/protocol';
 import type {
   ChartRequest,
   GridResponse,
@@ -45,7 +45,7 @@ describe('processResponse', () => {
       if (!isOk(result)) return;
 
       expect(result.value.type).toBe('maelstrom_response');
-      expect(result.value.requestId).toBe('req-1');
+      expect(result.value.requestId).toBe(MessageId('req-1'));
       expect(result.value.userMessage).toBe('Here is your calendar!');
       expect(result.value.rationale).toBe('User asked for calendar');
       expect(result.value.layout.type).toBe('grid');
@@ -154,12 +154,12 @@ describe('processResponse', () => {
 
       const request: ChartRequest = {
         type: 'chart_request',
-        id: 'req-tiling-skip',
+        id: MessageId('req-tiling-skip'),
         context: {
           updateReasons: [{ type: 'user_intent', intent: 'Try bad action' }],
           chartDimensions: { columns: 12, rows: 8 },
           timestamp: Date.now(),
-          sessionId: 'session-tiling-skip',
+          sessionId: SessionId('session-tiling-skip'),
           layoutMode: 'tiling',
         },
         instances: [
@@ -672,12 +672,12 @@ describe('processResponse', () => {
       overrides?: Partial<Pick<ChartRequest, 'instances' | 'vessels'>>,
     ): ChartRequest => ({
       type: 'chart_request',
-      id: 'req-tiling',
+      id: MessageId('req-tiling'),
       context: {
         updateReasons: [{ type: 'user_intent', intent: 'Test' }],
         chartDimensions: { columns: 12, rows: 8 },
         timestamp: Date.now(),
-        sessionId: 'session-tiling',
+        sessionId: SessionId('session-tiling'),
         layoutMode: 'tiling',
       },
       instances: overrides?.instances ?? [

@@ -1,4 +1,5 @@
 import type { InstanceId } from './instance.js';
+import type { MessageId } from './message.js';
 
 // ---------------------------------------------------------------------------
 // Action execution — parsed form (params as object, not JSON string)
@@ -49,7 +50,7 @@ export interface TilingLayout {
 
 export interface MaelstromResponse {
   readonly type: 'maelstrom_response';
-  readonly requestId: string;
+  readonly requestId: MessageId;
   readonly userMessage: string;
   readonly rationale: string;
   readonly executionPlan: readonly ActionExecution[];

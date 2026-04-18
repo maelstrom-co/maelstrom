@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type {
   ChartRequest,
   MaelstromResponse,
-  SessionId,
 } from '@maelstrom-co/protocol-old';
+import { MessageId, type SessionId } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { createMockResponse } from '../../../test-utils/mocks.js';
@@ -28,7 +28,7 @@ function createMockConnector(
     connect: mock((_sessionId: SessionId) => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
     process: mock(() =>
-      Promise.resolve(createMockResponse('req-1', 'instance-1', 'show')),
+      Promise.resolve(createMockResponse(MessageId('req-1'), 'instance-1', 'show')),
     ),
     subscribe: mock(
       (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
@@ -164,7 +164,7 @@ describe('Orchestrator', () => {
 
   describe('processIntent', () => {
     it('should send request to connector and process response', async () => {
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -319,7 +319,7 @@ describe('Orchestrator', () => {
       const flushPromise = orchestrator.flushUpdates();
 
       // Resolve the connector
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
       processResolve(mockResponse);
 
       const [intentResult, flushResult] = await Promise.all([
@@ -354,7 +354,7 @@ describe('Orchestrator', () => {
       );
 
       // Resolve first intent to clean up
-      processResolve(createMockResponse('req-1', 'instance-1', 'show'));
+      processResolve(createMockResponse(MessageId('req-1'), 'instance-1', 'show'));
       await firstIntent;
 
       orchestrator.dispose();
@@ -376,7 +376,7 @@ describe('Orchestrator', () => {
     });
 
     it('should send pending updates and return response', async () => {
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -397,7 +397,7 @@ describe('Orchestrator', () => {
     });
 
     it('should send updates automatically after debounce timer', async () => {
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -626,7 +626,7 @@ describe('Orchestrator', () => {
       });
 
       // Resolve the connector
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
       processResolve(mockResponse);
 
       await Promise.all([intentPromise, flushPromise]);
@@ -657,7 +657,7 @@ describe('Orchestrator', () => {
   describe('timer-triggered flush resolves queued promises', () => {
     it('should resolve flush promises after timer-triggered send completes', async () => {
       let processResolve!: (v: MaelstromResponse) => void;
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
 
       const connector = createMockConnector({
         process: mock(
@@ -721,7 +721,7 @@ describe('Orchestrator', () => {
   describe('timer-triggered flush concurrency', () => {
     it('should not send via timer when a request is already in flight', async () => {
       let processResolve!: (v: MaelstromResponse) => void;
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
 
       const connector = createMockConnector({
         process: mock(

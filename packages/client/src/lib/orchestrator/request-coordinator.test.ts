@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import type { ChartRequest } from '@maelstrom-co/protocol-old';
+import { MessageId, SessionId } from '@maelstrom-co/protocol';
 
 import { createMockResponse } from '../../../test-utils/mocks.js';
 import type {
@@ -23,7 +24,7 @@ function createMockConnector(
     connect: mock(() => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
     process: mock(() =>
-      Promise.resolve(createMockResponse('req-1', 'instance-1', 'show')),
+      Promise.resolve(createMockResponse(MessageId('req-1'), 'instance-1', 'show')),
     ),
     subscribe: mock(
       (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
@@ -34,7 +35,7 @@ function createMockConnector(
   };
 }
 
-function createMockRequest(id = 'req-1'): ChartRequest {
+function createMockRequest(id = MessageId('req-1')): ChartRequest {
   return {
     type: 'chart_request',
     id,
@@ -42,7 +43,7 @@ function createMockRequest(id = 'req-1'): ChartRequest {
       updateReasons: [{ type: 'user_intent', intent: 'test' }],
       chartDimensions: { columns: 12, rows: 8 },
       timestamp: Date.now(),
-      sessionId: 'session-1',
+      sessionId: SessionId('session-1'),
       layoutMode: 'tiling',
     },
     instances: [],
@@ -58,7 +59,7 @@ function createMockRequest(id = 'req-1'): ChartRequest {
 describe('RequestCoordinator', () => {
   describe('send', () => {
     it('should call connector.process and return response', async () => {
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -76,7 +77,7 @@ describe('RequestCoordinator', () => {
       let capturedIsProcessing = false;
       const connector = createMockConnector({
         process: mock(async () => {
-          return createMockResponse('req-1', 'instance-1', 'show');
+          return createMockResponse(MessageId('req-1'), 'instance-1', 'show');
         }),
       });
       const coordinator = new RequestCoordinator(connector);
@@ -143,7 +144,7 @@ describe('RequestCoordinator', () => {
     });
 
     it('should update lastResponse on success', async () => {
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -164,7 +165,7 @@ describe('RequestCoordinator', () => {
 
       const flushPromise = coordinator.queueFlush();
 
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
       coordinator.resolveFlushPromises(mockResponse);
 
       const result = await flushPromise;
@@ -180,7 +181,7 @@ describe('RequestCoordinator', () => {
       const flush1 = coordinator.queueFlush();
       const flush2 = coordinator.queueFlush();
 
-      const mockResponse = createMockResponse('req-1', 'instance-1', 'show');
+      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
       coordinator.resolveFlushPromises(mockResponse);
 
       const [r1, r2] = await Promise.all([flush1, flush2]);
@@ -212,6 +213,26 @@ describe('RequestCoordinator', () => {
     });
   });
 
+  describe('brand preservation', () => {
+    it('round-trips MessageId from request through process() to response', async () => {
+      const branded = MessageId('round-trip-id');
+      const connector = createMockConnector({
+        process: mock((req: ChartRequest) =>
+          Promise.resolve(createMockResponse(req.id, 'instance-1', 'show')),
+        ),
+      });
+      const coordinator = new RequestCoordinator(connector);
+
+      const response = await coordinator.send(createMockRequest(branded));
+
+      // Identity, not just structural equality — the same branded value passed
+      // in must come back out unchanged.
+      expect(response.requestId).toBe(branded);
+
+      coordinator.dispose();
+    });
+  });
+
   describe('events.on', () => {
     it('should return an unsubscribe function', async () => {
       const connector = createMockConnector();
@@ -225,7 +246,7 @@ describe('RequestCoordinator', () => {
       expect(events).toHaveLength(1);
 
       unsub();
-      await coordinator.send(createMockRequest('req-2'));
+      await coordinator.send(createMockRequest(MessageId('req-2')));
       expect(events).toHaveLength(1); // no new event after unsubscribe
 
       coordinator.dispose();

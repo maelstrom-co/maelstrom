@@ -1,4 +1,4 @@
-import type { MaelstromResponse, Result } from '@maelstrom-co/protocol';
+import type { MaelstromResponse, MessageId, Result } from '@maelstrom-co/protocol';
 import { err, isErr, ok } from '@maelstrom-co/protocol';
 import type { ChartRequest } from '@maelstrom-co/protocol-old';
 import {
@@ -107,7 +107,7 @@ export function createEngine(config: EngineConfig): Engine {
 
 function logEngineError(
   logger: Logger,
-  requestId: string,
+  requestId: MessageId,
   error: EngineError,
 ): void {
   if (error._tag === 'CancellationError') {

@@ -1,5 +1,5 @@
-import type { LayoutMode, SessionId } from '@maelstrom-co/protocol-old';
-import { SessionId as SessionIdFactory } from '@maelstrom-co/protocol-old';
+import type { LayoutMode } from '@maelstrom-co/protocol-old';
+import { SessionId } from '@maelstrom-co/protocol';
 
 import type { ConnectionOptions } from '../connection-manager/connection-manager.types.js';
 
@@ -43,7 +43,7 @@ export function resolveOrchestratorOptions(
   options: OrchestratorOptions = {},
 ): ResolvedOrchestratorOptions {
   return {
-    sessionId: options.sessionId ?? SessionIdFactory(),
+    sessionId: options.sessionId ?? SessionId(),
     layoutMode: options.layoutMode ?? 'tiling',
     debug: options.debug ?? false,
     debounceDelayMs: options.debounceDelayMs ?? 300,

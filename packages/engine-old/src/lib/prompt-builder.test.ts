@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { MessageId, SessionId } from '@maelstrom-co/protocol';
 import type { ChartRequest } from '@maelstrom-co/protocol-old';
 
 import { buildPrompt, getDefaultSystemPrompt } from './prompt-builder.js';
@@ -6,7 +7,7 @@ import { buildPrompt, getDefaultSystemPrompt } from './prompt-builder.js';
 function createRequest(layoutMode: 'grid' | 'tiling' = 'grid'): ChartRequest {
   return {
     type: 'chart_request',
-    id: 'req-1',
+    id: MessageId('req-1'),
     context: {
       updateReasons: [{ type: 'user_intent', intent: 'Show my dashboard' }],
       chartDimensions: {
@@ -14,7 +15,7 @@ function createRequest(layoutMode: 'grid' | 'tiling' = 'grid'): ChartRequest {
         rows: 4,
       },
       timestamp: Date.now(),
-      sessionId: 'session-1',
+      sessionId: SessionId('session-1'),
       layoutMode,
     },
     instances: [],

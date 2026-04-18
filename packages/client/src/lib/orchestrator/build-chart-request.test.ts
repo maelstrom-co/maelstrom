@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { LayoutMode } from '@maelstrom-co/protocol-old';
-import { defineVessel, SessionId } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol-old';
+import { MessageId, SessionId } from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';
 import { buildChartRequest } from './build-chart-request.js';
@@ -22,7 +23,7 @@ const testVessel = defineVessel({
 
 function buildParams(overrides: Record<string, unknown> = {}) {
   return {
-    requestId: 'req-1',
+    requestId: MessageId('req-1'),
     updates: [{ type: 'user_intent' as const, intent: 'show chart' }],
     instances: new Map<string, VesselInstance>(),
     chartDimensions: { columns: 12, rows: 8 },
@@ -38,8 +39,8 @@ describe('buildChartRequest', () => {
     const request = buildChartRequest(buildParams());
 
     expect(request.type).toBe('chart_request');
-    expect(request.id).toBe('req-1');
-    expect(request.context.sessionId).toBe('session-1');
+    expect(request.id).toBe(MessageId('req-1'));
+    expect(request.context.sessionId).toBe(SessionId('session-1'));
     expect(request.context.layoutMode).toBe('tiling');
     expect(request.context.updateReasons).toHaveLength(1);
     expect(request.context.updateReasons[0]).toEqual({

@@ -1,5 +1,5 @@
 import type { ChartRequest } from '@maelstrom-co/protocol-old';
-import { MessageId, SessionId } from '@maelstrom-co/protocol-old';
+import { MessageId, SessionId } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../logger.js';
 

@@ -65,8 +65,12 @@ export function createProvider(
     const chartMountedRef = useRef(false);
 
     // Stable session ID: use the prop if provided, otherwise generate once on mount.
+    // Empty/whitespace strings are normalised to auto-gen so a parent passing
+    // uninitialised state (`useState('')`) does not throw during render.
     // Changing the sessionId prop after mount is ignored — unmount and remount the Provider instead.
-    const [stableSessionId] = useState(() => SessionId(sessionId));
+    const [stableSessionId] = useState(() =>
+      sessionId?.trim() ? SessionId(sessionId) : SessionId(),
+    );
     const initialSessionIdRef = useRef(sessionId);
     const hasWarnedSessionChangeRef = useRef(false);
 

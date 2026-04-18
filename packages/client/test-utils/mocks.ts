@@ -2,9 +2,10 @@ import type {
   MaelstromResponse,
   TilingLayout,
 } from '@maelstrom-co/protocol-old';
+import type { MessageId } from '@maelstrom-co/protocol';
 
 export const createMockResponse = (
-  requestId: string,
+  requestId: MessageId,
   instanceId: string,
   action: string,
 ): MaelstromResponse => ({

@@ -1,4 +1,4 @@
-import type { SessionId } from '@maelstrom-co/protocol-old';
+import type { SessionId } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
 import { Logger } from '../utils/logger.js';

@@ -1,10 +1,10 @@
 import type {
   ChartRequest,
   MaelstromResponse,
-  SessionId,
   VoiceClientMessage,
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
+import type { SessionId } from '@maelstrom-co/protocol';
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import type {

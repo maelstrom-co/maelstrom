@@ -1,5 +1,5 @@
 import type { ConnectionStatus } from '@maelstrom-co/client';
-import type { SessionId } from '@maelstrom-co/protocol-old';
+import type { SessionId } from '@maelstrom-co/protocol';
 
 /** Return type of m.useMaelstrom() */
 export interface MaelstromState {

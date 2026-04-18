@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { MessageId, SessionId } from '@maelstrom-co/protocol';
 import type {
   ChartRequest,
   GridResponse,
@@ -11,7 +12,7 @@ import type { LLMProvider } from './types.js';
 function createRequest(): ChartRequest {
   return {
     type: 'chart_request',
-    id: 'req-1',
+    id: MessageId('req-1'),
     context: {
       updateReasons: [{ type: 'user_intent', intent: 'Show my results' }],
       chartDimensions: {
@@ -19,7 +20,7 @@ function createRequest(): ChartRequest {
         rows: 4,
       },
       timestamp: Date.now(),
-      sessionId: 'session-1',
+      sessionId: SessionId('session-1'),
       layoutMode: 'grid',
     },
     instances: [],

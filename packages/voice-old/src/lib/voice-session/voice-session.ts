@@ -83,7 +83,8 @@
  * ```
  */
 import type { VoiceServerMessage } from '@maelstrom-co/protocol-old';
-import { MessageId, VoiceError } from '@maelstrom-co/protocol-old';
+import { MessageId } from '@maelstrom-co/protocol';
+import { VoiceError } from '@maelstrom-co/protocol-old';
 
 import { AudioCapture } from '../audio-capture/index.js';
 import { AudioPlayback } from '../audio-playback/index.js';

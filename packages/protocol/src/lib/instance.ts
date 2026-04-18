@@ -1,4 +1,4 @@
-import type { Brand } from './brand.js';
+import { type Brand, requireNonEmptyBrand } from './brand.js';
 
 /**
  * Opaque identifier for a vessel instance in a chart.
@@ -9,12 +9,14 @@ export type InstanceId = Brand<string, 'InstanceId'>;
 
 /**
  * Brands a string as an InstanceId without changing its value.
- * Used at boundaries where untyped strings (LLM output, wire messages)
- * must be lifted into the typed domain.
+ *
+ * Unlike `SessionId` and `MessageId`, this factory has no auto-gen path:
+ * an InstanceId always originates from an external source (LLM execution
+ * plan, persisted layout, wire frame) where the ID is already chosen.
+ * Generating one client-side would mean inventing an identity for an entity
+ * Maelstrom didn't create, which is never what callers want.
  */
 export const InstanceId = (value: string): InstanceId => {
-  if (value === '') {
-    throw new Error('InstanceId("") is not allowed. Pass a non-empty string.');
-  }
+  requireNonEmptyBrand(value, 'InstanceId');
   return value as InstanceId;
 };

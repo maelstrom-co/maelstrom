@@ -4,7 +4,7 @@ import type {
   UpdateReason,
   VesselMutationReason,
 } from '@maelstrom-co/protocol-old';
-import { MessageId } from '@maelstrom-co/protocol-old';
+import { MessageId } from '@maelstrom-co/protocol';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
@@ -317,7 +317,7 @@ export class Orchestrator {
 
   #newRequest(updates: UpdateReason[]) {
     return buildChartRequest({
-      requestId: `req-${Date.now()}-${++this.#requestCounter}`,
+      requestId: MessageId(`req-${Date.now()}-${++this.#requestCounter}`),
       updates,
       instances: this.#commandProcessor.store.state.instances,
       chartDimensions: this.#chartManager.store.state.chartDimensions,

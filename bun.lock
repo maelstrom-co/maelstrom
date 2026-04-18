@@ -132,6 +132,7 @@
       "name": "@maelstrom-co/client",
       "version": "0.0.9-prealpha.0",
       "dependencies": {
+        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
         "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
         "@tanstack/store": "catalog:",
       },
@@ -157,6 +158,7 @@
         "effect": "catalog:",
       },
       "devDependencies": {
+        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
         "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
       },
     },
@@ -168,6 +170,7 @@
       "name": "@maelstrom-co/protocol-old",
       "version": "0.0.9-prealpha.0",
       "dependencies": {
+        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
         "zod": "catalog:",
       },
     },
@@ -176,6 +179,7 @@
       "version": "0.0.9-prealpha.0",
       "dependencies": {
         "@maelstrom-co/client": "0.0.9-prealpha.0",
+        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
         "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
         "@tanstack/react-store": "catalog:",
       },
@@ -198,6 +202,7 @@
       "version": "0.0.9-prealpha.0",
       "dependencies": {
         "@maelstrom-co/client": "0.0.9-prealpha.0",
+        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
         "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
         "onnxruntime-web": "catalog:",
       },

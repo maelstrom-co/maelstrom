@@ -3,11 +3,11 @@ import type {
   ChartRequest,
   GridLayout,
   LayoutMode,
-  SessionId,
   TilingLayout,
   UpdateReason,
   Vessel,
 } from '@maelstrom-co/protocol-old';
+import type { MessageId, SessionId } from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';
 
@@ -18,7 +18,7 @@ import type { VesselInstance } from '../types.js';
  * transformation for the engine request lives here.
  */
 export function buildChartRequest(params: {
-  requestId: string;
+  requestId: MessageId;
   updates: UpdateReason[];
   instances: Map<string, VesselInstance>;
   chartDimensions: ChartDimensions;

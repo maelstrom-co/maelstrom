@@ -5,7 +5,7 @@ import type {
   GridResponse,
   TilingResponse,
 } from '@maelstrom-co/protocol-old';
-import { MessageId, SessionId } from '@maelstrom-co/protocol-old';
+import { MessageId, SessionId } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { createEngine } from './engine.js';
 import { makeGridRequest, silentLogger } from './__test-helpers__/fixtures.js';
@@ -62,7 +62,7 @@ describe('createEngine', () => {
     if (!isOk(result)) return;
 
     expect(result.value.type).toBe('maelstrom_response');
-    expect(result.value.requestId).toBe('req-1');
+    expect(result.value.requestId).toBe(MessageId('req-1'));
     expect(result.value.userMessage).toBe('Here is your calendar!');
     expect(result.value.layout.type).toBe('grid');
   });
@@ -313,6 +313,6 @@ describe('createEngine', () => {
     if (!isOk(result)) return;
 
     expect(result.value.layout.type).toBe('tiling');
-    expect(result.value.requestId).toBe('req-tiling');
+    expect(result.value.requestId).toBe(MessageId('req-tiling'));
   });
 });

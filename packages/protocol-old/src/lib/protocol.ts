@@ -1,3 +1,4 @@
+import type { MessageId, SessionId } from '@maelstrom-co/protocol';
 import type { ActionExecution } from './action-runner.js';
 import type {
   ChartDimensions,
@@ -51,7 +52,7 @@ export type UpdateReason =
 export interface ChartRequest {
   type: 'chart_request';
   /** Unique request ID for correlation */
-  id: string;
+  id: MessageId;
   /** Request context */
   context: {
     /** Reasons that triggered this update (can be batched) */
@@ -61,7 +62,7 @@ export interface ChartRequest {
     /** Unix timestamp */
     timestamp: number;
     /** Session identifier for conversation continuity */
-    sessionId: string;
+    sessionId: SessionId;
     /** Layout mode for the chart */
     layoutMode: LayoutMode;
   };
