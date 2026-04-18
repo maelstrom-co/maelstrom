@@ -1,5 +1,6 @@
 import type { Result } from '@maelstrom-co/protocol';
 import { err, ok } from '@maelstrom-co/protocol';
+import type { GridPosition, TilingInstance } from '@maelstrom-co/protocol';
 import type { GridResponse, TilingResponse } from '@maelstrom-co/protocol-old';
 import {
   GridResponseSchema,
@@ -16,6 +17,19 @@ import { cancellationError, providerError } from '../errors.js';
 // ---------------------------------------------------------------------------
 
 export type LLMOutput = GridResponse | TilingResponse;
+
+/**
+ * Pre-branded shapes for items inside an {@link LLMOutput} layout. The LLM
+ * emits `instanceId` as plain string; layout builders brand it to
+ * {@link InstanceId} on the way out. Keeping these types in one place means
+ * schema drift only needs one fix.
+ */
+export type LLMGridPosition = Omit<GridPosition, 'instanceId'> & {
+  instanceId: string;
+};
+export type LLMTilingInstance = Omit<TilingInstance, 'instanceId'> & {
+  instanceId: string;
+};
 
 // ---------------------------------------------------------------------------
 // LLM call — self-contained so process() stays linear

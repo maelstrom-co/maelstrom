@@ -96,6 +96,23 @@ When processing engine responses, the client MUST execute in this order:
 - **LLM**: @tanstack/ai with @tanstack/ai-gemini, Effect for functional composition
 - **Voice**: Deepgram (STT), Cartesia (TTS), Silero VAD via onnxruntime-web
 
+## Coding Conventions
+
+### Comments and JSDoc
+
+The `@maelstrom-co/*` packages are published to external consumers, so the comment policy is tiered by API surface. To classify a symbol: check whether it's re-exported from its package's `src/index.ts`. If yes, it's **public**. If no, it's **internal**.
+
+**Public API** — symbols in the package's root barrel (visible in consumer `.d.ts`, IDE hover, TypeDoc):
+- JSDoc every public function, type, class, and exported field
+- Cover WHAT + WHY + load-bearing invariants; add `@example` blocks on entry points where the call pattern isn't obvious from the signature
+- Consumers can't ask on Slack — the docstring is the documentation
+
+**Internal** — symbols reachable only within the package (helpers, sub-module barrels like `execution-plan/index.ts` that the root barrel doesn't re-export):
+- Default to no comments
+- Keep only non-obvious WHY: hidden constraints, subtle invariants, workarounds, severity/policy rationale
+- Never restate WHAT the code does when names convey it
+- Never reference tickets, callers, or consumers ("used by X", "added for Y", "MAE-123") — those rot and belong in commit messages / PR bodies
+
 ## Nx Workspace Notes
 
 - Uses inferred targets via plugins (`@nx/js/typescript`, `@nx/vite/plugin`, `@nx/vitest`)

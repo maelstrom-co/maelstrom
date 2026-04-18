@@ -29,7 +29,10 @@ function buildParams(overrides: Record<string, unknown> = {}) {
     chartDimensions: { columns: 12, rows: 8 },
     layout: null,
     vessels: [testVessel],
-    config: { sessionId: SessionId('session-1'), layoutMode: 'tiling' as LayoutMode },
+    config: {
+      sessionId: SessionId('session-1'),
+      layoutMode: 'tiling' as LayoutMode,
+    },
     ...overrides,
   };
 }
@@ -80,7 +83,10 @@ describe('buildChartRequest', () => {
   it('should default to empty grid layout when layout is null and mode is grid', () => {
     const request = buildChartRequest(
       buildParams({
-        config: { sessionId: SessionId('session-1'), layoutMode: 'grid' as LayoutMode },
+        config: {
+          sessionId: SessionId('session-1'),
+          layoutMode: 'grid' as LayoutMode,
+        },
       }),
     );
 
