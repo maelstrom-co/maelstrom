@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import type { ChartRequest } from '@maelstrom-co/protocol-old';
 import { buildPrompt, buildSystemPrompt } from './prompt-builder.js';
 import { SystemSection, UserSection } from './sections.js';
 import {
@@ -20,116 +19,6 @@ describe('buildPrompt', () => {
       expect(result.systemPrompt).not.toContain('binary tree');
     });
 
-    test('user prompt includes vessels section', () => {
-      const result = buildPrompt(makeGridRequest());
-      expect(result.userPrompt).toContain('## Registered Vessels');
-      expect(result.userPrompt).toContain('calendar - Calendar');
-      expect(result.userPrompt).toContain('month (default)');
-    });
-
-    test('user prompt includes grid chart state', () => {
-      const result = buildPrompt(makeGridRequest());
-      expect(result.userPrompt).toContain('Layout Mode: Grid');
-      expect(result.userPrompt).toContain('12×8 cells');
-      expect(result.userPrompt).toContain(
-        'calendar-main: row=0, col=0, size=6×4',
-      );
-    });
-
-    test('user prompt includes update triggers', () => {
-      const result = buildPrompt(makeGridRequest());
-      expect(result.userPrompt).toContain('User said: "Show me my calendar"');
-    });
-
-    test('serializes action with transition', () => {
-      const result = buildPrompt(makeGridRequest());
-      expect(result.userPrompt).toContain('showWeek');
-      expect(result.userPrompt).toContain('→ week');
-    });
-
-    test('serializes action with parameters', () => {
-      const request = makeGridRequest({
-        vessels: [
-          {
-            id: 'orders',
-            name: 'Orders',
-            description: 'Order management',
-            defaultVariant: 'list',
-            variants: {
-              list: {
-                props: {},
-                minSize: { width: 4, height: 4 },
-                actions: [
-                  {
-                    name: 'selectOrder',
-                    description: 'Select an order',
-                    parameters: [
-                      {
-                        name: 'orderId',
-                        type: 'string',
-                        description: 'Order ID',
-                      },
-                    ],
-                    transitionsTo: 'detail',
-                  },
-                ],
-              },
-              detail: {
-                props: {},
-                minSize: { width: 6, height: 4 },
-                actions: [],
-              },
-            },
-          },
-        ],
-      });
-      const result = buildPrompt(request);
-      expect(result.userPrompt).toContain('selectOrder(orderId: string)');
-    });
-
-    test('serializes action with enum parameter', () => {
-      const request = makeGridRequest({
-        vessels: [
-          {
-            id: 'table',
-            name: 'Table',
-            description: 'Data table',
-            defaultVariant: 'default',
-            variants: {
-              default: {
-                props: {},
-                minSize: { width: 4, height: 4 },
-                actions: [
-                  {
-                    name: 'sort',
-                    description: 'Sort column',
-                    parameters: [
-                      {
-                        name: 'direction',
-                        type: 'string',
-                        description: 'Sort direction',
-                        enum: ['asc', 'desc'],
-                      },
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-        ],
-      });
-      const result = buildPrompt(request);
-      expect(result.userPrompt).toContain('sort(direction: asc|desc)');
-    });
-
-    test('handles empty positions', () => {
-      const request = makeGridRequest({
-        layout: { type: 'grid', positions: [] },
-        instances: [],
-      });
-      const result = buildPrompt(request);
-      expect(result.userPrompt).toContain('No vessels currently positioned.');
-    });
   });
 
   describe('tiling mode', () => {
@@ -141,156 +30,6 @@ describe('buildPrompt', () => {
       expect(result.systemPrompt).not.toContain('GRID LAYOUT SYSTEM');
     });
 
-    test('user prompt includes tiling chart state', () => {
-      const result = buildPrompt(makeTilingRequest());
-      expect(result.userPrompt).toContain('Layout Mode: Tiling (binary tree)');
-      expect(result.userPrompt).toContain('Currently Visible:');
-      expect(result.userPrompt).toContain(
-        'calendar-main (calendar), variant: month',
-      );
-    });
-
-    test('shows tiling tree preorder', () => {
-      const result = buildPrompt(makeTilingRequest());
-      expect(result.userPrompt).toContain('Preorder: ["calendar-main"]');
-    });
-
-    test('shows hidden instances separately from visible', () => {
-      const request: ChartRequest = {
-        ...makeTilingRequest(),
-        instances: [
-          {
-            instanceId: 'calendar-main',
-            vesselId: 'calendar',
-            variant: 'month',
-          },
-          { instanceId: 'tasks-main', vesselId: 'calendar', variant: 'month' },
-        ],
-        layout: {
-          type: 'tiling',
-          tree: ['calendar-main'],
-          instances: [
-            {
-              instanceId: 'calendar-main',
-              vesselId: 'calendar',
-              variant: 'month',
-            },
-            {
-              instanceId: 'tasks-main',
-              vesselId: 'calendar',
-              variant: 'month',
-            },
-          ],
-        },
-      };
-      const result = buildPrompt(request);
-      expect(result.userPrompt).toContain('Currently Visible:');
-      expect(result.userPrompt).toContain('Available (hidden):');
-      expect(result.userPrompt).toContain('tasks-main');
-    });
-
-    test('handles tree with null, H, and V nodes', () => {
-      const request: ChartRequest = {
-        ...makeTilingRequest(),
-        instances: [
-          { instanceId: 'a', vesselId: 'calendar', variant: 'month' },
-          { instanceId: 'b', vesselId: 'calendar', variant: 'month' },
-        ],
-        layout: {
-          type: 'tiling',
-          tree: ['V', 'a', 'H', 'b', null],
-          instances: [
-            { instanceId: 'a', vesselId: 'calendar', variant: 'month' },
-            { instanceId: 'b', vesselId: 'calendar', variant: 'month' },
-          ],
-        },
-      };
-      const result = buildPrompt(request);
-      // Both a and b are visible (leaf nodes in tree)
-      expect(result.userPrompt).toContain('Currently Visible:');
-      expect(result.userPrompt).toContain('- a (calendar)');
-      expect(result.userPrompt).toContain('- b (calendar)');
-      expect(result.userPrompt).toContain('Preorder: ["V","a","H","b",null]');
-    });
-
-    test('shows no vessels when tree is empty', () => {
-      const request: ChartRequest = {
-        ...makeTilingRequest(),
-        instances: [],
-        layout: { type: 'tiling', tree: [], instances: [] },
-      };
-      const result = buildPrompt(request);
-      expect(result.userPrompt).toContain('No vessels currently visible.');
-    });
-
-    test('serializes actions for tiling instances', () => {
-      const request = makeTilingRequest();
-      request.vessels = [
-        {
-          ...request.vessels[0],
-          variants: {
-            month: {
-              ...request.vessels[0]?.variants.month,
-              actions: [
-                {
-                  name: 'showWeek',
-                  description: 'Switch to week',
-                  transitionsTo: 'week',
-                },
-              ],
-            },
-          },
-        },
-      ];
-      const result = buildPrompt(request);
-      expect(result.userPrompt).toContain('Available: showWeek');
-    });
-  });
-
-  describe('update triggers', () => {
-    test('handles chart resize reason', () => {
-      const request = makeGridRequest({
-        context: {
-          ...makeGridRequest().context,
-          updateReasons: [
-            {
-              type: 'chart_resize',
-              previous: { columns: 8, rows: 6 },
-              current: { columns: 12, rows: 8 },
-            },
-          ],
-        },
-      });
-      const result = buildPrompt(request);
-      expect(result.userPrompt).toContain('Chart resized: 8×6 → 12×8');
-    });
-
-    test('handles vessel mutation reason', () => {
-      const request = makeGridRequest({
-        context: {
-          ...makeGridRequest().context,
-          updateReasons: [
-            {
-              type: 'vessel_mutation',
-              instanceId: 'calendar-main',
-              changes: 'date range updated',
-            },
-          ],
-        },
-      });
-      const result = buildPrompt(request);
-      expect(result.userPrompt).toContain(
-        'Vessel "calendar-main" was modified: date range updated',
-      );
-    });
-
-    test('handles no triggers', () => {
-      const request = makeGridRequest({
-        context: { ...makeGridRequest().context, updateReasons: [] },
-      });
-      const result = buildPrompt(request);
-      expect(result.userPrompt).toContain('No specific trigger (system check)');
-    });
   });
 
   describe('sections metadata', () => {
@@ -314,6 +53,13 @@ describe('buildPrompt', () => {
         UserSection.CHART_STATE,
         UserSection.UPDATE_TRIGGERS,
       ]);
+    });
+
+    test('userPrompt carries serializer output end-to-end', () => {
+      const result = buildPrompt(makeGridRequest());
+      expect(result.userPrompt).toContain('## Registered Vessels');
+      expect(result.userPrompt).toContain('Layout Mode: Grid');
+      expect(result.userPrompt).toContain('## Update Triggers');
     });
   });
 
@@ -341,7 +87,6 @@ describe('buildPrompt', () => {
         system: { actions: null },
       });
       expect(result.systemPrompt).not.toContain('ACTION PARAMETERS');
-      // Other sections still present
       expect(result.systemPrompt).toContain('GRID LAYOUT SYSTEM');
     });
 
@@ -421,9 +166,7 @@ describe('buildPrompt', () => {
           },
         },
       });
-      // Default content preserved
       expect(result.systemPrompt).toContain('orchestrates UI components');
-      // Appended content present
       expect(result.systemPrompt).toContain('ASSISTANT PROFILE:');
     });
 
@@ -437,7 +180,6 @@ describe('buildPrompt', () => {
         (s) => s.key === 'rules',
       );
       expect(rulesSection?.content).toMatch(/^DOMAIN RULES:/);
-      // Default rules still present after prepend
       expect(rulesSection?.content).toContain('Only invoke actions');
     });
 
@@ -472,7 +214,7 @@ describe('buildPrompt', () => {
     });
   });
 
-  describe('combined vars + extensions (PR #95 use case)', () => {
+  describe('combined vars + extensions', () => {
     test('assistant persona via vars + identity append', () => {
       const result = buildPrompt(makeGridRequest(), {
         vars: { assistantName: 'MAR' },
