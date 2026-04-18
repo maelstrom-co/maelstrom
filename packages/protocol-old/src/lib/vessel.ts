@@ -19,7 +19,12 @@ export const VesselActionSchema = z.object({
   name: z.string().min(1, 'Action name is required'),
   description: z.string().min(1, 'Action description is required'),
   parameters: z.array(ActionParameterSchema).optional(),
-  transitionsTo: z.string().optional(),
+  transitionsTo: z
+    .string()
+    .optional()
+    .describe(
+      'Target variant name this action transitions the instance to, if any.',
+    ),
 });
 
 export const VesselVariantSchema = z.object({

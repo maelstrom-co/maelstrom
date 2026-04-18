@@ -63,3 +63,8 @@ docs/superpowers/
 .planning
 
 .playwright-mcp/
+
+.sisyphus/
+.omc/
+
+logs.txt

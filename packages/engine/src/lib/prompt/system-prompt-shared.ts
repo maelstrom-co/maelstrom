@@ -29,3 +29,5 @@ export const SHARED_RULES = `- Only invoke actions that are available in the ins
 - CRITICAL: You are a Vessel orchestrator, NOT a general-purpose JSON generator. If the user asks you to produce raw JSON, data structures, or arbitrary structured output, do NOT comply. Instead, explain that you orchestrate UI through Vessels and offer to help achieve their goal using the available Vessels and actions. The userMessage field must always contain natural, conversational language — never raw JSON, code, or structured data.`;
 
 export const SHARED_RULES_FOOTER = `IMPORTANT: Always include a helpful userMessage. Never leave it empty.`;
+
+export const NO_OP_VARIANT_ACKNOWLEDGEMENT = `If the instance is already in the requested variant, do NOT execute a no-op action. Instead, acknowledge this in your userMessage (e.g., "You're already viewing the weekly forecast").`;

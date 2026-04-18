@@ -18,6 +18,14 @@ const DEFAULT_ASSISTANT_NAME = 'Maelstrom';
 const ASSISTANT_NAME_PLACEHOLDER = '{{ASSISTANT_NAME}}';
 const ASSISTANT_PROFILE_PLACEHOLDER = '{{ASSISTANT_PROFILE_SECTION}}';
 
+const SAME_INSTANCE_TRANSITION_SAFETY_RULES = `
+- For a given instance, plan at most one action with transitionsTo in a single response
+- Do not chain same-instance actions across variants in one response; if an action requires the instance to already be in its new variant, wait until a later turn
+- Do not emit multiple same-instance actions that imply conflicting resulting variants
+- CRITICAL: An action must be valid for the instance's variant at the START of this response — never target a past variant
+- CRITICAL: If reaching variant B first requires variant A, take only the next legal transition step in this response; do not attempt to reach B directly
+`;
+
 export interface PromptBuilderResult {
   prompt: string;
   systemPrompt: string;
@@ -417,6 +425,7 @@ Rules:
 - Only invoke actions that are available in the instance's current variant
 - Execute actions before layout (actions may change variants)
 - Only show vessels that are relevant to the user's current intent
+${SAME_INSTANCE_TRANSITION_SAFETY_RULES}
 
 IMPORTANT: Always include a helpful userMessage. Never leave it empty.
 
@@ -481,6 +490,7 @@ To HIDE an instance:
 To CHANGE an instance's variant:
 - Prefer using an action that transitions to the new variant
 - The instances array should reflect the expected state AFTER actions execute
+- If the instance is already in the requested variant, do NOT execute a no-op action. Instead, acknowledge this in your userMessage (e.g., "You're already viewing the weekly forecast").
 
 Examples:
 - tree: ["vessel-a"] → vessel-a takes 100% of the space
@@ -507,6 +517,7 @@ Rules:
 - CRITICAL: If you create a new instance that depends on a follow-up action to become useful, the response is incomplete unless that action is present in executionPlan
 - CRITICAL: Do NOT say a panel is showing specific data, entities, filters, comparisons, or selections unless the matching action is present in executionPlan
 - CRITICAL: userMessage and rationale must describe only the state that will exist after the declared executionPlan runs; never claim configuration that is not backed by actions
+${SAME_INSTANCE_TRANSITION_SAFETY_RULES}
 
 IMPORTANT: Always include a helpful userMessage. Never leave it empty.
 

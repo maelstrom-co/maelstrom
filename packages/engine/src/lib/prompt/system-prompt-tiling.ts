@@ -1,5 +1,6 @@
 import type { SystemSectionKey } from './sections.js';
 import {
+  NO_OP_VARIANT_ACKNOWLEDGEMENT,
   SHARED_ACTIONS,
   SHARED_RULES,
   SHARED_RULES_FOOTER,
@@ -64,6 +65,7 @@ To HIDE an instance:
 To CHANGE an instance's variant:
 - Prefer using an action that transitions to the new variant
 - The instances array should reflect the expected state AFTER actions execute
+- ${NO_OP_VARIANT_ACKNOWLEDGEMENT}
 
 Examples:
 - tree: ["vessel-a"] → vessel-a takes 100% of the space
@@ -75,7 +77,6 @@ To give a vessel MORE space, include it multiple times in different leaves:
 - ["V", "vessel-a", "V", "vessel-a", "vessel-b"] → vessel-a gets 50% + 25% = 75%, vessel-b gets 25%`,
 
   actions: SHARED_ACTIONS,
-
   rules: `Rules:
 ${SHARED_RULES}
 - The tree must be valid: each split node (H/V) must have exactly 2 children
