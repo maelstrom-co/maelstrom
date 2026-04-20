@@ -17,24 +17,29 @@ import type { VoiceSessionState } from './use-voice-types.js';
 
 // ─── Mock VoiceSession ──────────────────────────────────────────────────────
 
-type StateCallback = (state: VoiceSessionState) => void;
-type AudioLevelCallback = (level: number) => void;
-
 class MockVoiceSession {
   isAudioReady = false;
-  private onVoiceStateChange: StateCallback | undefined;
-  private onTranscript: ((text: string, isFinal: boolean) => void) | undefined;
+  private _listeners = new Map<string, ((...args: unknown[]) => void)[]>();
 
-  constructor(options: Record<string, unknown>) {
-    this.onVoiceStateChange = options.onVoiceStateChange as
-      | StateCallback
-      | undefined;
-    this.onTranscript = options.onTranscript as
-      | ((text: string, isFinal: boolean) => void)
-      | undefined;
+  constructor(_options: Record<string, unknown>) {}
+
+  on(event: string, cb: (...args: unknown[]) => void): () => void {
+    if (!this._listeners.has(event)) this._listeners.set(event, []);
+    this._listeners.get(event)!.push(cb);
+    return () => {
+      const list = this._listeners.get(event);
+      if (list) {
+        const idx = list.indexOf(cb);
+        if (idx >= 0) list.splice(idx, 1);
+      }
+    };
   }
 
-  on(_event: string, _cb: AudioLevelCallback) {}
+  private _emit(event: string, ...args: unknown[]) {
+    for (const cb of this._listeners.get(event) ?? []) {
+      cb(...args);
+    }
+  }
 
   _prepareAudioError: Error | null = null;
 
@@ -61,18 +66,18 @@ class MockVoiceSession {
 
   // Test helpers
   _simulateStateChange(state: VoiceSessionState) {
-    this.onVoiceStateChange?.(state);
+    this._emit('stateChange', state);
   }
 
   _simulateTranscript(text: string, isFinal: boolean) {
-    this.onTranscript?.(text, isFinal);
+    this._emit('transcript', text, isFinal);
   }
 }
 
 let mockVoiceSessionInstance: MockVoiceSession | null = null;
 
-// Mock the dynamic import of @maelstrom-co/voice-old
-mock.module('@maelstrom-co/voice-old', () => ({
+// Mock the dynamic import of @maelstrom-co/voice
+mock.module('@maelstrom-co/voice', () => ({
   VoiceSession: class extends MockVoiceSession {
     constructor(opts: Record<string, unknown>) {
       super(opts);
@@ -245,6 +250,46 @@ describe('m.useVoice()', () => {
     expect(destroySpy).toHaveBeenCalledTimes(1);
     expect(observerResult.current.isReady).toBe(false);
     expect(observerResult.current.state).toBe('idle');
+  });
+
+  it('unmount invokes every session unsubscribe exactly once', async () => {
+    const connector = createMockVoiceConnector();
+    const m = createMaelstrom({ vessels: [] });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    const { unmount } = renderHook(() => m.useVoice({ greeting: 'hi' }), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    expect(mockVoiceSessionInstance).not.toBeNull();
+
+    // Count total listeners registered across all events by inspecting
+    // the internal listener map on the mock.
+    const sessionMock = mockVoiceSessionInstance as unknown as {
+      _listeners: Map<string, ((...args: unknown[]) => void)[]>;
+    };
+    const totalBefore = Array.from(sessionMock._listeners.values()).reduce(
+      (sum, list) => sum + list.length,
+      0,
+    );
+    expect(totalBefore).toBeGreaterThan(0);
+
+    await act(() => {
+      unmount();
+    });
+
+    const totalAfter = Array.from(sessionMock._listeners.values()).reduce(
+      (sum, list) => sum + list.length,
+      0,
+    );
+    expect(totalAfter).toBe(0);
   });
 
   it('start/stop/interrupt are no-ops when session is null', async () => {

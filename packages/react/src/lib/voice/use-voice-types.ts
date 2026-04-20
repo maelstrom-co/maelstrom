@@ -1,4 +1,9 @@
-export type VoiceSessionState = 'idle' | 'listening' | 'silence' | 'speaking';
+export type VoiceSessionState =
+  | 'idle'
+  | 'listening'
+  | 'silence'
+  | 'speaking'
+  | 'error';
 
 /**
  * Options for creating a voice session. Passing options to `useVoice()` makes

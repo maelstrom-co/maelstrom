@@ -78,7 +78,7 @@ export function createVoiceOrb(
   };
 }
 
-type VisualState = 'idle' | 'listening' | 'processing' | 'speaking';
+type VisualState = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
 
 function mapToVisualState(state: VoiceSessionState): VisualState {
   if (state === 'silence') return 'processing';
@@ -93,6 +93,8 @@ function getAriaLabel(visualState: VisualState): string {
       return 'Processing...';
     case 'speaking':
       return 'Speaking...';
+    case 'error':
+      return 'Voice error — click to retry';
     default:
       return 'Click to start listening';
   }

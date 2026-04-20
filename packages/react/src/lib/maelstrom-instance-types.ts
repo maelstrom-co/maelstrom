@@ -111,7 +111,7 @@ export interface MaelstromInstance<T extends readonly AnyVesselEntry[]> {
    *   `start()`/`stop()` operate on the owner's session.
    * - `useVoice({})` — treated as observer (empty options = no ownership).
    *
-   * `@maelstrom-co/voice-old` is loaded via dynamic import only when an owner mounts.
+   * `@maelstrom-co/voice` is loaded via dynamic import only when an owner mounts.
    *
    * @example
    * // Owner — configures session, wires callbacks

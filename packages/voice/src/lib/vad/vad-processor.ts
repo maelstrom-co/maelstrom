@@ -3,13 +3,16 @@
  * This is the main class that users will interact with. It manages the SileroVAD instance, handles audio buffering, and implements the logic to determine when speech starts and ends based on the probabilities emitted by SileroVAD.
  * SileroVAD infers over 32ms audio chunks, that is small, for example, saying "yes" can take up to 100ms, 3 packets, and the idea is to use the speech and silence thresholds to aggregate those packets into segments. The VADProcessor will emit speechStart at the moment the first packet is detected as speech, but it will internally keep aggregating the packets until it detects that speech has ended based on the silence threshold, and only then it will emit speechEnd with the total duration of the detected speech segment.
  *
- * THERE IS A BIG ISSUE on browsers, for this to work perfectly together with the TTS being heard by the VAD, we need AEC to be enabled in the browser. Then, we raise the threshold of the vad to 0.9 when the TTS is playing, so we can also have the chance to do barge-in. If AEC is not enabled, then we can have false positives during TTS playback, and the VAD will detect the TTS as speech, which is not ideal. */
+ * THERE IS A BIG ISSUE on browsers, for this to work perfectly together with the TTS being heard by the VAD, we need AEC to be enabled in the browser. Then, we raise the threshold of the vad to PLAYBACK_ACTIVATION_THRESHOLD (0.8) when the TTS is playing, so we can also have the chance to do barge-in. If AEC is not enabled, then we can have false positives during TTS playback, and the VAD will detect the TTS as speech, which is not ideal. */
 
+import { floatToPcm16 } from '../audio-utils.js';
 import { SileroVAD } from './silero-vad.js';
-import type { VADConfig, VADEvent, VADEvents } from './types.ts';
+import type { VADModelConfig, VADEvent, VADEvents } from './types.js';
 
 const WINDOW_SIZE_SAMPLES = 512;
 const SAMPLE_RATE = 16000;
+const DEFAULT_VAD_MODEL_URL = 'https://pub-fa2f334103a642e4985ac6016c6e7180.r2.dev/silero_vad.v5.onnx';
+const PLAYBACK_ACTIVATION_THRESHOLD = 0.8;
 
 /**
  * Configuration for VAD stream processing.
@@ -67,7 +70,7 @@ interface StreamState {
   paddingSamples: number;
 }
 
-interface VADProcessorConfig extends VADConfig, VADEvents {
+interface VADProcessorConfig extends VADModelConfig, VADEvents {
   streamOptions: VADStreamOptions;
 }
 
@@ -90,7 +93,7 @@ export class VADProcessor {
     const sampleRate = config.sampleRate ?? SAMPLE_RATE;
     const streamOptions = config.streamOptions ?? {};
 
-    this.#modelPath = config.modelPath ?? 'https://pub-fa2f334103a642e4985ac6016c6e7180.r2.dev/silero_vad.v5.onnx';
+    this.#modelPath = config.modelPath ?? DEFAULT_VAD_MODEL_URL;
     this.#defaultThreshold = streamOptions.activationThreshold ?? 0.7;
     this.#activationThreshold = this.#defaultThreshold;
 
@@ -249,15 +252,7 @@ export class VADProcessor {
       flatArray.set(chunk, offset);
       offset += chunk.length;
     }
-    // Convert Float32Array to Uint8Array (PCM16)
-    const uint8Array = new Uint8Array(flatArray.length * 2);
-    for (let i = 0; i < flatArray.length; i++) {
-      const sample = Math.max(-1, Math.min(1, flatArray[i])); // Clamp to [-1, 1]
-      const intSample = Math.round(sample * 32767); // Scale to PCM16
-      uint8Array[i * 2] = intSample & 0xff; // Low byte
-      uint8Array[i * 2 + 1] = (intSample >> 8) & 0xff; // High byte
-    }
-    return uint8Array;
+    return floatToPcm16(flatArray);
   }
 
   #emitSpeechEnd(probability: number): void {
@@ -304,7 +299,7 @@ export class VADProcessor {
   setPlaybackMode(isPlaying: boolean): void {
     if (isPlaying) {
       // Raise threshold during playback to avoid false positives from AEC residue
-      this.#activationThreshold = 0.8;
+      this.#activationThreshold = PLAYBACK_ACTIVATION_THRESHOLD;
     } else {
       // Reset to default threshold after playback
       this.#activationThreshold = this.#defaultThreshold;

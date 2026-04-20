@@ -199,7 +199,7 @@ This is an Nx monorepo using:
 npm install
 
 # Run the demo app
-nx serve demo
+nx dev demo
 
 # Build all packages
 nx run-many -t build

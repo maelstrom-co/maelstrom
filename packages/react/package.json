@@ -33,17 +33,17 @@
     "@tanstack/react-store": "catalog:"
   },
   "devDependencies": {
-    "@maelstrom-co/voice-old": "workspace:*",
+    "@maelstrom-co/voice": "workspace:*",
     "@testing-library/react": "catalog:",
     "happy-dom": "catalog:"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0",
-    "@maelstrom-co/voice-old": "0.0.9-prealpha.0"
+    "@maelstrom-co/voice": "0.0.9-prealpha.0"
   },
   "peerDependenciesMeta": {
-    "@maelstrom-co/voice-old": {
+    "@maelstrom-co/voice": {
       "optional": true
     }
   },

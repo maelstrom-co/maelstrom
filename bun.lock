@@ -184,21 +184,21 @@
         "@tanstack/react-store": "catalog:",
       },
       "devDependencies": {
-        "@maelstrom-co/voice-old": "workspace:*",
+        "@maelstrom-co/voice": "workspace:*",
         "@testing-library/react": "catalog:",
         "happy-dom": "catalog:",
       },
       "peerDependencies": {
-        "@maelstrom-co/voice-old": "0.0.9-prealpha.0",
+        "@maelstrom-co/voice": "0.0.9-prealpha.0",
         "react": ">=18.0.0",
         "react-dom": ">=18.0.0",
       },
       "optionalPeers": [
-        "@maelstrom-co/voice-old",
+        "@maelstrom-co/voice",
       ],
     },
-    "packages/voice-old": {
-      "name": "@maelstrom-co/voice-old",
+    "packages/voice": {
+      "name": "@maelstrom-co/voice",
       "version": "0.0.9-prealpha.0",
       "dependencies": {
         "@maelstrom-co/client": "0.0.9-prealpha.0",
@@ -829,7 +829,7 @@
 
     "@maelstrom-co/react": ["@maelstrom-co/react@workspace:packages/react"],
 
-    "@maelstrom-co/voice-old": ["@maelstrom-co/voice-old@workspace:packages/voice-old"],
+    "@maelstrom-co/voice": ["@maelstrom-co/voice@workspace:packages/voice"],
 
     "@maelstrom-co/www": ["@maelstrom-co/www@workspace:apps/www"],
 

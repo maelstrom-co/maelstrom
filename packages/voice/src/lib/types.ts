@@ -6,12 +6,10 @@ import type {
 
 export type { EngineConnector } from '@maelstrom-co/client';
 
-export type VoiceSessionState = 'idle' | 'listening' | 'silence' | 'speaking';
-
 export interface AudioChunk {
   data: Uint8Array;
   sampleRate: number;
-  encoding: string;
+  encoding: 'linear16';
   isFinal: boolean;
 }
 

@@ -20,7 +20,7 @@ export default defineConfig(() => ({
     },
     lib: {
       entry: 'src/index.ts',
-      name: '@maelstrom-co/voice-old',
+      name: '@maelstrom-co/voice',
       fileName: 'index',
       formats: ['es' as const],
     },

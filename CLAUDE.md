@@ -52,7 +52,7 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
     │
     ├────────────┐
     ▼            ▼
-@maelstrom-co/react  @maelstrom-co/voice-old
+@maelstrom-co/react  @maelstrom-co/voice
 (React bindings)  (audio capture/playback, VAD)
 ```
 
@@ -64,7 +64,7 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 | `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Message Processor, Orchestrator |
 | `@maelstrom-co/engine-old` | `packages/engine/` | LLM decision engine using @tanstack/ai + Effect, voice providers (Deepgram STT, Cartesia TTS) |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, useVoice, VoiceOrb |
-| `@maelstrom-co/voice-old` | `packages/voice/` | Client-side audio: capture, playback, VAD (Silero via onnxruntime-web), voice sessions |
+| `@maelstrom-co/voice` | `packages/voice/` | Client-side audio: capture, playback, VAD (Silero via onnxruntime-web), voice sessions |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts

@@ -47,7 +47,7 @@
       "path": "../client/tsconfig.lib.json"
     },
     {
-      "path": "../voice-old/tsconfig.lib.json"
+      "path": "../voice/tsconfig.lib.json"
     }
   ]
 }

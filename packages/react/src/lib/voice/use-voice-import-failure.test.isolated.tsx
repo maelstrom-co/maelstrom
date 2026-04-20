@@ -5,9 +5,9 @@ import { createMockVoiceConnector } from '../__tests__/mock-voice-connector.js';
 import { createMaelstrom } from '../create-maelstrom.js';
 import { resetWarnings } from '../warn-once.js';
 
-// Mock voice-old to throw (simulates package not installed)
-mock.module('@maelstrom-co/voice-old', () => {
-  throw new Error('Cannot find module @maelstrom-co/voice-old');
+// Mock voice to throw (simulates package not installed)
+mock.module('@maelstrom-co/voice', () => {
+  throw new Error('Cannot find module @maelstrom-co/voice');
 });
 
 function flushPromises() {
@@ -23,7 +23,7 @@ describe('useVoice — import failure', () => {
     cleanup();
   });
 
-  it('sets isVoiceSupported false and warns when voice-old is not installed', async () => {
+  it('sets isVoiceSupported false and warns when voice is not installed', async () => {
     const connector = createMockVoiceConnector();
     const m = createMaelstrom({ vessels: [] });
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
@@ -41,7 +41,7 @@ describe('useVoice — import failure', () => {
     expect(result.current.isVoiceSupported).toBe(false);
     expect(result.current.isReady).toBe(false);
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('@maelstrom-co/voice-old is not installed'),
+      expect.stringContaining('@maelstrom-co/voice is not installed'),
     );
 
     warnSpy.mockRestore();

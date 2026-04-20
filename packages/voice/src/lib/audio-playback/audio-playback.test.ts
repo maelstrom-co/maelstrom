@@ -191,4 +191,124 @@ describe('AudioPlayback', () => {
 
     expect(startCount).toBe(0);
   });
+
+  it('logs error and keeps isPlaying false when AudioContext throws', async () => {
+    const errors: unknown[] = [];
+    const originalConsoleError = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+
+    // Make AudioContext constructor throw
+    Object.defineProperty(globalThis, 'AudioContext', {
+      value: class {
+        constructor() {
+          throw new Error('AudioContext not allowed');
+        }
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    const playback = new AudioPlayback({ sampleRate: 44100 });
+    playback.enqueue(toPcmF32le([0.1, -0.1, 0.2, -0.2]));
+    await flush();
+
+    expect(playback.isPlaying).toBe(false);
+    expect(errors.length).toBeGreaterThan(0);
+
+    console.error = originalConsoleError;
+  });
+
+  it('emits error event when AudioContext throws', async () => {
+    Object.defineProperty(globalThis, 'AudioContext', {
+      value: class {
+        constructor() {
+          throw new Error('AudioContext not allowed');
+        }
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    const playback = new AudioPlayback({ sampleRate: 44100 });
+    const emittedErrors: Error[] = [];
+    playback.on('error', (err) => emittedErrors.push(err));
+
+    playback.enqueue(toPcmF32le([0.1, -0.1, 0.2, -0.2]));
+    await flush();
+
+    expect(emittedErrors.length).toBe(1);
+    expect(emittedErrors[0]).toBeInstanceOf(Error);
+    expect(emittedErrors[0].message).toBe('AudioContext not allowed');
+  });
+
+  it('isolates throwing listener from later listeners', async () => {
+    const originalConsoleError = console.error;
+    console.error = () => {};
+
+    const playback = new AudioPlayback({ sampleRate: 44100 });
+    let secondCalled = false;
+
+    playback.on('playbackStart', () => {
+      throw new Error('first listener throws');
+    });
+    playback.on('playbackStart', () => {
+      secondCalled = true;
+    });
+
+    expect(() => {
+      playback.enqueue(toPcmF32le([0.1, -0.1]));
+    }).not.toThrow();
+    await flush();
+
+    expect(secondCalled).toBe(true);
+
+    console.error = originalConsoleError;
+  });
+
+  it('routes fire-and-forget recursive playback errors to error event', async () => {
+    // First chunk plays fine, second chunk throws — exercises the
+    // recursive #playNextAudio() path in the queue-drain branch.
+    let callCount = 0;
+    Object.defineProperty(globalThis, 'AudioContext', {
+      value: class {
+        state: AudioContextState = 'running';
+        currentTime = 0;
+        destination = {} as AudioDestinationNode;
+        async resume(): Promise<void> {}
+        async close(): Promise<void> {}
+        createBuffer(
+          _ch: number,
+          length: number,
+          sampleRate: number,
+        ): MockAudioBuffer {
+          callCount += 1;
+          if (callCount === 2) {
+            throw new Error('createBuffer failed on second chunk');
+          }
+          return new MockAudioBuffer(2, length, sampleRate);
+        }
+        createBufferSource(): MockAudioBufferSourceNode {
+          return new MockAudioBufferSourceNode(
+            this as unknown as MockAudioContext,
+          );
+        }
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    const playback = new AudioPlayback({ sampleRate: 44100 });
+    const emittedErrors: Error[] = [];
+    playback.on('error', (err) => emittedErrors.push(err));
+
+    playback.enqueue(toPcmF32le([0.1, -0.1, 0.2, -0.2]));
+    playback.enqueue(toPcmF32le([0.3, -0.3, 0.4, -0.4]));
+    await flush();
+    await flush();
+
+    expect(emittedErrors.length).toBeGreaterThanOrEqual(1);
+    expect(
+      emittedErrors.some((e) => e.message.includes('createBuffer failed')),
+    ).toBe(true);
+  });
 });

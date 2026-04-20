@@ -85,12 +85,12 @@ export function createUseVoice(contextPair: MaelstromContextPair) {
 
       let cancelled = false;
 
-      import('@maelstrom-co/voice-old')
+      import('@maelstrom-co/voice')
         .catch(() => {
           if (!cancelled) {
             warnOnce(
-              'voice-old-missing',
-              '[Maelstrom] @maelstrom-co/voice-old is not installed. Voice features are disabled. Install it as a peer dependency to enable voice.',
+              'voice-missing',
+              '[Maelstrom] @maelstrom-co/voice is not installed. Voice features are disabled. Install it as a peer dependency to enable voice.',
             );
             store.setIsVoiceSupported(false);
           }
@@ -118,33 +118,36 @@ export function createUseVoice(contextPair: MaelstromContextPair) {
               ...ownerOptionsRef?.current?.vadOptions,
             },
             debugMode: config.debug,
-            onTranscript: (text: string, isFinal: boolean) => {
+          });
+
+          const unsubs = [
+            session.on('transcript', (text: string, isFinal: boolean) => {
               ownerOptionsRef?.current?.onTranscript?.(text, isFinal);
-            },
-            onVoiceStateChange: (s: VoiceSessionState) => {
+            }),
+            session.on('stateChange', (s: VoiceSessionState) => {
               store.setState(s);
               ownerOptionsRef?.current?.onStateChange?.(s);
-            },
-            onResponse: (r: { userMessage?: string; requestId: string }) => {
+            }),
+            session.on('response', (r: { userMessage?: string; requestId: string }) => {
               ownerOptionsRef?.current?.onResponse?.(r);
-            },
-            onSpeechStarted: (t: string) => {
+            }),
+            session.on('speechStarted', (t: string) => {
               ownerOptionsRef?.current?.onSpeechStarted?.(t);
-            },
-            onError: handleVoiceError,
-          });
+            }),
+            session.on('error', handleVoiceError),
+            session.on('audioLevel', (level: number) => {
+              ownerOptionsRef?.current?.onAudioLevel?.(level);
+            }),
+          ];
 
-          session.on('audioLevel', (level: number) => {
-            ownerOptionsRef?.current?.onAudioLevel?.(level);
-          });
-
-          store.claimSession(session);
+          store.claimSession(session, unsubs);
         });
 
       return () => {
         cancelled = true;
         if (store.getOwnerId() === myId) {
           ownerOptionsRef = null;
+          store.unsubscribeAll();
           store.getSession()?.destroy();
           store.reset();
         }
@@ -176,7 +179,7 @@ interface VoiceSessionLike {
   stopListening(): void;
   interrupt(): void;
   destroy(): void;
-  on(event: string, cb: (...args: any[]) => void): void;
+  on(event: string, cb: (...args: unknown[]) => void): () => void;
 }
 
 interface VoiceSessionStore {
@@ -185,7 +188,8 @@ interface VoiceSessionStore {
   getSession: () => VoiceSessionLike | null;
   getOwnerId: () => symbol | null;
   setOwnerId: (id: symbol) => void;
-  claimSession: (session: VoiceSessionLike) => void;
+  claimSession: (session: VoiceSessionLike, unsubs: (() => void)[]) => void;
+  unsubscribeAll: () => void;
   setState: (state: VoiceSessionState) => void;
   setIsVoiceSupported: (supported: boolean) => void;
   reset: () => void;
@@ -194,6 +198,7 @@ interface VoiceSessionStore {
 function createVoiceSessionStore(): VoiceSessionStore {
   let session: VoiceSessionLike | null = null;
   let ownerId: symbol | null = null;
+  let eventUnsubs: (() => void)[] = [];
   let state: VoiceSessionState = 'idle';
   let isReady = false;
   let isVoiceSupported: boolean | undefined;
@@ -235,10 +240,15 @@ function createVoiceSessionStore(): VoiceSessionStore {
     setOwnerId: (id) => {
       ownerId = id;
     },
-    claimSession: (s) => {
+    claimSession: (s, unsubs) => {
       session = s;
+      eventUnsubs = unsubs;
       isReady = true;
       notifyListeners();
+    },
+    unsubscribeAll: () => {
+      eventUnsubs.forEach((fn) => fn());
+      eventUnsubs = [];
     },
     setState: (s) => {
       state = s;

@@ -63,6 +63,9 @@
  * alive. Returning `false` would disconnect it (useful for one-shot effects,
  * not for continuous capture).
  */
+
+import { floatToPcm16 } from '../audio-utils.js';
+
 const WORKLET_CODE = `
 class AudioCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -283,15 +286,27 @@ export class AudioCapture {
   }
 
   #emitAudio(pcm16: Uint8Array, float32: Float32Array): void {
-    this.#listeners.get('audio')?.forEach((cb) => {
-      (cb as AudioCaptureEventMap['audio'])(pcm16, float32);
-    });
+    const set = this.#listeners.get('audio');
+    if (!set) return;
+    for (const cb of set) {
+      try {
+        (cb as AudioCaptureEventMap['audio'])(pcm16, float32);
+      } catch (err) {
+        console.error('[AudioCapture] listener error (audio):', err);
+      }
+    }
   }
 
   #emitError(error: Error): void {
-    this.#listeners.get('error')?.forEach((cb) => {
-      (cb as AudioCaptureEventMap['error'])(error);
-    });
+    const set = this.#listeners.get('error');
+    if (!set) return;
+    for (const cb of set) {
+      try {
+        (cb as AudioCaptureEventMap['error'])(error);
+      } catch (err) {
+        console.error('[AudioCapture] listener error (error):', err);
+      }
+    }
   }
 
   /**
@@ -391,12 +406,6 @@ export class AudioCapture {
    * has one more negative value than positive.
    */
   #floatTo16BitPCM(float32Array: Float32Array): Uint8Array {
-    const buffer = new ArrayBuffer(float32Array.length * 2);
-    const view = new DataView(buffer);
-    for (let i = 0; i < float32Array.length; i++) {
-      const s = Math.max(-1, Math.min(1, float32Array[i]));
-      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    }
-    return new Uint8Array(buffer);
+    return floatToPcm16(float32Array);
   }
 }

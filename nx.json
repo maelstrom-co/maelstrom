@@ -78,6 +78,11 @@
         "passWithNoTests": true
       }
     },
+    "dev": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
     "@nx/js:tsc": {
       "cache": true,
       "dependsOn": [

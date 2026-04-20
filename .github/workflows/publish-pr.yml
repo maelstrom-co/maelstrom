@@ -98,7 +98,7 @@ jobs:
             bun add @maelstrom-co/protocol-old@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/client@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/engine-old@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/voice-old@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/voice@${{ steps.version.outputs.version }}
             ```
 
             Or install by tag:

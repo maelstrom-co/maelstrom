@@ -1,11 +1,14 @@
-export interface VADConfig {
-  modelPath?: string; // Default: '/models/silero_vad.v5.onnx'
+export interface VADModelConfig {
+  modelPath?: string;
   sampleRate?: 16000;
   threshold?: number; // Speech probability threshold (default: 0.7)
   silenceThresholdMs?: number; // Silence duration to end speech (default: 500)
   speechThresholdMs?: number; // Min speech duration to be valid (default: 50)
   windowSizeMs?: number; // Window size in ms (default: 32)
 }
+
+/** User-facing VAD configuration — alias for VADStreamOptions */
+export type { VADStreamOptions as VADConfig } from './vad-processor.js';
 
 /**
  * VAD event emitted when speech boundaries are detected.

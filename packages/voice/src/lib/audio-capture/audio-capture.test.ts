@@ -325,4 +325,69 @@ describe('AudioCapture', () => {
     expect(capture.isReady).toBe(false);
     expect(mockAudioContext?.state).toBe('closed');
   });
+
+  it('emits independent data for multiple consecutive chunks', async () => {
+    const capture = new AudioCapture({ sampleRate: 16000 });
+    const receivedAudio: { pcm16: Uint8Array; float32: Float32Array }[] = [];
+
+    capture.on('audio', (pcm16, float32) => {
+      receivedAudio.push({ pcm16: new Uint8Array(pcm16), float32: new Float32Array(float32) });
+    });
+
+    await capture.start();
+
+    const chunk1 = new Float32Array([0.1, 0.2, 0.3]);
+    const chunk2 = new Float32Array([0.4, 0.5, 0.6]);
+    const chunk3 = new Float32Array([-0.1, -0.2, -0.3]);
+
+    mockWorkletNode?.port.simulateMessage(chunk1);
+    mockWorkletNode?.port.simulateMessage(chunk2);
+    mockWorkletNode?.port.simulateMessage(chunk3);
+
+    await flush();
+
+    expect(receivedAudio.length).toBe(3);
+
+    // Each chunk should have independent float32 data
+    expect(receivedAudio[0].float32).toEqual(chunk1);
+    expect(receivedAudio[1].float32).toEqual(chunk2);
+    expect(receivedAudio[2].float32).toEqual(chunk3);
+
+    // Each chunk should have independent PCM16 data (2 bytes per sample)
+    expect(receivedAudio[0].pcm16.length).toBe(chunk1.length * 2);
+    expect(receivedAudio[1].pcm16.length).toBe(chunk2.length * 2);
+    expect(receivedAudio[2].pcm16.length).toBe(chunk3.length * 2);
+
+    // Verify data differs between chunks (no buffer reuse corruption)
+    expect(receivedAudio[0].pcm16).not.toEqual(receivedAudio[1].pcm16);
+    expect(receivedAudio[1].pcm16).not.toEqual(receivedAudio[2].pcm16);
+  });
+
+  it('isolates throwing audio listener from later listeners', async () => {
+    const originalConsoleError = console.error;
+    console.error = () => {};
+
+    const capture = new AudioCapture({ sampleRate: 44100 });
+    let secondCalled = false;
+
+    capture.on('audio', () => {
+      throw new Error('first listener throws');
+    });
+    capture.on('audio', () => {
+      secondCalled = true;
+    });
+
+    await capture.start();
+    const workletNode = mockWorkletNode;
+    expect(workletNode).not.toBeNull();
+
+    expect(() => {
+      workletNode?.port.simulateMessage(new Float32Array([0.1, -0.1]));
+    }).not.toThrow();
+
+    expect(secondCalled).toBe(true);
+
+    capture.stop();
+    console.error = originalConsoleError;
+  });
 });

@@ -120,7 +120,7 @@ interface AudioPlaybackState {
    * you call `source.start()` you can't query them for "are you done?". We
    * need to:
    *
-   * 1. **Interrupt (barge-in):** When the user starts speaking mid-TTS we must
+   * 1. **Interrupt (barge-in):** When the user starts speaking while TTS is playing we must
    *    call `source.stop()` on every active node *immediately*. Without this
    *    set we'd have no references to stop.
    *
@@ -163,12 +163,24 @@ interface AudioPlaybackState {
   audioEnded: boolean;
 }
 
-type AudioPlaybackEvent = 'playbackStart' | 'playbackEnd';
+type AudioPlaybackEvent = 'playbackStart' | 'playbackEnd' | 'error';
+
+type AudioPlaybackEventCallbacks = {
+  playbackStart: () => void;
+  playbackEnd: () => void;
+  error: (err: Error) => void;
+};
 
 export class AudioPlayback {
   #state: AudioPlaybackState;
   #config: AudioPlaybackOptions;
-  #listeners = new Map<AudioPlaybackEvent, Set<() => void>>();
+  #listeners: {
+    [E in AudioPlaybackEvent]: Set<AudioPlaybackEventCallbacks[E]>;
+  } = {
+    playbackStart: new Set(),
+    playbackEnd: new Set(),
+    error: new Set(),
+  };
 
   constructor(options: AudioPlaybackOptions) {
     this.#config = options;
@@ -207,7 +219,9 @@ export class AudioPlayback {
         });
       }
 
-      this.#playNextAudio();
+      this.#playNextAudio().catch((err) => {
+        this.#reportError(err);
+      });
     }
   }
 
@@ -241,7 +255,9 @@ export class AudioPlayback {
           );
         }
         if (this.#state.receivedAudioWithTimestamps.length > 0) {
-          this.#playNextAudio();
+          this.#playNextAudio().catch((err) => {
+            this.#reportError(err);
+          });
         }
         return Promise.resolve();
       }
@@ -293,8 +309,8 @@ export class AudioPlayback {
       source.onended = () => {
         this.#state.activeSources.delete(source);
         if (
-          this.#state.receivedAudioWithTimestamps.length === 0 &&
-          ctx.currentTime >= this.#state.nextPlayTime - 0.01
+          this.#state.activeSources.size === 0 &&
+          this.#state.receivedAudioWithTimestamps.length === 0
         ) {
           this.#state.isPlayingInternal = false;
           this.#state.audioEnded = true;
@@ -319,13 +335,19 @@ export class AudioPlayback {
 
       // Continue draining the queue without waiting for this buffer to finish.
       if (this.#state.receivedAudioWithTimestamps.length > 0) {
-        this.#playNextAudio();
+        this.#playNextAudio().catch((err) => {
+          this.#reportError(err);
+        });
       }
     } catch (err) {
-      if (this.#config.debugMode) {
-        console.error('[AudioPlayback] Audio playback error:', err);
-      }
+      this.#reportError(err);
     }
+  }
+
+  #reportError(err: unknown): void {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error('[AudioPlayback] Audio playback error:', error);
+    this.#emit('error', error);
   }
 
   /**
@@ -413,7 +435,9 @@ export class AudioPlayback {
     this.#state.activeSources.clear();
     this.#state.isPlayingInternal = false;
     this.#state.audioEnded = false;
-    this.#listeners.clear();
+    this.#listeners.playbackStart.clear();
+    this.#listeners.playbackEnd.clear();
+    this.#listeners.error.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -431,26 +455,39 @@ export class AudioPlayback {
    *   when `interrupt()` is called. Use this to hide the speaking indicator
    *   and restore normal VAD sensitivity.
    *
+   * - `error` — Fired when the playback pipeline encounters a runtime error
+   *   (e.g. `AudioContext` creation fails, `createBuffer` throws). Consumers
+   *   should surface this to users — the playback queue keeps running but the
+   *   failing chunk is dropped.
+   *
    * @returns An unsubscribe function. Call it to remove the listener.
    */
   on(event: 'playbackStart', cb: () => void): () => void;
   on(event: 'playbackEnd', cb: () => void): () => void;
-  on(event: AudioPlaybackEvent, cb: () => void): () => void {
-    let set = this.#listeners.get(event);
-    if (!set) {
-      set = new Set();
-      this.#listeners.set(event, set);
-    }
+  on(event: 'error', cb: (err: Error) => void): () => void;
+  on<E extends AudioPlaybackEvent>(
+    event: E,
+    cb: AudioPlaybackEventCallbacks[E],
+  ): () => void {
+    const set = this.#listeners[event] as Set<AudioPlaybackEventCallbacks[E]>;
     set.add(cb);
     return () => {
       set.delete(cb);
     };
   }
 
-  #emit(event: AudioPlaybackEvent): void {
-    this.#listeners.get(event)?.forEach((cb) => {
-      cb();
-    });
+  #emit<E extends AudioPlaybackEvent>(
+    event: E,
+    ...args: Parameters<AudioPlaybackEventCallbacks[E]>
+  ): void {
+    const set = this.#listeners[event] as Set<(...a: unknown[]) => void>;
+    for (const cb of set) {
+      try {
+        cb(...args);
+      } catch (err) {
+        console.error(`[AudioPlayback] listener error (${event}):`, err);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
