@@ -289,6 +289,15 @@ describe('createEngine', () => {
             month: { props: {}, minSize: { width: 4, height: 4 }, actions: [] },
           },
         },
+        {
+          id: 'tasks',
+          name: 'Tasks',
+          description: 'Task list widget',
+          defaultVariant: 'list',
+          variants: {
+            list: { props: {}, minSize: { width: 3, height: 4 }, actions: [] },
+          },
+        },
       ],
       layout: {
         type: 'tiling',

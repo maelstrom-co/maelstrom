@@ -1,11 +1,19 @@
 import type { MaelstromResponse, Result } from '@maelstrom-co/protocol';
-import { err, ok } from '@maelstrom-co/protocol';
-import type { ChartRequest } from '@maelstrom-co/protocol-old';
+import { err, isErr, ok } from '@maelstrom-co/protocol';
+import type {
+  ChartRequest,
+  GridResponse,
+  TilingResponse,
+} from '@maelstrom-co/protocol-old';
 
-import type { EngineError } from '../errors.js';
-import { parseError } from '../errors.js';
+import type { EngineError, LayoutValidationError } from '../errors.js';
+import { parseError, validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { LLMOutput } from '../pipeline/call-llm.js';
+import {
+  validateGridLayout,
+  validateTilingLayout,
+} from '../validation/llm-output/index.js';
 import type { SkippedAction } from './execution-plan/index.js';
 import { parseExecutionPlan } from './execution-plan/index.js';
 import { buildLayout } from './layout/index.js';
@@ -32,6 +40,35 @@ export function processResponse(
     return err(
       parseError('LLM response missing userMessage', JSON.stringify(llmOutput)),
     );
+  }
+
+  // `layoutMode` is the upstream discriminator: the schema that produced
+  // `llmOutput` matches `request.context.layoutMode`, so these casts are
+  // type-safe narrowings.
+  const mode = request.context.layoutMode;
+  let layoutValidation: Result<void, LayoutValidationError>;
+  switch (mode) {
+    case 'grid':
+      layoutValidation = validateGridLayout(llmOutput as GridResponse, request);
+      break;
+    case 'tiling':
+      layoutValidation = validateTilingLayout(
+        llmOutput as TilingResponse,
+        request,
+      );
+      break;
+    default: {
+      const _exhaustive: never = mode;
+      return err(
+        validationError(
+          `Unsupported layoutMode: ${String(_exhaustive)}`,
+          'context.layoutMode',
+        ),
+      );
+    }
+  }
+  if (isErr(layoutValidation)) {
+    return err(layoutValidation.error);
   }
 
   const layout = buildLayout(llmOutput.layout, request.context.layoutMode);

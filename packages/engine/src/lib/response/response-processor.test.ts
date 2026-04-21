@@ -590,6 +590,153 @@ describe('processResponse', () => {
     });
   });
 
+  describe('layout validation integration', () => {
+    test('grid mode routes to grid validator and returns LayoutValidationError on failure', () => {
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'placing calendar',
+        executionPlan: [],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 6, column: 10 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse(
+        llmOutput,
+        makeGridRequest(),
+        silentLogger,
+      );
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error._tag).toBe('LayoutValidationError');
+      if (result.error._tag !== 'LayoutValidationError') return;
+      expect(result.error.failures[0]?.kind).toBe('position_overflow');
+    });
+
+    test('tiling mode routes to tiling validator and returns LayoutValidationError on failure', () => {
+      const llmOutput: TilingResponse = {
+        userMessage: 'ok',
+        rationale: 'splitting area',
+        executionPlan: [],
+        layout: {
+          tree: ['V', 'calendar-main'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'month',
+            },
+          ],
+        },
+      };
+      const result = processResponse(
+        llmOutput,
+        makeTilingRequest(),
+        silentLogger,
+      );
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error._tag).toBe('LayoutValidationError');
+      if (result.error._tag !== 'LayoutValidationError') return;
+      const kinds = result.error.failures.map((f) => f.kind);
+      expect(kinds).toContain('tree_missing_child');
+    });
+
+    test('layout validation short-circuits execution-plan parsing', () => {
+      // A bad layout + an action referencing an unknown instanceId would
+      // normally surface a skipped-action diagnostic. Short-circuit means the
+      // LayoutValidationError bubbles up with no skipped-action warnings.
+      const warnings: string[] = [];
+      const capturingLogger: Logger = {
+        debug: () => {},
+        info: () => {},
+        warn: (msg) => warnings.push(msg),
+        error: () => {},
+      };
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'overflowing',
+        executionPlan: [
+          {
+            instanceId: 'nonexistent-instance',
+            action: 'whatever',
+          },
+        ],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 6, column: 10 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse(
+        llmOutput,
+        makeGridRequest(),
+        capturingLogger,
+      );
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error._tag).toBe('LayoutValidationError');
+      // The execution-plan parser never ran, so no skipped-action warnings.
+      expect(warnings).toHaveLength(0);
+    });
+
+    test('valid grid response passes through layout validation (regression lock)', () => {
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'placing calendar',
+        executionPlan: [],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse(
+        llmOutput,
+        makeGridRequest(),
+        silentLogger,
+      );
+      expect(isOk(result)).toBe(true);
+    });
+
+    test('valid tiling response passes through layout validation (regression lock)', () => {
+      const llmOutput: TilingResponse = {
+        userMessage: 'ok',
+        rationale: 'single pane',
+        executionPlan: [],
+        layout: {
+          tree: ['calendar-main'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'month',
+            },
+          ],
+        },
+      };
+      const result = processResponse(
+        llmOutput,
+        makeTilingRequest(),
+        silentLogger,
+      );
+      expect(isOk(result)).toBe(true);
+    });
+  });
+
   describe('variant state simulation', () => {
     // Create a vessel with a multi-variant state machine for testing sequential transitions
     const multiStateVessel = (): Vessel => ({
