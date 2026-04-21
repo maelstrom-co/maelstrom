@@ -1,5 +1,6 @@
 import type { ChartRequest } from '@maelstrom-co/protocol-old';
 import { MessageId, SessionId } from '@maelstrom-co/protocol';
+import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { Logger } from '../logger.js';
 
@@ -9,6 +10,20 @@ export const silentLogger: Logger = {
   warn: () => {},
   error: () => {},
 };
+
+// AnyTextAdapter's phantom `~types` field has no runtime shape, so
+// `satisfies` can't reproduce it — the double-cast is the only option.
+export const dummyAdapter = {
+  kind: 'text',
+  name: 'dummy',
+  model: 'dummy-model',
+  chatStream: () => {
+    throw new Error('dummyAdapter.chatStream not callable in tests');
+  },
+  structuredOutput: () => {
+    throw new Error('dummyAdapter.structuredOutput not callable in tests');
+  },
+} as unknown as AnyTextAdapter;
 
 export function makeGridRequest(
   overrides?: Partial<ChartRequest>,

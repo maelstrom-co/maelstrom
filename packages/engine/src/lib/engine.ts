@@ -14,6 +14,7 @@ import type { Logger } from './logger.js';
 import { callLLM } from './pipeline/call-llm.js';
 import { buildPrompt } from './prompt/prompt-builder.js';
 import { processResponse } from './response/response-processor.js';
+import { validateEngineConfig } from './validation/engine-config.js';
 
 // ---------------------------------------------------------------------------
 // Engine interface
@@ -30,8 +31,23 @@ export interface Engine {
 // Factory
 // ---------------------------------------------------------------------------
 
+/**
+ * Construct an Engine from the given config.
+ *
+ * Unlike `Engine.process`, which surfaces runtime failures through
+ * `Result<…, EngineError>`, this factory validates `config` synchronously
+ * with Zod and **throws** on invalid input. Invalid config is a programmer
+ * error, not a runtime condition — consumers outside TypeScript (or calling
+ * with unknown input) should wrap in `try`/`catch`.
+ *
+ * @throws {Error} If `config` fails Zod validation. The message is prefixed
+ *   with `Invalid EngineConfig:` followed by the list of offending paths.
+ *   The original `z.ZodError` is attached as `cause` for programmatic
+ *   inspection of structured issues.
+ */
 export function createEngine(config: EngineConfig): Engine {
-  const { adapter, logger, prompt: promptOptions } = resolveConfig(config);
+  const validated = validateEngineConfig(config);
+  const { adapter, logger, prompt: promptOptions } = resolveConfig(validated);
 
   return {
     async process(

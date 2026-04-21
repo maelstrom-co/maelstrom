@@ -6,9 +6,13 @@ import type {
   TilingResponse,
 } from '@maelstrom-co/protocol-old';
 import { MessageId, SessionId } from '@maelstrom-co/protocol';
-import type { AnyTextAdapter } from '@tanstack/ai';
+import type { EngineConfig } from './config.js';
 import { createEngine } from './engine.js';
-import { makeGridRequest, silentLogger } from './__test-helpers__/fixtures.js';
+import {
+  dummyAdapter,
+  makeGridRequest,
+  silentLogger,
+} from './__test-helpers__/fixtures.js';
 
 // ---------------------------------------------------------------------------
 // Mock TanStack AI chat()
@@ -21,9 +25,6 @@ const mockChat = mock<(...args: unknown[]) => Promise<unknown>>();
 mock.module('@tanstack/ai', () => ({
   chat: (...args: unknown[]) => mockChat(...args),
 }));
-
-// Dummy adapter — chat() is mocked so this is never actually invoked
-const dummyAdapter = {} as AnyTextAdapter;
 
 const gridLLMResponse: GridResponse = {
   userMessage: 'Here is your calendar!',
@@ -49,6 +50,60 @@ afterEach(() => {
 });
 
 describe('createEngine', () => {
+  test.each([
+    {
+      name: 'missing adapter',
+      config: {} as EngineConfig,
+      pattern: /adapter/,
+    },
+    {
+      name: 'adapter missing required methods',
+      config: {
+        adapter: { kind: 'text', name: 'x', model: 'm' },
+      } as unknown as EngineConfig,
+      pattern: /adapter\.(chatStream|structuredOutput)/,
+    },
+    {
+      name: 'unrecognized root key (typo)',
+      config: {
+        adapter: dummyAdapter,
+        prompts: {},
+      } as unknown as EngineConfig,
+      pattern: /unrecognized|prompts/i,
+    },
+    {
+      name: 'invalid nested prompt field',
+      config: {
+        adapter: dummyAdapter,
+        prompt: { vars: { assistantName: 42 } },
+      } as unknown as EngineConfig,
+      pattern: /prompt\.vars\.assistantName/,
+    },
+  ])(
+    'throws synchronously when config is invalid ($name)',
+    ({ config, pattern }) => {
+      let caught: unknown;
+      try {
+        createEngine(config);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      const error = caught as Error;
+      expect(error.message).toMatch(/Invalid EngineConfig/);
+      expect(error.message).toMatch(pattern);
+      // `@throws` contract: the original ZodError is attached as `cause`.
+      const cause = error.cause as { issues?: unknown[] } | undefined;
+      expect(Array.isArray(cause?.issues)).toBe(true);
+    },
+  );
+
+  test('returns an Engine for a valid minimal config', () => {
+    const engine = createEngine({ adapter: dummyAdapter });
+    expect(engine).toBeDefined();
+    expect(typeof engine.process).toBe('function');
+  });
+
   test('process returns a successful Result with MaelstromResponse', async () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
