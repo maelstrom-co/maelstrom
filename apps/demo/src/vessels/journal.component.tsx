@@ -1,70 +1,53 @@
-import { Success } from '@maelstrom-co/protocol-old';
+import { Err, Success } from '@maelstrom-co/protocol-old';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { useState } from 'react';
 import { VesselCard } from '../components/vessel-card';
 import { m } from '../lib/maelstrom';
+import {
+  getJournalSnapshot,
+  journalActions,
+  useJournalStore,
+} from './journal.store';
 import type { journalVessel } from './journal.vessel';
-
-interface JournalEntry {
-  id: string;
-  title: string;
-  content: string;
-  date: string;
-}
-
-const SEED_ENTRIES: JournalEntry[] = [
-  {
-    id: '1',
-    title: 'Project kickoff',
-    content:
-      'Discussed roadmap and milestones for Q2. Team aligned on priorities.',
-    date: 'Apr 3, 2026',
-  },
-  {
-    id: '2',
-    title: 'Architecture review',
-    content:
-      'Reviewed the new module boundaries. Agreed to split the auth service.',
-    date: 'Apr 4, 2026',
-  },
-];
 
 export default function JournalComponent({
   instanceId,
   variantProps,
 }: TypedVesselProps<typeof journalVessel>) {
-  const [entries, setEntries] = useState<JournalEntry[]>(SEED_ENTRIES);
-  const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
+  const { entries, activeEntryId } = useJournalStore();
 
   m.useActions('journal', instanceId, {
     createEntry: async ({ title }) => {
-      const newEntry: JournalEntry = {
-        id: crypto.randomUUID(),
-        title,
-        content: '',
-        date: new Date().toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric',
-        }),
-      };
-      setEntries((prev) => [newEntry, ...prev]);
-      setActiveEntryId(newEntry.id);
+      journalActions.createEntry(title);
+      return Success<undefined>();
+    },
+    openEntry: async ({ title }) => {
+      const match = journalActions.openEntry(title);
+      if (!match) {
+        const available = getJournalSnapshot().entries.map(
+          (e) => `"${e.title}"`,
+        );
+        return Err(
+          new Error(
+            `No journal entry matches "${title}". Available: ${available.join(
+              ', ',
+            )}`,
+          ),
+        );
+      }
       return Success<undefined>();
     },
     writeContent: async ({ text }) => {
-      if (!activeEntryId) return Success<undefined>();
-      setEntries((prev) =>
-        prev.map((e) =>
-          e.id === activeEntryId
-            ? { ...e, content: e.content ? `${e.content} ${text}` : text }
-            : e,
-        ),
-      );
+      if (!journalActions.writeContent(text)) {
+        return Err(
+          new Error(
+            'No active journal entry. Call openEntry or createEntry first.',
+          ),
+        );
+      }
       return Success<undefined>();
     },
     backToList: async () => {
-      setActiveEntryId(null);
+      journalActions.backToList();
       return Success<undefined>();
     },
   });
@@ -72,7 +55,20 @@ export default function JournalComponent({
   const isEntryView = variantProps.variant === 'entry';
   const activeEntry = entries.find((e) => e.id === activeEntryId);
 
-  if (isEntryView && activeEntry) {
+  if (isEntryView) {
+    if (!activeEntry) {
+      return (
+        <VesselCard accent="seafoam" label="Journal" meta="Entry">
+          <div className="flex-1 flex flex-col items-center justify-center text-center gap-2">
+            <div className="text-sm text-white/70">No entry selected.</div>
+            <div className="text-xs text-gray-500 max-w-xs">
+              Ask the assistant to open an entry by title, or create a new one.
+            </div>
+          </div>
+        </VesselCard>
+      );
+    }
+
     return (
       <VesselCard accent="seafoam" label="Journal" meta="Entry">
         <div className="flex-1 flex flex-col">

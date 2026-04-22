@@ -25,12 +25,50 @@ export const journalVessel = defineVessel({
           ],
           transitionsTo: 'entry',
         },
+        {
+          name: 'openEntry',
+          description:
+            'Open an existing journal entry by title so it becomes visible in all entry-variant tiles. Matches case-insensitively; falls back to substring match if no exact title matches.',
+          parameters: [
+            {
+              name: 'title',
+              type: 'string',
+              description:
+                'Title of the entry to open. Matched case-insensitively, with substring fallback.',
+            },
+          ],
+          transitionsTo: 'entry',
+        },
       ],
     },
     entry: {
       props: {},
       minSize: { width: 4, height: 4 },
       actions: [
+        {
+          name: 'createEntry',
+          description: 'Create a new journal entry and open it for writing',
+          parameters: [
+            {
+              name: 'title',
+              type: 'string',
+              description: 'Title of the entry',
+            },
+          ],
+        },
+        {
+          name: 'openEntry',
+          description:
+            'Open an existing journal entry by title so it becomes visible in all entry-variant tiles. Matches case-insensitively; falls back to substring match if no exact title matches.',
+          parameters: [
+            {
+              name: 'title',
+              type: 'string',
+              description:
+                'Title of the entry to open. Matched case-insensitively, with substring fallback.',
+            },
+          ],
+        },
         {
           name: 'writeContent',
           description:

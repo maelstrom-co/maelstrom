@@ -1,28 +1,20 @@
-import { Success } from '@maelstrom-co/protocol-old';
+import { Err, Success } from '@maelstrom-co/protocol-old';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { useState } from 'react';
 import { VesselCard } from '../components/vessel-card';
 import { m } from '../lib/maelstrom';
+import {
+  getTasksSnapshot,
+  tasksActions,
+  useTasksStore,
+} from './tasks.store';
 import type { tasksVessel } from './tasks.vessel';
 
-interface Subtask {
-  id: string;
-  title: string;
-  done: boolean;
+function noMatchError(title: string): Error {
+  const available = getTasksSnapshot()
+    .tasks.map((t) => `"${t.title}"`)
+    .join(', ');
+  return new Error(`No task matches "${title}". Available: ${available}`);
 }
-
-interface Task {
-  id: string;
-  title: string;
-  done: boolean;
-  subtasks: Subtask[];
-}
-
-const SEED_TASKS: Task[] = [
-  { id: '1', title: 'Setup CI pipeline', done: true, subtasks: [] },
-  { id: '2', title: 'Write API docs', done: false, subtasks: [] },
-  { id: '3', title: 'Ship v0.1', done: false, subtasks: [] },
-];
 
 function CheckIcon() {
   return (
@@ -45,50 +37,29 @@ function CheckIcon() {
 export default function TasksComponent({
   instanceId,
 }: TypedVesselProps<typeof tasksVessel>) {
-  const [tasks, setTasks] = useState<Task[]>(SEED_TASKS);
+  const { tasks } = useTasksStore();
 
   m.useActions('tasks', instanceId, {
     addTask: async ({ title }) => {
-      setTasks((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), title, done: false, subtasks: [] },
-      ]);
+      tasksActions.addTask(title);
       return Success<undefined>();
     },
     removeTask: async ({ title }) => {
-      setTasks((prev) => {
-        const idx = prev.findIndex((t) => t.title === title);
-        if (idx === -1) return prev;
-        return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
-      });
+      if (!tasksActions.removeTask(title)) return Err(noMatchError(title));
       return Success<undefined>();
     },
     checkTask: async ({ title }) => {
-      setTasks((prev) =>
-        prev.map((t) => (t.title === title ? { ...t, done: true } : t)),
-      );
+      if (!tasksActions.checkTask(title)) return Err(noMatchError(title));
       return Success<undefined>();
     },
     uncheckTask: async ({ title }) => {
-      setTasks((prev) =>
-        prev.map((t) => (t.title === title ? { ...t, done: false } : t)),
-      );
+      if (!tasksActions.uncheckTask(title)) return Err(noMatchError(title));
       return Success<undefined>();
     },
     addSubtask: async ({ taskTitle, subtaskTitle }) => {
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.title === taskTitle
-            ? {
-                ...t,
-                subtasks: [
-                  ...t.subtasks,
-                  { id: crypto.randomUUID(), title: subtaskTitle, done: false },
-                ],
-              }
-            : t,
-        ),
-      );
+      if (!tasksActions.addSubtask(taskTitle, subtaskTitle)) {
+        return Err(noMatchError(taskTitle));
+      }
       return Success<undefined>();
     },
   });

@@ -68,3 +68,6 @@ docs/superpowers/
 .omc/
 
 logs.txt
+
+# local plans symlink → ~/projects/plans (nwt worktree helper)
+plans.local
