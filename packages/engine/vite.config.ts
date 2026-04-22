@@ -27,6 +27,7 @@ export default defineConfig({
         '@maelstrom-co/protocol',
         '@maelstrom-co/protocol-old',
         '@tanstack/ai',
+        'zod',
       ],
     },
   },

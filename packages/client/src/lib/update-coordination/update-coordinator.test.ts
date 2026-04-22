@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import type { UpdateReason } from '@maelstrom-co/protocol-old';
+import { InstanceId, type UpdateReason } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import type { UpdateCoordinatorEvents } from './update-coordinator.js';
@@ -16,7 +16,7 @@ function makeChartResize(columns = 12, rows = 8): UpdateReason {
 }
 
 function makeVesselMutation(instanceId: string, changes: string): UpdateReason {
-  return { type: 'vessel_mutation', instanceId, changes };
+  return { type: 'vessel_mutation', instanceId: InstanceId(instanceId), changes };
 }
 
 describe('UpdateCoordinator', () => {

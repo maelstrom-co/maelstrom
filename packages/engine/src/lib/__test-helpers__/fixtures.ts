@@ -1,5 +1,5 @@
-import type { ChartRequest } from '@maelstrom-co/protocol-old';
-import { MessageId, SessionId } from '@maelstrom-co/protocol';
+import type { ChartRequest } from '@maelstrom-co/protocol';
+import { InstanceId, MessageId, SessionId } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { Logger } from '../logger.js';
@@ -39,7 +39,7 @@ export function makeGridRequest(
       layoutMode: 'grid',
     },
     instances: [
-      { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
+      { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
     ],
     vessels: [
       {
@@ -79,7 +79,7 @@ export function makeGridRequest(
       type: 'grid',
       positions: [
         {
-          instanceId: 'calendar-main',
+          instanceId: InstanceId('calendar-main'),
           position: { row: 0, column: 0 },
           size: { width: 6, height: 4 },
         },
@@ -103,7 +103,7 @@ export function makeTilingRequest(
       layoutMode: 'tiling',
     },
     instances: [
-      { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
+      { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
     ],
     vessels: [
       {
@@ -122,10 +122,10 @@ export function makeTilingRequest(
     ],
     layout: {
       type: 'tiling',
-      tree: ['calendar-main'],
+      tree: [InstanceId('calendar-main')],
       instances: [
         {
-          instanceId: 'calendar-main',
+          instanceId: InstanceId('calendar-main'),
           vesselId: 'calendar',
           variant: 'month',
         },

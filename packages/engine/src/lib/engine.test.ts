@@ -1,11 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { isErr, isOk } from '@maelstrom-co/protocol';
-import type {
-  ChartRequest,
-  GridResponse,
-  TilingResponse,
-} from '@maelstrom-co/protocol-old';
-import { MessageId, SessionId } from '@maelstrom-co/protocol';
+import type { ChartRequest, GridResponse, TilingResponse } from '@maelstrom-co/protocol';
+import { InstanceId, isErr, isOk, MessageId, SessionId } from '@maelstrom-co/protocol';
 import type { EngineConfig } from './config.js';
 import { createEngine } from './engine.js';
 import {
@@ -272,7 +267,7 @@ describe('createEngine', () => {
     const result = await engine.process({
       ...makeGridRequest(),
       instances: [
-        { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
+        { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
       ],
       vessels: [
         {
@@ -332,7 +327,7 @@ describe('createEngine', () => {
         layoutMode: 'tiling',
       },
       instances: [
-        { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
+        { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
       ],
       vessels: [
         {
@@ -356,10 +351,10 @@ describe('createEngine', () => {
       ],
       layout: {
         type: 'tiling',
-        tree: ['calendar-main'],
+        tree: [InstanceId('calendar-main')],
         instances: [
           {
-            instanceId: 'calendar-main',
+            instanceId: InstanceId('calendar-main'),
             vesselId: 'calendar',
             variant: 'month',
           },

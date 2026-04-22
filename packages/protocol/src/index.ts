@@ -6,6 +6,11 @@ export { MessageId } from './lib/message.js';
 export { InstanceId } from './lib/instance.js';
 export type { LayoutMode } from './lib/layout.js';
 export type {
+  ChartDimensions,
+  ChartPosition,
+  ChartSize,
+} from './lib/chart.js';
+export type {
   ActionExecution,
   GridLayout,
   GridPosition,
@@ -15,3 +20,42 @@ export type {
   TilingNode,
   TilingSplit,
 } from './lib/response.js';
+export { isInstanceIdNode, isTilingSplit } from './lib/response.js';
+export type {
+  ActionParameter,
+  ValidationIssue,
+  Vessel,
+  VesselAction,
+  VesselValidationResult,
+  VesselVariant,
+} from './lib/vessel.js';
+export {
+  ActionParameterSchema,
+  VesselActionSchema,
+  VesselSchema,
+  VesselVariantSchema,
+  defineVessel,
+  validateVessel,
+} from './lib/vessel.js';
+export type {
+  ChartRequest,
+  ChartResizeReason,
+  GridResponse,
+  TilingResponse,
+  UpdateReason,
+  UserIntentReason,
+  VesselInstanceSnapshot,
+  VesselMutationReason,
+} from './lib/request.js';
+export { GridResponseSchema, TilingResponseSchema } from './lib/request.js';
+export {
+  ActionExecutionSchema,
+  ChartPositionSchema,
+  ChartSizeSchema,
+  GridLayoutSchema,
+  GridPositionSchema,
+  TilingLayoutSchema,
+  TilingNodeSchema,
+  TilingTreeSchema,
+  VesselInstanceSnapshotSchema,
+} from './lib/schemas.js';

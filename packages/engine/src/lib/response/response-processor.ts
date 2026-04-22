@@ -1,10 +1,11 @@
-import type { MaelstromResponse, Result } from '@maelstrom-co/protocol';
-import { err, isErr, ok } from '@maelstrom-co/protocol';
 import type {
   ChartRequest,
   GridResponse,
+  MaelstromResponse,
+  Result,
   TilingResponse,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
+import { err, isErr, ok } from '@maelstrom-co/protocol';
 
 import type { EngineError, LayoutValidationError } from '../errors.js';
 import { parseError, validationError } from '../errors.js';

@@ -1,8 +1,5 @@
-import type {
-  Vessel,
-  VesselValidationResult,
-} from '@maelstrom-co/protocol-old';
-import { validateVessel } from '@maelstrom-co/protocol-old';
+import type { Vessel, VesselValidationResult } from '@maelstrom-co/protocol';
+import { validateVessel } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
 import { Logger } from '../utils/logger.js';

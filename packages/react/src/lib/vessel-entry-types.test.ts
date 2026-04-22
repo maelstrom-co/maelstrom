@@ -1,5 +1,5 @@
 import { describe, it } from 'bun:test';
-import { defineVessel } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol';
 
 import type { ExtractActionParams } from '@maelstrom-co/client';
 

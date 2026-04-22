@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import type { MaelstromResponse } from '@maelstrom-co/protocol-old';
+import { MessageId, type MaelstromResponse } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { RequestCorrelator } from './request-correlator.js';
@@ -7,7 +7,7 @@ import { RequestCorrelator } from './request-correlator.js';
 function createMockResponse(id: string, message: string): MaelstromResponse {
   return {
     type: 'maelstrom_response',
-    requestId: id,
+    requestId: MessageId(id),
     userMessage: message,
     rationale: 'test',
     executionPlan: [],

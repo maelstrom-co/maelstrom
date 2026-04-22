@@ -1,10 +1,10 @@
-import type {
-  ChartResizeReason,
-  MaelstromResponse,
-  UpdateReason,
-  VesselMutationReason,
-} from '@maelstrom-co/protocol-old';
-import { MessageId } from '@maelstrom-co/protocol';
+import {
+  MessageId,
+  type ChartResizeReason,
+  type MaelstromResponse,
+  type UpdateReason,
+  type VesselMutationReason,
+} from '@maelstrom-co/protocol';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';

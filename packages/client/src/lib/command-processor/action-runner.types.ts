@@ -1,16 +1,15 @@
 /**
  * Client-specific types for action execution and vessel management.
  *
- * These types provide compile-time type safety for action runners and execution plans,
- * building on top of the wire-format types from @maelstrom-co/protocol-old.
+ * Imports are split across two packages during the ChartRequest migration:
+ * - `ActionParameter` / `Vessel` come from the new `@maelstrom-co/protocol`
+ *   (migrated by MAE-138).
+ * - `ActionExecution` / `Result` remain on `@maelstrom-co/protocol-old` until
+ *   the runner runtime is ported (tracked by MAE-146).
  */
 
-import type {
-  ActionExecution,
-  ActionParameter,
-  Result,
-  Vessel,
-} from '@maelstrom-co/protocol-old';
+import type { ActionExecution, Result } from '@maelstrom-co/protocol-old';
+import type { ActionParameter, Vessel } from '@maelstrom-co/protocol';
 
 // ============================================================================
 // Type Mapping Utilities

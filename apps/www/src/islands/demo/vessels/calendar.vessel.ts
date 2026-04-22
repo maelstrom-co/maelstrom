@@ -1,4 +1,4 @@
-import { defineVessel } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol';
 
 export const calendarVessel = defineVessel({
   id: 'calendar',

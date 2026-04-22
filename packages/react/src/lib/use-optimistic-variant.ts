@@ -1,4 +1,4 @@
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import type { Vessel } from '@maelstrom-co/protocol';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useLatestRef } from './use-latest-ref.js';

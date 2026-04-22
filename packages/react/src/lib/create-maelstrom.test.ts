@@ -1,6 +1,6 @@
 import { describe, it } from 'bun:test';
 
-import { defineVessel } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol';
 
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';

@@ -1,4 +1,4 @@
-import type { TilingLayout } from '@maelstrom-co/protocol-old';
+import { InstanceId, type TilingLayout } from '@maelstrom-co/protocol';
 import type { Command } from '../src/lib/command-processor/command.types.js';
 
 export function createSetLayoutCommand(instanceId: string): Command {
@@ -14,7 +14,7 @@ export function createExecuteActionsCommand(
 ): Command {
   return {
     kind: 'execute_actions',
-    executionPlan: [{ instanceId, action }],
+    executionPlan: [{ instanceId: InstanceId(instanceId), action }],
   };
 }
 
@@ -24,7 +24,7 @@ export function createMockLayout(instanceId: string): TilingLayout {
     tree: [],
     instances: [
       {
-        instanceId,
+        instanceId: InstanceId(instanceId),
         vesselId: 'vessel-1',
         variant: 'default',
       },

@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { InstanceId, isErr, isOk, MessageId, SessionId } from '@maelstrom-co/protocol';
 import type {
   ChartRequest,
   GridResponse,
   TilingResponse,
   Vessel,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
+import { InstanceId, isErr, isOk, MessageId, SessionId } from '@maelstrom-co/protocol';
 import {
   makeGridRequest,
   makeTilingRequest,
@@ -164,7 +164,7 @@ describe('processResponse', () => {
         },
         instances: [
           {
-            instanceId: 'calendar-main',
+            instanceId: InstanceId('calendar-main'),
             vesselId: 'calendar',
             variant: 'month',
           },
@@ -186,10 +186,10 @@ describe('processResponse', () => {
         ],
         layout: {
           type: 'tiling',
-          tree: ['calendar-main'],
+          tree: [InstanceId('calendar-main')],
           instances: [
             {
-              instanceId: 'calendar-main',
+              instanceId: InstanceId('calendar-main'),
               vesselId: 'calendar',
               variant: 'month',
             },
@@ -201,7 +201,7 @@ describe('processResponse', () => {
         userMessage: 'Invalid action in tiling',
         rationale: 'Drops are layout-mode-agnostic',
         executionPlan: [
-          { instanceId: 'calendar-main', action: 'doesNotExist' },
+          { instanceId: InstanceId('calendar-main'), action: 'doesNotExist' },
         ],
         layout: {
           tree: ['calendar-main'],
@@ -234,17 +234,17 @@ describe('processResponse', () => {
       makeGridRequest({
         instances: [
           {
-            instanceId: 'calendar-main',
+            instanceId: InstanceId('calendar-main'),
             vesselId: 'calendar',
             variant: 'month',
           },
           {
-            instanceId: 'orders-main',
+            instanceId: InstanceId('orders-main'),
             vesselId: 'orders',
             variant: 'list',
           },
-          { instanceId: 'a', vesselId: 'widget', variant: 'default' },
-          { instanceId: 'b', vesselId: 'widget', variant: 'default' },
+          { instanceId: InstanceId('a'), vesselId: 'widget', variant: 'default' },
+          { instanceId: InstanceId('b'), vesselId: 'widget', variant: 'default' },
         ],
         vessels: [
           {
@@ -806,7 +806,7 @@ describe('processResponse', () => {
       makeGridRequest({
         instances: [
           {
-            instanceId: 'widget-1',
+            instanceId: InstanceId('widget-1'),
             vesselId: 'widget',
             variant: initialVariant,
           },
@@ -828,14 +828,14 @@ describe('processResponse', () => {
         layoutMode: 'tiling',
       },
       instances: overrides?.instances ?? [
-        { instanceId: 'widget-1', vesselId: 'widget', variant: 'compact' },
+        { instanceId: InstanceId('widget-1'), vesselId: 'widget', variant: 'compact' },
       ],
       vessels: overrides?.vessels ?? [multiStateVessel()],
       layout: {
         type: 'tiling',
-        tree: ['widget-1'],
+        tree: [InstanceId('widget-1')],
         instances: [
-          { instanceId: 'widget-1', vesselId: 'widget', variant: 'compact' },
+          { instanceId: InstanceId('widget-1'), vesselId: 'widget', variant: 'compact' },
         ],
       },
     });
@@ -934,12 +934,12 @@ describe('processResponse', () => {
       const request = makeGridRequest({
         instances: [
           {
-            instanceId: 'widget-a',
+            instanceId: InstanceId('widget-a'),
             vesselId: 'widget',
             variant: 'compact',
           },
           {
-            instanceId: 'widget-b',
+            instanceId: InstanceId('widget-b'),
             vesselId: 'widget',
             variant: 'compact',
           },
@@ -996,12 +996,12 @@ describe('processResponse', () => {
       const request = makeGridRequest({
         instances: [
           {
-            instanceId: 'widget-a',
+            instanceId: InstanceId('widget-a'),
             vesselId: 'widget',
             variant: 'compact',
           },
           {
-            instanceId: 'widget-b',
+            instanceId: InstanceId('widget-b'),
             vesselId: 'widget',
             variant: 'compact',
           },
@@ -1104,7 +1104,7 @@ describe('processResponse', () => {
 
       const request = makeGridRequest({
         instances: [
-          { instanceId: 'bad-1', vesselId: 'bad-widget', variant: 'start' },
+          { instanceId: InstanceId('bad-1'), vesselId: 'bad-widget', variant: 'start' },
         ],
         vessels: [vesselWithBadTransition],
       });
@@ -1144,7 +1144,7 @@ describe('processResponse', () => {
       const request = makeTilingRequest({
         instances: [
           {
-            instanceId: 'widget-1',
+            instanceId: InstanceId('widget-1'),
             vesselId: 'widget',
             variant: 'compact',
           },
@@ -1192,12 +1192,12 @@ describe('processResponse', () => {
       const request = makeGridRequest({
         instances: [
           {
-            instanceId: 'orphan-1',
+            instanceId: InstanceId('orphan-1'),
             vesselId: 'does-not-exist',
             variant: 'compact',
           },
           {
-            instanceId: 'widget-1',
+            instanceId: InstanceId('widget-1'),
             vesselId: 'widget',
             variant: 'compact',
           },
@@ -1249,7 +1249,7 @@ describe('processResponse', () => {
       const request = makeGridRequest({
         instances: [
           {
-            instanceId: 'widget-1',
+            instanceId: InstanceId('widget-1'),
             vesselId: 'widget',
             variant: 'deleted-variant',
           },
@@ -1323,7 +1323,7 @@ describe('processResponse', () => {
       const request = makeGridRequest({
         instances: [
           {
-            instanceId: 'tw-1',
+            instanceId: InstanceId('tw-1'),
             vesselId: 'test-widget',
             variant: 'start',
           },
@@ -1405,8 +1405,8 @@ describe('processResponse', () => {
 
       const request = makeGridRequest({
         instances: [
-          { instanceId: 'dup', vesselId: 'a', variant: 'only' },
-          { instanceId: 'dup', vesselId: 'b', variant: 'only' }, // last wins
+          { instanceId: InstanceId('dup'), vesselId: 'a', variant: 'only' },
+          { instanceId: InstanceId('dup'), vesselId: 'b', variant: 'only' }, // last wins
         ],
         vessels: [vesselA, vesselB],
       });
@@ -1469,7 +1469,7 @@ describe('processResponse', () => {
 
       const request = makeGridRequest({
         instances: [
-          { instanceId: 'nt-1', vesselId: 'nt-widget', variant: 'start' },
+          { instanceId: InstanceId('nt-1'), vesselId: 'nt-widget', variant: 'start' },
         ],
         vessels: [vessel],
       });
@@ -1543,7 +1543,7 @@ describe('processResponse', () => {
 
       const request = makeGridRequest({
         instances: [
-          { instanceId: 'pw-1', vesselId: 'param-widget', variant: 'compact' },
+          { instanceId: InstanceId('pw-1'), vesselId: 'param-widget', variant: 'compact' },
         ],
         vessels: [vesselWithParamAction],
       });
@@ -1599,12 +1599,12 @@ describe('processResponse', () => {
       const request = makeGridRequest({
         instances: [
           {
-            instanceId: 'calendar-main',
+            instanceId: InstanceId('calendar-main'),
             vesselId: 'calendar',
             variant: 'month',
           },
-          { instanceId: 'orphan', vesselId: 'no-such-vessel', variant: 'x' },
-          { instanceId: 'bad-var', vesselId: 'calendar', variant: 'deleted' },
+          { instanceId: InstanceId('orphan'), vesselId: 'no-such-vessel', variant: 'x' },
+          { instanceId: InstanceId('bad-var'), vesselId: 'calendar', variant: 'deleted' },
         ],
       });
 

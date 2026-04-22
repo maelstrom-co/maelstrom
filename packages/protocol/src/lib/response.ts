@@ -38,6 +38,23 @@ export type TilingSplit = 'H' | 'V';
 /** A preorder tiling tree node: a split operator, a leaf instance ID, or null. */
 export type TilingNode = TilingSplit | InstanceId | null;
 
+/**
+ * Positive narrowing predicate: true iff the node is an instance leaf.
+ *
+ * The wire shape (`'H' | 'V' | string | null`) makes `InstanceId` structurally
+ * indistinguishable from the split operators at the value level, forcing
+ * consumers to narrow by negation. This guard isolates that negation to one
+ * place so call sites can read positively.
+ */
+export function isInstanceIdNode(node: TilingNode): node is InstanceId {
+  return node !== null && node !== 'H' && node !== 'V';
+}
+
+/** True iff the node is a split operator (`'H'` or `'V'`). */
+export function isTilingSplit(node: TilingNode): node is TilingSplit {
+  return node === 'H' || node === 'V';
+}
+
 export interface TilingLayout {
   readonly type: 'tiling';
   readonly tree: readonly TilingNode[];

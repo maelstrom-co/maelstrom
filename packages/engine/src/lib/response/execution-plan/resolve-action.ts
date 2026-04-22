@@ -1,11 +1,11 @@
-import type { Result } from '@maelstrom-co/protocol';
-import { err, ok } from '@maelstrom-co/protocol';
 import type {
+  Result,
   Vessel,
   VesselAction,
   VesselInstanceSnapshot,
   VesselVariant,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
+import { err, ok } from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../assert-never.js';
 import type { Logger } from '../../logger.js';

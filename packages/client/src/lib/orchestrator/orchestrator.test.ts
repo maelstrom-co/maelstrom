@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import type {
-  ChartRequest,
-  MaelstromResponse,
-} from '@maelstrom-co/protocol-old';
-import { MessageId, type SessionId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  MessageId,
+  type ChartRequest,
+  type MaelstromResponse,
+  type SessionId,
+} from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { createMockResponse } from '../../../test-utils/mocks.js';
@@ -193,7 +195,7 @@ describe('Orchestrator', () => {
 
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-1',
+        instanceId: InstanceId('i-1'),
         changes: 'changed',
       });
 
@@ -263,7 +265,7 @@ describe('Orchestrator', () => {
           [
             'i-1',
             {
-              instanceId: 'i-1',
+              instanceId: InstanceId('i-1'),
               vesselId: 'v-1',
               variant: 'default',
               position: { column: 0, row: 0 },
@@ -278,7 +280,7 @@ describe('Orchestrator', () => {
       const request = (connector.process as ReturnType<typeof mock>).mock
         .calls[0][0] as ChartRequest;
       expect(request.instances).toEqual([
-        { instanceId: 'i-1', vesselId: 'v-1', variant: 'default' },
+        { instanceId: InstanceId('i-1'), vesselId: 'v-1', variant: 'default' },
       ]);
       expect(request.context.chartDimensions).toEqual({
         columns: 12,
@@ -303,7 +305,7 @@ describe('Orchestrator', () => {
       // Schedule an update so flush has something pending
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-1',
+        instanceId: InstanceId('i-1'),
         changes: 'changed',
       });
 
@@ -313,7 +315,7 @@ describe('Orchestrator', () => {
       // Schedule another update and try to flush while processing
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-2',
+        instanceId: InstanceId('i-2'),
         changes: 'changed2',
       });
       const flushPromise = orchestrator.flushUpdates();
@@ -384,7 +386,7 @@ describe('Orchestrator', () => {
 
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-1',
+        instanceId: InstanceId('i-1'),
         changes: 'test',
       });
 
@@ -405,7 +407,7 @@ describe('Orchestrator', () => {
 
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-1',
+        instanceId: InstanceId('i-1'),
         changes: 'test',
       });
 
@@ -565,7 +567,7 @@ describe('Orchestrator', () => {
 
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-1',
+        instanceId: InstanceId('i-1'),
         changes: 'test',
       });
 
@@ -605,7 +607,7 @@ describe('Orchestrator', () => {
       // Schedule update so flush has something pending
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-1',
+        instanceId: InstanceId('i-1'),
         changes: 'changed',
       });
 
@@ -615,7 +617,7 @@ describe('Orchestrator', () => {
       // Queue a flush while processing
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-2',
+        instanceId: InstanceId('i-2'),
         changes: 'changed2',
       });
       const flushPromise = orchestrator.flushUpdates();
@@ -672,7 +674,7 @@ describe('Orchestrator', () => {
       // Schedule an update — after debounce, timer fires and starts send
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-1',
+        instanceId: InstanceId('i-1'),
         changes: 'test',
       });
 
@@ -684,7 +686,7 @@ describe('Orchestrator', () => {
       // flushUpdates sees isProcessing === true and queues a flush promise.
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-2',
+        instanceId: InstanceId('i-2'),
         changes: 'test2',
       });
       const flushPromise = orchestrator.flushUpdates();
@@ -739,7 +741,7 @@ describe('Orchestrator', () => {
       // Schedule an update — timer will fire after debounce
       orchestrator.scheduleUpdate({
         type: 'vessel_mutation',
-        instanceId: 'i-1',
+        instanceId: InstanceId('i-1'),
         changes: 'test',
       });
 

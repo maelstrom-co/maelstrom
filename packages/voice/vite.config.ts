@@ -27,6 +27,7 @@ export default defineConfig(() => ({
     rollupOptions: {
       external: [
         '@maelstrom-co/client',
+        '@maelstrom-co/protocol',
         '@maelstrom-co/protocol-old',
         'onnxruntime-web',
       ],

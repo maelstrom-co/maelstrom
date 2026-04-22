@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
-import type { MaelstromResponse } from '@maelstrom-co/protocol-old';
-import { Err, defineVessel, Success } from '@maelstrom-co/protocol-old';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
+import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
+import { Err, Success } from '@maelstrom-co/protocol-old';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { type ReactNode, useMemo } from 'react';
@@ -57,7 +58,7 @@ function makeResponse(
 ): MaelstromResponse {
   return {
     type: 'maelstrom_response',
-    requestId: 'req-1',
+    requestId: MessageId('req-1'),
     userMessage: '',
     rationale: '',
     executionPlan,
@@ -66,7 +67,7 @@ function makeResponse(
       type: 'tiling',
       tree: [],
       instances: instances.map((i) => ({
-        instanceId: i.instanceId,
+        instanceId: InstanceId(i.instanceId),
         vesselId: i.vesselId,
         variant: i.variant,
       })),
@@ -686,7 +687,7 @@ describe('m.useVessel() — optimistic transitions', () => {
     const connector = createMockConnector({
       process: async () => ({
         type: 'maelstrom_response' as const,
-        requestId: 'req-1',
+        requestId: MessageId('req-1'),
         userMessage: '',
         rationale: '',
         executionPlan: [],
@@ -695,7 +696,7 @@ describe('m.useVessel() — optimistic transitions', () => {
           tree: [],
           instances: [
             {
-              instanceId: 'inst-1',
+              instanceId: InstanceId('inst-1'),
               vesselId: 'bad-transitions',
               variant: 'main',
             },
@@ -786,7 +787,7 @@ describe('m.useVessel() — optimistic transitions', () => {
     const connector = createMockConnector({
       process: async () => ({
         type: 'maelstrom_response' as const,
-        requestId: 'req-1',
+        requestId: MessageId('req-1'),
         userMessage: '',
         rationale: '',
         executionPlan: [],
@@ -795,7 +796,7 @@ describe('m.useVessel() — optimistic transitions', () => {
           tree: [],
           instances: [
             {
-              instanceId: 'inst-1',
+              instanceId: InstanceId('inst-1'),
               vesselId: 'toggle-panel',
               variant: 'expanded',
             },

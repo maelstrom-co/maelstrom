@@ -166,6 +166,9 @@
     "packages/protocol": {
       "name": "@maelstrom-co/protocol",
       "version": "0.0.9-prealpha.0",
+      "dependencies": {
+        "zod": "catalog:",
+      },
     },
     "packages/protocol-old": {
       "name": "@maelstrom-co/protocol-old",

@@ -13,6 +13,7 @@
   "dependencies": {
     "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/engine-old": "workspace:*",
+    "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/protocol-old": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
     "@tanstack/react-router": "catalog:",

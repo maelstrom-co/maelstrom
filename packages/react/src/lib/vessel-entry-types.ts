@@ -1,7 +1,9 @@
 import type { ComponentType } from 'react';
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import type { Vessel } from '@maelstrom-co/protocol';
 
 import type { ActionRunner, AllVariantActionNames, ExtractActionParams } from '@maelstrom-co/client';
+// VariantPropsUnion is the React-side prop-inference helper. It stays on
+// protocol-old until the vessel-inference follow-up (out of scope for MAE-138).
 import type { VariantPropsUnion } from '@maelstrom-co/protocol-old';
 
 /** Typed props delivered to a vessel component */

@@ -10,7 +10,8 @@
 
 import { describe, it } from 'bun:test';
 
-import { defineVessel, Success } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol';
+import { Success } from '@maelstrom-co/protocol-old';
 
 import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import { vessel } from './vessel.js';

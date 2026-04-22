@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import type { Vessel } from '@maelstrom-co/protocol';
 
 import type {
   LazyVesselComponentLoader,

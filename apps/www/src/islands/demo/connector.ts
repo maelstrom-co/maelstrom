@@ -6,50 +6,53 @@ import type {
   Unsubscribe,
 } from '@maelstrom-co/client';
 import type {
+  ActionExecution,
   ChartRequest,
   MaelstromResponse,
   TilingLayout,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
+
+const WEATHER_ID = InstanceId('weather-1');
+const CALENDAR_ID = InstanceId('calendar-1');
+const NOTES_ID = InstanceId('notes-1');
+const TASKS_ID = InstanceId('tasks-1');
 
 interface DemoStep {
   /** The user prompt that triggers this step. Undefined for the initial layout. */
   prompt?: string;
   userMessage: string;
   rationale: string;
-  executionPlan: Array<{
-    instanceId: string;
-    action: string;
-    params?: Record<string, unknown>;
-  }>;
+  executionPlan: readonly ActionExecution[];
   layout: TilingLayout;
 }
 
 const INITIAL_LAYOUT: TilingLayout = {
   type: 'tiling',
-  tree: ['H', 'V', 'weather-1', 'notes-1', 'V', 'calendar-1', 'tasks-1'],
+  tree: ['H', 'V', WEATHER_ID, NOTES_ID, 'V', CALENDAR_ID, TASKS_ID],
   instances: [
-    { instanceId: 'weather-1', vesselId: 'weather', variant: 'compact' },
-    { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' },
-    { instanceId: 'notes-1', vesselId: 'notes', variant: 'default' },
-    { instanceId: 'tasks-1', vesselId: 'tasks', variant: 'list' },
+    { instanceId: WEATHER_ID, vesselId: 'weather', variant: 'compact' },
+    { instanceId: CALENDAR_ID, vesselId: 'calendar', variant: 'month' },
+    { instanceId: NOTES_ID, vesselId: 'notes', variant: 'default' },
+    { instanceId: TASKS_ID, vesselId: 'tasks', variant: 'list' },
   ],
 };
 
 const REARRANGED_LAYOUT: TilingLayout = {
   type: 'tiling',
-  tree: ['H', 'weather-1', 'V', 'calendar-1', 'H', 'notes-1', 'tasks-1'],
+  tree: ['H', WEATHER_ID, 'V', CALENDAR_ID, 'H', NOTES_ID, TASKS_ID],
   instances: [
-    { instanceId: 'weather-1', vesselId: 'weather', variant: 'full' },
-    { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'week' },
-    { instanceId: 'notes-1', vesselId: 'notes', variant: 'default' },
-    { instanceId: 'tasks-1', vesselId: 'tasks', variant: 'list' },
+    { instanceId: WEATHER_ID, vesselId: 'weather', variant: 'full' },
+    { instanceId: CALENDAR_ID, vesselId: 'calendar', variant: 'week' },
+    { instanceId: NOTES_ID, vesselId: 'notes', variant: 'default' },
+    { instanceId: TASKS_ID, vesselId: 'tasks', variant: 'list' },
   ],
 };
 
 const TASKS_FOCUSED_LAYOUT: TilingLayout = {
   type: 'tiling',
-  tree: ['tasks-1'],
-  instances: [{ instanceId: 'tasks-1', vesselId: 'tasks', variant: 'list' }],
+  tree: [TASKS_ID],
+  instances: [{ instanceId: TASKS_ID, vesselId: 'tasks', variant: 'list' }],
 };
 
 export const DEMO_STEPS: DemoStep[] = [
@@ -74,7 +77,7 @@ export const DEMO_STEPS: DemoStep[] = [
       'Moved tasks to prominent position. Executed addTask action with title. Compressed weather and calendar.',
     executionPlan: [
       {
-        instanceId: 'tasks-1',
+        instanceId: TASKS_ID,
         action: 'addTask',
         params: { title: 'Review PR #42' },
       },
@@ -104,7 +107,6 @@ export class DemoConnector implements EngineConnector {
       await new Promise((resolve) => setTimeout(resolve, 1200));
     }
 
-    // Cast: we're simulating wire-format data (same as JSON.parse from a real engine)
     return {
       type: 'maelstrom_response',
       requestId: request.id,
@@ -112,7 +114,7 @@ export class DemoConnector implements EngineConnector {
       rationale: step.rationale,
       executionPlan: step.executionPlan,
       layout: step.layout,
-    } as MaelstromResponse;
+    };
   }
 
   async addAssistantMessage(_message: AssistantMessage): Promise<void> {

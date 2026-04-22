@@ -5,7 +5,7 @@ import type {
   GridResponse,
   Vessel,
   VesselInstanceSnapshot,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
 
 import type {
   LayoutValidationError,

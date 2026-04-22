@@ -1,10 +1,11 @@
 import { describe, it, expect, afterEach, mock } from 'bun:test';
 import { useState } from 'react';
 import { render, cleanup, act } from '@testing-library/react';
-import { defineVessel, Success } from '@maelstrom-co/protocol-old';
+import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
+import { Success } from '@maelstrom-co/protocol-old';
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { ActionRunner } from '@maelstrom-co/client';
-import type { MaelstromResponse } from '@maelstrom-co/protocol-old';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
@@ -57,15 +58,19 @@ function makeResponse(
 ): MaelstromResponse {
   return {
     type: 'maelstrom_response',
-    requestId: 'req-1',
+    requestId: MessageId('req-1'),
     userMessage: '',
     rationale: '',
-    executionPlan: executionPlan as MaelstromResponse['executionPlan'],
+    executionPlan: executionPlan.map((e) => ({
+      instanceId: InstanceId(e.instanceId),
+      action: e.action,
+      ...(e.params && { params: e.params }),
+    })),
     layout: {
       type: 'tiling',
       tree: [],
       instances: instances.map((i) => ({
-        instanceId: i.instanceId,
+        instanceId: InstanceId(i.instanceId),
         vesselId: i.vesselId,
         variant: i.variant,
       })),

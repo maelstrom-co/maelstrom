@@ -15,6 +15,9 @@
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
   "references": [
     {
+      "path": "../../packages/protocol/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/react/tsconfig.lib.json"
     },
     {

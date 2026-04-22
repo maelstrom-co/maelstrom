@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { MaelstromResponse } from '@maelstrom-co/protocol-old';
-import { SessionId } from '@maelstrom-co/protocol';
+import { MessageId, SessionId, type MaelstromResponse } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import type { ConnectionManagerEvents } from './connection-manager.js';
@@ -32,7 +31,7 @@ function createMockConnector(): EngineConnector & {
     process: mock(() =>
       Promise.resolve({
         type: 'maelstrom_response',
-        requestId: 'test-request-id',
+        requestId: MessageId('test-request-id'),
         userMessage: 'Test message',
         rationale: 'Test rationale',
         executionPlan: [],

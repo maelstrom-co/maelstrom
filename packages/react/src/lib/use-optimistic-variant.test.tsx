@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import type { Vessel } from '@maelstrom-co/protocol-old';
-import { defineVessel } from '@maelstrom-co/protocol-old';
+import type { Vessel } from '@maelstrom-co/protocol';
+import { defineVessel } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { useOptimisticVariant } from './use-optimistic-variant.js';

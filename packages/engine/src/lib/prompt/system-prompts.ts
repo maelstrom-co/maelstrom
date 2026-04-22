@@ -1,4 +1,4 @@
-import type { LayoutMode } from '@maelstrom-co/protocol-old';
+import type { LayoutMode } from '@maelstrom-co/protocol';
 
 import type { SystemSectionKey } from './sections.js';
 import { gridSystemSections } from './system-prompt-grid.js';

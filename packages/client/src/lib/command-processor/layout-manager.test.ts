@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
+import { InstanceId } from '@maelstrom-co/protocol';
+
 import { applyLayout } from './layout-manager.js';
 
 describe('applyLayout', () => {
@@ -9,12 +11,12 @@ describe('applyLayout', () => {
       tree: [],
       instances: [
         {
-          instanceId: 'vessel-1-abc',
+          instanceId: InstanceId('vessel-1-abc'),
           vesselId: 'vessel-1',
           variant: 'default',
         },
         {
-          instanceId: 'vessel-2-def',
+          instanceId: InstanceId('vessel-2-def'),
           vesselId: 'vessel-2',
           variant: 'compact',
         },
@@ -36,7 +38,7 @@ describe('applyLayout', () => {
       tree: [],
       instances: [
         {
-          instanceId: 'vessel-1-abc',
+          instanceId: InstanceId('vessel-1-abc'),
           vesselId: 'vessel-1',
           variant: 'default',
         },
@@ -55,12 +57,12 @@ describe('applyLayout', () => {
       type: 'grid' as const,
       positions: [
         {
-          instanceId: 'grid-1',
+          instanceId: InstanceId('grid-1'),
           position: { column: 0, row: 0 },
           size: { width: 2, height: 1 },
         },
         {
-          instanceId: 'grid-2',
+          instanceId: InstanceId('grid-2'),
           position: { column: 2, row: 0 },
           size: { width: 1, height: 2 },
         },
@@ -98,7 +100,7 @@ describe('applyLayout', () => {
       type: 'grid' as const,
       positions: [
         {
-          instanceId: 'grid-1',
+          instanceId: InstanceId('grid-1'),
           position: { column: 3, row: 2 },
           size: { width: 4, height: 3 },
         },
@@ -119,7 +121,7 @@ describe('applyLayout', () => {
       type: 'grid' as const,
       positions: [
         {
-          instanceId: 'new-instance',
+          instanceId: InstanceId('new-instance'),
           position: { column: 0, row: 0 },
           size: { width: 1, height: 1 },
         },

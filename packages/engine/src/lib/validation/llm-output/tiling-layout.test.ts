@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import type { ChartRequest, TilingResponse } from '@maelstrom-co/protocol';
 import { isErr, isOk } from '@maelstrom-co/protocol';
-import type { ChartRequest, TilingResponse } from '@maelstrom-co/protocol-old';
 
 import { makeTilingRequest } from '../../__test-helpers__/fixtures.js';
 import { validateTilingLayout } from './tiling-layout.js';

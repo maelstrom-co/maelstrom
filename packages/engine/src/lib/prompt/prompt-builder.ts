@@ -1,4 +1,4 @@
-import type { ChartRequest, LayoutMode } from '@maelstrom-co/protocol-old';
+import type { ChartRequest, LayoutMode } from '@maelstrom-co/protocol';
 
 import type {
   PromptSection,

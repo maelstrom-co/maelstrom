@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, beforeAll, spyOn } from 'bun:test';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
-import type { MaelstromResponse, ChartRequest } from '@maelstrom-co/protocol-old';
+import type { MaelstromResponse, ChartRequest } from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
 
 import { createMaelstrom } from '../create-maelstrom.js';
 import { vessel } from '../vessel.js';
@@ -54,6 +55,7 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
   return createMockConnector({
     process: async (req: ChartRequest): Promise<MaelstromResponse> => {
       callCount++;
+      const brandedId = InstanceId(instanceId);
       if (callCount === 1) {
         return {
           type: 'maelstrom_response',
@@ -63,8 +65,8 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
           executionPlan: [],
           layout: {
             type: 'tiling',
-            tree: [instanceId],
-            instances: [{ instanceId, vesselId, variant }],
+            tree: [brandedId],
+            instances: [{ instanceId: brandedId, vesselId, variant }],
           },
         };
       }
@@ -77,7 +79,7 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
         layout: {
           type: 'grid',
           positions: [
-            { instanceId, position: { column: 2, row: 1 }, size: { width: 3, height: 2 } },
+            { instanceId: brandedId, position: { column: 2, row: 1 }, size: { width: 3, height: 2 } },
           ],
         },
       };
@@ -87,6 +89,7 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
 
 /** Build a connector that responds with a tiling layout */
 function connectorWithTilingLayout(instanceId: string, vesselId: string, variant: string) {
+  const brandedId = InstanceId(instanceId);
   return createMockConnector({
     process: async (req: ChartRequest): Promise<MaelstromResponse> => ({
       type: 'maelstrom_response',
@@ -96,8 +99,8 @@ function connectorWithTilingLayout(instanceId: string, vesselId: string, variant
       executionPlan: [],
       layout: {
         type: 'tiling',
-        tree: [instanceId],
-        instances: [{ instanceId, vesselId, variant }],
+        tree: [brandedId],
+        instances: [{ instanceId: brandedId, vesselId, variant }],
       },
     }),
   });

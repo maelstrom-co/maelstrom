@@ -1,4 +1,4 @@
-import type { ActionExecution } from '@maelstrom-co/protocol-old';
+import type { ActionExecution } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 import { useCallback, useMemo } from 'react';
 

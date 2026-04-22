@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
+import { MessageId } from '@maelstrom-co/protocol';
 import type { VoiceServerMessage } from '@maelstrom-co/protocol-old';
 
 import type { AudioChunk, AudioFrameMeta, VoiceConnector } from '../types.js';
@@ -224,7 +225,7 @@ function createMockVoiceConnector(): VoiceConnector & {
     async process() {
       return {
         type: 'maelstrom_response' as const,
-        requestId: 'mock-request-id',
+        requestId: MessageId('mock-request-id'),
         userMessage: 'OK',
         rationale: 'Mock response',
         executionPlan: [],

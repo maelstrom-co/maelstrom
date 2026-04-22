@@ -1,12 +1,14 @@
 import type {
   ActionParameter,
   ChartRequest,
+  InstanceId,
   TilingNode,
   UpdateReason,
   Vessel,
   VesselAction,
   VesselInstanceSnapshot,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
+import { isInstanceIdNode } from '@maelstrom-co/protocol';
 
 import type { PromptSection } from './sections.js';
 import { UserSection } from './sections.js';
@@ -247,11 +249,12 @@ function serializeInstanceForTiling(
   return line;
 }
 
-function extractVisibleInstanceIds(tree: TilingNode[]): Set<string> {
-  const ids = new Set<string>();
-  // Tree is a preorder traversal: 'H'/'V' mark split nodes, null marks empty slots, strings are instance ids.
+function extractVisibleInstanceIds(
+  tree: readonly TilingNode[],
+): Set<InstanceId> {
+  const ids = new Set<InstanceId>();
   for (const node of tree) {
-    if (node !== null && node !== 'H' && node !== 'V') {
+    if (isInstanceIdNode(node)) {
       ids.add(node);
     }
   }

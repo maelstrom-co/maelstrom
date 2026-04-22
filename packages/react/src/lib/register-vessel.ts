@@ -1,5 +1,5 @@
 import type { ActionRunner } from '@maelstrom-co/client';
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import type { Vessel } from '@maelstrom-co/protocol';
 import { type ComponentType, lazy, useEffect } from 'react';
 
 import type { MaelstromContextPair, MaelstromContextValue } from './context.js';

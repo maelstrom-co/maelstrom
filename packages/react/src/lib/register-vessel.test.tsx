@@ -2,8 +2,9 @@ import { useState, useMemo } from 'react';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { ActionRunner } from '@maelstrom-co/client';
-import type { MaelstromResponse, Vessel } from '@maelstrom-co/protocol-old';
-import { defineVessel, Success } from '@maelstrom-co/protocol-old';
+import type { MaelstromResponse, Vessel } from '@maelstrom-co/protocol';
+import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
+import { Success } from '@maelstrom-co/protocol-old';
 import { act, cleanup, render } from '@testing-library/react';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
@@ -55,15 +56,18 @@ function makeResponse(
 ): MaelstromResponse {
   return {
     type: 'maelstrom_response',
-    requestId: 'req-1',
+    requestId: MessageId('req-1'),
     userMessage: '',
     rationale: '',
-    executionPlan: executionPlan as MaelstromResponse['executionPlan'],
+    executionPlan: executionPlan.map((e) => ({
+      instanceId: InstanceId(e.instanceId),
+      action: e.action,
+    })),
     layout: {
       type: 'tiling',
       tree: [],
       instances: instances.map((i) => ({
-        instanceId: i.instanceId,
+        instanceId: InstanceId(i.instanceId),
         vesselId: i.vesselId,
         variant: i.variant,
       })),

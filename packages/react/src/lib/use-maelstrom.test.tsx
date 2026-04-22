@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { defineVessel } from '@maelstrom-co/protocol-old';
+import { MessageId, defineVessel } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
@@ -164,7 +164,7 @@ describe('useMaelstrom', () => {
             resolveProcess = () =>
               resolve({
                 type: 'maelstrom_response',
-                requestId: 'req-1',
+                requestId: MessageId('req-1'),
                 userMessage: '',
                 rationale: '',
                 executionPlan: [],

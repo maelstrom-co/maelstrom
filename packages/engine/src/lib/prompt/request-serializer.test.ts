@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type { ChartRequest } from '@maelstrom-co/protocol-old';
+import type { ChartRequest } from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
 import {
   buildGridChartState,
   buildTilingChartState,
@@ -144,13 +145,13 @@ describe('buildGridChartState', () => {
     const { logger, warns } = createSpyLogger();
     const request = makeGridRequest({
       instances: [
-        { instanceId: 'orphan', vesselId: 'missing-vessel', variant: 'month' },
+        { instanceId: InstanceId('orphan'), vesselId: 'missing-vessel', variant: 'month' },
       ],
       layout: {
         type: 'grid',
         positions: [
           {
-            instanceId: 'orphan',
+            instanceId: InstanceId('orphan'),
             position: { row: 0, column: 0 },
             size: { width: 6, height: 4 },
           },
@@ -170,7 +171,7 @@ describe('buildGridChartState', () => {
     const request = makeGridRequest({
       instances: [
         {
-          instanceId: 'calendar-main',
+          instanceId: InstanceId('calendar-main'),
           vesselId: 'calendar',
           variant: 'stale-variant',
         },
@@ -208,23 +209,23 @@ describe('buildTilingChartState', () => {
       ...makeTilingRequest(),
       instances: [
         {
-          instanceId: 'calendar-main',
+          instanceId: InstanceId('calendar-main'),
           vesselId: 'calendar',
           variant: 'month',
         },
-        { instanceId: 'tasks-main', vesselId: 'calendar', variant: 'month' },
+        { instanceId: InstanceId('tasks-main'), vesselId: 'calendar', variant: 'month' },
       ],
       layout: {
         type: 'tiling',
-        tree: ['calendar-main'],
+        tree: [InstanceId('calendar-main')],
         instances: [
           {
-            instanceId: 'calendar-main',
+            instanceId: InstanceId('calendar-main'),
             vesselId: 'calendar',
             variant: 'month',
           },
           {
-            instanceId: 'tasks-main',
+            instanceId: InstanceId('tasks-main'),
             vesselId: 'calendar',
             variant: 'month',
           },
@@ -241,15 +242,15 @@ describe('buildTilingChartState', () => {
     const request: ChartRequest = {
       ...makeTilingRequest(),
       instances: [
-        { instanceId: 'a', vesselId: 'calendar', variant: 'month' },
-        { instanceId: 'b', vesselId: 'calendar', variant: 'month' },
+        { instanceId: InstanceId('a'), vesselId: 'calendar', variant: 'month' },
+        { instanceId: InstanceId('b'), vesselId: 'calendar', variant: 'month' },
       ],
       layout: {
         type: 'tiling',
-        tree: ['V', 'a', 'H', 'b', null],
+        tree: ['V', InstanceId('a'), 'H', InstanceId('b'), null],
         instances: [
-          { instanceId: 'a', vesselId: 'calendar', variant: 'month' },
-          { instanceId: 'b', vesselId: 'calendar', variant: 'month' },
+          { instanceId: InstanceId('a'), vesselId: 'calendar', variant: 'month' },
+          { instanceId: InstanceId('b'), vesselId: 'calendar', variant: 'month' },
         ],
       },
     };
@@ -271,24 +272,27 @@ describe('buildTilingChartState', () => {
   });
 
   test('serializes actions for tiling instances', () => {
-    const request = makeTilingRequest();
-    request.vessels = [
-      {
-        ...request.vessels[0],
-        variants: {
-          month: {
-            ...request.vessels[0]?.variants.month,
-            actions: [
-              {
-                name: 'showWeek',
-                description: 'Switch to week',
-                transitionsTo: 'week',
-              },
-            ],
+    const baseRequest = makeTilingRequest();
+    const request = {
+      ...baseRequest,
+      vessels: [
+        {
+          ...baseRequest.vessels[0],
+          variants: {
+            month: {
+              ...baseRequest.vessels[0]?.variants.month,
+              actions: [
+                {
+                  name: 'showWeek',
+                  description: 'Switch to week',
+                  transitionsTo: 'week',
+                },
+              ],
+            },
           },
         },
-      },
-    ];
+      ],
+    };
     const output = buildTilingChartState(request);
     expect(output).toContain('Available: showWeek');
   });
@@ -298,13 +302,13 @@ describe('buildTilingChartState', () => {
     const request: ChartRequest = {
       ...makeTilingRequest(),
       instances: [
-        { instanceId: 'orphan', vesselId: 'missing-vessel', variant: 'month' },
+        { instanceId: InstanceId('orphan'), vesselId: 'missing-vessel', variant: 'month' },
       ],
       layout: {
         type: 'tiling',
-        tree: ['orphan'],
+        tree: [InstanceId('orphan')],
         instances: [
-          { instanceId: 'orphan', vesselId: 'missing-vessel', variant: 'month' },
+          { instanceId: InstanceId('orphan'), vesselId: 'missing-vessel', variant: 'month' },
         ],
       },
     };
@@ -322,17 +326,17 @@ describe('buildTilingChartState', () => {
       ...makeTilingRequest(),
       instances: [
         {
-          instanceId: 'calendar-main',
+          instanceId: InstanceId('calendar-main'),
           vesselId: 'calendar',
           variant: 'stale-variant',
         },
       ],
       layout: {
         type: 'tiling',
-        tree: ['calendar-main'],
+        tree: [InstanceId('calendar-main')],
         instances: [
           {
-            instanceId: 'calendar-main',
+            instanceId: InstanceId('calendar-main'),
             vesselId: 'calendar',
             variant: 'stale-variant',
           },
@@ -378,7 +382,7 @@ describe('buildUpdateTriggersSection', () => {
     const output = buildUpdateTriggersSection([
       {
         type: 'vessel_mutation',
-        instanceId: 'calendar-main',
+        instanceId: InstanceId('calendar-main'),
         changes: 'date range updated',
       },
     ]);

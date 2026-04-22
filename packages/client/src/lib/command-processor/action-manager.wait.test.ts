@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import {
-  type ActionExecution,
-  defineVessel,
-  Success,
-} from '@maelstrom-co/protocol-old';
+import { type ActionExecution, Success } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { ActionManager } from './action-manager.js';

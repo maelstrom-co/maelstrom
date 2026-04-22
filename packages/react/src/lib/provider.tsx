@@ -1,6 +1,6 @@
 import { Orchestrator, SessionId } from '@maelstrom-co/client';
 import type { EngineConnector } from '@maelstrom-co/client';
-import type { LayoutMode } from '@maelstrom-co/protocol-old';
+import type { LayoutMode } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
 

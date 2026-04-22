@@ -1,22 +1,19 @@
-import type { Result } from '@maelstrom-co/protocol';
-import { err, ok } from '@maelstrom-co/protocol';
 import type {
   ChartRequest,
+  InstanceId,
+  Result,
   TilingNode,
   TilingResponse,
   Vessel,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
+import { err, isInstanceIdNode, ok } from '@maelstrom-co/protocol';
 
 import type {
   LayoutValidationError,
   LayoutValidationFailure,
 } from '../../errors.js';
 import { layoutValidationError } from '../../errors.js';
-import {
-  checkRationale,
-  findDuplicateInstanceIds,
-  isLeafId,
-} from './common.js';
+import { checkRationale, findDuplicateInstanceIds } from './common.js';
 
 export function validateTilingLayout(
   response: TilingResponse,
@@ -55,12 +52,16 @@ export function validateTilingLayout(
     }
   }
 
-  const treeFailures = validateTreeStructure(response.layout.tree);
+  // Wire → branded boundary: Zod infers the tree as `(string | null)[]`
+  // because `TilingNodeSchema` cannot carry the `InstanceId` brand. Cast once
+  // here so downstream helpers operate on the canonical branded `TilingNode`.
+  const tree = response.layout.tree as readonly TilingNode[];
+  const treeFailures = validateTreeStructure(tree);
   failures.push(...treeFailures);
 
   if (treeFailures.length === 0) {
     const declared = new Set(instanceIds);
-    const referenced = collectLeafIds(response.layout.tree);
+    const referenced = collectLeafIds(tree);
     for (const id of referenced) {
       if (!declared.has(id)) {
         failures.push({ kind: 'orphan_tree_reference', instanceId: id });
@@ -121,10 +122,10 @@ function validateTreeStructure(
   return failures;
 }
 
-function collectLeafIds(tree: readonly TilingNode[]): readonly string[] {
-  const ids: string[] = [];
+function collectLeafIds(tree: readonly TilingNode[]): readonly InstanceId[] {
+  const ids: InstanceId[] = [];
   for (const node of tree) {
-    if (isLeafId(node)) {
+    if (isInstanceIdNode(node)) {
       ids.push(node);
     }
   }

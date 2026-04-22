@@ -3,7 +3,8 @@ import type {
   GridLayout,
   TilingLayout,
   Vessel,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
+import type { ActionExecution as RunnerActionExecution } from '@maelstrom-co/protocol-old';
 import { Store } from '@tanstack/store';
 
 import type { Unsubscribe } from '../types.js';
@@ -183,7 +184,7 @@ export class CommandProcessor {
    *
    * @param executionPlan - The actions to execute
    */
-  executeActions(executionPlan: ActionExecution[]): void {
+  executeActions(executionPlan: readonly ActionExecution[]): void {
     this.dispatch({ kind: 'execute_actions', executionPlan });
   }
 
@@ -248,7 +249,7 @@ export class CommandProcessor {
         }
         case 'execute_actions': {
           const result = await this.#actionManager.executeActions(
-            command.executionPlan,
+            toRunnerExecutionPlan(command.executionPlan),
           );
           for (const record of result.actions) {
             if (!record.result.success) {
@@ -300,4 +301,16 @@ export class CommandProcessor {
 
     return null;
   }
+}
+
+// Bridge between the new-protocol ActionExecution (branded InstanceId, readonly
+// fields) and the legacy RunnerActionExecution shape ActionManager still
+// consumes. The shapes are structurally compatible at runtime — brands are
+// erased and `readonly` is a compile-time marker only. Collapse to a single
+// `unknown` cast here so the seam has one named home; remove when MAE-146
+// ports the runner runtime onto the new protocol.
+function toRunnerExecutionPlan(
+  plan: readonly ActionExecution[],
+): RunnerActionExecution[] {
+  return plan as unknown as RunnerActionExecution[];
 }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import type { Vessel } from '@maelstrom-co/protocol';
 
 import type { VesselManagerEvents } from './vessel-manager.js';
 import { VesselManager } from './vessel-manager.js';

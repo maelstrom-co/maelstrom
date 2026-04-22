@@ -11,6 +11,7 @@
     "@astrojs/react": "catalog:",
     "@astrojs/sitemap": "catalog:",
     "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/protocol-old": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
     "@radix-ui/react-scroll-area": "catalog:",

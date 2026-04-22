@@ -3,11 +3,11 @@ import FakeTimers from '@sinonjs/fake-timers';
 
 import {
   type ActionExecution,
-  defineVessel,
   Err,
   isErr,
   Success,
 } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol';
 
 import { ActionManager } from './action-manager.js';
 import type {

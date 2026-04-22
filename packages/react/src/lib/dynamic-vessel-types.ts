@@ -1,5 +1,5 @@
 import type { ActionRunner } from '@maelstrom-co/client';
-import type { Vessel } from '@maelstrom-co/protocol-old';
+import type { Vessel } from '@maelstrom-co/protocol';
 
 import type { TypedVesselProps } from './vessel-entry-types.js';
 

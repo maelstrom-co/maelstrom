@@ -1,4 +1,4 @@
-import { defineVessel } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol';
 import { vessel } from '@maelstrom-co/react';
 import { CalendarSkeleton } from './calendar.skeleton';
 

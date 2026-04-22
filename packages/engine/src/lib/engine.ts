@@ -1,10 +1,5 @@
-import type { MaelstromResponse, MessageId, Result } from '@maelstrom-co/protocol';
-import { err, isErr, ok } from '@maelstrom-co/protocol';
-import type { ChartRequest } from '@maelstrom-co/protocol-old';
-import {
-  GridResponseSchema,
-  TilingResponseSchema,
-} from '@maelstrom-co/protocol-old';
+import type { ChartRequest, MaelstromResponse, MessageId, Result } from '@maelstrom-co/protocol';
+import { err, GridResponseSchema, isErr, ok, TilingResponseSchema } from '@maelstrom-co/protocol';
 
 import type { EngineConfig } from './config.js';
 import { resolveConfig } from './config.js';

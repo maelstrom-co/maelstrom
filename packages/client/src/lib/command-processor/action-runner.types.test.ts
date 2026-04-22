@@ -6,7 +6,8 @@
 
 import { describe, it } from 'bun:test';
 
-import { defineVessel, Success } from '@maelstrom-co/protocol-old';
+import { Success } from '@maelstrom-co/protocol-old';
+import { defineVessel } from '@maelstrom-co/protocol';
 
 import type {
   ActionRunner,

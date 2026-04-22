@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { LayoutMode } from '@maelstrom-co/protocol-old';
-import { defineVessel } from '@maelstrom-co/protocol-old';
-import { MessageId, SessionId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  MessageId,
+  SessionId,
+  defineVessel,
+  type LayoutMode,
+} from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';
 import { buildChartRequest } from './build-chart-request.js';
@@ -66,7 +70,7 @@ describe('buildChartRequest', () => {
     const request = buildChartRequest(buildParams({ instances }));
 
     expect(request.instances).toEqual([
-      { instanceId: 'i-1', vesselId: 'v-1', variant: 'default' },
+      { instanceId: InstanceId('i-1'), vesselId: 'v-1', variant: 'default' },
     ]);
   });
 
@@ -107,7 +111,9 @@ describe('buildChartRequest', () => {
     const existingLayout = {
       type: 'tiling' as const,
       tree: [],
-      instances: [{ instanceId: 'i-1', vesselId: 'v-1', variant: 'default' }],
+      instances: [
+        { instanceId: InstanceId('i-1'), vesselId: 'v-1', variant: 'default' },
+      ],
     };
 
     const request = buildChartRequest(buildParams({ layout: existingLayout }));

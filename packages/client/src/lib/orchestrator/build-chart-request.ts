@@ -1,13 +1,15 @@
-import type {
-  ChartDimensions,
-  ChartRequest,
-  GridLayout,
-  LayoutMode,
-  TilingLayout,
-  UpdateReason,
-  Vessel,
-} from '@maelstrom-co/protocol-old';
-import type { MessageId, SessionId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  type ChartDimensions,
+  type ChartRequest,
+  type GridLayout,
+  type LayoutMode,
+  type MessageId,
+  type SessionId,
+  type TilingLayout,
+  type UpdateReason,
+  type Vessel,
+} from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';
 
@@ -37,7 +39,7 @@ export function buildChartRequest(params: {
   } = params;
 
   const instanceSnapshots = Array.from(instances.values()).map((i) => ({
-    instanceId: i.instanceId,
+    instanceId: InstanceId(i.instanceId),
     vesselId: i.vesselId,
     variant: i.variant,
   }));

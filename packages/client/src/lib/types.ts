@@ -1,4 +1,4 @@
-import type { ChartPosition, ChartSize } from '@maelstrom-co/protocol-old';
+import type { ChartPosition, ChartSize } from '@maelstrom-co/protocol';
 
 /** Teardown callback returned by subscriptions and registrations. */
 export type Unsubscribe = () => void;

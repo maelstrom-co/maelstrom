@@ -1,7 +1,10 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import type { ChartRequest } from '@maelstrom-co/protocol-old';
-import { MessageId, SessionId } from '@maelstrom-co/protocol';
+import {
+  MessageId,
+  SessionId,
+  type ChartRequest,
+} from '@maelstrom-co/protocol';
 
 import { createMockResponse } from '../../../test-utils/mocks.js';
 import type {

@@ -1,4 +1,5 @@
 import { describe, it, expect, spyOn, afterEach } from 'bun:test';
+import { InstanceId } from '@maelstrom-co/protocol';
 import { parseTilingTree, computeTilingLayout, type Rect } from './tiling.js';
 
 const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
@@ -10,7 +11,7 @@ describe('parseTilingTree', () => {
   });
 
   it('parses a single leaf node', () => {
-    const result = parseTilingTree(['inst-1']);
+    const result = parseTilingTree([InstanceId('inst-1')]);
     expect(result).toEqual({ type: 'leaf', instanceId: 'inst-1' });
   });
 
@@ -20,7 +21,7 @@ describe('parseTilingTree', () => {
   });
 
   it('parses a horizontal split with two leaves', () => {
-    const result = parseTilingTree(['H', 'inst-1', 'inst-2']);
+    const result = parseTilingTree(['H', InstanceId('inst-1'), InstanceId('inst-2')]);
     expect(result).toEqual({
       type: 'split',
       direction: 'H',
@@ -30,7 +31,7 @@ describe('parseTilingTree', () => {
   });
 
   it('parses a vertical split with two leaves', () => {
-    const result = parseTilingTree(['V', 'inst-1', 'inst-2']);
+    const result = parseTilingTree(['V', InstanceId('inst-1'), InstanceId('inst-2')]);
     expect(result).toEqual({
       type: 'split',
       direction: 'V',
@@ -41,7 +42,13 @@ describe('parseTilingTree', () => {
 
   it('parses nested splits', () => {
     // H splits into inst-1 and (V splits inst-2 and inst-3)
-    const result = parseTilingTree(['H', 'inst-1', 'V', 'inst-2', 'inst-3']);
+    const result = parseTilingTree([
+      'H',
+      InstanceId('inst-1'),
+      'V',
+      InstanceId('inst-2'),
+      InstanceId('inst-3'),
+    ]);
     expect(result).toEqual({
       type: 'split',
       direction: 'H',
@@ -56,12 +63,12 @@ describe('parseTilingTree', () => {
   });
 
   it('warns when trailing tokens remain unconsumed', () => {
-    parseTilingTree(['inst-1', 'inst-2']);
+    parseTilingTree([InstanceId('inst-1'), InstanceId('inst-2')]);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('unconsumed'));
   });
 
   it('warns when split node has missing children', () => {
-    parseTilingTree(['H', 'inst-1']);
+    parseTilingTree(['H', InstanceId('inst-1')]);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('missing'));
   });
 });
@@ -74,7 +81,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('returns one tile for a single leaf', () => {
-    const tree = parseTilingTree(['inst-1'])!;
+    const tree = parseTilingTree([InstanceId('inst-1')])!;
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(1);
     expect(tiles[0].instanceId).toBe('inst-1');
@@ -88,13 +95,13 @@ describe('computeTilingLayout', () => {
   });
 
   it('applies padding to tile rects', () => {
-    const tree = parseTilingTree(['inst-1'])!;
+    const tree = parseTilingTree([InstanceId('inst-1')])!;
     const tiles = computeTilingLayout(tree, containerRect, 8);
     expect(tiles[0].rect).toEqual({ x: 4, y: 4, width: 792, height: 592 });
   });
 
   it('horizontal split divides container top/bottom equally', () => {
-    const tree = parseTilingTree(['H', 'top', 'bottom'])!;
+    const tree = parseTilingTree(['H', InstanceId('top'), InstanceId('bottom')])!;
     const tiles = computeTilingLayout(tree, containerRect, 0);
     const top = tiles.find((t) => t.instanceId === 'top')!;
     const bottom = tiles.find((t) => t.instanceId === 'bottom')!;
@@ -105,7 +112,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('vertical split divides container left/right equally', () => {
-    const tree = parseTilingTree(['V', 'left', 'right'])!;
+    const tree = parseTilingTree(['V', InstanceId('left'), InstanceId('right')])!;
     const tiles = computeTilingLayout(tree, containerRect, 0);
     const left = tiles.find((t) => t.instanceId === 'left')!;
     const right = tiles.find((t) => t.instanceId === 'right')!;
@@ -117,7 +124,7 @@ describe('computeTilingLayout', () => {
 
   it('merges duplicate instanceIds into bounding box', () => {
     // Tree: V split with same instanceId on both sides
-    const tree = parseTilingTree(['V', 'inst-1', 'inst-1'])!;
+    const tree = parseTilingTree(['V', InstanceId('inst-1'), InstanceId('inst-1')])!;
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(1);
     expect(tiles[0].instanceId).toBe('inst-1');

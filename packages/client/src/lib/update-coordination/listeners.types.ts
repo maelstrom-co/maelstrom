@@ -1,4 +1,4 @@
-import type { UpdateReason } from '@maelstrom-co/protocol-old';
+import type { UpdateReason } from '@maelstrom-co/protocol';
 
 /**
  * Event fired when pending updates are flushed.

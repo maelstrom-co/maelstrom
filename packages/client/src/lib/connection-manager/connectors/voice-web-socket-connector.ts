@@ -1,10 +1,12 @@
 import type {
-  ChartRequest,
-  MaelstromResponse,
   VoiceClientMessage,
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
-import type { SessionId } from '@maelstrom-co/protocol';
+import type {
+  ChartRequest,
+  MaelstromResponse,
+  SessionId,
+} from '@maelstrom-co/protocol';
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import type {
@@ -188,8 +190,8 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
 
     const promise = this.#correlator.create(request.id, this.#timeout);
 
-    const message: VoiceClientMessage = {
-      type: 'client.maelstrom.process',
+    const message = {
+      type: 'client.maelstrom.process' as const,
       timestamp: performance.now(),
       request,
     };

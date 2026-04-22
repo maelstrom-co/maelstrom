@@ -1,7 +1,6 @@
 import type { ComputedTile, Rect, VesselInstance } from '@maelstrom-co/client';
 import { computeTilingLayout, parseTilingTree } from '@maelstrom-co/client';
-import type { GridLayout, TilingLayout } from '@maelstrom-co/protocol-old';
-import { isGridLayout, isTilingLayout } from '@maelstrom-co/protocol-old';
+import { InstanceId } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 import {
   type CSSProperties,
@@ -60,7 +59,9 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
         try {
           orchestrator.commandProcessor.executeActions([
             {
-              instanceId: instance.instanceId,
+              // Re-brand at the client-state → protocol boundary. Will go away
+              // when MAE-133 brands VesselInstance.instanceId at its source.
+              instanceId: InstanceId(instance.instanceId),
               action: name,
               ...(params && { paramsJson: JSON.stringify(params) }),
             },
@@ -305,7 +306,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
     // ── Grid layout rendering ─────────────────────────────────────────────────
 
-    if (!layout || isGridLayout(layout)) {
+    if (!layout || layout.type === 'grid') {
       const { columns, rows } = chartDimensions;
 
       const containerStyle: CSSProperties = {
@@ -319,7 +320,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
         position: 'relative',
       };
 
-      const gridPositions = (layout as GridLayout | null)?.positions ?? [];
+      const gridPositions = layout?.positions ?? [];
       const instancesToRender = gridPositions
         .map((pos) => {
           const instance = instances.get(pos.instanceId);
@@ -366,8 +367,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
     // ── Tiling layout rendering ───────────────────────────────────────────────
 
-    if (isTilingLayout(layout)) {
-      const tilingLayout = layout as TilingLayout;
+    if (layout.type === 'tiling') {
       const containerStyle: CSSProperties = {
         ...style,
         position: 'relative',
@@ -376,7 +376,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
         overflow: 'hidden',
       };
 
-      const tree = parseTilingTree(tilingLayout.tree);
+      const tree = parseTilingTree(layout.tree);
       const computedTiles = computeTilingLayout(tree, containerRect, config.tilingPaddingPx);
 
       const tilesToRender = computedTiles

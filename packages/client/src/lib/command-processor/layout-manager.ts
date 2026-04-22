@@ -1,4 +1,4 @@
-import type { GridLayout, TilingLayout } from '@maelstrom-co/protocol-old';
+import type { GridLayout, TilingLayout } from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';
 

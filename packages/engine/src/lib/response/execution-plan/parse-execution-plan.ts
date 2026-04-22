@@ -1,9 +1,9 @@
-import type { ActionExecution } from '@maelstrom-co/protocol';
-import { InstanceId, isErr } from '@maelstrom-co/protocol';
 import type {
+  ActionExecution,
   Vessel,
   VesselInstanceSnapshot,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
+import { InstanceId, isErr } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../../logger.js';
 import { parseParams } from './parse-params.js';

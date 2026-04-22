@@ -1,8 +1,9 @@
-import type {
-  MaelstromResponse,
-  TilingLayout,
-} from '@maelstrom-co/protocol-old';
-import type { MessageId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  type MaelstromResponse,
+  type MessageId,
+  type TilingLayout,
+} from '@maelstrom-co/protocol';
 
 export const createMockResponse = (
   requestId: MessageId,
@@ -13,7 +14,7 @@ export const createMockResponse = (
   requestId,
   userMessage: 'ok',
   rationale: 'test',
-  executionPlan: [{ instanceId, action }],
+  executionPlan: [{ instanceId: InstanceId(instanceId), action }],
   layout: createMockLayout(instanceId),
 });
 
@@ -22,7 +23,7 @@ export const createMockLayout = (instanceId: string): TilingLayout => ({
   tree: [],
   instances: [
     {
-      instanceId,
+      instanceId: InstanceId(instanceId),
       vesselId: 'vessel-1',
       variant: 'default',
     },

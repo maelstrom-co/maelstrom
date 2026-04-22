@@ -1,5 +1,4 @@
-import type { LayoutMode } from '@maelstrom-co/protocol-old';
-import { SessionId } from '@maelstrom-co/protocol';
+import { SessionId, type LayoutMode } from '@maelstrom-co/protocol';
 
 import type { ConnectionOptions } from '../connection-manager/connection-manager.types.js';
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
-import type { MaelstromResponse } from '@maelstrom-co/protocol-old';
-import { defineVessel } from '@maelstrom-co/protocol-old';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
+import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { createMockConnector } from './__tests__/mock-connector.js';
@@ -47,7 +47,7 @@ function makeInstance(override?: Partial<VesselInstance>): VesselInstance {
 function makeResponse(instances: VesselInstance[]): MaelstromResponse {
   return {
     type: 'maelstrom_response',
-    requestId: 'req-1',
+    requestId: MessageId('req-1'),
     userMessage: '',
     rationale: '',
     executionPlan: [],
@@ -55,7 +55,7 @@ function makeResponse(instances: VesselInstance[]): MaelstromResponse {
       type: 'tiling',
       tree: [],
       instances: instances.map((i) => ({
-        instanceId: i.instanceId,
+        instanceId: InstanceId(i.instanceId),
         vesselId: i.vesselId,
         variant: i.variant,
       })),

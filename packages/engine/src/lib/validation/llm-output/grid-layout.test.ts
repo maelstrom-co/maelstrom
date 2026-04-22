@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { isErr, isOk } from '@maelstrom-co/protocol';
-import type { GridResponse } from '@maelstrom-co/protocol-old';
+import type { GridResponse } from '@maelstrom-co/protocol';
+import { InstanceId, isErr, isOk } from '@maelstrom-co/protocol';
 
 import { makeGridRequest } from '../../__test-helpers__/fixtures.js';
 import { validateGridLayout } from './grid-layout.js';
@@ -127,7 +127,7 @@ describe('validateGridLayout', () => {
     const request = makeGridRequest({
       instances: [
         {
-          instanceId: 'calendar-main',
+          instanceId: InstanceId('calendar-main'),
           vesselId: 'ghost-vessel',
           variant: 'month',
         },
@@ -147,7 +147,7 @@ describe('validateGridLayout', () => {
     const request = makeGridRequest({
       instances: [
         {
-          instanceId: 'calendar-main',
+          instanceId: InstanceId('calendar-main'),
           vesselId: 'calendar',
           variant: 'nonexistent',
         },

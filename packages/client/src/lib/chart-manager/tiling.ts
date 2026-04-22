@@ -1,7 +1,4 @@
-import type {
-  TilingNode,
-  TilingSplitDirection,
-} from '@maelstrom-co/protocol-old';
+import { isTilingSplit, type TilingNode, type TilingSplit } from '@maelstrom-co/protocol';
 
 export interface Rect {
   x: number;
@@ -14,7 +11,7 @@ export type TilingTreeNode = TilingSplitNode | TilingLeafNode;
 
 export interface TilingSplitNode {
   type: 'split';
-  direction: TilingSplitDirection;
+  direction: TilingSplit;
   left?: TilingTreeNode | undefined;
   right?: TilingTreeNode | undefined;
 }
@@ -29,7 +26,9 @@ export interface ComputedTile {
   rect: Rect;
 }
 
-export function parseTilingTree(nodes: TilingNode[]): TilingTreeNode | null {
+export function parseTilingTree(
+  nodes: readonly TilingNode[],
+): TilingTreeNode | null {
   if (nodes.length === 0) {
     return null;
   }
@@ -44,7 +43,7 @@ export function parseTilingTree(nodes: TilingNode[]): TilingTreeNode | null {
     const node = nodes[index];
     index++;
 
-    if (node === 'H' || node === 'V') {
+    if (isTilingSplit(node)) {
       const left = parseNode();
       const right = parseNode();
       if (!left || !right) {
