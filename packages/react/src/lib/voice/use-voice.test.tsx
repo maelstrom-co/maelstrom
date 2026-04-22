@@ -13,15 +13,20 @@ import { createMockConnector } from '../__tests__/mock-connector.js';
 import { createMockVoiceConnector } from '../__tests__/mock-voice-connector.js';
 import { createMaelstrom } from '../create-maelstrom.js';
 import { resetWarnings } from '../warn-once.js';
-import type { VoiceSessionState } from './use-voice-types.js';
+import type { UseVoiceOptions, VoiceSessionState } from './use-voice-types.js';
 
 // ─── Mock VoiceSession ──────────────────────────────────────────────────────
 
 class MockVoiceSession {
   isAudioReady = false;
+  options: Record<string, unknown>;
+  prepareAudioCalls = 0;
+  greetingsSent: string[] = [];
   private _listeners = new Map<string, ((...args: unknown[]) => void)[]>();
 
-  constructor(_options: Record<string, unknown>) {}
+  constructor(options: Record<string, unknown>) {
+    this.options = options;
+  }
 
   on(event: string, cb: (...args: unknown[]) => void): () => void {
     if (!this._listeners.has(event)) this._listeners.set(event, []);
@@ -44,6 +49,7 @@ class MockVoiceSession {
   _prepareAudioError: Error | null = null;
 
   async prepareAudio() {
+    this.prepareAudioCalls++;
     if (this._prepareAudioError) throw this._prepareAudioError;
     this.isAudioReady = true;
   }
@@ -71,6 +77,18 @@ class MockVoiceSession {
 
   _simulateTranscript(text: string, isFinal: boolean) {
     this._emit('transcript', text, isFinal);
+  }
+
+  // Mirrors the real `#handleServerReady` gate so React-layer tests catch
+  // regressions where forwarding flips the consumer's autoAcquireMic value.
+  // If React silently switched true→false, this no-ops on ready and the
+  // assertions below would fail.
+  async _simulateServerReady() {
+    if (!this.options.autoAcquireMic) return;
+    if (typeof this.options.greeting === 'string' && this.options.greeting) {
+      this.greetingsSent.push(this.options.greeting);
+    }
+    await this.prepareAudio();
   }
 }
 
@@ -128,7 +146,13 @@ describe('m.useVoice()', () => {
       <m.Provider connector={connector}>{children}</m.Provider>
     );
 
-    const { result } = renderHook(() => m.useVoice({}), { wrapper });
+    // Cast: empty `{}` is intentionally invalid per the discriminated union
+    // (autoAcquireMic is required), but the runtime treats empty options as
+    // observer ownership (`Object.keys(options).length > 0` check).
+    const { result } = renderHook(
+      () => m.useVoice({} as unknown as UseVoiceOptions),
+      { wrapper },
+    );
 
     await act(async () => {
       await flushPromises();
@@ -163,7 +187,7 @@ describe('m.useVoice()', () => {
       <m.Provider connector={connector}>{children}</m.Provider>
     );
 
-    const { result } = renderHook(() => m.useVoice({ greeting: 'hello' }), {
+    const { result } = renderHook(() => m.useVoice({ autoAcquireMic: true, greeting: 'hello' }), {
       wrapper,
     });
 
@@ -177,6 +201,89 @@ describe('m.useVoice()', () => {
     expect(mockVoiceSessionInstance).not.toBeNull();
   });
 
+  it('forwards autoAcquireMic: false to VoiceSession', async () => {
+    const connector = createMockVoiceConnector();
+    const m = createMaelstrom({ vessels: [] });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    renderHook(() => m.useVoice({ autoAcquireMic: false }), { wrapper });
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    expect(mockVoiceSessionInstance?.options.autoAcquireMic).toBe(false);
+  });
+
+  it('forwards autoAcquireMic: true to VoiceSession', async () => {
+    const connector = createMockVoiceConnector();
+    const m = createMaelstrom({ vessels: [] });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    renderHook(() => m.useVoice({ autoAcquireMic: true }), { wrapper });
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    expect(mockVoiceSessionInstance?.options.autoAcquireMic).toBe(true);
+  });
+
+  it('autoAcquireMic: false suppresses greeting + prepareAudio on server ready', async () => {
+    const connector = createMockVoiceConnector();
+    const m = createMaelstrom({ vessels: [] });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    renderHook(() => m.useVoice({ autoAcquireMic: false }), { wrapper });
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    await act(async () => {
+      await mockVoiceSessionInstance!._simulateServerReady();
+    });
+
+    expect(mockVoiceSessionInstance!.prepareAudioCalls).toBe(0);
+    expect(mockVoiceSessionInstance!.greetingsSent).toEqual([]);
+    expect(mockVoiceSessionInstance!.isAudioReady).toBe(false);
+  });
+
+  it('autoAcquireMic: true emits greeting and acquires mic on server ready', async () => {
+    const connector = createMockVoiceConnector();
+    const m = createMaelstrom({ vessels: [] });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    renderHook(
+      () => m.useVoice({ autoAcquireMic: true, greeting: 'hello' }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    await act(async () => {
+      await mockVoiceSessionInstance!._simulateServerReady();
+    });
+
+    expect(mockVoiceSessionInstance!.prepareAudioCalls).toBe(1);
+    expect(mockVoiceSessionInstance!.greetingsSent).toEqual(['hello']);
+    expect(mockVoiceSessionInstance!.isAudioReady).toBe(true);
+  });
+
   it('owner and observer share state', async () => {
     const connector = createMockVoiceConnector();
     const m = createMaelstrom({ vessels: [] });
@@ -187,7 +294,7 @@ describe('m.useVoice()', () => {
 
     // Owner with options
     const { result: ownerResult } = renderHook(
-      () => m.useVoice({ greeting: 'hi' }),
+      () => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }),
       {
         wrapper,
       },
@@ -224,7 +331,7 @@ describe('m.useVoice()', () => {
     );
 
     const { result: ownerResult, unmount: unmountOwner } = renderHook(
-      () => m.useVoice({ greeting: 'hi' }),
+      () => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }),
       { wrapper },
     );
 
@@ -260,7 +367,7 @@ describe('m.useVoice()', () => {
       <m.Provider connector={connector}>{children}</m.Provider>
     );
 
-    const { unmount } = renderHook(() => m.useVoice({ greeting: 'hi' }), {
+    const { unmount } = renderHook(() => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }), {
       wrapper,
     });
 
@@ -321,7 +428,7 @@ describe('m.useVoice()', () => {
     );
 
     // First owner
-    renderHook(() => m.useVoice({ greeting: 'hi' }), { wrapper });
+    renderHook(() => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }), { wrapper });
     await act(async () => {
       await flushPromises();
     });
@@ -330,7 +437,7 @@ describe('m.useVoice()', () => {
     const firstSession = mockVoiceSessionInstance;
 
     // Second owner — should be rejected
-    renderHook(() => m.useVoice({ greeting: 'hey' }), { wrapper });
+    renderHook(() => m.useVoice({ autoAcquireMic: true, greeting: 'hey' }), { wrapper });
     await act(async () => {
       await flushPromises();
     });
@@ -354,13 +461,13 @@ describe('m.useVoice()', () => {
     );
 
     // First owner — do NOT flush promises, so import stays pending
-    renderHook(() => m.useVoice({ greeting: 'hi' }), { wrapper });
+    renderHook(() => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }), { wrapper });
 
     // Session should not exist yet (import still pending)
     expect(mockVoiceSessionInstance).toBeNull();
 
     // Second owner mounts while first is import-pending
-    renderHook(() => m.useVoice({ greeting: 'hey' }), { wrapper });
+    renderHook(() => m.useVoice({ autoAcquireMic: true, greeting: 'hey' }), { wrapper });
     await act(async () => {
       await flushPromises();
     });
@@ -383,7 +490,7 @@ describe('m.useVoice()', () => {
     );
 
     const { result } = renderHook(
-      () => m.useVoice({ greeting: 'hi', onError }),
+      () => m.useVoice({ autoAcquireMic: true, greeting: 'hi', onError }),
       { wrapper },
     );
 
@@ -412,7 +519,7 @@ describe('m.useVoice()', () => {
       <m.Provider connector={connector}>{children}</m.Provider>
     );
 
-    const { result } = renderHook(() => m.useVoice({ greeting: 'hello' }), {
+    const { result } = renderHook(() => m.useVoice({ autoAcquireMic: true, greeting: 'hello' }), {
       wrapper,
     });
 
@@ -440,7 +547,7 @@ describe('m.useVoice()', () => {
       <m.Provider connector={connector}>{children}</m.Provider>
     );
 
-    const { result } = renderHook(() => m.useVoice({ greeting: 'hi' }), {
+    const { result } = renderHook(() => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }), {
       wrapper,
     });
 
@@ -495,7 +602,13 @@ describe('m.useVoice()', () => {
 
     // Owner with callbacks
     renderHook(
-      () => m.useVoice({ greeting: 'hi', onStateChange, onTranscript }),
+      () =>
+        m.useVoice({
+          autoAcquireMic: true,
+          greeting: 'hi',
+          onStateChange,
+          onTranscript,
+        }),
       { wrapper },
     );
 
@@ -531,7 +644,13 @@ describe('m.useVoice()', () => {
     );
 
     renderHook(
-      () => m.useVoice({ greeting: 'hi', onTranscript, onStateChange }),
+      () =>
+        m.useVoice({
+          autoAcquireMic: true,
+          greeting: 'hi',
+          onTranscript,
+          onStateChange,
+        }),
       { wrapper },
     );
 

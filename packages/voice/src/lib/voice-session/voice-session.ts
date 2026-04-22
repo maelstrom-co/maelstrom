@@ -49,7 +49,7 @@ export type VoiceSessionState =
   | 'speaking'
   | 'error';
 
-export interface VoiceSessionConfig {
+interface BaseVoiceSessionConfig {
   /**
    * Abstraction over the transport layer (WebSocket, HTTP, mock).
    */
@@ -64,11 +64,6 @@ export interface VoiceSessionConfig {
    * Enable interim (partial) transcription results (default: true).
    */
   interimResults?: boolean;
-
-  /**
-   * Text to speak when server connection is ready.
-   */
-  greeting?: string;
 
   /** Correlation ID for server-side session tracking. */
   sessionId?: string;
@@ -87,6 +82,38 @@ export interface VoiceSessionConfig {
   /** Enable verbose console logging for debugging. */
   debugMode?: boolean;
 }
+
+/**
+ * Configuration for a `VoiceSession`.
+ *
+ * `autoAcquireMic` is a discriminated tag controlling lifecycle bootstrap on
+ * server readiness:
+ *
+ * - `true` — the session prompts for mic permission and (if `greeting` is
+ *   set) sends the greeting as soon as the server signals readiness. Suitable
+ *   for contexts where a prior user gesture has already authorised the page
+ *   to acquire the mic (e.g. an explicit "Start" button rendered the session).
+ * - `false` — both mic acquisition and any greeting are deferred until the
+ *   consumer calls `session.startListening()` / `session.prepareAudio()` from
+ *   a user gesture. Browsers require a gesture for `getUserMedia()`, so this
+ *   is the safe default for sessions constructed at app boot. `greeting` is
+ *   disallowed in this branch because there is no defined moment to send it.
+ *
+ * The discriminated union enforces the `greeting` ↔ `autoAcquireMic`
+ * coupling at compile time so a misconfigured session cannot reach runtime.
+ */
+export type VoiceSessionConfig = BaseVoiceSessionConfig &
+  (
+    | {
+        autoAcquireMic: true;
+        /** Text to speak when server connection is ready. */
+        greeting?: string;
+      }
+    | {
+        autoAcquireMic: false;
+        greeting?: never;
+      }
+  );
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -855,6 +882,11 @@ export class VoiceSession {
 
     if (this.#config.debugMode) {
       console.log('[VoiceSession] Server ready');
+    }
+
+    if (!this.#config.autoAcquireMic) {
+      // Opt-in mic + greeting. Consumer triggers both from a user gesture.
+      return;
     }
 
     if (this.#config.greeting && !this.#greetingSent) {

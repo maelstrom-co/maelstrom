@@ -102,23 +102,28 @@ export function createUseVoice(contextPair: MaelstromContextPair) {
           const { VoiceSession } = voiceModule;
           if (!VoiceSession) return;
 
-          const session = new VoiceSession({
+          // hasOptions guard above guarantees `current` is defined here.
+          const opts = hookOptionsRef.current!;
+          const baseConfig = {
             connector: connector as VoiceConnector,
             sessionId: 'default',
-            ...(ownerOptionsRef?.current?.language && {
-              language: ownerOptionsRef?.current.language,
-            }),
-            ...(ownerOptionsRef?.current?.greeting && {
-              greeting: ownerOptionsRef?.current.greeting,
-            }),
-            useVadToFinalizeInterims:
-              ownerOptionsRef?.current?.useVadToFinalizeInterims ?? true,
+            ...(opts.language && { language: opts.language }),
+            useVadToFinalizeInterims: opts.useVadToFinalizeInterims ?? true,
             vadOptions: {
               activationThreshold: 0.5,
-              ...ownerOptionsRef?.current?.vadOptions,
+              ...opts.vadOptions,
             },
             debugMode: config.debug,
-          });
+          };
+          const session = new VoiceSession(
+            opts.autoAcquireMic
+              ? {
+                  ...baseConfig,
+                  autoAcquireMic: true,
+                  ...(opts.greeting && { greeting: opts.greeting }),
+                }
+              : { ...baseConfig, autoAcquireMic: false },
+          );
 
           const unsubs = [
             session.on('transcript', (text: string, isFinal: boolean) => {

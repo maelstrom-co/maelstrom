@@ -5,15 +5,8 @@ export type VoiceSessionState =
   | 'speaking'
   | 'error';
 
-/**
- * Options for creating a voice session. Passing options to `useVoice()` makes
- * the caller the session owner — responsible for configuration and lifecycle.
- * Calling `useVoice()` without options creates an observer that shares the
- * owner's session state. An empty object `{}` is treated as no options (observer).
- */
-export interface UseVoiceOptions {
+interface BaseUseVoiceOptions {
   language?: string;
-  greeting?: string;
   /**
    * VAD (Voice Activity Detection) configuration. Common fields:
    * - activationThreshold?: number (0-1, default 0.7)
@@ -29,6 +22,28 @@ export interface UseVoiceOptions {
   onResponse?: (response: { userMessage?: string; requestId: string }) => void;
   onSpeechStarted?: (text: string) => void;
 }
+
+/**
+ * Options for creating a voice session. Passing options to `useVoice()` makes
+ * the caller the session owner — responsible for configuration and lifecycle.
+ * Calling `useVoice()` without options creates an observer that shares the
+ * owner's session state. An empty object `{}` is treated as no options (observer).
+ *
+ * `autoAcquireMic` is required so callers consciously choose between
+ * eager bootstrap (`true` — only safe when the hook itself renders inside a
+ * user gesture) and gesture-deferred bootstrap (`false` — the safe default
+ * for sessions constructed at app boot). The discriminated union forbids
+ * `greeting` when `autoAcquireMic: false` because there is no defined moment
+ * to send it.
+ *
+ * Forwarded to `VoiceSessionConfig.autoAcquireMic` / `greeting` — see there
+ * for full semantics.
+ */
+export type UseVoiceOptions = BaseUseVoiceOptions &
+  (
+    | { autoAcquireMic: true; greeting?: string }
+    | { autoAcquireMic: false; greeting?: never }
+  );
 
 export interface UseVoiceReturn {
   state: VoiceSessionState;

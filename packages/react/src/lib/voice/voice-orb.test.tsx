@@ -76,6 +76,18 @@ describe('VoiceOrb', () => {
     expect(stopMock).toHaveBeenCalledTimes(1);
   });
 
+  it('calls stop() on click when silence (hot mic sub-state)', () => {
+    const stopMock = mock(() => {});
+    const startMock = mock(() => Promise.resolve());
+    const VoiceOrb = createVoiceOrb(
+      createMockUseVoice({ state: 'silence', stop: stopMock, start: startMock }),
+    );
+    const { container } = render(<VoiceOrb />);
+    fireEvent.click(getButton(container));
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(startMock).not.toHaveBeenCalled();
+  });
+
   it('calls interrupt() on click when speaking', () => {
     const interruptMock = mock(() => {});
     const VoiceOrb = createVoiceOrb(
@@ -84,6 +96,25 @@ describe('VoiceOrb', () => {
     const { container } = render(<VoiceOrb />);
     fireEvent.click(getButton(container));
     expect(interruptMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call start() on click when in error state', () => {
+    const startMock = mock(() => Promise.resolve());
+    const stopMock = mock(() => {});
+    const interruptMock = mock(() => {});
+    const VoiceOrb = createVoiceOrb(
+      createMockUseVoice({
+        state: 'error',
+        start: startMock,
+        stop: stopMock,
+        interrupt: interruptMock,
+      }),
+    );
+    const { container } = render(<VoiceOrb />);
+    fireEvent.click(getButton(container));
+    expect(startMock).not.toHaveBeenCalled();
+    expect(stopMock).not.toHaveBeenCalled();
+    expect(interruptMock).not.toHaveBeenCalled();
   });
 
   it('returns null when isVoiceSupported is false', () => {

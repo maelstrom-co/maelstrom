@@ -42,15 +42,24 @@ export function createVoiceOrb(
       if (isDisabled) return;
       switch (voice.state) {
         case 'idle':
-        case 'silence':
           voice.start();
-          break;
+          return;
+        // `silence` is a sub-state of listening (mic hot, VAD detected user
+        // is talking). Treat it as hot — click stops capture.
         case 'listening':
+        case 'silence':
           voice.stop();
-          break;
+          return;
         case 'speaking':
           voice.interrupt();
-          break;
+          return;
+        case 'error':
+          // Click in error state is a no-op until the session is reset.
+          return;
+        default: {
+          const _exhaustive: never = voice.state;
+          return _exhaustive;
+        }
       }
     };
 
