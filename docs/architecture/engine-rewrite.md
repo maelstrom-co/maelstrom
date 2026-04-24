@@ -8,34 +8,34 @@
 
 ```
                     ┌──────────────────┐
-                    │    protocol       │  (target: all domain types)
-                    │                  │  Result, SessionId, MessageId,
-                    │                  │  EngineMessage, EngineOutput,
-                    │                  │  MaelstromResponse, InstanceId
-                    │                  │  + ChartRequest (after MAE-138)
+                    │    protocol       │  Result, SessionId, MessageId,
+                    │                  │  InstanceId, ChartRequest, Vessel,
+                    │                  │  MaelstromResponse, Zod schemas
+                    │                  │  (+ EngineMessage/Output after MAE-102)
                     └────────┬─────────┘
                              │ imported by
-                ┌────────────┼────────────┐
-                │            │            │
-                ▼            ▼            ▼
-         ┌──────────┐  ┌──────────┐  ┌──────────────┐
-         │  engine   │  │  client   │  │ voice-server  │
-         └──────────┘  └──────────┘  └──────────────┘
-                │            │
-                │            │ still imports from (until MAE-138)
-                │            ▼
-                │     ┌──────────────┐
-                │     │ protocol-old  │  (legacy: ChartRequest, Vessel,
-                └────►│              │   Zod schemas, voice messages)
-                      └──────────────┘
+                ┌────────────┼────────────┬─────────────┐
+                │            │            │             │
+                ▼            ▼            ▼             ▼
+         ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐
+         │  engine   │  │  client   │  │  react    │  │ voice-server  │
+         └──────────┘  └──────────┘  └──────────┘  └──────────────┘
+                              │
+                              │ legacy imports only (Success/Err/Result,
+                              │  vessel-inference helpers, voice wire)
+                              ▼
+                       ┌──────────────┐
+                       │ protocol-old  │  (action-runner runtime contract,
+                       │              │   voice wire format, engine-old)
+                       └──────────────┘
 
   Key: engine and voice-server are SIBLINGS.
        voice-server does NOT depend on engine.
        They connect via the ProcessIntent contract.
 
-  Migration: MAE-138 moves request-side types to protocol.
-             protocol-old remains only for voice messages
-             and engine-old consumers.
+  MAE-138 ✅ Request-side type hierarchy moved to protocol.
+             protocol-old now scoped to voice messages, the
+             legacy action-runner runtime, and engine-old.
 ```
 
 ## Engine Pipeline
@@ -67,9 +67,9 @@ The target pipeline (after MAE-102) accepts an `EngineMessage` envelope and retu
 │         │ structured JSON output                                 │
 │         ▼                                                         │
 │  ┌─────────────┐   response/response-processor.ts                │
-│  │ Response     │   Currently ~600 LOC monolith; MAE-127 will    │
-│  │ Processor    │   split into ~40 LOC orchestrator dispatching  │
-│  │              │   to execution-plan/ and layout/ subdirs       │
+│  │ Response     │   ~75 LOC thin orchestrator (MAE-127)           │
+│  │ Processor    │   dispatches execution-plan/ + layout/          │
+│  │              │   submodules; layout validation (MAE-124)       │
 │  └──────┬──────┘                                                 │
 │         │                                                         │
 │         ▼                                                         │
@@ -274,20 +274,19 @@ Four layers of validation, added incrementally:
 ```
 ┌─────────────────────────────────────────────┐
 │                                               │
-│  1. Engine Config (MAE-122)                  │
+│  1. Engine Config (MAE-122) ✅               │
 │     Zod schema validation at createEngine()  │
 │                                               │
 │  2. EngineMessage (MAE-123)                  │
 │     Pre-process envelope validation           │
 │                                               │
-│  3. LLM Output Layout (MAE-124)             │
+│  3. LLM Output Layout (MAE-124) ✅          │
 │     Grid/tiling layout shape validation       │
-│     Blocked by: MAE-127 (response split)     │
 │                                               │
 │  4. Retry System (MAE-125)                   │
 │     Automatic retry on validation failures    │
 │     pipeline/retry.ts next to call-llm.ts    │
-│     Blocked by: MAE-128 (callLLM extract)    │
+│     Blocked by: MAE-128 (callLLM extract) ✅ │
 │                                               │
 └─────────────────────────────────────────────┘
 ```
@@ -296,7 +295,7 @@ Four layers of validation, added incrementally:
 
 Three mechanical splits to reduce file sizes and prepare clean landing zones for validation and retry:
 
-**MAE-127 — Split response-processor** (blocks MAE-124)
+**MAE-127 ✅ Split response-processor** (unblocked MAE-124)
 ```
 response/
 ├── response-processor.ts         # ~40 LOC thin orchestrator
@@ -311,13 +310,13 @@ response/
     └── validation-context.ts
 ```
 
-**MAE-128 — Extract callLLM** (blocks MAE-125)
+**MAE-128 ✅ Extract callLLM** (unblocked MAE-125)
 ```
 pipeline/
 └── call-llm.ts                   # callLLM + LLMOutput + abort handling
 ```
 
-**MAE-137 — Split prompt-builder**
+**MAE-137 ✅ Split prompt-builder**
 ```
 prompt/
 ├── prompt-builder.ts             # ~180 LOC, section orchestration only
@@ -329,17 +328,37 @@ prompt/
 └── system-prompt-tiling.ts       # unchanged
 ```
 
-## Protocol Migration (MAE-138)
+## Protocol Migration (MAE-138 ✅)
 
-Move the request-side type hierarchy from `protocol-old` to `@maelstrom-co/protocol`:
+Request-side type hierarchy moved from `protocol-old` to `@maelstrom-co/protocol`:
 
-- `ChartRequest`, `ChartDimensions`, `VesselInstanceSnapshot`, `Vessel`, `VesselAction`, `ActionParameter`, `VariantDefinition`
+- `ChartRequest`, `ChartDimensions`, `ChartPosition`, `ChartSize`, `VesselInstanceSnapshot`, `Vessel`, `VesselAction`, `ActionParameter`, `VesselVariant`
 - `UpdateReason` (`user_intent`, `chart_resize`, `vessel_mutation`)
-- Request-side `GridLayout` / `TilingLayout` — unify with response-side layout types
-- Zod schemas (`GridResponseSchema`, `TilingResponseSchema`, `TilingTreeSchema`)
-- Adopt branded `InstanceId` in `VesselInstanceSnapshot.instanceId`
+- Request/response layout types (`GridLayout`, `GridPosition`, `TilingLayout`, `TilingInstance`, `TilingNode`, `TilingSplit`) unified in one package
+- Zod schemas (`GridResponseSchema`, `TilingResponseSchema`, `TilingNodeSchema`, `TilingTreeSchema`, `ActionExecutionSchema`, `VesselSchema`, etc.)
 
-Goal: `@maelstrom-co/engine` no longer imports anything from `protocol-old`.
+Branding propagated beyond the original spec (deliberately picked up during the migration):
+
+- `ChartRequest.id` → `MessageId`; `ChartRequest.context.sessionId` → `SessionId`
+- `VesselInstanceSnapshot.instanceId`, `GridPosition.instanceId`, `TilingInstance.instanceId`, `ActionExecution.instanceId`, `VesselMutationReason.instanceId` → all `InstanceId`
+- Positive `TilingNode` guards (`isInstanceIdNode`, `isTilingSplit`) replace the negative-narrowing pattern (`node !== null && node !== 'H' && node !== 'V'`)
+
+Consumers migrated in the same PR: `engine`, `client`, `react`, `demo`, `www`. `protocol-old` now only serves:
+
+- `engine-old`
+- Voice wire format (`VoiceClientMessage`, `VoiceServerMessage`, etc.) — on its own migration path
+- Old-shape `Result` / `Success` / `Err` (different shape from new protocol's `.ok`/`.err`) tied to the legacy action-runner runtime
+- Generic `ActionExecution<V extends Vessel>` and the `vessel-inference` helpers (`ActionNames`, `VariantNames`, `VariantPropsUnion`)
+- `VesselId` / `VariantName` / `ActionName` branding — deferred to MAE-133
+
+## Type-Safety Cleanups (MAE-133)
+
+Originally scoped to "brand remaining domain IDs" (see `docs/superpowers/specs/2026-04-16-branded-ids-design.md`). Scope extended during MAE-127, MAE-119, and MAE-138 landings to collect related latent type-safety debt:
+
+- **Remaining domain-ID branding.** MAE-138 deferred `VesselId`, `VariantName`, `ActionName` branding to keep that migration mechanical. These live as plain `string` fields across `Vessel`, `VesselVariant`, `VesselAction`, `VesselInstanceSnapshot.vesselId`/`variant`, `ActionExecution.action`, etc.
+- **Engine-internal InstanceId tightening.** `SkippedAction.instanceId`, `parseParams` parameter, `ValidationLookups.instanceMap` / `SimulationState.variants` map keys, `extractVisibleInstanceIds` return type — all still `string` despite `VesselInstanceSnapshot.instanceId` now being `InstanceId` at the protocol boundary.
+- **LLM→protocol narrowing casts.** `response/response-processor.ts` (mode-dispatched `llmOutput as GridResponse` / `as TilingResponse`) and `response/layout/build-layout.ts` (nested `llmLayout as { positions: … }` / `as { tree: …, instances: … }`). Both rely on the Zod schema selection matching `layoutMode` at runtime but carry no compile-time or runtime invariant check.
+- **`SimulationState.variants` read/write split.** Currently a `Map<string, string>` whose "only `updateSimulatedVariant` writes" rule is convention-only (the field is `readonly` only at reference level). Either split into a read-only view + writer, or enforce the invariant at a type boundary.
 
 ## Story Dependency Graph
 
@@ -355,25 +374,29 @@ MAE-100 ✅ Foundation
     │        └──► MAE-102  History & Session Management ──► MAE-132 ─►┐  │
     │                 ▲         │                                      │  │
     │                 │         └──► MAE-104  Integration ◄────────────┘  │
-    │            MAE-119 ⚙️       ▲                          ◄────────────┘
-    │            (in progress)    │
+    │            MAE-119 ✅       ▲                          ◄────────────┘
+    │                             │
     │                             │
     ├──► MAE-103  Voice Server ───┘
     │
-    │    ── Structural refactors (unblocked, parallel) ──
+    │    ── Structural refactors ──
     │
-    ├──► MAE-127  Split response-processor ──► MAE-124  Layout Validation
-    ├──► MAE-128  Extract callLLM ─────────►   MAE-125  Retry System
-    ├──► MAE-137  Split prompt-builder
+    ├──► MAE-127 ✅ Split response-processor ──► MAE-124 ✅ Layout Validation
+    ├──► MAE-128 ✅ Extract callLLM ───────────► MAE-125  Retry System
+    ├──► MAE-137 ✅ Split prompt-builder
     │
-    │    ── Validation (unblocked) ──
+    │    ── Validation ──
     │
-    ├──► MAE-122  Engine Config Validation (Zod)
+    ├──► MAE-122 ✅ Engine Config Validation (Zod)
     ├──► MAE-123  EngineMessage Validation
     │
     │    ── Protocol ──
     │
-    └──► MAE-138  Migrate ChartRequest to new protocol
+    ├──► MAE-138 ✅ Migrate ChartRequest to new protocol
+    │
+    │    ── Type-safety cleanups ──
+    │
+    └──► MAE-133  Brand remaining IDs + remove convention-only invariants
 
 Legend: ✅ Done  ⚙️ In Progress  (unmarked = Todo)
 ```
@@ -381,29 +404,30 @@ Legend: ✅ Done  ⚙️ In Progress  (unmarked = Todo)
 ## Recommended Execution Order
 
 ```
-Wave 1 — Structural refactors (unblocked, parallel, prevent merge conflicts)
-  MAE-127  Split response-processor
-  MAE-128  Extract callLLM
-  MAE-137  Split prompt-builder
+Wave 1 — Structural refactors ✅ landed
+  MAE-127 ✅ Split response-processor
+  MAE-128 ✅ Extract callLLM
+  MAE-137 ✅ Split prompt-builder
 
 Wave 2 — Features unblocked now (parallel)
-  MAE-109  2c: Islands + Phrase Extractor
-  MAE-122  Engine Config Validation
-  MAE-123  EngineMessage Validation
+  MAE-109    2c: Islands + Phrase Extractor
+  MAE-122 ✅ Engine Config Validation
+  MAE-123    EngineMessage Validation
 
 Wave 3 — Validation (unblocked after Wave 1)
-  MAE-124  LLM Output Layout Validation  (needs MAE-127)
-  MAE-125  Retry System                  (needs MAE-128)
+  MAE-124 ✅ LLM Output Layout Validation
+  MAE-125    Retry System                  (needs MAE-128 ✅)
 
-Wave 4 — History + Protocol (unblocked after MAE-119)
-  MAE-102  History & Session Management  (needs MAE-119)
-  MAE-138  Migrate ChartRequest          (coordinate with MAE-102)
+Wave 4 — History + Protocol (unblocked after MAE-119 ✅)
+  MAE-102    History & Session Management  (needs MAE-119 ✅)
+  MAE-138 ✅ Migrate ChartRequest
 
 Wave 5 — Voice (independent track, can interleave)
   MAE-103  Voice Server Package
 
 Wave 6 — Post-history
   MAE-132  Uniform idempotency           (needs MAE-102)
+  MAE-133  Type-safety cleanups         (independent; can interleave)
 
 Wave 7 — Capstone
   MAE-104  Integration & Migration       (needs everything above)
