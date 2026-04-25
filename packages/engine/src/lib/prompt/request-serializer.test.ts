@@ -185,6 +185,42 @@ describe('buildGridChartState', () => {
     expect(warns[0]).toContain('stale-variant');
     expect(warns[0]).toContain('calendar');
   });
+
+  test('includes a free-space section when the grid has empty cells', () => {
+    const request = makeGridRequest(); // calendar-main occupies 6x4 at (0,0) on a 12x8 chart
+    const output = buildGridChartState(request);
+    expect(output).toContain('Free regions where vessels can be placed:');
+    // The 12x4 block below the calendar (48 cells) is the largest free rect.
+    expect(output).toContain('12x4 (48 cells) at row=4, col=0');
+
+    // Positioned-vessels block must precede free-space block, and the
+    // free-space heading must appear exactly once so a duplicated emitter
+    // would not pass.
+    const positionedIdx = output.indexOf('calendar-main:');
+    const freeRegionsIdx = output.indexOf('Free regions');
+    expect(positionedIdx).toBeGreaterThanOrEqual(0);
+    expect(freeRegionsIdx).toBeGreaterThan(positionedIdx);
+    expect(output.match(/Free regions/g)).toHaveLength(1);
+  });
+
+  test('includes the no-free-space message when the grid is fully packed', () => {
+    const request = makeGridRequest({
+      layout: {
+        type: 'grid',
+        positions: [
+          {
+            instanceId: InstanceId('calendar-main'),
+            position: { row: 0, column: 0 },
+            size: { width: 12, height: 8 },
+          },
+        ],
+      },
+    });
+    const output = buildGridChartState(request);
+    expect(output).toContain(
+      'No free space available. Consider hiding or resizing existing vessels.',
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import { isInstanceIdNode } from '@maelstrom-co/protocol';
 
 import type { PromptSection } from './sections.js';
 import { UserSection } from './sections.js';
+import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { Logger } from '../logger.js';
 
 const CHART_STATE_HEADING: readonly string[] = ['## Current Chart State', ''];
@@ -155,6 +156,17 @@ export function buildGridChartState(
   } else {
     lines.push('No vessels currently positioned.');
   }
+
+  lines.push('');
+  lines.push(
+    serializeIslands(
+      computeAvailableIslands(
+        request.context.chartDimensions,
+        layout.positions,
+        logger,
+      ),
+    ),
+  );
 
   return lines.join('\n');
 }
