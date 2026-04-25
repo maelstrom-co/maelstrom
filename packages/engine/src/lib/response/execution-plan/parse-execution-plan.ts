@@ -38,8 +38,11 @@ function parseSingleAction(
   const brandedInstanceId = InstanceId(item.instanceId);
 
   if (!item.paramsJson) {
-    if (!updateSimulatedVariant(item, resolved, lookups.logger, sim)) {
-      skippedActions.push(stateDriftSkipped(item, resolved));
+    const outcome = updateSimulatedVariant(item, resolved, lookups.logger, sim);
+    if (outcome.kind === 'drift') {
+      skippedActions.push(
+        stateDriftSkipped(item, resolved, outcome.targetVariant),
+      );
       return [];
     }
     return [{ instanceId: brandedInstanceId, action: item.action }];
@@ -54,16 +57,19 @@ function parseSingleAction(
 
   if (params === undefined) {
     skippedActions.push({
+      reason: 'params_parse_failed',
       instanceId: item.instanceId,
       action: item.action,
-      reason: 'params_parse_failed',
-      detail: item.paramsJson,
+      paramsJson: item.paramsJson,
     });
     return [];
   }
 
-  if (!updateSimulatedVariant(item, resolved, lookups.logger, sim)) {
-    skippedActions.push(stateDriftSkipped(item, resolved));
+  const outcome = updateSimulatedVariant(item, resolved, lookups.logger, sim);
+  if (outcome.kind === 'drift') {
+    skippedActions.push(
+      stateDriftSkipped(item, resolved, outcome.targetVariant),
+    );
     return [];
   }
   return [{ instanceId: brandedInstanceId, action: item.action, params }];

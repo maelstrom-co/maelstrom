@@ -8,27 +8,56 @@ import type { Logger } from '../../logger.js';
 
 export type RawActionExecution = GridResponse['executionPlan'][number];
 
-export type SkippedActionReason =
-  | 'unknown_instance'
-  | 'unknown_vessel'
-  | 'no_simulated_variant'
-  | 'variant_not_on_vessel'
-  | 'action_not_valid'
-  | 'params_parse_failed'
-  | 'state_drift';
-
 /**
- * Structured record of an action the engine refused to include in the
- * execution plan. Downstream consumers (retry pipeline, observability)
- * discriminate on `reason` to decide whether a skip is retryable; keep
- * `reason` a closed union and stable.
+ * Discriminated record of an action the engine refused to plan. Keep the
+ * union closed and the per-arm field set stable — callers exhaust it via
+ * `switch (s.reason)` and read the structured fields directly.
  */
-export interface SkippedAction {
-  readonly instanceId: string;
-  readonly action: string;
-  readonly reason: SkippedActionReason;
-  readonly detail?: string;
-}
+export type SkippedAction =
+  | {
+      readonly reason: 'unknown_instance';
+      readonly instanceId: string;
+      readonly action: string;
+    }
+  | {
+      readonly reason: 'unknown_vessel';
+      readonly instanceId: string;
+      readonly action: string;
+      readonly vesselId: string;
+    }
+  | {
+      readonly reason: 'no_simulated_variant';
+      readonly instanceId: string;
+      readonly action: string;
+    }
+  | {
+      readonly reason: 'variant_not_on_vessel';
+      readonly instanceId: string;
+      readonly action: string;
+      readonly vesselId: string;
+      readonly variant: string;
+    }
+  | {
+      readonly reason: 'action_not_valid';
+      readonly instanceId: string;
+      readonly action: string;
+      readonly vesselId: string;
+      readonly variant: string;
+      readonly validActions: readonly string[];
+    }
+  | {
+      readonly reason: 'params_parse_failed';
+      readonly instanceId: string;
+      readonly action: string;
+      readonly paramsJson: string;
+    }
+  | {
+      readonly reason: 'state_drift';
+      readonly instanceId: string;
+      readonly action: string;
+      readonly vesselId: string;
+      readonly targetVariant: string;
+    };
 
 export interface ValidationLookups {
   readonly instanceMap: ReadonlyMap<string, VesselInstanceSnapshot>;

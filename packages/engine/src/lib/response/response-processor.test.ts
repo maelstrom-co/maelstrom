@@ -1134,10 +1134,13 @@ describe('processResponse', () => {
       // Diagnostics surface the dropped action for the retry pipeline.
       const skipped = result.value.diagnostics.skippedActions;
       expect(skipped).toHaveLength(1);
-      expect(skipped[0].reason).toBe('state_drift');
-      expect(skipped[0].detail).toBe(
-        'targetVariant=nonexistent, vesselId=bad-widget',
-      );
+      expect(skipped[0]).toEqual({
+        reason: 'state_drift',
+        instanceId: 'bad-1',
+        action: 'badAction',
+        vesselId: 'bad-widget',
+        targetVariant: 'nonexistent',
+      });
     });
 
     test('works correctly in tiling mode', () => {
@@ -1229,13 +1232,14 @@ describe('processResponse', () => {
       expect(warnings.some((w) => w.includes('unknown vesselId'))).toBe(true);
 
       // Diagnostic captures the structured reason for the retry pipeline.
-      expect(result.value.diagnostics.skippedActions).toHaveLength(1);
-      expect(result.value.diagnostics.skippedActions[0].reason).toBe(
-        'unknown_vessel',
-      );
-      expect(result.value.diagnostics.skippedActions[0].detail).toContain(
-        'does-not-exist',
-      );
+      expect(result.value.diagnostics.skippedActions).toEqual([
+        {
+          reason: 'unknown_vessel',
+          instanceId: 'orphan-1',
+          action: 'expand',
+          vesselId: 'does-not-exist',
+        },
+      ]);
     });
 
     test('skips action when instance variant does not exist in vessel definition', () => {
@@ -1280,13 +1284,15 @@ describe('processResponse', () => {
       expect(errors[0]).toContain('deleted-variant');
 
       // Diagnostic captures the structured reason for the retry pipeline.
-      expect(result.value.diagnostics.skippedActions).toHaveLength(1);
-      expect(result.value.diagnostics.skippedActions[0].reason).toBe(
-        'variant_not_on_vessel',
-      );
-      expect(result.value.diagnostics.skippedActions[0].detail).toContain(
-        'deleted-variant',
-      );
+      expect(result.value.diagnostics.skippedActions).toEqual([
+        {
+          reason: 'variant_not_on_vessel',
+          instanceId: 'widget-1',
+          action: 'expand',
+          vesselId: 'widget',
+          variant: 'deleted-variant',
+        },
+      ]);
     });
 
     test('drops drifted action but keeps subsequent actions validating against original variant', () => {
@@ -1353,14 +1359,15 @@ describe('processResponse', () => {
       expect(result.value.executionPlan).toHaveLength(1);
       expect(result.value.executionPlan[0].action).toBe('goodAction');
 
-      // state_drift diagnostic captures the dropped action with structured detail
+      // state_drift diagnostic captures the dropped action with structured fields
       const skipped = result.value.diagnostics.skippedActions;
       expect(skipped).toHaveLength(1);
       expect(skipped[0]).toEqual({
+        reason: 'state_drift',
         instanceId: 'tw-1',
         action: 'badTransition',
-        reason: 'state_drift',
-        detail: 'targetVariant=nonexistent, vesselId=test-widget',
+        vesselId: 'test-widget',
+        targetVariant: 'nonexistent',
       });
 
       // Should have logged an error about the bad transition target
@@ -1632,24 +1639,100 @@ describe('processResponse', () => {
       expect(skipped).toHaveLength(4);
 
       expect(skipped[0]).toEqual({
+        reason: 'unknown_instance',
         instanceId: 'ghost',
         action: 'noop',
-        reason: 'unknown_instance',
       });
 
-      expect(skipped[1].reason).toBe('unknown_vessel');
-      expect(skipped[1].instanceId).toBe('orphan');
-      expect(skipped[1].detail).toContain('no-such-vessel');
+      expect(skipped[1]).toEqual({
+        reason: 'unknown_vessel',
+        instanceId: 'orphan',
+        action: 'noop',
+        vesselId: 'no-such-vessel',
+      });
 
-      expect(skipped[2].reason).toBe('variant_not_on_vessel');
-      expect(skipped[2].instanceId).toBe('bad-var');
-      expect(skipped[2].detail).toContain('deleted');
+      expect(skipped[2]).toEqual({
+        reason: 'variant_not_on_vessel',
+        instanceId: 'bad-var',
+        action: 'expand',
+        vesselId: 'calendar',
+        variant: 'deleted',
+      });
 
-      expect(skipped[3].reason).toBe('action_not_valid');
-      expect(skipped[3].instanceId).toBe('calendar-main');
-      expect(skipped[3].detail).toContain('vesselId=calendar');
-      expect(skipped[3].detail).toContain('variant=month');
-      expect(skipped[3].detail).toContain('validActions=[showWeek]');
+      expect(skipped[3]).toEqual({
+        reason: 'action_not_valid',
+        instanceId: 'calendar-main',
+        action: 'doesNotExist',
+        vesselId: 'calendar',
+        variant: 'month',
+        validActions: ['showWeek'],
+      });
+    });
+
+    test('action_not_valid carries the full validActions array, including multi-entry and empty cases', () => {
+      const vessel: Vessel = {
+        id: 'multi',
+        name: 'Multi',
+        description: 'Three valid actions',
+        defaultVariant: 'ready',
+        variants: {
+          ready: {
+            props: {},
+            minSize: { width: 2, height: 2 },
+            actions: [
+              { name: 'alpha', description: 'A' },
+              { name: 'beta', description: 'B' },
+              { name: 'gamma', description: 'C' },
+            ],
+          },
+          empty: {
+            props: {},
+            minSize: { width: 2, height: 2 },
+            actions: [],
+          },
+        },
+      };
+
+      const request = makeGridRequest({
+        instances: [
+          { instanceId: InstanceId('m-multi'), vesselId: 'multi', variant: 'ready' },
+          { instanceId: InstanceId('m-empty'), vesselId: 'multi', variant: 'empty' },
+        ],
+        vessels: [vessel],
+      });
+
+      const llmOutput: GridResponse = {
+        userMessage: 'Two bad action picks',
+        rationale: 'Exercise validActions arrays of size 3 and 0',
+        executionPlan: [
+          { instanceId: 'm-multi', action: 'delta' },
+          { instanceId: 'm-empty', action: 'noop' },
+        ],
+        layout: { positions: [] },
+      };
+
+      const result = processResponse(llmOutput, request, silentLogger);
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+
+      expect(result.value.diagnostics.skippedActions).toEqual([
+        {
+          reason: 'action_not_valid',
+          instanceId: 'm-multi',
+          action: 'delta',
+          vesselId: 'multi',
+          variant: 'ready',
+          validActions: ['alpha', 'beta', 'gamma'],
+        },
+        {
+          reason: 'action_not_valid',
+          instanceId: 'm-empty',
+          action: 'noop',
+          vesselId: 'multi',
+          variant: 'empty',
+          validActions: [],
+        },
+      ]);
     });
 
     test('records params_parse_failed when paramsJson is invalid', () => {
@@ -1677,10 +1760,10 @@ describe('processResponse', () => {
       const skipped = result.value.diagnostics.skippedActions;
       expect(skipped).toHaveLength(1);
       expect(skipped[0]).toEqual({
+        reason: 'params_parse_failed',
         instanceId: 'calendar-main',
         action: 'showWeek',
-        reason: 'params_parse_failed',
-        detail: '{not json',
+        paramsJson: '{not json',
       });
     });
 

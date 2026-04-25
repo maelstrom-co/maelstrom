@@ -12,7 +12,6 @@ import type { Logger } from '../../logger.js';
 import type {
   RawActionExecution,
   SkippedAction,
-  SkippedActionReason,
   SimulationState,
   ValidationLookups,
 } from './validation-context.js';
@@ -42,14 +41,14 @@ export type ResolveFailure =
     };
 
 // Compile-time witness: every `ResolveFailure.kind` must also be a
-// `SkippedActionReason`. Drift (new kind without a matching reason) fails
-// this line — the hand-mapping in `resolveFailureToSkipped` below would
+// `SkippedAction['reason']`. A new kind without a matching arm fails this
+// line — the hand-mapping in `resolveFailureToSkipped` below would
 // otherwise drift silently. Exported to satisfy `noUnusedLocals`; the
 // underscore prefix signals internal-only and the package barrel does not
 // re-export it.
 type _AssertTrue<T extends true> = T;
 export type _KindsCoverReasons = _AssertTrue<
-  ResolveFailure['kind'] extends SkippedActionReason ? true : never
+  ResolveFailure['kind'] extends SkippedAction['reason'] ? true : never
 >;
 
 export function resolveAction(
@@ -98,12 +97,14 @@ export function resolveAction(
 export function stateDriftSkipped(
   item: RawActionExecution,
   resolved: ResolvedAction,
+  targetVariant: string,
 ): SkippedAction {
   return {
+    reason: 'state_drift',
     instanceId: item.instanceId,
     action: item.action,
-    reason: 'state_drift',
-    detail: `targetVariant=${resolved.actionDef.transitionsTo}, vesselId=${resolved.vessel.id}`,
+    vesselId: resolved.vessel.id,
+    targetVariant,
   };
 }
 
@@ -171,7 +172,7 @@ export function resolveFailureToSkipped(
       return {
         ...base,
         reason: 'unknown_vessel',
-        detail: `vesselId=${failure.vesselId}`,
+        vesselId: failure.vesselId,
       };
     case 'no_simulated_variant':
       return { ...base, reason: 'no_simulated_variant' };
@@ -179,13 +180,16 @@ export function resolveFailureToSkipped(
       return {
         ...base,
         reason: 'variant_not_on_vessel',
-        detail: `vesselId=${failure.vesselId}, variant=${failure.variant}`,
+        vesselId: failure.vesselId,
+        variant: failure.variant,
       };
     case 'action_not_valid':
       return {
         ...base,
         reason: 'action_not_valid',
-        detail: `vesselId=${failure.vesselId}, variant=${failure.variant}, validActions=[${failure.validActions.join(', ')}]`,
+        vesselId: failure.vesselId,
+        variant: failure.variant,
+        validActions: failure.validActions,
       };
     default:
       assertNever(failure, 'Unhandled ResolveFailure kind');
