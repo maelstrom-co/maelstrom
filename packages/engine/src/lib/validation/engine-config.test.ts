@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { createInMemoryStore } from '../history/in-memory-store.js';
 import { dummyAdapter, silentLogger } from '../__test-helpers__/fixtures.js';
 import { validateEngineConfig } from './engine-config.js';
 
@@ -221,6 +222,110 @@ describe('validateEngineConfig', () => {
           prompt: { system: { identity: { prepand: 'typo', append: 'ok' } } },
         }),
       ).toThrow();
+    });
+  });
+
+  describe('history schema', () => {
+    test('rejects history block missing the required store', () => {
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          history: { maxEntries: 50 },
+        }),
+      ).toThrow(/history\.store/);
+    });
+
+    test('accepts history block with explicit in-memory store', () => {
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          history: { store: createInMemoryStore(), maxEntries: 50 },
+        }),
+      ).not.toThrow();
+    });
+
+    test.each([
+      ['maxEntries', 0],
+      ['maxEntries', -1],
+      ['maxEntries', 1.5],
+      ['maxChars', 0],
+      ['maxChars', -100],
+      ['maxChars', 2.5],
+    ] as const)('rejects non-positive-integer %s (%p)', (field, value) => {
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          history: {
+            store: createInMemoryStore(),
+            [field]: value,
+          },
+        }),
+      ).toThrow(new RegExp(`history\\.${field}`));
+    });
+
+    test('rejects non-callable transformEntry', () => {
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          history: {
+            store: createInMemoryStore(),
+            transformEntry: 'not a function' as unknown as (
+              e: unknown,
+            ) => unknown,
+          },
+        }),
+      ).toThrow(/transformEntry/);
+    });
+
+    test('rejects non-callable deriveLLMContext', () => {
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          history: {
+            store: createInMemoryStore(),
+            deriveLLMContext: 'not a function' as unknown as (
+              e: unknown,
+            ) => readonly unknown[],
+          },
+        }),
+      ).toThrow(/deriveLLMContext/);
+    });
+
+    test('rejects a store missing required methods', () => {
+      const incompleteStore = {
+        append: () => Promise.resolve({ inserted: true }),
+        get: () => Promise.resolve([]),
+        // missing: replace, clear
+      };
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          history: {
+            store: incompleteStore as never,
+          },
+        }),
+      ).toThrow(/history\.store\.(replace|clear)/);
+    });
+
+    test('preserves extra implementation-specific fields on store (loose)', () => {
+      // Production stores ride along with backend handles (Redis client,
+      // pool, etc.) the engine must not strip during validation.
+      const inner = createInMemoryStore();
+      const richStore = {
+        ...inner,
+        backendName: 'redis',
+        connection: { host: 'redis.local' },
+      };
+      const result = validateEngineConfig({
+        adapter: dummyAdapter,
+        history: { store: richStore },
+      });
+      const observed = result.history?.store as unknown as {
+        backendName: string;
+        connection: { host: string };
+      };
+      expect(observed.backendName).toBe('redis');
+      expect(observed.connection.host).toBe('redis.local');
     });
   });
 });

@@ -2,6 +2,8 @@ import type { AnyTextAdapter } from '@tanstack/ai';
 import { z } from 'zod';
 
 import type { EngineConfig } from '../config.js';
+import type { LLMContextMessage } from '../history/history-manager.js';
+import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
 import type { Logger } from '../logger.js';
 
 // `T` is compile-time shape only — runtime only verifies that `v` is callable.
@@ -65,11 +67,39 @@ const promptOptionsSchema = z
   })
   .strict();
 
+// HistoryStore / transformEntry are loose: stores carry implementation-
+// specific methods (Redis client, SQL pool, …) and transformEntry is an
+// arbitrary user callback. We only enforce the four-method HistoryStore
+// contract the engine actually calls.
+const historyStoreSchema = z
+  .object({
+    append: functionSchema<HistoryStore['append']>(),
+    get: functionSchema<HistoryStore['get']>(),
+    replace: functionSchema<HistoryStore['replace']>(),
+    clear: functionSchema<HistoryStore['clear']>(),
+  })
+  .loose();
+
+const historySchema = z
+  .object({
+    maxEntries: z.number().int().positive().optional(),
+    maxChars: z.number().int().positive().optional(),
+    transformEntry:
+      functionSchema<(entry: HistoryEntry) => HistoryEntry>().optional(),
+    deriveLLMContext:
+      functionSchema<
+        (entry: HistoryEntry) => readonly LLMContextMessage[]
+      >().optional(),
+    store: historyStoreSchema,
+  })
+  .strict();
+
 const engineConfigSchema = z
   .object({
     adapter: adapterSchema,
     logger: loggerSchema.optional(),
     prompt: promptOptionsSchema.optional(),
+    history: historySchema.optional(),
   })
   .strict();
 

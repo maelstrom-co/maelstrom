@@ -221,7 +221,7 @@ type EngineMessage =
 
 type EngineOutput =
   | { type: 'chart_response'; sessionId: SessionId; id: MessageId; response: MaelstromResponse }
-  | { type: 'assistant_ack'; sessionId: SessionId; id: MessageId };
+  | { type: 'assistant_message_result'; sessionId: SessionId; id: MessageId; outcome: 'inserted' | 'deduped' };
 
 interface Engine {
   handle(message: EngineMessage, signal?: AbortSignal): Promise<Result<EngineOutput, EngineError>>;
@@ -234,11 +234,12 @@ interface Engine {
 ┌─────────────────────────────────────────────────┐
 │              HistoryManager                       │
 │                                                   │
-│  HistoryConfig:                                  │
+│  HistoryConfig<TMeta>:                           │
 │    maxEntries: number    (hard cap on entries)    │
 │    maxChars: number      (token proxy)           │
-│    transformTurn?: (entry) => entry               │
-│    store?: HistoryStore                          │
+│    transformEntry?: (entry) => entry              │
+│    deriveLLMContext?: (entry) => messages[]      │
+│    store?: HistoryStore<TMeta>                   │
 │                                                   │
 │  Truncation: newest-first retention               │
 │  Drop oldest until both limits satisfied          │
@@ -369,28 +370,36 @@ MAE-100 ✅ Foundation
     │        │
     │        ├──► MAE-108 ✅ 2b: Action Validation
     │        │
-    │        ├──► MAE-109  2c: Islands + Phrase Extractor ──────────────►┐
-    │        │                                                            │
-    │        └──► MAE-102  History & Session Management ──► MAE-132 ─►┐  │
-    │                 ▲         │                                      │  │
-    │                 │         └──► MAE-104  Integration ◄────────────┘  │
-    │            MAE-119 ✅       ▲                          ◄────────────┘
-    │                             │
-    │                             │
-    ├──► MAE-103  Voice Server ───┘
+    │        └──► MAE-109 ✅ 2c: Islands + Phrase Extractor ──────────────►┐
+    │                                                                       │
+    ├──► MAE-119 ✅ SessionId / MessageId / Brand<T, B>                     │
+    │        │                                                               │
+    │        └──► MAE-102    History & Session Management                   │
+    │                 │                                                      │
+    │                 ├──► MAE-123  EngineMessage Validation                │
+    │                 │                                                      │
+    │                 ├──► MAE-132  Uniform idempotency                     │
+    │                 │                                                      │
+    │                 └──► MAE-104  Integration ◄───────────────────────────┘
+    │                              ▲
+    │                              │
+    ├──► MAE-103    Voice Server ──┘
     │
-    │    ── Structural refactors ──
+    │    ── Structural refactors (all shipped — landing zones cleared) ──
     │
-    ├──► MAE-127 ✅ Split response-processor ──► MAE-124 ✅ Layout Validation
-    ├──► MAE-128 ✅ Extract callLLM ───────────► MAE-125  Retry System
-    ├──► MAE-137 ✅ Split prompt-builder
+    ├──► MAE-127 ✅ Split response-processor ──► MAE-124 ✅ Layout Validation ──┐
+    ├──► MAE-128 ✅ Extract callLLM ──────────►                                  │
+    ├──► MAE-137 ✅ Split prompt-builder                                         ▼
+    │                                                                MAE-125  Retry System
+    │                                                                           ▲
+    │    MAE-142  Promote SkippedAction discriminated union ───────────────────┘
+    │    MAE-143  Split validation-context / logger decouple (cleanup, non-blocking)
     │
-    │    ── Validation ──
+    │    ── Validation (standalone) ──
     │
     ├──► MAE-122 ✅ Engine Config Validation (Zod)
-    ├──► MAE-123  EngineMessage Validation
     │
-    │    ── Protocol ──
+    │    ── Protocol migration ──
     │
     ├──► MAE-138 ✅ Migrate ChartRequest to new protocol
     │
@@ -403,32 +412,45 @@ Legend: ✅ Done  ⚙️ In Progress  (unmarked = Todo)
 
 ## Recommended Execution Order
 
+> **Revised 2026-04-18.** Wave 1 structural refactors (MAE-127, MAE-128, MAE-137)
+> and the MAE-119 brand utility have all shipped, clearing merge hotspots and
+> unblocking the envelope story. MAE-123 and MAE-125 both land more cleanly on
+> top of the envelope from MAE-102, so they move after it rather than alongside.
+
 ```
-Wave 1 — Structural refactors ✅ landed
-  MAE-127 ✅ Split response-processor
-  MAE-128 ✅ Extract callLLM
-  MAE-137 ✅ Split prompt-builder
+✅ Done
+  MAE-127  Split response-processor
+  MAE-128  Extract callLLM
+  MAE-137  Split prompt-builder
+  MAE-119  SessionId / MessageId brands
+  MAE-122  Engine Config Validation (Zod)
+  MAE-124  LLM Output Layout Validation
+  MAE-138  Migrate ChartRequest to new protocol
+  MAE-109  2c: Islands + Phrase Extractor
 
-Wave 2 — Features unblocked now (parallel)
-  MAE-109    2c: Islands + Phrase Extractor
-  MAE-122 ✅ Engine Config Validation
-  MAE-123    EngineMessage Validation
+Wave 2 — Envelope foundation
+  MAE-102  History & Session Management             (needs MAE-119 ✅)
+           Introduces EngineMessage envelope, factories, HistoryStore /
+           HistoryManager, per-session mutex, hybrid truncation, and rewrites
+           the engine surface to Engine.handle(message). Unblocks MAE-123,
+           MAE-132, and makes MAE-125's retry loop sit cleanly inside handle().
 
-Wave 3 — Validation (unblocked after Wave 1)
-  MAE-124 ✅ LLM Output Layout Validation
-  MAE-125    Retry System                  (needs MAE-128 ✅)
+Wave 3 — Validation (parallel, after Wave 2)
+  MAE-123  EngineMessage Validation                 (needs MAE-102 envelope types)
+  MAE-142  Promote SkippedAction discriminated union (prerequisite to MAE-125 —
+                                                     structured retry reasons)
+  MAE-125  Retry System                             (needs MAE-124 ✅ + MAE-142)
 
-Wave 4 — History + Protocol (unblocked after MAE-119 ✅)
-  MAE-102    History & Session Management  (needs MAE-119 ✅)
-  MAE-138 ✅ Migrate ChartRequest
+Wave 4 — Cleanup (any time, non-blocking)
+  MAE-143  Split validation-context / logger decouple
 
-Wave 5 — Voice (independent track, can interleave)
+Wave 5 — Voice (independent track)
   MAE-103  Voice Server Package
 
 Wave 6 — Post-history
-  MAE-132  Uniform idempotency           (needs MAE-102)
-  MAE-133  Type-safety cleanups         (independent; can interleave)
+  MAE-132  Uniform idempotency                      (needs MAE-102)
+  MAE-133  Type-safety cleanups                     (independent; can interleave)
 
 Wave 7 — Capstone
-  MAE-104  Integration & Migration       (needs everything above)
+  MAE-104  Integration & Migration                  (needs everything above)
 ```

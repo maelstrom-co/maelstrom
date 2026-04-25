@@ -49,3 +49,8 @@ export type {
   PromptVars,
 } from './lib/prompt/prompt-builder.js';
 export { buildPrompt, buildSystemPrompt } from './lib/prompt/prompt-builder.js';
+
+// History — configuration + store extensibility
+export type { HistoryConfig } from './lib/history/history-manager.js';
+export type { HistoryEntry, HistoryStore } from './lib/history/history-store.js';
+export { createInMemoryStore } from './lib/history/in-memory-store.js';

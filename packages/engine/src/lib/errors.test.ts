@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   cancellationError,
+  historyError,
   layoutValidationError,
   parseError,
   providerError,
@@ -67,6 +68,16 @@ describe('Error constructors', () => {
     expect(e._tag).toBe('CancellationError');
     expect(e.message).toBe('aborted by user');
     expect(e.reason).toBe('user cancel');
+    expect(e.stack).toBeString();
+  });
+
+  test('historyError creates tagged error with operation + cause', () => {
+    const cause = new Error('store offline');
+    const e = historyError('failed to persist', 'add_assistant_message', cause);
+    expect(e._tag).toBe('HistoryError');
+    expect(e.message).toBe('failed to persist');
+    expect(e.operation).toBe('add_assistant_message');
+    expect(e.cause).toBe(cause);
     expect(e.stack).toBeString();
   });
 
@@ -203,6 +214,7 @@ describe('EngineError pattern matching', () => {
       timeoutError('d', 1000),
       cancellationError('e', 'reason'),
       layoutValidationError([{ kind: 'missing_rationale' }]),
+      historyError('f', 'add_assistant_message', new Error('store')),
     ];
 
     const tags = errors.map((e) => {
@@ -219,6 +231,8 @@ describe('EngineError pattern matching', () => {
           return 'cancellation';
         case 'LayoutValidationError':
           return 'layout';
+        case 'HistoryError':
+          return 'history';
         default: {
           const _exhaustive: never = e;
           throw new Error(`Unknown tag: ${(_exhaustive as EngineError)._tag}`);
@@ -233,6 +247,7 @@ describe('EngineError pattern matching', () => {
       'timeout',
       'cancellation',
       'layout',
+      'history',
     ]);
   });
 });

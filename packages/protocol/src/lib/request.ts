@@ -59,15 +59,18 @@ export interface VesselInstanceSnapshot {
 /** Request from client to engine */
 export interface ChartRequest {
   readonly type: 'chart_request';
-  /** Unique request ID for correlation with MaelstromResponse.requestId */
+  /**
+   * @deprecated Use `ChartRequestMessage.id` instead — the envelope is the
+   * canonical source of truth for message identity.
+   */
   readonly id: MessageId;
   readonly context: {
     /** Reasons that triggered this update (can be batched) */
     readonly updateReasons: readonly UpdateReason[];
     readonly chartDimensions: ChartDimensions;
-    /** Unix timestamp */
+    /** @deprecated Use `ChartRequestMessage.timestamp` instead. */
     readonly timestamp: number;
-    /** Session identifier for conversation continuity */
+    /** @deprecated Use `ChartRequestMessage.sessionId` instead. */
     readonly sessionId: SessionId;
     readonly layoutMode: LayoutMode;
   };

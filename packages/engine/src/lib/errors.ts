@@ -132,13 +132,32 @@ export interface LayoutValidationError {
   readonly stack?: string;
 }
 
+/**
+ * Raised when the configured `HistoryStore` fails while recording a turn or
+ * persisting an assistant_message. Distinct from {@link ProviderError}: that
+ * one is the LLM adapter; history persistence is a separate subsystem, and
+ * callers typically route the two failure modes to different recovery
+ * strategies (LLM retry / fallback vs. store reconnection / degraded mode).
+ *
+ * `operation` names which engine entry point the failure originated in, so
+ * callers can branch without string-matching `message`.
+ */
+export interface HistoryError {
+  readonly _tag: 'HistoryError';
+  readonly message: string;
+  readonly operation: 'record_turn' | 'add_assistant_message' | 'clear';
+  readonly cause: unknown;
+  readonly stack?: string;
+}
+
 export type EngineError =
   | ParseError
   | ProviderError
   | ValidationError
   | TimeoutError
   | CancellationError
-  | LayoutValidationError;
+  | LayoutValidationError
+  | HistoryError;
 
 const captureStack = (message: string): string | undefined =>
   new Error(message).stack;
@@ -194,6 +213,18 @@ export const cancellationError = (
   _tag: 'CancellationError',
   message,
   reason,
+  stack: captureStack(message),
+});
+
+export const historyError = (
+  message: string,
+  operation: HistoryError['operation'],
+  cause: unknown,
+): HistoryError => ({
+  _tag: 'HistoryError',
+  message,
+  operation,
+  cause,
   stack: captureStack(message),
 });
 

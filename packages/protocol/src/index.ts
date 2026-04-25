@@ -48,6 +48,17 @@ export type {
   VesselMutationReason,
 } from './lib/request.js';
 export { GridResponseSchema, TilingResponseSchema } from './lib/request.js';
+export type { EngineMessage, EngineMessageBase } from './lib/engine-message.js';
+export {
+  AssistantInjectionMessage,
+  ChartRequestMessage,
+} from './lib/engine-message.js';
+export type {
+  AssistantMessageResultOutput,
+  ChartResponseOutput,
+  EngineOutput,
+  EngineOutputBase,
+} from './lib/engine-output.js';
 export {
   ActionExecutionSchema,
   ChartPositionSchema,

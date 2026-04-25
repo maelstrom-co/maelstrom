@@ -5,6 +5,7 @@ import { chat } from '@tanstack/ai';
 import type { EngineConfig } from '../config.js';
 import type { EngineError } from '../errors.js';
 import { cancellationError, providerError } from '../errors.js';
+import type { LLMContextMessage } from '../history/history-manager.js';
 
 // ---------------------------------------------------------------------------
 // LLM output type
@@ -34,6 +35,7 @@ export async function callLLM(
   systemPrompt: string,
   userPrompt: string,
   outputSchema: typeof GridResponseSchema | typeof TilingResponseSchema,
+  historyMessages: readonly LLMContextMessage[],
   signal?: AbortSignal,
 ): Promise<Result<LLMOutput, EngineError>> {
   const controller = new AbortController();
@@ -50,7 +52,10 @@ export async function callLLM(
   try {
     const output = await chat({
       adapter,
-      messages: [{ role: 'user' as const, content: userPrompt }],
+      messages: [
+        ...historyMessages,
+        { role: 'user' as const, content: userPrompt },
+      ],
       systemPrompts: [systemPrompt],
       outputSchema,
       stream: false,
