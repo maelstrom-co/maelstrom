@@ -134,10 +134,14 @@ const _adapterFwd: _InferredEngineConfig['adapter'] extends _AdapterContract
 const _adapterBwd: _AdapterContract extends _InferredEngineConfig['adapter']
   ? true
   : false = true;
-const _loggerFwd: NonNullable<_InferredEngineConfig['logger']> extends NonNullable<EngineConfig['logger']>
+const _loggerFwd: NonNullable<
+  _InferredEngineConfig['logger']
+> extends NonNullable<EngineConfig['logger']>
   ? true
   : false = true;
-const _promptFwd: NonNullable<_InferredEngineConfig['prompt']> extends NonNullable<EngineConfig['prompt']>
+const _promptFwd: NonNullable<
+  _InferredEngineConfig['prompt']
+> extends NonNullable<EngineConfig['prompt']>
   ? true
   : false = true;
 void [
@@ -182,18 +186,18 @@ function formatIssue(issue: z.core.$ZodIssue): string {
 
 function hasNestedBranches(
   issue: z.core.$ZodIssue,
-): issue is z.core.$ZodIssue & { readonly errors: readonly z.core.$ZodIssue[][] } {
+): issue is z.core.$ZodIssue & {
+  readonly errors: readonly z.core.$ZodIssue[][];
+} {
   return (
-    'errors' in issue &&
-    Array.isArray((issue as { errors?: unknown }).errors)
+    'errors' in issue && Array.isArray((issue as { errors?: unknown }).errors)
   );
 }
 
-function hasNestedIssues(
-  issue: z.core.$ZodIssue,
-): issue is z.core.$ZodIssue & { readonly issues: readonly z.core.$ZodIssue[] } {
+function hasNestedIssues(issue: z.core.$ZodIssue): issue is z.core.$ZodIssue & {
+  readonly issues: readonly z.core.$ZodIssue[];
+} {
   return (
-    'issues' in issue &&
-    Array.isArray((issue as { issues?: unknown }).issues)
+    'issues' in issue && Array.isArray((issue as { issues?: unknown }).issues)
   );
 }

@@ -1,4 +1,8 @@
-import type { GridLayout, LayoutMode, TilingLayout } from '@maelstrom-co/protocol';
+import type {
+  GridLayout,
+  LayoutMode,
+  TilingLayout,
+} from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../assert-never.js';
 import type {

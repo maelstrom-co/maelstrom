@@ -11,7 +11,17 @@
     "skipLibCheck": true,
     "types": ["node", "vite/client"]
   },
-  "exclude": ["out-tsc", "dist", ".output", ".vinxi", "node_modules"],
+  "exclude": [
+    "out-tsc",
+    "dist",
+    ".output",
+    ".vinxi",
+    "node_modules",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx"
+  ],
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
   "references": [
     {

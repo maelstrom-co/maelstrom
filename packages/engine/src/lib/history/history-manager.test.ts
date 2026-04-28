@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 
 import type {
   ChartRequest,
-  ChartRequestMessage as ChartRequestMessageType,
   ChartResponseOutput,
   MaelstromResponse,
 } from '@maelstrom-co/protocol';
@@ -26,21 +25,17 @@ const defer = <T>() => {
   return { promise, resolve };
 };
 
-// Adapts the shared makeGridRequest fixture into a session-scoped request
-// with a user_intent update reason. Dropping the local hand-rolled request
-// removed an `as unknown as ChartRequest` cast that was masking shape drift
-// (the prior version used `chartDimensions: { width, height }` instead of
+// Adapts the shared makeGridRequest fixture, overriding the user_intent
+// reason. Dropping the local hand-rolled request removed an
+// `as unknown as ChartRequest` cast that was masking shape drift (the prior
+// version used `chartDimensions: { width, height }` instead of
 // `{ columns, rows }` — caught only because the cast silenced tsc).
-const buildRequest = (
-  sessionId: ReturnType<typeof SessionId>,
-  intent: string,
-): ChartRequest => {
+const buildRequest = (intent: string): ChartRequest => {
   const base = makeGridRequest();
   return {
     ...base,
     context: {
       ...base.context,
-      sessionId,
       updateReasons: [{ type: 'user_intent', intent }],
     },
   };
@@ -51,12 +46,12 @@ const buildInput = (
   id: ReturnType<typeof MessageId>,
   intent: string,
   timestamp?: number,
-): ChartRequestMessageType =>
+): ChartRequestMessage =>
   ChartRequestMessage({
     sessionId,
     id,
     timestamp,
-    request: buildRequest(sessionId, intent),
+    request: buildRequest(intent),
   });
 
 const buildOutput = (
@@ -135,10 +130,7 @@ describe('HistoryManager.recordTurn', () => {
     });
     const s = SessionId('s');
     const id = MessageId('t1');
-    await mgr.recordTurn(
-      buildInput(s, id, 'hello'),
-      buildOutput(s, id, 'hi'),
-    );
+    await mgr.recordTurn(buildInput(s, id, 'hello'), buildOutput(s, id, 'hi'));
     const [entry] = await store.get(s);
     if (entry?.kind !== 'turn') {
       throw new Error('expected turn entry');
@@ -159,7 +151,10 @@ describe('HistoryManager.recordTurn', () => {
         entry.kind === 'injection'
           ? {
               ...entry,
-              input: { ...entry.input, content: `[wrapped] ${entry.input.content}` },
+              input: {
+                ...entry.input,
+                content: `[wrapped] ${entry.input.content}`,
+              },
             }
           : entry,
     });
@@ -219,7 +214,7 @@ describe('HistoryManager.recordTurn', () => {
       sessionId: s,
       id: MessageId('t'),
       timestamp: 100,
-      request: buildRequest(s, 'hi'),
+      request: buildRequest('hi'),
     });
     await mgr.recordTurn(inputAt100, buildOutput(s, MessageId('t'), 'hello'));
     const [entry] = await store.get(s);
@@ -278,7 +273,8 @@ describe('HistoryManager.recordTurn', () => {
       }),
     );
     const [entry] = await store.get(real);
-    if (entry?.kind !== 'injection') throw new Error('expected injection entry');
+    if (entry?.kind !== 'injection')
+      throw new Error('expected injection entry');
     expect(entry.input.sessionId).toBe(real);
   });
 
@@ -751,7 +747,6 @@ describe('HistoryManager.getLLMContext', () => {
         ...base,
         context: {
           ...base.context,
-          sessionId: s,
           updateReasons: [
             {
               type: 'chart_resize',

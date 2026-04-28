@@ -121,12 +121,12 @@ describe('m.useMaelstrom()', () => {
   it('lastError auto-clears on next processIntent call', async () => {
     let callCount = 0;
     const connector = createMockConnector({
-      process: async (request) => {
+      process: async (message) => {
         callCount++;
         if (callCount === 1) throw new Error('first call fails');
         return {
           type: 'maelstrom_response' as const,
-          requestId: request.id,
+          requestId: message.id,
           userMessage: '',
           rationale: '',
           executionPlan: [],

@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import {
+  ChartRequestMessage,
   MessageId,
   SessionId,
   type ChartRequest,
@@ -27,7 +28,9 @@ function createMockConnector(
     connect: mock(() => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
     process: mock(() =>
-      Promise.resolve(createMockResponse(MessageId('req-1'), 'instance-1', 'show')),
+      Promise.resolve(
+        createMockResponse(MessageId('req-1'), 'instance-1', 'show'),
+      ),
     ),
     subscribe: mock(
       (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
@@ -38,21 +41,23 @@ function createMockConnector(
   };
 }
 
-function createMockRequest(id = MessageId('req-1')): ChartRequest {
-  return {
+function createMockRequest(id = MessageId('req-1')): ChartRequestMessage {
+  const request: ChartRequest = {
     type: 'chart_request',
-    id,
     context: {
       updateReasons: [{ type: 'user_intent', intent: 'test' }],
       chartDimensions: { columns: 12, rows: 8 },
-      timestamp: Date.now(),
-      sessionId: SessionId('session-1'),
       layoutMode: 'tiling',
     },
     instances: [],
     vessels: [],
     layout: { type: 'tiling', tree: [], instances: [] },
   };
+  return ChartRequestMessage({
+    sessionId: SessionId('session-1'),
+    id,
+    request,
+  });
 }
 
 // ============================================================================
@@ -62,7 +67,11 @@ function createMockRequest(id = MessageId('req-1')): ChartRequest {
 describe('RequestCoordinator', () => {
   describe('send', () => {
     it('should call connector.process and return response', async () => {
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -147,7 +156,11 @@ describe('RequestCoordinator', () => {
     });
 
     it('should update lastResponse on success', async () => {
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -168,7 +181,11 @@ describe('RequestCoordinator', () => {
 
       const flushPromise = coordinator.queueFlush();
 
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
       coordinator.resolveFlushPromises(mockResponse);
 
       const result = await flushPromise;
@@ -184,7 +201,11 @@ describe('RequestCoordinator', () => {
       const flush1 = coordinator.queueFlush();
       const flush2 = coordinator.queueFlush();
 
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
       coordinator.resolveFlushPromises(mockResponse);
 
       const [r1, r2] = await Promise.all([flush1, flush2]);
@@ -217,11 +238,11 @@ describe('RequestCoordinator', () => {
   });
 
   describe('brand preservation', () => {
-    it('round-trips MessageId from request through process() to response', async () => {
+    it('round-trips MessageId from envelope through process() to response', async () => {
       const branded = MessageId('round-trip-id');
       const connector = createMockConnector({
-        process: mock((req: ChartRequest) =>
-          Promise.resolve(createMockResponse(req.id, 'instance-1', 'show')),
+        process: mock((msg: ChartRequestMessage) =>
+          Promise.resolve(createMockResponse(msg.id, 'instance-1', 'show')),
         ),
       });
       const coordinator = new RequestCoordinator(connector);

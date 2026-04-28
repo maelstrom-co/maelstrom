@@ -96,5 +96,7 @@ export function validateGridLayout(
     }
   }
 
-  return failures.length === 0 ? ok(undefined) : err(layoutValidationError(failures));
+  return failures.length === 0
+    ? ok(undefined)
+    : err(layoutValidationError(failures));
 }

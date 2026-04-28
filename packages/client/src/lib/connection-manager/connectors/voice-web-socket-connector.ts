@@ -3,7 +3,7 @@ import type {
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
 import type {
-  ChartRequest,
+  ChartRequestMessage,
   MaelstromResponse,
   SessionId,
 } from '@maelstrom-co/protocol';
@@ -174,28 +174,28 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
   }
 
   /**
-   * Sends a request and waits for the correlated response.
+   * Sends a chart_request envelope and waits for the correlated response.
    */
-  async process(request: ChartRequest): Promise<MaelstromResponse> {
+  async process(envelope: ChartRequestMessage): Promise<MaelstromResponse> {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
 
     if (this.#debug) {
       console.log(
-        `[VoiceConnector] Sending maelstrom.process request: ${request.id}`,
-        request.context.updateReasons.map((r) => r.type),
+        `[VoiceConnector] Sending maelstrom.process request: ${envelope.id}`,
+        envelope.request.context.updateReasons.map((r) => r.type),
       );
     }
 
-    const promise = this.#correlator.create(request.id, this.#timeout);
+    const promise = this.#correlator.create(envelope.id, this.#timeout);
 
-    const message = {
+    const wireMessage = {
       type: 'client.maelstrom.process' as const,
       timestamp: performance.now(),
-      request,
+      request: envelope,
     };
-    this.#ws?.send(JSON.stringify(message));
+    this.#ws?.send(JSON.stringify(wireMessage));
 
     return promise;
   }

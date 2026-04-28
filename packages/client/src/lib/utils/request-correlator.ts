@@ -12,8 +12,8 @@ import type { MaelstromResponse } from '@maelstrom-co/protocol';
  * const correlator = new RequestCorrelator<MyResponse>();
  *
  * // In process() method:
- * const promise = correlator.create(request.id, 30000);
- * sendToServer(request);
+ * const promise = correlator.create(envelope.id, 30000);
+ * sendToServer(envelope);
  * return promise;
  *
  * // When response arrives:

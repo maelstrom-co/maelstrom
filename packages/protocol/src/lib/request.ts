@@ -1,16 +1,17 @@
 import { z } from 'zod';
 
 import type { ChartDimensions } from './chart.js';
+// Referenced via `{@link}` in the ChartRequest JSDoc below — type-only import
+// keeps IDE hover/jump-to-definition uniform across resolvers.
+import type { ChartRequestMessage } from './engine-message.js';
 import type { InstanceId } from './instance.js';
 import type { LayoutMode } from './layout.js';
-import type { MessageId } from './message.js';
 import type { GridLayout, TilingLayout } from './response.js';
 import {
   ActionExecutionSchema,
   GridLayoutSchema,
   TilingLayoutSchema,
 } from './schemas.js';
-import type { SessionId } from './session.js';
 import type { Vessel } from './vessel.js';
 
 // ---------------------------------------------------------------------------
@@ -56,22 +57,19 @@ export interface VesselInstanceSnapshot {
   readonly variant: string;
 }
 
-/** Request from client to engine */
+/**
+ * Request from client to engine.
+ *
+ * Message identity (`id`), session binding (`sessionId`), and timestamp live
+ * on the surrounding {@link ChartRequestMessage} envelope — this payload only
+ * carries the chart state and the reasons for the update.
+ */
 export interface ChartRequest {
   readonly type: 'chart_request';
-  /**
-   * @deprecated Use `ChartRequestMessage.id` instead — the envelope is the
-   * canonical source of truth for message identity.
-   */
-  readonly id: MessageId;
   readonly context: {
     /** Reasons that triggered this update (can be batched) */
     readonly updateReasons: readonly UpdateReason[];
     readonly chartDimensions: ChartDimensions;
-    /** @deprecated Use `ChartRequestMessage.timestamp` instead. */
-    readonly timestamp: number;
-    /** @deprecated Use `ChartRequestMessage.sessionId` instead. */
-    readonly sessionId: SessionId;
     readonly layoutMode: LayoutMode;
   };
   /** All Vessel instances with their current variant state */

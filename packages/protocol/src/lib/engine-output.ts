@@ -34,6 +34,4 @@ export interface AssistantMessageResultOutput extends EngineOutputBase {
   readonly outcome: 'inserted' | 'deduped';
 }
 
-export type EngineOutput =
-  | ChartResponseOutput
-  | AssistantMessageResultOutput;
+export type EngineOutput = ChartResponseOutput | AssistantMessageResultOutput;

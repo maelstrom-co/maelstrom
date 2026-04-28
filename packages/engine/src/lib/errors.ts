@@ -89,7 +89,11 @@ export type LayoutValidationFailure =
       readonly minHeight: number;
     }
   | { readonly kind: 'unknown_instance'; readonly instanceId: string }
-  | { readonly kind: 'unknown_vessel'; readonly instanceId: string; readonly vesselId: string }
+  | {
+      readonly kind: 'unknown_vessel';
+      readonly instanceId: string;
+      readonly vesselId: string;
+    }
   | {
       readonly kind: 'unknown_variant';
       readonly instanceId: string;

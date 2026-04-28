@@ -6,7 +6,9 @@ describe('MessageId', () => {
   test('generates a valid UUID when called with no arguments', () => {
     const id = MessageId();
     expect(typeof id).toBe('string');
-    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 
   test('preserves the provided value when rehydrating', () => {

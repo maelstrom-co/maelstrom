@@ -127,7 +127,12 @@ export function createEngine(config: EngineConfig): Engine {
     }
 
     logger.debug('LLM response received', { messageId: message.id });
-    const processed = processResponse(llmResult.value, request, logger);
+    const processed = processResponse({
+      llmOutput: llmResult.value,
+      request,
+      messageId: message.id,
+      logger,
+    });
     if (isErr(processed)) {
       logger.error('Failed to process LLM response', {
         messageId: message.id,
@@ -175,19 +180,14 @@ export function createEngine(config: EngineConfig): Engine {
         }
         case 'assistant_message': {
           if (history === undefined) {
-            return err(
-              validationError('history not configured', 'history'),
-            );
+            return err(validationError('history not configured', 'history'));
           }
           // Reject injections that alone would exceed the session's char
           // budget. Without this, a single oversized injection would always
           // win the "newest entry retained" rule in truncation and dwarf
           // every subsequent LLM call until something newer pushed it out.
           const maxChars = historyConfig?.maxChars;
-          if (
-            maxChars !== undefined &&
-            message.content.length > maxChars
-          ) {
+          if (maxChars !== undefined && message.content.length > maxChars) {
             return err(
               validationError(
                 `assistant_message content (${message.content.length} chars) exceeds maxChars (${maxChars})`,

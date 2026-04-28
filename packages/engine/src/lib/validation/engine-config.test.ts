@@ -49,16 +49,18 @@ describe('validateEngineConfig', () => {
     );
   });
 
-  test.each(['debug', 'info', 'warn', 'error'] as const)(
-    'throws when required logger method %s is missing',
-    (method) => {
-      const badLogger: Record<string, unknown> = { ...silentLogger };
-      delete badLogger[method];
-      expect(() =>
-        validateEngineConfig({ adapter: dummyAdapter, logger: badLogger }),
-      ).toThrow(new RegExp(`logger\\.${method}`));
-    },
-  );
+  test.each([
+    'debug',
+    'info',
+    'warn',
+    'error',
+  ] as const)('throws when required logger method %s is missing', (method) => {
+    const badLogger: Record<string, unknown> = { ...silentLogger };
+    delete badLogger[method];
+    expect(() =>
+      validateEngineConfig({ adapter: dummyAdapter, logger: badLogger }),
+    ).toThrow(new RegExp(`logger\\.${method}`));
+  });
 
   test('throws when logger method is not a function', () => {
     const badLogger = { ...silentLogger, error: 'not a function' };
@@ -113,8 +115,9 @@ describe('validateEngineConfig', () => {
     };
     const result = validateEngineConfig({ adapter: extendedAdapter });
     expect(
-      (result.adapter as unknown as { providerSpecificMethod: () => string })
-        .providerSpecificMethod(),
+      (
+        result.adapter as unknown as { providerSpecificMethod: () => string }
+      ).providerSpecificMethod(),
     ).toBe('hello');
   });
 

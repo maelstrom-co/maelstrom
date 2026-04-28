@@ -1,5 +1,16 @@
-import type { GridPosition, GridResponse, Result, TilingInstance, TilingResponse } from '@maelstrom-co/protocol';
-import { err, GridResponseSchema, ok, TilingResponseSchema } from '@maelstrom-co/protocol';
+import type {
+  GridPosition,
+  GridResponse,
+  Result,
+  TilingInstance,
+  TilingResponse,
+} from '@maelstrom-co/protocol';
+import {
+  err,
+  GridResponseSchema,
+  ok,
+  TilingResponseSchema,
+} from '@maelstrom-co/protocol';
 import { chat } from '@tanstack/ai';
 
 import type { EngineConfig } from '../config.js';

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
   InstanceId,
   MessageId,
-  type ChartRequest,
+  type ChartRequestMessage,
   type MaelstromResponse,
   type SessionId,
 } from '@maelstrom-co/protocol';
@@ -30,7 +30,9 @@ function createMockConnector(
     connect: mock((_sessionId: SessionId) => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
     process: mock(() =>
-      Promise.resolve(createMockResponse(MessageId('req-1'), 'instance-1', 'show')),
+      Promise.resolve(
+        createMockResponse(MessageId('req-1'), 'instance-1', 'show'),
+      ),
     ),
     subscribe: mock(
       (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
@@ -166,7 +168,11 @@ describe('Orchestrator', () => {
 
   describe('processIntent', () => {
     it('should send request to connector and process response', async () => {
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -177,8 +183,9 @@ describe('Orchestrator', () => {
       expect(response).toBe(mockResponse);
       expect(connector.process).toHaveBeenCalledTimes(1);
 
-      const request = (connector.process as ReturnType<typeof mock>).mock
-        .calls[0][0] as ChartRequest;
+      const envelope = (connector.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      const request = envelope.request;
       expect(request.type).toBe('chart_request');
       expect(
         request.context.updateReasons.some(
@@ -201,8 +208,9 @@ describe('Orchestrator', () => {
 
       await orchestrator.processIntent('show chart');
 
-      const request = (connector.process as ReturnType<typeof mock>).mock
-        .calls[0][0] as ChartRequest;
+      const envelope = (connector.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      const request = envelope.request;
       expect(request.context.updateReasons.length).toBe(2);
       expect(request.context.updateReasons[0].type).toBe('vessel_mutation');
       expect(request.context.updateReasons[1].type).toBe('user_intent');
@@ -277,8 +285,9 @@ describe('Orchestrator', () => {
 
       await orchestrator.processIntent('test');
 
-      const request = (connector.process as ReturnType<typeof mock>).mock
-        .calls[0][0] as ChartRequest;
+      const envelope = (connector.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      const request = envelope.request;
       expect(request.instances).toEqual([
         { instanceId: InstanceId('i-1'), vesselId: 'v-1', variant: 'default' },
       ]);
@@ -321,7 +330,11 @@ describe('Orchestrator', () => {
       const flushPromise = orchestrator.flushUpdates();
 
       // Resolve the connector
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
       processResolve(mockResponse);
 
       const [intentResult, flushResult] = await Promise.all([
@@ -356,7 +369,9 @@ describe('Orchestrator', () => {
       );
 
       // Resolve first intent to clean up
-      processResolve(createMockResponse(MessageId('req-1'), 'instance-1', 'show'));
+      processResolve(
+        createMockResponse(MessageId('req-1'), 'instance-1', 'show'),
+      );
       await firstIntent;
 
       orchestrator.dispose();
@@ -378,7 +393,11 @@ describe('Orchestrator', () => {
     });
 
     it('should send pending updates and return response', async () => {
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -399,7 +418,11 @@ describe('Orchestrator', () => {
     });
 
     it('should send updates automatically after debounce timer', async () => {
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
       const connector = createMockConnector({
         process: mock(() => Promise.resolve(mockResponse)),
       });
@@ -489,8 +512,9 @@ describe('Orchestrator', () => {
 
       await orchestrator.flushUpdates();
 
-      const request = (connector.process as ReturnType<typeof mock>).mock
-        .calls[0][0] as ChartRequest;
+      const envelope = (connector.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      const request = envelope.request;
       expect(
         request.context.updateReasons.some((r) => r.type === 'chart_resize'),
       ).toBe(true);
@@ -628,7 +652,11 @@ describe('Orchestrator', () => {
       });
 
       // Resolve the connector
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
       processResolve(mockResponse);
 
       await Promise.all([intentPromise, flushPromise]);
@@ -659,7 +687,11 @@ describe('Orchestrator', () => {
   describe('timer-triggered flush resolves queued promises', () => {
     it('should resolve flush promises after timer-triggered send completes', async () => {
       let processResolve!: (v: MaelstromResponse) => void;
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
 
       const connector = createMockConnector({
         process: mock(
@@ -723,7 +755,11 @@ describe('Orchestrator', () => {
   describe('timer-triggered flush concurrency', () => {
     it('should not send via timer when a request is already in flight', async () => {
       let processResolve!: (v: MaelstromResponse) => void;
-      const mockResponse = createMockResponse(MessageId('req-1'), 'instance-1', 'show');
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
 
       const connector = createMockConnector({
         process: mock(

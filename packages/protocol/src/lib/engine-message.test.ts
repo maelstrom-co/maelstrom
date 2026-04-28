@@ -72,18 +72,19 @@ describe('ChartRequestMessage factory', () => {
     expect(msg.timestamp).toBe(1_700_000_000_000);
   });
 
-  test.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
-    'throws when timestamp is non-finite (%p)',
-    (timestamp) => {
-      expect(() =>
-        ChartRequestMessage({
-          sessionId: SessionId('s'),
-          request: stubRequest,
-          timestamp,
-        }),
-      ).toThrow(/finite number/i);
-    },
-  );
+  test.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('throws when timestamp is non-finite (%p)', (timestamp) => {
+    expect(() =>
+      ChartRequestMessage({
+        sessionId: SessionId('s'),
+        request: stubRequest,
+        timestamp,
+      }),
+    ).toThrow(/finite number/i);
+  });
 });
 
 describe('AssistantInjectionMessage factory', () => {
@@ -147,18 +148,19 @@ describe('AssistantInjectionMessage factory', () => {
     expect(msg.timestamp).toBe(1_700_000_000_000);
   });
 
-  test.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
-    'throws when timestamp is non-finite (%p)',
-    (timestamp) => {
-      expect(() =>
-        AssistantInjectionMessage({
-          sessionId: SessionId('s'),
-          content: 'hi',
-          timestamp,
-        }),
-      ).toThrow(/finite number/i);
-    },
-  );
+  test.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('throws when timestamp is non-finite (%p)', (timestamp) => {
+    expect(() =>
+      AssistantInjectionMessage({
+        sessionId: SessionId('s'),
+        content: 'hi',
+        timestamp,
+      }),
+    ).toThrow(/finite number/i);
+  });
 });
 
 describe('EngineMessage discriminated union', () => {

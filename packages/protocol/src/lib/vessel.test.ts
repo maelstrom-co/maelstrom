@@ -38,8 +38,9 @@ describe('validateVessel', () => {
     const result = validateVessel({ ...validVessel, variants: {} });
     expect(result.valid).toBe(false);
     if (result.valid) throw new Error('expected invalid result');
-    expect(result.issues.some((i) => /at least one variant/.test(i.message)))
-      .toBe(true);
+    expect(
+      result.issues.some((i) => /at least one variant/.test(i.message)),
+    ).toBe(true);
   });
 
   test('rejects a vessel whose defaultVariant does not exist', () => {
@@ -50,7 +51,9 @@ describe('validateVessel', () => {
     expect(result.valid).toBe(false);
     if (result.valid) throw new Error('expected invalid result');
     expect(
-      result.issues.some((i) => /Default variant .* does not exist/.test(i.message)),
+      result.issues.some((i) =>
+        /Default variant .* does not exist/.test(i.message),
+      ),
     ).toBe(true);
   });
 
@@ -96,7 +99,9 @@ describe('validateVessel', () => {
     expect(result.valid).toBe(false);
     if (result.valid) throw new Error('expected invalid result');
     expect(
-      result.issues.some((i) => /transitions to non-existent variant/.test(i.message)),
+      result.issues.some((i) =>
+        /transitions to non-existent variant/.test(i.message),
+      ),
     ).toBe(true);
   });
 
@@ -104,8 +109,9 @@ describe('validateVessel', () => {
     const result = validateVessel({ ...validVessel, id: '' });
     expect(result.valid).toBe(false);
     if (result.valid) throw new Error('expected invalid result');
-    expect(result.issues.some((i) => /Vessel id is required/.test(i.message)))
-      .toBe(true);
+    expect(
+      result.issues.some((i) => /Vessel id is required/.test(i.message)),
+    ).toBe(true);
   });
 
   test('rejects a non-object input', () => {
@@ -120,9 +126,7 @@ describe('validateVessel', () => {
       defaultVariant: 'nonexistent',
     });
     if (result.valid) throw new Error('expected invalid result');
-    const issue = result.issues.find((i) =>
-      /Default variant/.test(i.message),
-    );
+    const issue = result.issues.find((i) => /Default variant/.test(i.message));
     expect(issue).toBeDefined();
     expect(issue!.path).toContain('defaultVariant');
     expect(typeof issue!.code).toBe('string');

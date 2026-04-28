@@ -2,10 +2,11 @@ import {
   InstanceId,
   type ChartDimensions,
   type ChartRequest,
+  // Referenced via `{@link}` in the JSDoc below — type-only import keeps IDE
+  // hover/jump-to-definition uniform across resolvers.
+  type ChartRequestMessage,
   type GridLayout,
   type LayoutMode,
-  type MessageId,
-  type SessionId,
   type TilingLayout,
   type UpdateReason,
   type Vessel,
@@ -14,29 +15,22 @@ import {
 import type { VesselInstance } from '../types.js';
 
 /**
- * Builds a ChartRequest from the current state and pending updates.
+ * Builds the inner {@link ChartRequest} payload from the current state and
+ * pending updates. The caller wraps this in a {@link ChartRequestMessage}
+ * envelope to supply session + message identity + timestamp.
  *
- * This is a pure function — no side effects, no I/O. All data
- * transformation for the engine request lives here.
+ * This is a pure function — no side effects, no I/O.
  */
 export function buildChartRequest(params: {
-  requestId: MessageId;
   updates: UpdateReason[];
   instances: Map<string, VesselInstance>;
   chartDimensions: ChartDimensions;
   layout: GridLayout | TilingLayout | null;
   vessels: Vessel[];
-  config: { sessionId: SessionId; layoutMode: LayoutMode };
+  config: { layoutMode: LayoutMode };
 }): ChartRequest {
-  const {
-    requestId,
-    updates,
-    instances,
-    chartDimensions,
-    layout,
-    vessels,
-    config,
-  } = params;
+  const { updates, instances, chartDimensions, layout, vessels, config } =
+    params;
 
   const instanceSnapshots = Array.from(instances.values()).map((i) => ({
     instanceId: InstanceId(i.instanceId),
@@ -46,12 +40,9 @@ export function buildChartRequest(params: {
 
   return {
     type: 'chart_request',
-    id: requestId,
     context: {
       updateReasons: updates,
       chartDimensions,
-      timestamp: Date.now(),
-      sessionId: config.sessionId,
       layoutMode: config.layoutMode,
     },
     instances: instanceSnapshots,

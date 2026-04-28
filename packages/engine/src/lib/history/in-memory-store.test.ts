@@ -112,11 +112,9 @@ describe('InMemoryStore.get', () => {
     await store.append(s, injection(s, 'second', idB));
     await store.append(s, injection(s, 'third', idC));
     const entries = await store.get(s);
-    expect(entries.map((e) => (e.kind === 'injection' ? e.input.id : null))).toEqual([
-      idA,
-      idB,
-      idC,
-    ]);
+    expect(
+      entries.map((e) => (e.kind === 'injection' ? e.input.id : null)),
+    ).toEqual([idA, idB, idC]);
   });
 
   test('returns an empty array for an unknown session', async () => {
@@ -140,10 +138,9 @@ describe('InMemoryStore.replace', () => {
 
     const entries = await store.get(s);
     expect(entries.length).toBe(2);
-    expect(entries.map((e) => (e.kind === 'injection' ? e.input.content : null))).toEqual([
-      'new-1',
-      'new-2',
-    ]);
+    expect(
+      entries.map((e) => (e.kind === 'injection' ? e.input.content : null)),
+    ).toEqual(['new-1', 'new-2']);
   });
 
   test('creates a session when replacing on an unknown sessionId', async () => {

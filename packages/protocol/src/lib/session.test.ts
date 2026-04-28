@@ -6,7 +6,9 @@ describe('SessionId', () => {
   test('generates a unique id with session- prefix when called with no arguments', () => {
     const id = SessionId();
     expect(typeof id).toBe('string');
-    expect(id).toMatch(/^session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(id).toMatch(
+      /^session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 
   test('preserves the provided value when given a non-empty string', () => {

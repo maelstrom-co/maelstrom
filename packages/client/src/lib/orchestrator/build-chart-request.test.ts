@@ -2,8 +2,6 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   InstanceId,
-  MessageId,
-  SessionId,
   defineVessel,
   type LayoutMode,
 } from '@maelstrom-co/protocol';
@@ -27,14 +25,12 @@ const testVessel = defineVessel({
 
 function buildParams(overrides: Record<string, unknown> = {}) {
   return {
-    requestId: MessageId('req-1'),
     updates: [{ type: 'user_intent' as const, intent: 'show chart' }],
     instances: new Map<string, VesselInstance>(),
     chartDimensions: { columns: 12, rows: 8 },
     layout: null,
     vessels: [testVessel],
     config: {
-      sessionId: SessionId('session-1'),
       layoutMode: 'tiling' as LayoutMode,
     },
     ...overrides,
@@ -46,15 +42,23 @@ describe('buildChartRequest', () => {
     const request = buildChartRequest(buildParams());
 
     expect(request.type).toBe('chart_request');
-    expect(request.id).toBe(MessageId('req-1'));
-    expect(request.context.sessionId).toBe(SessionId('session-1'));
     expect(request.context.layoutMode).toBe('tiling');
     expect(request.context.updateReasons).toHaveLength(1);
     expect(request.context.updateReasons[0]).toEqual({
       type: 'user_intent',
       intent: 'show chart',
     });
-    expect(typeof request.context.timestamp).toBe('number');
+  });
+
+  it('should NOT carry envelope-only fields on the inner payload', () => {
+    // Locks in the envelope-only rule for id / sessionId / timestamp.
+    // A regression that re-adds any of these to ChartRequest would fail
+    // these assertions instead of silently shipping duplicate fields.
+    const request = buildChartRequest(buildParams());
+
+    expect('id' in request).toBe(false);
+    expect('sessionId' in request.context).toBe(false);
+    expect('timestamp' in request.context).toBe(false);
   });
 
   it('should map instance snapshots to instanceId, vesselId, variant only', () => {
@@ -87,10 +91,7 @@ describe('buildChartRequest', () => {
   it('should default to empty grid layout when layout is null and mode is grid', () => {
     const request = buildChartRequest(
       buildParams({
-        config: {
-          sessionId: SessionId('session-1'),
-          layoutMode: 'grid' as LayoutMode,
-        },
+        config: { layoutMode: 'grid' as LayoutMode },
       }),
     );
 

@@ -1,5 +1,5 @@
 import type { ChartRequest } from '@maelstrom-co/protocol';
-import { InstanceId, MessageId, SessionId } from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { Logger } from '../logger.js';
@@ -30,16 +30,17 @@ export function makeGridRequest(
 ): ChartRequest {
   return {
     type: 'chart_request',
-    id: MessageId('req-1'),
     context: {
       updateReasons: [{ type: 'user_intent', intent: 'Show me my calendar' }],
       chartDimensions: { columns: 12, rows: 8 },
-      timestamp: Date.now(),
-      sessionId: SessionId('session-1'),
       layoutMode: 'grid',
     },
     instances: [
-      { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
+      {
+        instanceId: InstanceId('calendar-main'),
+        vesselId: 'calendar',
+        variant: 'month',
+      },
     ],
     vessels: [
       {
@@ -94,16 +95,17 @@ export function makeTilingRequest(
 ): ChartRequest {
   return {
     type: 'chart_request',
-    id: MessageId('req-2'),
     context: {
       updateReasons: [{ type: 'user_intent', intent: 'Add a task list' }],
       chartDimensions: { columns: 12, rows: 8 },
-      timestamp: Date.now(),
-      sessionId: SessionId('session-2'),
       layoutMode: 'tiling',
     },
     instances: [
-      { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
+      {
+        instanceId: InstanceId('calendar-main'),
+        vesselId: 'calendar',
+        variant: 'month',
+      },
     ],
     vessels: [
       {

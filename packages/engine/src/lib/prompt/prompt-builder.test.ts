@@ -18,7 +18,6 @@ describe('buildPrompt', () => {
       expect(result.systemPrompt).toContain('GRID LAYOUT SYSTEM');
       expect(result.systemPrompt).not.toContain('binary tree');
     });
-
   });
 
   describe('tiling mode', () => {
@@ -29,7 +28,6 @@ describe('buildPrompt', () => {
       expect(result.systemPrompt).toContain('binary tree');
       expect(result.systemPrompt).not.toContain('GRID LAYOUT SYSTEM');
     });
-
   });
 
   describe('sections metadata', () => {

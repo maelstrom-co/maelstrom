@@ -1,5 +1,5 @@
 import type {
-  ChartRequest,
+  ChartRequestMessage,
   MaelstromResponse,
   SessionId,
 } from '@maelstrom-co/protocol';
@@ -144,15 +144,15 @@ export class WebSocketConnector implements EngineConnector {
   }
 
   /**
-   * Sends a request and waits for the correlated response.
+   * Sends a chart_request envelope and waits for the correlated response.
    */
-  async process(request: ChartRequest): Promise<MaelstromResponse> {
+  async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
 
-    const promise = this.#correlator.create(request.id, this.#timeout);
-    this.#ws.send(JSON.stringify(request));
+    const promise = this.#correlator.create(message.id, this.#timeout);
+    this.#ws.send(JSON.stringify(message));
     return promise;
   }
 
@@ -213,10 +213,10 @@ export class WebSocketConnector implements EngineConnector {
       const data = JSON.parse(event.data);
       if (data.type === 'engine.maelstrom.response' && data.requestId) {
         this.#correlator.resolve(data.requestId, data.response);
-      } else if (data.type === 'error' && data.requestId) {
+      } else if (data.type === 'engine.error' && data.requestId) {
         this.#correlator.reject(
           data.requestId,
-          new Error(data.message || 'Engine error'),
+          new Error(data.error || data.message || 'Engine error'),
         );
       }
     } catch {

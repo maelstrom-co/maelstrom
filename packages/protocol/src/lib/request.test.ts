@@ -18,9 +18,7 @@ const tilingPayload = (layout: unknown) => ({
 
 describe('GridResponseSchema', () => {
   test('accepts a minimal valid payload', () => {
-    const result = GridResponseSchema.safeParse(
-      gridPayload({ positions: [] }),
-    );
+    const result = GridResponseSchema.safeParse(gridPayload({ positions: [] }));
     expect(result.success).toBe(true);
   });
 
@@ -91,7 +89,11 @@ describe('TilingResponseSchema', () => {
       tilingPayload({
         tree: ['V', 'calendar-main', 'H', 'tasks-main', null],
         instances: [
-          { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
+          {
+            instanceId: 'calendar-main',
+            vesselId: 'calendar',
+            variant: 'month',
+          },
           { instanceId: 'tasks-main', vesselId: 'tasks', variant: 'list' },
         ],
       }),

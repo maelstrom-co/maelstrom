@@ -1,4 +1,5 @@
 import {
+  ChartRequestMessage,
   MessageId,
   type ChartResizeReason,
   type MaelstromResponse,
@@ -315,15 +316,27 @@ export class Orchestrator {
     );
   }
 
-  #newRequest(updates: UpdateReason[]) {
-    return buildChartRequest({
-      requestId: MessageId(`req-${Date.now()}-${++this.#requestCounter}`),
+  #newRequest(updates: UpdateReason[]): ChartRequestMessage {
+    const messageId = this.#nextRequestId();
+    const request = buildChartRequest({
       updates,
       instances: this.#commandProcessor.store.state.instances,
       chartDimensions: this.#chartManager.store.state.chartDimensions,
       layout: this.#commandProcessor.store.state.layout,
       vessels: this.#vesselManager.getAll(),
-      config: this.#config,
+      config: { layoutMode: this.#config.layoutMode },
     });
+    return ChartRequestMessage({
+      sessionId: this.#config.sessionId,
+      id: messageId,
+      request,
+    });
+  }
+
+  // The id format (`req-<epoch_ms>-<counter>`) is the contract that history
+  // and the request correlator both index on. Centralizing here means a
+  // single edit to change the recipe.
+  #nextRequestId(): MessageId {
+    return MessageId(`req-${Date.now()}-${++this.#requestCounter}`);
   }
 }

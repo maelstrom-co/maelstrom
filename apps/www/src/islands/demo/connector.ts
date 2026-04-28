@@ -7,7 +7,7 @@ import type {
 } from '@maelstrom-co/client';
 import type {
   ActionExecution,
-  ChartRequest,
+  ChartRequestMessage,
   MaelstromResponse,
   TilingLayout,
 } from '@maelstrom-co/protocol';
@@ -97,7 +97,7 @@ export class DemoConnector implements EngineConnector {
   async connect(): Promise<void> {}
   async disconnect(): Promise<void> {}
 
-  async process(request: ChartRequest): Promise<MaelstromResponse> {
+  async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
     this.requestCount++;
     const stepIndex = Math.min(this.requestCount - 1, DEMO_STEPS.length - 1);
     const step = DEMO_STEPS[stepIndex];
@@ -109,7 +109,7 @@ export class DemoConnector implements EngineConnector {
 
     return {
       type: 'maelstrom_response',
-      requestId: request.id,
+      requestId: message.id,
       userMessage: step.userMessage,
       rationale: step.rationale,
       executionPlan: step.executionPlan,

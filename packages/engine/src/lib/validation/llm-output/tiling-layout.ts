@@ -69,7 +69,9 @@ export function validateTilingLayout(
     }
   }
 
-  return failures.length === 0 ? ok(undefined) : err(layoutValidationError(failures));
+  return failures.length === 0
+    ? ok(undefined)
+    : err(layoutValidationError(failures));
 }
 
 // Parses the preorder-serialized tiling tree iteratively with an explicit

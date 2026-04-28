@@ -176,4 +176,3 @@ function joinSections(sections: readonly PromptSection[]): string {
     .map((s) => s.content)
     .join('\n\n');
 }
-

@@ -11,9 +11,7 @@ import type { HistoryEntry, HistoryStore } from './history-store.js';
  * is enough for the in-process reference engine; distributed deployments
  * must provide a store that delegates atomicity to the backend.
  */
-export function createInMemoryStore<
-  TMeta = unknown,
->(): HistoryStore<TMeta> {
+export function createInMemoryStore<TMeta = unknown>(): HistoryStore<TMeta> {
   const data = new Map<SessionId, Map<MessageId, HistoryEntry<TMeta>>>();
 
   const sessionFor = (

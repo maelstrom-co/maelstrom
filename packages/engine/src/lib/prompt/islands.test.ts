@@ -93,10 +93,9 @@ describe('computeAvailableIslands', () => {
     // as nested candidates before dedup (e.g. the full-width bottom strip
     // and its left sub-strip both get produced row-by-row). Dedup must
     // keep the larger and drop the strictly-contained one.
-    const islands = computeAvailableIslands(
-      { columns: 4, rows: 4 },
-      [occupy('a', 0, 0, 2, 2)],
-    );
+    const islands = computeAvailableIslands({ columns: 4, rows: 4 }, [
+      occupy('a', 0, 0, 2, 2),
+    ]);
 
     // Guard against over-dedup: the absence-of-containment check below is
     // vacuously true on [] or a singleton, so pin the minimum population.
@@ -122,10 +121,10 @@ describe('computeAvailableIslands', () => {
   });
 
   test('L-shape: two diagonal occupants carve two disjoint 2x2 free regions', () => {
-    const islands = computeAvailableIslands(
-      { columns: 4, rows: 4 },
-      [occupy('a', 0, 0, 2, 2), occupy('b', 2, 2, 2, 2)],
-    );
+    const islands = computeAvailableIslands({ columns: 4, rows: 4 }, [
+      occupy('a', 0, 0, 2, 2),
+      occupy('b', 2, 2, 2, 2),
+    ]);
     expect(islands).toContainEqual<Island>({
       position: { row: 0, column: 2 },
       size: { width: 2, height: 2 },
@@ -137,10 +136,9 @@ describe('computeAvailableIslands', () => {
   });
 
   test('doughnut hole: central occupant leaves four rim strips as maximal rectangles', () => {
-    const islands = computeAvailableIslands(
-      { columns: 4, rows: 4 },
-      [occupy('a', 1, 1, 2, 2)],
-    );
+    const islands = computeAvailableIslands({ columns: 4, rows: 4 }, [
+      occupy('a', 1, 1, 2, 2),
+    ]);
     expect(islands).toContainEqual<Island>({
       position: { row: 0, column: 0 },
       size: { width: 4, height: 1 },
@@ -160,10 +158,10 @@ describe('computeAvailableIslands', () => {
   });
 
   test('multi-occupant disjoint: stale heights do not leak between obstacles', () => {
-    const islands = computeAvailableIslands(
-      { columns: 4, rows: 3 },
-      [occupy('a', 0, 0, 1, 1), occupy('b', 0, 3, 1, 1)],
-    );
+    const islands = computeAvailableIslands({ columns: 4, rows: 3 }, [
+      occupy('a', 0, 0, 1, 1),
+      occupy('b', 0, 3, 1, 1),
+    ]);
     // Bottom two rows span full width; top row exposes a 2-cell middle strip.
     expect(islands).toContainEqual<Island>({
       position: { row: 1, column: 0 },

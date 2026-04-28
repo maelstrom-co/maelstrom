@@ -38,9 +38,7 @@ export interface HistoryConfig<TMeta = unknown> {
    * doesn't need (rationale, vessel snapshots, etc.) — or to enrich entries
    * with typed `metadata` before they're stored.
    */
-  readonly transformEntry?: (
-    entry: HistoryEntry<TMeta>,
-  ) => HistoryEntry<TMeta>;
+  readonly transformEntry?: (entry: HistoryEntry<TMeta>) => HistoryEntry<TMeta>;
   /**
    * Optional projection from a stored entry to the LLM-context messages it
    * contributes. Called once per retained entry during `getLLMContext` and
@@ -206,8 +204,9 @@ export function createHistoryManager<TMeta = unknown>(
 
 const extractUserIntent = (reasons: readonly UpdateReason[]): string =>
   reasons
-    .filter((r): r is Extract<UpdateReason, { type: 'user_intent' }> =>
-      r.type === 'user_intent',
+    .filter(
+      (r): r is Extract<UpdateReason, { type: 'user_intent' }> =>
+        r.type === 'user_intent',
     )
     .map((r) => r.intent)
     .join(' ');

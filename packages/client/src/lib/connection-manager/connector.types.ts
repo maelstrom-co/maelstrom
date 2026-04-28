@@ -12,8 +12,8 @@
  *   readonly capabilities = { voice: false, streaming: false, stateful: false };
  *   async connect(_sessionId: SessionId): Promise<void> {}
  *   async disconnect(): Promise<void> {}
- *   async process(request: ChartRequest): Promise<MaelstromResponse> {
- *     const res = await fetch('/api/process', { method: 'POST', body: JSON.stringify(request) });
+ *   async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
+ *     const res = await fetch('/api/process', { method: 'POST', body: JSON.stringify(message) });
  *     return res.json();
  *   }
  *   subscribe(_handler: (event: ConnectorEvent) => void): Unsubscribe {
@@ -37,7 +37,7 @@ import type {
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
 import type {
-  ChartRequest,
+  ChartRequestMessage,
   MaelstromResponse,
   MessageId,
   SessionId,
@@ -167,10 +167,10 @@ export type ConnectorEvent =
  *     // No-op for HTTP
  *   }
  *
- *   async process(request: ChartRequest): Promise<MaelstromResponse> {
+ *   async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
  *     const res = await fetch('/api/process', {
  *       method: 'POST',
- *       body: JSON.stringify(request),
+ *       body: JSON.stringify(message),
  *     });
  *     if (!res.ok) throw new Error(`HTTP ${res.status}`);
  *     return res.json();
@@ -226,8 +226,8 @@ export type ConnectorEvent =
  *     this.ws = null;
  *   }
  *
- *   async process(request: ChartRequest): Promise<MaelstromResponse> {
- *     // Send request, wait for response via correlator
+ *   async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
+ *     // Send envelope, wait for response correlated by message.id
  *   }
  *
  *   subscribe(handler: (event: ConnectorEvent) => void): Unsubscribe {
@@ -290,9 +290,17 @@ export interface EngineConnector {
   disconnect(): Promise<void>;
 
   /**
-   * Send a request to the engine and return the response.
+   * Send a chart_request envelope to the engine and return the response.
+   *
+   * The envelope ({@link ChartRequestMessage}) carries `sessionId`, `id`, and
+   * `timestamp` — used by the engine for response correlation and session
+   * routing. Implementations should use `message.id` for any request/response
+   * correlation logic.
+   *
+   * Round-trip guarantee: the returned `MaelstromResponse.requestId` always
+   * equals `message.id`, regardless of the underlying transport.
    */
-  process(request: ChartRequest): Promise<MaelstromResponse>;
+  process(message: ChartRequestMessage): Promise<MaelstromResponse>;
 
   /**
    * Subscribe to transport-level events.

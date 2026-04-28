@@ -8,7 +8,8 @@
     "dev:ws": "bun run src/server/ws-server.ts",
     "dev:client": "vite dev --port 3000",
     "build": "vite build",
-    "start": "node .output/server/index.mjs"
+    "start": "node .output/server/index.mjs",
+    "test": "bun test"
   },
   "dependencies": {
     "@maelstrom-co/client": "workspace:*",

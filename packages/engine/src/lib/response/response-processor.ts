@@ -2,6 +2,7 @@ import type {
   ChartRequest,
   GridResponse,
   MaelstromResponse,
+  MessageId,
   Result,
   TilingResponse,
 } from '@maelstrom-co/protocol';
@@ -32,11 +33,19 @@ export type InternalResponse = MaelstromResponse & {
   readonly diagnostics: EngineDiagnostics;
 };
 
-export function processResponse(
-  llmOutput: LLMOutput,
-  request: ChartRequest,
-  logger: Logger,
-): Result<InternalResponse, EngineError> {
+export interface ProcessResponseInput {
+  readonly llmOutput: LLMOutput;
+  readonly request: ChartRequest;
+  readonly messageId: MessageId;
+  readonly logger: Logger;
+}
+
+export function processResponse({
+  llmOutput,
+  request,
+  messageId,
+  logger,
+}: ProcessResponseInput): Result<InternalResponse, EngineError> {
   if (!llmOutput.userMessage?.trim()) {
     return err(
       parseError('LLM response missing userMessage', JSON.stringify(llmOutput)),
@@ -82,7 +91,7 @@ export function processResponse(
 
   return ok({
     type: 'maelstrom_response',
-    requestId: request.id,
+    requestId: messageId,
     userMessage: llmOutput.userMessage,
     rationale: llmOutput.rationale,
     executionPlan,
@@ -90,4 +99,3 @@ export function processResponse(
     diagnostics: { skippedActions },
   });
 }
-

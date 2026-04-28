@@ -2,7 +2,6 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 import type {
   ChartRequest,
-  ChartRequestMessage as ChartRequestMessageType,
   EngineMessage,
   GridResponse,
   TilingResponse,
@@ -51,15 +50,15 @@ const gridLLMResponse: GridResponse = {
   },
 };
 
+const DEFAULT_SESSION_ID = SessionId('session-1');
+const DEFAULT_MESSAGE_ID = MessageId('req-1');
+
 // Wraps a ChartRequest fixture into the envelope so tests read naturally.
 const toChartRequestMessage = (
   request: ChartRequest,
-): ChartRequestMessageType =>
-  ChartRequestMessage({
-    sessionId: request.context.sessionId,
-    id: request.id,
-    request,
-  });
+  sessionId: SessionId = DEFAULT_SESSION_ID,
+  id: MessageId = DEFAULT_MESSAGE_ID,
+): ChartRequestMessage => ChartRequestMessage({ sessionId, id, request });
 
 afterEach(() => {
   mockChat.mockReset();
@@ -95,24 +94,24 @@ describe('createEngine', () => {
       } as unknown as EngineConfig,
       pattern: /prompt\.vars\.assistantName/,
     },
-  ])(
-    'throws synchronously when config is invalid ($name)',
-    ({ config, pattern }) => {
-      let caught: unknown;
-      try {
-        createEngine(config);
-      } catch (e) {
-        caught = e;
-      }
-      expect(caught).toBeInstanceOf(Error);
-      const error = caught as Error;
-      expect(error.message).toMatch(/Invalid EngineConfig/);
-      expect(error.message).toMatch(pattern);
-      // `@throws` contract: the original ZodError is attached as `cause`.
-      const cause = error.cause as { issues?: unknown[] } | undefined;
-      expect(Array.isArray(cause?.issues)).toBe(true);
-    },
-  );
+  ])('throws synchronously when config is invalid ($name)', ({
+    config,
+    pattern,
+  }) => {
+    let caught: unknown;
+    try {
+      createEngine(config);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    const error = caught as Error;
+    expect(error.message).toMatch(/Invalid EngineConfig/);
+    expect(error.message).toMatch(pattern);
+    // `@throws` contract: the original ZodError is attached as `cause`.
+    const cause = error.cause as { issues?: unknown[] } | undefined;
+    expect(Array.isArray(cause?.issues)).toBe(true);
+  });
 
   test('returns an Engine for a valid minimal config', () => {
     const engine = createEngine({ adapter: dummyAdapter });
@@ -129,7 +128,10 @@ describe('engine.handle — chart_request', () => {
   test('returns a chart_response envelope on success', async () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
     const request = makeGridRequest();
     const result = await engine.handle(toChartRequestMessage(request));
 
@@ -139,8 +141,8 @@ describe('engine.handle — chart_request', () => {
     expect(result.value.type).toBe('chart_response');
     if (result.value.type !== 'chart_response') return;
 
-    expect(result.value.sessionId).toBe(request.context.sessionId);
-    expect(result.value.id).toBe(request.id);
+    expect(result.value.sessionId).toBe(DEFAULT_SESSION_ID);
+    expect(result.value.id).toBe(DEFAULT_MESSAGE_ID);
     expect(result.value.response.type).toBe('maelstrom_response');
     expect(result.value.response.userMessage).toBe('Here is your calendar!');
     expect(result.value.response.layout.type).toBe('grid');
@@ -149,7 +151,10 @@ describe('engine.handle — chart_request', () => {
   test('invokes chat() with the expected options', async () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
     await engine.handle(toChartRequestMessage(makeGridRequest()));
 
     expect(mockChat).toHaveBeenCalledTimes(1);
@@ -164,8 +169,13 @@ describe('engine.handle — chart_request', () => {
   test('returns ProviderError when chat() rejects with an Error', async () => {
     mockChat.mockRejectedValueOnce(new Error('LLM service unavailable'));
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
 
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
@@ -176,8 +186,13 @@ describe('engine.handle — chart_request', () => {
   test('returns ProviderError when chat() rejects with a non-Error value', async () => {
     mockChat.mockRejectedValueOnce('rate limited');
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
 
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
@@ -188,7 +203,10 @@ describe('engine.handle — chart_request', () => {
   test('passes an AbortController through to chat()', async () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
     await engine.handle(toChartRequestMessage(makeGridRequest()));
 
     const callArgs = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
@@ -196,7 +214,10 @@ describe('engine.handle — chart_request', () => {
   });
 
   test('returns CancellationError when the signal is already aborted', async () => {
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
 
     const controller = new AbortController();
     controller.abort('user cancel');
@@ -219,7 +240,10 @@ describe('engine.handle — chart_request', () => {
       return Promise.reject(new DOMException('Aborted', 'AbortError'));
     });
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
       controller.signal,
@@ -233,7 +257,9 @@ describe('engine.handle — chart_request', () => {
   test('uses consoleLogger when no logger is provided', async () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
     const engine = createEngine({ adapter: dummyAdapter });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
     expect(isOk(result)).toBe(true);
   });
 
@@ -245,7 +271,9 @@ describe('engine.handle — chart_request', () => {
       logger: silentLogger,
       prompt: { system: { identity: 'You are a custom assistant.' } },
     });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
     expect(isOk(result)).toBe(true);
 
     const callArgs = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
@@ -267,7 +295,10 @@ describe('engine.handle — chart_request', () => {
     };
     mockChat.mockResolvedValueOnce(responseWithActions);
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
     const result = await engine.handle(
       toChartRequestMessage({
         ...makeGridRequest(),
@@ -312,7 +343,11 @@ describe('engine.handle — chart_request', () => {
       layout: {
         tree: ['V', 'calendar-main', 'tasks-main'],
         instances: [
-          { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
+          {
+            instanceId: 'calendar-main',
+            vesselId: 'calendar',
+            variant: 'month',
+          },
           { instanceId: 'tasks-main', vesselId: 'tasks', variant: 'list' },
         ],
       },
@@ -321,18 +356,19 @@ describe('engine.handle — chart_request', () => {
 
     const tilingRequest: ChartRequest = {
       type: 'chart_request',
-      id: MessageId('req-tiling'),
       context: {
         updateReasons: [
           { type: 'user_intent', intent: 'Show tasks next to calendar' },
         ],
         chartDimensions: { columns: 12, rows: 8 },
-        timestamp: Date.now(),
-        sessionId: SessionId('session-tiling'),
         layoutMode: 'tiling',
       },
       instances: [
-        { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
+        {
+          instanceId: InstanceId('calendar-main'),
+          vesselId: 'calendar',
+          variant: 'month',
+        },
       ],
       vessels: [
         {
@@ -367,13 +403,23 @@ describe('engine.handle — chart_request', () => {
       },
     };
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
-    const result = await engine.handle(toChartRequestMessage(tilingRequest));
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
+    const tilingId = MessageId('req-tiling');
+    const result = await engine.handle(
+      toChartRequestMessage(
+        tilingRequest,
+        SessionId('session-tiling'),
+        tilingId,
+      ),
+    );
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'chart_response') return;
     expect(result.value.response.layout.type).toBe('tiling');
-    expect(result.value.response.requestId).toBe(MessageId('req-tiling'));
+    expect(result.value.response.requestId).toBe(tilingId);
   });
 });
 
@@ -438,7 +484,10 @@ describe('engine.handle — assistant_message', () => {
   });
 
   test('returns a ValidationError when history is not configured', async () => {
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
     const result = await engine.handle(
       AssistantInjectionMessage({
         sessionId: SessionId('s-1'),
@@ -530,7 +579,7 @@ describe('engine.handle — history integration', () => {
     const request = makeGridRequest();
     await engine.handle(toChartRequestMessage(request));
 
-    const entries = await store.get(request.context.sessionId);
+    const entries = await store.get(DEFAULT_SESSION_ID);
     expect(entries.length).toBe(1);
     expect(entries[0]?.kind).toBe('turn');
   });
@@ -551,8 +600,13 @@ describe('engine.handle — history integration', () => {
       append,
     };
     void spyStore; // not wired into the engine
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
     expect(isOk(result)).toBe(true);
     expect(append).not.toHaveBeenCalled();
   });
@@ -577,7 +631,7 @@ describe('engine.handle — history integration', () => {
     const request = makeGridRequest();
     await engine.handle(toChartRequestMessage(request));
     await engine.handle(toChartRequestMessage(request));
-    expect((await wrappedStore.get(request.context.sessionId)).length).toBe(1);
+    expect((await wrappedStore.get(DEFAULT_SESSION_ID)).length).toBe(1);
     expect(replace).not.toHaveBeenCalled();
   });
 
@@ -594,7 +648,7 @@ describe('engine.handle — history integration', () => {
     const result = await engine.handle(toChartRequestMessage(request));
     expect(isErr(result)).toBe(true);
 
-    const entries = await store.get(request.context.sessionId);
+    const entries = await store.get(DEFAULT_SESSION_ID);
     expect(entries).toEqual([]);
   });
 
@@ -761,7 +815,10 @@ describe('engine.handle — history integration', () => {
   test('does not inject any prior messages when history is not configured', async () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: silentLogger });
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
     await engine.handle(toChartRequestMessage(makeGridRequest()));
 
     const callArgs = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;

@@ -9,7 +9,10 @@ export type Brand<T, B extends string> = T & {
  * branded-string smart constructor so the non-empty invariant lives in one
  * place — adding a fourth branded ID inherits the same rule for free.
  */
-export const requireNonEmptyBrand = (value: string, brandName: string): void => {
+export const requireNonEmptyBrand = (
+  value: string,
+  brandName: string,
+): void => {
   if (value.trim() === '') {
     throw new Error(
       `${brandName}("") is not allowed. Pass a non-empty string.`,

@@ -50,11 +50,7 @@ describe('truncate', () => {
 
   test('drops oldest entries to fit maxChars, newest retained', () => {
     // Each entry has size 10, so three entries total 30 chars.
-    const entries = [
-      entry('a', 10),
-      entry('b', 10),
-      entry('c', 10),
-    ];
+    const entries = [entry('a', 10), entry('b', 10), entry('c', 10)];
     const out = truncate(entries, {
       maxEntries: 100,
       maxChars: 20,
@@ -86,9 +82,9 @@ describe('truncate', () => {
   });
 
   test('returns empty when input is empty', () => {
-    expect(
-      truncate([], { maxEntries: 10, maxChars: 100, estimate }),
-    ).toEqual([]);
+    expect(truncate([], { maxEntries: 10, maxChars: 100, estimate })).toEqual(
+      [],
+    );
   });
 
   test('returns empty when maxEntries is 0', () => {

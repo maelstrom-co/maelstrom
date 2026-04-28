@@ -2,7 +2,10 @@ import { MessageId } from './message.js';
 import type { ChartRequest } from './request.js';
 import type { SessionId } from './session.js';
 
-const resolveTimestamp = (value: number | undefined, source: string): number => {
+const resolveTimestamp = (
+  value: number | undefined,
+  source: string,
+): number => {
   if (value === undefined) {
     return Date.now();
   }

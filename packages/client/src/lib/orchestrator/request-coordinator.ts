@@ -1,4 +1,7 @@
-import type { ChartRequest, MaelstromResponse } from '@maelstrom-co/protocol';
+import type {
+  ChartRequestMessage,
+  MaelstromResponse,
+} from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
 import type { EngineConnector } from '../connection-manager/connector.types.js';
@@ -40,7 +43,7 @@ export type RequestCoordinatorEvents = {
  * const coordinator = new RequestCoordinator(connector);
  * coordinator.events.on('processing_completed', (e) => console.log(`Done in ${e.durationMs}ms`));
  *
- * const response = await coordinator.send(request);
+ * const response = await coordinator.send(envelope);
  * ```
  */
 export class RequestCoordinator {
@@ -73,9 +76,9 @@ export class RequestCoordinator {
     return this.store.state.lastResponse;
   }
 
-  async send(request: ChartRequest): Promise<MaelstromResponse> {
+  async send(message: ChartRequestMessage): Promise<MaelstromResponse> {
     if (this.#isDisposed) throw new Error('RequestCoordinator is disposed');
-    const requestId = request.id;
+    const requestId = message.id;
     this.store.setState((s) => ({ ...s, isProcessing: true }));
     const startTime = performance.now();
 
@@ -86,7 +89,7 @@ export class RequestCoordinator {
 
     try {
       this.#logger.info(`Sending request ${requestId}`);
-      const response = await this.#connector.process(request);
+      const response = await this.#connector.process(message);
       this.#logger.info(`Received response for ${requestId}`);
 
       this.store.setState((s) => ({ ...s, lastResponse: response }));
@@ -101,7 +104,7 @@ export class RequestCoordinator {
       return response;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      this.#logger.info(`Request ${requestId} failed: ${error.message}`);
+      this.#logger.error(`Request ${requestId} failed: ${error.message}`);
 
       this.#emitter.emit('error', {
         error,

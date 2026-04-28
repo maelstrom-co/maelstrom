@@ -24,11 +24,14 @@ import {
   getDefaultSystemPrompt,
   isVoiceEngine,
 } from '@maelstrom-co/engine-old';
+import type { ChartRequestMessage, MessageId } from '@maelstrom-co/protocol';
 import type {
   TranscriptMessage,
   VoiceClientMessage,
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
+
+import { adaptEnvelopeToLegacyRequest } from './legacy-engine-adapter.js';
 import { Hono } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { cors } from 'hono/cors';
@@ -214,6 +217,9 @@ app.get(
       },
 
       onMessage: async (event: MessageEvent) => {
+        // Captured before dispatch so the outer catch can correlate
+        // engine.error frames back to the originating request.
+        let requestId: MessageId | undefined;
         try {
           const data = event.data;
 
@@ -294,21 +300,46 @@ app.get(
               break;
 
             case 'client.maelstrom.process': {
-              const response = await engine.process(message.request);
+              // Wire format from the new client wraps a ChartRequestMessage
+              // envelope. Engine-old still wants the legacy ChartRequest
+              // shape, so adaptEnvelopeToLegacyRequest lifts envelope fields
+              // back onto the inner payload before dispatching.
+              //
+              // Today this trusts the wire-deserialized envelope shape; once
+              // ChartRequestMessageSchema lands (MAE-123), safeParse here
+              // and emit engine.error on failure.
+              const envelope =
+                message.request as unknown as ChartRequestMessage;
+              requestId = envelope.id;
+              const oldStyleRequest = adaptEnvelopeToLegacyRequest(envelope);
+
+              const response = await engine.process(oldStyleRequest);
               sendMessage({
                 type: 'engine.maelstrom.response',
                 sessionId,
-                requestId: message.request.id,
+                requestId: envelope.id,
                 response,
               });
               if (
                 isVoiceEngine(engine) &&
                 response.userMessage &&
-                message.request.context.updateReasons.some(
+                envelope.request.context.updateReasons.some(
                   (r) => r.type === 'user_intent',
                 )
               ) {
-                engine.speak(response.userMessage);
+                engine.speak(response.userMessage).catch((err: unknown) => {
+                  // Log-only. We can't push engine.error here for client
+                  // correlation: the success response above already settled
+                  // the client correlator, so a late engine.error with the
+                  // same requestId would be a silent no-op on the client
+                  // side. A user-visible TTS-error channel is voice-server
+                  // territory — see MAE-103 (voice-server rewrite). The
+                  // .catch is still required to prevent the rejection from
+                  // surfacing as a process-level unhandledRejection.
+                  const errMsg =
+                    err instanceof Error ? err.message : String(err);
+                  console.error(`[Demo WS] Speak error: ${errMsg}`);
+                });
               }
               break;
             }
@@ -360,6 +391,10 @@ app.get(
           sendMessage({
             type: 'engine.error',
             sessionId,
+            // requestId is only set when the failed message was a
+            // chart_request — lets the client correlator settle instead of
+            // timing out.
+            ...(requestId !== undefined ? { requestId } : {}),
             error: error instanceof Error ? error.message : 'Invalid message',
             timestamp: performance.now(),
           });

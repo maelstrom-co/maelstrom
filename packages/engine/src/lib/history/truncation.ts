@@ -48,8 +48,7 @@ export function truncate<TMeta = unknown>(
     // Both are bugs in the supplied estimator, but the cost of treating them
     // as "0 chars" here is trivial vs. silently breaking the cap.
     const raw = estimate(candidate);
-    const candidateChars =
-      Number.isFinite(raw) && raw > 0 ? raw : 0;
+    const candidateChars = Number.isFinite(raw) && raw > 0 ? raw : 0;
     if (kept.length > 0 && runningChars + candidateChars > maxChars) break;
 
     kept.push(candidate);

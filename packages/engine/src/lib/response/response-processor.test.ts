@@ -5,7 +5,7 @@ import type {
   TilingResponse,
   Vessel,
 } from '@maelstrom-co/protocol';
-import { InstanceId, isErr, isOk, MessageId, SessionId } from '@maelstrom-co/protocol';
+import { InstanceId, isErr, isOk, MessageId } from '@maelstrom-co/protocol';
 import {
   makeGridRequest,
   makeTilingRequest,
@@ -19,6 +19,36 @@ import { processResponse } from './response-processor.js';
 // ---------------------------------------------------------------------------
 
 describe('processResponse', () => {
+  describe('messageId round-trip', () => {
+    // Pins the messageId parameter into result.value.requestId. Without this,
+    // every other test passes MessageId('req-1') by convention — they would
+    // all still succeed if processResponse silently dropped the parameter
+    // and hard-coded the response field.
+    test.each([
+      MessageId('round-trip-marker'),
+      MessageId('00000000-0000-0000-0000-000000000000'),
+      MessageId('with spaces and !@#$ chars'),
+    ])('round-trips %s into MaelstromResponse.requestId', (messageId) => {
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'pin the round-trip',
+        executionPlan: [],
+        layout: { positions: [] },
+      };
+
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId,
+        logger: silentLogger,
+      });
+
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.requestId).toBe(messageId);
+    });
+  });
+
   describe('grid mode', () => {
     test('builds a valid MaelstromResponse', () => {
       const llmOutput: GridResponse = {
@@ -36,11 +66,12 @@ describe('processResponse', () => {
         },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        silentLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -71,11 +102,12 @@ describe('processResponse', () => {
         },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeTilingRequest(),
-        silentLogger,
-      );
+        request: makeTilingRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -131,7 +163,12 @@ describe('processResponse', () => {
         ],
       });
 
-      const result = processResponse(llmOutput, request, silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -154,12 +191,9 @@ describe('processResponse', () => {
 
       const request: ChartRequest = {
         type: 'chart_request',
-        id: MessageId('req-tiling-skip'),
         context: {
           updateReasons: [{ type: 'user_intent', intent: 'Try bad action' }],
           chartDimensions: { columns: 12, rows: 8 },
-          timestamp: Date.now(),
-          sessionId: SessionId('session-tiling-skip'),
           layoutMode: 'tiling',
         },
         instances: [
@@ -215,7 +249,12 @@ describe('processResponse', () => {
         },
       };
 
-      const result = processResponse(llmOutput, request, logger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -243,8 +282,16 @@ describe('processResponse', () => {
             vesselId: 'orders',
             variant: 'list',
           },
-          { instanceId: InstanceId('a'), vesselId: 'widget', variant: 'default' },
-          { instanceId: InstanceId('b'), vesselId: 'widget', variant: 'default' },
+          {
+            instanceId: InstanceId('a'),
+            vesselId: 'widget',
+            variant: 'default',
+          },
+          {
+            instanceId: InstanceId('b'),
+            vesselId: 'widget',
+            variant: 'default',
+          },
         ],
         vessels: [
           {
@@ -342,7 +389,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, richRequest(), silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request: richRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -361,7 +413,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, richRequest(), silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request: richRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -391,7 +448,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, richRequest(), logger);
+      const result = processResponse({
+        llmOutput,
+        request: richRequest(),
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -412,7 +474,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, richRequest(), silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request: richRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -440,7 +507,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, richRequest(), logger);
+      const result = processResponse({
+        llmOutput,
+        request: richRequest(),
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -464,7 +536,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, makeGridRequest(), logger);
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -490,7 +567,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, makeGridRequest(), logger);
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -508,11 +590,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        silentLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -537,7 +620,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, makeGridRequest(), logger);
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -557,11 +645,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        silentLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isErr(result)).toBe(true);
       if (!isErr(result)) return;
 
@@ -577,11 +666,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        silentLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isErr(result)).toBe(true);
       if (!isErr(result)) return;
 
@@ -606,11 +696,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        silentLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isErr(result)).toBe(true);
       if (!isErr(result)) return;
       expect(result.error._tag).toBe('LayoutValidationError');
@@ -634,11 +725,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeTilingRequest(),
-        silentLogger,
-      );
+        request: makeTilingRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isErr(result)).toBe(true);
       if (!isErr(result)) return;
       expect(result.error._tag).toBe('LayoutValidationError');
@@ -677,11 +769,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        capturingLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: capturingLogger,
+      });
       expect(isErr(result)).toBe(true);
       if (!isErr(result)) return;
       expect(result.error._tag).toBe('LayoutValidationError');
@@ -704,11 +797,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        silentLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
     });
 
@@ -728,11 +822,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeTilingRequest(),
-        silentLogger,
-      );
+        request: makeTilingRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
     });
   });
@@ -819,23 +914,28 @@ describe('processResponse', () => {
       overrides?: Partial<Pick<ChartRequest, 'instances' | 'vessels'>>,
     ): ChartRequest => ({
       type: 'chart_request',
-      id: MessageId('req-tiling'),
       context: {
         updateReasons: [{ type: 'user_intent', intent: 'Test' }],
         chartDimensions: { columns: 12, rows: 8 },
-        timestamp: Date.now(),
-        sessionId: SessionId('session-tiling'),
         layoutMode: 'tiling',
       },
       instances: overrides?.instances ?? [
-        { instanceId: InstanceId('widget-1'), vesselId: 'widget', variant: 'compact' },
+        {
+          instanceId: InstanceId('widget-1'),
+          vesselId: 'widget',
+          variant: 'compact',
+        },
       ],
       vessels: overrides?.vessels ?? [multiStateVessel()],
       layout: {
         type: 'tiling',
         tree: [InstanceId('widget-1')],
         instances: [
-          { instanceId: InstanceId('widget-1'), vesselId: 'widget', variant: 'compact' },
+          {
+            instanceId: InstanceId('widget-1'),
+            vesselId: 'widget',
+            variant: 'compact',
+          },
         ],
       },
     });
@@ -852,11 +952,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeMultiStateRequest('compact'),
-        silentLogger,
-      );
+        request: makeMultiStateRequest('compact'),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -879,11 +980,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeMultiStateRequest('compact'),
-        silentLogger,
-      );
+        request: makeMultiStateRequest('compact'),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -911,11 +1013,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeMultiStateRequest('compact'),
+        request: makeMultiStateRequest('compact'),
+        messageId: MessageId('req-1'),
         logger,
-      );
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -960,7 +1063,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1022,7 +1130,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, logger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1061,11 +1174,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeMultiStateRequest('compact'),
+        request: makeMultiStateRequest('compact'),
+        messageId: MessageId('req-1'),
         logger,
-      );
+      });
       expect(isOk(result)).toBe(true);
 
       // Should log the variant transition
@@ -1104,7 +1218,11 @@ describe('processResponse', () => {
 
       const request = makeGridRequest({
         instances: [
-          { instanceId: InstanceId('bad-1'), vesselId: 'bad-widget', variant: 'start' },
+          {
+            instanceId: InstanceId('bad-1'),
+            vesselId: 'bad-widget',
+            variant: 'start',
+          },
         ],
         vessels: [vesselWithBadTransition],
       });
@@ -1116,7 +1234,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, logger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1174,7 +1297,12 @@ describe('processResponse', () => {
         },
       };
 
-      const result = processResponse(llmOutput, request, silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1218,7 +1346,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, logger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1268,7 +1401,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, logger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1350,7 +1488,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, logger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1428,7 +1571,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1476,7 +1624,11 @@ describe('processResponse', () => {
 
       const request = makeGridRequest({
         instances: [
-          { instanceId: InstanceId('nt-1'), vesselId: 'nt-widget', variant: 'start' },
+          {
+            instanceId: InstanceId('nt-1'),
+            vesselId: 'nt-widget',
+            variant: 'start',
+          },
         ],
         vessels: [vessel],
       });
@@ -1491,7 +1643,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1550,7 +1707,11 @@ describe('processResponse', () => {
 
       const request = makeGridRequest({
         instances: [
-          { instanceId: InstanceId('pw-1'), vesselId: 'param-widget', variant: 'compact' },
+          {
+            instanceId: InstanceId('pw-1'),
+            vesselId: 'param-widget',
+            variant: 'compact',
+          },
         ],
         vessels: [vesselWithParamAction],
       });
@@ -1567,7 +1728,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1589,11 +1755,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        silentLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       expect(result.value.diagnostics.skippedActions).toEqual([]);
@@ -1610,8 +1777,16 @@ describe('processResponse', () => {
             vesselId: 'calendar',
             variant: 'month',
           },
-          { instanceId: InstanceId('orphan'), vesselId: 'no-such-vessel', variant: 'x' },
-          { instanceId: InstanceId('bad-var'), vesselId: 'calendar', variant: 'deleted' },
+          {
+            instanceId: InstanceId('orphan'),
+            vesselId: 'no-such-vessel',
+            variant: 'x',
+          },
+          {
+            instanceId: InstanceId('bad-var'),
+            vesselId: 'calendar',
+            variant: 'deleted',
+          },
         ],
       });
 
@@ -1631,7 +1806,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1695,8 +1875,16 @@ describe('processResponse', () => {
 
       const request = makeGridRequest({
         instances: [
-          { instanceId: InstanceId('m-multi'), vesselId: 'multi', variant: 'ready' },
-          { instanceId: InstanceId('m-empty'), vesselId: 'multi', variant: 'empty' },
+          {
+            instanceId: InstanceId('m-multi'),
+            vesselId: 'multi',
+            variant: 'ready',
+          },
+          {
+            instanceId: InstanceId('m-empty'),
+            vesselId: 'multi',
+            variant: 'empty',
+          },
         ],
         vessels: [vessel],
       });
@@ -1711,7 +1899,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(llmOutput, request, silentLogger);
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1749,11 +1942,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        silentLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
@@ -1778,11 +1972,12 @@ describe('processResponse', () => {
         layout: { positions: [] },
       };
 
-      const result = processResponse(
+      const result = processResponse({
         llmOutput,
-        makeGridRequest(),
-        silentLogger,
-      );
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 

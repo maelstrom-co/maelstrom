@@ -119,9 +119,7 @@ describe('describeFailure (via layoutValidationError.message)', () => {
     );
 
   test('missing_rationale', () => {
-    expect(messageOf({ kind: 'missing_rationale' })).toBe(
-      'rationale is empty',
-    );
+    expect(messageOf({ kind: 'missing_rationale' })).toBe('rationale is empty');
   });
 
   test('duplicate_instance_id', () => {
@@ -142,9 +140,7 @@ describe('describeFailure (via layoutValidationError.message)', () => {
         chartColumns: 12,
         chartRows: 8,
       }),
-    ).toBe(
-      '"calendar-main" at (row=6,col=10) size 4x4 exceeds chart 12x8',
-    );
+    ).toBe('"calendar-main" at (row=6,col=10) size 4x4 exceeds chart 12x8');
   });
 
   test('size_below_minimum', () => {
@@ -161,9 +157,9 @@ describe('describeFailure (via layoutValidationError.message)', () => {
   });
 
   test('unknown_instance', () => {
-    expect(
-      messageOf({ kind: 'unknown_instance', instanceId: 'ghost' }),
-    ).toBe('unknown instanceId "ghost"');
+    expect(messageOf({ kind: 'unknown_instance', instanceId: 'ghost' })).toBe(
+      'unknown instanceId "ghost"',
+    );
   });
 
   test('unknown_vessel', () => {
@@ -187,15 +183,15 @@ describe('describeFailure (via layoutValidationError.message)', () => {
   });
 
   test('tree_missing_child', () => {
-    expect(
-      messageOf({ kind: 'tree_missing_child', atTokenIndex: 3 }),
-    ).toBe('tree split at token index 3 is missing a child');
+    expect(messageOf({ kind: 'tree_missing_child', atTokenIndex: 3 })).toBe(
+      'tree split at token index 3 is missing a child',
+    );
   });
 
   test('tree_extra_tokens', () => {
-    expect(
-      messageOf({ kind: 'tree_extra_tokens', unconsumedCount: 2 }),
-    ).toBe('tree has 2 unconsumed token(s) after parse');
+    expect(messageOf({ kind: 'tree_extra_tokens', unconsumedCount: 2 })).toBe(
+      'tree has 2 unconsumed token(s) after parse',
+    );
   });
 
   test('orphan_tree_reference', () => {

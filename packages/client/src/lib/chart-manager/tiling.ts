@@ -1,4 +1,8 @@
-import { isTilingSplit, type TilingNode, type TilingSplit } from '@maelstrom-co/protocol';
+import {
+  isTilingSplit,
+  type TilingNode,
+  type TilingSplit,
+} from '@maelstrom-co/protocol';
 
 export interface Rect {
   x: number;

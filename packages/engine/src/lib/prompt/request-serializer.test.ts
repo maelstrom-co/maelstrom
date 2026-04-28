@@ -145,7 +145,11 @@ describe('buildGridChartState', () => {
     const { logger, warns } = createSpyLogger();
     const request = makeGridRequest({
       instances: [
-        { instanceId: InstanceId('orphan'), vesselId: 'missing-vessel', variant: 'month' },
+        {
+          instanceId: InstanceId('orphan'),
+          vesselId: 'missing-vessel',
+          variant: 'month',
+        },
       ],
       layout: {
         type: 'grid',
@@ -249,7 +253,11 @@ describe('buildTilingChartState', () => {
           vesselId: 'calendar',
           variant: 'month',
         },
-        { instanceId: InstanceId('tasks-main'), vesselId: 'calendar', variant: 'month' },
+        {
+          instanceId: InstanceId('tasks-main'),
+          vesselId: 'calendar',
+          variant: 'month',
+        },
       ],
       layout: {
         type: 'tiling',
@@ -285,8 +293,16 @@ describe('buildTilingChartState', () => {
         type: 'tiling',
         tree: ['V', InstanceId('a'), 'H', InstanceId('b'), null],
         instances: [
-          { instanceId: InstanceId('a'), vesselId: 'calendar', variant: 'month' },
-          { instanceId: InstanceId('b'), vesselId: 'calendar', variant: 'month' },
+          {
+            instanceId: InstanceId('a'),
+            vesselId: 'calendar',
+            variant: 'month',
+          },
+          {
+            instanceId: InstanceId('b'),
+            vesselId: 'calendar',
+            variant: 'month',
+          },
         ],
       },
     };
@@ -338,13 +354,21 @@ describe('buildTilingChartState', () => {
     const request: ChartRequest = {
       ...makeTilingRequest(),
       instances: [
-        { instanceId: InstanceId('orphan'), vesselId: 'missing-vessel', variant: 'month' },
+        {
+          instanceId: InstanceId('orphan'),
+          vesselId: 'missing-vessel',
+          variant: 'month',
+        },
       ],
       layout: {
         type: 'tiling',
         tree: [InstanceId('orphan')],
         instances: [
-          { instanceId: InstanceId('orphan'), vesselId: 'missing-vessel', variant: 'month' },
+          {
+            instanceId: InstanceId('orphan'),
+            vesselId: 'missing-vessel',
+            variant: 'month',
+          },
         ],
       },
     };

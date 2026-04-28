@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, it, expect } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
 import { DemoConnector, DEMO_STEPS } from './connector';
-import type { ChartRequest } from '@maelstrom-co/protocol';
-import { MessageId, SessionId } from '@maelstrom-co/protocol';
+import type { ChartRequestMessage } from '@maelstrom-co/protocol';
+import {
+  ChartRequestMessage as makeChartRequestMessage,
+  MessageId,
+  SessionId,
+} from '@maelstrom-co/protocol';
 
 let clock: FakeTimers.InstalledClock;
 
@@ -14,21 +18,22 @@ afterEach(() => {
   clock.uninstall();
 });
 
-function makeRequest(): ChartRequest {
-  return {
-    type: 'chart_request',
+function makeRequest(): ChartRequestMessage {
+  return makeChartRequestMessage({
+    sessionId: SessionId('test-session'),
     id: MessageId(crypto.randomUUID()),
-    context: {
-      updateReasons: [],
-      chartDimensions: { columns: 12, rows: 8 },
-      timestamp: Date.now(),
-      sessionId: SessionId('test-session'),
-      layoutMode: 'tiling',
+    request: {
+      type: 'chart_request',
+      context: {
+        updateReasons: [],
+        chartDimensions: { columns: 12, rows: 8 },
+        layoutMode: 'tiling',
+      },
+      instances: [],
+      vessels: [],
+      layout: { type: 'tiling', tree: [], instances: [] },
     },
-    instances: [],
-    vessels: [],
-    layout: { type: 'tiling', tree: [], instances: [] },
-  };
+  });
 }
 
 async function processWithTick(connector: DemoConnector): Promise<ReturnType<DemoConnector['process']>> {

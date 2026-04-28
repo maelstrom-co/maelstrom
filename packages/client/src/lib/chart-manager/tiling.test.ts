@@ -21,7 +21,11 @@ describe('parseTilingTree', () => {
   });
 
   it('parses a horizontal split with two leaves', () => {
-    const result = parseTilingTree(['H', InstanceId('inst-1'), InstanceId('inst-2')]);
+    const result = parseTilingTree([
+      'H',
+      InstanceId('inst-1'),
+      InstanceId('inst-2'),
+    ]);
     expect(result).toEqual({
       type: 'split',
       direction: 'H',
@@ -31,7 +35,11 @@ describe('parseTilingTree', () => {
   });
 
   it('parses a vertical split with two leaves', () => {
-    const result = parseTilingTree(['V', InstanceId('inst-1'), InstanceId('inst-2')]);
+    const result = parseTilingTree([
+      'V',
+      InstanceId('inst-1'),
+      InstanceId('inst-2'),
+    ]);
     expect(result).toEqual({
       type: 'split',
       direction: 'V',
@@ -101,7 +109,11 @@ describe('computeTilingLayout', () => {
   });
 
   it('horizontal split divides container top/bottom equally', () => {
-    const tree = parseTilingTree(['H', InstanceId('top'), InstanceId('bottom')])!;
+    const tree = parseTilingTree([
+      'H',
+      InstanceId('top'),
+      InstanceId('bottom'),
+    ])!;
     const tiles = computeTilingLayout(tree, containerRect, 0);
     const top = tiles.find((t) => t.instanceId === 'top')!;
     const bottom = tiles.find((t) => t.instanceId === 'bottom')!;
@@ -112,7 +124,11 @@ describe('computeTilingLayout', () => {
   });
 
   it('vertical split divides container left/right equally', () => {
-    const tree = parseTilingTree(['V', InstanceId('left'), InstanceId('right')])!;
+    const tree = parseTilingTree([
+      'V',
+      InstanceId('left'),
+      InstanceId('right'),
+    ])!;
     const tiles = computeTilingLayout(tree, containerRect, 0);
     const left = tiles.find((t) => t.instanceId === 'left')!;
     const right = tiles.find((t) => t.instanceId === 'right')!;
@@ -124,7 +140,11 @@ describe('computeTilingLayout', () => {
 
   it('merges duplicate instanceIds into bounding box', () => {
     // Tree: V split with same instanceId on both sides
-    const tree = parseTilingTree(['V', InstanceId('inst-1'), InstanceId('inst-1')])!;
+    const tree = parseTilingTree([
+      'V',
+      InstanceId('inst-1'),
+      InstanceId('inst-1'),
+    ])!;
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(1);
     expect(tiles[0].instanceId).toBe('inst-1');

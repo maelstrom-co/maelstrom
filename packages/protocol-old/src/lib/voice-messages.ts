@@ -176,10 +176,16 @@ export interface VoiceReadyMessage extends TimeEvent {
 
 /**
  * Server notifies client of an error in the voice pipeline.
+ *
+ * `requestId` is set when the error correlates to a specific
+ * `client.maelstrom.process` request — clients use it to settle the
+ * pending request promise instead of timing out.
  */
 export interface VoiceErrorMessage extends TimeEvent {
   type: 'engine.error';
   sessionId: string;
+  /** Correlation handle for chart_request errors. */
+  requestId?: string;
   error: string;
 }
 

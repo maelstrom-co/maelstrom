@@ -5,10 +5,10 @@ import type {
   Unsubscribe,
   VoiceConnector,
 } from '@maelstrom-co/client';
-import type { ChartRequest, MaelstromResponse, SessionId } from '@maelstrom-co/protocol';
+import type { ChartRequestMessage, MaelstromResponse, SessionId } from '@maelstrom-co/protocol';
 
 export function createMockVoiceConnector(overrides?: {
-  process?: (request: ChartRequest) => Promise<MaelstromResponse>;
+  process?: (message: ChartRequestMessage) => Promise<MaelstromResponse>;
 }): VoiceConnector {
   const subscribers: Array<(event: ConnectorEvent) => void> = [];
 
@@ -29,13 +29,13 @@ export function createMockVoiceConnector(overrides?: {
       }
     },
 
-    async process(request: ChartRequest): Promise<MaelstromResponse> {
+    async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
       if (overrides?.process) {
-        return overrides.process(request);
+        return overrides.process(message);
       }
       return {
         type: 'maelstrom_response',
-        requestId: request.id,
+        requestId: message.id,
         userMessage: '',
         rationale: '',
         executionPlan: [],

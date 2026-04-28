@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach, beforeAll, spyOn } from 'bun:test';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
-import type { MaelstromResponse, ChartRequest } from '@maelstrom-co/protocol';
+import type {
+  ChartRequestMessage,
+  MaelstromResponse,
+} from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 
 import { createMaelstrom } from '../create-maelstrom.js';
@@ -53,13 +56,13 @@ function triggerResize(width: number, height: number) {
 function connectorWithGridInstance(instanceId: string, vesselId: string, variant: string) {
   let callCount = 0;
   return createMockConnector({
-    process: async (req: ChartRequest): Promise<MaelstromResponse> => {
+    process: async (msg: ChartRequestMessage): Promise<MaelstromResponse> => {
       callCount++;
       const brandedId = InstanceId(instanceId);
       if (callCount === 1) {
         return {
           type: 'maelstrom_response',
-          requestId: req.id,
+          requestId: msg.id,
           userMessage: '',
           rationale: '',
           executionPlan: [],
@@ -72,7 +75,7 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
       }
       return {
         type: 'maelstrom_response',
-        requestId: req.id,
+        requestId: msg.id,
         userMessage: '',
         rationale: '',
         executionPlan: [],
@@ -91,9 +94,9 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
 function connectorWithTilingLayout(instanceId: string, vesselId: string, variant: string) {
   const brandedId = InstanceId(instanceId);
   return createMockConnector({
-    process: async (req: ChartRequest): Promise<MaelstromResponse> => ({
+    process: async (msg: ChartRequestMessage): Promise<MaelstromResponse> => ({
       type: 'maelstrom_response',
-      requestId: req.id,
+      requestId: msg.id,
       userMessage: '',
       rationale: '',
       executionPlan: [],

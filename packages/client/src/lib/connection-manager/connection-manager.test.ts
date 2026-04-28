@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { MessageId, SessionId, type MaelstromResponse } from '@maelstrom-co/protocol';
+import {
+  MessageId,
+  SessionId,
+  type MaelstromResponse,
+} from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import type { ConnectionManagerEvents } from './connection-manager.js';

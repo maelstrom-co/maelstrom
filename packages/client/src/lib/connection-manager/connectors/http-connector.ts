@@ -1,5 +1,5 @@
 import type {
-  ChartRequest,
+  ChartRequestMessage,
   MaelstromResponse,
   SessionId,
 } from '@maelstrom-co/protocol';
@@ -33,6 +33,7 @@ export interface HttpConnectorOptions {
  * @example
  * ```typescript
  * import { HttpConnector } from '@maelstrom-co/client';
+ * import { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
  *
  * const connector = new HttpConnector({
  *   baseUrl: 'https://api.example.com',
@@ -41,8 +42,13 @@ export interface HttpConnectorOptions {
  * });
  *
  * const manager = new ConnectionManager(store, connector);
- * await manager.connect();
- * const response = await connector.process(request);
+ * await manager.connect(SessionId('session-1'));
+ *
+ * const envelope = ChartRequestMessage({
+ *   sessionId: SessionId('session-1'),
+ *   request: chartRequestPayload,
+ * });
+ * const response = await connector.process(envelope);
  * ```
  */
 export class HttpConnector implements EngineConnector {
@@ -85,10 +91,10 @@ export class HttpConnector implements EngineConnector {
   }
 
   /**
-   * Sends a request to the API endpoint.
+   * Sends a chart_request envelope to the API endpoint.
    */
-  async process(request: ChartRequest): Promise<MaelstromResponse> {
-    return this.#postJson<MaelstromResponse>('/process', request);
+  async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
+    return this.#postJson<MaelstromResponse>('/process', message);
   }
 
   async addAssistantMessage(message: AssistantMessage): Promise<void> {
