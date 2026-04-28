@@ -29,6 +29,7 @@
   "dependencies": {
     "@tanstack/ai": "catalog:",
     "@tanstack/ai-gemini": "catalog:",
+    "@tanstack/ai-openai": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {

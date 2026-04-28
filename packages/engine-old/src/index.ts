@@ -2,8 +2,10 @@
 
 // Providers
 export {
+  createOpenAIProvider,
   createTanStackProvider,
   type GeminiTextModel,
+  type OpenAIChatModel,
 } from './lib/ai-sdk-provider.js';
 export type { Engine } from './lib/engine.js';
 export { createEngine } from './lib/engine.js';
