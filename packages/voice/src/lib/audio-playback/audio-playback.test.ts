@@ -27,6 +27,7 @@ class MockAudioBufferSourceNode {
   buffer: MockAudioBuffer | null = null;
   onended: (() => void) | null = null;
   private ended = false;
+  static startTimes: number[] = [];
 
   constructor(private ctx: MockAudioContext) {}
 
@@ -34,6 +35,7 @@ class MockAudioBufferSourceNode {
 
   start(when = 0): void {
     if (this.ended) return;
+    MockAudioBufferSourceNode.startTimes.push(when);
     const duration = this.buffer?.duration ?? 0;
     this.ctx.currentTime = when + duration + 0.02;
     queueMicrotask(() => {
@@ -98,6 +100,7 @@ describe('AudioPlayback', () => {
 
   beforeEach(() => {
     MockAudioContext.sourceCount = 0;
+    MockAudioBufferSourceNode.startTimes = [];
     Object.defineProperty(globalThis, 'AudioContext', {
       value: MockAudioContext,
       configurable: true,
@@ -125,6 +128,39 @@ describe('AudioPlayback', () => {
 
     playback.on('playbackStart', () => events.push('start'));
     playback.on('playbackEnd', () => events.push('end'));
+
+    playback.enqueue(toPcmF32le([0.1, -0.1, 0.2, -0.2]));
+    await flush();
+
+    expect(events).toEqual(['start', 'end']);
+    expect(playback.isPlaying).toBe(false);
+  });
+
+  it('plays async network audio after prepare primes the AudioContext during a user gesture', async () => {
+    let allowContextCreation = false;
+
+    Object.defineProperty(globalThis, 'AudioContext', {
+      value: class extends MockAudioContext {
+        constructor(options?: AudioContextOptions) {
+          if (!allowContextCreation) {
+            throw new Error('AudioContext blocked outside user gesture');
+          }
+          super(options);
+        }
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    const playback = new AudioPlayback({ sampleRate: 44100 });
+    const events: string[] = [];
+
+    playback.on('playbackStart', () => events.push('start'));
+    playback.on('playbackEnd', () => events.push('end'));
+
+    allowContextCreation = true;
+    await playback.prepare();
+    allowContextCreation = false;
 
     playback.enqueue(toPcmF32le([0.1, -0.1, 0.2, -0.2]));
     await flush();
@@ -310,5 +346,19 @@ describe('AudioPlayback', () => {
     expect(
       emittedErrors.some((e) => e.message.includes('createBuffer failed')),
     ).toBe(true);
+  });
+
+  it('serializes queue draining so back-to-back enqueues do not overlap start times', async () => {
+    const playback = new AudioPlayback({ sampleRate: 44100 });
+
+    playback.enqueue(toPcmF32le([0.1, -0.1, 0.2, -0.2]));
+    playback.enqueue(toPcmF32le([0.3, -0.3, 0.4, -0.4]));
+    await flush();
+    await flush();
+
+    expect(MockAudioBufferSourceNode.startTimes.length).toBe(2);
+    expect(MockAudioBufferSourceNode.startTimes[1]).toBeGreaterThan(
+      MockAudioBufferSourceNode.startTimes[0],
+    );
   });
 });

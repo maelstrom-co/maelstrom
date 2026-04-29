@@ -109,6 +109,7 @@ export function createUseVoice(contextPair: MaelstromContextPair) {
             sessionId: 'default',
             ...(opts.language && { language: opts.language }),
             useVadToFinalizeInterims: opts.useVadToFinalizeInterims ?? true,
+            allowBargeIn: opts.allowBargeIn ?? true,
             vadOptions: {
               activationThreshold: 0.5,
               ...opts.vadOptions,
@@ -133,9 +134,12 @@ export function createUseVoice(contextPair: MaelstromContextPair) {
               store.setState(s);
               ownerOptionsRef?.current?.onStateChange?.(s);
             }),
-            session.on('response', (r: { userMessage?: string; requestId: string }) => {
-              ownerOptionsRef?.current?.onResponse?.(r);
-            }),
+            session.on(
+              'response',
+              (r: { userMessage?: string; requestId: string }) => {
+                ownerOptionsRef?.current?.onResponse?.(r);
+              },
+            ),
             session.on('speechStarted', (t: string) => {
               ownerOptionsRef?.current?.onSpeechStarted?.(t);
             }),
@@ -252,7 +256,9 @@ function createVoiceSessionStore(): VoiceSessionStore {
       notifyListeners();
     },
     unsubscribeAll: () => {
-      eventUnsubs.forEach((fn) => fn());
+      eventUnsubs.forEach((fn) => {
+        fn();
+      });
       eventUnsubs = [];
     },
     setState: (s) => {

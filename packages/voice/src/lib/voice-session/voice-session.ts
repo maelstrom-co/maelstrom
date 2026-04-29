@@ -81,6 +81,15 @@ interface BaseVoiceSessionConfig {
 
   /** Enable verbose console logging for debugging. */
   debugMode?: boolean;
+
+  /**
+   * Whether local VAD speech-start may interrupt assistant playback.
+   *
+   * Defaults to `true` so existing conversational sessions keep barge-in.
+   * Set to `false` for strict half-duplex turn-taking where assistant playback
+   * must finish before a new user turn is accepted.
+   */
+  allowBargeIn?: boolean;
 }
 
 /**
@@ -307,6 +316,12 @@ export class VoiceSession {
       try {
         this.#state.error = null;
 
+        // Prime playback from the same gesture path that unlocks microphone
+        // capture. Binary TTS arrives later from async socket callbacks, and
+        // waiting until then to create/resume the AudioContext is what leaves
+        // browsers with a silent playback path.
+        await this.#state.playback.prepare();
+
         // Load the VAD model before starting capture so that audio chunks
         // emitted by the AudioWorklet immediately after capture.start() don't
         // race against an unloaded ONNX session.
@@ -530,6 +545,7 @@ export class VoiceSession {
             this.#handleVoiceState(message);
             break;
           case 'engine.tts.sent':
+            this.#state.playback.interrupt();
             this.#allowIncomingAssistantAudio(
               'server announced a new TTS turn',
             );
@@ -682,7 +698,11 @@ export class VoiceSession {
       this.#setError(
         err instanceof VoiceError
           ? err
-          : new VoiceError('UNKNOWN', err instanceof Error ? err.message : String(err), err),
+          : new VoiceError(
+              'UNKNOWN',
+              err instanceof Error ? err.message : String(err),
+              err,
+            ),
       );
     } finally {
       this.#vadProcessing = false;
@@ -701,6 +721,10 @@ export class VoiceSession {
     void event;
     if (this.#config.debugMode) {
       console.log('[VoiceSession] VAD speech start');
+    }
+
+    if (this.#shouldIgnoreSpeechStartDuringPlayback()) {
+      return;
     }
 
     this.#turnCounter += 1;
@@ -791,6 +815,23 @@ export class VoiceSession {
   }
 
   // ── Barge-in ────────────────────────────────────────────────────────────
+
+  #shouldIgnoreSpeechStartDuringPlayback(): boolean {
+    if (
+      (this.#config.allowBargeIn ?? true) ||
+      !this.#state.playback.isPlaying
+    ) {
+      return false;
+    }
+
+    if (this.#config.debugMode) {
+      console.log(
+        '[VoiceSession] Ignoring VAD speech start because assistant playback owns the turn',
+      );
+    }
+
+    return true;
+  }
 
   /**
    * Attempt to interrupt AI playback when user starts speaking.
@@ -889,32 +930,42 @@ export class VoiceSession {
       return;
     }
 
-    if (this.#config.greeting && !this.#greetingSent) {
-      this.#greetingSent = true;
-      if (this.#config.debugMode) {
-        console.log('[VoiceSession] Sending greeting');
-      }
-      this.#config.connector.sendVoiceMessage({
-        type: 'client.voice.speak',
-        sessionId: message.sessionId,
-        timestamp: performance.now(),
-        text: this.#config.greeting,
-        id: MessageId(),
-      });
-    }
+    this.prepareAudio()
+      .then(() => {
+        if (!this.#config.greeting || this.#greetingSent) {
+          return;
+        }
 
-    this.prepareAudio().catch((err) => {
-      // prepareAudio already surfaced the error via #setError. Reset
-      // greetingSent so a subsequent retry (e.g. reconnect) re-emits the
-      // greeting rather than leaving the server waiting for audio that
-      // never arrives.
-      this.#greetingSent = false;
-      this.#setError(
-        err instanceof VoiceError
-          ? err
-          : new VoiceError('UNKNOWN', err instanceof Error ? err.message : String(err), err),
-      );
-    });
+        this.#greetingSent = true;
+
+        if (this.#config.debugMode) {
+          console.log('[VoiceSession] Sending greeting');
+        }
+
+        this.#config.connector.sendVoiceMessage({
+          type: 'client.voice.speak',
+          sessionId: message.sessionId,
+          timestamp: performance.now(),
+          text: this.#config.greeting,
+          id: MessageId(),
+        });
+      })
+      .catch((err) => {
+        // prepareAudio already surfaced the error via #setError. Reset
+        // greetingSent so a subsequent retry (e.g. reconnect) re-emits the
+        // greeting rather than leaving the server waiting for audio that
+        // never arrives.
+        this.#greetingSent = false;
+        this.#setError(
+          err instanceof VoiceError
+            ? err
+            : new VoiceError(
+                'UNKNOWN',
+                err instanceof Error ? err.message : String(err),
+                err,
+              ),
+        );
+      });
   }
 
   #handleVoiceState(message: VoiceServerMessage): void {

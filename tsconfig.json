@@ -32,6 +32,9 @@
     },
     {
       "path": "./packages/voice"
+    },
+    {
+      "path": "./packages/voice-server"
     }
   ]
 }

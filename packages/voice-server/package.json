@@ -1,0 +1,48 @@
+{
+  "name": "@maelstrom-co/voice-server",
+  "version": "0.0.9-prealpha.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/voice-server"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "dependencies": {
+    "@google-cloud/speech": "catalog:",
+    "@google-cloud/text-to-speech": "catalog:",
+    "@maelstrom-co/protocol": "workspace:*"
+  },
+  "nx": {
+    "name": "@maelstrom-co/voice-server",
+    "targets": {
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

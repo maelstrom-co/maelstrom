@@ -11,30 +11,38 @@
  *   DEEPGRAM_API_KEY  - Speech-to-Text
  *   CARTESIA_API_KEY  - Text-to-Speech
  *
+ * Architecture: voice-server handles STT/TTS/session, engine handles intent processing
+ *
  * Usage: bun run apps/demo/src/server/ws-server.ts
  */
 
 import {
-  createCartesiaTTS,
-  createDeepgramSTT,
   createEngine,
   createInMemoryHistoryStore,
   createTanStackProvider,
-  createVoiceEngine,
-  getDefaultSystemPrompt,
-  isVoiceEngine,
 } from '@maelstrom-co/engine-old';
-import type { ChartRequestMessage, MessageId } from '@maelstrom-co/protocol';
+import { SessionId } from '@maelstrom-co/protocol';
 import type {
   TranscriptMessage,
-  VoiceClientMessage,
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
-
-import { adaptEnvelopeToLegacyRequest } from './legacy-engine-adapter.js';
+import {
+  type AudioChunk,
+  createCartesiaTTS,
+  createDeepgramSTT,
+  createVoiceSession,
+  type SpeechChunk,
+  type TranscriptionResult,
+  type VoiceSession,
+  type VoiceSessionCallbacks,
+  type VoiceSessionState,
+} from '@maelstrom-co/voice-server';
 import { Hono } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { cors } from 'hono/cors';
+import { DEMO_KEYTERMS } from './demo-keyterms.js';
+import { createDemoVoiceIntentAdapter } from './voice-intent-adapter.js';
+import { createDemoVoiceWsSessionController } from './voice-ws-session.js';
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
 
@@ -68,6 +76,8 @@ const hasVoiceKeys = Boolean(
   process.env.DEEPGRAM_API_KEY && process.env.CARTESIA_API_KEY,
 );
 
+const demoVadFinalDebounceMs = 250;
+
 if (!hasVoiceKeys) {
   console.warn(
     '[Demo WS] Missing DEEPGRAM_API_KEY or CARTESIA_API_KEY — running in text-only mode',
@@ -77,8 +87,9 @@ if (!hasVoiceKeys) {
 app.get(
   '/ws',
   upgradeWebSocket((c) => {
-    const sessionId =
-      c.req.query('sessionId') || `session-${performance.now()}`;
+    const sessionId = SessionId(
+      c.req.query('sessionId') || crypto.randomUUID(),
+    );
     const language = c.req.query('language') || 'en';
 
     const provider = createTanStackProvider('gemini-3.1-flash-lite-preview');
@@ -87,7 +98,10 @@ app.get(
 
     const sendMessage = (message: VoiceServerMessage) => {
       if (ws) {
+        console.log(`[Demo WS] Sending message: ${message.type}`);
         ws.send(JSON.stringify(message));
+      } else {
+        console.warn('[Demo WS] Cannot send message, WebSocket not connected');
       }
     };
 
@@ -103,7 +117,107 @@ app.get(
       }
     };
 
-    const baseConfig = {
+    const sendEngineError = (error: string) => {
+      sendMessage({
+        type: 'engine.error',
+        sessionId,
+        error,
+        timestamp: performance.now(),
+      });
+    };
+
+    const sendTranscriptMessage = (result: {
+      text: string;
+      isFinal: boolean;
+      confidence?: number;
+      language?: string;
+      durationInSeconds?: number;
+    }) => {
+      const transcriptMsg: TranscriptMessage = {
+        type: 'engine.stt.transcript',
+        sessionId,
+        text: result.text,
+        isFinal: result.isFinal,
+        timestamp: performance.now(),
+      };
+
+      if (result.confidence !== undefined) {
+        transcriptMsg.confidence = result.confidence;
+      }
+      if (result.language !== undefined) {
+        transcriptMsg.language = result.language;
+      }
+      if (result.durationInSeconds !== undefined) {
+        transcriptMsg.durationInSeconds = result.durationInSeconds;
+      }
+      console.log(
+        `[Demo WS] Sending transcript: ${result.text}. IsFinal: ${result.isFinal}`,
+      );
+      sendMessage(transcriptMsg);
+    };
+
+    const forwardAudioInput = (audio: AudioChunk) => {
+      voiceSession?.sendAudioChunk(audio);
+    };
+
+    const forwardRawAudioInput = async (data: ArrayBuffer | Blob) => {
+      const bytes =
+        data instanceof Blob
+          ? new Uint8Array(await data.arrayBuffer())
+          : new Uint8Array(data);
+
+      forwardAudioInput({
+        data: bytes,
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: performance.now(),
+      });
+    };
+
+    const createVoiceCallbacks = (): VoiceSessionCallbacks => ({
+      onVoiceStateChange: (state: VoiceSessionState) => {
+        console.log(`[Demo WS] Voice state: ${JSON.stringify(state)}`);
+        sendMessage({
+          type: 'engine.voice.state',
+          sessionId,
+          state,
+          timestamp: performance.now(),
+        });
+      },
+      onTranscript: (result: TranscriptionResult) => {
+        console.log(
+          `[Demo WS] Transcript: ${result.text}. IsFinal: ${result.isFinal}`,
+        );
+        sendTranscriptMessage(result);
+      },
+      onAudioOutput: (chunk: SpeechChunk) => {
+        if (chunk.data.length > 0) {
+          sendBinaryAudio(chunk.data);
+        }
+      },
+      onSpeechStarted: (speech) => {
+        sendMessage({
+          type: 'engine.tts.sent',
+          sessionId,
+          text: speech.text,
+          timestamp: performance.now(),
+          data: new Uint8Array(0),
+          format: speech.format,
+          sampleRate: speech.sampleRate,
+          sequence: 0,
+          isFinal: false,
+        });
+      },
+      onSpeechStopped: () => {},
+      onError: (error: Error) => {
+        sendEngineError(error.message);
+      },
+      onInterrupt: (source: string) => {
+        console.log(`[Demo WS] Interrupt from: ${source}`);
+      },
+    });
+
+    const engine = createEngine({
       provider,
       timeout: 30000,
       retry: { maxAttempts: 2, initialDelayMs: 500 },
@@ -112,305 +226,71 @@ app.get(
         contentLevel: 'full' as const,
         maxEntries: 20,
       },
-      systemPrompt: getDefaultSystemPrompt('tiling') + CUSTOM_INSTRUCTIONS,
-    };
+      systemPromptExtension: CUSTOM_INSTRUCTIONS,
+    });
 
-    // Create voice engine when keys are available, otherwise plain engine
-    const engine = hasVoiceKeys
-      ? createVoiceEngine(
-          {
-            ...baseConfig,
-            voice: {
-              stt: createDeepgramSTT({
-                apiKey: process.env.DEEPGRAM_API_KEY as string,
-              }),
-              tts: createCartesiaTTS({
-                defaultVoiceId: 'e8e5fffb-252c-436d-b842-8879b84445b6',
-                apiKey: process.env.CARTESIA_API_KEY as string,
-              }),
-              mode: 'continuous',
-              language,
-              interimResults: true,
-            },
-          },
-          {
-            onVoiceStateChange: (state) => {
-              console.log(`[Demo WS] Voice state: ${JSON.stringify(state)}`);
-              sendMessage({
-                type: 'engine.voice.state',
-                sessionId,
-                state,
-                timestamp: performance.now(),
-              });
-            },
-            onTranscript: (result) => {
-              console.log(
-                `[Demo WS] Transcript: ${result.text} isFinal: ${result.isFinal}`,
-              );
-              const transcriptMsg: TranscriptMessage = {
-                type: 'engine.stt.transcript',
-                sessionId,
-                text: result.text,
-                isFinal: result.isFinal,
-                timestamp: performance.now(),
-              };
-              if (result.confidence !== undefined)
-                transcriptMsg.confidence = result.confidence;
-              if (result.language !== undefined)
-                transcriptMsg.language = result.language;
-              if (result.durationInSeconds !== undefined)
-                transcriptMsg.durationInSeconds = result.durationInSeconds;
-              sendMessage(transcriptMsg);
-            },
-            onAudioOutput: (chunk) => {
-              if (chunk.data.length > 0) {
-                sendBinaryAudio(chunk.data);
-              }
-            },
-            onSpeechStarted: (text) => {
-              sendMessage({
-                type: 'engine.tts.sent',
-                sessionId,
-                text,
-                timestamp: performance.now(),
-                data: new Uint8Array(0),
-                format: 'pcm',
-                sampleRate: 24000,
-                sequence: 0,
-                isFinal: false,
-              });
-            },
-            onSpeechStopped: () => {},
-            onError: (error) => {
-              sendMessage({
-                type: 'engine.error',
-                sessionId,
-                error: error.message,
-                timestamp: performance.now(),
-              });
-            },
-            onInterrupt: (source) => {
-              console.log(`[Demo WS] Interrupt from: ${source}`);
-            },
-          },
-        )
-      : createEngine(baseConfig);
+    let voiceSession: VoiceSession | null = null;
+    let voiceWsSession: ReturnType<
+      typeof createDemoVoiceWsSessionController
+    > | null = null;
+
+    const { buildChartRequest, processIntent } = createDemoVoiceIntentAdapter(
+      engine,
+      sessionId,
+      sendMessage,
+      () => voiceWsSession?.getLatestChartRequest() ?? null,
+    );
+
+    if (hasVoiceKeys) {
+      voiceSession = createVoiceSession(
+        {
+          stt: createDeepgramSTT({
+            apiKey: process.env.DEEPGRAM_API_KEY as string,
+            keyterms: DEMO_KEYTERMS,
+            vadEvents: true,
+          }),
+          tts: createCartesiaTTS({
+            defaultVoiceId: 'e8e5fffb-252c-436d-b842-8879b84445b6',
+            apiKey: process.env.CARTESIA_API_KEY as string,
+          }),
+          sessionId,
+          language,
+          interimResults: true,
+          // WHY: The browser demo needs a tighter turn boundary than the shared package default.
+          // Keeping that tuning here avoids biasing other voice-server consumers toward demo-only timing.
+          vadFinalDebounceMs: demoVadFinalDebounceMs,
+          buildChartRequest,
+          processIntent,
+        },
+        createVoiceCallbacks(),
+      );
+    }
+
+    voiceWsSession = createDemoVoiceWsSessionController({
+      sessionId,
+      voiceSession,
+      engine,
+      transport: { sendMessage, sendEngineError },
+      forwardBinaryAudioInput: forwardRawAudioInput,
+    });
 
     return {
       onOpen: async (_event, wsContext) => {
         ws = wsContext;
-        console.log(`[Demo WS] WebSocket opened for session: ${sessionId}`);
-
-        if (isVoiceEngine(engine)) {
-          engine.warmup().catch((err: unknown) => {
-            console.error(`[Demo WS] Warmup failed: ${err}`);
-          });
-        }
-
-        if (isVoiceEngine(engine)) {
-          sendMessage({
-            type: 'engine.stt.ready',
-            sessionId,
-            timestamp: performance.now(),
-          });
-        }
+        await voiceWsSession.onOpen();
       },
 
       onMessage: async (event: MessageEvent) => {
-        // Captured before dispatch so the outer catch can correlate
-        // engine.error frames back to the originating request.
-        let requestId: MessageId | undefined;
-        try {
-          const data = event.data;
-
-          // Handle binary audio data — always intercept before JSON.parse
-          // to avoid parse errors when voice keys are missing
-          if (data instanceof ArrayBuffer) {
-            if (isVoiceEngine(engine)) {
-              engine.sendAudioChunk({
-                data: new Uint8Array(data),
-                sampleRate: 16000,
-                encoding: 'linear16',
-                timestamp: performance.now(),
-              });
-            }
-            return;
-          }
-
-          if (data instanceof Blob) {
-            if (isVoiceEngine(engine)) {
-              const arrayBuffer = await data.arrayBuffer();
-              engine.sendAudioChunk({
-                data: new Uint8Array(arrayBuffer),
-                sampleRate: 16000,
-                encoding: 'linear16',
-                timestamp: performance.now(),
-              });
-            }
-            return;
-          }
-
-          // Handle JSON messages
-          const message = JSON.parse(data as string) as VoiceClientMessage;
-
-          switch (message.type) {
-            case 'client.voice.speak': {
-              if (!isVoiceEngine(engine)) break;
-              console.log(
-                `[Demo WS] Speaking: "${message.text.substring(0, 50)}..."`,
-              );
-              try {
-                await engine.addAssistantMessage({
-                  id: message.id,
-                  sessionId,
-                  message: message.text,
-                });
-                await engine.speak(message.text);
-              } catch (err: unknown) {
-                console.error(`[Demo WS] Speak error: ${err}`);
-              }
-              break;
-            }
-
-            case 'client.history.add_assistant_message': {
-              console.log(
-                `[Demo WS] Adding assistant message: "${message.message.substring(0, 50)}..."`,
-              );
-              try {
-                await engine.addAssistantMessage({
-                  id: message.id,
-                  sessionId,
-                  message: message.message,
-                });
-              } catch (err: unknown) {
-                console.error(`[Demo WS] Add assistant message error: ${err}`);
-              }
-              break;
-            }
-
-            case 'client.audio_capture.audio_sent':
-              if (isVoiceEngine(engine)) {
-                engine.sendAudioChunk({
-                  data: message.data,
-                  sampleRate: message.sampleRate,
-                  encoding: message.encoding,
-                  timestamp: message.timestamp,
-                });
-              }
-              break;
-
-            case 'client.maelstrom.process': {
-              // Wire format from the new client wraps a ChartRequestMessage
-              // envelope. Engine-old still wants the legacy ChartRequest
-              // shape, so adaptEnvelopeToLegacyRequest lifts envelope fields
-              // back onto the inner payload before dispatching.
-              //
-              // Today this trusts the wire-deserialized envelope shape; once
-              // ChartRequestMessageSchema lands (MAE-123), safeParse here
-              // and emit engine.error on failure.
-              const envelope =
-                message.request as unknown as ChartRequestMessage;
-              requestId = envelope.id;
-              const oldStyleRequest = adaptEnvelopeToLegacyRequest(envelope);
-
-              const response = await engine.process(oldStyleRequest);
-              sendMessage({
-                type: 'engine.maelstrom.response',
-                sessionId,
-                requestId: envelope.id,
-                response,
-              });
-              if (
-                isVoiceEngine(engine) &&
-                response.userMessage &&
-                envelope.request.context.updateReasons.some(
-                  (r) => r.type === 'user_intent',
-                )
-              ) {
-                engine.speak(response.userMessage).catch((err: unknown) => {
-                  // Log-only. We can't push engine.error here for client
-                  // correlation: the success response above already settled
-                  // the client correlator, so a late engine.error with the
-                  // same requestId would be a silent no-op on the client
-                  // side. A user-visible TTS-error channel is voice-server
-                  // territory — see MAE-103 (voice-server rewrite). The
-                  // .catch is still required to prevent the rejection from
-                  // surfacing as a process-level unhandledRejection.
-                  const errMsg =
-                    err instanceof Error ? err.message : String(err);
-                  console.error(`[Demo WS] Speak error: ${errMsg}`);
-                });
-              }
-              break;
-            }
-
-            case 'client.audio_capture.ready':
-              console.log('[Demo WS] Client audio capture ready');
-              break;
-
-            case 'client.vad.speech_start': {
-              if (!isVoiceEngine(engine)) break;
-              console.log('[Demo WS] VAD detected speech start');
-              if (engine.getVoiceState() === 'speaking') {
-                engine.interrupt();
-              }
-              engine.handleVADEvent({
-                type: 'speech_start',
-                timestamp: message.timestamp,
-              });
-              if (engine.getVoiceState() !== 'listening') {
-                engine.startListening().catch((err: unknown) => {
-                  console.error(`[Demo WS] Cannot restart listening: ${err}`);
-                });
-              }
-              break;
-            }
-
-            case 'client.vad.speech_end': {
-              if (!isVoiceEngine(engine)) break;
-              console.log('[Demo WS] VAD detected speech end');
-              engine.handleVADEvent({
-                type: 'speech_end',
-                timestamp: message.timestamp,
-              });
-              engine.stopListening().catch((err: unknown) => {
-                console.error(`[Demo WS] Cannot stop listening: ${err}`);
-              });
-              break;
-            }
-
-            default:
-              console.warn(
-                `Unknown message type: ${(message as { type: string }).type}`,
-              );
-          }
-        } catch (error) {
-          console.error(
-            `WebSocket message error: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          sendMessage({
-            type: 'engine.error',
-            sessionId,
-            // requestId is only set when the failed message was a
-            // chart_request — lets the client correlator settle instead of
-            // timing out.
-            ...(requestId !== undefined ? { requestId } : {}),
-            error: error instanceof Error ? error.message : 'Invalid message',
-            timestamp: performance.now(),
-          });
-        }
+        await voiceWsSession.onMessage(event.data);
       },
 
       onClose: () => {
-        if (isVoiceEngine(engine)) engine.destroy();
+        voiceWsSession.onClose();
         ws = null;
       },
 
       onError: (error: unknown) => {
-        console.error(
-          `WebSocket error: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        if (isVoiceEngine(engine)) engine.destroy();
+        voiceWsSession.onError(error);
         ws = null;
       },
     };

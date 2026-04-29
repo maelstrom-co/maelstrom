@@ -21,6 +21,7 @@ interface BaseUseVoiceOptions {
   onStateChange?: (state: VoiceSessionState) => void;
   onResponse?: (response: { userMessage?: string; requestId: string }) => void;
   onSpeechStarted?: (text: string) => void;
+  allowBargeIn?: boolean;
 }
 
 /**

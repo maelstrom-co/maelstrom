@@ -18,16 +18,11 @@ function HomePage() {
 }
 
 function DemoApp() {
-  const { processIntent, isProcessing } = m.useMaelstrom();
-
   m.useVoice({
     autoAcquireMic: true,
+    allowBargeIn: true,
     greeting:
       "Hello! I'm the Maelstrom demo assistant. I can help you manage your calendar, weather, journal, and tasks. Try asking me to rearrange your dashboard or perform actions like adding tasks or writing journal entries.",
-    onTranscript: (text, isFinal) => {
-      if (!isFinal || !text.trim() || isProcessing) return;
-      processIntent(text);
-    },
   });
 
   return (

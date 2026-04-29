@@ -281,13 +281,27 @@ const toPcmF32le = (samples: number[]): Uint8Array => {
 };
 
 function createMockGetUserMedia(shouldSucceed = true) {
-  return async (
-    _constraints: MediaStreamConstraints,
-  ): Promise<MediaStream> => {
+  return async (_constraints: MediaStreamConstraints): Promise<MediaStream> => {
     if (!shouldSucceed) {
       throw new DOMException('Permission denied', 'NotAllowedError');
     }
     return new MockMediaStream() as unknown as MediaStream;
+  };
+}
+
+function createDeferredGetUserMedia() {
+  let resolveStream: ((stream: MediaStream) => void) | null = null;
+
+  return {
+    getUserMedia: async (
+      _constraints: MediaStreamConstraints,
+    ): Promise<MediaStream> =>
+      new Promise((resolve) => {
+        resolveStream = resolve;
+      }),
+    resolve(): void {
+      resolveStream?.(new MockMediaStream() as unknown as MediaStream);
+    },
   };
 }
 
@@ -548,7 +562,11 @@ describe('VoiceSession', () => {
       expect(stateEvents.length).toBeGreaterThan(0);
       expect(transcriptEvents.length).toBe(1);
 
-      const te = transcriptEvents[0] as { type: 'transcript'; text: string; isFinal: boolean };
+      const te = transcriptEvents[0] as {
+        type: 'transcript';
+        text: string;
+        isFinal: boolean;
+      };
       expect(te.text).toBe('Hello');
       expect(te.isFinal).toBe(true);
 
@@ -1097,7 +1115,12 @@ describe('VoiceSession', () => {
   // ---------------------------------------------------------------------------
 
   describe('server ready handling', () => {
-    it('sends greeting when server is ready (with autoAcquireMic)', async () => {
+    it('sends greeting only after audio preparation completes', async () => {
+      const deferredMic = createDeferredGetUserMedia();
+      (globalThis as Record<string, unknown>).navigator = {
+        mediaDevices: { getUserMedia: deferredMic.getUserMedia },
+      };
+
       const session = new VoiceSession({
         connector: mockConnector,
         autoAcquireMic: true,
@@ -1113,7 +1136,20 @@ describe('VoiceSession', () => {
 
       await flush();
 
-      const speakMessage = mockConnector.sentMessages.find(
+      expect(session.isAudioReady).toBe(false);
+
+      let speakMessage = mockConnector.sentMessages.find(
+        (m) => (m as { type: string }).type === 'client.voice.speak',
+      );
+      expect(speakMessage).toBeUndefined();
+
+      deferredMic.resolve();
+      await flush();
+      await flush();
+
+      expect(session.isAudioReady).toBe(true);
+
+      speakMessage = mockConnector.sentMessages.find(
         (m) => (m as { type: string }).type === 'client.voice.speak',
       );
       expect(speakMessage).toBeDefined();
@@ -1204,8 +1240,7 @@ describe('VoiceSession', () => {
       session.destroy();
     });
 
-    it('resets greetingSent when prepareAudio rejects so retry re-sends', async () => {
-      // First ready: mic denied → prepareAudio rejects, greeting sent once.
+    it('does not send greeting when prepareAudio rejects and retries after recovery', async () => {
       (globalThis as Record<string, unknown>).navigator = {
         mediaDevices: { getUserMedia: createMockGetUserMedia(false) },
       };
@@ -1227,7 +1262,7 @@ describe('VoiceSession', () => {
       const firstCount = mockConnector.sentMessages.filter(
         (m) => (m as { type: string }).type === 'client.voice.speak',
       ).length;
-      expect(firstCount).toBe(1);
+      expect(firstCount).toBe(0);
 
       // Restore mic, clear error state, simulate ready again — greeting
       // should fire a second time because greetingSent was reset.
@@ -1245,7 +1280,7 @@ describe('VoiceSession', () => {
       const secondCount = mockConnector.sentMessages.filter(
         (m) => (m as { type: string }).type === 'client.voice.speak',
       ).length;
-      expect(secondCount).toBe(2);
+      expect(secondCount).toBe(1);
 
       session.destroy();
     });
@@ -1371,17 +1406,15 @@ describe('VoiceSession', () => {
       await session.startListening();
 
       // Make playback's createBuffer throw on the next call.
-      const origCreateBuffer =
-        CapturingMockAudioContext.prototype.createBuffer;
+      const origCreateBuffer = CapturingMockAudioContext.prototype.createBuffer;
       CapturingMockAudioContext.prototype.createBuffer = function (): never {
         throw new Error('Playback createBuffer failed');
       };
 
       try {
-        mockConnector.simulateBinaryAudio(
-          toPcmF32le([0.1, -0.1, 0.2, -0.2]),
-          { cancellable: true },
-        );
+        mockConnector.simulateBinaryAudio(toPcmF32le([0.1, -0.1, 0.2, -0.2]), {
+          cancellable: true,
+        });
         await flush();
       } finally {
         CapturingMockAudioContext.prototype.createBuffer = origCreateBuffer;
@@ -1456,6 +1489,47 @@ describe('VoiceSession', () => {
       await flush();
 
       expect(states).toContain('speaking');
+
+      session.destroy();
+    });
+
+    it('primes playback during startListening so later binary TTS still plays when browser blocks new AudioContexts', async () => {
+      let allowContextCreation = false;
+
+      Object.defineProperty(globalThis, 'AudioContext', {
+        value: class extends CapturingMockAudioContext {
+          constructor(options?: AudioContextOptions) {
+            if (!allowContextCreation) {
+              throw new Error('AudioContext blocked outside user gesture');
+            }
+            super(options);
+          }
+        },
+        configurable: true,
+        writable: true,
+      });
+
+      const errors: unknown[] = [];
+      const session = new VoiceSession({
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+      });
+
+      session.on('error', (err) => errors.push(err));
+
+      allowContextCreation = true;
+      await session.startListening();
+      allowContextCreation = false;
+
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.1, -0.1, 0.2, -0.2]), {
+        cancellable: true,
+      });
+
+      await flush();
+
+      expect(session.isSpeaking).toBe(true);
+      expect(errors).toEqual([]);
 
       session.destroy();
     });
@@ -1796,6 +1870,42 @@ describe('VoiceSession', () => {
       session.destroy();
     });
 
+    it('ignores VAD speech start during playback when allowBargeIn is false', async () => {
+      const session = new VoiceSession({
+        connector: mockConnector,
+        autoAcquireMic: true,
+        allowBargeIn: false,
+        vadOptions: {
+          activationThreshold: 0.5,
+          minSpeechDurationSeconds: 0.05,
+        },
+      });
+
+      await session.startListening();
+
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.1, -0.1, 0.2, -0.2]), {
+        cancellable: true,
+      });
+      await flush();
+      expect(session.isSpeaking).toBe(true);
+
+      const messagesBefore = mockConnector.sentMessages.length;
+      const chunksBefore = mockConnector.sentAudioChunks.length;
+
+      MockSileroVAD.probability = 0.9;
+
+      const node = lastWorkletNode!;
+      simulateCaptureChunk(node);
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(session.isSpeaking).toBe(true);
+      expect(mockConnector.sentMessages.length).toBe(messagesBefore);
+      expect(mockConnector.sentAudioChunks.length).toBe(chunksBefore);
+
+      session.destroy();
+    });
+
     it('buffered audio is forwarded to connector on VAD speech start', async () => {
       const session = new VoiceSession({
         connector: mockConnector,
@@ -1819,7 +1929,9 @@ describe('VoiceSession', () => {
 
       // VAD speech start should have caused sendAudioChunk to be called with
       // the pre-speech ring-buffer audio
-      expect(mockConnector.sentAudioChunks.length).toBeGreaterThan(chunksBefore);
+      expect(mockConnector.sentAudioChunks.length).toBeGreaterThan(
+        chunksBefore,
+      );
 
       session.destroy();
     });
@@ -1898,15 +2010,18 @@ describe('VoiceSession', () => {
       // Make the next VAD process() call throw
       MockSileroVAD.shouldThrow = true;
 
-      const node = lastWorkletNode!;
-      simulateCaptureChunk(node);
+      try {
+        const node = lastWorkletNode!;
+        simulateCaptureChunk(node);
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(errors.length).toBeGreaterThan(0);
-      expect(session.error).not.toBeNull();
-
-      session.destroy();
+        expect(errors.length).toBeGreaterThan(0);
+        expect(session.error).not.toBeNull();
+      } finally {
+        MockSileroVAD.shouldThrow = false;
+        session.destroy();
+      }
     });
 
     it('sendAudioChunk error in capture callback is surfaced via #setError', async () => {

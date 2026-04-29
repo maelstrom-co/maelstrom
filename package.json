@@ -23,6 +23,8 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.5.2",
+    "@google-cloud/speech": "^7.3.0",
+    "@google-cloud/text-to-speech": "^6.4.0",
     "astro": "^6.0.8",
     "effect": "^3.20.0",
     "happy-dom": "^20.8.4",

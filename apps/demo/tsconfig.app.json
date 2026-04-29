@@ -38,6 +38,9 @@
     },
     {
       "path": "../../packages/client/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/voice-server/tsconfig.lib.json"
     }
   ]
 }

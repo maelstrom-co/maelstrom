@@ -41,8 +41,6 @@
 /** Default maximum age (ms) before a queued packet is discarded. */
 const MAX_PACKET_AGE_MS_DEFAULT = 200;
 
-const INPUT_SAMPLE_RATE = 44100;
-
 export interface AudioPlaybackOptions {
   /** Sample rate for the output AudioContext (typically 44100). */
   sampleRate: number;
@@ -174,6 +172,7 @@ type AudioPlaybackEventCallbacks = {
 export class AudioPlayback {
   #state: AudioPlaybackState;
   #config: AudioPlaybackOptions;
+  #isDrainLoopRunning = false;
   #listeners: {
     [E in AudioPlaybackEvent]: Set<AudioPlaybackEventCallbacks[E]>;
   } = {
@@ -192,6 +191,18 @@ export class AudioPlayback {
       isPlayingInternal: false,
       audioEnded: false,
     };
+  }
+
+  /**
+   * Prime the output path before network-delivered TTS arrives.
+   *
+   * WHY: `enqueue()` runs from async transport callbacks, which browsers do
+   * not treat as user gestures. Preparing the `AudioContext` during the same
+   * click/tap flow that starts voice avoids a blocked playback path later when
+   * the first binary TTS frame finally arrives.
+   */
+  async prepare(): Promise<void> {
+    await this.#getOrCreateOutputContext();
   }
 
   /**
@@ -219,10 +230,31 @@ export class AudioPlayback {
         });
       }
 
-      this.#playNextAudio().catch((err) => {
-        this.#reportError(err);
-      });
+      this.#drainQueue();
     }
+  }
+
+  #drainQueue(): void {
+    if (this.#isDrainLoopRunning) {
+      return;
+    }
+
+    this.#isDrainLoopRunning = true;
+    void (async () => {
+      try {
+        while (this.#state.receivedAudioWithTimestamps.length > 0) {
+          await this.#playNextAudio();
+        }
+      } catch (err) {
+        this.#reportError(err);
+      } finally {
+        this.#isDrainLoopRunning = false;
+
+        if (this.#state.receivedAudioWithTimestamps.length > 0) {
+          this.#drainQueue();
+        }
+      }
+    })();
   }
 
   /**
@@ -235,9 +267,15 @@ export class AudioPlayback {
    */
   async #playNextAudio(): Promise<void> {
     if (this.#state.receivedAudioWithTimestamps.length === 0) return;
+    let ctx: AudioContext;
     try {
-      const ctx = await this.#getOrCreateOutputContext();
-
+      ctx = await this.#getOrCreateOutputContext();
+    } catch (err) {
+      this.#state.receivedAudioWithTimestamps = [];
+      this.#reportError(err);
+      return;
+    }
+    try {
       const audioWithTimestamp =
         this.#state.receivedAudioWithTimestamps.shift();
       if (!audioWithTimestamp) return;
@@ -253,11 +291,6 @@ export class AudioPlayback {
           console.log(
             `[AudioPlayback] Discarding delayed packet: ${ageMs.toFixed(1)}ms old (max: ${this.#config.maxPacketAgeMs}ms)`,
           );
-        }
-        if (this.#state.receivedAudioWithTimestamps.length > 0) {
-          this.#playNextAudio().catch((err) => {
-            this.#reportError(err);
-          });
         }
         return Promise.resolve();
       }
@@ -279,14 +312,18 @@ export class AudioPlayback {
           if (v > maxVal) maxVal = v;
         }
         console.log(
-          `[AudioPlayback] Scheduling ${totalSamples} samples at ${INPUT_SAMPLE_RATE}Hz, queue: ${this.#state.receivedAudioWithTimestamps.length}`,
+          `[AudioPlayback] Scheduling ${totalSamples} samples at ${this.#config.sampleRate}Hz, queue: ${this.#state.receivedAudioWithTimestamps.length}`,
         );
         console.log(
           `[AudioPlayback] Sample values: min=${minVal.toFixed(4)}, max=${maxVal.toFixed(4)}, maxAbs=${maxAbs.toFixed(4)}`,
         );
       }
 
-      const audioBuffer = ctx.createBuffer(2, totalSamples, INPUT_SAMPLE_RATE);
+      const audioBuffer = ctx.createBuffer(
+        2,
+        totalSamples,
+        this.#config.sampleRate,
+      );
       audioBuffer.getChannelData(0).set(chunk);
       audioBuffer.getChannelData(1).set(chunk);
 
@@ -332,13 +369,6 @@ export class AudioPlayback {
         );
       }
       source.start(startTime);
-
-      // Continue draining the queue without waiting for this buffer to finish.
-      if (this.#state.receivedAudioWithTimestamps.length > 0) {
-        this.#playNextAudio().catch((err) => {
-          this.#reportError(err);
-        });
-      }
     } catch (err) {
       this.#reportError(err);
     }
@@ -359,7 +389,9 @@ export class AudioPlayback {
    */
   async #getOrCreateOutputContext(): Promise<AudioContext> {
     if (!this.#state.outputAudioContext) {
-      this.#state.outputAudioContext = new AudioContext();
+      this.#state.outputAudioContext = new AudioContext({
+        sampleRate: this.#config.sampleRate,
+      });
       if (this.#config.debugMode) {
         console.log(
           `[AudioPlayback] Created AudioContext at ${this.#state.outputAudioContext.sampleRate}Hz, state: ${this.#state.outputAudioContext.state}`,
