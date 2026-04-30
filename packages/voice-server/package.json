@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/voice-server",
-  "version": "0.0.9-prealpha.0",
+  "version": "0.0.10-prealpha.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

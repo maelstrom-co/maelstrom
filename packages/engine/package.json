@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/engine",
-  "version": "0.0.9-prealpha.0",
+  "version": "0.0.10-prealpha.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -27,8 +27,8 @@
     "access": "restricted"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.0.9-prealpha.0",
-    "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
+    "@maelstrom-co/protocol": "0.0.10-prealpha.0",
+    "@maelstrom-co/protocol-old": "0.0.10-prealpha.0",
     "@tanstack/ai": "catalog:",
     "zod": "catalog:"
   },
