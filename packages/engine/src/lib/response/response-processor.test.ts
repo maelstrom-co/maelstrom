@@ -681,7 +681,7 @@ describe('processResponse', () => {
   });
 
   describe('layout validation integration', () => {
-    test('grid mode routes to grid validator and returns LayoutValidationError on failure', () => {
+    test('grid mode: position_overflow is healed — layout entry dropped, response Ok', () => {
       const llmOutput: GridResponse = {
         userMessage: 'ok',
         rationale: 'placing calendar',
@@ -702,14 +702,24 @@ describe('processResponse', () => {
         messageId: MessageId('req-1'),
         logger: silentLogger,
       });
-      expect(isErr(result)).toBe(true);
-      if (!isErr(result)) return;
-      expect(result.error._tag).toBe('LayoutValidationError');
-      if (result.error._tag !== 'LayoutValidationError') return;
-      expect(result.error.failures[0]?.kind).toBe('position_overflow');
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.layout.type).toBe('grid');
+      if (result.value.layout.type !== 'grid') return;
+      expect(result.value.layout.positions).toEqual([]);
+      expect(result.value.diagnostics.droppedLayoutEntries).toContainEqual({
+        reason: 'position_overflow',
+        instanceId: InstanceId('calendar-main'),
+        row: 6,
+        column: 10,
+        width: 4,
+        height: 4,
+        chartColumns: 12,
+        chartRows: 8,
+      });
     });
 
-    test('tiling mode routes to tiling validator and returns LayoutValidationError on failure', () => {
+    test('tiling mode: missing_child is healed — split collapses, response Ok', () => {
       const llmOutput: TilingResponse = {
         userMessage: 'ok',
         rationale: 'splitting area',
@@ -731,33 +741,28 @@ describe('processResponse', () => {
         messageId: MessageId('req-1'),
         logger: silentLogger,
       });
-      expect(isErr(result)).toBe(true);
-      if (!isErr(result)) return;
-      expect(result.error._tag).toBe('LayoutValidationError');
-      if (result.error._tag !== 'LayoutValidationError') return;
-      const kinds = result.error.failures.map((f) => f.kind);
-      expect(kinds).toContain('tree_missing_child');
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.layout.type).toBe('tiling');
+      if (result.value.layout.type !== 'tiling') return;
+      // The missing right child collapses to the surviving left leaf.
+      expect(result.value.layout.tree).toHaveLength(1);
+      const reasons = result.value.diagnostics.droppedLayoutEntries.map(
+        (d) => d.reason,
+      );
+      expect(reasons).toContain('tree_missing_child');
     });
 
-    test('layout validation short-circuits execution-plan parsing', () => {
-      // A bad layout + an action referencing an unknown instanceId would
-      // normally surface a skipped-action diagnostic. Short-circuit means the
-      // LayoutValidationError bubbles up with no skipped-action warnings.
-      const warnings: string[] = [];
-      const capturingLogger: Logger = {
-        debug: () => {},
-        info: () => {},
-        warn: (msg) => warnings.push(msg),
-        error: () => {},
-      };
+    test('layout heal does NOT short-circuit execution-plan parsing', () => {
+      // Under the heal contract both the layout problem AND the bad action
+      // are surfaced. Layout drops live in droppedLayoutEntries; bad actions
+      // live in skippedActions. The two are independent, both visible in
+      // diagnostics on the same Ok response.
       const llmOutput: GridResponse = {
         userMessage: 'ok',
         rationale: 'overflowing',
         executionPlan: [
-          {
-            instanceId: 'nonexistent-instance',
-            action: 'whatever',
-          },
+          { instanceId: 'nonexistent-instance', action: 'whatever' },
         ],
         layout: {
           positions: [
@@ -773,13 +778,20 @@ describe('processResponse', () => {
         llmOutput,
         request: makeGridRequest(),
         messageId: MessageId('req-1'),
-        logger: capturingLogger,
+        logger: silentLogger,
       });
-      expect(isErr(result)).toBe(true);
-      if (!isErr(result)) return;
-      expect(result.error._tag).toBe('LayoutValidationError');
-      // The execution-plan parser never ran, so no skipped-action warnings.
-      expect(warnings).toHaveLength(0);
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+
+      const dropReasons = result.value.diagnostics.droppedLayoutEntries.map(
+        (d) => d.reason,
+      );
+      expect(dropReasons).toContain('position_overflow');
+
+      const skipReasons = result.value.diagnostics.skippedActions.map(
+        (s) => s.reason,
+      );
+      expect(skipReasons).toContain('unknown_instance');
     });
 
     test('valid grid response passes through layout validation (regression lock)', () => {
@@ -1986,6 +1998,387 @@ describe('processResponse', () => {
         'action_not_valid',
         'unknown_instance',
       ]);
+    });
+  });
+
+  describe('diagnostics.warnings + retryHint', () => {
+    test('clean response has no warnings, retryHint.recommend=false, severity=none', () => {
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'placing calendar',
+        executionPlan: [],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.diagnostics.warnings).toEqual([]);
+      expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+      expect(result.value.diagnostics.retryHint.severity).toBe('none');
+    });
+
+    test('warnings-only branch: warningCount>0 && no drops && no skips → severity=low (explicit rule pin)', () => {
+      // Pins the `deriveRetryHint` branch ordering: a response with only
+      // warnings (no drops, no skipped actions) must land at severity 'low',
+      // not collapse into 'none'. A future refactor that swaps branch order
+      // (e.g. checks warnings-only AFTER 'none') would silently downgrade
+      // this case; this test catches that.
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: '',
+        executionPlan: [],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.diagnostics.warnings.length).toBeGreaterThan(0);
+      expect(result.value.diagnostics.droppedLayoutEntries).toEqual([]);
+      expect(result.value.diagnostics.skippedActions).toEqual([]);
+      expect(result.value.diagnostics.retryHint.severity).toBe('low');
+      expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+    });
+
+    test('missing rationale surfaces as a warning, retryHint stays at low severity', () => {
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: '',
+        executionPlan: [],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.diagnostics.warnings).toEqual([
+        { kind: 'missing_rationale' },
+      ]);
+      // Missing rationale alone does NOT recommend retry — the rest of the
+      // response is still useful.
+      expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+      expect(result.value.diagnostics.retryHint.severity).toBe('low');
+    });
+
+    test('layout fully prunes for a request with instances → retryHint recommends retry', () => {
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'overflowing',
+        executionPlan: [],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 6, column: 10 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.diagnostics.retryHint.recommend).toBe(true);
+      expect(result.value.diagnostics.retryHint.severity).toBe('unrecoverable');
+    });
+
+    test('all proposed actions skipped for retryable reasons → retryHint recommends retry', () => {
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'bad params',
+        executionPlan: [
+          {
+            instanceId: 'calendar-main',
+            action: 'showWeek',
+            paramsJson: '{not json',
+          },
+        ],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.executionPlan).toEqual([]);
+      expect(result.value.diagnostics.retryHint.recommend).toBe(true);
+    });
+
+    test('partial layout + partial executionPlan does NOT recommend retry', () => {
+      // Two instances configured, two positions proposed, one overflows.
+      // The healed response renders the surviving position. The user sees
+      // partial UI update — better than waiting for a re-roll.
+      const request = makeGridRequest({
+        instances: [
+          { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
+          { instanceId: InstanceId('extra'), vesselId: 'calendar', variant: 'month' },
+        ],
+      });
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'partial',
+        executionPlan: [],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 4, height: 4 },
+            },
+            {
+              instanceId: 'extra',
+              position: { row: 6, column: 10 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse({ llmOutput, request, messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+      expect(result.value.diagnostics.retryHint.severity).toBe('medium');
+      expect(result.value.diagnostics.droppedLayoutEntries).toHaveLength(1);
+    });
+
+    test('state_drift-only skips do NOT recommend retry (engine-state corruption is not LLM fault)', () => {
+      // Both proposed actions are skipped via state_drift; re-prompting
+      // can't fix engine-side drift, so the wrapper accepts the response.
+      const richVessel: Vessel = {
+        id: 'rich',
+        name: 'Rich',
+        description: '',
+        defaultVariant: 'compact',
+        variants: {
+          compact: {
+            props: {},
+            minSize: { width: 2, height: 2 },
+            actions: [
+              { name: 'expand', description: 'go big', transitionsTo: 'gone' },
+            ],
+          },
+        },
+      };
+      const request = makeGridRequest({
+        instances: [
+          { instanceId: InstanceId('a'), vesselId: 'rich', variant: 'compact' },
+        ],
+        vessels: [richVessel],
+      });
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'state drift demo',
+        executionPlan: [{ instanceId: 'a', action: 'expand' }],
+        layout: {
+          positions: [
+            {
+              instanceId: 'a',
+              position: { row: 0, column: 0 },
+              size: { width: 2, height: 2 },
+            },
+          ],
+        },
+      };
+      const result = processResponse({ llmOutput, request, messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      const skipReasons = result.value.diagnostics.skippedActions.map(
+        (s) => s.reason,
+      );
+      expect(skipReasons).toEqual(['state_drift']);
+      expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+      // state_drift-only skips fall through to the drops-or-skips branch
+      // → severity='medium'. Pinning protects against branch-reorder
+      // regressions in deriveRetryHint that could collapse to 'low'/'none'.
+      expect(result.value.diagnostics.retryHint.severity).toBe('medium');
+    });
+
+    test('mixed state_drift + params_parse_failed skips DO recommend retry — any fixable skip is enough', () => {
+      // Pins the `some(s => s.reason !== 'state_drift')` rule. If the rule
+      // ever flips back to `every(...)`, this test fails and the regression
+      // is caught — under `every`, a single state_drift skip would suppress
+      // retry even when other skips are re-promptable.
+      const vesselWithGood: Vessel = {
+        id: 'mixed',
+        name: 'Mixed',
+        description: '',
+        defaultVariant: 'compact',
+        variants: {
+          compact: {
+            props: {},
+            minSize: { width: 2, height: 2 },
+            actions: [
+              {
+                name: 'good',
+                description: 'works',
+                parameters: [{ name: 'x', type: 'number', description: 'n' }],
+              },
+              {
+                name: 'drift',
+                description: 'drift',
+                transitionsTo: 'gone',
+              },
+            ],
+          },
+        },
+      };
+      const request = makeGridRequest({
+        instances: [
+          { instanceId: InstanceId('a'), vesselId: 'mixed', variant: 'compact' },
+        ],
+        vessels: [vesselWithGood],
+      });
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'mixed',
+        executionPlan: [
+          { instanceId: 'a', action: 'good', paramsJson: '{not json' },
+          { instanceId: 'a', action: 'drift' },
+        ],
+        layout: {
+          positions: [
+            {
+              instanceId: 'a',
+              position: { row: 0, column: 0 },
+              size: { width: 2, height: 2 },
+            },
+          ],
+        },
+      };
+      const result = processResponse({ llmOutput, request, messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      const skipReasons = result.value.diagnostics.skippedActions
+        .map((s) => s.reason)
+        .sort();
+      expect(skipReasons).toEqual(['params_parse_failed', 'state_drift']);
+      expect(result.value.executionPlan).toEqual([]);
+      expect(result.value.diagnostics.retryHint.recommend).toBe(true);
+    });
+
+    test('empty-request (zero instances) never recommends retry', () => {
+      const request = makeGridRequest({ instances: [] });
+      const llmOutput: GridResponse = {
+        userMessage: 'chat-only',
+        rationale: 'no chart updates',
+        executionPlan: [],
+        layout: { positions: [] },
+      };
+      const result = processResponse({ llmOutput, request, messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+      expect(result.value.diagnostics.retryHint.severity).toBe('none');
+    });
+
+    test('action-empty + retryable skips → recommend=true but severity is medium, not unrecoverable (layout itself is fine)', () => {
+      // Pins the severity narrowing: `unrecoverable` is reserved for the
+      // layout-empty-when-needed case. The action-empty case still
+      // recommends retry but the layout is renderable, so severity stays
+      // at medium.
+      const llmOutput: GridResponse = {
+        userMessage: 'ok',
+        rationale: 'bad params only',
+        executionPlan: [
+          {
+            instanceId: 'calendar-main',
+            action: 'showWeek',
+            paramsJson: '{not json',
+          },
+        ],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      };
+      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.diagnostics.retryHint.recommend).toBe(true);
+      expect(result.value.diagnostics.retryHint.severity).toBe('medium');
+    });
+
+    test('tiling: tree of only null leaves recommends retry — non-empty token count but nothing renders', () => {
+      // Regression: layoutEntryCount must count non-null instance leaves, not
+      // raw token count. A tree like [null] has length 1 but renders nothing
+      // — without this distinction, retryHint.recommend would stay false on
+      // a blank UI.
+      const llmOutput: TilingResponse = {
+        userMessage: 'ok',
+        rationale: 'r',
+        executionPlan: [],
+        layout: {
+          tree: [null],
+          instances: [],
+        },
+      };
+      const result = processResponse({
+        llmOutput,
+        request: makeTilingRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.diagnostics.retryHint.recommend).toBe(true);
+      expect(result.value.diagnostics.retryHint.severity).toBe('unrecoverable');
+    });
+
+    test('tiling: split-only tree (H/V with all null children) recommends retry', () => {
+      const llmOutput: TilingResponse = {
+        userMessage: 'ok',
+        rationale: 'r',
+        executionPlan: [],
+        layout: {
+          tree: ['H', null, null],
+          instances: [],
+        },
+      };
+      const result = processResponse({
+        llmOutput,
+        request: makeTilingRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      // Heal prunes split-with-all-null-children; the resulting tree may be
+      // empty or contain a residual null. Either way, no instance renders.
+      expect(result.value.diagnostics.retryHint.recommend).toBe(true);
+      expect(result.value.diagnostics.retryHint.severity).toBe('unrecoverable');
     });
   });
 });

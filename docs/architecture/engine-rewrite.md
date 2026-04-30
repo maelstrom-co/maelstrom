@@ -270,27 +270,37 @@ interface Engine {
 
 ## Validation System (MAE-121)
 
-Four layers of validation, added incrementally:
+Five layers of validation, added incrementally:
 
 ```
-┌─────────────────────────────────────────────┐
-│                                               │
-│  1. Engine Config (MAE-122) ✅               │
-│     Zod schema validation at createEngine()  │
-│                                               │
-│  2. EngineMessage (MAE-123)                  │
-│     Pre-process envelope validation           │
-│                                               │
-│  3. LLM Output Layout (MAE-124) ✅          │
-│     Grid/tiling layout shape validation       │
-│                                               │
-│  4. Retry System (MAE-125)                   │
-│     Automatic retry on validation failures    │
-│     pipeline/retry.ts next to call-llm.ts    │
-│     Blocked by: MAE-128 (callLLM extract) ✅ │
-│                                               │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│                                                   │
+│  1. Engine Config (MAE-122) ✅                   │
+│     Zod schema validation at createEngine()      │
+│                                                   │
+│  2. EngineMessage (MAE-123)                      │
+│     Pre-process envelope validation               │
+│                                                   │
+│  3. LLM Output Layout (MAE-124) ✅              │
+│     Grid/tiling layout shape validation           │
+│                                                   │
+│  4. Self-healing (MAE-158) ✅                    │
+│     processResponse heals layout failures into    │
+│     droppedEntries diagnostics + retryHint        │
+│     instead of rejecting outright                 │
+│                                                   │
+│  5. Retry System (MAE-125) ✅                    │
+│     Re-prompts on retryHint.recommend === true   │
+│     pipeline/retry.ts wraps callLLM + heal       │
+│                                                   │
+└─────────────────────────────────────────────────┘
 ```
+
+### MAE-158 — self-healing rationale
+
+The realtime-UX principle is **be lenient with errors and only retry when the cost of a degraded response is worse than the cost of waiting**. Strict validation (MAE-124) rejected the whole response on any single layout failure, forcing the retry layer into "retry-or-fail" thinking and discarding LLM turns whose layout was 90% valid.
+
+MAE-158 rewrites the `validateGridLayout` / `validateTilingLayout` functions as `healGridLayout` / `healTilingLayout` returning a `HealedGridLayout | HealedTilingLayout` discriminated union (filtered layout + structured `droppedEntries` + non-fatal `warnings`). `processResponse` exposes those alongside the existing `skippedActions` on a new `EngineDiagnostics` shape, plus a `retryHint` scalar that encodes "is this response too degraded to be useful?". The retry layer (MAE-125) becomes opaque to healing internals — it reads the hint and decides retry vs. accept.
 
 ## Structural Refactors
 
@@ -390,9 +400,12 @@ MAE-100 ✅ Foundation
     ├──► MAE-127 ✅ Split response-processor ──► MAE-124 ✅ Layout Validation ──┐
     ├──► MAE-128 ✅ Extract callLLM ──────────►                                  │
     ├──► MAE-137 ✅ Split prompt-builder                                         ▼
-    │                                                                MAE-125  Retry System
+    │                                                                MAE-158 ✅ Self-healing
+    │                                                                  validation
+    │                                                                           ▼
+    │                                                                MAE-125 ✅ Retry System
     │                                                                           ▲
-    │    MAE-142  Promote SkippedAction discriminated union ───────────────────┘
+    │    MAE-142 ✅ Promote SkippedAction discriminated union ────────────────►┘
     │    MAE-143  Split validation-context / logger decouple (cleanup, non-blocking)
     │
     │    ── Validation (standalone) ──
@@ -436,10 +449,14 @@ Wave 2 — Envelope foundation
            MAE-132, and makes MAE-125's retry loop sit cleanly inside handle().
 
 Wave 3 — Validation (parallel, after Wave 2)
-  MAE-123  EngineMessage Validation                 (needs MAE-102 envelope types)
-  MAE-142  Promote SkippedAction discriminated union (prerequisite to MAE-125 —
-                                                     structured retry reasons)
-  MAE-125  Retry System                             (needs MAE-124 ✅ + MAE-142)
+  MAE-123     EngineMessage Validation              (needs MAE-102 envelope types)
+  MAE-142 ✅ Promote SkippedAction discriminated union
+  MAE-158 ✅ Self-healing validation                (heal contract: layout
+                                                     failures become diagnostics
+                                                     + retryHint instead of Err)
+  MAE-125 ✅ Retry System                           (re-prompts on
+                                                     retryHint.recommend; built
+                                                     on the heal contract)
 
 Wave 4 — Cleanup (any time, non-blocking)
   MAE-143  Split validation-context / logger decouple

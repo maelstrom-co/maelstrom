@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { GridResponse } from '@maelstrom-co/protocol';
-import { InstanceId, isErr, isOk } from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
 
 import { makeGridRequest } from '../../__test-helpers__/fixtures.js';
-import { validateGridLayout } from './grid-layout.js';
+import { healGridLayout } from './grid-layout.js';
 
 function makeGridResponse(overrides: Partial<GridResponse> = {}): GridResponse {
   return {
@@ -23,24 +23,30 @@ function makeGridResponse(overrides: Partial<GridResponse> = {}): GridResponse {
   };
 }
 
-describe('validateGridLayout', () => {
-  test('accepts a well-formed grid response', () => {
-    const result = validateGridLayout(makeGridResponse(), makeGridRequest());
-    expect(isOk(result)).toBe(true);
+describe('healGridLayout', () => {
+  test('healthy response heals to itself with no drops or warnings', () => {
+    const response = makeGridResponse();
+    const healed = healGridLayout(response, makeGridRequest());
+
+    expect(healed.layout.positions).toHaveLength(1);
+    expect(healed.layout.positions[0]).toBe(response.layout.positions[0]);
+    expect(healed.droppedEntries).toEqual([]);
+    expect(healed.warnings).toEqual([]);
   });
 
-  test('fails with missing_rationale when rationale is empty', () => {
-    const result = validateGridLayout(
+  test('empty rationale produces a missing_rationale warning, layout intact', () => {
+    const healed = healGridLayout(
       makeGridResponse({ rationale: '   ' }),
       makeGridRequest(),
     );
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.failures).toEqual([{ kind: 'missing_rationale' }]);
+
+    expect(healed.layout.positions).toHaveLength(1);
+    expect(healed.warnings).toEqual([{ kind: 'missing_rationale' }]);
+    expect(healed.droppedEntries).toEqual([]);
   });
 
-  test('fails with duplicate_instance_id when positions share an id', () => {
-    const result = validateGridLayout(
+  test('duplicate instanceId: keep first, drop subsequent', () => {
+    const healed = healGridLayout(
       makeGridResponse({
         layout: {
           positions: [
@@ -59,16 +65,16 @@ describe('validateGridLayout', () => {
       }),
       makeGridRequest(),
     );
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.failures).toContainEqual({
-      kind: 'duplicate_instance_id',
-      instanceId: 'calendar-main',
-    });
+
+    expect(healed.layout.positions).toHaveLength(1);
+    expect(healed.layout.positions[0]?.position).toEqual({ row: 0, column: 0 });
+    expect(healed.droppedEntries).toEqual([
+      { reason: 'duplicate_instance_id', instanceId: InstanceId('calendar-main') },
+    ]);
   });
 
-  test('fails with position_overflow when position+size exceeds chart dimensions', () => {
-    const result = validateGridLayout(
+  test('position_overflow: drop the position', () => {
+    const healed = healGridLayout(
       makeGridResponse({
         layout: {
           positions: [
@@ -82,22 +88,24 @@ describe('validateGridLayout', () => {
       }),
       makeGridRequest(),
     );
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.failures[0]).toEqual({
-      kind: 'position_overflow',
-      instanceId: 'calendar-main',
-      row: 6,
-      column: 10,
-      width: 4,
-      height: 4,
-      chartColumns: 12,
-      chartRows: 8,
-    });
+
+    expect(healed.layout.positions).toEqual([]);
+    expect(healed.droppedEntries).toEqual([
+      {
+        reason: 'position_overflow',
+        instanceId: InstanceId('calendar-main'),
+        row: 6,
+        column: 10,
+        width: 4,
+        height: 4,
+        chartColumns: 12,
+        chartRows: 8,
+      },
+    ]);
   });
 
-  test('fails with size_below_minimum when size is smaller than variant minSize', () => {
-    const result = validateGridLayout(
+  test('size_below_minimum: drop the position', () => {
+    const healed = healGridLayout(
       makeGridResponse({
         layout: {
           positions: [
@@ -111,19 +119,21 @@ describe('validateGridLayout', () => {
       }),
       makeGridRequest(),
     );
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.failures).toContainEqual({
-      kind: 'size_below_minimum',
-      instanceId: 'calendar-main',
-      width: 2,
-      height: 2,
-      minWidth: 4,
-      minHeight: 4,
-    });
+
+    expect(healed.layout.positions).toEqual([]);
+    expect(healed.droppedEntries).toEqual([
+      {
+        reason: 'size_below_minimum',
+        instanceId: InstanceId('calendar-main'),
+        width: 2,
+        height: 2,
+        minWidth: 4,
+        minHeight: 4,
+      },
+    ]);
   });
 
-  test('fails with unknown_vessel when instance references a vessel not in request', () => {
+  test('unknown_vessel: drop the position', () => {
     const request = makeGridRequest({
       instances: [
         {
@@ -133,17 +143,19 @@ describe('validateGridLayout', () => {
         },
       ],
     });
-    const result = validateGridLayout(makeGridResponse(), request);
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.failures).toContainEqual({
-      kind: 'unknown_vessel',
-      instanceId: 'calendar-main',
-      vesselId: 'ghost-vessel',
-    });
+    const healed = healGridLayout(makeGridResponse(), request);
+
+    expect(healed.layout.positions).toEqual([]);
+    expect(healed.droppedEntries).toEqual([
+      {
+        reason: 'unknown_vessel',
+        instanceId: InstanceId('calendar-main'),
+        vesselId: 'ghost-vessel',
+      },
+    ]);
   });
 
-  test('fails with unknown_variant when instance variant is not on vessel', () => {
+  test('unknown_variant: drop the position', () => {
     const request = makeGridRequest({
       instances: [
         {
@@ -153,62 +165,20 @@ describe('validateGridLayout', () => {
         },
       ],
     });
-    const result = validateGridLayout(makeGridResponse(), request);
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.failures).toContainEqual({
-      kind: 'unknown_variant',
-      instanceId: 'calendar-main',
-      variant: 'nonexistent',
-    });
+    const healed = healGridLayout(makeGridResponse(), request);
+
+    expect(healed.layout.positions).toEqual([]);
+    expect(healed.droppedEntries).toEqual([
+      {
+        reason: 'unknown_variant',
+        instanceId: InstanceId('calendar-main'),
+        variant: 'nonexistent',
+      },
+    ]);
   });
 
-  test('position_overflow fires on +1 width overflow (boundary off-by-one)', () => {
-    // Chart is 12 cols × 8 rows. Size 4×4 at column 9 puts right edge at 13,
-    // exceeding the 12-column boundary by exactly 1.
-    const result = validateGridLayout(
-      makeGridResponse({
-        layout: {
-          positions: [
-            {
-              instanceId: 'calendar-main',
-              position: { row: 0, column: 9 },
-              size: { width: 4, height: 4 },
-            },
-          ],
-        },
-      }),
-      makeGridRequest(),
-    );
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.failures[0]?.kind).toBe('position_overflow');
-  });
-
-  test('position_overflow fires on +1 height overflow (boundary off-by-one)', () => {
-    // Chart is 12 cols × 8 rows. Size 4×4 at row 5 puts bottom edge at 9,
-    // exceeding the 8-row boundary by exactly 1.
-    const result = validateGridLayout(
-      makeGridResponse({
-        layout: {
-          positions: [
-            {
-              instanceId: 'calendar-main',
-              position: { row: 5, column: 0 },
-              size: { width: 4, height: 4 },
-            },
-          ],
-        },
-      }),
-      makeGridRequest(),
-    );
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.failures[0]?.kind).toBe('position_overflow');
-  });
-
-  test('fails with unknown_instance when position references no request instance', () => {
-    const result = validateGridLayout(
+  test('unknown_instance: drop the position', () => {
+    const healed = healGridLayout(
       makeGridResponse({
         layout: {
           positions: [
@@ -222,16 +192,55 @@ describe('validateGridLayout', () => {
       }),
       makeGridRequest(),
     );
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error.failures).toContainEqual({
-      kind: 'unknown_instance',
-      instanceId: 'not-in-request',
+
+    expect(healed.layout.positions).toEqual([]);
+    expect(healed.droppedEntries).toContainEqual({
+      reason: 'unknown_instance',
+      instanceId: InstanceId('not-in-request'),
     });
   });
 
-  test('collects multiple failures in a single pass', () => {
-    const result = validateGridLayout(
+  test('mixed: valid + invalid positions — keep valid, drop the rest', () => {
+    // Two instances configured on the request; one position is valid, one
+    // overflows. The healed layout retains the valid one only.
+    const request = makeGridRequest({
+      instances: [
+        { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
+        { instanceId: InstanceId('extra'), vesselId: 'calendar', variant: 'month' },
+      ],
+    });
+    const healed = healGridLayout(
+      makeGridResponse({
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 4, height: 4 },
+            },
+            {
+              instanceId: 'extra',
+              position: { row: 6, column: 10 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      }),
+      request,
+    );
+
+    expect(healed.layout.positions).toHaveLength(1);
+    expect(healed.layout.positions[0]?.instanceId).toBe('calendar-main');
+    expect(healed.droppedEntries).toHaveLength(1);
+    expect(healed.droppedEntries[0]?.reason).toBe('position_overflow');
+  });
+
+  test('compound: warning + per-position issues; each drop names its own real problem', () => {
+    // Each position is reported with the specific issue that excluded it.
+    // `duplicate_instance_id` is NOT reported when the first occurrence was
+    // also dropped — that drop already names a real problem, and adding a
+    // duplicate flag would obscure the actual fix the LLM needs to make.
+    const healed = healGridLayout(
       makeGridResponse({
         rationale: '',
         layout: {
@@ -251,18 +260,18 @@ describe('validateGridLayout', () => {
       }),
       makeGridRequest(),
     );
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    const kinds = result.error.failures.map((f) => f.kind);
-    expect(kinds).toContain('missing_rationale');
-    expect(kinds).toContain('duplicate_instance_id');
-    expect(kinds).toContain('size_below_minimum');
-    expect(kinds).toContain('position_overflow');
+
+    expect(healed.warnings).toEqual([{ kind: 'missing_rationale' }]);
+    const reasons = healed.droppedEntries.map((d) => d.reason);
+    expect(reasons).toContain('size_below_minimum');
+    expect(reasons).toContain('position_overflow');
+    expect(reasons).not.toContain('duplicate_instance_id');
+    expect(healed.layout.positions).toEqual([]);
   });
 
   test('position at the exact edge of chart dimensions is valid', () => {
     // chartDimensions: 12 cols, 8 rows; position (4, 8) size 4x4 ends at (8, 12) — exactly the edges
-    const result = validateGridLayout(
+    const healed = healGridLayout(
       makeGridResponse({
         layout: {
           positions: [
@@ -276,6 +285,79 @@ describe('validateGridLayout', () => {
       }),
       makeGridRequest(),
     );
-    expect(isOk(result)).toBe(true);
+
+    expect(healed.layout.positions).toHaveLength(1);
+    expect(healed.droppedEntries).toEqual([]);
+  });
+
+  test('one position with multiple issues produces multiple drops, position dropped once', () => {
+    // The position both overflows AND references an unknown vessel; both
+    // issues are recorded but the position is dropped a single time.
+    // Pins the contract — a future refactor that short-circuits on first
+    // detected issue would lose the second drop entry.
+    const request = makeGridRequest({
+      instances: [
+        {
+          instanceId: InstanceId('bad'),
+          vesselId: 'no-such-vessel',
+          variant: 'whatever',
+        },
+      ],
+    });
+    const healed = healGridLayout(
+      makeGridResponse({
+        layout: {
+          positions: [
+            {
+              instanceId: 'bad',
+              position: { row: 6, column: 10 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      }),
+      request,
+    );
+
+    expect(healed.layout.positions).toEqual([]);
+    expect(healed.droppedEntries).toHaveLength(2);
+    const reasons = healed.droppedEntries.map((d) => d.reason).sort();
+    expect(reasons).toEqual(['position_overflow', 'unknown_vessel']);
+  });
+
+  test('position_overflow fires on +1 width overflow (boundary off-by-one)', () => {
+    const healed = healGridLayout(
+      makeGridResponse({
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 9 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      }),
+      makeGridRequest(),
+    );
+    expect(healed.droppedEntries[0]?.reason).toBe('position_overflow');
+  });
+
+  test('position_overflow fires on +1 height overflow (boundary off-by-one)', () => {
+    const healed = healGridLayout(
+      makeGridResponse({
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 5, column: 0 },
+              size: { width: 4, height: 4 },
+            },
+          ],
+        },
+      }),
+      makeGridRequest(),
+    );
+    expect(healed.droppedEntries[0]?.reason).toBe('position_overflow');
   });
 });

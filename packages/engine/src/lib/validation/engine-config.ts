@@ -100,6 +100,7 @@ const engineConfigSchema = z
     logger: loggerSchema.optional(),
     prompt: promptOptionsSchema.optional(),
     history: historySchema.optional(),
+    maxRetries: z.number().int().nonnegative().optional(),
   })
   .strict();
 

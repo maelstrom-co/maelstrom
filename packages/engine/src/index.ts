@@ -10,8 +10,7 @@ export { resolveConfig } from './lib/config.js';
 export type {
   CancellationError,
   EngineError,
-  LayoutValidationError,
-  LayoutValidationFailure,
+  HistoryError,
   ParseError,
   ProviderError,
   ValidationError,
@@ -19,7 +18,7 @@ export type {
 } from './lib/errors.js';
 export {
   cancellationError,
-  layoutValidationError,
+  historyError,
   parseError,
   providerError,
   validationError,

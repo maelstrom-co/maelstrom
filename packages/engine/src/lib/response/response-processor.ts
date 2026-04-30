@@ -6,28 +6,43 @@ import type {
   Result,
   TilingResponse,
 } from '@maelstrom-co/protocol';
-import { err, isErr, ok } from '@maelstrom-co/protocol';
+import { err, ok } from '@maelstrom-co/protocol';
 
-import type { EngineError, LayoutValidationError } from '../errors.js';
+import type { EngineError } from '../errors.js';
 import { parseError, validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { LLMOutput } from '../pipeline/call-llm.js';
 import {
-  validateGridLayout,
-  validateTilingLayout,
+  healGridLayout,
+  healTilingLayout,
 } from '../validation/llm-output/index.js';
+import type {
+  DroppedLayoutEntry,
+  HealedLayout,
+  LayoutWarning,
+  RetryHint,
+} from '../validation/llm-output/healed-layout.js';
+import {
+  deriveRetryHint,
+  layoutEntryCount,
+} from '../validation/llm-output/retry-hint.js';
 import type { SkippedAction } from './execution-plan/index.js';
 import { parseExecutionPlan } from './execution-plan/index.js';
 import { buildLayout } from './layout/index.js';
 
+/**
+ * Stripped from the response before it crosses the engine boundary.
+ */
 export interface EngineDiagnostics {
   readonly skippedActions: readonly SkippedAction[];
+  readonly droppedLayoutEntries: readonly DroppedLayoutEntry[];
+  readonly warnings: readonly LayoutWarning[];
+  readonly retryHint: RetryHint;
 }
 
 /**
- * Engine-internal response shape. `diagnostics` never crosses the engine
- * boundary — it is stripped in `engine.process()` before the response is
- * returned to callers.
+ * `diagnostics` is stripped at the engine boundary; the public response is
+ * just `MaelstromResponse`.
  */
 export type InternalResponse = MaelstromResponse & {
   readonly diagnostics: EngineDiagnostics;
@@ -56,16 +71,13 @@ export function processResponse({
   // `llmOutput` matches `request.context.layoutMode`, so these casts are
   // type-safe narrowings.
   const mode = request.context.layoutMode;
-  let layoutValidation: Result<void, LayoutValidationError>;
+  let healed: HealedLayout;
   switch (mode) {
     case 'grid':
-      layoutValidation = validateGridLayout(llmOutput as GridResponse, request);
+      healed = healGridLayout(llmOutput as GridResponse, request);
       break;
     case 'tiling':
-      layoutValidation = validateTilingLayout(
-        llmOutput as TilingResponse,
-        request,
-      );
+      healed = healTilingLayout(llmOutput as TilingResponse, request);
       break;
     default: {
       const _exhaustive: never = mode;
@@ -77,17 +89,30 @@ export function processResponse({
       );
     }
   }
-  if (isErr(layoutValidation)) {
-    return err(layoutValidation.error);
-  }
 
-  const layout = buildLayout(llmOutput.layout, request.context.layoutMode);
+  // `buildLayout`'s parameter is the wide LLM-shape (Zod-inferred). The
+  // healed tiling tree is internally branded `TilingNode[]`; widen at the
+  // boundary back to the LLM contract for serialization.
+  const layout = buildLayout(
+    healed.layout as LLMOutput['layout'],
+    mode,
+  );
   const { plan: executionPlan, skippedActions } = parseExecutionPlan(
     llmOutput.executionPlan,
     request.instances,
     request.vessels,
     logger,
   );
+
+  const retryHint = deriveRetryHint({
+    healedLayoutSize: layoutEntryCount(healed),
+    requestInstanceCount: request.instances.length,
+    proposedActionCount: llmOutput.executionPlan.length,
+    acceptedActionCount: executionPlan.length,
+    skippedActions,
+    droppedLayoutCount: healed.droppedEntries.length,
+    warningCount: healed.warnings.length,
+  });
 
   return ok({
     type: 'maelstrom_response',
@@ -96,6 +121,11 @@ export function processResponse({
     rationale: llmOutput.rationale,
     executionPlan,
     layout,
-    diagnostics: { skippedActions },
+    diagnostics: {
+      skippedActions,
+      droppedLayoutEntries: healed.droppedEntries,
+      warnings: healed.warnings,
+      retryHint,
+    },
   });
 }

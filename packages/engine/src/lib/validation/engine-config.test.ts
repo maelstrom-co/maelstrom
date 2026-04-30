@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
 import { createInMemoryStore } from '../history/in-memory-store.js';
-import { dummyAdapter, silentLogger } from '../__test-helpers__/fixtures.js';
+import {
+  dummyAdapter,
+  invalid,
+  silentLogger,
+} from '../__test-helpers__/fixtures.js';
 import { validateEngineConfig } from './engine-config.js';
 
 describe('validateEngineConfig', () => {
@@ -225,6 +229,63 @@ describe('validateEngineConfig', () => {
           prompt: { system: { identity: { prepand: 'typo', append: 'ok' } } },
         }),
       ).toThrow();
+    });
+  });
+
+  describe('maxRetries', () => {
+    test('accepts a positive integer', () => {
+      expect(() =>
+        validateEngineConfig({ adapter: dummyAdapter, maxRetries: 5 }),
+      ).not.toThrow();
+    });
+
+    test('accepts zero (retry layer wired but never fires)', () => {
+      expect(() =>
+        validateEngineConfig({ adapter: dummyAdapter, maxRetries: 0 }),
+      ).not.toThrow();
+    });
+
+    test('accepts undefined (uses default at resolveConfig time)', () => {
+      const result = validateEngineConfig({ adapter: dummyAdapter });
+      expect(result.maxRetries).toBeUndefined();
+    });
+
+    test.each([
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ])('rejects non-nonnegative-integer (%p)', (value) => {
+      expect(() =>
+        validateEngineConfig({ adapter: dummyAdapter, maxRetries: value }),
+      ).toThrow(/maxRetries/);
+    });
+
+    test('accepts -0 (canonically equal to 0)', () => {
+      // Number.isInteger(-0) === true and -0 >= 0; pin behavior so a future
+      // schema tightening doesn't accidentally reject it.
+      expect(() =>
+        validateEngineConfig({ adapter: dummyAdapter, maxRetries: -0 }),
+      ).not.toThrow();
+    });
+
+    test('rejects null', () => {
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          maxRetries: invalid<number>(null),
+        }),
+      ).toThrow(/maxRetries/);
+    });
+
+    test('rejects non-number', () => {
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          maxRetries: invalid<number>('3'),
+        }),
+      ).toThrow(/maxRetries/);
     });
   });
 

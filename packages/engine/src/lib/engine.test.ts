@@ -21,6 +21,7 @@ import type { HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
 import {
   dummyAdapter,
+  getLastUserMessage,
   makeGridRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
@@ -420,6 +421,322 @@ describe('engine.handle — chart_request', () => {
     if (!isOk(result) || result.value.type !== 'chart_response') return;
     expect(result.value.response.layout.type).toBe('tiling');
     expect(result.value.response.requestId).toBe(tilingId);
+  });
+
+  test('"Response healed" routes severity → log level (warnings-only path → warn for medium severity)', async () => {
+    // Pre-relocation, "Response healed" was hardcoded `info`. The
+    // severity-routed fix should fire at the level matching
+    // `retryHint.severity`. Empty rationale on a request with a renderable
+    // layout produces a warning that yields `severity='low' + recommend=false`
+    // → routes to info. To exercise warn-level routing, drive a partial
+    // healed-but-renderable case: one position overflows (drop) but the
+    // request lists multiple instances so the layout is still non-empty.
+    const partiallyHealed: GridResponse = {
+      ...gridLLMResponse,
+      layout: {
+        positions: [
+          {
+            instanceId: 'calendar-main',
+            position: { row: 0, column: 0 },
+            size: { width: 6, height: 4 },
+          },
+          {
+            instanceId: 'extra',
+            position: { row: 0, column: 0 },
+            size: { width: 15, height: 4 },
+          },
+        ],
+      },
+    };
+    mockChat.mockResolvedValueOnce(partiallyHealed);
+
+    const logEntries: Array<{ level: string; msg: string; ctx?: unknown }> = [];
+    const spyLogger = {
+      debug: () => {},
+      info: (msg: string, ctx?: unknown) =>
+        logEntries.push({ level: 'info', msg, ctx }),
+      warn: (msg: string, ctx?: unknown) =>
+        logEntries.push({ level: 'warn', msg, ctx }),
+      error: (msg: string, _error?: unknown, ctx?: unknown) =>
+        logEntries.push({ level: 'error', msg, ctx }),
+    };
+
+    // Two-instance request so the partial-heal layout still has one
+    // surviving position → recommend=false at severity 'medium'.
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: spyLogger,
+    });
+    const request = makeGridRequest({
+      instances: [
+        {
+          instanceId: InstanceId('calendar-main'),
+          vesselId: 'calendar',
+          variant: 'month',
+        },
+        {
+          instanceId: InstanceId('extra'),
+          vesselId: 'calendar',
+          variant: 'month',
+        },
+      ],
+    });
+    await engine.handle(toChartRequestMessage(request));
+
+    const healed = logEntries.filter((e) => e.msg === 'Response healed');
+    expect(healed).toHaveLength(1);
+    // medium severity (drops > 0, but layout still renders) → warn level.
+    expect(healed[0]?.level).toBe('warn');
+    expect(healed[0]?.ctx).toMatchObject({
+      retrySeverity: 'medium',
+      retryRecommend: false,
+    });
+  });
+
+  test('"Response healed" routes to error level for unrecoverable severity', async () => {
+    // Single-instance request + overflowing position → healed layout empty
+    // → severity='unrecoverable' → error-level routing on first attempt.
+    const layoutEmptyingResponse: GridResponse = {
+      ...gridLLMResponse,
+      layout: {
+        positions: [
+          {
+            instanceId: 'calendar-main',
+            position: { row: 0, column: 0 },
+            size: { width: 15, height: 4 },
+          },
+        ],
+      },
+    };
+    // mockResolvedValue (not Once) so retry attempts also resolve cleanly —
+    // the test's invariant is "Response healed fires at error level on the
+    // final attempt", not "the mock is consumed once".
+    mockChat.mockResolvedValue(layoutEmptyingResponse);
+
+    const logEntries: Array<{ level: string; msg: string; ctx?: unknown }> = [];
+    const spyLogger = {
+      debug: () => {},
+      info: (msg: string, ctx?: unknown) =>
+        logEntries.push({ level: 'info', msg, ctx }),
+      warn: (msg: string, ctx?: unknown) =>
+        logEntries.push({ level: 'warn', msg, ctx }),
+      error: (msg: string, _error?: unknown, ctx?: unknown) =>
+        logEntries.push({ level: 'error', msg, ctx }),
+    };
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: spyLogger,
+    });
+    await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    const healed = logEntries.filter((e) => e.msg === 'Response healed');
+    expect(healed).toHaveLength(1);
+    expect(healed[0]?.level).toBe('error');
+    expect(healed[0]?.ctx).toMatchObject({
+      retrySeverity: 'unrecoverable',
+      retryRecommend: true,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retry integration
+// ---------------------------------------------------------------------------
+
+describe('engine.handle — retry on retryHint.recommend', () => {
+  // Width 15 on a 12-column chart triggers `position_overflow` heal-drop.
+  // The request lists 1 instance, so a single overflowing position empties
+  // the healed layout → `retryHint.recommend === true` (severity:
+  // 'unrecoverable') — the canonical retry trigger.
+  const layoutEmptyingResponse: GridResponse = {
+    ...gridLLMResponse,
+    layout: {
+      positions: [
+        {
+          instanceId: 'calendar-main',
+          position: { row: 0, column: 0 },
+          size: { width: 15, height: 4 },
+        },
+      ],
+    },
+  };
+
+  test('retries when retryHint recommends and succeeds on the second attempt', async () => {
+    mockChat.mockResolvedValueOnce(layoutEmptyingResponse);
+    mockChat.mockResolvedValueOnce(gridLLMResponse);
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      maxRetries: 3,
+    });
+    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'chart_response') return;
+    expect(result.value.response.layout.type).toBe('grid');
+    expect(mockChat).toHaveBeenCalledTimes(2);
+
+    // The second chat() call must carry the retry-built prompt with
+    // structured drop feedback and the verbatim original prompt.
+    const lastUserMessage = getLastUserMessage(mockChat, 1);
+    expect(lastUserMessage).toContain('previous response had issues');
+    expect(lastUserMessage).toContain('exceeds chart bounds');
+    expect(lastUserMessage).toContain('Original request:');
+  });
+
+  test('exhaustion ships the last response (Ok, not Err) and routes "Retries exhausted" through the configured logger', async () => {
+    // Heal guarantees every Ok is renderable; the last partial flows through
+    // rather than becoming a synthetic error. A degraded UI beats a blocked
+    // turn under the realtime-UX principle. Spy logger pins the integration
+    // path that wires `config.logger` into `callWithRetry` end-to-end — a
+    // future refactor passing `silentLogger` instead would fail here.
+    mockChat.mockResolvedValue(layoutEmptyingResponse);
+
+    const logEntries: Array<{ level: string; msg: string; ctx?: unknown }> = [];
+    const spyLogger = {
+      debug: () => {},
+      info: (msg: string, ctx?: unknown) =>
+        logEntries.push({ level: 'info', msg, ctx }),
+      warn: (msg: string, ctx?: unknown) =>
+        logEntries.push({ level: 'warn', msg, ctx }),
+      error: (msg: string, _error?: unknown, ctx?: unknown) =>
+        logEntries.push({ level: 'error', msg, ctx }),
+    };
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: spyLogger,
+      maxRetries: 2,
+    });
+    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'chart_response') return;
+    // Heal dropped the overflowing position; the renderable layout is empty.
+    expect(result.value.response.layout.type).toBe('grid');
+    if (result.value.response.layout.type !== 'grid') return;
+    expect(result.value.response.layout.positions).toHaveLength(0);
+    // Initial + 2 retries = 3 attempts.
+    expect(mockChat).toHaveBeenCalledTimes(3);
+
+    const exhausted = logEntries.filter((e) => e.msg === 'Retries exhausted');
+    expect(exhausted).toHaveLength(1);
+    // Layout-empty case → severity 'unrecoverable' → error-level routing.
+    expect(exhausted[0]?.level).toBe('error');
+    expect(exhausted[0]?.ctx).toMatchObject({
+      attempts: 3,
+      retrySeverity: 'unrecoverable',
+    });
+  });
+
+  test('retries on action-empty path (severity=medium) — every proposed action skipped for a fixable reason', async () => {
+    // Layout renders cleanly; the LLM's execution plan proposes an action
+    // with unparseable params, which heal records as a `params_parse_failed`
+    // skipped action. With `proposedActionCount > 0 && acceptedActionCount
+    // === 0 && anySkipFixable`, deriveRetryHint flips recommend=true at
+    // severity 'medium'. Pins the integration path for the action-empty
+    // retry trigger that the layout-empty path doesn't exercise.
+    const actionEmptyResponse: GridResponse = {
+      ...gridLLMResponse,
+      executionPlan: [
+        {
+          instanceId: 'calendar-main',
+          action: 'showWeek',
+          paramsJson: '{not valid json',
+        },
+      ],
+    };
+    // First attempt: action skipped → recommend retry. Second: clean.
+    mockChat.mockResolvedValueOnce(actionEmptyResponse);
+    mockChat.mockResolvedValueOnce(gridLLMResponse);
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      maxRetries: 3,
+    });
+    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    expect(isOk(result)).toBe(true);
+    expect(mockChat).toHaveBeenCalledTimes(2);
+
+    // Retry prompt should reference the unparseable params, not "exceeds chart bounds".
+    const lastUserMessage = getLastUserMessage(mockChat, 1);
+    expect(lastUserMessage).toContain('unparseable params');
+    expect(lastUserMessage).not.toContain('exceeds chart bounds');
+  });
+
+  test('default maxRetries is 1 (2 total attempts before shipping partial)', async () => {
+    mockChat.mockResolvedValue(layoutEmptyingResponse);
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
+    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    expect(isOk(result)).toBe(true);
+    expect(mockChat).toHaveBeenCalledTimes(2);
+  });
+
+  test('maxRetries=0 disables retry — ships the first response unconditionally', async () => {
+    mockChat.mockResolvedValueOnce(layoutEmptyingResponse);
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      maxRetries: 0,
+    });
+    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    expect(isOk(result)).toBe(true);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not retry when heal absorbs the failure without flipping recommend (missing rationale → warning, not retry)', async () => {
+    // Empty rationale heals to a warning rather than an Err; recommend stays
+    // false because the layout still renders. Retry must not fire on a
+    // healing-but-renderable response.
+    mockChat.mockResolvedValueOnce({
+      ...gridLLMResponse,
+      rationale: '',
+    });
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      maxRetries: 3,
+    });
+    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    expect(isOk(result)).toBe(true);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+  });
+
+  test('processResponse Err (empty userMessage) short-circuits — no retry, surfaces ParseError', async () => {
+    // Pins the fatal short-circuit on the processResponse Err path: an empty
+    // userMessage produces a ParseError that callWithRetry surfaces
+    // immediately rather than burning retries. A regression that mapped
+    // processResponse Errs into Ok-with-recommend would silently retry on
+    // user-visible parse failures.
+    mockChat.mockResolvedValueOnce({
+      ...gridLLMResponse,
+      userMessage: '',
+    });
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      maxRetries: 3,
+    });
+    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('ParseError');
+    expect(mockChat).toHaveBeenCalledTimes(1);
   });
 });
 

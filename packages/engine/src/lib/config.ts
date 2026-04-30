@@ -19,6 +19,13 @@ export interface EngineConfig {
    * nowhere to be injected.
    */
   readonly history?: HistoryConfig;
+  /**
+   * Maximum number of retry attempts after the heal layer flags
+   * `retryHint.recommend === true`. Non-negative integer; default `1`.
+   * Set to `0` to disable retries (the layer stays wired for observability).
+   * See the README's Retry section for the full policy.
+   */
+  readonly maxRetries?: number;
 }
 
 export interface ResolvedEngineConfig {
@@ -26,7 +33,10 @@ export interface ResolvedEngineConfig {
   readonly logger: Logger;
   readonly prompt: PromptOptions;
   readonly history: HistoryConfig | undefined;
+  readonly maxRetries: number;
 }
+
+const DEFAULT_MAX_RETRIES = 1;
 
 export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
   return {
@@ -34,5 +44,6 @@ export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
     logger: config.logger ?? consoleLogger,
     prompt: config.prompt ?? {},
     history: config.history,
+    maxRetries: config.maxRetries ?? DEFAULT_MAX_RETRIES,
   };
 }

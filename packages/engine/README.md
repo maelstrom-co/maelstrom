@@ -120,6 +120,8 @@ interface EngineConfig {
   prompt?: PromptOptions;
   /** Opt-in conversation history (see below). */
   history?: HistoryConfig;
+  /** Max retries when heal recommends another attempt (see Retry). Default: 1. Set to 0 to disable. */
+  maxRetries?: number;
 }
 ```
 
@@ -204,6 +206,39 @@ Consecutive `assistant_message` injections produce consecutive `role: 'assistant
 
 **Ordering.** `getHistory` and `getLLMContext` sort entries by the envelope `timestamp` field (client-set wall clock), not by store insertion order. This matters when injections land while a long `chart_request` is still processing — the turn's `input.timestamp` is older than the injection even though the turn only enters the store after the LLM returns. Sorting by timestamp recovers the intended chronology in the common single-client case. Multi-device sessions with drifting clocks will see minor reordering; a server-side monotonic `receivedAt` is the right fix and is tracked in the cloud-engine improvements backlog as a follow-up to this reference implementation.
 
+### Retry
+
+The retry layer reads heal's `retryHint.recommend` signal and re-prompts only when the response would otherwise leave the user staring at a no-op (empty rendered layout when instances were requested, or every proposed action skipped for a fixable reason). Default: `1` retry (initial attempt plus one retry — two total LLM calls in the worst case).
+
+The trigger is *exclusively* `retryHint.recommend === true` on a healed response. Errors short-circuit immediately:
+
+| Outcome | Behavior |
+|---|---|
+| `Ok` with `retryHint.recommend === false` | success — ship the response (silently healed drops/warnings are normal and observable via the `Response healed` log line) |
+| `Ok` with `retryHint.recommend === true` | retry with a structured prompt summarizing the prior diagnostics |
+| `ProviderError`, `CancellationError`, `TimeoutError`, `ParseError`, `HistoryError` | fatal — surfaced as-is (these are not heal-recoverable; the LLM adapter handles its own transient retries) |
+
+On retry, the user prompt is replaced with a structured feedback block followed by the verbatim original prompt. The system prompt is unchanged, so the LLM still has the full vessel/variant catalogue and chart bounds — diagnostics cite fields by name and trust the LLM to re-derive valid options from context. Tree-malformation drops collapse to a single advisory line (token-position fields would be useless to the LLM); `state_drift` skips are suppressed (the LLM cannot fix engine-state mismatch by re-prompting).
+
+```
+The previous response had issues. Please re-issue the response addressing:
+
+Layout drops:
+- instance "calendar-main" at (0,10) size 4x3 exceeds chart bounds (12x8)
+
+Skipped actions:
+- Action "expand" on instance "panel-2" had unparseable params: {bad
+
+Original request:
+<original user prompt>
+```
+
+If every attempt produces `recommend === true`, the **last** attempt's response ships as-is — heal guarantees it is renderable, so the user sees a degraded UI rather than a blocked turn. The `Retries exhausted` log line is severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) and carries the final `retrySeverity` and diagnostic counts.
+
+> **State drift visibility.** `state_drift` skipped actions are dropped from the response's execution plan and logged at error level by the simulator (`Vessel state drift: …, dropping action`), but they are NOT surfaced through the `Result` channel — `diagnostics` is engine-internal and stripped before the response crosses the engine boundary. Operators see drift in logs; programmatic callers do not. If you need branch-on-drift behaviour from outside the engine, route through your logger / alerting pipeline.
+
+`maxRetries` is a non-negative integer. Set to `0` to disable retries entirely while keeping the layer wired (the `recommend` predicate still evaluates and the diagnostic summary still emits via the `Response healed` log line) — useful for deterministic test harnesses, replay scenarios, and consumers that own their own retry policy.
+
 ---
 
 ## Concurrency
@@ -228,15 +263,81 @@ Similarly, the bundled `createInMemoryStore` is a reference implementation only 
 
 ---
 
+## Self-healing LLM output
+
+Maelstrom is built for realtime UX: every delay before the user sees something update is worse than serving partial results. The engine therefore favors **lenient recovery over strict rejection**. When the LLM produces output that can be partially salvaged, the engine drops the broken pieces, logs them as structured diagnostics, and returns the recovered response — instead of failing the whole turn.
+
+### What gets healed
+
+Layout-level problems are filtered, not rejected:
+
+| LLM mistake | Recovery |
+|---|---|
+| Position overflows the chart | Drop that position; render the rest. |
+| Position smaller than variant `minSize` | Drop that position. |
+| Layout references unknown instance / vessel / variant | Drop that position (or tree leaf). |
+| Duplicate `instanceId` in the same layout | Keep first occurrence; drop subsequent duplicates. |
+| Tiling tree split missing a child | Collapse the split to its surviving child, or drop the entire branch if both are missing. |
+| Tiling tree has trailing extra tokens | Truncate to first complete subtree. |
+| Tiling leaf references unknown instance | Drop that leaf; collapse the parent split. |
+| `rationale` field is empty | Demote to a non-fatal warning. |
+
+Action-level problems (`SkippedAction`, exposed via `parseExecutionPlan`) are filtered the same way — `unknown_*`, `action_not_valid`, `params_parse_failed` etc. drop the bad action without affecting the rest of the execution plan.
+
+### What still fails the turn
+
+`Engine.handle()` returns `Err` only for genuinely unrecoverable conditions:
+
+- The LLM produced no `userMessage` at all.
+- The configured `layoutMode` is unsupported (programmer error).
+- A provider error / cancellation / history error occurred upstream (see `Errors` below).
+
+Everything else returns `Ok(EngineOutput)` with a possibly-degraded response. Consumers do not see the recovery path — they see either a usable response or a hard error.
+
+### Engine-internal diagnostics
+
+Internally the response carries a `diagnostics` block describing exactly what was healed, what was skipped, and how degraded the result is. This is stripped from the public response before it crosses the engine boundary; it powers retry-layer decisioning and observability. Layout drops and action skips are independent — neither short-circuits the other, and a single response can carry both. The engine emits a single `'Response healed'` log when any drop or warning fires, severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) so blank-UI responses cross default `warn`-threshold paging filters.
+
+```ts
+interface EngineDiagnostics {
+  /** Per-action drops with structured detail (params parse failure, unknown instance, …). */
+  readonly skippedActions: readonly SkippedAction[];
+  /** Per-layout-entry drops (overflow, orphan, tree pruning …). */
+  readonly droppedLayoutEntries: readonly DroppedLayoutEntry[];
+  /** Non-fatal advisories that didn't affect the rendered output. */
+  readonly warnings: readonly LayoutWarning[];
+  /** Scalar signal describing how degraded the response is. */
+  readonly retryHint: RetryHint;
+}
+
+// Discriminated union over the only valid severity × recommend pairs.
+// Impossible combinations ({severity:'none', recommend:true} and
+// {severity:'unrecoverable', recommend:false}) are unconstructable.
+type RetryHint =
+  | { readonly severity: 'none'; readonly recommend: false }
+  | { readonly severity: 'low'; readonly recommend: false }
+  | { readonly severity: 'medium'; readonly recommend: false }
+  | { readonly severity: 'medium'; readonly recommend: true }
+  | { readonly severity: 'unrecoverable'; readonly recommend: true };
+```
+
+`retryHint.recommend` is `true` when:
+- The healed layout has zero renderable entries AND the request had `>0` instances, OR
+- The healed `executionPlan` is empty, the LLM proposed `>0` actions, AND at least one skipped action was for a re-promptable reason (i.e. anything other than `state_drift`).
+
+A response with a partial layout and a partial execution plan is **not** recommended for retry — the user gets a partial UI update, which beats waiting for a re-roll.
+
+---
+
 ## Errors
 
 `Engine.handle()` returns a `Result<EngineOutput, EngineError>`. The error union:
 
 - **`ProviderError`** — LLM adapter failure (rate limit, service unavailable, non-Error rejection).
-- **`ValidationError`** — malformed prompt customization, `assistant_message` without history configured, and similar caller-fixable conditions.
-- **`ParseError`** — LLM output failed structural validation.
+- **`ValidationError`** — malformed prompt customization, `assistant_message` without history configured, unsupported `layoutMode`, and similar caller-fixable conditions.
+- **`ParseError`** — LLM output failed structural validation (e.g. missing `userMessage`).
 - **`TimeoutError`** — configured LLM call timeout elapsed.
 - **`CancellationError`** — the `AbortSignal` fired before or during the call.
 - **`HistoryError`** — the configured `HistoryStore` failed during a record/persist operation. Distinct from `ProviderError` (LLM adapter) so callers can route LLM vs. store failures to different recovery paths. `operation` identifies which engine entry point surfaced the failure (`'record_turn' | 'add_assistant_message' | 'clear'`).
 
-All errors carry structured fields (`_tag`, `message`, and per-variant context) so routing and retry logic can branch without string-sniffing.
+All errors carry structured fields (`_tag`, `message`, and per-variant context) so routing and retry logic can branch without string-sniffing. (Layout-output problems no longer surface as a dedicated error tag — they heal into `diagnostics.droppedLayoutEntries` per the section above.)

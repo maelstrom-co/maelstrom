@@ -24,15 +24,49 @@ import type { HistoryManager } from './history/history-manager.js';
 import { createHistoryManager } from './history/history-manager.js';
 import type { Logger } from './logger.js';
 import { callLLM } from './pipeline/call-llm.js';
+import { callWithRetry } from './pipeline/retry.js';
 import { buildPrompt } from './prompt/prompt-builder.js';
 import { processResponse } from './response/response-processor.js';
+import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
 
 // ---------------------------------------------------------------------------
 // Engine interface
 // ---------------------------------------------------------------------------
 
+/**
+ * The engine's public surface. Construct via {@link createEngine}.
+ *
+ * Stateful at the session level (per-session async mutex serializes
+ * `chart_request` processing; in-process only — multi-instance deployments
+ * must close that gap externally, see the README's Concurrency section).
+ * Stateless at the request level: a `chart_request` flows prompt → LLM →
+ * response-processor → optional retry → history record without retained
+ * inter-call state beyond what the configured `HistoryStore` persists.
+ */
 export interface Engine {
+  /**
+   * Routes on `message.type`:
+   *
+   * - `chart_request` → builds a prompt from request + prior history,
+   *   invokes the LLM, heals the response (drops broken pieces, returns a
+   *   renderable layout), optionally retries when heal recommends, and
+   *   records the turn. Returns `Ok(chart_response)` for any renderable
+   *   outcome (including healed-with-drops).
+   * - `assistant_message` → persists developer-supplied content into
+   *   session history. Does NOT invoke the LLM. Returns
+   *   `Ok(assistant_message_result)` with `outcome: 'inserted' | 'deduped'`.
+   *
+   * `Err` is reserved for genuinely unrecoverable conditions (provider
+   * fault, cancellation, prompt-build failure, history error, missing
+   * `userMessage`). Layout problems heal into diagnostics rather than
+   * surfacing here — see {@link EngineDiagnostics} (engine-internal,
+   * stripped before crossing the boundary).
+   *
+   * `signal` cancels mid-flight: a pre-aborted signal short-circuits to
+   * `CancellationError` without invoking the LLM; an abort during the LLM
+   * call is mapped to `CancellationError` via the adapter.
+   */
   handle(
     message: EngineMessage,
     signal?: AbortSignal,
@@ -46,7 +80,7 @@ export interface Engine {
 /**
  * Construct an Engine from the given config.
  *
- * Unlike `Engine.process`, which surfaces runtime failures through
+ * Unlike `Engine.handle`, which surfaces runtime failures through
  * `Result<…, EngineError>`, this factory validates `config` synchronously
  * with Zod and **throws** on invalid input. Invalid config is a programmer
  * error, not a runtime condition — consumers outside TypeScript (or calling
@@ -64,6 +98,7 @@ export function createEngine(config: EngineConfig): Engine {
     logger,
     prompt: promptOptions,
     history: historyConfig,
+    maxRetries,
   } = resolveConfig(validated);
   const history: HistoryManager | undefined = historyConfig
     ? createHistoryManager(historyConfig)
@@ -95,9 +130,8 @@ export function createEngine(config: EngineConfig): Engine {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logger.error('Failed to build prompt', {
+      logger.error('Failed to build prompt', error, {
         messageId: message.id,
-        error: errorMessage,
       });
       return err(validationError(errorMessage, 'prompt'));
     }
@@ -112,43 +146,94 @@ export function createEngine(config: EngineConfig): Engine {
       ? await history.getLLMContext(message.sessionId)
       : [];
 
-    const llmResult = await callLLM(
-      adapter,
-      systemPrompt,
-      userPrompt,
-      outputSchema,
-      historyContext,
-      signal,
-    );
+    const runOnce = async (
+      attemptUserPrompt: string,
+      attemptSignal?: AbortSignal,
+    ) => {
+      const llmResult = await callLLM(
+        adapter,
+        systemPrompt,
+        attemptUserPrompt,
+        outputSchema,
+        historyContext,
+        attemptSignal,
+      );
+      if (isErr(llmResult)) {
+        logEngineError(logger, message.id, llmResult.error);
+        return llmResult;
+      }
+      logger.debug('LLM response received', { messageId: message.id });
+      // `processResponse` calls heal helpers and `assertNever` defaults that
+      // throw on engine-internal contract violations (broken pruner invariant,
+      // unknown discriminator arm). Without this catch those throws become
+      // unhandled rejections at the engine boundary, breaking the documented
+      // `Promise<Result<...>>` contract. Catch synchronously, log with the
+      // structured-error slot, and return an Err so callWithRetry can surface
+      // it through the same path as any other fatal `EngineError`.
+      try {
+        const processed = processResponse({
+          llmOutput: llmResult.value,
+          request,
+          messageId: message.id,
+          logger,
+        });
+        if (isErr(processed)) {
+          logger.error('Failed to process LLM response', processed.error, {
+            messageId: message.id,
+          });
+        }
+        return processed;
+      } catch (error) {
+        logger.error(
+          'Engine invariant violation while processing LLM response',
+          error,
+          { messageId: message.id },
+        );
+        return err(
+          validationError(
+            error instanceof Error ? error.message : String(error),
+            'response',
+          ),
+        );
+      }
+    };
 
-    if (isErr(llmResult)) {
-      logEngineError(logger, message.id, llmResult.error);
-      return llmResult;
-    }
-
-    logger.debug('LLM response received', { messageId: message.id });
-    const processed = processResponse({
-      llmOutput: llmResult.value,
-      request,
-      messageId: message.id,
+    const retried = await callWithRetry({
+      runOnce,
+      originalUserPrompt: userPrompt,
+      maxRetries,
       logger,
+      signal,
     });
-    if (isErr(processed)) {
-      logger.error('Failed to process LLM response', {
-        messageId: message.id,
-        error: processed.error.message,
-      });
-      return processed;
+    if (isErr(retried)) {
+      return retried;
     }
 
     // Strip engine-internal diagnostics before crossing the engine boundary.
-    const { diagnostics, ...response } = processed.value;
-    if (diagnostics.skippedActions.length > 0) {
-      logger.info('Response processed with skipped actions', {
-        messageId: message.id,
-        skipped: diagnostics.skippedActions.length,
-        total: llmResult.value.executionPlan.length,
-      });
+    // Anything healed silently here is the only operator-visible signal that
+    // the LLM produced bad output, so emit a single summary log line — drops
+    // and warnings would otherwise be invisible to observability. Severity
+    // drives the level so blank-UI responses (`unrecoverable`) cross default
+    // `warn`-threshold paging filters.
+    const { diagnostics, ...response } = retried.value;
+    if (
+      diagnostics.skippedActions.length > 0 ||
+      diagnostics.droppedLayoutEntries.length > 0 ||
+      diagnostics.warnings.length > 0
+    ) {
+      logAtSeverity(
+        logger,
+        diagnostics.retryHint.severity,
+        'Response healed',
+        {
+          messageId: message.id,
+          skippedActions: diagnostics.skippedActions.length,
+          droppedLayoutEntries: diagnostics.droppedLayoutEntries.length,
+          warnings: diagnostics.warnings.length,
+          retrySeverity: diagnostics.retryHint.severity,
+          retryRecommend: diagnostics.retryHint.recommend,
+        },
+      );
     }
 
     return ok({
@@ -170,9 +255,8 @@ export function createEngine(config: EngineConfig): Engine {
             try {
               await history.recordTurn(message, result.value);
             } catch (error) {
-              logger.error('Failed to record turn', {
+              logger.error('Failed to record turn', error, {
                 messageId: message.id,
-                error: error instanceof Error ? error.message : String(error),
               });
             }
           }
@@ -202,9 +286,8 @@ export function createEngine(config: EngineConfig): Engine {
           try {
             ({ inserted } = await history.addAssistantMessage(message));
           } catch (error) {
-            logger.error('Failed to persist assistant_message', {
+            logger.error('Failed to persist assistant_message', error, {
               messageId: message.id,
-              error: error instanceof Error ? error.message : String(error),
             });
             return err(
               historyError(
@@ -235,7 +318,10 @@ function logEngineError(
 ): void {
   if (error._tag === 'CancellationError') {
     logger.info('Request cancelled', { messageId, reason: error.reason });
-  } else {
-    logger.error('LLM call failed', { messageId, error: error.message });
+    return;
   }
+  // 3-arg form: structured EngineError into the dedicated error slot so
+  // _tag, stack, and per-variant context (cause / raw / timeoutMs) reach
+  // structured loggers; correlation fields stay in the data slot.
+  logger.error('LLM call failed', error, { messageId, errorTag: error._tag });
 }
