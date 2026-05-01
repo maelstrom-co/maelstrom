@@ -283,16 +283,46 @@ export class Orchestrator {
           // handle any queued flush promises.
           return;
         }
+
+        let request: ChartRequestMessage;
         try {
-          const request = this.#newRequest(event.updates);
-          const response = await this.#requestCoordinator.send(request);
-          this.#dispatchResponse(response);
-          this.#requestCoordinator.resolveFlushPromises(response);
+          request = this.#newRequest(event.updates);
         } catch (err) {
-          this.#logger.info(
-            `Timer-triggered flush failed: ${err instanceof Error ? err.message : String(err)}`,
+          // Synchronous construction failure (e.g., ChartRequestMessage's
+          // resolveTimestamp guard). RequestCoordinator never saw it, so we
+          // need to log here AND settle queued flush promises.
+          const error = err instanceof Error ? err : new Error(String(err));
+          this.#logger.error(
+            `Timer-flush request construction failed: ${error.message}`,
           );
+          this.#requestCoordinator.rejectFlushPromises(error);
+          return;
         }
+
+        let response: MaelstromResponse;
+        try {
+          response = await this.#requestCoordinator.send(request);
+        } catch (err) {
+          // send() already surfaces the error via the 'error' event.
+          // Settle queued flush promises so consumers don't time out.
+          const error = err instanceof Error ? err : new Error(String(err));
+          this.#requestCoordinator.rejectFlushPromises(error);
+          return;
+        }
+
+        try {
+          this.#dispatchResponse(response);
+        } catch (err) {
+          // dispatchResponse delegates to CommandProcessor; failures here are
+          // not surfaced upstream, so we log and reject queued flushes.
+          const error = err instanceof Error ? err : new Error(String(err));
+          this.#logger.error(
+            `Timer-flush dispatch failed: ${error.message}`,
+          );
+          this.#requestCoordinator.rejectFlushPromises(error);
+          return;
+        }
+        this.#requestCoordinator.resolveFlushPromises(response);
       },
     );
     this.#unsubscribers.push(unsubFlush);

@@ -18,7 +18,7 @@ import type {
   VoiceConnector,
 } from '../connector.types.js';
 import type { Unsubscribe } from '../../types.js';
-import { parseAudioFrame } from './utils.js';
+import { isCorrelatableId, parseAudioFrame } from './utils.js';
 
 /**
  * Configuration options for Voice WebSocket connector.
@@ -400,7 +400,10 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
         );
       }
 
-      if (data.type === 'engine.maelstrom.response' && data.requestId) {
+      if (
+        data.type === 'engine.maelstrom.response' &&
+        isCorrelatableId(data.requestId)
+      ) {
         const resolved = this.#correlator.resolve(
           data.requestId,
           data.response,
@@ -411,7 +414,12 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
           );
         }
         if (!resolved) {
-          // Voice-initiated response — not tied to a pending request
+          // Voice-initiated response — not tied to a pending request. Warn so the
+          // condition is visible (server replays, stale frames, contract mismatch
+          // all land here too).
+          console.warn(
+            `[VoiceConnector] engine.maelstrom.response with no pending request: requestId=${data.requestId} (routing to voice/push listeners as voice-initiated response)`,
+          );
           this.#voiceMessageListeners.forEach((listener) => {
             listener(data as VoiceServerMessage);
           });
@@ -421,7 +429,10 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
             });
           }
         }
-      } else if (data.type === 'engine.error' && data.requestId) {
+      } else if (
+        data.type === 'engine.error' &&
+        isCorrelatableId(data.requestId)
+      ) {
         this.#correlator.reject(
           data.requestId,
           new Error(data.error || 'Engine error'),
@@ -432,10 +443,8 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
           listener(data as VoiceServerMessage);
         });
       }
-    } catch {
-      if (this.#debug) {
-        console.error('[VoiceConnector] Failed to parse message:', event.data);
-      }
+    } catch (err) {
+      console.error('[VoiceConnector] Failed to parse message:', err, event.data);
     }
   }
 }

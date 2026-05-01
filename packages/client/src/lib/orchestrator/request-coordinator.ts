@@ -16,7 +16,7 @@ export interface RequestCoordinatorState {
 }
 
 type FlushResolver = {
-  resolve: (value: MaelstromResponse | null) => void;
+  resolve: (value: MaelstromResponse) => void;
   reject: (error: Error) => void;
 };
 
@@ -117,15 +117,37 @@ export class RequestCoordinator {
     }
   }
 
-  queueFlush(): Promise<MaelstromResponse | null> {
+  /**
+   * Returns a promise that settles when the next response arrives or the
+   * next flush failure occurs. Use this to await an in-flight request when
+   * `isProcessing` is true and you want to coalesce with it.
+   */
+  queueFlush(): Promise<MaelstromResponse> {
     return new Promise((resolve, reject) => {
       this.#flushResolvers.push({ resolve, reject });
     });
   }
 
+  /**
+   * Resolves all queued flush promises with the given response and clears
+   * the queue.
+   */
   resolveFlushPromises(response: MaelstromResponse): void {
     for (const { resolve } of this.#flushResolvers) {
       resolve(response);
+    }
+    this.#flushResolvers = [];
+  }
+
+  /**
+   * Rejects all queued flush promises and clears the queue. Called when a
+   * flush fails before a response is available. The caller is responsible
+   * for logging if the error has not already been logged upstream — this
+   * method does not log.
+   */
+  rejectFlushPromises(error: Error): void {
+    for (const { reject } of this.#flushResolvers) {
+      reject(error);
     }
     this.#flushResolvers = [];
   }

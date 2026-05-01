@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import {
   InstanceId,
   MessageId,
@@ -792,6 +792,145 @@ describe('Orchestrator', () => {
       await intentPromise;
 
       orchestrator.dispose();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // MAE-159: timer-flush failure handling
+  // --------------------------------------------------------------------------
+
+  describe('timer-flush failure handling (MAE-159)', () => {
+    it('rejects queued flush promises when timer-flush send rejects, without duplicate logging', async () => {
+      // Hold the connector's process() promise open so we can:
+      //   1. Drive the debounce timer to fire the 'updates_flushed' event
+      //      (this enters the timer-flush handler we're testing).
+      //   2. Observe that isProcessing is true while the send is in-flight.
+      //   3. Queue a flush via flushUpdates() — it routes to queueFlush().
+      //   4. Reject the in-flight send and assert the queued promise rejects.
+      let rejectSend: (err: Error) => void = () => {};
+      const sendPromise = new Promise<never>((_, reject) => {
+        rejectSend = reject;
+      });
+      const connector = createMockConnector({
+        process: mock(() => sendPromise),
+      });
+      const { orchestrator } = createTestOrchestrator(connector);
+
+      // Spy on console.error: RequestCoordinator.send already logs once
+      // (via Logger.error → console.error). The orchestrator must NOT add
+      // a duplicate log for this code path.
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      try {
+        // 1. Schedule an update, tick past debounce → 'updates_flushed' fires
+        //    → timer-flush handler enters #requestCoordinator.send(request).
+        orchestrator.scheduleUpdate({
+          type: 'vessel_mutation',
+          instanceId: InstanceId('i-1'),
+          changes: 'first',
+        });
+        await clock.tickAsync(350);
+
+        // 2. Send is in-flight; queue a flush via the public API.
+        orchestrator.scheduleUpdate({
+          type: 'vessel_mutation',
+          instanceId: InstanceId('i-2'),
+          changes: 'second',
+        });
+        const queuedFlush = orchestrator.flushUpdates();
+
+        // 3. Reject the in-flight send.
+        const sendError = new Error('connector exploded');
+        rejectSend(sendError);
+
+        // 4. The queued flush promise should reject with that error.
+        await expect(queuedFlush).rejects.toBe(sendError);
+
+        // 5. RequestCoordinator's "Request <id> failed: ..." log fired once.
+        //    Orchestrator must not have added its own "Timer-flush" log
+        //    on the post-send path (it only logs on sync construction).
+        const orchestratorLogs = errorSpy.mock.calls.filter((args) =>
+          args.some((a) => typeof a === 'string' && a.includes('Timer-flush')),
+        );
+        expect(orchestratorLogs).toHaveLength(0);
+      } finally {
+        errorSpy.mockRestore();
+        orchestrator.dispose();
+      }
+    });
+
+    it('rejects queued flush promises and logs once when dispatch fails after a successful send', async () => {
+      // The timer-flush handler has three error branches; the send-rejection
+      // path is covered above. This test covers the dispatch-failure branch:
+      // the connector resolves successfully, but `#dispatchResponse` throws
+      // because we spy on `commandProcessor.dispatch` to throw a synthetic
+      // error. The orchestrator must log "Timer-flush dispatch failed" once
+      // and reject any queued flush promises.
+      const mockResponse = createMockResponse(
+        MessageId('req-dispatch'),
+        'instance-1',
+        'show',
+      );
+      let rejectSend: (err: Error) => void = () => {};
+      let resolveSend: (response: MaelstromResponse) => void = () => {};
+      const sendPromise = new Promise<MaelstromResponse>((resolve, reject) => {
+        resolveSend = resolve;
+        rejectSend = reject;
+      });
+      void rejectSend; // keep unused-var quiet — only resolveSend is used here
+
+      const connector = createMockConnector({
+        process: mock(() => sendPromise),
+      });
+      const { orchestrator } = createTestOrchestrator(connector);
+
+      const dispatchError = new Error('command processor exploded');
+      const dispatchSpy = spyOn(
+        orchestrator.commandProcessor,
+        'dispatch',
+      ).mockImplementation(() => {
+        throw dispatchError;
+      });
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      try {
+        // Drive the timer-flush.
+        orchestrator.scheduleUpdate({
+          type: 'vessel_mutation',
+          instanceId: InstanceId('i-1'),
+          changes: 'first',
+        });
+        await clock.tickAsync(350);
+
+        // Send is in-flight; queue a flush via the public API.
+        orchestrator.scheduleUpdate({
+          type: 'vessel_mutation',
+          instanceId: InstanceId('i-2'),
+          changes: 'second',
+        });
+        const queuedFlush = orchestrator.flushUpdates();
+
+        // Resolve the in-flight send → orchestrator calls dispatchResponse,
+        // which now throws via the spy.
+        resolveSend(mockResponse);
+
+        // The queued flush should reject with the dispatch error.
+        await expect(queuedFlush).rejects.toBe(dispatchError);
+
+        // Orchestrator MUST log "Timer-flush dispatch failed" exactly once
+        // (RequestCoordinator never saw the dispatch error).
+        const dispatchLogs = errorSpy.mock.calls.filter((args) =>
+          args.some(
+            (a) =>
+              typeof a === 'string' && a.includes('Timer-flush dispatch failed'),
+          ),
+        );
+        expect(dispatchLogs).toHaveLength(1);
+      } finally {
+        dispatchSpy.mockRestore();
+        errorSpy.mockRestore();
+        orchestrator.dispose();
+      }
     });
   });
 });

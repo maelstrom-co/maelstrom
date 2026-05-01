@@ -30,10 +30,10 @@ describe('RequestCorrelator', () => {
     it('should create a pending request and return a promise', () => {
       const correlator = new RequestCorrelator();
 
-      const promise = correlator.create('req-1', 1000);
+      const promise = correlator.create(MessageId('req-1'), 1000);
 
       expect(correlator.pendingCount).toBe(1);
-      expect(correlator.has('req-1')).toBe(true);
+      expect(correlator.has(MessageId('req-1'))).toBe(true);
       expect(promise).toBeInstanceOf(Promise);
     });
 
@@ -44,7 +44,7 @@ describe('RequestCorrelator', () => {
       let resolved = false;
       let result: MaelstromResponse | undefined;
 
-      correlator.create('req-1', 1000).then((res) => {
+      correlator.create(MessageId('req-1'), 1000).then((res) => {
         resolved = true;
         result = res;
         return res;
@@ -52,7 +52,7 @@ describe('RequestCorrelator', () => {
 
       // Response arrives after 10ms
       clock.setTimeout(() => {
-        correlator.resolve('req-1', expectedResponse);
+        correlator.resolve(MessageId('req-1'), expectedResponse);
       }, 10);
 
       await clock.tickAsync(10);
@@ -68,7 +68,7 @@ describe('RequestCorrelator', () => {
       let rejected = false;
       let errorMessage: string | undefined;
 
-      correlator.create('req-1', 100).then(
+      correlator.create(MessageId('req-1'), 100).then(
         () => {},
         (err: Error) => {
           rejected = true;
@@ -89,8 +89,8 @@ describe('RequestCorrelator', () => {
       const correlator = new RequestCorrelator();
       const response = createMockResponse('req-1', 'test');
 
-      correlator.create('req-1', 1000);
-      const result = correlator.resolve('req-1', response);
+      correlator.create(MessageId('req-1'), 1000);
+      const result = correlator.resolve(MessageId('req-1'), response);
 
       expect(result).toBe(true);
       expect(correlator.pendingCount).toBe(0);
@@ -100,7 +100,7 @@ describe('RequestCorrelator', () => {
       const correlator = new RequestCorrelator();
       const response = createMockResponse('unknown', 'test');
 
-      const result = correlator.resolve('unknown', response);
+      const result = correlator.resolve(MessageId('unknown'), response);
 
       expect(result).toBe(false);
     });
@@ -112,14 +112,14 @@ describe('RequestCorrelator', () => {
       let resolved = false;
       let result: MaelstromResponse | undefined;
 
-      correlator.create('req-1', 50).then((res) => {
+      correlator.create(MessageId('req-1'), 50).then((res) => {
         resolved = true;
         result = res;
         return res;
       });
 
       // Resolve immediately (before timeout)
-      correlator.resolve('req-1', response);
+      correlator.resolve(MessageId('req-1'), response);
 
       // Wait past when timeout would have occurred
       await clock.tickAsync(100);
@@ -135,10 +135,10 @@ describe('RequestCorrelator', () => {
       const error = new Error('Connection lost');
 
       // Create promise but catch the rejection so it doesn't fail the test
-      const promise = correlator.create('req-1', 1000);
+      const promise = correlator.create(MessageId('req-1'), 1000);
       promise.catch(() => {}); // Suppress unhandled rejection
 
-      const result = correlator.reject('req-1', error);
+      const result = correlator.reject(MessageId('req-1'), error);
 
       expect(result).toBe(true);
       expect(correlator.pendingCount).toBe(0);
@@ -148,7 +148,7 @@ describe('RequestCorrelator', () => {
       const correlator = new RequestCorrelator();
       const error = new Error('Connection lost');
 
-      const result = correlator.reject('unknown', error);
+      const result = correlator.reject(MessageId('unknown'), error);
 
       expect(result).toBe(false);
     });
@@ -160,7 +160,7 @@ describe('RequestCorrelator', () => {
       let rejected = false;
       let errorMessage: string | undefined;
 
-      correlator.create('req-1', 1000).then(
+      correlator.create(MessageId('req-1'), 1000).then(
         () => {},
         (err: Error) => {
           rejected = true;
@@ -168,7 +168,7 @@ describe('RequestCorrelator', () => {
         },
       );
 
-      correlator.reject('req-1', testError);
+      correlator.reject(MessageId('req-1'), testError);
 
       // Allow microtasks to run
       await clock.tickAsync(0);
@@ -185,19 +185,19 @@ describe('RequestCorrelator', () => {
 
       let rejectCount = 0;
 
-      correlator.create('req-1', 1000).then(
+      correlator.create(MessageId('req-1'), 1000).then(
         () => {},
         () => {
           rejectCount++;
         },
       );
-      correlator.create('req-2', 1000).then(
+      correlator.create(MessageId('req-2'), 1000).then(
         () => {},
         () => {
           rejectCount++;
         },
       );
-      correlator.create('req-3', 1000).then(
+      correlator.create(MessageId('req-3'), 1000).then(
         () => {},
         () => {
           rejectCount++;
@@ -230,13 +230,13 @@ describe('RequestCorrelator', () => {
       let rejectCount = 0;
 
       // Create multiple requests with short timeouts
-      correlator.create('req-1', 50).then(
+      correlator.create(MessageId('req-1'), 50).then(
         () => {},
         () => {
           rejectCount++;
         },
       );
-      correlator.create('req-2', 50).then(
+      correlator.create(MessageId('req-2'), 50).then(
         () => {},
         () => {
           rejectCount++;
@@ -261,26 +261,26 @@ describe('RequestCorrelator', () => {
     it('should return true for pending request', () => {
       const correlator = new RequestCorrelator();
 
-      correlator.create('req-1', 1000);
+      correlator.create(MessageId('req-1'), 1000);
 
-      expect(correlator.has('req-1')).toBe(true);
+      expect(correlator.has(MessageId('req-1'))).toBe(true);
     });
 
     it('should return false for unknown request', () => {
       const correlator = new RequestCorrelator();
 
-      correlator.create('req-1', 1000);
+      correlator.create(MessageId('req-1'), 1000);
 
-      expect(correlator.has('req-2')).toBe(false);
+      expect(correlator.has(MessageId('req-2'))).toBe(false);
     });
 
     it('should return false after request is resolved', () => {
       const correlator = new RequestCorrelator();
 
-      correlator.create('req-1', 1000);
-      correlator.resolve('req-1', createMockResponse('req-1', 'test'));
+      correlator.create(MessageId('req-1'), 1000);
+      correlator.resolve(MessageId('req-1'), createMockResponse('req-1', 'test'));
 
-      expect(correlator.has('req-1')).toBe(false);
+      expect(correlator.has(MessageId('req-1'))).toBe(false);
     });
   });
 
@@ -290,13 +290,13 @@ describe('RequestCorrelator', () => {
 
       expect(correlator.pendingCount).toBe(0);
 
-      correlator.create('req-1', 1000);
+      correlator.create(MessageId('req-1'), 1000);
       expect(correlator.pendingCount).toBe(1);
 
-      correlator.create('req-2', 1000);
+      correlator.create(MessageId('req-2'), 1000);
       expect(correlator.pendingCount).toBe(2);
 
-      correlator.resolve('req-1', createMockResponse('req-1', 'test'));
+      correlator.resolve(MessageId('req-1'), createMockResponse('req-1', 'test'));
       expect(correlator.pendingCount).toBe(1);
     });
   });
@@ -305,8 +305,8 @@ describe('RequestCorrelator', () => {
     it('should clear all pending requests without resolving', () => {
       const correlator = new RequestCorrelator();
 
-      correlator.create('req-1', 1000);
-      correlator.create('req-2', 1000);
+      correlator.create(MessageId('req-1'), 1000);
+      correlator.create(MessageId('req-2'), 1000);
 
       expect(correlator.pendingCount).toBe(2);
 
@@ -318,7 +318,7 @@ describe('RequestCorrelator', () => {
     it('should clear all timeouts', async () => {
       const correlator = new RequestCorrelator();
 
-      correlator.create('req-1', 50);
+      correlator.create(MessageId('req-1'), 50);
 
       correlator.clear();
 
@@ -336,27 +336,27 @@ describe('RequestCorrelator', () => {
 
       const results: MaelstromResponse[] = [];
 
-      correlator.create('req-1', 1000).then((res) => {
+      correlator.create(MessageId('req-1'), 1000).then((res) => {
         results.push(res);
       });
-      correlator.create('req-2', 1000).then((res) => {
+      correlator.create(MessageId('req-2'), 1000).then((res) => {
         results.push(res);
       });
-      correlator.create('req-3', 1000).then((res) => {
+      correlator.create(MessageId('req-3'), 1000).then((res) => {
         results.push(res);
       });
 
       // Resolve in different order
       clock.setTimeout(() => {
-        correlator.resolve('req-2', createMockResponse('req-2', 'response-2'));
+        correlator.resolve(MessageId('req-2'), createMockResponse('req-2', 'response-2'));
       }, 10);
 
       clock.setTimeout(() => {
-        correlator.resolve('req-1', createMockResponse('req-1', 'response-1'));
+        correlator.resolve(MessageId('req-1'), createMockResponse('req-1', 'response-1'));
       }, 20);
 
       clock.setTimeout(() => {
-        correlator.resolve('req-3', createMockResponse('req-3', 'response-3'));
+        correlator.resolve(MessageId('req-3'), createMockResponse('req-3', 'response-3'));
       }, 30);
 
       await clock.tickAsync(30);
@@ -374,13 +374,13 @@ describe('RequestCorrelator', () => {
       let result: MaelstromResponse | undefined;
 
       // First request will resolve
-      correlator.create('req-1', 1000).then((res) => {
+      correlator.create(MessageId('req-1'), 1000).then((res) => {
         resolved = true;
         result = res;
       });
 
       // Second request will timeout
-      correlator.create('req-2', 50).then(
+      correlator.create(MessageId('req-2'), 50).then(
         () => {},
         () => {
           rejected = true;
@@ -389,7 +389,7 @@ describe('RequestCorrelator', () => {
 
       // Resolve first request
       clock.setTimeout(() => {
-        correlator.resolve('req-1', createMockResponse('req-1', 'response-1'));
+        correlator.resolve(MessageId('req-1'), createMockResponse('req-1', 'response-1'));
       }, 10);
 
       await clock.tickAsync(10);

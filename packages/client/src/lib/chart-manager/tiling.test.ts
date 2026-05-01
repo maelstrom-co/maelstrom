@@ -1,9 +1,16 @@
-import { describe, it, expect, spyOn, afterEach } from 'bun:test';
+import { describe, it, expect, spyOn, beforeEach, afterEach } from 'bun:test';
 import { InstanceId } from '@maelstrom-co/protocol';
 import { parseTilingTree, computeTilingLayout, type Rect } from './tiling.js';
 
-const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
-afterEach(() => warnSpy.mockClear());
+let warnSpy: ReturnType<typeof spyOn>;
+
+beforeEach(() => {
+  warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  warnSpy.mockRestore();
+});
 
 describe('parseTilingTree', () => {
   it('returns null for empty nodes array', () => {

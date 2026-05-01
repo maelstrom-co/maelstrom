@@ -214,6 +214,69 @@ describe('RequestCoordinator', () => {
 
       coordinator.dispose();
     });
+
+    it('should reject queued flush promises with the given error when rejectFlushPromises is called', async () => {
+      const connector = createMockConnector();
+      const coordinator = new RequestCoordinator(connector);
+
+      const flushPromise = coordinator.queueFlush();
+      const error = new Error('flush boom');
+
+      coordinator.rejectFlushPromises(error);
+
+      await expect(flushPromise).rejects.toThrow('flush boom');
+
+      coordinator.dispose();
+    });
+
+    it('should reject multiple queued flush promises and clear them', async () => {
+      const connector = createMockConnector();
+      const coordinator = new RequestCoordinator(connector);
+
+      const flush1 = coordinator.queueFlush();
+      const flush2 = coordinator.queueFlush();
+      const error = new Error('multi flush boom');
+
+      coordinator.rejectFlushPromises(error);
+
+      await expect(flush1).rejects.toThrow('multi flush boom');
+      await expect(flush2).rejects.toThrow('multi flush boom');
+
+      // Subsequent resolveFlushPromises is a no-op (queue was drained).
+      // Add a fresh queued promise to confirm rejection didn't poison further use.
+      const flush3 = coordinator.queueFlush();
+      const mockResponse = createMockResponse(
+        MessageId('req-after'),
+        'instance-1',
+        'show',
+      );
+      coordinator.resolveFlushPromises(mockResponse);
+      await expect(flush3).resolves.toBe(mockResponse);
+
+      coordinator.dispose();
+    });
+
+    it('should be a no-op when rejectFlushPromises is called on an empty queue', async () => {
+      const connector = createMockConnector();
+      const coordinator = new RequestCoordinator(connector);
+
+      // No queued flushes — calling reject must not throw or mutate state.
+      expect(() => {
+        coordinator.rejectFlushPromises(new Error('nothing to reject'));
+      }).not.toThrow();
+
+      // A fresh flush queued after the no-op call still works normally.
+      const flush = coordinator.queueFlush();
+      const mockResponse = createMockResponse(
+        MessageId('req-after-noop'),
+        'instance-1',
+        'show',
+      );
+      coordinator.resolveFlushPromises(mockResponse);
+      await expect(flush).resolves.toBe(mockResponse);
+
+      coordinator.dispose();
+    });
   });
 
   describe('dispose', () => {

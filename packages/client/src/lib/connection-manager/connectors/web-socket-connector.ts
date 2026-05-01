@@ -11,6 +11,7 @@ import type {
   ConnectorEvent,
   EngineConnector,
 } from '../connector.types.js';
+import { isCorrelatableId } from './utils.js';
 
 /**
  * Configuration options for WebSocket connector.
@@ -211,17 +212,29 @@ export class WebSocketConnector implements EngineConnector {
   #handleMessage(event: MessageEvent): void {
     try {
       const data = JSON.parse(event.data);
-      if (data.type === 'engine.maelstrom.response' && data.requestId) {
-        this.#correlator.resolve(data.requestId, data.response);
-      } else if (data.type === 'engine.error' && data.requestId) {
+      if (
+        data.type === 'engine.maelstrom.response' &&
+        isCorrelatableId(data.requestId)
+      ) {
+        const resolved = this.#correlator.resolve(data.requestId, data.response);
+        if (!resolved) {
+          console.warn(
+            `[WebSocketConnector] engine.maelstrom.response with no pending request: requestId=${data.requestId}`,
+          );
+        }
+      } else if (
+        data.type === 'engine.error' &&
+        isCorrelatableId(data.requestId)
+      ) {
         this.#correlator.reject(
           data.requestId,
           new Error(data.error || data.message || 'Engine error'),
         );
       }
-    } catch {
+    } catch (err) {
       console.error(
         '[WebSocketConnector] Failed to parse message:',
+        err,
         event.data,
       );
     }
