@@ -23,6 +23,7 @@ import {
   dummyAdapter,
   getLastUserMessage,
   makeGridRequest,
+  makeTilingRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
 
@@ -118,6 +119,142 @@ describe('createEngine', () => {
     const engine = createEngine({ adapter: dummyAdapter });
     expect(engine).toBeDefined();
     expect(typeof engine.handle).toBe('function');
+  });
+
+  test.each([
+    {
+      name: 'function customizer on unknown key',
+      system: { unknownKey: () => 'oops' },
+      pattern: /is not a default section/,
+    },
+    {
+      name: 'function customizer that throws',
+      system: {
+        rules: () => {
+          throw new Error('boom');
+        },
+      },
+      pattern: /customizer for "rules" threw: boom/,
+    },
+  ])(
+    'throws synchronously when a system prompt customizer is misconfigured ($name)',
+    ({ system, pattern }) => {
+      let caught: unknown;
+      try {
+        createEngine({
+          adapter: dummyAdapter,
+          logger: silentLogger,
+          prompt: { system },
+        });
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      const error = caught as Error;
+      // Same `Invalid EngineConfig:` shape as Zod-config failures so consumers
+      // can match a single prefix to detect any factory-time misconfig.
+      expect(error.message).toMatch(/^Invalid EngineConfig: prompt\.system:/);
+      expect(error.message).toMatch(pattern);
+      expect(error.cause).toBeInstanceOf(Error);
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// System prompt memoization
+// ---------------------------------------------------------------------------
+
+describe('createEngine — system prompt memoization', () => {
+  test('derives system prompts once per createEngine and routes by layout mode', async () => {
+    let customizerCalls = 0;
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      prompt: {
+        system: {
+          rules: (defaults) => {
+            customizerCalls++;
+            return `${defaults}\n\nSENTINEL_RULES`;
+          },
+        },
+      },
+    });
+
+    // One customizer call per mode at factory time (grid + tiling).
+    expect(customizerCalls).toBe(2);
+
+    const tilingLLMResponse: TilingResponse = {
+      userMessage: 'Tiling ready',
+      rationale: 'User asked for tiling',
+      executionPlan: [],
+      layout: {
+        tree: ['calendar-main'],
+        instances: [
+          {
+            instanceId: 'calendar-main',
+            vesselId: 'calendar',
+            variant: 'month',
+          },
+        ],
+      },
+    };
+    mockChat.mockResolvedValueOnce(gridLLMResponse);
+    mockChat.mockResolvedValueOnce(tilingLLMResponse);
+    mockChat.mockResolvedValueOnce(gridLLMResponse);
+
+    await engine.handle(toChartRequestMessage(makeGridRequest()));
+    await engine.handle(toChartRequestMessage(makeTilingRequest()));
+    await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    // Per-request path must not re-derive — customizer count is unchanged.
+    expect(customizerCalls).toBe(2);
+
+    const gridFirst = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
+    const tilingCall = mockChat.mock.calls[1]?.[0] as Record<string, unknown>;
+    const gridSecond = mockChat.mock.calls[2]?.[0] as Record<string, unknown>;
+
+    // Customized output (sentinel) reaches the LLM for both modes — proves
+    // promptOptions wasn't dropped on the per-request path.
+    for (const call of [gridFirst, tilingCall, gridSecond]) {
+      const systemPrompts = call.systemPrompts as string[];
+      expect(systemPrompts[0]).toContain('SENTINEL_RULES');
+    }
+
+    // Mode-specific content distinguishes the precomputed entries — proves
+    // systemPrompts[mode] is keyed off the request's layoutMode.
+    expect((gridFirst.systemPrompts as string[])[0]).toContain(
+      'GRID LAYOUT SYSTEM',
+    );
+    expect((tilingCall.systemPrompts as string[])[0]).toContain(
+      'TILING LAYOUT SYSTEM',
+    );
+    expect((gridSecond.systemPrompts as string[])[0]).toContain(
+      'GRID LAYOUT SYSTEM',
+    );
+  });
+
+  test('user-customizer errors still surface as Result err per request', async () => {
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      prompt: {
+        user: {
+          vessels: () => {
+            throw new Error('user boom');
+          },
+        },
+      },
+    });
+
+    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('ValidationError');
+    if (result.error._tag !== 'ValidationError') return;
+    expect(result.error.field).toBe('prompt');
+    expect(result.error.message).toMatch(/customizer for "vessels" threw/);
+    // chat() must not be called when prompt construction fails.
+    expect(mockChat).not.toHaveBeenCalled();
   });
 });
 

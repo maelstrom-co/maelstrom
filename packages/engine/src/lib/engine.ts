@@ -3,6 +3,7 @@ import type {
   ChartResponseOutput,
   EngineMessage,
   EngineOutput,
+  LayoutMode,
   MessageId,
   Result,
 } from '@maelstrom-co/protocol';
@@ -25,7 +26,10 @@ import { createHistoryManager } from './history/history-manager.js';
 import type { Logger } from './logger.js';
 import { callLLM } from './pipeline/call-llm.js';
 import { callWithRetry } from './pipeline/retry.js';
-import { buildPrompt } from './prompt/prompt-builder.js';
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+} from './prompt/prompt-builder.js';
 import { processResponse } from './response/response-processor.js';
 import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
@@ -82,14 +86,17 @@ export interface Engine {
  *
  * Unlike `Engine.handle`, which surfaces runtime failures through
  * `Result<…, EngineError>`, this factory validates `config` synchronously
- * with Zod and **throws** on invalid input. Invalid config is a programmer
- * error, not a runtime condition — consumers outside TypeScript (or calling
- * with unknown input) should wrap in `try`/`catch`.
+ * and **throws** on invalid input. Invalid config is a programmer error,
+ * not a runtime condition — consumers outside TypeScript (or calling with
+ * unknown input) should wrap in `try`/`catch`.
  *
- * @throws {Error} If `config` fails Zod validation. The message is prefixed
- *   with `Invalid EngineConfig:` followed by the list of offending paths.
- *   The original `z.ZodError` is attached as `cause` for programmatic
- *   inspection of structured issues.
+ * @throws {Error} If `config` fails Zod validation, or if a system-prompt
+ *   customizer (`config.prompt.system`) is misconfigured (function on an
+ *   unknown key, or a customizer that itself throws). System prompts are
+ *   derived once at factory time, so misconfiguration surfaces here rather
+ *   than degrading every `chart_request` into a `Result` err. The message
+ *   is prefixed with `Invalid EngineConfig:` and the original error is
+ *   attached as `cause`.
  */
 export function createEngine(config: EngineConfig): Engine {
   const validated = validateEngineConfig(config);
@@ -104,6 +111,23 @@ export function createEngine(config: EngineConfig): Engine {
     ? createHistoryManager(historyConfig)
     : undefined;
 
+  // System prompts depend only on engine config, so derive them once at
+  // factory time and look them up by layoutMode per request. Customizer
+  // errors are wrapped in the same `Invalid EngineConfig:` shape the Zod
+  // path uses so a single try/catch around `createEngine` catches both.
+  let systemPrompts: Record<LayoutMode, string>;
+  try {
+    systemPrompts = {
+      grid: buildSystemPrompt('grid', promptOptions),
+      tiling: buildSystemPrompt('tiling', promptOptions),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid EngineConfig: prompt.system: ${message}`, {
+      cause: error,
+    });
+  }
+
   const runChartRequest = async (
     message: ChartRequestMessage,
     signal?: AbortSignal,
@@ -116,21 +140,19 @@ export function createEngine(config: EngineConfig): Engine {
       layoutMode: mode,
     });
 
-    // buildPrompt can throw when a consumer-supplied section customizer is
-    // misconfigured (function on unknown key) or itself throws. Surface that
-    // as an Err instead of breaking the Promise<Result> contract.
-    let systemPrompt: string;
+    const systemPrompt = systemPrompts[mode];
+
+    // buildUserPrompt can throw when a consumer-supplied user-section
+    // customizer is misconfigured (function on unknown key) or itself
+    // throws. Surface that as an Err instead of breaking the
+    // Promise<Result> contract.
     let userPrompt: string;
     try {
-      ({ systemPrompt, userPrompt } = buildPrompt(
-        request,
-        promptOptions,
-        logger,
-      ));
+      userPrompt = buildUserPrompt(request, promptOptions, logger);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logger.error('Failed to build prompt', error, {
+      logger.error('Failed to build user prompt', error, {
         messageId: message.id,
       });
       return err(validationError(errorMessage, 'prompt'));

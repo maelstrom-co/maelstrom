@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { buildPrompt, buildSystemPrompt } from './prompt-builder.js';
+import {
+  buildPrompt,
+  buildSystemPrompt,
+  buildUserPrompt,
+} from './prompt-builder.js';
 import { SystemSection, UserSection } from './sections.js';
 import {
   makeGridRequest,
@@ -262,5 +266,74 @@ describe('buildSystemPrompt', () => {
       vars: { assistantName: 'TestBot' },
     });
     expect(prompt).toContain('You are TestBot,');
+  });
+});
+
+describe('buildUserPrompt', () => {
+  test('builds grid user prompt with serializer output', () => {
+    const prompt = buildUserPrompt(makeGridRequest());
+    expect(prompt).toContain('## Registered Vessels');
+    expect(prompt).toContain('Layout Mode: Grid');
+    expect(prompt).toContain('## Update Triggers');
+  });
+
+  test('builds tiling user prompt with serializer output', () => {
+    const prompt = buildUserPrompt(makeTilingRequest());
+    expect(prompt).toContain('Layout Mode: Tiling');
+  });
+
+  test('replaces a user section with a string override', () => {
+    const prompt = buildUserPrompt(makeGridRequest(), {
+      user: { vessels: 'Custom vessel definitions here.' },
+    });
+    expect(prompt).toContain('Custom vessel definitions here.');
+    expect(prompt).not.toContain('## Registered Vessels');
+  });
+
+  test('removes a user section with null', () => {
+    const prompt = buildUserPrompt(makeGridRequest(), {
+      user: { vessels: null },
+    });
+    expect(prompt).not.toContain('## Registered Vessels');
+    expect(prompt).toContain('## Update Triggers');
+  });
+
+  test('transforms a user section with a function', () => {
+    const prompt = buildUserPrompt(makeGridRequest(), {
+      user: {
+        vessels: (defaults) => `${defaults}\n\nEXTRA NOTE.`,
+      },
+    });
+    expect(prompt).toContain('## Registered Vessels');
+    expect(prompt).toContain('EXTRA NOTE.');
+  });
+
+  test('appends a new user section with prepend/append', () => {
+    const prompt = buildUserPrompt(makeGridRequest(), {
+      user: {
+        domain: { append: 'Healthcare context.' },
+      },
+    });
+    expect(prompt).toContain('Healthcare context.');
+  });
+
+  test('throws when function customizer targets a new (unknown) key', () => {
+    expect(() =>
+      buildUserPrompt(makeGridRequest(), {
+        user: { unknownSection: (prev) => `${prev} extra` },
+      }),
+    ).toThrow('is not a default section');
+  });
+
+  test('throws with section key context when customizer function throws', () => {
+    expect(() =>
+      buildUserPrompt(makeGridRequest(), {
+        user: {
+          vessels: () => {
+            throw new Error('bang');
+          },
+        },
+      }),
+    ).toThrow('customizer for "vessels" threw: bang');
   });
 });

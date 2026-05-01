@@ -26,9 +26,11 @@ export interface ProviderError {
 
 /**
  * Raised for generic engine-input validation failures (e.g. a misconfigured
- * prompt customizer that throws inside `buildPrompt`). LLM-output layout
- * problems no longer surface here — they heal into
- * `EngineDiagnostics.droppedLayoutEntries` instead.
+ * user-prompt customizer that throws inside `buildUserPrompt`). LLM-output
+ * layout problems no longer surface here — they heal into
+ * `EngineDiagnostics.droppedLayoutEntries` instead. System-prompt customizer
+ * misconfiguration does not surface here either; it throws synchronously at
+ * `createEngine` time.
  *
  * `field` optionally identifies the offending input path.
  */

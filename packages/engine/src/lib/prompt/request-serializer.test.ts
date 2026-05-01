@@ -5,7 +5,7 @@ import {
   buildGridChartState,
   buildTilingChartState,
   buildUpdateTriggersSection,
-  buildUserSections,
+  buildDefaultUserSections,
   buildVesselsSection,
 } from './request-serializer.js';
 import type { Logger } from '../logger.js';
@@ -458,24 +458,24 @@ describe('buildUpdateTriggersSection', () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildUserSections (top-level serializer entry)
+// buildDefaultUserSections (top-level serializer entry)
 // ---------------------------------------------------------------------------
 
-describe('buildUserSections', () => {
+describe('buildDefaultUserSections', () => {
   test('returns sections keyed vessels / chartState / updateTriggers for grid', () => {
-    const sections = buildUserSections(makeGridRequest());
+    const sections = buildDefaultUserSections(makeGridRequest());
     const keys = sections.map((s) => s.key);
     expect(keys).toEqual(['vessels', 'chartState', 'updateTriggers']);
   });
 
   test('routes to grid chart-state builder for grid mode', () => {
-    const sections = buildUserSections(makeGridRequest());
+    const sections = buildDefaultUserSections(makeGridRequest());
     const chartState = sections.find((s) => s.key === 'chartState');
     expect(chartState?.content).toContain('Layout Mode: Grid');
   });
 
   test('routes to tiling chart-state builder for tiling mode', () => {
-    const sections = buildUserSections(makeTilingRequest());
+    const sections = buildDefaultUserSections(makeTilingRequest());
     const chartState = sections.find((s) => s.key === 'chartState');
     expect(chartState?.content).toContain('Layout Mode: Tiling (binary tree)');
   });

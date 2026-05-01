@@ -8,7 +8,7 @@ import type {
 } from './sections.js';
 import { isSectionExtension } from './sections.js';
 import { getDefaultSystemSections } from './system-prompts.js';
-import { buildUserSections } from './request-serializer.js';
+import { buildDefaultUserSections } from './request-serializer.js';
 import type { Logger } from '../logger.js';
 
 const DEFAULT_VARS: PromptVars = {
@@ -40,23 +40,37 @@ export interface PromptResult {
   };
 }
 
+/**
+ * Build the full prompt (system + user halves) for a chart request.
+ *
+ * Thin composition over {@link buildSystemPrompt} and {@link buildUserPrompt}.
+ * The returned `sections` array exposes the post-override section list, useful
+ * for telemetry or diffing customizer effects.
+ *
+ * @throws {Error} If a section customizer is invalid (function targeting a
+ *   non-default key) or itself throws. Messages have the form
+ *   `Prompt section customizer for "<key>" ...` so consumers can extract the
+ *   failing section key from the quoted prefix.
+ *
+ * @example
+ * ```ts
+ * const { systemPrompt, userPrompt } = buildPrompt(request, {
+ *   vars: { assistantName: 'Aria' },
+ *   system: { rules: (defaults) => `${defaults}\n\nAlways respond in Spanish.` },
+ *   user: { vessels: 'Custom vessel definitions here.' },
+ * });
+ * ```
+ */
 export function buildPrompt(
   request: ChartRequest,
   options?: PromptOptions,
   logger?: Logger,
 ): PromptResult {
-  const mode = request.context.layoutMode;
-  const vars = resolveVars(options?.vars);
-
-  const defaultSystem = recordToSections(getDefaultSystemSections(mode));
-  const interpolated = interpolateVars(defaultSystem, vars);
-  const systemSections = applySectionOverrides(interpolated, options?.system);
-
-  const defaultUserSections = buildUserSections(request, logger);
-  const userSections = applySectionOverrides(
-    defaultUserSections,
-    options?.user,
+  const systemSections = buildSystemSections(
+    request.context.layoutMode,
+    options,
   );
+  const userSections = buildUserSections(request, options, logger);
 
   return {
     systemPrompt: joinSections(systemSections),
@@ -65,15 +79,77 @@ export function buildPrompt(
   };
 }
 
+/**
+ * Build the system-prompt half for a given layout mode and config-time options.
+ *
+ * Pure: depends only on its arguments, so the result can be cached per
+ * `(mode, options)` tuple. {@link createEngine} precomputes one string per
+ * `LayoutMode` at factory time and indexes by `request.context.layoutMode` per
+ * request — derive once, not per-turn.
+ *
+ * @throws {Error} If a `system` customizer is invalid (function targeting a
+ *   non-default key) or itself throws. Messages have the form
+ *   `Prompt section customizer for "<key>" ...`.
+ *
+ * @example
+ * ```ts
+ * const systemPrompt = buildSystemPrompt('grid', {
+ *   vars: { assistantName: 'Aria' },
+ *   system: { identity: 'You are a healthcare assistant.' },
+ * });
+ * ```
+ */
 export function buildSystemPrompt(
   mode: LayoutMode,
   options?: Pick<PromptOptions, 'vars' | 'system'>,
 ): string {
+  return joinSections(buildSystemSections(mode, options));
+}
+
+/**
+ * Build the user-prompt half from a chart request.
+ *
+ * Per-call work — depends on the request's vessels, instances, layout, and
+ * update reasons, so the result can't be precomputed.
+ *
+ * @throws {Error} If a `user` customizer is invalid (function targeting a
+ *   non-default key) or itself throws. Messages have the form
+ *   `Prompt section customizer for "<key>" ...`. Callers operating inside a
+ *   `Promise<Result>` contract should wrap in try/catch and convert to a
+ *   Result error rather than letting the throw escape.
+ *
+ * @example
+ * ```ts
+ * const userPrompt = buildUserPrompt(request, {
+ *   user: { vessels: (defaults) => `${defaults}\n\nDomain note: …` },
+ * });
+ * ```
+ */
+export function buildUserPrompt(
+  request: ChartRequest,
+  options?: Pick<PromptOptions, 'user'>,
+  logger?: Logger,
+): string {
+  return joinSections(buildUserSections(request, options, logger));
+}
+
+function buildSystemSections(
+  mode: LayoutMode,
+  options?: Pick<PromptOptions, 'vars' | 'system'>,
+): readonly PromptSection[] {
   const vars = resolveVars(options?.vars);
   const defaults = recordToSections(getDefaultSystemSections(mode));
   const interpolated = interpolateVars(defaults, vars);
-  const sections = applySectionOverrides(interpolated, options?.system);
-  return joinSections(sections);
+  return applySectionOverrides(interpolated, options?.system);
+}
+
+function buildUserSections(
+  request: ChartRequest,
+  options?: Pick<PromptOptions, 'user'>,
+  logger?: Logger,
+): readonly PromptSection[] {
+  const defaults = buildDefaultUserSections(request, logger);
+  return applySectionOverrides(defaults, options?.user);
 }
 
 function resolveVars(vars?: PromptVars): Record<string, string> {

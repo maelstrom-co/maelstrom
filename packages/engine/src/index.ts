@@ -47,5 +47,9 @@ export type {
   PromptResult,
   PromptVars,
 } from './lib/prompt/prompt-builder.js';
-export { buildPrompt, buildSystemPrompt } from './lib/prompt/prompt-builder.js';
+export {
+  buildPrompt,
+  buildSystemPrompt,
+  buildUserPrompt,
+} from './lib/prompt/prompt-builder.js';
 

@@ -133,10 +133,10 @@
     },
     "packages/client": {
       "name": "@maelstrom-co/client",
-      "version": "0.0.9-prealpha.0",
+      "version": "0.0.10-prealpha.0",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
-        "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
+        "@maelstrom-co/protocol": "0.0.10-prealpha.0",
+        "@maelstrom-co/protocol-old": "0.0.10-prealpha.0",
         "@tanstack/store": "catalog:",
       },
       "devDependencies": {
@@ -145,7 +145,7 @@
     },
     "packages/engine": {
       "name": "@maelstrom-co/engine",
-      "version": "0.0.9-prealpha.0",
+      "version": "0.0.10-prealpha.0",
       "dependencies": {
         "@maelstrom-co/protocol": "0.0.9-prealpha.0",
         "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
@@ -155,7 +155,7 @@
     },
     "packages/engine-old": {
       "name": "@maelstrom-co/engine-old",
-      "version": "0.0.9-prealpha.0",
+      "version": "0.0.10-prealpha.0",
       "dependencies": {
         "@tanstack/ai": "catalog:",
         "@tanstack/ai-gemini": "catalog:",
@@ -169,26 +169,26 @@
     },
     "packages/protocol": {
       "name": "@maelstrom-co/protocol",
-      "version": "0.0.9-prealpha.0",
+      "version": "0.0.10-prealpha.0",
       "dependencies": {
         "zod": "catalog:",
       },
     },
     "packages/protocol-old": {
       "name": "@maelstrom-co/protocol-old",
-      "version": "0.0.9-prealpha.0",
+      "version": "0.0.10-prealpha.0",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
+        "@maelstrom-co/protocol": "0.0.10-prealpha.0",
         "zod": "catalog:",
       },
     },
     "packages/react": {
       "name": "@maelstrom-co/react",
-      "version": "0.0.9-prealpha.0",
+      "version": "0.0.10-prealpha.0",
       "dependencies": {
-        "@maelstrom-co/client": "0.0.9-prealpha.0",
-        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
-        "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
+        "@maelstrom-co/client": "0.0.10-prealpha.0",
+        "@maelstrom-co/protocol": "0.0.10-prealpha.0",
+        "@maelstrom-co/protocol-old": "0.0.10-prealpha.0",
         "@tanstack/react-store": "catalog:",
       },
       "devDependencies": {
@@ -197,7 +197,7 @@
         "happy-dom": "catalog:",
       },
       "peerDependencies": {
-        "@maelstrom-co/voice": "0.0.9-prealpha.0",
+        "@maelstrom-co/voice": "0.0.10-prealpha.0",
         "react": ">=18.0.0",
         "react-dom": ">=18.0.0",
       },
@@ -207,17 +207,17 @@
     },
     "packages/voice": {
       "name": "@maelstrom-co/voice",
-      "version": "0.0.9-prealpha.0",
+      "version": "0.0.10-prealpha.0",
       "dependencies": {
-        "@maelstrom-co/client": "0.0.9-prealpha.0",
-        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
-        "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
+        "@maelstrom-co/client": "0.0.10-prealpha.0",
+        "@maelstrom-co/protocol": "0.0.10-prealpha.0",
+        "@maelstrom-co/protocol-old": "0.0.10-prealpha.0",
         "onnxruntime-web": "catalog:",
       },
     },
     "packages/voice-server": {
       "name": "@maelstrom-co/voice-server",
-      "version": "0.0.9-prealpha.0",
+      "version": "0.0.10-prealpha.0",
       "dependencies": {
         "@google-cloud/speech": "catalog:",
         "@google-cloud/text-to-speech": "catalog:",

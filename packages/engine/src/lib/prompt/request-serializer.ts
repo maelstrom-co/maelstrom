@@ -17,7 +17,7 @@ import type { Logger } from '../logger.js';
 
 const CHART_STATE_HEADING: readonly string[] = ['## Current Chart State', ''];
 
-export function buildUserSections(
+export function buildDefaultUserSections(
   request: ChartRequest,
   logger?: Logger,
 ): readonly PromptSection[] {
