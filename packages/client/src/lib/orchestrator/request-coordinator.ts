@@ -1,6 +1,7 @@
 import type {
   ChartRequestMessage,
   MaelstromResponse,
+  MessageId,
 } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
@@ -24,9 +25,9 @@ type FlushResolver = {
  * Event payloads emitted by RequestCoordinator.
  */
 export type RequestCoordinatorEvents = {
-  processing_started: { requestId: string; timestamp: number };
+  processing_started: { requestId: MessageId; timestamp: number };
   processing_completed: {
-    requestId: string;
+    requestId: MessageId;
     response: MaelstromResponse;
     durationMs: number;
     timestamp: number;

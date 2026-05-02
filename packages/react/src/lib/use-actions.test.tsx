@@ -5,7 +5,11 @@ import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
 import { Success } from '@maelstrom-co/protocol-old';
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { ActionRunner } from '@maelstrom-co/client';
-import type { MaelstromResponse } from '@maelstrom-co/protocol';
+import type {
+  MaelstromResponse,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
@@ -43,9 +47,9 @@ afterEach(() => cleanup());
 
 function makeInstance(override?: Partial<VesselInstance>): VesselInstance {
   return {
-    instanceId: 'inst-1',
-    vesselId: 'orders',
-    variant: 'list',
+    instanceId: InstanceId('inst-1'),
+    vesselId: 'orders' as VesselId,
+    variant: 'list' as VariantName,
     position: { column: 0, row: 0 },
     size: { width: 2, height: 2 },
     ...override,
@@ -191,7 +195,7 @@ describe('m.useActions()', () => {
     const connector = createMockConnector({
       process: async () =>
         makeResponse(
-          [makeInstance(), makeInstance({ instanceId: 'inst-2' })],
+          [makeInstance(), makeInstance({ instanceId: InstanceId('inst-2') })],
           [{ instanceId: 'inst-2', action: 'refresh' }],
         ),
     });

@@ -1,15 +1,21 @@
 import type { ComponentType } from 'react';
-import type { Vessel } from '@maelstrom-co/protocol';
+import type { InstanceId, VesselDefinition } from '@maelstrom-co/protocol';
 
 import type { ActionRunner, AllVariantActionNames, ExtractActionParams } from '@maelstrom-co/client';
 // VariantPropsUnion is the React-side prop-inference helper. It stays on
-// protocol-old until the vessel-inference follow-up (out of scope for MAE-138).
-import type { VariantPropsUnion } from '@maelstrom-co/protocol-old';
+// protocol-old until the vessel-inference follow-up.
+import type {
+  Vessel as OldVessel,
+  VariantPropsUnion,
+} from '@maelstrom-co/protocol-old';
 
 /** Typed props delivered to a vessel component */
-export interface TypedVesselProps<V extends Vessel> {
-  instanceId: string;
-  variantProps: VariantPropsUnion<V>;
+export interface TypedVesselProps<V extends VesselDefinition> {
+  instanceId: InstanceId;
+  // VariantPropsUnion is constrained to protocol-old's `Vessel`. Intersect
+  // with the old-Vessel shape to satisfy the constraint; erases to the same
+  // runtime shape.
+  variantProps: VariantPropsUnion<V & OldVessel>;
   executeAction: <N extends AllVariantActionNames<V>>(
     ...args: ExtractActionParams<V, N> extends undefined
       ? [name: N]
@@ -18,25 +24,25 @@ export interface TypedVesselProps<V extends Vessel> {
 }
 
 /** Eager vessel entry — component is already loaded */
-export interface VesselEntry<V extends Vessel> {
+export interface VesselEntry<V extends VesselDefinition> {
   vessel: V;
   component: ComponentType<TypedVesselProps<V>>;
 }
 
 /** Lazy loader function for a vessel component */
-export type LazyVesselComponentLoader<V extends Vessel> = () => Promise<{
+export type LazyVesselComponentLoader<V extends VesselDefinition> = () => Promise<{
   default: ComponentType<TypedVesselProps<V>>;
 }>;
 
 /** Lazy vessel entry — component is loaded on demand */
-export interface LazyVesselEntry<V extends Vessel> {
+export interface LazyVesselEntry<V extends VesselDefinition> {
   vessel: V;
   component: LazyVesselComponentLoader<V>;
   loadingComponent: ComponentType<{ vesselId: string }>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyVesselEntry<T extends Vessel = any> = VesselEntry<T> | LazyVesselEntry<T>;
+export type AnyVesselEntry<T extends VesselDefinition = any> = VesselEntry<T> | LazyVesselEntry<T>;
 
 /** Extract vessel IDs from a tuple of vessel entries */
 export type VesselIds<TVessels extends readonly AnyVesselEntry[]> =

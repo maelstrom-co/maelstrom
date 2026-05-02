@@ -1,4 +1,9 @@
-import type { Vessel, VesselValidationResult } from '@maelstrom-co/protocol';
+import type {
+  Vessel,
+  VesselDefinition,
+  VesselId,
+  VesselValidationResult,
+} from '@maelstrom-co/protocol';
 import { validateVessel } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
@@ -19,26 +24,30 @@ export type VesselManagerEvents = {
 };
 
 const DEFAULT_OPTIONS = {
-  validateOnRegister: true,
   debug: false,
 } as const;
 
 /**
  * Manages vessel registration, lookup, and lifecycle events.
  *
- * Creates and owns its own store. Provides vessel registration
- * with optional validation, event-driven lifecycle notifications,
- * and disposable cleanup.
+ * Creates and owns its own store. Every vessel passes through
+ * `validateVessel` so all stored entries carry post-transform brands
+ * for IDs, variant names, and action names. Invalid input is rejected:
+ * `registerVessel` returns `{ valid: false, issues }` and does not
+ * mutate state or emit `vessel_registered`.
  *
  * @example
  * ```ts
- * const manager = new VesselManager({ validateOnRegister: true });
+ * const manager = new VesselManager({ debug: true });
  *
  * manager.events.on('vessel_registered', (e) => {
  *   console.log(`Registered: ${e.vessel.id}`);
  * });
  *
  * const result = manager.registerVessel(myVessel);
+ * if (!result.valid) {
+ *   console.error(result.issues);
+ * }
  * ```
  */
 export class VesselManager {
@@ -46,14 +55,11 @@ export class VesselManager {
   readonly #emitter = new TypedEmitter<VesselManagerEvents>();
   readonly events: EventSubscriber<VesselManagerEvents> = this.#emitter;
   readonly #logger: Logger;
-  readonly #validateOnRegister: boolean;
 
   constructor(options: VesselManagerOptions = {}) {
     const initialState =
       options.initialState ?? createInitialVesselManagerState();
     this.store = new Store<VesselManagerState>(initialState);
-    this.#validateOnRegister =
-      options.validateOnRegister ?? DEFAULT_OPTIONS.validateOnRegister;
     this.#logger = new Logger(
       options.debug ?? DEFAULT_OPTIONS.debug,
       'VesselManager',
@@ -61,39 +67,40 @@ export class VesselManager {
   }
 
   /**
-   * Registers a vessel. Validates first if `validateOnRegister` is enabled.
-   * Overwrites existing vessel with the same ID.
+   * Registers a vessel. Always validates through the schema; on failure,
+   * returns the validation result without mutating state. Overwrites
+   * any existing vessel with the same ID.
    */
-  registerVessel(vessel: Vessel): VesselValidationResult {
+  registerVessel(vessel: VesselDefinition): VesselValidationResult {
     if (this.#emitter.disposed) {
       throw new Error('VesselManager is disposed');
     }
 
-    if (this.#validateOnRegister) {
-      const validation = validateVessel(vessel);
-      if (!validation.valid) {
-        this.#logger.error(
-          `Validation failed for vessel "${vessel.id}":`,
-          validation.issues,
-        );
-        return validation;
-      }
+    const validation = validateVessel(vessel);
+
+    if (!validation.valid) {
+      this.#logger.error(
+        `Validation failed for vessel "${vessel.id}":`,
+        validation.issues,
+      );
+      return validation;
     }
 
+    const parsed = validation.vessel;
     this.store.setState((state) => {
       const newVessels = new Map(state.vessels);
-      newVessels.set(vessel.id, vessel);
+      newVessels.set(parsed.id, parsed);
       return { ...state, vessels: newVessels };
     });
 
     this.#emitter.emit('vessel_registered', {
-      vessel,
+      vessel: parsed,
       timestamp: Date.now(),
     });
 
-    this.#logger.info(`Registered vessel "${vessel.id}"`);
+    this.#logger.info(`Registered vessel "${parsed.id}"`);
 
-    return { valid: true };
+    return validation;
   }
 
   /**
@@ -104,12 +111,12 @@ export class VesselManager {
       throw new Error('VesselManager is disposed');
     }
 
-    const vessel = this.store.state.vessels.get(vesselId);
+    const vessel = this.store.state.vessels.get(vesselId as VesselId);
     if (!vessel) return undefined;
 
     this.store.setState((state) => {
       const newVessels = new Map(state.vessels);
-      newVessels.delete(vesselId);
+      newVessels.delete(vesselId as VesselId);
       return { ...state, vessels: newVessels };
     });
 
@@ -125,7 +132,7 @@ export class VesselManager {
   }
 
   get(vesselId: string): Vessel | undefined {
-    return this.store.state.vessels.get(vesselId);
+    return this.store.state.vessels.get(vesselId as VesselId);
   }
 
   getAll(): Vessel[] {
@@ -133,7 +140,7 @@ export class VesselManager {
   }
 
   has(vesselId: string): boolean {
-    return this.store.state.vessels.has(vesselId);
+    return this.store.state.vessels.has(vesselId as VesselId);
   }
 
   get size(): number {

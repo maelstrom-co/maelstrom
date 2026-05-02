@@ -1,7 +1,11 @@
 import type {
+  ActionName,
   GridResponse,
+  InstanceId,
   Vessel,
+  VesselId,
   VesselInstanceSnapshot,
+  VariantName,
 } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../../logger.js';
@@ -16,66 +20,83 @@ export type RawActionExecution = GridResponse['executionPlan'][number];
 export type SkippedAction =
   | {
       readonly reason: 'unknown_instance';
-      readonly instanceId: string;
-      readonly action: string;
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
     }
   | {
       readonly reason: 'unknown_vessel';
-      readonly instanceId: string;
-      readonly action: string;
-      readonly vesselId: string;
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
+      readonly vesselId: VesselId;
     }
   | {
       readonly reason: 'no_simulated_variant';
-      readonly instanceId: string;
-      readonly action: string;
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
     }
   | {
       readonly reason: 'variant_not_on_vessel';
-      readonly instanceId: string;
-      readonly action: string;
-      readonly vesselId: string;
-      readonly variant: string;
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
+      readonly vesselId: VesselId;
+      readonly variant: VariantName;
     }
   | {
       readonly reason: 'action_not_valid';
-      readonly instanceId: string;
-      readonly action: string;
-      readonly vesselId: string;
-      readonly variant: string;
-      readonly validActions: readonly string[];
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
+      readonly vesselId: VesselId;
+      readonly variant: VariantName;
+      readonly validActions: readonly ActionName[];
     }
   | {
       readonly reason: 'params_parse_failed';
-      readonly instanceId: string;
-      readonly action: string;
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
       readonly paramsJson: string;
     }
   | {
       readonly reason: 'state_drift';
-      readonly instanceId: string;
-      readonly action: string;
-      readonly vesselId: string;
-      readonly targetVariant: string;
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
+      readonly vesselId: VesselId;
+      readonly targetVariant: VariantName;
     };
 
 export interface ValidationLookups {
-  readonly instanceMap: ReadonlyMap<string, VesselInstanceSnapshot>;
-  readonly vesselMap: ReadonlyMap<string, Vessel>;
+  readonly instanceMap: ReadonlyMap<InstanceId, VesselInstanceSnapshot>;
+  readonly vesselMap: ReadonlyMap<VesselId, Vessel>;
   readonly logger: Logger;
 }
 
 /**
- * Mutable per-instance variant state as the plan is walked. Split from
- * {@link ValidationLookups} so the two value categories — frozen inputs
- * vs. accumulating state — have distinct types at the call sites.
- *
- * Note on `readonly`: the `variants` field prevents reassignment of the
- * Map reference, but callers can still mutate the Map contents via
- * `.set()` / `.delete()`. The "simulation mutates" discipline is enforced
- * by convention — only {@link updateSimulatedVariant} writes to
- * `sim.variants`, and it is the only site in the module with write access.
+ * Read-only view of variant simulation state. Returned to all consumers of
+ * `parseExecutionPlan`'s internals so reads are safe but writes are
+ * impossible at the type level.
  */
 export interface SimulationState {
-  readonly variants: Map<string, string>;
+  readonly variants: ReadonlyMap<InstanceId, VariantName>;
 }
+
+/**
+ * Mutating view over the same underlying Map. The split exists so consumers
+ * that only need to read take `SimulationState` (a `ReadonlyMap` view) and
+ * cannot mutate at the type level.
+ */
+export interface SimulationStateWriter {
+  readonly variants: Map<InstanceId, VariantName>;
+}
+
+/**
+ * Constructs both views over a single underlying Map. Returns the writer
+ * so the caller can populate / mutate; the reader is the same Map widened.
+ *
+ * @param seed Initial variant assignments (typically derived from
+ *   `request.instances`).
+ */
+export const createSimulationState = (
+  seed: Iterable<readonly [InstanceId, VariantName]>,
+): { reader: SimulationState; writer: SimulationStateWriter } => {
+  const map = new Map<InstanceId, VariantName>(seed);
+  return { reader: { variants: map }, writer: { variants: map } };
+};

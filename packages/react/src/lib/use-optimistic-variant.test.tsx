@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { Vessel } from '@maelstrom-co/protocol';
-import { defineVessel } from '@maelstrom-co/protocol';
+import { defineVessel, VariantName } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { useOptimisticVariant } from './use-optimistic-variant.js';
+
+const vCollapsed = VariantName('collapsed');
+const vExpanded = VariantName('expanded');
 
 afterEach(() => cleanup());
 
@@ -38,7 +41,7 @@ const vessel = defineVessel({
 const noop = () => () => {};
 
 interface RenderOptimisticProps {
-  instance: { variant: string } | undefined;
+  instance: { variant: VariantName } | undefined;
   vessel: Vessel | undefined;
   onActionError: (handler: () => void) => () => void;
   timeoutMs?: number;
@@ -47,8 +50,8 @@ interface RenderOptimisticProps {
 
 function renderOptimistic(overrides?: Partial<RenderOptimisticProps>) {
   const props: RenderOptimisticProps = {
-    instance: { variant: 'collapsed' },
-    vessel: vessel as Vessel,
+    instance: { variant: vCollapsed },
+    vessel: vessel as unknown as Vessel,
     onActionError: noop,
     ...overrides,
   };
@@ -81,7 +84,7 @@ describe('useOptimisticVariant', () => {
     });
 
     expect(applied).toBe(true);
-    expect(result.current.current).toBe('expanded');
+    expect(result.current.current).toBe(vExpanded);
   });
 
   it('applyTransition returns false when action has no transitionsTo', () => {
@@ -135,7 +138,7 @@ describe('useOptimisticVariant', () => {
       },
     });
 
-    const { result } = renderOptimistic({ vessel: badVessel });
+    const { result } = renderOptimistic({ vessel: badVessel as unknown as Vessel });
 
     let applied = undefined as boolean | undefined;
     act(() => {
@@ -150,12 +153,12 @@ describe('useOptimisticVariant', () => {
     const { result, rerender } = renderOptimistic();
 
     act(() => result.current.applyTransition('expand'));
-    expect(result.current.current).toBe('expanded');
+    expect(result.current.current).toBe(vExpanded);
 
     // Simulate engine responding — new instance object
     rerender({
-      instance: { variant: 'expanded' },
-      vessel,
+      instance: { variant: vExpanded },
+      vessel: vessel as unknown as Vessel,
       onActionError: noop,
       timeoutMs: undefined,
     });
@@ -175,7 +178,7 @@ describe('useOptimisticVariant', () => {
     const { result } = renderOptimistic({ onActionError });
 
     act(() => result.current.applyTransition('expand'));
-    expect(result.current.current).toBe('expanded');
+    expect(result.current.current).toBe(vExpanded);
 
     act(() => errorHandler!());
     expect(result.current.current).toBeNull();
@@ -186,11 +189,11 @@ describe('useOptimisticVariant', () => {
 
     // First transition: collapsed → expanded
     act(() => result.current.applyTransition('expand'));
-    expect(result.current.current).toBe('expanded');
+    expect(result.current.current).toBe(vExpanded);
 
     // Second transition: should use expanded's actions (collapse → collapsed)
     act(() => result.current.applyTransition('collapse'));
-    expect(result.current.current).toBe('collapsed');
+    expect(result.current.current).toBe(vCollapsed);
   });
 
   it('unsubscribes from onActionError on unmount', () => {
@@ -214,8 +217,8 @@ describe('useOptimisticVariant', () => {
     expect(result.current.current).toBeNull();
 
     rerender({
-      instance: { variant: 'collapsed' },
-      vessel,
+      instance: { variant: vCollapsed },
+      vessel: vessel as unknown as Vessel,
       onActionError: noop,
       timeoutMs: undefined,
     });
@@ -235,7 +238,7 @@ describe('useOptimisticVariant', () => {
       const { result } = renderOptimistic({ timeoutMs: 100 });
 
       act(() => result.current.applyTransition('expand'));
-      expect(result.current.current).toBe('expanded');
+      expect(result.current.current).toBe(vExpanded);
 
       act(() => {
         clock.tick(100);
@@ -248,12 +251,12 @@ describe('useOptimisticVariant', () => {
       const { result, rerender } = renderOptimistic({ timeoutMs: 200 });
 
       act(() => result.current.applyTransition('expand'));
-      expect(result.current.current).toBe('expanded');
+      expect(result.current.current).toBe(vExpanded);
 
       // Store update clears optimistic before timeout
       rerender({
-        instance: { variant: 'expanded' },
-        vessel,
+        instance: { variant: vExpanded },
+        vessel: vessel as unknown as Vessel,
         onActionError: noop,
         timeoutMs: 200,
       });
@@ -271,12 +274,12 @@ describe('useOptimisticVariant', () => {
       const { result } = renderOptimistic({ timeoutMs: 0 });
 
       act(() => result.current.applyTransition('expand'));
-      expect(result.current.current).toBe('expanded');
+      expect(result.current.current).toBe(vExpanded);
 
       act(() => {
         clock.tick(30_000);
       });
-      expect(result.current.current).toBe('expanded');
+      expect(result.current.current).toBe(vExpanded);
     });
 
     it('resets timer on successive transitions', () => {
@@ -284,23 +287,23 @@ describe('useOptimisticVariant', () => {
       const { result } = renderOptimistic({ timeoutMs: 100 });
 
       act(() => result.current.applyTransition('expand'));
-      expect(result.current.current).toBe('expanded');
+      expect(result.current.current).toBe(vExpanded);
 
       // Advance 80ms (within first timeout), then trigger second transition
       act(() => {
         clock.tick(80);
       });
-      expect(result.current.current).toBe('expanded');
+      expect(result.current.current).toBe(vExpanded);
 
       act(() => result.current.applyTransition('collapse'));
-      expect(result.current.current).toBe('collapsed');
+      expect(result.current.current).toBe(vCollapsed);
 
       // 80ms after second transition — first timeout would have fired at 100ms
       // but the timer should have reset
       act(() => {
         clock.tick(80);
       });
-      expect(result.current.current).toBe('collapsed');
+      expect(result.current.current).toBe(vCollapsed);
 
       // Full 100ms after second transition — now it should clear
       act(() => {
@@ -319,7 +322,7 @@ describe('useOptimisticVariant', () => {
         const { result } = renderOptimistic({ timeoutMs: 100, debug: true });
 
         act(() => result.current.applyTransition('expand'));
-        expect(result.current.current).toBe('expanded');
+        expect(result.current.current).toBe(vExpanded);
 
         act(() => {
           clock.tick(100);
@@ -341,7 +344,7 @@ describe('useOptimisticVariant', () => {
       const { result, unmount } = renderOptimistic({ timeoutMs: 100 });
 
       act(() => result.current.applyTransition('expand'));
-      expect(result.current.current).toBe('expanded');
+      expect(result.current.current).toBe(vExpanded);
 
       unmount();
       // Advancing past timeout after unmount should not throw

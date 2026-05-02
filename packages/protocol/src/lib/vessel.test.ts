@@ -1,9 +1,21 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { Vessel } from './vessel.js';
+import { ActionName } from './action-name.js';
+import { VariantName } from './variant-name.js';
+import type { Vessel, VesselDefinition } from './vessel.js';
 import { defineVessel, validateVessel } from './vessel.js';
+import { VesselId } from './vessel-id.js';
 
-const validVessel: Vessel = {
+// Type-level equality: a removed `.transform(<Brand>)` flips the inferred
+// type, the `Equals<...>` in the test below resolves to `false`, and tsc
+// fails the typecheck. Brands erase at runtime, so this is the only layer
+// that can pin the schema-to-type contract.
+type Equals<X, Y> =
+  (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2)
+    ? true
+    : false;
+
+const validVessel: VesselDefinition = {
   id: 'calendar',
   name: 'Calendar',
   description: 'Displays events',
@@ -32,6 +44,41 @@ describe('validateVessel', () => {
   test('accepts a well-formed vessel', () => {
     const result = validateVessel(validVessel);
     expect(result.valid).toBe(true);
+  });
+
+  test('returns the parsed branded vessel on success', () => {
+    const result = validateVessel(validVessel);
+    expect(result.valid).toBe(true);
+    if (!result.valid) throw new Error('expected valid');
+    // Brand erases at runtime; structural equality holds.
+    expect(result.vessel.id).toBe(VesselId('calendar'));
+    expect(result.vessel.defaultVariant).toBe(VariantName('month'));
+
+    // Runtime: nested fields preserve their string values.
+    const monthKey = VariantName('month');
+    const showWeek = result.vessel.variants[monthKey]?.actions[0];
+    expect(showWeek?.name).toBe(ActionName('showWeek'));
+    expect(showWeek?.transitionsTo).toBe(VariantName('week'));
+
+    // Type-level: each `.transform(<Brand>)` on the schema must surface as
+    // the branded type on the inferred output. Removing any transform flips
+    // the matching `Equals` to `false`, which fails the typecheck.
+    type Variants = Vessel['variants'];
+    type _VariantKeyBranded = Equals<keyof Variants, VariantName>;
+    const _variantKeyBranded: _VariantKeyBranded = true;
+    void _variantKeyBranded;
+
+    type ActionEntry = NonNullable<Variants[VariantName]>['actions'][number];
+    type _ActionNameBranded = Equals<ActionEntry['name'], ActionName>;
+    const _actionNameBranded: _ActionNameBranded = true;
+    void _actionNameBranded;
+
+    type _TransitionsToBranded = Equals<
+      NonNullable<ActionEntry['transitionsTo']>,
+      VariantName
+    >;
+    const _transitionsToBranded: _TransitionsToBranded = true;
+    void _transitionsToBranded;
   });
 
   test('rejects a vessel with no variants', () => {

@@ -1,4 +1,9 @@
-import type { ChartRequest } from '@maelstrom-co/protocol';
+import type {
+  ActionName,
+  ChartRequest,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
@@ -67,8 +72,62 @@ export function getLastUserMessage(
   return last.content;
 }
 
+/**
+ * Author-shape overrides for `ChartRequest` test fixtures. Accepts raw
+ * strings for branded slots — brands erase at runtime, so the cast at the
+ * boundary is sound for trusted fixture inputs.
+ */
+type AuthorVesselAction = {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters?: ReadonlyArray<unknown>;
+  readonly transitionsTo?: string;
+};
+type AuthorVesselVariant = {
+  readonly description?: string;
+  readonly props: Readonly<Record<string, unknown>>;
+  readonly minSize: { readonly width: number; readonly height: number };
+  readonly actions: ReadonlyArray<AuthorVesselAction>;
+};
+type AuthorVessel = {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly defaultVariant: string;
+  readonly variants: Readonly<Record<string, AuthorVesselVariant>>;
+};
+type AuthorTilingNode = 'H' | 'V' | string | null;
+type ChartRequestAuthorOverrides = Partial<{
+  readonly type: 'chart_request';
+  readonly context: ChartRequest['context'];
+  readonly instances: ReadonlyArray<{
+    readonly instanceId: string;
+    readonly vesselId: string;
+    readonly variant: string;
+  }>;
+  readonly vessels: ReadonlyArray<AuthorVessel>;
+  readonly layout:
+    | {
+        readonly type: 'grid';
+        readonly positions: ReadonlyArray<{
+          readonly instanceId: string;
+          readonly position: { readonly row: number; readonly column: number };
+          readonly size: { readonly width: number; readonly height: number };
+        }>;
+      }
+    | {
+        readonly type: 'tiling';
+        readonly tree: ReadonlyArray<AuthorTilingNode>;
+        readonly instances: ReadonlyArray<{
+          readonly instanceId: string;
+          readonly vesselId: string;
+          readonly variant: string;
+        }>;
+      };
+}>;
+
 export function makeGridRequest(
-  overrides?: Partial<ChartRequest>,
+  overrides?: ChartRequestAuthorOverrides,
 ): ChartRequest {
   return {
     type: 'chart_request',
@@ -80,38 +139,38 @@ export function makeGridRequest(
     instances: [
       {
         instanceId: InstanceId('calendar-main'),
-        vesselId: 'calendar',
-        variant: 'month',
+        vesselId: 'calendar' as VesselId,
+        variant: 'month' as VariantName,
       },
     ],
     vessels: [
       {
-        id: 'calendar',
+        id: 'calendar' as VesselId,
         name: 'Calendar',
         description: 'Displays events in various views',
-        defaultVariant: 'month',
+        defaultVariant: 'month' as VariantName,
         variants: {
-          month: {
+          ['month' as VariantName]: {
             description: 'Monthly overview',
             props: {},
             minSize: { width: 4, height: 4 },
             actions: [
               {
-                name: 'showWeek',
+                name: 'showWeek' as ActionName,
                 description: 'Switch to week view',
-                transitionsTo: 'week',
+                transitionsTo: 'week' as VariantName,
               },
             ],
           },
-          week: {
+          ['week' as VariantName]: {
             description: 'Weekly detail view',
             props: {},
             minSize: { width: 6, height: 4 },
             actions: [
               {
-                name: 'showMonth',
+                name: 'showMonth' as ActionName,
                 description: 'Switch to month view',
-                transitionsTo: 'month',
+                transitionsTo: 'month' as VariantName,
               },
             ],
           },
@@ -129,11 +188,11 @@ export function makeGridRequest(
       ],
     },
     ...overrides,
-  };
+  } as ChartRequest;
 }
 
 export function makeTilingRequest(
-  overrides?: Partial<ChartRequest>,
+  overrides?: ChartRequestAuthorOverrides,
 ): ChartRequest {
   return {
     type: 'chart_request',
@@ -145,18 +204,18 @@ export function makeTilingRequest(
     instances: [
       {
         instanceId: InstanceId('calendar-main'),
-        vesselId: 'calendar',
-        variant: 'month',
+        vesselId: 'calendar' as VesselId,
+        variant: 'month' as VariantName,
       },
     ],
     vessels: [
       {
-        id: 'calendar',
+        id: 'calendar' as VesselId,
         name: 'Calendar',
         description: 'Displays events',
-        defaultVariant: 'month',
+        defaultVariant: 'month' as VariantName,
         variants: {
-          month: {
+          ['month' as VariantName]: {
             props: {},
             minSize: { width: 4, height: 4 },
             actions: [],
@@ -170,11 +229,11 @@ export function makeTilingRequest(
       instances: [
         {
           instanceId: InstanceId('calendar-main'),
-          vesselId: 'calendar',
-          variant: 'month',
+          vesselId: 'calendar' as VesselId,
+          variant: 'month' as VariantName,
         },
       ],
     },
     ...overrides,
-  };
+  } as ChartRequest;
 }

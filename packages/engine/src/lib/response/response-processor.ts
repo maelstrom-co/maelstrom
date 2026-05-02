@@ -1,9 +1,14 @@
 import type {
   ChartRequest,
+  GridLayout,
+  GridPosition,
   GridResponse,
   MaelstromResponse,
   MessageId,
   Result,
+  TilingInstance,
+  TilingLayout,
+  TilingNode,
   TilingResponse,
 } from '@maelstrom-co/protocol';
 import { err, ok } from '@maelstrom-co/protocol';
@@ -28,7 +33,7 @@ import {
 } from '../validation/llm-output/retry-hint.js';
 import type { SkippedAction } from './execution-plan/index.js';
 import { parseExecutionPlan } from './execution-plan/index.js';
-import { buildLayout } from './layout/index.js';
+import { buildGridLayout, buildTilingLayout } from './layout/index.js';
 
 /**
  * Stripped from the response before it crosses the engine boundary.
@@ -69,16 +74,34 @@ export function processResponse({
 
   // `layoutMode` is the upstream discriminator: the schema that produced
   // `llmOutput` matches `request.context.layoutMode`, so these casts are
-  // type-safe narrowings.
+  // type-safe narrowings. The narrowing lives here at the dispatch site
+  // (rather than in a helper) so the discriminator → branch correspondence
+  // is locally legible; each cast is paired with the case that justifies it.
   const mode = request.context.layoutMode;
   let healed: HealedLayout;
+  let layout: GridLayout | TilingLayout;
   switch (mode) {
-    case 'grid':
+    case 'grid': {
       healed = healGridLayout(llmOutput as GridResponse, request);
+      // Union-narrowing on `healed.layout`: `mode === 'grid'` selected the
+      // grid-shaped heal function above, so the layout payload matches
+      // `buildGridLayout`'s expected shape.
+      layout = buildGridLayout(
+        healed.layout as { positions: readonly GridPosition[] },
+      );
       break;
-    case 'tiling':
+    }
+    case 'tiling': {
       healed = healTilingLayout(llmOutput as TilingResponse, request);
+      // Same union-narrowing rationale as the `grid` arm.
+      layout = buildTilingLayout(
+        healed.layout as {
+          tree: readonly TilingNode[];
+          instances: readonly TilingInstance[];
+        },
+      );
       break;
+    }
     default: {
       const _exhaustive: never = mode;
       return err(
@@ -89,14 +112,6 @@ export function processResponse({
       );
     }
   }
-
-  // `buildLayout`'s parameter is the wide LLM-shape (Zod-inferred). The
-  // healed tiling tree is internally branded `TilingNode[]`; widen at the
-  // boundary back to the LLM contract for serialization.
-  const layout = buildLayout(
-    healed.layout as LLMOutput['layout'],
-    mode,
-  );
   const { plan: executionPlan, skippedActions } = parseExecutionPlan(
     llmOutput.executionPlan,
     request.instances,

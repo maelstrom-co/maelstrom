@@ -6,7 +6,7 @@ import { ChartDimensionsSchema } from './chart.js';
 // Referenced via `{@link}` in the ChartRequest JSDoc below — type-only import
 // keeps IDE hover/jump-to-definition uniform across resolvers.
 import type { ChartRequestMessage } from './engine-message.js';
-import type { InstanceId } from './instance.js';
+import { InstanceId } from './instance.js';
 import type { LayoutMode } from './layout.js';
 import type { GridLayout, TilingLayout } from './response.js';
 import {
@@ -15,8 +15,10 @@ import {
   TilingLayoutSchema,
   VesselInstanceSnapshotSchema,
 } from './schemas.js';
+import type { VariantName } from './variant-name.js';
 import type { Vessel } from './vessel.js';
 import { VesselSchema } from './vessel.js';
+import type { VesselId } from './vessel-id.js';
 
 // ---------------------------------------------------------------------------
 // Update reasons
@@ -79,14 +81,15 @@ export const ChartResizeReasonSchema = z.object({
 
 /**
  * Wire-format Zod parser for {@link VesselMutationReason}. `instanceId`
- * must be a non-empty string. Note that the TS interface declares it as
- * the branded `InstanceId` type — at the schema layer it is currently
- * plain `z.string().min(1)` because branded-ID schemas are deferred to
- * MAE-133.
+ * is branded to {@link InstanceId} via `.transform(...)` so the inferred
+ * shape matches the hand-written interface end-to-end.
  */
 export const VesselMutationReasonSchema = z.object({
   type: z.literal('vessel_mutation'),
-  instanceId: z.string().min(1),
+  instanceId: z
+    .string()
+    .min(1, 'instanceId is required')
+    .transform(InstanceId),
   changes: z.string(),
 });
 
@@ -107,8 +110,8 @@ export const UpdateReasonSchema = z.discriminatedUnion('type', [
 /** Snapshot of a Vessel instance's state (for wire transfer) */
 export interface VesselInstanceSnapshot {
   readonly instanceId: InstanceId;
-  readonly vesselId: string;
-  readonly variant: string;
+  readonly vesselId: VesselId;
+  readonly variant: VariantName;
 }
 
 /**
@@ -218,19 +221,30 @@ export const ChartRequestSchema = z.object({
 
 type _InferredChartRequest = z.infer<typeof ChartRequestSchema>;
 
-// Forward guards (`_Inferred extends Mutable<Interface>`) are intentionally
-// omitted for both ChartRequest and UpdateReason: fields typed as branded
-// `InstanceId` (string & { [brand]: 'InstanceId' }) infer as plain `string`
-// from `z.string()` — `string extends InstanceId` is always false. Branded-ID
-// schemas are MAE-133's scope. The backward direction (interface extends
-// inferred) passes because `InstanceId extends string`.
-const _chartReqBwd: Mutable<ChartRequest> extends _InferredChartRequest
+// The `layout` field is carved out. Inside `TilingLayout`, the hand-written
+// `TilingInstance` interface still types `vesselId` and `variant` as plain
+// `string`, while `TilingLayoutSchema.instances` parses through
+// `VesselInstanceSnapshotSchema` whose `.transform(...)` calls brand those
+// fields as `VesselId` / `VariantName`. The interface and the inferred shape
+// disagree at exactly that depth, so the backward direction
+// (`Mutable<TilingInstance>` extends the inferred branded shape) fails
+// because `string extends VesselId` is false. Runtime round-trip behaviour
+// for `TilingLayoutSchema` is exercised in `request.test.ts`.
+type _ChartReqWithoutLayout = Omit<ChartRequest, 'layout'>;
+type _InferredChartReqWithoutLayout = Omit<_InferredChartRequest, 'layout'>;
+const _chartReqFwd: _InferredChartReqWithoutLayout extends Mutable<_ChartReqWithoutLayout>
+  ? true
+  : false = true;
+const _chartReqBwd: Mutable<_ChartReqWithoutLayout> extends _InferredChartReqWithoutLayout
   ? true
   : false = true;
 
 type _InferredUpdateReason = z.infer<typeof UpdateReasonSchema>;
+const _updateReasonFwd: _InferredUpdateReason extends Mutable<UpdateReason>
+  ? true
+  : false = true;
 const _updateReasonBwd: Mutable<UpdateReason> extends _InferredUpdateReason
   ? true
   : false = true;
 
-void [_chartReqBwd, _updateReasonBwd];
+void [_chartReqFwd, _chartReqBwd, _updateReasonFwd, _updateReasonBwd];

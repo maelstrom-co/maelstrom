@@ -1,8 +1,10 @@
+import type { VariantName } from '@maelstrom-co/protocol';
+
 import type { Logger } from '../../logger.js';
 import type { ResolvedAction } from './resolve-action.js';
 import type {
   RawActionExecution,
-  SimulationState,
+  SimulationStateWriter,
 } from './validation-context.js';
 
 /**
@@ -12,7 +14,7 @@ import type {
  */
 export type SimulationOutcome =
   | { readonly kind: 'advanced' }
-  | { readonly kind: 'drift'; readonly targetVariant: string };
+  | { readonly kind: 'drift'; readonly targetVariant: VariantName };
 
 /**
  * VesselSchema statically rejects vessels whose `transitionsTo` targets are
@@ -23,12 +25,16 @@ export type SimulationOutcome =
  * The caller must drop the action on `drift`: returning it would let the
  * runtime attempt a transition the engine just declared impossible and
  * leave subsequent validation out of sync with runtime state.
+ *
+ * The reader/writer split is enforced at the type level — `SimulationState`
+ * exposes a `ReadonlyMap` (no `.set()` / `.delete()`); the mutable Map is
+ * only reachable through the `SimulationStateWriter` view.
  */
 export function updateSimulatedVariant(
   item: RawActionExecution,
   resolved: ResolvedAction,
   logger: Logger,
-  sim: SimulationState,
+  sim: SimulationStateWriter,
 ): SimulationOutcome {
   const { actionDef, vessel, instance, currentVariant } = resolved;
   if (!actionDef.transitionsTo) return { kind: 'advanced' };

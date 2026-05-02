@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { Vessel } from '@maelstrom-co/protocol';
+import type { VesselDefinition } from '@maelstrom-co/protocol';
 
 import type {
   ActionRunnerLookup,
@@ -99,7 +99,9 @@ export interface MaelstromInstance<T extends readonly AnyVesselEntry[]> {
    * // Cleanup:
    * handle.unregister();
    */
-  registerVessel: <V extends Vessel>(entry: AnyVesselEntry<V>) => DynamicVesselHandle<V>;
+  registerVessel: <V extends VesselDefinition>(
+    entry: AnyVesselEntry<V>,
+  ) => DynamicVesselHandle<V>;
 
   /**
    * Voice hook with session ownership semantics.

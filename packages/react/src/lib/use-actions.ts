@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useStore } from '@tanstack/react-store'
 import type { ActionRunner } from '@maelstrom-co/client'
+import { InstanceId } from '@maelstrom-co/protocol'
 
 import type { MaelstromContextPair } from './context.js'
 import type { AnyVesselEntry, ExtractVesselByIdFromEntries, VesselIds, } from './vessel-entry-types.js'
@@ -32,8 +33,12 @@ export function createUseActions<const T extends readonly AnyVesselEntry[]>(
   ): void {
     const { orchestrator } = useMaelstromContext();
 
+    // Brand once at the React seam — the hook accepts a raw string (caller
+    // ergonomics) but downstream APIs are branded.
+    const brandedInstanceId = InstanceId(instanceId);
+
     const instance = useStore(orchestrator.commandProcessor.store, (s) =>
-      s.instances.get(instanceId),
+      s.instances.get(brandedInstanceId),
     );
 
     useEffect(() => {
@@ -50,9 +55,9 @@ export function createUseActions<const T extends readonly AnyVesselEntry[]>(
 
     useEffect(() => {
       return orchestrator.commandProcessor.registerRunner(
-        instanceId,
+        brandedInstanceId,
         runner,
       );
-    }, [orchestrator, instanceId, runner]);
+    }, [orchestrator, brandedInstanceId, runner]);
   };
 }

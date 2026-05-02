@@ -1,3 +1,4 @@
+import type { InstanceId } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 import type { MaelstromContextPair } from './context.js';
 import { createUseVesselCore } from './use-vessel-core.js';
@@ -26,7 +27,7 @@ export function createUseVessel<const T extends readonly AnyVesselEntry[]>(
     const { orchestrator } = useMaelstromContext();
 
     const instance = useStore(orchestrator.commandProcessor.store, (s) =>
-      s.instances.get(instanceId),
+      s.instances.get(instanceId as InstanceId),
     );
 
     const core = useVesselCore(vesselId, instanceId);
@@ -43,7 +44,7 @@ export function createUseVessel<const T extends readonly AnyVesselEntry[]>(
     if (!core) return null;
 
     return {
-      instanceId,
+      instanceId: instanceId as InstanceId,
       variantProps: { variant: core.currentVariant, ...core.variantProps },
       executeAction: core.executeAction,
     } as TypedVesselProps<ExtractVesselByIdFromEntries<T, Id>>;

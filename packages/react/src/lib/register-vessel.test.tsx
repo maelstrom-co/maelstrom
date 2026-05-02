@@ -2,7 +2,12 @@ import { useState, useMemo } from 'react';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { ActionRunner } from '@maelstrom-co/client';
-import type { MaelstromResponse, Vessel } from '@maelstrom-co/protocol';
+import type {
+  MaelstromResponse,
+  VariantName,
+  Vessel,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
 import { Success } from '@maelstrom-co/protocol-old';
 import { act, cleanup, render } from '@testing-library/react';
@@ -84,9 +89,9 @@ describe('m.registerVessel()', () => {
       process: async () =>
         makeResponse([
           {
-            instanceId: 'widget-1',
-            vesselId: 'widget',
-            variant: 'default',
+            instanceId: InstanceId('widget-1'),
+            vesselId: 'widget' as VesselId,
+            variant: 'default' as VariantName,
             position: { column: 0, row: 0 },
             size: { width: 1, height: 1 },
           },
@@ -134,9 +139,9 @@ describe('m.registerVessel()', () => {
       process: async () =>
         makeResponse([
           {
-            instanceId: 'widget-1',
-            vesselId: 'widget',
-            variant: 'default',
+            instanceId: InstanceId('widget-1'),
+            vesselId: 'widget' as VesselId,
+            variant: 'default' as VariantName,
             position: { column: 0, row: 0 },
             size: { width: 1, height: 1 },
           },
@@ -195,9 +200,9 @@ describe('m.registerVessel()', () => {
         // First call: widget instance present; second call: same response
         return makeResponse([
           {
-            instanceId: 'widget-1',
-            vesselId: 'widget',
-            variant: 'default',
+            instanceId: InstanceId('widget-1'),
+            vesselId: 'widget' as VesselId,
+            variant: 'default' as VariantName,
             position: { column: 0, row: 0 },
             size: { width: 1, height: 1 },
           },
@@ -231,7 +236,7 @@ describe('m.registerVessel()', () => {
 
     // Instance should be visible through useInstance (vessel is registered)
     expect(instanceProps).not.toBeNull();
-    expect(instanceProps?.vesselId).toBe('widget');
+    expect(instanceProps?.vesselId).toBe('widget' as VesselId);
 
     // Unregister the vessel
     await act(async () => {
@@ -252,16 +257,16 @@ describe('m.registerVessel()', () => {
       process: async () =>
         makeResponse([
           {
-            instanceId: 'inst-1',
-            vesselId: 'orders',
-            variant: 'list',
+            instanceId: InstanceId('inst-1'),
+            vesselId: 'orders' as VesselId,
+            variant: 'list' as VariantName,
             position: { column: 0, row: 0 },
             size: { width: 2, height: 2 },
           },
           {
-            instanceId: 'widget-1',
-            vesselId: 'widget',
-            variant: 'default',
+            instanceId: InstanceId('widget-1'),
+            vesselId: 'widget' as VesselId,
+            variant: 'default' as VariantName,
             position: { column: 3, row: 0 },
             size: { width: 1, height: 1 },
           },
@@ -292,8 +297,8 @@ describe('m.registerVessel()', () => {
       await state?.processIntent('show all');
     });
 
-    expect(orderInstanceProps?.vesselId).toBe('orders');
-    expect(widgetInstanceProps?.vesselId).toBe('widget');
+    expect(orderInstanceProps?.vesselId).toBe('orders' as VesselId);
+    expect(widgetInstanceProps?.vesselId).toBe('widget' as VesselId);
   });
 
   it('handle.useActions disposer does not remove another component\'s runner', async () => {
@@ -301,9 +306,9 @@ describe('m.registerVessel()', () => {
     const widgetEntry = vessel(widgetVessel, () => null);
 
     const widgetInstance: VesselInstance = {
-      instanceId: 'widget-1',
-      vesselId: 'widget',
-      variant: 'default',
+      instanceId: InstanceId('widget-1'),
+      vesselId: 'widget' as VesselId,
+      variant: 'default' as VariantName,
       position: { column: 0, row: 0 },
       size: { width: 1, height: 1 },
     };
@@ -314,7 +319,7 @@ describe('m.registerVessel()', () => {
         requestCount++;
         return makeResponse(
           [widgetInstance],
-          requestCount >= 2 ? [{ instanceId: 'widget-1', action: 'activate' }] : [],
+          requestCount >= 2 ? [{ instanceId: InstanceId('widget-1'), action: 'activate' }] : [],
         );
       },
     });

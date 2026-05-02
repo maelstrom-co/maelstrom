@@ -1,4 +1,10 @@
-import type { ChartPosition, ChartSize } from '@maelstrom-co/protocol';
+import type {
+  ChartPosition,
+  ChartSize,
+  InstanceId,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 
 /** Teardown callback returned by subscriptions and registrations. */
 export type Unsubscribe = () => void;
@@ -6,11 +12,11 @@ export type Unsubscribe = () => void;
 /** Runtime instance of a Vessel */
 export interface VesselInstance {
   /** Unique instance ID */
-  instanceId: string;
+  instanceId: InstanceId;
   /** ID of the Vessel type */
-  vesselId: string;
+  vesselId: VesselId;
   /** Current variant name */
-  variant: string;
+  variant: VariantName;
   /** Current position on the Chart */
   position: ChartPosition;
   /** Current size (>= variant's minSize) */

@@ -4,6 +4,9 @@ export type { Brand } from './lib/brand.js';
 export { SessionId, SessionIdSchema } from './lib/session.js';
 export { MessageId, MessageIdSchema } from './lib/message.js';
 export { InstanceId } from './lib/instance.js';
+export { VesselId } from './lib/vessel-id.js';
+export { VariantName } from './lib/variant-name.js';
+export { ActionName } from './lib/action-name.js';
 export type { LayoutMode } from './lib/layout.js';
 export type {
   ChartDimensions,
@@ -27,8 +30,11 @@ export type {
   ValidationIssue,
   Vessel,
   VesselAction,
+  VesselActionDefinition,
+  VesselDefinition,
   VesselValidationResult,
   VesselVariant,
+  VesselVariantDefinition,
 } from './lib/vessel.js';
 export {
   ActionParameterSchema,

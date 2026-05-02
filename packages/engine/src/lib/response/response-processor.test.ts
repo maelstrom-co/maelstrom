@@ -1,18 +1,118 @@
 import { describe, expect, test } from 'bun:test';
-import type {
-  ChartRequest,
-  GridResponse,
-  TilingResponse,
-  Vessel,
-} from '@maelstrom-co/protocol';
+import type { ChartRequest as BrandedChartRequest } from '@maelstrom-co/protocol';
 import { InstanceId, isErr, isOk, MessageId } from '@maelstrom-co/protocol';
 import {
-  makeGridRequest,
-  makeTilingRequest,
+  makeGridRequest as makeGridRequestBranded,
+  makeTilingRequest as makeTilingRequestBranded,
   silentLogger,
 } from '../__test-helpers__/fixtures.js';
 import type { Logger } from '../logger.js';
-import { processResponse } from './response-processor.js';
+import { processResponse as processResponseBranded } from './response-processor.js';
+
+// ---------------------------------------------------------------------------
+// Permissive author-facing shapes for fixture literals. The branded protocol
+// types require `InstanceId | VesselId | VariantName | ActionName` at every
+// ID slot; brands erase at runtime, so casting raw-string fixtures at the
+// boundary is sound. These local aliases let the rest of the file write
+// `const x: GridResponse = { ... }` against raw-string literals while still
+// shipping branded values to `processResponse`.
+// ---------------------------------------------------------------------------
+
+type AuthorActionExecution = {
+  readonly instanceId: string;
+  readonly action: string;
+  readonly params?: Record<string, unknown>;
+  readonly paramsJson?: string;
+};
+type AuthorGridLayout = {
+  readonly positions: ReadonlyArray<{
+    readonly instanceId: string;
+    readonly position: { readonly row: number; readonly column: number };
+    readonly size: { readonly width: number; readonly height: number };
+  }>;
+};
+type AuthorTilingLayout = {
+  readonly tree: ReadonlyArray<'H' | 'V' | string | null>;
+  readonly instances: ReadonlyArray<{
+    readonly instanceId: string;
+    readonly vesselId: string;
+    readonly variant: string;
+  }>;
+};
+
+type GridResponse = {
+  readonly userMessage: string;
+  readonly rationale: string;
+  readonly executionPlan: ReadonlyArray<AuthorActionExecution>;
+  readonly layout: AuthorGridLayout;
+};
+type TilingResponse = {
+  readonly userMessage: string;
+  readonly rationale: string;
+  readonly executionPlan: ReadonlyArray<AuthorActionExecution>;
+  readonly layout: AuthorTilingLayout;
+};
+type Vessel = {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly defaultVariant: string;
+  readonly variants: Readonly<
+    Record<
+      string,
+      {
+        readonly description?: string;
+        readonly props: Readonly<Record<string, unknown>>;
+        readonly minSize: { readonly width: number; readonly height: number };
+        readonly actions: ReadonlyArray<{
+          readonly name: string;
+          readonly description: string;
+          readonly transitionsTo?: string;
+          readonly parameters?: ReadonlyArray<{
+            readonly name: string;
+            readonly type: 'string' | 'number' | 'boolean' | 'object';
+            readonly description: string;
+            readonly required?: boolean;
+          }>;
+        }>;
+      }
+    >
+  >;
+};
+type ChartRequest = {
+  readonly type: 'chart_request';
+  readonly context: BrandedChartRequest['context'];
+  readonly instances: ReadonlyArray<{
+    readonly instanceId: string;
+    readonly vesselId: string;
+    readonly variant: string;
+  }>;
+  readonly vessels: ReadonlyArray<Vessel>;
+  readonly layout:
+    | { readonly type: 'grid'; readonly positions: AuthorGridLayout['positions'] }
+    | {
+        readonly type: 'tiling';
+        readonly tree: AuthorTilingLayout['tree'];
+        readonly instances: AuthorTilingLayout['instances'];
+      };
+};
+
+// Re-exports of the branded fixture builders / SUT under permissive types.
+// The casts at the boundary are sound because brands erase at runtime; we
+// rely on the type-checker only to ensure the *shape* matches.
+const makeGridRequest = makeGridRequestBranded as unknown as (
+  overrides?: Partial<ChartRequest>,
+) => ChartRequest;
+const makeTilingRequest = makeTilingRequestBranded as unknown as (
+  overrides?: Partial<ChartRequest>,
+) => ChartRequest;
+const processResponse = processResponseBranded as unknown as (input: {
+  readonly llmOutput: GridResponse | TilingResponse;
+  readonly request: ChartRequest;
+  readonly messageId: ReturnType<typeof MessageId>;
+  readonly logger: Logger;
+}) => ReturnType<typeof processResponseBranded>;
+
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1275,7 +1375,7 @@ describe('processResponse', () => {
         action: 'badAction',
         vesselId: 'bad-widget',
         targetVariant: 'nonexistent',
-      });
+      } as never);
     });
 
     test('works correctly in tiling mode', () => {
@@ -1384,7 +1484,7 @@ describe('processResponse', () => {
           action: 'expand',
           vesselId: 'does-not-exist',
         },
-      ]);
+      ] as never);
     });
 
     test('skips action when instance variant does not exist in vessel definition', () => {
@@ -1442,7 +1542,7 @@ describe('processResponse', () => {
           vesselId: 'widget',
           variant: 'deleted-variant',
         },
-      ]);
+      ] as never);
     });
 
     test('drops drifted action but keeps subsequent actions validating against original variant', () => {
@@ -1523,7 +1623,7 @@ describe('processResponse', () => {
         action: 'badTransition',
         vesselId: 'test-widget',
         targetVariant: 'nonexistent',
-      });
+      } as never);
 
       // Should have logged an error about the bad transition target
       expect(errors).toHaveLength(1);
@@ -1834,14 +1934,14 @@ describe('processResponse', () => {
         reason: 'unknown_instance',
         instanceId: 'ghost',
         action: 'noop',
-      });
+      } as never);
 
       expect(skipped[1]).toEqual({
         reason: 'unknown_vessel',
         instanceId: 'orphan',
         action: 'noop',
         vesselId: 'no-such-vessel',
-      });
+      } as never);
 
       expect(skipped[2]).toEqual({
         reason: 'variant_not_on_vessel',
@@ -1849,7 +1949,7 @@ describe('processResponse', () => {
         action: 'expand',
         vesselId: 'calendar',
         variant: 'deleted',
-      });
+      } as never);
 
       expect(skipped[3]).toEqual({
         reason: 'action_not_valid',
@@ -1858,7 +1958,7 @@ describe('processResponse', () => {
         vesselId: 'calendar',
         variant: 'month',
         validActions: ['showWeek'],
-      });
+      } as never);
     });
 
     test('action_not_valid carries the full validActions array, including multi-entry and empty cases', () => {
@@ -1937,7 +2037,7 @@ describe('processResponse', () => {
           variant: 'empty',
           validActions: [],
         },
-      ]);
+      ] as never);
     });
 
     test('records params_parse_failed when paramsJson is invalid', () => {
@@ -1970,7 +2070,7 @@ describe('processResponse', () => {
         instanceId: 'calendar-main',
         action: 'showWeek',
         paramsJson: '{not json',
-      });
+      } as never);
     });
 
     test('preserves order matching the LLM execution plan', () => {

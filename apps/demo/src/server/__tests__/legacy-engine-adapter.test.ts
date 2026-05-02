@@ -5,6 +5,8 @@ import {
   MessageId,
   SessionId,
   type ChartRequest,
+  type VariantName,
+  type VesselId,
 } from '@maelstrom-co/protocol';
 
 import { adaptEnvelopeToLegacyRequest } from '../legacy-engine-adapter.js';
@@ -22,8 +24,8 @@ const buildEnvelope = (
     instances: [
       {
         instanceId: InstanceId('vessel-1'),
-        vesselId: 'v',
-        variant: 'default',
+        vesselId: 'v' as VesselId,
+        variant: 'default' as VariantName,
       },
     ],
     vessels: [],

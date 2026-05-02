@@ -59,9 +59,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
         try {
           orchestrator.commandProcessor.executeActions([
             {
-              // Re-brand at the client-state → protocol boundary. Will go away
-              // when MAE-133 brands VesselInstance.instanceId at its source.
-              instanceId: InstanceId(instance.instanceId),
+              instanceId: instance.instanceId,
               action: name,
               ...(params && { paramsJson: JSON.stringify(params) }),
             },
@@ -381,7 +379,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
       const tilesToRender = computedTiles
         .map((tile) => {
-          const instance = instances.get(tile.instanceId);
+          const instance = instances.get(tile.instanceId as InstanceId);
           if (!instance && config.debug) {
             console.warn(`[Maelstrom] Tiling layout references unknown instance "${tile.instanceId}"`);
           }

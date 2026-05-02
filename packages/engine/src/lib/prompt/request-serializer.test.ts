@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import type { ChartRequest } from '@maelstrom-co/protocol';
+import type {
+  ActionName,
+  ChartRequest,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 import {
   buildGridChartState,
@@ -250,13 +255,13 @@ describe('buildTilingChartState', () => {
       instances: [
         {
           instanceId: InstanceId('calendar-main'),
-          vesselId: 'calendar',
-          variant: 'month',
+          vesselId: 'calendar' as VesselId,
+          variant: 'month' as VariantName,
         },
         {
           instanceId: InstanceId('tasks-main'),
-          vesselId: 'calendar',
-          variant: 'month',
+          vesselId: 'calendar' as VesselId,
+          variant: 'month' as VariantName,
         },
       ],
       layout: {
@@ -265,13 +270,13 @@ describe('buildTilingChartState', () => {
         instances: [
           {
             instanceId: InstanceId('calendar-main'),
-            vesselId: 'calendar',
-            variant: 'month',
+            vesselId: 'calendar' as VesselId,
+            variant: 'month' as VariantName,
           },
           {
             instanceId: InstanceId('tasks-main'),
-            vesselId: 'calendar',
-            variant: 'month',
+            vesselId: 'calendar' as VesselId,
+            variant: 'month' as VariantName,
           },
         ],
       },
@@ -286,8 +291,8 @@ describe('buildTilingChartState', () => {
     const request: ChartRequest = {
       ...makeTilingRequest(),
       instances: [
-        { instanceId: InstanceId('a'), vesselId: 'calendar', variant: 'month' },
-        { instanceId: InstanceId('b'), vesselId: 'calendar', variant: 'month' },
+        { instanceId: InstanceId('a'), vesselId: 'calendar' as VesselId, variant: 'month' as VariantName },
+        { instanceId: InstanceId('b'), vesselId: 'calendar' as VesselId, variant: 'month' as VariantName },
       ],
       layout: {
         type: 'tiling',
@@ -295,13 +300,13 @@ describe('buildTilingChartState', () => {
         instances: [
           {
             instanceId: InstanceId('a'),
-            vesselId: 'calendar',
-            variant: 'month',
+            vesselId: 'calendar' as VesselId,
+            variant: 'month' as VariantName,
           },
           {
             instanceId: InstanceId('b'),
-            vesselId: 'calendar',
-            variant: 'month',
+            vesselId: 'calendar' as VesselId,
+            variant: 'month' as VariantName,
           },
         ],
       },
@@ -331,13 +336,13 @@ describe('buildTilingChartState', () => {
         {
           ...baseRequest.vessels[0],
           variants: {
-            month: {
-              ...baseRequest.vessels[0]?.variants.month,
+            ['month' as VariantName]: {
+              ...baseRequest.vessels[0]?.variants['month' as VariantName],
               actions: [
                 {
-                  name: 'showWeek',
+                  name: 'showWeek' as ActionName,
                   description: 'Switch to week',
-                  transitionsTo: 'week',
+                  transitionsTo: 'week' as VariantName,
                 },
               ],
             },
@@ -356,8 +361,8 @@ describe('buildTilingChartState', () => {
       instances: [
         {
           instanceId: InstanceId('orphan'),
-          vesselId: 'missing-vessel',
-          variant: 'month',
+          vesselId: 'missing-vessel' as VesselId,
+          variant: 'month' as VariantName,
         },
       ],
       layout: {
@@ -366,8 +371,8 @@ describe('buildTilingChartState', () => {
         instances: [
           {
             instanceId: InstanceId('orphan'),
-            vesselId: 'missing-vessel',
-            variant: 'month',
+            vesselId: 'missing-vessel' as VesselId,
+            variant: 'month' as VariantName,
           },
         ],
       },
@@ -387,8 +392,8 @@ describe('buildTilingChartState', () => {
       instances: [
         {
           instanceId: InstanceId('calendar-main'),
-          vesselId: 'calendar',
-          variant: 'stale-variant',
+          vesselId: 'calendar' as VesselId,
+          variant: 'stale-variant' as VariantName,
         },
       ],
       layout: {
@@ -397,8 +402,8 @@ describe('buildTilingChartState', () => {
         instances: [
           {
             instanceId: InstanceId('calendar-main'),
-            vesselId: 'calendar',
-            variant: 'stale-variant',
+            vesselId: 'calendar' as VesselId,
+            variant: 'stale-variant' as VariantName,
           },
         ],
       },

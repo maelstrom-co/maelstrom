@@ -1,8 +1,9 @@
 import {
   type ActionExecution,
   Success,
-  type Vessel,
+  type Vessel as OldVessel,
 } from '@maelstrom-co/protocol-old';
+import type { InstanceId, VesselDefinition } from '@maelstrom-co/protocol';
 
 import { isPromise, type Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
@@ -49,8 +50,8 @@ import type {
  * ```
  */
 export class ActionManager {
-  #runners: Map<string, AnyActionRunner> = new Map();
-  #readinessWaiters: Map<string, Set<() => void>> = new Map();
+  #runners: Map<InstanceId, AnyActionRunner> = new Map();
+  #readinessWaiters: Map<InstanceId, Set<() => void>> = new Map();
   #logger: Logger;
   #readinessTimeoutMs: number;
   #executionTimeoutMs: number;
@@ -69,11 +70,11 @@ export class ActionManager {
    * Register an action runner for a specific instance.
    * The runner is an object with typed action handlers.
    *
-   * @param instanceId - The instance ID this runner handles
+   * @param instanceId - The branded instance ID this runner handles
    * @param runner - Object with action name -> handler function mapping
    * @example
    * ```typescript
-   * actionManager.registerRunner('instance-1', {
+   * actionManager.registerRunner(InstanceId('instance-1'), {
    *   selectOrder: async (params) => {
    *     setSelectedOrderId(params.orderId);
    *     return { success: true, value: undefined };
@@ -81,8 +82,8 @@ export class ActionManager {
    * });
    * ```
    */
-  registerRunner<V extends Vessel>(
-    instanceId: string,
+  registerRunner<V extends VesselDefinition>(
+    instanceId: InstanceId,
     runner: ActionRunner<V>,
   ): Unsubscribe {
     const registeredRunner = runner as AnyActionRunner;
@@ -118,7 +119,7 @@ export class ActionManager {
    * it identity-checks before removal, preventing cross-unmount bugs.
    * Remove after react-old migration (MAE-80).
    */
-  unregisterRunner(instanceId: string): void {
+  unregisterRunner(instanceId: InstanceId): void {
     this.#runners.delete(instanceId);
     this.#logger.info(`Unregistered runner for instance "${instanceId}"`);
   }
@@ -126,10 +127,10 @@ export class ActionManager {
   /**
    * Check if a runner is registered for an instance.
    *
-   * @param instanceId - The instance ID to check
+   * @param instanceId - The branded instance ID to check
    * @returns true if a runner is registered
    */
-  hasRunner(instanceId: string): boolean {
+  hasRunner(instanceId: InstanceId): boolean {
     return this.#runners.has(instanceId);
   }
 
@@ -138,7 +139,7 @@ export class ActionManager {
    *
    * @returns Array of instance IDs with registered runners
    */
-  getRegisteredInstances(): string[] {
+  getRegisteredInstances(): InstanceId[] {
     return Array.from(this.#runners.keys());
   }
 
@@ -147,20 +148,20 @@ export class ActionManager {
    * This handles the race condition where the server sends actions
    * before React components have mounted and registered their runners.
    *
-   * @param instanceId - The instance ID to wait for
+   * @param instanceId - The branded instance ID to wait for
    * @param timeoutMs - Maximum time to wait (default: 5000ms)
    * @returns Promise that resolves to true if runner registered, false if timeout
    *
    * @example
    * ```typescript
-   * const isReady = await actionManager.waitForReady('instance-1', 3000);
+   * const isReady = await actionManager.waitForReady(InstanceId('instance-1'), 3000);
    * if (isReady) {
    *   // Runner is available, actions can execute
    * }
    * ```
    */
   async waitForReady(
-    instanceId: string,
+    instanceId: InstanceId,
     timeoutMs: number = 5000,
   ): Promise<boolean> {
     // Check if already registered
@@ -211,7 +212,7 @@ export class ActionManager {
    * @param executionPlan - Array of actions to execute
    * @returns Result of the batch execution
    */
-  async executeActions<V extends Vessel = Vessel, Name extends string = string>(
+  async executeActions<V extends OldVessel = OldVessel, Name extends string = string>(
     executionPlan: ActionExecution<V, Name>[],
   ): Promise<BatchExecutionResult> {
     if (executionPlan.length === 0) {
@@ -292,7 +293,7 @@ export class ActionManager {
   /**
    * Cleanup a waiter from the waiters map.
    */
-  #cleanupWaiter(instanceId: string, waiter: () => void): void {
+  #cleanupWaiter(instanceId: InstanceId, waiter: () => void): void {
     const waiters = this.#readinessWaiters.get(instanceId);
     if (!waiters) return;
 
@@ -307,22 +308,24 @@ export class ActionManager {
    * Also looks up runners for each instance.
    */
   #groupActionsByInstance<
-    V extends Vessel = Vessel,
+    V extends OldVessel = OldVessel,
     Name extends string = string,
   >(
     executionPlan: ActionExecution<V, Name>[],
-  ): Map<string, ExecutableAction<V, Name>[]> {
-    const grouped = new Map<string, ExecutableAction<V, Name>[]>();
+  ): Map<InstanceId, ExecutableAction<V, Name>[]> {
+    const grouped = new Map<InstanceId, ExecutableAction<V, Name>[]>();
 
     for (const execution of executionPlan) {
-      const { instanceId } = execution;
-      const runner = this.#getRunnerForInstance(instanceId);
+      // ActionExecution from protocol-old carries a raw string instanceId; brand
+      // at the seam so the lookup map keys remain branded throughout.
+      const id = execution.instanceId as InstanceId;
+      const runner = this.#getRunnerForInstance(id);
 
-      if (!grouped.has(instanceId)) {
-        grouped.set(instanceId, []);
+      if (!grouped.has(id)) {
+        grouped.set(id, []);
       }
 
-      grouped.get(instanceId)?.push({ execution, runner });
+      grouped.get(id)?.push({ execution, runner });
     }
 
     return grouped;
@@ -332,7 +335,7 @@ export class ActionManager {
    * Get the runner for a specific instance.
    * Looks up the runner directly by instanceId.
    */
-  #getRunnerForInstance(instanceId: string): AnyActionRunner | undefined {
+  #getRunnerForInstance(instanceId: InstanceId): AnyActionRunner | undefined {
     return this.#runners.get(instanceId);
   }
 
@@ -341,10 +344,10 @@ export class ActionManager {
    * Actions are executed in the order they appear in the array.
    */
   async #executeInstanceActions<
-    V extends Vessel = Vessel,
+    V extends OldVessel = OldVessel,
     Name extends string = string,
   >(
-    instanceId: string,
+    instanceId: InstanceId,
     actions: ExecutableAction<V, Name>[],
   ): Promise<ActionRecord[]> {
     const records: ActionRecord[] = [];
@@ -441,7 +444,7 @@ export class ActionManager {
    */
   async #withExecutionTimeout<T>(
     promise: Promise<T>,
-    instanceId: string,
+    instanceId: InstanceId,
     action: string,
   ): Promise<T> {
     if (this.#executionTimeoutMs <= 0) return promise;

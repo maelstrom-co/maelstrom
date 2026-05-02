@@ -7,6 +7,7 @@ import type {
   MaelstromResponse,
   SessionId,
 } from '@maelstrom-co/protocol';
+import { MessageId } from '@maelstrom-co/protocol';
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import type {
@@ -405,7 +406,7 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
         isCorrelatableId(data.requestId)
       ) {
         const resolved = this.#correlator.resolve(
-          data.requestId,
+          MessageId(data.requestId),
           data.response,
         );
         if (this.#debug) {
@@ -434,7 +435,7 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
         isCorrelatableId(data.requestId)
       ) {
         this.#correlator.reject(
-          data.requestId,
+          MessageId(data.requestId),
           new Error(data.error || 'Engine error'),
         );
       } else {

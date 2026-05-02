@@ -1,4 +1,4 @@
-import type { Vessel } from '@maelstrom-co/protocol';
+import type { VariantName, Vessel } from '@maelstrom-co/protocol';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useLatestRef } from './use-latest-ref.js';
@@ -8,7 +8,7 @@ type Unsubscribe = () => void;
 
 export interface OptimisticVariantState {
   /** The optimistic variant override, or null when tracking the store */
-  current: string | null;
+  current: VariantName | null;
   /**
    * Apply an optimistic transition based on the action's transitionsTo.
    * Returns true if a transition was applied, false otherwise.
@@ -24,16 +24,15 @@ export interface OptimisticVariantState {
  * - Rolls back on action failure via the provided `onActionError` subscription
  */
 export function useOptimisticVariant(
-  instance: { variant: string } | undefined,
+  instance: { variant: VariantName } | undefined,
   vessel: Vessel | undefined,
   onActionError: (handler: () => void) => Unsubscribe,
   options: { timeoutMs?: number; debug?: boolean } = {},
 ): OptimisticVariantState {
   const { timeoutMs = 10_000, debug = false } = options;
 
-  const [optimisticVariant, setOptimisticVariant] = useState<string | null>(
-    null,
-  );
+  const [optimisticVariant, setOptimisticVariant] =
+    useState<VariantName | null>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — clear optimistic state when the store instance changes (engine responded)
   useEffect(() => {

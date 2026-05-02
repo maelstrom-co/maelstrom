@@ -4,6 +4,7 @@ import type {
   TilingNode,
   TilingResponse,
   Vessel,
+  VesselId,
 } from '@maelstrom-co/protocol';
 
 import {
@@ -39,15 +40,13 @@ export function healTilingLayout(
 
   pushMissingRationaleWarningIfEmpty(response, warnings);
 
-  const vesselById = new Map<string, Vessel>();
+  const vesselById = new Map<VesselId, Vessel>();
   for (const vessel of request.vessels) vesselById.set(vessel.id, vessel);
 
   const tracker = seenInstancesTracker(droppedEntries);
   const healedInstances: HealedTilingInstance[] = [];
   for (const instance of response.layout.instances) {
-    // Brand once at the heal-loop boundary; downstream readers (drop
-    // entries, validIds set, AST leaves) inherit the type without re-cast.
-    const instanceId = instance.instanceId as InstanceId;
+    const instanceId = instance.instanceId;
 
     if (tracker.isDuplicate(instanceId)) continue;
 

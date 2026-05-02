@@ -79,7 +79,7 @@ function serializeVessel(vessel: Vessel): string {
 }
 
 function serializeAction(action: VesselAction): string {
-  let str = action.name;
+  let str: string = action.name;
 
   if (action.parameters && action.parameters.length > 0) {
     const params = action.parameters

@@ -1,8 +1,9 @@
 import type {
   ActionExecution,
   GridLayout,
+  InstanceId,
   TilingLayout,
-  Vessel,
+  VesselDefinition,
 } from '@maelstrom-co/protocol';
 import type { ActionExecution as RunnerActionExecution } from '@maelstrom-co/protocol-old';
 import { Store } from '@tanstack/store';
@@ -96,11 +97,11 @@ export class CommandProcessor {
   /**
    * Register an action runner for a specific instance.
    *
-   * @param instanceId - The instance ID this runner handles
+   * @param instanceId - The branded instance ID this runner handles
    * @param runner - Object with action name -> handler function mapping
    */
-  registerRunner<V extends Vessel>(
-    instanceId: string,
+  registerRunner<V extends VesselDefinition>(
+    instanceId: InstanceId,
     runner: ActionRunner<V>,
   ): Unsubscribe {
     return this.#actionManager.registerRunner(instanceId, runner);
@@ -110,7 +111,7 @@ export class CommandProcessor {
    * @deprecated Use the disposer returned by {@link registerRunner} instead.
    * Remove after react-old migration (MAE-80).
    */
-  unregisterRunner(instanceId: string): void {
+  unregisterRunner(instanceId: InstanceId): void {
     this.#actionManager.unregisterRunner(instanceId);
   }
 
@@ -307,9 +308,9 @@ export class CommandProcessor {
 // fields) and the legacy RunnerActionExecution shape ActionManager still
 // consumes. The shapes are structurally compatible at runtime — brands are
 // erased and `readonly` is a compile-time marker only. Collapse to a single
-// `unknown` cast here so the seam has one named home; remove when MAE-146
-// ports the runner runtime onto the new protocol.
-function toRunnerExecutionPlan(
+// `unknown` cast here so the seam has one named home; revisit once
+// protocol-old shapes are gone. Exported only for unit testing the seam.
+export function toRunnerExecutionPlan(
   plan: readonly ActionExecution[],
 ): RunnerActionExecution[] {
   return plan as unknown as RunnerActionExecution[];

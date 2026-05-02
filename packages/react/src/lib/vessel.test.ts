@@ -1,16 +1,26 @@
 import { describe, it } from 'bun:test';
 
-import type { ActionNames, VariantNames } from '@maelstrom-co/protocol-old';
+import type { VesselDefinition } from '@maelstrom-co/protocol';
 import { vessel } from './vessel.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
+
+// Local literal-preserving variants of protocol-old's `VariantNames` /
+// `ActionNames`. Constraint relaxed to `VesselDefinition` so the literal
+// types from `defineVessel` flow through; behaviorally identical to the
+// protocol-old helpers, kept local so this file stays decoupled from the
+// unmigrated protocol-old constraint.
+type VariantNamesLocal<V extends VesselDefinition> =
+  keyof V['variants'] & string;
+type ActionNamesLocal<V extends VesselDefinition> =
+  V['variants'][keyof V['variants']]['actions'][number]['name'];
 
 describe('vessel()', () => {
   it('preserves literal types (eager overload)', () => {
     const entry = vessel(testVessel, () => null);
 
-    const _variantName: VariantNames<typeof entry.vessel> = 'list';
+    const _variantName: VariantNamesLocal<typeof entry.vessel> = 'list';
     // @ts-expect-error - 'bogus' is not a valid variant name
-    const _badVariant: VariantNames<typeof entry.vessel> = 'bogus';
+    const _badVariant: VariantNamesLocal<typeof entry.vessel> = 'bogus';
     void [entry, _variantName, _badVariant];
   });
 
@@ -21,9 +31,9 @@ describe('vessel()', () => {
       () => null,
     );
 
-    const _actionName: ActionNames<typeof entry.vessel> = 'selectOrder';
+    const _actionName: ActionNamesLocal<typeof entry.vessel> = 'selectOrder';
     // @ts-expect-error - 'bogus' is not a valid action name
-    const _badAction: ActionNames<typeof entry.vessel> = 'bogus';
+    const _badAction: ActionNamesLocal<typeof entry.vessel> = 'bogus';
     void [entry, _actionName, _badAction];
   });
 });

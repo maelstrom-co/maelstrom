@@ -23,7 +23,7 @@ import type { VesselInstance } from '../types.js';
  */
 export function buildChartRequest(params: {
   updates: UpdateReason[];
-  instances: Map<string, VesselInstance>;
+  instances: Map<InstanceId, VesselInstance>;
   chartDimensions: ChartDimensions;
   layout: GridLayout | TilingLayout | null;
   vessels: Vessel[];

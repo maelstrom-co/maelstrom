@@ -1,3 +1,5 @@
+import type { VesselId } from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 
 import type { MaelstromContextPair } from './context.js';
@@ -19,9 +21,13 @@ export function createUseInstance(contextPair: MaelstromContextPair) {
   return function useInstance(instanceId: string): UntypedVesselProps | null {
     const { orchestrator } = useMaelstromContext();
 
+    // Brand once at the React seam — the hook accepts a raw string (caller
+    // ergonomics) but downstream APIs are branded.
+    const brandedInstanceId = InstanceId(instanceId);
+
     // Derive vesselId from the instance to look up the vessel definition
     const instance = useStore(orchestrator.commandProcessor.store, (s) =>
-      s.instances.get(instanceId),
+      s.instances.get(brandedInstanceId),
     );
     const vesselId = instance?.vesselId;
 
@@ -39,8 +45,8 @@ export function createUseInstance(contextPair: MaelstromContextPair) {
     }
 
     return {
-      instanceId,
-      vesselId: core.vesselId,
+      instanceId: brandedInstanceId,
+      vesselId: core.vesselId as VesselId,
       variantProps: { variant: core.currentVariant, ...core.variantProps },
       executeAction: core.executeAction,
     };

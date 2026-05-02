@@ -1,4 +1,10 @@
-import type { GridLayout, TilingLayout } from '@maelstrom-co/protocol';
+import type {
+  GridLayout,
+  InstanceId,
+  TilingLayout,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';
 
@@ -14,21 +20,28 @@ import type { VesselInstance } from '../types.js';
  */
 export function applyLayout(
   layout: TilingLayout | GridLayout,
-  existingInstances?: Map<string, VesselInstance>,
-): Map<string, VesselInstance> {
+  existingInstances?: Map<InstanceId, VesselInstance>,
+): Map<InstanceId, VesselInstance> {
   return layout.type === 'tiling'
     ? applyTilingLayout(layout)
     : applyGridLayout(layout, existingInstances);
 }
 
-function applyTilingLayout(layout: TilingLayout): Map<string, VesselInstance> {
+function applyTilingLayout(
+  layout: TilingLayout,
+): Map<InstanceId, VesselInstance> {
   return new Map(
     layout.instances.map((snapshot) => [
       snapshot.instanceId,
       {
         instanceId: snapshot.instanceId,
-        vesselId: snapshot.vesselId,
-        variant: snapshot.variant,
+        // The TilingInstance interface declares vesselId/variant as plain
+        // strings, but at runtime they're already branded by the schema's
+        // .transform() step (see TilingLayoutSchema). Brand at the seam to
+        // keep the runtime store typed without a protocol-wide interface
+        // change that would ripple into out-of-tree consumers.
+        vesselId: snapshot.vesselId as VesselId,
+        variant: snapshot.variant as VariantName,
         position: { column: 0, row: 0 },
         size: { width: 1, height: 1 },
       },
@@ -38,26 +51,37 @@ function applyTilingLayout(layout: TilingLayout): Map<string, VesselInstance> {
 
 function applyGridLayout(
   layout: GridLayout,
-  existingInstances?: Map<string, VesselInstance>,
-): Map<string, VesselInstance> {
+  existingInstances?: Map<InstanceId, VesselInstance>,
+): Map<InstanceId, VesselInstance> {
   return new Map(
-    layout.positions.map((position) => {
+    layout.positions.flatMap((position): [InstanceId, VesselInstance][] => {
       const existing = existingInstances?.get(position.instanceId);
+      if (!existing) {
+        // State drift: the engine emitted a GridPosition for an instance
+        // not in our store. GridPosition carries no vesselId/variant, so
+        // we cannot construct a VesselInstance — skip rather than fabricate
+        // identities. Surface via console.warn so the drop is observable;
+        // a structured logger is not yet plumbed through this pure helper.
+        console.warn(
+          `[Maelstrom] applyGridLayout: dropping position for unknown instance "${position.instanceId}" (no matching entry in existingInstances)`,
+        );
+        return [];
+      }
       return [
-        position.instanceId,
-        {
-          instanceId: position.instanceId,
-          vesselId: existing?.vesselId ?? '',
-          variant: existing?.variant ?? 'default',
-          position: {
-            column: position.position.column,
-            row: position.position.row,
+        [
+          position.instanceId,
+          {
+            ...existing,
+            position: {
+              column: position.position.column,
+              row: position.position.row,
+            },
+            size: {
+              width: position.size.width,
+              height: position.size.height,
+            },
           },
-          size: {
-            width: position.size.width,
-            height: position.size.height,
-          },
-        },
+        ],
       ];
     }),
   );

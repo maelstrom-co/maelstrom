@@ -1,8 +1,6 @@
 import type {
-  GridPosition,
   GridResponse,
   Result,
-  TilingInstance,
   TilingResponse,
 } from '@maelstrom-co/protocol';
 import {
@@ -23,19 +21,6 @@ import type { LLMContextMessage } from '../history/history-manager.js';
 // ---------------------------------------------------------------------------
 
 export type LLMOutput = GridResponse | TilingResponse;
-
-/**
- * Pre-branded shapes for items inside an {@link LLMOutput} layout. The LLM
- * emits `instanceId` as plain string; layout builders brand it to
- * {@link InstanceId} on the way out. Keeping these types in one place means
- * schema drift only needs one fix.
- */
-export type LLMGridPosition = Omit<GridPosition, 'instanceId'> & {
-  instanceId: string;
-};
-export type LLMTilingInstance = Omit<TilingInstance, 'instanceId'> & {
-  instanceId: string;
-};
 
 // ---------------------------------------------------------------------------
 // LLM call — self-contained so process() stays linear
@@ -72,7 +57,12 @@ export async function callLLM(
       stream: false,
       abortController: controller,
     });
-    return ok(output);
+    // @tanstack/ai infers `chat()`'s output from the Zod schema's INPUT type
+    // (pre-transform), but at runtime the schema's `.transform(<Brand>)` calls
+    // do run during parse, so the value IS branded. Cast to align the type
+    // with the runtime contract. The branding-at-parse contract is asserted
+    // by the `schema branding` suite in `packages/protocol/src/lib/request.test.ts`.
+    return ok(output as LLMOutput);
   } catch (error) {
     // Canonical AbortError — unambiguous cancellation
     if (error instanceof DOMException && error.name === 'AbortError') {

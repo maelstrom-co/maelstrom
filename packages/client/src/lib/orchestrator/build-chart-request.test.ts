@@ -4,11 +4,16 @@ import {
   InstanceId,
   defineVessel,
   type LayoutMode,
+  type VariantName,
+  type Vessel,
+  type VesselId,
 } from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';
 import { buildChartRequest } from './build-chart-request.js';
 
+// Cast `defineVessel` output to `Vessel` at the seam — `buildChartRequest`
+// runs against post-validation vessels, but tests build them inline.
 const testVessel = defineVessel({
   id: 'test',
   name: 'Test',
@@ -21,12 +26,12 @@ const testVessel = defineVessel({
       actions: [{ name: 'testAction', description: 'Test action' }],
     },
   },
-});
+}) as unknown as Vessel;
 
 function buildParams(overrides: Record<string, unknown> = {}) {
   return {
     updates: [{ type: 'user_intent' as const, intent: 'show chart' }],
-    instances: new Map<string, VesselInstance>(),
+    instances: new Map<InstanceId, VesselInstance>(),
     chartDimensions: { columns: 12, rows: 8 },
     layout: null,
     vessels: [testVessel],
@@ -62,11 +67,11 @@ describe('buildChartRequest', () => {
   });
 
   it('should map instance snapshots to instanceId, vesselId, variant only', () => {
-    const instances = new Map<string, VesselInstance>();
-    instances.set('i-1', {
-      instanceId: 'i-1',
-      vesselId: 'v-1',
-      variant: 'default',
+    const instances = new Map<InstanceId, VesselInstance>();
+    instances.set(InstanceId('i-1'), {
+      instanceId: InstanceId('i-1'),
+      vesselId: 'v-1' as VesselId,
+      variant: 'default' as VariantName,
       position: { column: 0, row: 0 },
       size: { width: 2, height: 2 },
     });
@@ -74,7 +79,11 @@ describe('buildChartRequest', () => {
     const request = buildChartRequest(buildParams({ instances }));
 
     expect(request.instances).toEqual([
-      { instanceId: InstanceId('i-1'), vesselId: 'v-1', variant: 'default' },
+      {
+        instanceId: InstanceId('i-1'),
+        vesselId: 'v-1' as VesselId,
+        variant: 'default' as VariantName,
+      },
     ]);
   });
 

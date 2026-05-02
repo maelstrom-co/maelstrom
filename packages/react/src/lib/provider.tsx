@@ -1,6 +1,6 @@
 import { Orchestrator, SessionId } from '@maelstrom-co/client';
 import type { EngineConnector } from '@maelstrom-co/client';
-import type { LayoutMode } from '@maelstrom-co/protocol';
+import type { LayoutMode, VesselId } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -176,9 +176,9 @@ function isLazyEntry(entry: AnyVesselEntry): entry is LazyVesselEntry<any> {
  * this internally.
  */
 function buildRegistries(entries: readonly AnyVesselEntry[]) {
-  const componentRegistry = new Map<string, ComponentType<TypedVesselProps<any>>>();
-  const loadingRegistry = new Map<string, ComponentType<{ vesselId: string }>>();
-  const lazyVesselIds = new Set<string>();
+  const componentRegistry = new Map<VesselId, ComponentType<TypedVesselProps<any>>>();
+  const loadingRegistry = new Map<VesselId, ComponentType<{ vesselId: string }>>();
+  const lazyVesselIds = new Set<VesselId>();
 
   for (const entry of entries) {
     const id = entry.vessel.id;

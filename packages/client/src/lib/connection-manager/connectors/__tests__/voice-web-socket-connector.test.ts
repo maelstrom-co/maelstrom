@@ -308,4 +308,45 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
     expect(response.userMessage).toBe('ok');
     await connector.disconnect();
   });
+
+  test('whitespace-only requestId is treated as missing and does not crash the handler', async () => {
+    // `isCorrelatableId` strips falsy/blank values before MessageId() runs.
+    // Without that guard, branding a whitespace-only string would throw and
+    // propagate through the catch as a parse error — pin the no-crash path.
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    const pushed: MaelstromResponse[] = [];
+    connector.onPushMessage((response) => {
+      pushed.push(response);
+    });
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      ws.emitJson({
+        type: 'engine.maelstrom.response',
+        requestId: '   ',
+        response: {
+          type: 'maelstrom_response',
+          requestId: '   ',
+          userMessage: 'should be ignored',
+          rationale: '',
+          executionPlan: [],
+          layout: { type: 'grid', positions: [] },
+        },
+      });
+
+      // Whitespace failed `isCorrelatableId` so neither the correlator path
+      // nor the unmatched-warn fallback fires; the handler completed without
+      // logging a parse error.
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(pushed).toHaveLength(0);
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+      await connector.disconnect();
+    }
+  });
 });

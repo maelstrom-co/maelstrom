@@ -9,10 +9,29 @@ import { InstanceId } from '@maelstrom-co/protocol';
 import { makeTilingRequest } from '../../__test-helpers__/fixtures.js';
 import { healTilingLayout } from './tiling-layout.js';
 
+/**
+ * Author-shape overrides for `TilingResponse` test fixtures. Accepts raw
+ * strings for branded slots — brands erase at runtime, so the cast at the
+ * boundary is sound for trusted fixture inputs.
+ */
+type TilingResponseAuthor = {
+  readonly userMessage?: string;
+  readonly rationale?: string;
+  readonly executionPlan?: TilingResponse['executionPlan'];
+  readonly layout?: {
+    readonly tree: ReadonlyArray<'H' | 'V' | string | null>;
+    readonly instances: ReadonlyArray<{
+      readonly instanceId: string;
+      readonly vesselId: string;
+      readonly variant: string;
+    }>;
+  };
+};
+
 function makeTilingResponse(
-  overrides: Partial<TilingResponse> = {},
+  overrides: TilingResponseAuthor = {},
 ): TilingResponse {
-  return {
+  const base: TilingResponseAuthor = {
     userMessage: 'ok',
     rationale: 'splitting work area',
     executionPlan: [],
@@ -31,8 +50,8 @@ function makeTilingResponse(
         },
       ],
     },
-    ...overrides,
   };
+  return { ...base, ...overrides } as TilingResponse;
 }
 
 function requestWithVessels(): ChartRequest {

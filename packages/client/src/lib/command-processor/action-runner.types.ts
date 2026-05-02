@@ -1,15 +1,19 @@
 /**
  * Client-specific types for action execution and vessel management.
  *
- * Imports are split across two packages during the ChartRequest migration:
- * - `ActionParameter` / `Vessel` come from the new `@maelstrom-co/protocol`
- *   (migrated by MAE-138).
+ * Imports are split across two packages during the `@maelstrom-co/protocol-old`
+ * to `@maelstrom-co/protocol` migration:
+ * - `ActionParameter` / `Vessel` come from the new `@maelstrom-co/protocol`.
  * - `ActionExecution` / `Result` remain on `@maelstrom-co/protocol-old` until
- *   the runner runtime is ported (tracked by MAE-146).
+ *   the runner runtime is ported.
  */
 
-import type { ActionExecution, Result } from '@maelstrom-co/protocol-old';
-import type { ActionParameter, Vessel } from '@maelstrom-co/protocol';
+import type {
+  ActionExecution,
+  Result,
+  Vessel as OldVessel,
+} from '@maelstrom-co/protocol-old';
+import type { ActionParameter, VesselDefinition } from '@maelstrom-co/protocol';
 
 // ============================================================================
 // Type Mapping Utilities
@@ -31,7 +35,7 @@ type ParamTypeToTS<T extends string> = T extends 'string'
 /**
  * Flattens all actions across all variants into a single union.
  */
-type GetAllActions<V extends Vessel> =
+type GetAllActions<V extends VesselDefinition> =
   V['variants'][keyof V['variants']]['actions'][number];
 
 /**
@@ -110,13 +114,13 @@ type GetActionParams<A, ActionName extends string> = A extends {
 /**
  * Union of all action names across all variants of a vessel.
  */
-export type AllVariantActionNames<V extends Vessel> = GetAllActions<V>['name'];
+export type AllVariantActionNames<V extends VesselDefinition> = GetAllActions<V>['name'];
 
 /**
  * Extracts the parameter object for a specific action name.
  */
 export type ExtractActionParams<
-  V extends Vessel,
+  V extends VesselDefinition,
   Name extends AllVariantActionNames<V>,
 > = GetActionParams<GetAllActions<V>, Name>;
 
@@ -150,7 +154,7 @@ export type ActionHandler<Params> = [Params] extends [undefined]
  * };
  * ```
  */
-export type ActionRunner<V extends Vessel = Vessel> = Partial<{
+export type ActionRunner<V extends VesselDefinition = VesselDefinition> = Partial<{
   [Name in AllVariantActionNames<V>]: ActionHandler<
     GetActionParams<GetAllActions<V>, Name>
   >;
@@ -171,18 +175,18 @@ export type AnyActionRunner = Record<
  * Alias for ActionRunner.
  * @deprecated Use ActionRunner instead
  */
-export type ActionHandlersFor<V extends Vessel> = ActionRunner<V>;
+export type ActionHandlersFor<V extends VesselDefinition> = ActionRunner<V>;
 
 /**
  * Alias for all action names on a vessel.
  */
-export type ActionNamesFor<V extends Vessel> = AllVariantActionNames<V>;
+export type ActionNamesFor<V extends VesselDefinition> = AllVariantActionNames<V>;
 
 /**
  * Alias for action param extraction.
  */
 export type ActionParamsFor<
-  V extends Vessel,
+  V extends VesselDefinition,
   ActionName extends AllVariantActionNames<V>,
 > = ExtractActionParams<V, ActionName>;
 
@@ -194,10 +198,15 @@ export type ActionParamsFor<
  * Internal action execution record with resolved runner.
  */
 export interface ExecutableAction<
-  V extends Vessel = Vessel,
+  V extends VesselDefinition = VesselDefinition,
   Name extends string = string,
 > {
-  execution: ActionExecution<V, Name>;
+  // ActionExecution still lives on `@maelstrom-co/protocol-old`; the action
+  // runner runtime continues to depend on `@maelstrom-co/protocol-old` shapes,
+  // so this constraint stays loose until that migration completes. Cast the
+  // vessel param at this seam — both `Vessel` shapes are structurally
+  // compatible at the level of fields the old `ActionExecution` reads.
+  execution: ActionExecution<V & OldVessel, Name>;
   runner: AnyActionRunner | undefined;
 }
 
@@ -239,8 +248,8 @@ export interface BatchExecutionResult {
  * ]);
  * ```
  */
-export function createExecutionPlan<V extends Vessel>(
-  executions: ActionExecution<V>[],
-): ActionExecution<V>[] {
+export function createExecutionPlan<V extends VesselDefinition>(
+  executions: ActionExecution<V & OldVessel>[],
+): ActionExecution<V & OldVessel>[] {
   return executions;
 }

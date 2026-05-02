@@ -3,7 +3,7 @@ import type {
   Vessel,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { InstanceId, isErr } from '@maelstrom-co/protocol';
+import { isErr } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../../logger.js';
 import { parseParams } from './parse-params.js';
@@ -17,17 +17,20 @@ import { updateSimulatedVariant } from './simulate-variant.js';
 import type {
   RawActionExecution,
   SimulationState,
+  SimulationStateWriter,
   SkippedAction,
   ValidationLookups,
 } from './validation-context.js';
+import { createSimulationState } from './validation-context.js';
 
 function parseSingleAction(
   item: RawActionExecution,
   lookups: ValidationLookups,
-  sim: SimulationState,
+  simReader: SimulationState,
+  simWriter: SimulationStateWriter,
   skippedActions: SkippedAction[],
 ): ActionExecution[] {
-  const resolution = resolveAction(item, lookups, sim);
+  const resolution = resolveAction(item, lookups, simReader);
   if (isErr(resolution)) {
     logResolveFailure(item, resolution.error, lookups.logger);
     skippedActions.push(resolveFailureToSkipped(item, resolution.error));
@@ -35,17 +38,20 @@ function parseSingleAction(
   }
   const resolved = resolution.value;
 
-  const brandedInstanceId = InstanceId(item.instanceId);
-
   if (!item.paramsJson) {
-    const outcome = updateSimulatedVariant(item, resolved, lookups.logger, sim);
+    const outcome = updateSimulatedVariant(
+      item,
+      resolved,
+      lookups.logger,
+      simWriter,
+    );
     if (outcome.kind === 'drift') {
       skippedActions.push(
         stateDriftSkipped(item, resolved, outcome.targetVariant),
       );
       return [];
     }
-    return [{ instanceId: brandedInstanceId, action: item.action }];
+    return [{ instanceId: item.instanceId, action: item.action }];
   }
 
   const params = parseParams(
@@ -65,14 +71,19 @@ function parseSingleAction(
     return [];
   }
 
-  const outcome = updateSimulatedVariant(item, resolved, lookups.logger, sim);
+  const outcome = updateSimulatedVariant(
+    item,
+    resolved,
+    lookups.logger,
+    simWriter,
+  );
   if (outcome.kind === 'drift') {
     skippedActions.push(
       stateDriftSkipped(item, resolved, outcome.targetVariant),
     );
     return [];
   }
-  return [{ instanceId: brandedInstanceId, action: item.action, params }];
+  return [{ instanceId: item.instanceId, action: item.action, params }];
 }
 
 export interface ParsedExecutionPlan {
@@ -92,16 +103,16 @@ export function parseExecutionPlan(
     logger,
   };
 
-  const sim: SimulationState = {
-    variants: new Map(instances.map((i) => [i.instanceId, i.variant])),
-  };
+  const { reader: simReader, writer: simWriter } = createSimulationState(
+    instances.map((i) => [i.instanceId, i.variant]),
+  );
   const skippedActions: SkippedAction[] = [];
 
-  // Sequential: `sim` mutates between iterations, so each action validates
+  // Sequential: simWriter mutates between iterations, so each action validates
   // against the variant left by the previous one. Reordering would break the
   // validation contract.
   const resultPlan = plan.flatMap((item) =>
-    parseSingleAction(item, lookups, sim, skippedActions),
+    parseSingleAction(item, lookups, simReader, simWriter, skippedActions),
   );
 
   return { plan: resultPlan, skippedActions };

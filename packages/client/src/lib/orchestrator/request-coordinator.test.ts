@@ -124,7 +124,7 @@ describe('RequestCoordinator', () => {
       await coordinator.send(createMockRequest());
 
       expect(startedEvents).toHaveLength(1);
-      expect(startedEvents[0].requestId).toBe('req-1');
+      expect(startedEvents[0].requestId).toBe(MessageId('req-1'));
 
       expect(completedEvents).toHaveLength(1);
       expect(completedEvents[0].response).toBeDefined();

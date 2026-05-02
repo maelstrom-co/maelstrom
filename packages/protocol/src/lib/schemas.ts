@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+import { ActionName } from './action-name.js';
+import { InstanceId } from './instance.js';
+import { VariantName } from './variant-name.js';
+import { VesselId } from './vessel-id.js';
+
 // ---------------------------------------------------------------------------
 // Shared schemas
 // ---------------------------------------------------------------------------
@@ -23,9 +28,15 @@ export const ChartSizeSchema = z.object({
 });
 
 export const ActionExecutionSchema = z.object({
-  instanceId: z.string().describe('The ID of the vessel instance to act upon'),
+  instanceId: z
+    .string()
+    .min(1, 'instanceId is required')
+    .transform(InstanceId)
+    .describe('The ID of the vessel instance to act upon'),
   action: z
     .string()
+    .min(1, 'action is required')
+    .transform(ActionName)
     .describe('The action name (must be valid for the current variant)'),
   paramsJson: z
     .string()
@@ -40,7 +51,11 @@ export const ActionExecutionSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const GridPositionSchema = z.object({
-  instanceId: z.string().describe('The ID of the vessel instance to position'),
+  instanceId: z
+    .string()
+    .min(1, 'instanceId is required')
+    .transform(InstanceId)
+    .describe('The ID of the vessel instance to position'),
   position: ChartPositionSchema.describe(
     'Where to place the vessel on the chart',
   ),
@@ -59,9 +74,19 @@ export const GridLayoutSchema = z.object({
 // Tiling layout
 // ---------------------------------------------------------------------------
 
+/**
+ * A node in the tiling binary tree. The transform brands non-special
+ * strings as `InstanceId`; `'H'` / `'V'` / `null` pass through unchanged so
+ * the discriminator on the consumer side stays a simple string compare.
+ */
 export const TilingNodeSchema = z
   .string()
+  .min(1)
   .nullable()
+  .transform((value) => {
+    if (value === null || value === 'H' || value === 'V') return value;
+    return InstanceId(value);
+  })
   .describe(
     'A node in the tiling binary tree: "H" for horizontal split (top/bottom), "V" for vertical split (left/right), vessel instance ID string for leaf nodes, or null for empty space.',
   );
@@ -75,14 +100,20 @@ export const TilingTreeSchema = z
 export const VesselInstanceSnapshotSchema = z.object({
   instanceId: z
     .string()
+    .min(1, 'instanceId is required')
+    .transform(InstanceId)
     .describe(
       'Unique instance ID. For new instances, use format "vesselId-identifier" (e.g., "calendar-main", "biomarkers-detail").',
     ),
   vesselId: z
     .string()
+    .min(1, 'vesselId is required')
+    .transform(VesselId)
     .describe('The vessel type ID (must match a registered vessel)'),
   variant: z
     .string()
+    .min(1, 'variant is required')
+    .transform(VariantName)
     .describe(
       'The variant name for this instance (must be valid for the vessel)',
     ),

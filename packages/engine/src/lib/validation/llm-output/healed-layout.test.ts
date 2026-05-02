@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { VariantName, VesselId } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 
 import type { DroppedLayoutEntry } from './healed-layout.js';
@@ -20,7 +21,7 @@ describe('formatDroppedEntry', () => {
       {
         reason: 'unknown_vessel',
         instanceId: InstanceId('orphan'),
-        vesselId: 'no-such',
+        vesselId: 'no-such' as VesselId,
       },
       'instance "orphan" referenced unknown vessel "no-such"',
     ],
@@ -28,7 +29,7 @@ describe('formatDroppedEntry', () => {
       {
         reason: 'unknown_variant',
         instanceId: InstanceId('wgt'),
-        variant: 'gone',
+        variant: 'gone' as VariantName,
       },
       'instance "wgt" referenced unknown variant "gone"',
     ],
@@ -116,7 +117,7 @@ describe('isTreeDrop', () => {
       {
         reason: 'unknown_vessel',
         instanceId: InstanceId('a'),
-        vesselId: 'v',
+        vesselId: 'v' as VesselId,
       },
       false,
     ],
@@ -124,7 +125,7 @@ describe('isTreeDrop', () => {
       {
         reason: 'unknown_variant',
         instanceId: InstanceId('a'),
-        variant: 'v',
+        variant: 'v' as VariantName,
       },
       false,
     ],

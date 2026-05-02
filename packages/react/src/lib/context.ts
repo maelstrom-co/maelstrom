@@ -1,4 +1,5 @@
 import type { EngineConnector, Orchestrator } from '@maelstrom-co/client';
+import type { VesselId } from '@maelstrom-co/protocol';
 import type { ComponentType, MutableRefObject } from 'react';
 import { createContext, useContext } from 'react';
 
@@ -13,11 +14,11 @@ export interface MaelstromContextValue {
   /** Ref to onError callback from Provider props — allows hook to call it without re-renders */
   onErrorRef: MutableRefObject<((error: Error) => void) | undefined>;
   /** Maps vessel ID → React component */
-  componentRegistry: Map<string, ComponentType<TypedVesselProps<any>>>;
+  componentRegistry: Map<VesselId, ComponentType<TypedVesselProps<any>>>;
   /** Maps vessel ID → loading skeleton (for lazy vessels) */
-  loadingRegistry: Map<string, ComponentType<{ vesselId: string }>>;
+  loadingRegistry: Map<VesselId, ComponentType<{ vesselId: string }>>;
   /** Set of vessel IDs that are lazy-loaded */
-  lazyVesselIds: Set<string>;
+  lazyVesselIds: Set<VesselId>;
   /** The static vessel entries from createMaelstrom config */
   vesselEntries: readonly AnyVesselEntry[];
   /** Guard: only one Chart may be mounted per Provider */

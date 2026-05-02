@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import type { Result } from '@maelstrom-co/protocol';
+import type {
+  ActionName,
+  Result,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { InstanceId, err, isErr, isOk, ok, MessageId } from '@maelstrom-co/protocol';
 
 import type { EngineError } from '../errors.js';
@@ -81,16 +86,16 @@ const paramsParseFailed = (
 ): SkippedAction => ({
   reason: 'params_parse_failed',
   instanceId: InstanceId(id),
-  action,
+  action: action as ActionName,
   paramsJson,
 });
 
 const stateDrift = (id: string, action: string): SkippedAction => ({
   reason: 'state_drift',
   instanceId: InstanceId(id),
-  action,
-  vesselId: 'v',
-  targetVariant: 'gone',
+  action: action as ActionName,
+  vesselId: 'v' as VesselId,
+  targetVariant: 'gone' as VariantName,
 });
 
 function recordingRunOnce(
@@ -784,7 +789,7 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'unknown_vessel' as const,
         instanceId: InstanceId('orphan'),
-        vesselId: 'no-such',
+        vesselId: 'no-such' as VesselId,
       },
       'instance "orphan" referenced unknown vessel "no-such"',
     ],
@@ -792,7 +797,7 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'unknown_variant' as const,
         instanceId: InstanceId('wgt'),
-        variant: 'gone',
+        variant: 'gone' as VariantName,
       },
       'instance "wgt" referenced unknown variant "gone"',
     ],
@@ -850,7 +855,7 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'unknown_instance' as const,
         instanceId: InstanceId('ghost'),
-        action: 'tap',
+        action: 'tap' as ActionName,
       },
       'Action "tap" referenced unknown instance "ghost"',
     ],
@@ -858,8 +863,8 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'unknown_vessel' as const,
         instanceId: InstanceId('a'),
-        action: 'tap',
-        vesselId: 'no-such',
+        action: 'tap' as ActionName,
+        vesselId: 'no-such' as VesselId,
       },
       'Action "tap" on instance "a" referenced unknown vessel "no-such"',
     ],
@@ -867,7 +872,7 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'no_simulated_variant' as const,
         instanceId: InstanceId('a'),
-        action: 'tap',
+        action: 'tap' as ActionName,
       },
       'Action "tap" on instance "a" — no current variant to act on',
     ],
@@ -875,9 +880,9 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'variant_not_on_vessel' as const,
         instanceId: InstanceId('a'),
-        action: 'tap',
-        vesselId: 'v',
-        variant: 'phantom',
+        action: 'tap' as ActionName,
+        vesselId: 'v' as VesselId,
+        variant: 'phantom' as VariantName,
       },
       'variant "phantom" is not defined on vessel "v"',
     ],
@@ -885,10 +890,10 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'action_not_valid' as const,
         instanceId: InstanceId('a'),
-        action: 'badAction',
-        vesselId: 'v',
-        variant: 'default',
-        validActions: ['x', 'y'],
+        action: 'badAction' as ActionName,
+        vesselId: 'v' as VesselId,
+        variant: 'default' as VariantName,
+        validActions: ['x', 'y'] as ActionName[],
       },
       'Action "badAction" is not valid on instance "a" in variant "default" — valid actions: x, y',
     ],
@@ -911,9 +916,9 @@ describe('buildRetryPrompt', () => {
         {
           reason: 'action_not_valid',
           instanceId: InstanceId('a'),
-          action: 'go',
-          vesselId: 'v',
-          variant: 'default',
+          action: 'go' as ActionName,
+          vesselId: 'v' as VesselId,
+          variant: 'default' as VariantName,
           validActions: [],
         },
       ],

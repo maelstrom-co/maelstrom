@@ -1,9 +1,11 @@
+import type { ActionName, InstanceId } from '@maelstrom-co/protocol';
+
 import type { Logger } from '../../logger.js';
 
 export function parseParams(
   paramsJson: string,
-  action: string,
-  instanceId: string,
+  action: ActionName,
+  instanceId: InstanceId,
   logger: Logger,
 ): Record<string, unknown> | undefined {
   let parsed: unknown;

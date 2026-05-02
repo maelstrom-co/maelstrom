@@ -1,5 +1,6 @@
 import type {
   GridLayout,
+  InstanceId,
   LayoutMode,
   TilingLayout,
 } from '@maelstrom-co/protocol';
@@ -10,7 +11,7 @@ export type CommandProcessingStatus = 'idle' | 'processing' | 'error';
 
 export type CommandProcessingState = {
   status: CommandProcessingStatus;
-  instances: Map<string, VesselInstance>;
+  instances: Map<InstanceId, VesselInstance>;
   layout: GridLayout | TilingLayout | null;
   layoutMode: LayoutMode;
   lastError: Error | null;

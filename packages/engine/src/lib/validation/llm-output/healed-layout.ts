@@ -2,6 +2,8 @@ import type {
   GridResponse,
   InstanceId,
   TilingNode,
+  VariantName,
+  VesselId,
 } from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../assert-never.js';
@@ -19,12 +21,12 @@ export type DroppedLayoutEntry =
   | {
       readonly reason: 'unknown_vessel';
       readonly instanceId: InstanceId;
-      readonly vesselId: string;
+      readonly vesselId: VesselId;
     }
   | {
       readonly reason: 'unknown_variant';
       readonly instanceId: InstanceId;
-      readonly variant: string;
+      readonly variant: VariantName;
     }
   | {
       readonly reason: 'position_overflow';
@@ -82,16 +84,15 @@ export const isTreeDrop = (
 export type LayoutWarning = { readonly kind: 'missing_rationale' };
 
 /**
- * Healed instance shape internal to the heal pipeline: the LLM-source
- * `vesselId` and `variant` flow through unbranded (matching the protocol's
- * Vessel.id), but `instanceId` is branded once at the heal-loop boundary
- * so downstream readers (validIds set, AST leaves, drop entries, retry
- * prompt) carry the brand without re-casting.
+ * Healed instance shape internal to the heal pipeline. All three IDs are
+ * branded upstream by the protocol schemas' `.transform()` step, so
+ * downstream readers (validIds set, AST leaves, drop entries, retry
+ * prompt) carry the brands without re-casting.
  */
 export interface HealedTilingInstance {
   readonly instanceId: InstanceId;
-  readonly vesselId: string;
-  readonly variant: string;
+  readonly vesselId: VesselId;
+  readonly variant: VariantName;
 }
 
 /**
@@ -103,8 +104,7 @@ export interface HealedTilingInstance {
  * heal pipeline establishes the `H | V | InstanceId | null` invariant
  * internally (via `parseTree` / `pruneAst`), so consumers (`layoutEntryCount`,
  * `buildTilingLayout`) operate on the canonical type without per-element
- * casts. Unbranding to the wire shape happens at the engine boundary
- * (`buildLayout` returns the public `MaelstromResponse` layout).
+ * casts.
  */
 export interface HealedGridLayout {
   readonly mode: 'grid';

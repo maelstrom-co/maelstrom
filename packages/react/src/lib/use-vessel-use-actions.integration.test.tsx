@@ -13,7 +13,11 @@ import { render, cleanup, act } from '@testing-library/react';
 import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
 import { Success } from '@maelstrom-co/protocol-old';
 import type { VesselInstance, ActionRunner } from '@maelstrom-co/client';
-import type { MaelstromResponse } from '@maelstrom-co/protocol';
+import type {
+  MaelstromResponse,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
@@ -76,9 +80,9 @@ function makeResponse(
 }
 
 const baseInstance: VesselInstance = {
-  instanceId: 'inst-1',
-  vesselId: 'orders',
-  variant: 'list',
+  instanceId: InstanceId('inst-1'),
+  vesselId: 'orders' as VesselId,
+  variant: 'list' as VariantName,
   position: { column: 0, row: 0 },
   size: { width: 2, height: 2 },
 };

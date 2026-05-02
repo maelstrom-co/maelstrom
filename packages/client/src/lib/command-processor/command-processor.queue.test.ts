@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 
+import { InstanceId } from '@maelstrom-co/protocol';
+
 import { createSetLayoutCommand } from '../../../test-utils/command-mocks.js';
 import type { Command } from './command.types.js';
 import { CommandProcessor } from './command-processor.js';
@@ -63,7 +65,9 @@ describe('CommandProcessor Queue Timing', () => {
 
     expect(processor.store.state.status).toBe('idle');
     expect(processor.queueLength).toBe(0);
-    expect(processor.store.state.instances.has('instance-2')).toBe(true);
+    expect(processor.store.state.instances.has(InstanceId('instance-2'))).toBe(
+      true,
+    );
   });
 
   it('should process sequentially when awaited between calls', async () => {

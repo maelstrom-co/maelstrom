@@ -1,4 +1,4 @@
-import type { UpdateReason } from '@maelstrom-co/protocol';
+import type { InstanceId, UpdateReason } from '@maelstrom-co/protocol';
 
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
@@ -182,7 +182,7 @@ export class UpdateCoordinator {
   #coalesce(updates: UpdateReason[]): UpdateReason[] {
     const result: UpdateReason[] = [];
     let latestResize: UpdateReason | null = null;
-    const vesselMutations = new Map<string, UpdateReason>();
+    const vesselMutations = new Map<InstanceId, UpdateReason>();
 
     for (const update of updates) {
       switch (update.type) {

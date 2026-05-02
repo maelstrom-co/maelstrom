@@ -5,6 +5,9 @@ import {
   type MaelstromResponse,
   MessageId,
   SessionId,
+  type VariantName,
+  type VesselId,
+  VesselSchema,
 } from '@maelstrom-co/protocol';
 import type {
   ChartRequest as LegacyChartRequest,
@@ -76,10 +79,10 @@ export function toProtocolChartRequest(
     },
     instances: request.instances.map((instance) => ({
       instanceId: InstanceId(instance.instanceId),
-      vesselId: instance.vesselId,
-      variant: instance.variant,
+      vesselId: instance.vesselId as VesselId,
+      variant: instance.variant as VariantName,
     })),
-    vessels: request.vessels.map((vessel) => vessel),
+    vessels: request.vessels.map((vessel) => VesselSchema.parse(vessel)),
     layout:
       request.layout.type === 'grid'
         ? {

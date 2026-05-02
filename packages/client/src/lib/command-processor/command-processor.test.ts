@@ -1,12 +1,17 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it, test } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
+
+import {
+  type ActionExecution,
+  InstanceId,
+} from '@maelstrom-co/protocol';
 
 import {
   createExecuteActionsCommand,
   createSetLayoutCommand,
 } from '../../../test-utils/command-mocks.js';
 import type { Command } from './command.types.js';
-import { CommandProcessor } from './command-processor.js';
+import { CommandProcessor, toRunnerExecutionPlan } from './command-processor.js';
 
 describe('CommandProcessor (Event Loop)', () => {
   let processor: CommandProcessor;
@@ -78,7 +83,7 @@ describe('CommandProcessor (Event Loop)', () => {
         const command = createExecuteActionsCommand('vessel-1-1', 'action-1');
 
         // Register a runner that never resolves, keeping the processor busy
-        slowProcessor.registerRunner('vessel-1-1', {
+        slowProcessor.registerRunner(InstanceId('vessel-1-1'), {
           'action-1': () => new Promise<never>(() => {}),
         });
 
@@ -129,7 +134,9 @@ describe('CommandProcessor (Event Loop)', () => {
 
       // The second command should have been processed despite the first failing
       expect(processor.store.state.status).toBe('idle');
-      expect(processor.store.state.instances.has('instance-2')).toBe(true);
+      expect(
+        processor.store.state.instances.has(InstanceId('instance-2')),
+      ).toBe(true);
     });
 
     it('should emit processing_error event on failure', async () => {
@@ -188,7 +195,9 @@ describe('CommandProcessor (Event Loop)', () => {
       expect(processor.store.state.status).toBe('idle');
       expect(processor.queueLength).toBe(0);
       expect(processor.store.state.instances.size).toBe(1);
-      expect(processor.store.state.instances.has('vessel-99')).toBe(true);
+      expect(processor.store.state.instances.has(InstanceId('vessel-99'))).toBe(
+        true,
+      );
     });
 
     it('should handle high-volume concurrent burst', async () => {
@@ -206,7 +215,9 @@ describe('CommandProcessor (Event Loop)', () => {
       expect(processor.queueLength).toBe(0);
       expect(processor.store.state.instances.size).toBe(1);
       expect(
-        processor.store.state.instances.has(`vessel-${commandCount - 1}`),
+        processor.store.state.instances.has(
+          InstanceId(`vessel-${commandCount - 1}`),
+        ),
       ).toBe(true);
     });
 
@@ -232,7 +243,9 @@ describe('CommandProcessor (Event Loop)', () => {
 
       expect(processor.store.state.status).toBe('idle');
       expect(processor.queueLength).toBe(0);
-      expect(processor.store.state.instances.has('vessel-b2-19')).toBe(true);
+      expect(
+        processor.store.state.instances.has(InstanceId('vessel-b2-19')),
+      ).toBe(true);
     });
   });
 
@@ -290,7 +303,52 @@ describe('CommandProcessor (Event Loop)', () => {
       await processor.waitForIdle();
 
       expect(processor.store.state.status).toBe('idle');
-      expect(processor.store.state.instances.has('instance-1')).toBe(true);
+      expect(
+        processor.store.state.instances.has(InstanceId('instance-1')),
+      ).toBe(true);
     });
+  });
+});
+
+describe('toRunnerExecutionPlan', () => {
+  test('passes branded ActionExecutions through with their runtime shape intact', () => {
+    const plan: readonly ActionExecution[] = [
+      {
+        instanceId: InstanceId('orders-1'),
+        action: 'selectOrder',
+        params: { orderId: 'o-42' },
+      },
+      { instanceId: InstanceId('orders-1'), action: 'closeOrderDetails' },
+    ];
+
+    const runnerPlan = toRunnerExecutionPlan(plan);
+
+    expect(runnerPlan).toHaveLength(2);
+    // toMatchObject avoids the legacy RunnerActionExecution's fixed-Vessel
+    // generic narrowing `params` to `undefined`; the runtime shape is what
+    // we want to pin here, not the generic instantiation.
+    expect(runnerPlan[0]).toMatchObject({
+      instanceId: 'orders-1',
+      action: 'selectOrder',
+      params: { orderId: 'o-42' },
+    });
+    expect(runnerPlan[1]).toMatchObject({
+      instanceId: 'orders-1',
+      action: 'closeOrderDetails',
+    });
+  });
+
+  test('returns the same array reference (no copy, just a type cast)', () => {
+    // Pin the no-copy contract: ActionManager already iterates the plan, so
+    // a defensive clone here would be wasted work and a perf regression.
+    const plan: readonly ActionExecution[] = [
+      { instanceId: InstanceId('a'), action: 'noop' },
+    ];
+    const runnerPlan = toRunnerExecutionPlan(plan);
+    expect(runnerPlan as unknown as readonly ActionExecution[]).toBe(plan);
+  });
+
+  test('accepts an empty plan', () => {
+    expect(toRunnerExecutionPlan([])).toEqual([]);
   });
 });

@@ -1,13 +1,23 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
-import type { MaelstromResponse } from '@maelstrom-co/protocol';
-import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
+import type {
+  MaelstromResponse,
+  VesselId,
+} from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  InstanceId,
+  MessageId,
+  VariantName,
+  defineVessel,
+} from '@maelstrom-co/protocol';
 import { Err, Success } from '@maelstrom-co/protocol-old';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { type ReactNode, useMemo } from 'react';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
+import { useOptimisticVariant } from './use-optimistic-variant.js';
 import { vessel } from './vessel.js';
 
 // Vessel with transitionsTo so we can test optimistic transitions
@@ -43,9 +53,9 @@ afterEach(() => cleanup());
 
 function makeInstance(override?: Partial<VesselInstance>): VesselInstance {
   return {
-    instanceId: 'inst-1',
-    vesselId: 'orders',
-    variant: 'list',
+    instanceId: InstanceId('inst-1'),
+    vesselId: 'orders' as VesselId,
+    variant: 'list' as VariantName,
     position: { column: 0, row: 0 },
     size: { width: 2, height: 2 },
     ...override,
@@ -170,7 +180,7 @@ describe('m.useVessel() — basic', () => {
     });
 
     expect(props).not.toBeNull();
-    expect(props!.instanceId).toBe('inst-1');
+    expect(props!.instanceId).toBe('inst-1' as InstanceId);
     expect(props!.variantProps.variant).toBe('list');
     expect(
       (props!.variantProps as { variant: 'list'; view: string }).view,
@@ -304,7 +314,7 @@ describe('m.useVessel() — optimistic transitions', () => {
       process: async () => {
         callCount++;
         // First: 'list' instance; second: engine confirms 'detail'
-        const variant = callCount === 1 ? 'list' : 'detail';
+        const variant = (callCount === 1 ? 'list' : 'detail') as VariantName;
         return makeResponse([makeInstance({ variant })]);
       },
     });
@@ -447,7 +457,7 @@ describe('m.useVessel() — optimistic transitions', () => {
       process: async () => {
         callCount++;
         // Both responses return variant: 'list' — engine rejects the optimistic 'detail'
-        return makeResponse([makeInstance({ variant: 'list' })]);
+        return makeResponse([makeInstance({ variant: 'list' as VariantName })]);
       },
     });
 
@@ -502,7 +512,8 @@ describe('m.useVessel() — optimistic transitions', () => {
     try {
       const m = createMaelstrom({ vessels: [entry] });
       const connector = createMockConnector({
-        process: async () => makeResponse([makeInstance({ variant: 'list' })]),
+        process: async () =>
+          makeResponse([makeInstance({ variant: 'list' as VariantName })]),
       });
 
       let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -560,7 +571,7 @@ describe('m.useVessel() — optimistic transitions', () => {
   it('optimistic variant is rolled back when action runner returns Failure', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
-      process: async () => makeResponse([makeInstance({ variant: 'list' })]),
+      process: async () => makeResponse([makeInstance({ variant: 'list' as VariantName })]),
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -605,7 +616,7 @@ describe('m.useVessel() — optimistic transitions', () => {
   it('optimistic variant is rolled back when action runner throws', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
-      process: async () => makeResponse([makeInstance({ variant: 'list' })]),
+      process: async () => makeResponse([makeInstance({ variant: 'list' as VariantName })]),
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -649,103 +660,53 @@ describe('m.useVessel() — optimistic transitions', () => {
     expect(props!.variantProps.variant).toBe('list');
   });
 
-  it('does not set optimistic variant when transitionsTo references a non-existent variant', async () => {
-    // VesselSchema now rejects transitionsTo → non-existent variants at
-    // registration time, so we construct a valid vessel (both variants present)
-    // and then mutate the live object *after* registration to simulate state
-    // drift at runtime. This still exercises the defensive branch in
-    // useOptimisticVariant.applyTransition as belt-and-suspenders.
-    const badVessel = defineVessel({
-      id: 'bad-transitions',
-      name: 'Bad Transitions',
-      description: 'Vessel with invalid transitionsTo',
-      defaultVariant: 'main',
+  it('does not set optimistic variant when transitionsTo references a non-existent variant', () => {
+    // VesselSchema rejects transitionsTo → non-existent variants at
+    // registration time, and VesselManager stores parsed clones (so mutating
+    // the input post-registration no longer propagates). Drop down to the
+    // defensive branch in useOptimisticVariant directly: pass a hand-built
+    // vessel whose action references a variant the vessel doesn't carry.
+    const driftedVessel = {
+      id: 'drifted' as VesselId,
+      name: 'Drifted',
+      description: 'Vessel whose stored shape has drifted at runtime',
+      defaultVariant: 'main' as VariantName,
       variants: {
-        main: {
-          props: { mode: 'main' as const },
+        ['main' as VariantName]: {
+          description: 'main',
+          props: {},
           minSize: { width: 1, height: 1 },
           actions: [
             {
-              name: 'goToGhost',
-              description: 'Go to ghost',
-              transitionsTo: 'ghost-variant',
+              name: 'goToGhost' as ActionName,
+              description: 'Transitions to a missing variant',
+              transitionsTo: 'ghost-variant' as VariantName,
             },
           ],
-        },
-        // Valid at registration so VesselSchema passes — deleted below to
-        // simulate runtime drift before the action fires.
-        'ghost-variant': {
-          props: {},
-          minSize: { width: 1, height: 1 },
-          actions: [],
         },
       },
+    } as unknown as import('@maelstrom-co/protocol').Vessel;
+
+    const { result } = renderHook(() =>
+      useOptimisticVariant(
+        { variant: VariantName('main') },
+        driftedVessel,
+        // No-op subscriber; we only care about applyTransition's branch.
+        () => () => undefined,
+      ),
+    );
+
+    expect(result.current.current).toBeNull();
+
+    // Action's transitionsTo points to a variant that doesn't exist on the
+    // vessel — applyTransition must return false and leave optimistic unset.
+    let applied: boolean | undefined;
+    act(() => {
+      applied = result.current.applyTransition('goToGhost');
     });
 
-    const badEntry = vessel(badVessel, () => null);
-    const m = createMaelstrom({ vessels: [badEntry] });
-    const connector = createMockConnector({
-      process: async () => ({
-        type: 'maelstrom_response' as const,
-        requestId: MessageId('req-1'),
-        userMessage: '',
-        rationale: '',
-        executionPlan: [],
-        layout: {
-          type: 'tiling' as const,
-          tree: [],
-          instances: [
-            {
-              instanceId: InstanceId('inst-1'),
-              vesselId: 'bad-transitions',
-              variant: 'main',
-            },
-          ],
-        },
-      }),
-    });
-
-    let state: { processIntent: (i: string) => Promise<void> } | undefined;
-    let props: ReturnType<typeof m.useVessel<'bad-transitions'>> | undefined;
-
-    function App() {
-      state = m.useMaelstrom();
-      props = m.useVessel('bad-transitions', 'inst-1');
-      const runner = useMemo(
-        () => ({ goToGhost: () => Success(undefined) }),
-        [],
-      );
-      m.useActions('bad-transitions', 'inst-1', runner);
-      return null;
-    }
-
-    await act(async () => {
-      render(
-        <m.Provider connector={connector}>
-          <App />
-        </m.Provider>,
-      );
-    });
-
-    await act(async () => {
-      await state!.processIntent('init');
-    });
-
-    expect(props!.variantProps.variant).toBe('main');
-
-    // Simulate runtime drift: the action still points at 'ghost-variant',
-    // but the target variant no longer exists on the live vessel object.
-    delete (badVessel.variants as Record<string, unknown>)['ghost-variant'];
-
-    // executeAction with transitionsTo pointing to a now-missing variant
-    await act(async () => {
-      props!.executeAction('goToGhost');
-    });
-
-    // Should NOT set optimistic to 'ghost-variant' (component would vanish)
-    // Should stay on 'main'
-    expect(props).not.toBeNull();
-    expect(props!.variantProps.variant).toBe('main');
+    expect(applied).toBe(false);
+    expect(result.current.current).toBeNull();
   });
 
   it('resolves transitionsTo from the active variant, not the first match across all variants', async () => {

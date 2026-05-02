@@ -1,9 +1,12 @@
 import type {
+  ActionName,
   Result,
   Vessel,
   VesselAction,
+  VesselId,
   VesselInstanceSnapshot,
   VesselVariant,
+  VariantName,
 } from '@maelstrom-co/protocol';
 import { err, ok } from '@maelstrom-co/protocol';
 
@@ -19,25 +22,25 @@ import type {
 export interface ResolvedAction {
   readonly instance: VesselInstanceSnapshot;
   readonly vessel: Vessel;
-  readonly currentVariant: string;
+  readonly currentVariant: VariantName;
   readonly variantDef: VesselVariant;
   readonly actionDef: VesselAction;
 }
 
 export type ResolveFailure =
   | { readonly kind: 'unknown_instance' }
-  | { readonly kind: 'unknown_vessel'; readonly vesselId: string }
+  | { readonly kind: 'unknown_vessel'; readonly vesselId: VesselId }
   | { readonly kind: 'no_simulated_variant' }
   | {
       readonly kind: 'variant_not_on_vessel';
-      readonly vesselId: string;
-      readonly variant: string;
+      readonly vesselId: VesselId;
+      readonly variant: VariantName;
     }
   | {
       readonly kind: 'action_not_valid';
-      readonly vesselId: string;
-      readonly variant: string;
-      readonly validActions: readonly string[];
+      readonly vesselId: VesselId;
+      readonly variant: VariantName;
+      readonly validActions: readonly ActionName[];
     };
 
 // Compile-time witness: every `ResolveFailure.kind` must also be a
@@ -97,7 +100,7 @@ export function resolveAction(
 export function stateDriftSkipped(
   item: RawActionExecution,
   resolved: ResolvedAction,
-  targetVariant: string,
+  targetVariant: VariantName,
 ): SkippedAction {
   return {
     reason: 'state_drift',

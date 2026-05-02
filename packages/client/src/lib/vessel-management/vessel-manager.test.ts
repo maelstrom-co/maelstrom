@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 
-import type { Vessel } from '@maelstrom-co/protocol';
+import type { Vessel, VesselDefinition } from '@maelstrom-co/protocol';
+import { VesselId } from '@maelstrom-co/protocol';
 
 import type { VesselManagerEvents } from './vessel-manager.js';
 import { VesselManager } from './vessel-manager.js';
@@ -8,8 +9,11 @@ import { VesselManager } from './vessel-manager.js';
 type VesselRegisteredEvent = VesselManagerEvents['vessel_registered'];
 type VesselUnregisteredEvent = VesselManagerEvents['vessel_unregistered'];
 
-function createValidVessel(overrides?: Partial<Vessel>): Vessel {
-  return {
+// Pre-validation author shape (raw strings); cast to `Vessel` at the
+// `registerVessel` boundary so the fixture stays readable while the manager's
+// API still receives the branded post-validation type.
+function createValidVessel(overrides?: Partial<VesselDefinition>): Vessel {
+  const vessel: VesselDefinition = {
     id: 'test-vessel',
     name: 'Test Vessel',
     description: 'A test vessel for validation',
@@ -37,6 +41,7 @@ function createValidVessel(overrides?: Partial<Vessel>): Vessel {
     },
     ...overrides,
   };
+  return vessel as Vessel;
 }
 
 describe('VesselManager', () => {
@@ -54,7 +59,9 @@ describe('VesselManager', () => {
     it('should accept custom initial state', () => {
       const vessel = createValidVessel();
       const custom = new VesselManager({
-        initialState: { vessels: new Map([['test-vessel', vessel]]) },
+        initialState: {
+          vessels: new Map([[VesselId('test-vessel'), vessel]]),
+        },
       });
       expect(custom.size).toBe(1);
       expect(custom.get('test-vessel')).toBe(vessel);
@@ -80,7 +87,7 @@ describe('VesselManager', () => {
       manager.registerVessel(vessel);
 
       expect(events).toHaveLength(1);
-      expect(events[0].vessel).toBe(vessel);
+      expect(events[0].vessel).toEqual(vessel);
       expect(events[0].timestamp).toBeGreaterThan(0);
     });
 
@@ -96,7 +103,7 @@ describe('VesselManager', () => {
       manager.registerVessel(vessel2);
 
       expect(events).toHaveLength(2);
-      expect(events[1].vessel).toBe(vessel2);
+      expect(events[1].vessel).toEqual(vessel2);
     });
 
     it('should overwrite existing vessel with same id', () => {
@@ -238,11 +245,13 @@ describe('VesselManager', () => {
       expect(manager.get(vessel.id)).toEqual(vessel);
     });
 
-    it('should return same reference identity', () => {
+    it('should return a structurally equal vessel', () => {
       const vessel = createValidVessel();
       manager.registerVessel(vessel);
 
-      expect(manager.get(vessel.id)).toBe(vessel);
+      // VesselManager stores the post-parse branded shape; the parsed object
+      // is structurally equal to the input but not reference-identical.
+      expect(manager.get(vessel.id)).toEqual(vessel);
     });
 
     it('should return undefined for non-existent vessel', () => {
@@ -264,8 +273,8 @@ describe('VesselManager', () => {
       const result = manager.getAll();
 
       expect(result).toHaveLength(2);
-      expect(result.map((v) => v.id)).toContain('vessel-1');
-      expect(result.map((v) => v.id)).toContain('vessel-2');
+      expect(result.map((v) => v.id)).toContain(VesselId('vessel-1'));
+      expect(result.map((v) => v.id)).toContain(VesselId('vessel-2'));
     });
 
     it('should return a new array (mutation safety)', () => {
@@ -328,16 +337,25 @@ describe('VesselManager', () => {
     });
   });
 
-  describe('validateOnRegister option', () => {
-    it('should skip validation when validateOnRegister is false', () => {
-      const noValidationManager = new VesselManager({
-        validateOnRegister: false,
-      });
+  describe('invalid vessel rejection', () => {
+    it('should not store the vessel and should return valid: false when validation fails', () => {
       const vessel = createValidVessel({ id: '' });
-      const result = noValidationManager.registerVessel(vessel);
+      const result = manager.registerVessel(vessel);
 
-      expect(result.valid).toBe(true);
-      expect(noValidationManager.has('')).toBe(true);
+      expect(result.valid).toBe(false);
+      expect(manager.has('')).toBe(false);
+      expect(manager.size).toBe(0);
+    });
+
+    it('should not emit vessel_registered when validation fails', () => {
+      const events: VesselRegisteredEvent[] = [];
+      manager.events.on('vessel_registered', (e) => {
+        events.push(e);
+      });
+
+      manager.registerVessel(createValidVessel({ id: '' }));
+
+      expect(events).toHaveLength(0);
     });
   });
 
@@ -352,7 +370,7 @@ describe('VesselManager', () => {
       manager.registerVessel(vessel);
 
       expect(receivedEvent).toBeDefined();
-      expect(receivedEvent?.vessel).toBe(vessel);
+      expect(receivedEvent?.vessel).toEqual(vessel);
       expect(receivedEvent?.timestamp).toBeGreaterThan(0);
     });
 

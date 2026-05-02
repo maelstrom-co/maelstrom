@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 import type {
-  ChartRequest,
+  ChartRequest as BrandedChartRequest,
   EngineMessage,
-  GridResponse,
-  TilingResponse,
 } from '@maelstrom-co/protocol';
 import {
   AssistantInjectionMessage,
@@ -23,10 +21,94 @@ import {
   dummyAdapter,
   getLastUserMessage,
   invalid,
-  makeGridRequest,
-  makeTilingRequest,
+  makeGridRequest as makeGridRequestBranded,
+  makeTilingRequest as makeTilingRequestBranded,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
+
+// ---------------------------------------------------------------------------
+// Permissive author-facing shapes for fixture literals. Brands erase at
+// runtime; tests build the structural shape and cast at the boundary.
+// ---------------------------------------------------------------------------
+
+type AuthorActionExecution = {
+  readonly instanceId: string;
+  readonly action: string;
+  readonly params?: Record<string, unknown>;
+  readonly paramsJson?: string;
+};
+type AuthorGridLayout = {
+  readonly positions: ReadonlyArray<{
+    readonly instanceId: string;
+    readonly position: { readonly row: number; readonly column: number };
+    readonly size: { readonly width: number; readonly height: number };
+  }>;
+};
+type AuthorTilingLayout = {
+  readonly tree: ReadonlyArray<'H' | 'V' | string | null>;
+  readonly instances: ReadonlyArray<{
+    readonly instanceId: string;
+    readonly vesselId: string;
+    readonly variant: string;
+  }>;
+};
+type GridResponse = {
+  readonly userMessage: string;
+  readonly rationale: string;
+  readonly executionPlan: ReadonlyArray<AuthorActionExecution>;
+  readonly layout: AuthorGridLayout;
+};
+type TilingResponse = {
+  readonly userMessage: string;
+  readonly rationale: string;
+  readonly executionPlan: ReadonlyArray<AuthorActionExecution>;
+  readonly layout: AuthorTilingLayout;
+};
+type Vessel = {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly defaultVariant: string;
+  readonly variants: Readonly<
+    Record<
+      string,
+      {
+        readonly description?: string;
+        readonly props: Readonly<Record<string, unknown>>;
+        readonly minSize: { readonly width: number; readonly height: number };
+        readonly actions: ReadonlyArray<{
+          readonly name: string;
+          readonly description: string;
+          readonly transitionsTo?: string;
+        }>;
+      }
+    >
+  >;
+};
+type ChartRequest = {
+  readonly type: 'chart_request';
+  readonly context: BrandedChartRequest['context'];
+  readonly instances: ReadonlyArray<{
+    readonly instanceId: string;
+    readonly vesselId: string;
+    readonly variant: string;
+  }>;
+  readonly vessels: ReadonlyArray<Vessel>;
+  readonly layout:
+    | { readonly type: 'grid'; readonly positions: AuthorGridLayout['positions'] }
+    | {
+        readonly type: 'tiling';
+        readonly tree: AuthorTilingLayout['tree'];
+        readonly instances: AuthorTilingLayout['instances'];
+      };
+};
+
+const makeGridRequest = makeGridRequestBranded as unknown as (
+  overrides?: Partial<ChartRequest>,
+) => ChartRequest;
+const makeTilingRequest = makeTilingRequestBranded as unknown as (
+  overrides?: Partial<ChartRequest>,
+) => ChartRequest;
 
 // ---------------------------------------------------------------------------
 // Mock TanStack AI chat()
@@ -61,7 +143,12 @@ const toChartRequestMessage = (
   request: ChartRequest,
   sessionId: SessionId = DEFAULT_SESSION_ID,
   id: MessageId = DEFAULT_MESSAGE_ID,
-): ChartRequestMessage => ChartRequestMessage({ sessionId, id, request });
+): ChartRequestMessage =>
+  ChartRequestMessage({
+    sessionId,
+    id,
+    request: request as unknown as BrandedChartRequest,
+  });
 
 afterEach(() => {
   mockChat.mockReset();
@@ -1321,10 +1408,10 @@ describe('engine.handle — wire-format validation', () => {
       logger: silentLogger,
     });
 
-    const env = ChartRequestMessage({
-      sessionId: SessionId('sess-1'),
-      request: makeGridRequest(),
-    });
+    const env = toChartRequestMessage(
+      makeGridRequest(),
+      SessionId('sess-1'),
+    );
     // Mutate envelope to corrupt inner payload.
     const corrupted = invalid<typeof env>({
       ...env,
@@ -1387,10 +1474,10 @@ describe('engine.handle — wire-format validation', () => {
       logger: silentLogger,
     });
 
-    const env = ChartRequestMessage({
-      sessionId: SessionId('sess-1'),
-      request: makeGridRequest(),
-    });
+    const env = toChartRequestMessage(
+      makeGridRequest(),
+      SessionId('sess-1'),
+    );
 
     const result = await engine.handle(env);
     expect(isOk(result)).toBe(true);

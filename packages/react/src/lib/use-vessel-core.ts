@@ -1,4 +1,9 @@
-import type { ActionExecution } from '@maelstrom-co/protocol';
+import type {
+  ActionExecution,
+  InstanceId,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 import { useCallback, useMemo } from 'react';
 
@@ -10,7 +15,7 @@ import { warnOnce } from './warn-once.js';
 export interface VesselCoreResult {
   instanceId: string;
   vesselId: string;
-  currentVariant: string;
+  currentVariant: VariantName;
   variantProps: Record<string, unknown>;
   executeAction: (name: string, params?: Record<string, unknown>) => void;
 }
@@ -31,11 +36,11 @@ export function createUseVesselCore(contextPair: MaelstromContextPair) {
     const { orchestrator, config } = useMaelstromContext();
 
     const instance = useStore(orchestrator.commandProcessor.store, (s) =>
-      s.instances.get(instanceId),
+      s.instances.get(instanceId as InstanceId),
     );
 
     const vessel = useStore(orchestrator.vesselManager.store, (s) =>
-      vesselId ? s.vessels.get(vesselId) : undefined,
+      vesselId ? s.vessels.get(vesselId as VesselId) : undefined,
     );
 
     // Narrow the orchestrator's event bus into a stable subscribe function for useOptimisticVariant

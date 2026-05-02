@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type ActionExecution, Success } from '@maelstrom-co/protocol-old';
-import { defineVessel } from '@maelstrom-co/protocol';
+import { defineVessel, InstanceId } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { ActionManager } from './action-manager.js';
@@ -8,6 +8,9 @@ import type {
   ActionRunner,
   BatchExecutionResult,
 } from './action-runner.types.js';
+
+const i1 = InstanceId('instance-1');
+const i2 = InstanceId('instance-2');
 
 const mockVessel = defineVessel({
   id: 'test',
@@ -45,9 +48,9 @@ describe('ActionManager waitForReady', () => {
       const runner: ActionRunner<MockVessel> = {
         testAction: async () => Success(undefined),
       };
-      manager.registerRunner<MockVessel>('instance-1', runner);
+      manager.registerRunner<MockVessel>(i1, runner);
 
-      manager.waitForReady('instance-1').then((_result) => {
+      manager.waitForReady(i1).then((_result) => {
         promiseResolved = true;
         result = _result;
         return _result;
@@ -67,7 +70,7 @@ describe('ActionManager waitForReady', () => {
 
       let result = false;
       let promiseResolved = false;
-      manager.waitForReady('instance-1', 1000).then((_result) => {
+      manager.waitForReady(i1, 1000).then((_result) => {
         promiseResolved = true;
         result = _result;
         return _result;
@@ -75,7 +78,7 @@ describe('ActionManager waitForReady', () => {
 
       // Runner registered after 50ms
       clock.setTimeout(() => {
-        manager.registerRunner<MockVessel>('instance-1', runner);
+        manager.registerRunner<MockVessel>(i1, runner);
       }, 50);
 
       // Advance time but not enough for runner to be registered
@@ -95,7 +98,7 @@ describe('ActionManager waitForReady', () => {
       let promiseResolved = false;
       let result: boolean = false;
 
-      manager.waitForReady('instance-1', 100).then((_result) => {
+      manager.waitForReady(i1, 100).then((_result) => {
         promiseResolved = true;
         result = _result;
         return _result;
@@ -116,24 +119,24 @@ describe('ActionManager waitForReady', () => {
       let result3 = false;
 
       let resolvedCount = 0;
-      manager.waitForReady('instance-1', 1000).then((result) => {
+      manager.waitForReady(i1, 1000).then((result) => {
         resolvedCount++;
         result1 = result;
         return result;
       });
-      manager.waitForReady('instance-1', 1000).then((result) => {
+      manager.waitForReady(i1, 1000).then((result) => {
         resolvedCount++;
         result2 = result;
         return result;
       });
-      manager.waitForReady('instance-1', 1000).then((result) => {
+      manager.waitForReady(i1, 1000).then((result) => {
         resolvedCount++;
         result3 = result;
         return result;
       });
 
       clock.setTimeout(() => {
-        manager.registerRunner<MockVessel>('instance-1', runner);
+        manager.registerRunner<MockVessel>(i1, runner);
       }, 50);
 
       // Before runner is registered, no promises should be resolved
@@ -156,14 +159,14 @@ describe('ActionManager waitForReady', () => {
 
       let promiseResolvedCount = 0;
       let result1 = false;
-      manager.waitForReady('instance-1', 1000).then((result) => {
+      manager.waitForReady(i1, 1000).then((result) => {
         promiseResolvedCount++;
         result1 = result;
         return result;
       });
 
       clock.setTimeout(() => {
-        manager.registerRunner<MockVessel>('instance-1', runner);
+        manager.registerRunner<MockVessel>(i1, runner);
       }, 50);
 
       // Before runner is registered, promise should not be resolved
@@ -176,7 +179,7 @@ describe('ActionManager waitForReady', () => {
       expect(result1).toBe(true);
 
       // After resolution, a new waiter should immediately find the runner
-      manager.waitForReady('instance-1', 0).then((result) => {
+      manager.waitForReady(i1, 0).then((result) => {
         promiseResolvedCount++;
         return result;
       });
@@ -196,13 +199,13 @@ describe('ActionManager waitForReady', () => {
       let longResult = false;
 
       // Short timeout waiter
-      manager.waitForReady('instance-1', 50).then((result) => {
+      manager.waitForReady(i1, 50).then((result) => {
         shortResult = result;
         shortResolved = true;
         return result;
       });
       // Long timeout waiter
-      manager.waitForReady('instance-1', 200).then((result) => {
+      manager.waitForReady(i1, 200).then((result) => {
         longResult = result;
         longResolved = true;
         return result;
@@ -210,7 +213,7 @@ describe('ActionManager waitForReady', () => {
 
       // Register runner after 100ms - short waiter should timeout, long should succeed
       clock.setTimeout(() => {
-        manager.registerRunner<MockVessel>('instance-1', runner);
+        manager.registerRunner<MockVessel>(i1, runner);
       }, 100);
 
       // At 50ms, short waiter should timeout
@@ -237,9 +240,9 @@ describe('ActionManager waitForReady', () => {
         },
       };
 
-      const executionPlan: ActionExecution<MockVessel>[] = [
-        { instanceId: 'instance-1', action: 'testAction' },
-        { instanceId: 'instance-1', action: 'testAction' },
+      const executionPlan: ActionExecution[] = [
+        { instanceId: i1, action: 'testAction' },
+        { instanceId: i1, action: 'testAction' },
       ];
       let result: BatchExecutionResult | null = null;
       let executionCompleted = false;
@@ -255,7 +258,7 @@ describe('ActionManager waitForReady', () => {
 
       // Register runner after 50ms
       clock.setTimeout(() => {
-        manager.registerRunner<MockVessel>('instance-1', runner);
+        manager.registerRunner<MockVessel>(i1, runner);
       }, 50);
 
       // Before runner is registered, execution should not complete
@@ -282,8 +285,8 @@ describe('ActionManager waitForReady', () => {
     });
 
     it('should skip actions if runner times out', async () => {
-      const executionPlan: ActionExecution<MockVessel>[] = [
-        { instanceId: 'instance-1', action: 'testAction' },
+      const executionPlan: ActionExecution[] = [
+        { instanceId: i1, action: 'testAction' },
       ];
       let result: BatchExecutionResult | null = null;
       manager.executeActions(executionPlan).then((_result) => {
@@ -315,10 +318,10 @@ describe('ActionManager waitForReady', () => {
         },
       };
 
-      manager.registerRunner<MockVessel>('instance-1', runner);
+      manager.registerRunner<MockVessel>(i1, runner);
 
-      const executionPlan: ActionExecution<MockVessel>[] = [
-        { instanceId: 'instance-1', action: 'testAction' },
+      const executionPlan: ActionExecution[] = [
+        { instanceId: i1, action: 'testAction' },
       ];
       let executionCompleted = false;
       let result: BatchExecutionResult | null = null;
@@ -352,11 +355,11 @@ describe('ActionManager waitForReady', () => {
       };
 
       // Register runner for instance-1 only
-      manager.registerRunner<MockVessel>('instance-1', registeredRunner);
+      manager.registerRunner<MockVessel>(i1, registeredRunner);
 
-      const executionPlan: ActionExecution<MockVessel>[] = [
-        { instanceId: 'instance-1', action: 'testAction' },
-        { instanceId: 'instance-2', action: 'testAction' }, // No runner
+      const executionPlan: ActionExecution[] = [
+        { instanceId: i1, action: 'testAction' },
+        { instanceId: i2, action: 'testAction' }, // No runner
       ];
       let executionCompleted = false;
       let result: BatchExecutionResult | null = null;
@@ -389,9 +392,9 @@ describe('ActionManager waitForReady', () => {
       };
 
       // Start executing actions for two instances
-      const executionPlan: ActionExecution<MockVessel>[] = [
-        { instanceId: 'instance-1', action: 'testAction' },
-        { instanceId: 'instance-2', action: 'testAction' },
+      const executionPlan: ActionExecution[] = [
+        { instanceId: i1, action: 'testAction' },
+        { instanceId: i2, action: 'testAction' },
       ];
       let executionCompleted = false;
       let result: BatchExecutionResult | null = null;
@@ -403,11 +406,11 @@ describe('ActionManager waitForReady', () => {
 
       // Register runners at different times
       clock.setTimeout(() => {
-        manager.registerRunner<MockVessel>('instance-1', runner);
+        manager.registerRunner<MockVessel>(i1, runner);
       }, 50);
 
       clock.setTimeout(() => {
-        manager.registerRunner<MockVessel>('instance-2', runner);
+        manager.registerRunner<MockVessel>(i2, runner);
       }, 100);
 
       // At 50ms, first instance should execute but not second

@@ -1,5 +1,6 @@
 import type { ActionRunner } from '@maelstrom-co/client';
-import type { Vessel } from '@maelstrom-co/protocol';
+import type { VesselDefinition, VesselId } from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
 import { type ComponentType, lazy, useEffect } from 'react';
 
 import type { MaelstromContextPair, MaelstromContextValue } from './context.js';
@@ -23,11 +24,11 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
   const { contextRef, useMaelstromContext } = contextPair;
   const useVesselCore = createUseVesselCore(contextPair);
 
-  return function registerVessel<V extends Vessel>(
+  return function registerVessel<V extends VesselDefinition>(
     entry: AnyVesselEntry<V>,
   ): DynamicVesselHandle<V> {
     const ctx = getContext(contextRef);
-    const vesselId = entry.vessel.id;
+    const vesselId = entry.vessel.id as VesselId;
 
     if (ctx.config.debug && ctx.componentRegistry.has(vesselId)) {
       console.warn(
@@ -47,8 +48,8 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
     return buildHandle<V>(vesselId);
   };
 
-  function buildHandle<V extends Vessel>(
-    vesselId: string,
+  function buildHandle<V extends VesselDefinition>(
+    vesselId: VesselId,
   ): DynamicVesselHandle<V> {
     return {
       useVessel(instanceId: string): TypedVesselProps<V> | null {
@@ -63,19 +64,25 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
           return null;
         }
 
+        // The runtime shape matches TypedVesselProps<V>, but the structural
+        // types diverge: core.executeAction is the loose `(name: string, ...)`
+        // signature while TypedVesselProps requires the action-name-discriminated
+        // overload. TypeScript cannot bridge these without making useVesselCore
+        // generic over V, which would propagate inference cost everywhere.
         return {
           instanceId,
           variantProps: { variant: core.currentVariant, ...core.variantProps },
           executeAction: core.executeAction,
-        } as TypedVesselProps<V>;
+        } as unknown as TypedVesselProps<V>;
       },
 
       useActions(instanceId: string, runner: ActionRunner<V>): void {
         const { orchestrator } = useMaelstromContext();
+        const brandedInstanceId = InstanceId(instanceId);
 
         useEffect(() => {
-          return orchestrator.commandProcessor.registerRunner(instanceId, runner);
-        }, [orchestrator, instanceId, runner]);
+          return orchestrator.commandProcessor.registerRunner(brandedInstanceId, runner);
+        }, [orchestrator, brandedInstanceId, runner]);
       },
 
       unregister() {

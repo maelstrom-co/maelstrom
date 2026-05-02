@@ -161,15 +161,26 @@ export const EngineMessageSchema = z.discriminatedUnion('type', [
 
 type _InferredChartRequestMessage = z.infer<typeof ChartRequestMessageSchema>;
 
-// Forward guard for ChartRequestMessage is omitted: `request: ChartRequestSchema`
-// re-introduces the same branded-InstanceId asymmetry as the inner
-// `ChartRequestSchema`'s drift guard in `request.ts`.
-// `_InferredChartRequestMessage.request` holds plain `string` for
-// InstanceId-bearing fields, while `Mutable<ChartRequestMessage>.request` holds
-// branded `InstanceId`, so `string extends InstanceId` is always false.
-// Branded-ID schemas are MAE-133's scope. The backward direction passes
-// because `InstanceId extends string`.
-const _crmBwd: Mutable<ChartRequestMessage> extends _InferredChartRequestMessage
+// The inner `request.layout` shape is carved out for the same reason
+// `_chartReqFwd` / `_chartReqBwd` in `request.ts` carve out
+// `ChartRequest['layout']`: the hand-written `TilingInstance` interface in
+// `response.ts` types `vesselId` / `variant` as plain `string`, while the
+// schema brands them via `VesselInstanceSnapshotSchema`'s transforms. Only
+// the inner `request` payload carries that asymmetry — the surrounding
+// envelope fields (`sessionId`, `id`, `timestamp`, `type`) match cleanly.
+type _CRMWithoutRequestLayout = Omit<ChartRequestMessage, 'request'> & {
+  request: Omit<ChartRequestMessage['request'], 'layout'>;
+};
+type _InferredCRMWithoutRequestLayout = Omit<
+  _InferredChartRequestMessage,
+  'request'
+> & {
+  request: Omit<_InferredChartRequestMessage['request'], 'layout'>;
+};
+const _crmFwd: _InferredCRMWithoutRequestLayout extends Mutable<_CRMWithoutRequestLayout>
+  ? true
+  : false = true;
+const _crmBwd: Mutable<_CRMWithoutRequestLayout> extends _InferredCRMWithoutRequestLayout
   ? true
   : false = true;
 
@@ -188,11 +199,24 @@ const _aimBwd: Mutable<AssistantInjectionMessage> extends _InferredAssistantInje
 
 type _InferredEngineMessage = z.infer<typeof EngineMessageSchema>;
 
-// Forward guard for EngineMessage is omitted for the same reason as
-// ChartRequestMessage — the union includes ChartRequestMessageSchema which
-// carries the unbranded InstanceId issue.
-const _emBwd: Mutable<EngineMessage> extends _InferredEngineMessage
+// Same carve-out as `_crmFwd` / `_crmBwd`: the chart_request arm of the union
+// carries the inner `request.layout` shape that doesn't compose cleanly. The
+// assistant_message arm has no `request` field, so the per-arm omission is a
+// no-op for it; we represent the shape via a discriminated mapped type so
+// each variant is rebuilt with a per-variant carve-out.
+type _OmitRequestLayout<M> = M extends { type: 'chart_request' }
+  ? Omit<M, 'request'> & {
+      request: M extends { request: infer R } ? Omit<R, 'layout'> : never;
+    }
+  : M;
+type _EngineMessageWithoutRequestLayout = _OmitRequestLayout<EngineMessage>;
+type _InferredEngineMessageWithoutRequestLayout =
+  _OmitRequestLayout<_InferredEngineMessage>;
+const _emFwd: _InferredEngineMessageWithoutRequestLayout extends Mutable<_EngineMessageWithoutRequestLayout>
+  ? true
+  : false = true;
+const _emBwd: Mutable<_EngineMessageWithoutRequestLayout> extends _InferredEngineMessageWithoutRequestLayout
   ? true
   : false = true;
 
-void [_crmBwd, _aimFwd, _aimBwd, _emBwd];
+void [_crmFwd, _crmBwd, _aimFwd, _aimBwd, _emFwd, _emBwd];

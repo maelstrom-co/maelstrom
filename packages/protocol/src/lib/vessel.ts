@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
+import { ActionName } from './action-name.js';
 import { ChartSizeSchema } from './schemas.js';
+import { VariantName } from './variant-name.js';
+import { VesselId } from './vessel-id.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -16,10 +19,17 @@ export const ActionParameterSchema = z.object({
 });
 
 export const VesselActionSchema = z.object({
-  name: z.string().min(1, 'Action name is required'),
+  name: z
+    .string()
+    .min(1, 'Action name is required')
+    .transform(ActionName),
   description: z.string().min(1, 'Action description is required'),
   parameters: z.array(ActionParameterSchema).optional(),
-  transitionsTo: z.string().optional(),
+  transitionsTo: z
+    .string()
+    .min(1)
+    .transform(VariantName)
+    .optional(),
 });
 
 export const VesselVariantSchema = z.object({
@@ -31,11 +41,20 @@ export const VesselVariantSchema = z.object({
 
 export const VesselSchema = z
   .object({
-    id: z.string().min(1, 'Vessel id is required'),
+    id: z
+      .string()
+      .min(1, 'Vessel id is required')
+      .transform(VesselId),
     name: z.string().min(1, 'Vessel name is required'),
     description: z.string().min(1, 'Vessel description is required'),
-    defaultVariant: z.string().min(1, 'defaultVariant is required'),
-    variants: z.record(z.string(), VesselVariantSchema),
+    defaultVariant: z
+      .string()
+      .min(1, 'defaultVariant is required')
+      .transform(VariantName),
+    variants: z.record(
+      z.string().min(1).transform(VariantName),
+      VesselVariantSchema,
+    ),
   })
   .refine(
     (vessel) => Object.keys(vessel.variants).length > 0,
@@ -87,13 +106,17 @@ export const VesselSchema = z
 /** Parameter definition for an action */
 export type ActionParameter = z.infer<typeof ActionParameterSchema>;
 
-/** An action that can be invoked on a Vessel */
+/** An action that can be invoked on a Vessel. Post-parse shape with branded fields. See {@link VesselActionDefinition}. */
 export type VesselAction = z.infer<typeof VesselActionSchema>;
 
-/** A variant represents a distinct state of the Vessel */
+/** A variant of a Vessel. Post-parse shape with branded fields. See {@link VesselVariantDefinition}. */
 export type VesselVariant = z.infer<typeof VesselVariantSchema>;
 
-/** Definition of a Vessel as a state machine */
+/**
+ * Validated, post-parse Vessel definition: IDs and variant/action names
+ * are branded. Use {@link VesselDefinition} for the author-facing
+ * unbranded shape accepted by {@link defineVessel}.
+ */
 export type Vessel = z.infer<typeof VesselSchema>;
 
 /** A single validation issue surfaced by {@link validateVessel}. */
@@ -107,11 +130,50 @@ export interface ValidationIssue {
  * The result of validating a Vessel object.
  *
  * Discriminated union: constructing `{ valid: true, issues: [...] }` or
- * `{ valid: false, issues: [] }` is a compile error.
+ * `{ valid: false, issues: [] }` is a compile error. On success, the parsed
+ * `vessel` field carries the branded `Vessel` shape so callers don't have
+ * to re-parse to get the post-transform IDs.
  */
 export type VesselValidationResult =
-  | { readonly valid: true }
+  | { readonly valid: true; readonly vessel: Vessel }
   | { readonly valid: false; readonly issues: readonly ValidationIssue[] };
+
+// ---------------------------------------------------------------------------
+// Author-facing definition shapes
+// ---------------------------------------------------------------------------
+
+/**
+ * Author-facing shape for a vessel definition. Distinct from {@link Vessel}
+ * (the branded post-validation shape): definitions accept raw string IDs
+ * and variant keys; brands appear after `VesselSchema.parse(...)`.
+ *
+ * Use this as the parameter type when accepting a developer-authored vessel
+ * (e.g. `defineVessel`, `registerVessel`). Use {@link Vessel} when working
+ * with a vessel that has already crossed the schema boundary.
+ */
+export interface VesselDefinition {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly defaultVariant: string;
+  readonly variants: Readonly<Record<string, VesselVariantDefinition>>;
+}
+
+/** Author-facing shape for a {@link VesselVariant}. */
+export interface VesselVariantDefinition {
+  readonly description?: string;
+  readonly props: Readonly<Record<string, unknown>>;
+  readonly minSize: { readonly width: number; readonly height: number };
+  readonly actions: ReadonlyArray<VesselActionDefinition>;
+}
+
+/** Author-facing shape for a {@link VesselAction}. */
+export interface VesselActionDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters?: ReadonlyArray<ActionParameter>;
+  readonly transitionsTo?: string;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -120,10 +182,16 @@ export type VesselValidationResult =
 /**
  * Helper to define a vessel while preserving literal types.
  *
- * Keeps action names and parameter names literal for type inference in
- * ActionRunner.
+ * Constrains to {@link VesselDefinition} (the unbranded author-facing shape)
+ * rather than {@link Vessel} so raw string IDs / variant keys / action names
+ * are accepted at definition time. Brands are applied later via
+ * `VesselSchema.parse(...)` at validation seams.
+ *
+ * Returns the input shape verbatim (`V`, not widened to `VesselDefinition`)
+ * so downstream type-level helpers can extract literal action-name unions
+ * for typed action runners.
  */
-export function defineVessel<const V extends Vessel>(vessel: V): V {
+export function defineVessel<const V extends VesselDefinition>(vessel: V): V {
   return vessel;
 }
 
@@ -132,7 +200,7 @@ export function validateVessel(vessel: unknown): VesselValidationResult {
   const result = VesselSchema.safeParse(vessel);
 
   if (result.success) {
-    return { valid: true };
+    return { valid: true, vessel: result.data };
   }
 
   return {

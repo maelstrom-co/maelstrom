@@ -3,6 +3,7 @@ import type {
   GridResponse,
   InstanceId,
   Vessel,
+  VesselId,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 
@@ -38,7 +39,7 @@ export function healGridLayout(
   for (const instance of request.instances) {
     instanceById.set(instance.instanceId, instance);
   }
-  const vesselById = new Map<string, Vessel>();
+  const vesselById = new Map<VesselId, Vessel>();
   for (const vessel of request.vessels) {
     vesselById.set(vessel.id, vessel);
   }
@@ -50,10 +51,7 @@ export function healGridLayout(
   const kept: GridResponse['layout']['positions'] = [];
 
   for (const pos of response.layout.positions) {
-    // Zod-inferred GridPosition.instanceId is raw string; the engine treats
-    // it as a branded InstanceId from this point on so drop entries flow
-    // typed through diagnostics + retry-prompt construction.
-    const instanceId = pos.instanceId as InstanceId;
+    const instanceId = pos.instanceId;
 
     if (tracker.isDuplicate(instanceId)) continue;
 
