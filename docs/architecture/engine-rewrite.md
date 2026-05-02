@@ -10,8 +10,8 @@
                     ┌──────────────────┐
                     │    protocol       │  Result, SessionId, MessageId,
                     │                  │  InstanceId, ChartRequest, Vessel,
-                    │                  │  MaelstromResponse, Zod schemas
-                    │                  │  (+ EngineMessage/Output after MAE-102)
+                    │                  │  MaelstromResponse, EngineMessage,
+                    │                  │  EngineOutput, Zod schemas
                     └────────┬─────────┘
                              │ imported by
                 ┌────────────┼────────────┬─────────────┐
@@ -40,10 +40,9 @@
 
 ## Engine Pipeline
 
-> **Current interface:** `Engine.process(request: ChartRequest, signal?): Promise<Result<MaelstromResponse, EngineError>>`
-> MAE-102 will introduce the `EngineMessage` envelope and `EngineOutput` types shown below.
+> **Current interface:** `Engine.handle(message: EngineMessage, signal?): Promise<Result<EngineOutput, EngineError>>` (MAE-102 ✅)
 
-The target pipeline (after MAE-102) accepts an `EngineMessage` envelope and returns an `EngineOutput`. For `chart_request` messages, the core pipeline is:
+The pipeline accepts an `EngineMessage` envelope and returns an `EngineOutput`. For `chart_request` messages, the core pipeline is:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -73,10 +72,10 @@ The target pipeline (after MAE-102) accepts an `EngineMessage` envelope and retu
 │  └──────┬──────┘                                                 │
 │         │                                                         │
 │         ▼                                                         │
-│  ┌ ─ ─ ─ ─ ─ ─┐   history/history-manager.ts  [planned: MAE-102] │
+│  ┌─────────────┐   history/history-manager.ts  (MAE-102 ✅)      │
 │  │ History      │   Records turn under per-session lock          │
 │  │ Manager      │   Hybrid truncation (maxEntries + maxChars)    │
-│  └ ─ ─ ─┬─ ─ ─┘                                                 │
+│  └──────┬──────┘                                                 │
 │         │                                                         │
 │         ▼                                                         │
 │  EngineOutput { type: 'chart_response', sessionId, id, response }│
@@ -208,11 +207,9 @@ Same AudioPlayback
 
 The voice message protocol (defined in `@maelstrom-co/protocol`) is the durable contract. Message types (`client.vad.speech_start`, `engine.stt.transcript`, `engine.tts.sent`, etc.) and the binary audio frame format are the API surface that must remain stable.
 
-## Envelope Model [planned: MAE-102]
+## Envelope Model (MAE-102 ✅)
 
-> **Not yet implemented.** The types and interface below are the MAE-102 target design.
-
-The engine will use a uniform `EngineMessage` envelope at the protocol layer. The client edge will construct envelopes via protocol factory functions. Every layer between client and engine is a pure passthrough — wire format equals engine format.
+The engine uses a uniform `EngineMessage` envelope at the protocol layer. The client edge constructs envelopes via protocol factory functions. Every layer between client and engine is a pure passthrough — wire format equals engine format.
 
 ```typescript
 type EngineMessage =
@@ -228,7 +225,7 @@ interface Engine {
 }
 ```
 
-## History System [planned: MAE-102]
+## History System (MAE-102 ✅)
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -278,7 +275,7 @@ Five layers of validation, added incrementally:
 │  1. Engine Config (MAE-122) ✅                   │
 │     Zod schema validation at createEngine()      │
 │                                                   │
-│  2. EngineMessage (MAE-123)                      │
+│  2. EngineMessage (MAE-123) ⚙️                   │
 │     Pre-process envelope validation               │
 │                                                   │
 │  3. LLM Output Layout (MAE-124) ✅              │
@@ -384,16 +381,16 @@ MAE-100 ✅ Foundation
     │                                                                       │
     ├──► MAE-119 ✅ SessionId / MessageId / Brand<T, B>                     │
     │        │                                                               │
-    │        └──► MAE-102    History & Session Management                   │
+    │        └──► MAE-102 ✅ History & Session Management                   │
     │                 │                                                      │
-    │                 ├──► MAE-123  EngineMessage Validation                │
+    │                 ├──► MAE-123 ⚙️ EngineMessage Validation              │
     │                 │                                                      │
-    │                 ├──► MAE-132  Uniform idempotency                     │
+    │                 ├──► MAE-132 ⚙️ Uniform idempotency                   │
     │                 │                                                      │
     │                 └──► MAE-104  Integration ◄───────────────────────────┘
     │                              ▲
     │                              │
-    ├──► MAE-103    Voice Server ──┘
+    ├──► MAE-103    Voice Server (4b ✅; hardening pending) ──┘
     │
     │    ── Structural refactors (all shipped — landing zones cleared) ──
     │
@@ -418,17 +415,17 @@ MAE-100 ✅ Foundation
     │
     │    ── Type-safety cleanups ──
     │
-    └──► MAE-133  Brand remaining IDs + remove convention-only invariants
+    └──► MAE-133 ⚙️ Brand remaining IDs + remove convention-only invariants
 
 Legend: ✅ Done  ⚙️ In Progress  (unmarked = Todo)
 ```
 
 ## Recommended Execution Order
 
-> **Revised 2026-04-18.** Wave 1 structural refactors (MAE-127, MAE-128, MAE-137)
-> and the MAE-119 brand utility have all shipped, clearing merge hotspots and
-> unblocking the envelope story. MAE-123 and MAE-125 both land more cleanly on
-> top of the envelope from MAE-102, so they move after it rather than alongside.
+> **Revised 2026-05-01.** Wave 2 (MAE-102) shipped, unblocking MAE-123 and
+> MAE-132. Voice 4b (MAE-111) shipped; voice work is now the MAE-103 hardening
+> follow-ups (MAE-160 – MAE-169 + MAE-154), all assigned to xppcoder. MAE-123,
+> MAE-132, and MAE-133 are in flight.
 
 ```
 ✅ Done
@@ -440,34 +437,37 @@ Legend: ✅ Done  ⚙️ In Progress  (unmarked = Todo)
   MAE-124  LLM Output Layout Validation
   MAE-138  Migrate ChartRequest to new protocol
   MAE-109  2c: Islands + Phrase Extractor
+  MAE-102  History & Session Management             (Engine.handle envelope,
+                                                     HistoryManager, per-session
+                                                     mutex, hybrid truncation)
+  MAE-148  Remove envelope-redundant fields from ChartRequest
+  MAE-111  4b: Voice Server STT + TTS Providers     (PR #120 + hardening pass)
+  MAE-110  4a: Voice Server Scaffold                (closed as duplicate of #120)
+  MAE-142  Promote SkippedAction discriminated union
+  MAE-158  Self-healing validation
+  MAE-125  Retry System
 
-Wave 2 — Envelope foundation
-  MAE-102  History & Session Management             (needs MAE-119 ✅)
-           Introduces EngineMessage envelope, factories, HistoryStore /
-           HistoryManager, per-session mutex, hybrid truncation, and rewrites
-           the engine surface to Engine.handle(message). Unblocks MAE-123,
-           MAE-132, and makes MAE-125's retry loop sit cleanly inside handle().
-
-Wave 3 — Validation (parallel, after Wave 2)
-  MAE-123     EngineMessage Validation              (needs MAE-102 envelope types)
-  MAE-142 ✅ Promote SkippedAction discriminated union
-  MAE-158 ✅ Self-healing validation                (heal contract: layout
-                                                     failures become diagnostics
-                                                     + retryHint instead of Err)
-  MAE-125 ✅ Retry System                           (re-prompts on
-                                                     retryHint.recommend; built
-                                                     on the heal contract)
+⚙️ In Progress
+  MAE-123  EngineMessage Validation                 (PR #133)
+  MAE-133  Brand remaining domain IDs               (PR #134)
+  MAE-132  Uniform idempotency                      (separate agent)
 
 Wave 4 — Cleanup (any time, non-blocking)
   MAE-143  Split validation-context / logger decouple
 
-Wave 5 — Voice (independent track)
-  MAE-103  Voice Server Package
-
-Wave 6 — Post-history
-  MAE-132  Uniform idempotency                      (needs MAE-102)
-  MAE-133  Type-safety cleanups                     (independent; can interleave)
+Wave 5 — Voice hardening (independent track, all xppcoder)
+  MAE-160  Decompose runtime into microkernels
+  MAE-161  Provider registry with discriminated factory model
+  MAE-162  Split public API into Interactive + Transcript factories
+  MAE-163  Discriminated error taxonomy on STT/TTS event unions
+  MAE-164  Class-aware reconnect policy + circuit breaker
+  MAE-165  Validate Cartesia inbound payloads with zod
+  MAE-166  E2E ws-server voice lifecycle integration coverage
+  MAE-168  Negative-only provider event unions
+  MAE-169  Time-based audio buffer capacity (audioBufferMaxMs)
+  MAE-154  Hot-switchable STT/TTS provider selection (after MAE-161)
 
 Wave 7 — Capstone
-  MAE-104  Integration & Migration                  (needs everything above)
+  MAE-104  Integration & Migration                  (needs MAE-123, MAE-132,
+                                                     MAE-133, and Wave 5 done)
 ```
