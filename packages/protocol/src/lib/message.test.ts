@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { MessageId } from './message.js';
+import { MessageId, MessageIdSchema } from './message.js';
 
 describe('MessageId', () => {
   test('generates a valid UUID when called with no arguments', () => {
@@ -33,5 +33,39 @@ describe('MessageId', () => {
   test('is idempotent — branding an already-branded value is a no-op', () => {
     const id = MessageId('abc');
     expect(MessageId(id)).toBe(id);
+  });
+});
+
+describe('MessageIdSchema', () => {
+  test('parses a non-empty string and brands it', () => {
+    const result = MessageIdSchema.safeParse('msg-1');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const id: MessageId = result.data;
+      expect(id).toBe('msg-1' as MessageId);
+    }
+  });
+
+  test('rejects empty string', () => {
+    expect(MessageIdSchema.safeParse('').success).toBe(false);
+  });
+
+  test('rejects whitespace-only string (spaces)', () => {
+    expect(MessageIdSchema.safeParse('   ').success).toBe(false);
+  });
+
+  test('rejects whitespace-only string (tab)', () => {
+    expect(MessageIdSchema.safeParse('\t').success).toBe(false);
+  });
+
+  test('rejects whitespace-only string (newline)', () => {
+    expect(MessageIdSchema.safeParse('\n').success).toBe(false);
+  });
+
+  test('rejects non-string values', () => {
+    expect(MessageIdSchema.safeParse(0).success).toBe(false);
+    expect(MessageIdSchema.safeParse(null).success).toBe(false);
+    expect(MessageIdSchema.safeParse(undefined).success).toBe(false);
+    expect(MessageIdSchema.safeParse({}).success).toBe(false);
   });
 });

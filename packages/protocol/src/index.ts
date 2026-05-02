@@ -1,8 +1,8 @@
 export type { Result } from './lib/result.js';
 export { ok, err, isOk, isErr, unwrap } from './lib/result.js';
 export type { Brand } from './lib/brand.js';
-export { SessionId } from './lib/session.js';
-export { MessageId } from './lib/message.js';
+export { SessionId, SessionIdSchema } from './lib/session.js';
+export { MessageId, MessageIdSchema } from './lib/message.js';
 export { InstanceId } from './lib/instance.js';
 export type { LayoutMode } from './lib/layout.js';
 export type {
@@ -10,6 +10,7 @@ export type {
   ChartPosition,
   ChartSize,
 } from './lib/chart.js';
+export { ChartDimensionsSchema } from './lib/chart.js';
 export type {
   ActionExecution,
   GridLayout,
@@ -47,11 +48,22 @@ export type {
   VesselInstanceSnapshot,
   VesselMutationReason,
 } from './lib/request.js';
-export { GridResponseSchema, TilingResponseSchema } from './lib/request.js';
+export {
+  ChartRequestSchema,
+  ChartResizeReasonSchema,
+  GridResponseSchema,
+  TilingResponseSchema,
+  UpdateReasonSchema,
+  UserIntentReasonSchema,
+  VesselMutationReasonSchema,
+} from './lib/request.js';
 export type { EngineMessage, EngineMessageBase } from './lib/engine-message.js';
 export {
   AssistantInjectionMessage,
+  AssistantInjectionMessageSchema,
   ChartRequestMessage,
+  ChartRequestMessageSchema,
+  EngineMessageSchema,
 } from './lib/engine-message.js';
 export type {
   AssistantMessageResultOutput,

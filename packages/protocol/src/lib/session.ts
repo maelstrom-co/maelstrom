@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import { type Brand, requireNonEmptyBrand } from './brand.js';
 
 /**
@@ -24,3 +26,18 @@ export const SessionId = (value?: string): SessionId => {
   }
   return (value ?? `session-${crypto.randomUUID()}`) as SessionId;
 };
+
+/**
+ * Wire-format Zod parser for {@link SessionId}. Mirrors the
+ * non-empty-string invariant enforced by {@link requireNonEmptyBrand}
+ * (rejects `''`, `'   '`, `'\t'`, etc.) and carries the `SessionId`
+ * brand on `z.infer` output so consumer schemas that reference it stay
+ * branded end-to-end.
+ */
+export const SessionIdSchema = z
+  .string()
+  .min(1, 'SessionId must be a non-empty string')
+  .refine((s) => s.trim().length > 0, {
+    message: 'SessionId must not be whitespace-only',
+  })
+  .transform((s) => s as SessionId);

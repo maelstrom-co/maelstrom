@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { SessionId } from './session.js';
+import { SessionId, SessionIdSchema } from './session.js';
 
 describe('SessionId', () => {
   test('generates a unique id with session- prefix when called with no arguments', () => {
@@ -34,5 +34,41 @@ describe('SessionId', () => {
   test('is idempotent — branding an already-branded value is a no-op', () => {
     const id = SessionId('my-session');
     expect(SessionId(id)).toBe(id);
+  });
+});
+
+describe('SessionIdSchema', () => {
+  test('parses a non-empty string and brands it', () => {
+    const result = SessionIdSchema.safeParse('my-session');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // Compile-time check: the parsed value is assignable to SessionId
+      const id: SessionId = result.data;
+      expect(id).toBe('my-session' as SessionId);
+    }
+  });
+
+  test('rejects empty string', () => {
+    const result = SessionIdSchema.safeParse('');
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects non-string values', () => {
+    expect(SessionIdSchema.safeParse(123).success).toBe(false);
+    expect(SessionIdSchema.safeParse(null).success).toBe(false);
+    expect(SessionIdSchema.safeParse(undefined).success).toBe(false);
+    expect(SessionIdSchema.safeParse({}).success).toBe(false);
+  });
+
+  test('rejects whitespace-only string (spaces)', () => {
+    expect(SessionIdSchema.safeParse('   ').success).toBe(false);
+  });
+
+  test('rejects whitespace-only string (tab)', () => {
+    expect(SessionIdSchema.safeParse('\t').success).toBe(false);
+  });
+
+  test('rejects whitespace-only string (newline)', () => {
+    expect(SessionIdSchema.safeParse('\n').success).toBe(false);
   });
 });

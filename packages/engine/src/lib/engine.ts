@@ -33,6 +33,10 @@ import {
 import { processResponse } from './response/response-processor.js';
 import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
+import {
+  logValidationFailure,
+  validateEngineMessage,
+} from './validation/engine-message.js';
 
 // ---------------------------------------------------------------------------
 // Engine interface
@@ -267,7 +271,19 @@ export function createEngine(config: EngineConfig): Engine {
   };
 
   return {
-    async handle(message, signal) {
+    async handle(rawMessage, signal) {
+      // Wire-format validation runs first. Smart constructors enforce envelope
+      // invariants on programmatic construction (timestamp finite, brand
+      // non-empty), but wire-deserialized envelopes bypass those constructors.
+      // Reject malformed input here so downstream stages (history, prompt
+      // build, LLM call) can trust the shape.
+      const validated = validateEngineMessage(rawMessage);
+      if (isErr(validated)) {
+        logValidationFailure(logger, rawMessage, validated.error);
+        return validated;
+      }
+      const message = validated.value;
+
       switch (message.type) {
         case 'chart_request': {
           const result = await runChartRequest(message, signal);
@@ -327,6 +343,11 @@ export function createEngine(config: EngineConfig): Engine {
           });
         }
         default:
+          // Compile-time exhaustiveness check: fails to compile if a new
+          // EngineMessage variant has no `case`. Unreachable at runtime for
+          // *unknown* discriminators (validateEngineMessage rejects them
+          // upstream); reachable only if a new variant lands in the schema
+          // and TS interface but not in this switch.
           return assertNever(message, 'engine.handle');
       }
     },

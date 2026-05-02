@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import { type Brand, requireNonEmptyBrand } from './brand.js';
 
 /**
@@ -28,3 +30,18 @@ export const MessageId = (value?: string): MessageId => {
   }
   return (value ?? crypto.randomUUID()) as MessageId;
 };
+
+/**
+ * Wire-format Zod parser for {@link MessageId}. Mirrors the
+ * non-empty-string invariant enforced by {@link requireNonEmptyBrand}
+ * (rejects `''`, `'   '`, `'\t'`, etc.) and carries the `MessageId`
+ * brand on `z.infer` output so consumer schemas that reference it stay
+ * branded end-to-end.
+ */
+export const MessageIdSchema = z
+  .string()
+  .min(1, 'MessageId must be a non-empty string')
+  .refine((s) => s.trim().length > 0, {
+    message: 'MessageId must not be whitespace-only',
+  })
+  .transform((s) => s as MessageId);

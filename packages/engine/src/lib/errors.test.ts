@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import type { z } from 'zod';
+
 import {
   cancellationError,
   historyError,
   parseError,
   providerError,
+  requestValidationError,
   timeoutError,
   validationError,
 } from './errors.js';
@@ -82,12 +85,122 @@ describe('Error constructors', () => {
 
 });
 
+// One escape hatch (this single cast) instead of one per call site — keeps
+// the test surface honest about which fields are minimal-fixture-only.
+type IssueFixture = {
+  readonly code: string;
+  readonly path: readonly PropertyKey[];
+  readonly message: string;
+};
+const makeIssue = (fixture: IssueFixture): z.ZodIssue =>
+  fixture as unknown as z.ZodIssue;
+
+describe('requestValidationError', () => {
+  test('classifies a sessionId issue as envelope layer', () => {
+    const e = requestValidationError([
+      makeIssue({
+        code: 'invalid_type',
+        path: ['sessionId'],
+        message: 'expected string',
+      }),
+    ]);
+    expect(e._tag).toBe('RequestValidationError');
+    expect(e.layer).toBe('envelope');
+    expect(e.field).toBe('sessionId');
+    expect(e.issues).toHaveLength(1);
+    expect(e.stack).toBeString();
+  });
+
+  test('classifies a request.context.layoutMode issue as payload layer', () => {
+    const e = requestValidationError([
+      makeIssue({
+        code: 'invalid_value',
+        path: ['request', 'context', 'layoutMode'],
+        message: 'invalid enum value',
+      }),
+    ]);
+    expect(e.layer).toBe('payload');
+    expect(e.field).toBe('request.context.layoutMode');
+  });
+
+  test('classifies a content issue as payload layer', () => {
+    const e = requestValidationError([
+      makeIssue({
+        code: 'too_small',
+        path: ['content'],
+        message: 'string must be non-empty',
+      }),
+    ]);
+    expect(e.layer).toBe('payload');
+    expect(e.field).toBe('content');
+  });
+
+  test('classifies an id issue as envelope layer', () => {
+    const e = requestValidationError([
+      makeIssue({ code: 'invalid_type', path: ['id'], message: 'x' }),
+    ]);
+    expect(e.layer).toBe('envelope');
+  });
+
+  test('classifies a timestamp issue as envelope layer', () => {
+    const e = requestValidationError([
+      makeIssue({ code: 'invalid_type', path: ['timestamp'], message: 'x' }),
+    ]);
+    expect(e.layer).toBe('envelope');
+  });
+
+  test('classifies a type-discriminator issue as envelope layer', () => {
+    const e = requestValidationError([
+      makeIssue({ code: 'invalid_value', path: ['type'], message: 'x' }),
+    ]);
+    expect(e.layer).toBe('envelope');
+  });
+
+  test('classifies a root-level (empty path) failure as envelope layer', () => {
+    // A non-object input (null, 42, "chart_request") makes Zod emit a single
+    // issue with path: []. The envelope itself is missing — this is
+    // structurally an envelope failure, not a payload one.
+    const e = requestValidationError([
+      makeIssue({ code: 'invalid_type', path: [], message: 'expected object' }),
+    ]);
+    expect(e.layer).toBe('envelope');
+    expect(e.field).toBe('(root)');
+  });
+
+  test('classifies based on the envelope issue even when payload issues come first', () => {
+    // Defensive: Zod issue ordering is not a documented contract. If a
+    // payload issue precedes an envelope one in the issues array, layer
+    // derivation must still surface the envelope failure.
+    const e = requestValidationError([
+      makeIssue({
+        code: 'invalid_value',
+        path: ['request', 'context', 'layoutMode'],
+        message: 'x',
+      }),
+      makeIssue({ code: 'too_small', path: ['sessionId'], message: 'y' }),
+    ]);
+    expect(e.layer).toBe('envelope');
+    expect(e.field).toBe('sessionId');
+  });
+
+  test('handles degenerate empty issues without crashing', () => {
+    // Zod never produces success:false with zero issues, but the constructor
+    // is exported and a future caller might. Stay graceful — surface a
+    // root envelope failure rather than crashing the engine.
+    const e = requestValidationError([]);
+    expect(e.layer).toBe('envelope');
+    expect(e.field).toBe('(root)');
+    expect(e.issues).toHaveLength(0);
+  });
+});
+
 describe('EngineError pattern matching', () => {
   test('switch on _tag covers all variants', () => {
     const errors: EngineError[] = [
       parseError('a', ''),
       providerError('b', undefined),
       validationError('c'),
+      requestValidationError([]),
       timeoutError('d', 1000),
       cancellationError('e', 'reason'),
       historyError('f', 'add_assistant_message', new Error('store')),
@@ -101,6 +214,8 @@ describe('EngineError pattern matching', () => {
           return 'provider';
         case 'ValidationError':
           return 'validation';
+        case 'RequestValidationError':
+          return 'requestValidation';
         case 'TimeoutError':
           return 'timeout';
         case 'CancellationError':
@@ -118,6 +233,7 @@ describe('EngineError pattern matching', () => {
       'parse',
       'provider',
       'validation',
+      'requestValidation',
       'timeout',
       'cancellation',
       'history',

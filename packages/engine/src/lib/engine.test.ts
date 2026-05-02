@@ -22,6 +22,7 @@ import { createInMemoryStore } from './history/in-memory-store.js';
 import {
   dummyAdapter,
   getLastUserMessage,
+  invalid,
   makeGridRequest,
   makeTilingRequest,
   silentLogger,
@@ -1279,5 +1280,120 @@ describe('engine.handle — history integration', () => {
     expect(callArgs.messages).toEqual([
       { role: 'user', content: expect.any(String) },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wire-format validation
+// ---------------------------------------------------------------------------
+
+describe('engine.handle — wire-format validation', () => {
+  test('rejects malformed envelope before LLM call', async () => {
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
+
+    // Missing sessionId — envelope-layer failure.
+    const result = await engine.handle(
+      invalid({
+        type: 'chart_request',
+        id: 'm-1',
+        timestamp: 1,
+        request: makeGridRequest(),
+      }),
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error._tag).toBe('RequestValidationError');
+      if (result.error._tag === 'RequestValidationError') {
+        expect(result.error.layer).toBe('envelope');
+        expect(result.error.field).toBe('sessionId');
+      }
+    }
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  test('rejects malformed inner payload before LLM call', async () => {
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
+
+    const env = ChartRequestMessage({
+      sessionId: SessionId('sess-1'),
+      request: makeGridRequest(),
+    });
+    // Mutate envelope to corrupt inner payload.
+    const corrupted = invalid<typeof env>({
+      ...env,
+      request: { ...env.request, context: invalid({}) },
+    });
+
+    const result = await engine.handle(corrupted);
+
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error._tag).toBe('RequestValidationError');
+      if (result.error._tag === 'RequestValidationError') {
+        expect(result.error.layer).toBe('payload');
+        expect(result.error.field.startsWith('request')).toBe(true);
+      }
+    }
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  test('rejects assistant_message with empty content before history write', async () => {
+    const append = mock(() => Promise.resolve({ inserted: true }));
+    const store = {
+      append,
+      get: mock(() => Promise.resolve([])),
+      replace: mock(() => Promise.resolve()),
+      clear: mock(() => Promise.resolve()),
+    } satisfies Partial<HistoryStore>;
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { store, maxEntries: 10, maxChars: 1000 },
+    });
+
+    const result = await engine.handle(
+      invalid({
+        type: 'assistant_message',
+        sessionId: 'sess-1',
+        id: 'm-1',
+        timestamp: 1,
+        content: '',
+      }),
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error._tag).toBe('RequestValidationError');
+      if (result.error._tag === 'RequestValidationError') {
+        expect(result.error.layer).toBe('payload');
+        expect(result.error.field).toBe('content');
+      }
+    }
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  test('passes valid envelopes through to the existing pipeline (regression)', async () => {
+    mockChat.mockResolvedValueOnce(gridLLMResponse);
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
+
+    const env = ChartRequestMessage({
+      sessionId: SessionId('sess-1'),
+      request: makeGridRequest(),
+    });
+
+    const result = await engine.handle(env);
+    expect(isOk(result)).toBe(true);
+    expect(mockChat).toHaveBeenCalledTimes(1);
   });
 });

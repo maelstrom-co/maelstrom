@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /** Position on the Chart (in chart units) */
 export interface ChartPosition {
   /** Row index (0-based, from top) */
@@ -21,3 +23,13 @@ export interface ChartDimensions {
   /** Number of available rows */
   readonly rows: number;
 }
+
+/**
+ * Wire-format Zod parser for {@link ChartDimensions}. Both `rows` and
+ * `columns` must be positive integers — a chart with zero of either has
+ * no cells and is meaningless to lay out into.
+ */
+export const ChartDimensionsSchema = z.object({
+  rows: z.number().int().positive(),
+  columns: z.number().int().positive(),
+});

@@ -1,3 +1,6 @@
+import type { EngineMessageBase } from '@maelstrom-co/protocol';
+import type { z } from 'zod';
+
 /**
  * Raised when the LLM's raw textual output cannot be parsed — typically a
  * missing required field or malformed JSON before schema validation runs.
@@ -82,10 +85,40 @@ export interface HistoryError {
   readonly stack?: string;
 }
 
+/**
+ * Raised when an EngineMessage fails wire-format validation at the entry to
+ * `engine.handle`. Distinct from {@link ValidationError} (engine-internal
+ * validation, e.g. prompt-build throws or history-not-configured guards):
+ * a `RequestValidationError` always means the *caller* sent malformed
+ * input and should fix it client-side.
+ *
+ * `layer` distinguishes envelope-level failures (`sessionId` / `id` /
+ * `timestamp` / `type` discriminator) from inner-payload failures
+ * (`request.*` body for chart_request, `content` for assistant_message).
+ * Derived from the first issue's path during construction.
+ *
+ * `field` is a dot-separated path string for human-readable logs only —
+ * numeric array indices are stringified (`request.instances.0.vesselId` is
+ * indistinguishable from a key named `'0'`). Programmatic consumers
+ * (alerting, grouping, UI navigation) should read `issues[0].path` instead,
+ * which preserves indices as numbers.
+ *
+ * `issues` carries the structured ZodIssue list for programmatic inspection.
+ */
+export interface RequestValidationError {
+  readonly _tag: 'RequestValidationError';
+  readonly message: string;
+  readonly layer: 'envelope' | 'payload';
+  readonly field: string;
+  readonly issues: readonly z.ZodIssue[];
+  readonly stack?: string;
+}
+
 export type EngineError =
   | ParseError
   | ProviderError
   | ValidationError
+  | RequestValidationError
   | TimeoutError
   | CancellationError
   | HistoryError;
@@ -158,3 +191,67 @@ export const historyError = (
   cause,
   stack: captureStack(message),
 });
+
+// Envelope field names, type-gated against `EngineMessageBase` (plus the
+// `type` discriminator that lives on each `EngineMessage` variant) so a
+// future envelope-shape change (adding `traceId`, etc.) forces this set to
+// grow or the typecheck fails.
+type EnvelopeField = keyof EngineMessageBase | 'type';
+const ENVELOPE_FIELDS = new Set<EnvelopeField>([
+  'sessionId',
+  'id',
+  'timestamp',
+  'type',
+]);
+
+const formatField = (path: readonly PropertyKey[]): string =>
+  path.length > 0 ? path.map(String).join('.') : '(root)';
+
+const buildError = (
+  layer: 'envelope' | 'payload',
+  path: readonly PropertyKey[],
+  issues: readonly z.ZodIssue[],
+): RequestValidationError => {
+  const field = formatField(path);
+  const message = `request validation failed at ${layer}.${field}`;
+  return {
+    _tag: 'RequestValidationError',
+    message,
+    layer,
+    field,
+    issues,
+    stack: captureStack(message),
+  };
+};
+
+export const requestValidationError = (
+  issues: readonly z.ZodIssue[],
+): RequestValidationError => {
+  // Empty-path inputs (`null`, `42`, `'chart_request'`) are structural
+  // envelope failures — the envelope itself is missing or wrong-shaped.
+  // The empty-issues case (Zod never produces it; defensive-only) lands
+  // here too so the `(root)` sentinel always carries `layer: 'envelope'`.
+  const rootFailure = issues.find((i) => i.path.length === 0);
+  if (rootFailure !== undefined || issues.length === 0) {
+    return buildError('envelope', rootFailure?.path ?? [], issues);
+  }
+
+  // Scan all issues for an envelope-field path rather than reading only
+  // `issues[0]` — Zod's issue ordering is not a documented stable contract,
+  // and a future schema change (e.g. a `.superRefine` on the inner payload)
+  // could surface a payload issue before the envelope one and silently flip
+  // the layer.
+  const envelopeIssue = issues.find(
+    (i) =>
+      i.path.length > 0 &&
+      ENVELOPE_FIELDS.has(String(i.path[0]) as EnvelopeField),
+  );
+  if (envelopeIssue !== undefined) {
+    return buildError('envelope', envelopeIssue.path, issues);
+  }
+
+  // All remaining issues live inside the inner payload (request body /
+  // assistant_message content). Surface the first issue's path.
+  const fallback = issues[0];
+  return buildError('payload', fallback?.path ?? [], issues);
+};

@@ -13,6 +13,7 @@ export type {
   HistoryError,
   ParseError,
   ProviderError,
+  RequestValidationError,
   ValidationError,
   TimeoutError,
 } from './lib/errors.js';
@@ -21,6 +22,7 @@ export {
   historyError,
   parseError,
   providerError,
+  requestValidationError,
   validationError,
   timeoutError,
 } from './lib/errors.js';
