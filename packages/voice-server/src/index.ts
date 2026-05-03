@@ -8,6 +8,12 @@ export {
   type GoogleSTTOptions,
 } from './lib/stt/google/index.js';
 export {
+  type BaseSTTOptions,
+  createSTT,
+  type STTProviderConfig,
+  type STTProviderType,
+} from './lib/stt/registry.js';
+export {
   type CartesiaSpeechOptions,
   type CartesiaTTSOptions,
   createCartesiaTTS,
@@ -16,6 +22,12 @@ export {
   createGoogleTTS,
   type GoogleTTSOptions,
 } from './lib/tts/google/index.js';
+export {
+  type BaseTTSOptions,
+  createTTS,
+  type TTSProviderConfig,
+  type TTSProviderType,
+} from './lib/tts/registry.js';
 export type {
   AudioChunk,
   AudioEncoding,
@@ -43,6 +55,7 @@ export type {
   VoiceProvisionIntentRequestBuilder,
   VoiceProvisionIntentRequestOptions,
   VoiceProvisionState,
+  ResolvedVoiceProvisionConfig,
 } from './lib/types.js';
 export {
   resolveVoiceSessionConfig,

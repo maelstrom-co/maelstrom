@@ -4,6 +4,9 @@ import type {
   SessionId,
 } from '@maelstrom-co/protocol';
 
+import { createSTT, type STTProviderConfig } from './stt/registry.js';
+import { createTTS, type TTSProviderConfig } from './tts/registry.js';
+
 /**
  * Voice session states reflecting the internal loop: STT → process → TTS.
  *
@@ -398,10 +401,8 @@ export type VoiceSessionIntentRequestBuilder = (input: {
 }) => ChartRequest | Promise<ChartRequest>;
 
 interface VoiceSessionBaseConfig {
-  /** STT provider instance */
-  stt: STTProvider;
-  /** TTS provider instance */
-  tts: TTSProvider;
+  stt: STTProviderConfig;
+  tts: TTSProviderConfig;
   /** Session identifier */
   sessionId: SessionId;
   /** Language code for STT/TTS */
@@ -497,13 +498,39 @@ export function resolveVoiceSessionConfig(
     reconnectDelayMs: number;
   },
 ): ResolvedVoiceSessionConfig {
+  let stt: STTProvider;
+  try {
+    stt = createSTT(config.stt);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to construct STT provider for voice session: ${detail}`,
+      {
+        cause: error,
+      },
+    );
+  }
+
+  let tts: TTSProvider;
+  try {
+    tts = createTTS(config.tts);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to construct TTS provider for voice session: ${detail}`,
+      {
+        cause: error,
+      },
+    );
+  }
+
   return {
-    stt: config.stt,
-    tts: config.tts,
+    stt,
+    tts,
     sessionId: config.sessionId,
     language: config.language,
     interimResults:
-      config.interimResults ?? config.stt.capabilities.interimTranscripts,
+      config.interimResults ?? stt.capabilities.interimTranscripts,
     autoRestartListening: config.autoRestartListening ?? true,
     vadFinalDebounceMs:
       config.vadFinalDebounceMs ?? defaults.vadFinalDebounceMs,

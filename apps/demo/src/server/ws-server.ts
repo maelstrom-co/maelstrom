@@ -28,8 +28,6 @@ import type {
 } from '@maelstrom-co/protocol-old';
 import {
   type AudioChunk,
-  createCartesiaTTS,
-  createDeepgramSTT,
   createVoiceSession,
   type SpeechChunk,
   type TranscriptionResult,
@@ -72,13 +70,39 @@ ADDITIONAL INSTRUCTIONS:
 - Try to always keep at least one vessel visible on the chart
 - Give each vessel adequate space for its content`;
 
-const hasVoiceKeys = Boolean(
-  process.env.DEEPGRAM_API_KEY && process.env.CARTESIA_API_KEY,
-);
-
 const demoVadFinalDebounceMs = 250;
 
-if (!hasVoiceKeys) {
+function getDemoVoiceProviderKeys(): {
+  deepgramApiKey: string;
+  cartesiaApiKey: string;
+} | null {
+  const deepgramApiKey = process.env.DEEPGRAM_API_KEY;
+  const cartesiaApiKey = process.env.CARTESIA_API_KEY;
+
+  if (!deepgramApiKey || !cartesiaApiKey) {
+    return null;
+  }
+
+  return { deepgramApiKey, cartesiaApiKey };
+}
+
+function flattenErrorChain(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+
+  while (current instanceof Error) {
+    parts.push(current.message);
+    current = (current as { cause?: unknown }).cause;
+  }
+
+  if (current !== undefined && current !== null) {
+    parts.push(String(current));
+  }
+
+  return parts.join(': ');
+}
+
+if (!getDemoVoiceProviderKeys()) {
   console.warn(
     '[Demo WS] Missing DEEPGRAM_API_KEY or CARTESIA_API_KEY — running in text-only mode',
   );
@@ -230,6 +254,7 @@ app.get(
     });
 
     let voiceSession: VoiceSession | null = null;
+    let voiceSessionInitializationError: string | null = null;
     let voiceWsSession: ReturnType<
       typeof createDemoVoiceWsSessionController
     > | null = null;
@@ -241,29 +266,46 @@ app.get(
       () => voiceWsSession?.getLatestChartRequest() ?? null,
     );
 
-    if (hasVoiceKeys) {
-      voiceSession = createVoiceSession(
-        {
-          stt: createDeepgramSTT({
-            apiKey: process.env.DEEPGRAM_API_KEY as string,
-            keyterms: DEMO_KEYTERMS,
-            vadEvents: true,
-          }),
-          tts: createCartesiaTTS({
-            defaultVoiceId: 'e8e5fffb-252c-436d-b842-8879b84445b6',
-            apiKey: process.env.CARTESIA_API_KEY as string,
-          }),
-          sessionId,
-          language,
-          interimResults: true,
-          // WHY: The browser demo needs a tighter turn boundary than the shared package default.
-          // Keeping that tuning here avoids biasing other voice-server consumers toward demo-only timing.
-          vadFinalDebounceMs: demoVadFinalDebounceMs,
-          buildChartRequest,
-          processIntent,
-        },
-        createVoiceCallbacks(),
-      );
+    const demoVoiceProviderKeys = getDemoVoiceProviderKeys();
+
+    if (!demoVoiceProviderKeys) {
+      voiceSessionInitializationError =
+        'Voice disabled: missing DEEPGRAM_API_KEY or CARTESIA_API_KEY';
+    } else {
+      try {
+        voiceSession = createVoiceSession(
+          {
+            stt: {
+              type: 'deepgram',
+              options: {
+                apiKey: demoVoiceProviderKeys.deepgramApiKey,
+                keyterms: DEMO_KEYTERMS,
+                vadEvents: true,
+              },
+            },
+            tts: {
+              type: 'cartesia',
+              options: {
+                defaultVoiceId: 'e8e5fffb-252c-436d-b842-8879b84445b6',
+                apiKey: demoVoiceProviderKeys.cartesiaApiKey,
+              },
+            },
+            sessionId,
+            language,
+            interimResults: true,
+            // WHY: The browser demo needs a tighter turn boundary than the shared package default.
+            // Keeping that tuning here avoids biasing other voice-server consumers toward demo-only timing.
+            vadFinalDebounceMs: demoVadFinalDebounceMs,
+            buildChartRequest,
+            processIntent,
+          },
+          createVoiceCallbacks(),
+        );
+      } catch (error) {
+        console.error('[Demo WS] Failed to construct voice session', error);
+        voiceSessionInitializationError = flattenErrorChain(error);
+        voiceSession = null;
+      }
     }
 
     voiceWsSession = createDemoVoiceWsSessionController({
@@ -277,6 +319,9 @@ app.get(
     return {
       onOpen: async (_event, wsContext) => {
         ws = wsContext;
+        if (voiceSessionInitializationError) {
+          sendEngineError(voiceSessionInitializationError);
+        }
         await voiceWsSession.onOpen();
       },
 

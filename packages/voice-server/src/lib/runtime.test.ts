@@ -7,6 +7,8 @@ import {
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { createVoiceSession } from './runtime.js';
+import { sttProviderFactories } from './stt/registry.js';
+import { resolveVoiceSessionConfig } from './types.js';
 import type {
   AudioChunk,
   ProcessIntent,
@@ -15,9 +17,11 @@ import type {
   STTProvider,
   TTSEvent,
   TTSProvider,
+  VoiceSessionCallbacks,
   VoiceSessionConfig,
   VoiceSessionIntentRequestBuilder,
 } from './types.js';
+import { ttsProviderFactories } from './tts/registry.js';
 
 type ProcessIntentResponse = Awaited<ReturnType<ProcessIntent['process']>>;
 
@@ -264,21 +268,173 @@ const defaultProcessIntent: ProcessIntent = {
 
 const sharedVadFinalDebounceMs = 500;
 
+const testSTTProviderType = 'google';
+const testTTSProviderType = 'google';
+
+function createSTTTestConfig(overrides: Record<string, unknown> = {}) {
+  return {
+    type: testSTTProviderType,
+    options: {
+      projectId: 'test-project',
+      ...overrides,
+    },
+  } as const;
+}
+
+function createTTSTestConfig(overrides: Record<string, unknown> = {}) {
+  return {
+    type: testTTSProviderType,
+    options: {
+      ...overrides,
+    },
+  } as const;
+}
+
+function withPatchedProviderFactories<T>(
+  providers: {
+    stt?: STTProvider;
+    tts?: TTSProvider;
+  },
+  run: () => T,
+): T {
+  const originalSTTFactory = sttProviderFactories[testSTTProviderType];
+  const originalTTSFactory = ttsProviderFactories[testTTSProviderType];
+
+  if (providers.stt) {
+    sttProviderFactories[testSTTProviderType] = () => providers.stt!;
+  }
+
+  if (providers.tts) {
+    ttsProviderFactories[testTTSProviderType] = () => providers.tts!;
+  }
+
+  try {
+    return run();
+  } finally {
+    sttProviderFactories[testSTTProviderType] = originalSTTFactory;
+    ttsProviderFactories[testTTSProviderType] = originalTTSFactory;
+  }
+}
+
 function createConfig(overrides: Partial<VoiceSessionConfig> = {}) {
   const stt = new MockSTTProvider();
   const tts = new MockTTSProvider();
 
   const config: VoiceSessionConfig = {
-    stt,
-    tts,
+    stt: createSTTTestConfig(),
+    tts: createTTSTestConfig(),
     sessionId: SessionId('session-test'),
     buildChartRequest: defaultBuildChartRequest,
     processIntent: defaultProcessIntent,
     ...overrides,
   };
 
-  return { config, stt, tts };
+  function createRuntime(callbacks?: VoiceSessionCallbacks) {
+    return withPatchedProviderFactories({ stt, tts }, () =>
+      createVoiceSession(config, callbacks),
+    );
+  }
+
+  return { config, stt, tts, createRuntime };
 }
+
+describe('resolveVoiceSessionConfig', () => {
+  test('applies runtime defaults and derives interim results from provider capabilities', () => {
+    const resolved = resolveVoiceSessionConfig(
+      {
+        stt: createSTTTestConfig({ interimResults: false }),
+        tts: createTTSTestConfig({ sampleRate: 32000 }),
+        sessionId: SessionId('resolve-session'),
+      },
+      {
+        vadFinalDebounceMs: 250,
+        maxPendingAudioChunks: 12,
+        maxReconnectAttempts: 4,
+        reconnectDelayMs: 1500,
+      },
+    );
+
+    expect(resolved.vadFinalDebounceMs).toBe(250);
+    expect(resolved.maxPendingAudioChunks).toBe(12);
+    expect(resolved.maxReconnectAttempts).toBe(4);
+    expect(resolved.reconnectDelayMs).toBe(1500);
+    expect(resolved.autoRestartListening).toBe(true);
+    expect(resolved.interimResults).toBe(false);
+    expect(resolved.intentBoundary).toBeNull();
+  });
+
+  test('wraps provider construction failures with voice-session context', () => {
+    const originalFactory = sttProviderFactories[testSTTProviderType];
+    sttProviderFactories[testSTTProviderType] = (() => {
+      throw new Error('boom');
+    }) as (typeof sttProviderFactories)[typeof testSTTProviderType];
+
+    let thrown: unknown;
+
+    try {
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+        },
+        {
+          vadFinalDebounceMs: 250,
+          maxPendingAudioChunks: 12,
+          maxReconnectAttempts: 4,
+          reconnectDelayMs: 1500,
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    } finally {
+      sttProviderFactories[testSTTProviderType] = originalFactory;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'Failed to construct STT provider for voice session: boom',
+    );
+    expect((thrown as { cause?: unknown }).cause).toBeInstanceOf(Error);
+    expect((thrown as { cause: Error }).cause.message).toBe('boom');
+  });
+
+  test('wraps TTS provider construction failures with voice-session context', () => {
+    const originalFactory = ttsProviderFactories[testTTSProviderType];
+    ttsProviderFactories[testTTSProviderType] = (() => {
+      throw new Error('tts boom');
+    }) as (typeof ttsProviderFactories)[typeof testTTSProviderType];
+
+    let thrown: unknown;
+
+    try {
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+        },
+        {
+          vadFinalDebounceMs: 250,
+          maxPendingAudioChunks: 12,
+          maxReconnectAttempts: 4,
+          reconnectDelayMs: 1500,
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    } finally {
+      ttsProviderFactories[testTTSProviderType] = originalFactory;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'Failed to construct TTS provider for voice session: tts boom',
+    );
+    expect((thrown as { cause?: unknown }).cause).toBeInstanceOf(Error);
+    expect((thrown as { cause: Error }).cause.message).toBe('tts boom');
+  });
+});
 
 describe('createVoiceSession runtime finalization', () => {
   beforeEach(() => {
@@ -303,8 +459,8 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config, stt } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config);
+    const { stt, createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime();
 
     await runtime.startListening();
     stt.emit({
@@ -333,8 +489,8 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config, stt } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config);
+    const { stt, createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime();
 
     await runtime.startListening();
     stt.emit({
@@ -348,6 +504,59 @@ describe('createVoiceSession runtime finalization', () => {
 
     await advance(275);
     expect(processCalls).toEqual(['shared default finalize']);
+  });
+
+  test('builds providers from registry-backed config and defaults interimResults from STT capabilities', async () => {
+    const processCalls: string[] = [];
+    const seenTranscripts: Array<{ text: string; isFinal: boolean }> = [];
+    const processIntent: ProcessIntent = {
+      async process(request) {
+        const updateReason = request.context.updateReasons[0];
+        if (updateReason?.type === 'user_intent') {
+          processCalls.push(updateReason.intent);
+        }
+
+        return createProcessResponse(request);
+      },
+    };
+
+    const stt = new MockSTTProvider();
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession({
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('session-test'),
+        buildChartRequest: defaultBuildChartRequest,
+        processIntent,
+      });
+
+      runtime.onTranscript((result) => {
+        seenTranscripts.push({ text: result.text, isFinal: result.isFinal });
+      });
+
+      await runtime.startListening();
+      stt.emit({
+        type: 'transcript',
+        result: { text: 'registry path', isFinal: false },
+      });
+      stt.emit({
+        type: 'transcript',
+        result: { text: 'registry path', isFinal: true },
+      });
+      runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+
+      await advance(sharedVadFinalDebounceMs);
+      await advance(0);
+
+      expect(seenTranscripts).toEqual([
+        { text: 'registry path', isFinal: false },
+        { text: 'registry path', isFinal: false },
+        { text: 'registry path', isFinal: true },
+      ]);
+      expect(processCalls).toEqual(['registry path']);
+    });
   });
 
   test('returns to idle on manual stop when no speech was captured', async () => {
@@ -364,8 +573,8 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config);
+    const { createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime();
 
     runtime.onTranscript((result) => {
       seenTranscripts.push({ text: result.text, isFinal: result.isFinal });
@@ -393,8 +602,8 @@ describe('createVoiceSession runtime finalization', () => {
     };
 
     const seenTranscripts: Array<{ text: string; isFinal: boolean }> = [];
-    const { config, stt } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config);
+    const { stt, createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime();
 
     runtime.onTranscript((result) => {
       seenTranscripts.push({ text: result.text, isFinal: result.isFinal });
@@ -436,48 +645,54 @@ describe('createVoiceSession runtime finalization', () => {
 
     const stt = new SyncFinalOnEndStreamSTTProvider('hello world');
     const tts = new MockTTSProvider();
-    const runtime = createVoiceSession(
-      {
-        stt,
-        tts,
-        sessionId: SessionId('session-test'),
-        buildChartRequest: defaultBuildChartRequest,
-        processIntent,
-      },
-      {
-        onTranscript(result) {
-          seenTranscripts.push({ text: result.text, isFinal: result.isFinal });
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent,
         },
-      },
-    );
+        {
+          onTranscript(result) {
+            seenTranscripts.push({
+              text: result.text,
+              isFinal: result.isFinal,
+            });
+          },
+        },
+      );
 
-    await runtime.startListening();
-    stt.emit({
-      type: 'transcript',
-      result: { text: 'hello world', isFinal: false },
+      await runtime.startListening();
+      stt.emit({
+        type: 'transcript',
+        result: { text: 'hello world', isFinal: false },
+      });
+
+      await runtime.stopListening();
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('processing');
+      expect(processCalls).toEqual(['hello world']);
+      expect(seenTranscripts).toEqual([
+        { text: 'hello world', isFinal: false },
+        { text: 'hello world', isFinal: true },
+      ]);
+
+      resolveProcess({
+        type: 'maelstrom_response',
+        requestId: MessageId('req-hello-world'),
+        userMessage: '',
+        rationale: '',
+        executionPlan: [],
+        layout: { type: 'tiling', tree: [], instances: [] },
+      });
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
     });
-
-    await runtime.stopListening();
-    await advance(0);
-
-    expect(runtime.getVoiceState()).toBe('processing');
-    expect(processCalls).toEqual(['hello world']);
-    expect(seenTranscripts).toEqual([
-      { text: 'hello world', isFinal: false },
-      { text: 'hello world', isFinal: true },
-    ]);
-
-    resolveProcess({
-      type: 'maelstrom_response',
-      requestId: MessageId('req-hello-world'),
-      userMessage: '',
-      rationale: '',
-      executionPlan: [],
-      layout: { type: 'tiling', tree: [], instances: [] },
-    });
-    await advance(0);
-
-    expect(runtime.getVoiceState()).toBe('idle');
   });
 
   test('ignores stale in-flight process results after a newer utterance wins', async () => {
@@ -506,8 +721,8 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config, stt, tts } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config);
+    const { stt, tts, createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime();
 
     await runtime.startListening();
     stt.emit({ type: 'transcript', result: { text: 'first', isFinal: true } });
@@ -559,8 +774,8 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config, stt, tts } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config);
+    const { stt, tts, createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime();
 
     await runtime.startListening();
     stt.emit({ type: 'transcript', result: { text: 'first', isFinal: true } });
@@ -601,8 +816,8 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config, stt } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config);
+    const { stt, createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime();
     runtime.onTranscript((result) => {
       seenTranscripts.push({ text: result.text, isFinal: result.isFinal });
     });
@@ -634,11 +849,11 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config, stt } = createConfig({
+    const { stt, createRuntime } = createConfig({
       processIntent,
       vadFinalDebounceMs: 10,
     });
-    const runtime = createVoiceSession(config);
+    const runtime = createRuntime();
 
     await runtime.startListening();
     stt.emit({
@@ -657,8 +872,8 @@ describe('createVoiceSession runtime finalization', () => {
   test('isolates transcript listeners so one throwing observer does not break the others', async () => {
     const reportedErrors: string[] = [];
     const seenTranscripts: string[] = [];
-    const { config, stt } = createConfig();
-    const runtime = createVoiceSession(config, {
+    const { stt, createRuntime } = createConfig();
+    const runtime = createRuntime({
       onError(error) {
         reportedErrors.push(error.message);
       },
@@ -686,50 +901,53 @@ describe('createVoiceSession runtime finalization', () => {
     }> = [];
     const stt = new FailOnNthConnectSTTProvider([2, 3]);
     const tts = new MockTTSProvider();
-    const runtime = createVoiceSession(
-      {
-        stt,
-        tts,
-        sessionId: SessionId('session-test'),
-        reconnectDelayMs: 1,
-        maxReconnectAttempts: 2,
-        trace(event, details) {
-          traceEvents.push({ event, details });
-        },
-        buildChartRequest: defaultBuildChartRequest,
-        processIntent: defaultProcessIntent,
-      },
-      {
-        onError(error) {
-          reportedErrors.push(error);
-        },
-      },
-    );
 
-    await runtime.startListening();
-    await stt.disconnect();
-    await advance(10);
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          maxReconnectAttempts: 2,
+          trace(event, details) {
+            traceEvents.push({ event, details });
+          },
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onError(error) {
+            reportedErrors.push(error);
+          },
+        },
+      );
 
-    expect(
-      traceEvents
-        .filter((entry) => entry.event === 'stt.reconnect.failed')
-        .map((entry) => entry.details?.attempt),
-    ).toEqual([1, 2]);
-    expect(
-      traceEvents
-        .filter((entry) => entry.event === 'stt.reconnect.failed')
-        .map((entry) => entry.details?.message),
-    ).toEqual(['mock stt connect failure', 'mock stt connect failure']);
-    expect(reportedErrors.map((error) => error.message)).toEqual([
-      'STT connection lost after max retries',
-    ]);
-    expect(runtime.getVoiceState()).toBe('idle');
+      await runtime.startListening();
+      await stt.disconnect();
+      await advance(10);
+
+      expect(
+        traceEvents
+          .filter((entry) => entry.event === 'stt.reconnect.failed')
+          .map((entry) => entry.details?.attempt),
+      ).toEqual([1, 2]);
+      expect(
+        traceEvents
+          .filter((entry) => entry.event === 'stt.reconnect.failed')
+          .map((entry) => entry.details?.message),
+      ).toEqual(['mock stt connect failure', 'mock stt connect failure']);
+      expect(reportedErrors.map((error) => error.message)).toEqual([
+        'STT connection lost after max retries',
+      ]);
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
   });
 
   test('surfaces STT provider error events through onError and returns to idle', async () => {
     const reportedErrors: Error[] = [];
-    const { config, stt } = createConfig();
-    const runtime = createVoiceSession(config, {
+    const { stt, createRuntime } = createConfig();
+    const runtime = createRuntime({
       onError(error) {
         reportedErrors.push(error);
       },
@@ -750,32 +968,37 @@ describe('createVoiceSession runtime finalization', () => {
     }> = [];
     const stt = new MockSTTProvider();
     const tts = new MockTTSProvider();
-    const runtime = createVoiceSession({
-      stt,
-      tts,
-      sessionId: SessionId('session-test'),
-      reconnectDelayMs: 1,
-      trace(event, details) {
-        traceEvents.push({ event, details });
-      },
-      buildChartRequest: defaultBuildChartRequest,
-      processIntent: defaultProcessIntent,
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession({
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('session-test'),
+        reconnectDelayMs: 1,
+        trace(event, details) {
+          traceEvents.push({ event, details });
+        },
+        buildChartRequest: defaultBuildChartRequest,
+        processIntent: defaultProcessIntent,
+      });
+
+      await runtime.startListening();
+      await stt.disconnect();
+      stt.emit({ type: 'disconnected' });
+      stt.emit({ type: 'disconnected' });
+      await advance(10);
+
+      expect(stt.connectCalls).toBe(2);
+      expect(
+        traceEvents.filter((entry) => entry.event === 'stt.reconnect.attempt'),
+      ).toHaveLength(1);
+      expect(
+        traceEvents.filter(
+          (entry) => entry.event === 'stt.reconnect.succeeded',
+        ),
+      ).toHaveLength(1);
+      expect(runtime.getVoiceState()).toBe('listening');
     });
-
-    await runtime.startListening();
-    await stt.disconnect();
-    stt.emit({ type: 'disconnected' });
-    stt.emit({ type: 'disconnected' });
-    await advance(10);
-
-    expect(stt.connectCalls).toBe(2);
-    expect(
-      traceEvents.filter((entry) => entry.event === 'stt.reconnect.attempt'),
-    ).toHaveLength(1);
-    expect(
-      traceEvents.filter((entry) => entry.event === 'stt.reconnect.succeeded'),
-    ).toHaveLength(1);
-    expect(runtime.getVoiceState()).toBe('listening');
   });
 
   test('reuses the active reconnect lifecycle when disconnect fires repeatedly', async () => {
@@ -786,82 +1009,88 @@ describe('createVoiceSession runtime finalization', () => {
     }> = [];
     const stt = new FailOnNthConnectSTTProvider([2]);
     const tts = new MockTTSProvider();
-    const runtime = createVoiceSession(
-      {
-        stt,
-        tts,
-        sessionId: SessionId('session-test'),
-        reconnectDelayMs: 1,
-        maxReconnectAttempts: 1,
-        trace(event, details) {
-          traceEvents.push({ event, details });
-        },
-        buildChartRequest: defaultBuildChartRequest,
-        processIntent: defaultProcessIntent,
-      },
-      {
-        onError(error) {
-          reportedErrors.push(error);
-        },
-      },
-    );
 
-    await runtime.startListening();
-    await stt.disconnect();
-    stt.emit({ type: 'disconnected' });
-    await advance(10);
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          maxReconnectAttempts: 1,
+          trace(event, details) {
+            traceEvents.push({ event, details });
+          },
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onError(error) {
+            reportedErrors.push(error);
+          },
+        },
+      );
 
-    expect(
-      traceEvents.filter((entry) => entry.event === 'stt.reconnect.attempt'),
-    ).toHaveLength(1);
-    expect(
-      traceEvents.filter((entry) => entry.event === 'stt.reconnect.failed'),
-    ).toHaveLength(1);
-    expect(reportedErrors.map((error) => error.message)).toEqual([
-      'STT connection lost after max retries',
-    ]);
-    expect(runtime.getVoiceState()).toBe('idle');
+      await runtime.startListening();
+      await stt.disconnect();
+      stt.emit({ type: 'disconnected' });
+      await advance(10);
+
+      expect(
+        traceEvents.filter((entry) => entry.event === 'stt.reconnect.attempt'),
+      ).toHaveLength(1);
+      expect(
+        traceEvents.filter((entry) => entry.event === 'stt.reconnect.failed'),
+      ).toHaveLength(1);
+      expect(reportedErrors.map((error) => error.message)).toEqual([
+        'STT connection lost after max retries',
+      ]);
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
   });
 
   test('preserves the final reconnect failure cause', async () => {
     const reportedErrors: Error[] = [];
     const stt = new FailOnNthConnectSTTProvider([2], 'root reconnect failure');
     const tts = new MockTTSProvider();
-    const runtime = createVoiceSession(
-      {
-        stt,
-        tts,
-        sessionId: SessionId('session-test'),
-        reconnectDelayMs: 1,
-        maxReconnectAttempts: 1,
-        buildChartRequest: defaultBuildChartRequest,
-        processIntent: defaultProcessIntent,
-      },
-      {
-        onError(error) {
-          reportedErrors.push(error);
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          maxReconnectAttempts: 1,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
         },
-      },
-    );
+        {
+          onError(error) {
+            reportedErrors.push(error);
+          },
+        },
+      );
 
-    await runtime.startListening();
-    await stt.disconnect();
-    await advance(10);
+      await runtime.startListening();
+      await stt.disconnect();
+      await advance(10);
 
-    expect(reportedErrors).toHaveLength(1);
-    expect(reportedErrors[0]?.message).toBe(
-      'STT connection lost after max retries',
-    );
-    expect(reportedErrors[0]?.cause).toBeInstanceOf(Error);
-    expect((reportedErrors[0]?.cause as Error | undefined)?.message).toBe(
-      'root reconnect failure',
-    );
+      expect(reportedErrors).toHaveLength(1);
+      expect(reportedErrors[0]?.message).toBe(
+        'STT connection lost after max retries',
+      );
+      expect(reportedErrors[0]?.cause).toBeInstanceOf(Error);
+      expect((reportedErrors[0]?.cause as Error | undefined)?.message).toBe(
+        'root reconnect failure',
+      );
+    });
   });
 
   test('surfaces TTS provider error events through onError and returns to idle', async () => {
     const reportedErrors: Error[] = [];
-    const { config, tts } = createConfig();
-    const runtime = createVoiceSession(config, {
+    const { tts, createRuntime } = createConfig();
+    const runtime = createRuntime({
       onError(error) {
         reportedErrors.push(error);
       },
@@ -891,45 +1120,50 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const runtime = createVoiceSession(
-      {
-        stt,
-        tts,
-        sessionId: SessionId('session-test'),
-        trace(event, details) {
-          traceEvents.push({ event, details });
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          trace(event, details) {
+            traceEvents.push({ event, details });
+          },
+          processIntent,
+          buildChartRequest: defaultBuildChartRequest,
         },
-        processIntent,
-        buildChartRequest: defaultBuildChartRequest,
-      },
-      {
-        onError(error) {
-          reportedErrors.push(error.message);
+        {
+          onError(error) {
+            reportedErrors.push(error.message);
+          },
         },
-      },
-    );
+      );
 
-    await runtime.startListening();
-    stt.emit({ type: 'transcript', result: { text: 'hello', isFinal: true } });
-    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
-    await advance(500);
+      await runtime.startListening();
+      stt.emit({
+        type: 'transcript',
+        result: { text: 'hello', isFinal: true },
+      });
+      runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+      await advance(500);
 
-    expect(runtime.getVoiceState()).toBe('speaking');
+      expect(runtime.getVoiceState()).toBe('speaking');
 
-    await stt.disconnect();
-    tts.emit({ type: 'completed' });
-    await advance(550);
+      await stt.disconnect();
+      tts.emit({ type: 'completed' });
+      await advance(550);
 
-    expect(reportedErrors).toContain('mock stt connect failure');
-    expect(
-      traceEvents.filter((entry) => entry.event === 'stt.reconnect.attempt'),
-    ).toHaveLength(0);
+      expect(reportedErrors).toContain('mock stt connect failure');
+      expect(
+        traceEvents.filter((entry) => entry.event === 'stt.reconnect.attempt'),
+      ).toHaveLength(0);
+    });
   });
 
   test('reports buffered-audio overflow instead of silently dropping it', async () => {
     const reportedErrors: string[] = [];
-    const { config, stt } = createConfig({ maxPendingAudioChunks: 1 });
-    const runtime = createVoiceSession(config, {
+    const { stt, createRuntime } = createConfig({ maxPendingAudioChunks: 1 });
+    const runtime = createRuntime({
       onError(error) {
         reportedErrors.push(error.message);
       },
@@ -966,53 +1200,56 @@ describe('createVoiceSession runtime finalization', () => {
     }> = [];
     const stt = new MockSTTProvider();
     const tts = new MockTTSProvider();
-    const runtime = createVoiceSession({
-      stt,
-      tts,
-      sessionId: SessionId('session-test'),
-      reconnectDelayMs: 1,
-      trace(event, details) {
-        traceEvents.push({ event, details });
-      },
-      buildChartRequest: defaultBuildChartRequest,
-      processIntent: defaultProcessIntent,
-    });
 
-    await runtime.startListening();
-    await stt.disconnect();
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession({
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('session-test'),
+        reconnectDelayMs: 1,
+        trace(event, details) {
+          traceEvents.push({ event, details });
+        },
+        buildChartRequest: defaultBuildChartRequest,
+        processIntent: defaultProcessIntent,
+      });
 
-    runtime.sendAudioChunk({
-      data: Uint8Array.from([1]),
-      sampleRate: 16000,
-      encoding: 'linear16',
-      timestamp: 1,
-      sequence: 1,
-    });
-    runtime.sendAudioChunk({
-      data: Uint8Array.from([2]),
-      sampleRate: 16000,
-      encoding: 'linear16',
-      timestamp: 2,
-      sequence: 2,
-    });
-    runtime.sendAudioChunk({
-      data: Uint8Array.from([3]),
-      sampleRate: 16000,
-      encoding: 'linear16',
-      timestamp: 3,
-      sequence: 3,
-    });
+      await runtime.startListening();
+      await stt.disconnect();
 
-    await advance(10);
+      runtime.sendAudioChunk({
+        data: Uint8Array.from([1]),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 1,
+        sequence: 1,
+      });
+      runtime.sendAudioChunk({
+        data: Uint8Array.from([2]),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 2,
+        sequence: 2,
+      });
+      runtime.sendAudioChunk({
+        data: Uint8Array.from([3]),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 3,
+        sequence: 3,
+      });
 
-    expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([
-      1, 2, 3,
-    ]);
-    expect(
-      traceEvents
-        .filter((entry) => entry.event === 'stt.buffered_audio.replayed')
-        .map((entry) => entry.details?.remainingBufferedAudioChunks),
-    ).toEqual([2, 1, 0]);
+      await advance(10);
+
+      expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([
+        1, 2, 3,
+      ]);
+      expect(
+        traceEvents
+          .filter((entry) => entry.event === 'stt.buffered_audio.replayed')
+          .map((entry) => entry.details?.remainingBufferedAudioChunks),
+      ).toEqual([2, 1, 0]);
+    });
   });
 
   test('stops replay without losing remaining buffered audio when disconnect happens mid-flush', async () => {
@@ -1022,63 +1259,66 @@ describe('createVoiceSession runtime finalization', () => {
     }> = [];
     const stt = new DisconnectOnNthSendSTTProvider([1]);
     const tts = new MockTTSProvider();
-    const runtime = createVoiceSession({
-      stt,
-      tts,
-      sessionId: SessionId('session-test'),
-      reconnectDelayMs: 1,
-      trace(event, details) {
-        traceEvents.push({ event, details });
-      },
-      buildChartRequest: defaultBuildChartRequest,
-      processIntent: defaultProcessIntent,
-    });
 
-    await runtime.startListening();
-    await stt.disconnect();
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession({
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('session-test'),
+        reconnectDelayMs: 1,
+        trace(event, details) {
+          traceEvents.push({ event, details });
+        },
+        buildChartRequest: defaultBuildChartRequest,
+        processIntent: defaultProcessIntent,
+      });
 
-    runtime.sendAudioChunk({
-      data: Uint8Array.from([1]),
-      sampleRate: 16000,
-      encoding: 'linear16',
-      timestamp: 1,
-      sequence: 1,
-    });
-    runtime.sendAudioChunk({
-      data: Uint8Array.from([2]),
-      sampleRate: 16000,
-      encoding: 'linear16',
-      timestamp: 2,
-      sequence: 2,
-    });
-    runtime.sendAudioChunk({
-      data: Uint8Array.from([3]),
-      sampleRate: 16000,
-      encoding: 'linear16',
-      timestamp: 3,
-      sequence: 3,
-    });
+      await runtime.startListening();
+      await stt.disconnect();
 
-    await advance(10);
+      runtime.sendAudioChunk({
+        data: Uint8Array.from([1]),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 1,
+        sequence: 1,
+      });
+      runtime.sendAudioChunk({
+        data: Uint8Array.from([2]),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 2,
+        sequence: 2,
+      });
+      runtime.sendAudioChunk({
+        data: Uint8Array.from([3]),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 3,
+        sequence: 3,
+      });
 
-    expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([1]);
-    expect(traceEvents).toContainEqual(
-      expect.objectContaining({
-        event: 'stt.buffered_audio.flush_stopped',
-        details: expect.objectContaining({
-          reason: 'stt_disconnected',
-          pendingBufferedAudioChunks: 2,
-          nextBufferedAudioSequence: 2,
+      await advance(10);
+
+      expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([1]);
+      expect(traceEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'stt.buffered_audio.flush_stopped',
+          details: expect.objectContaining({
+            reason: 'stt_disconnected',
+            pendingBufferedAudioChunks: 2,
+            nextBufferedAudioSequence: 2,
+          }),
         }),
-      }),
-    );
+      );
 
-    stt.emit({ type: 'disconnected' });
-    await advance(10);
+      stt.emit({ type: 'disconnected' });
+      await advance(10);
 
-    expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([
-      1, 2, 3,
-    ]);
+      expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([
+        1, 2, 3,
+      ]);
+    });
   });
 
   test('reports buffered-audio replay failures instead of silently abandoning the chunk', async () => {
@@ -1089,64 +1329,67 @@ describe('createVoiceSession runtime finalization', () => {
     }> = [];
     const stt = new ThrowOnNthSendSTTProvider(1, 'mock replay send failure');
     const tts = new MockTTSProvider();
-    const runtime = createVoiceSession(
-      {
-        stt,
-        tts,
-        sessionId: SessionId('session-test'),
-        reconnectDelayMs: 1,
-        trace(event, details) {
-          traceEvents.push({ event, details });
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          trace(event, details) {
+            traceEvents.push({ event, details });
+          },
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
         },
-        buildChartRequest: defaultBuildChartRequest,
-        processIntent: defaultProcessIntent,
-      },
-      {
-        onError(error) {
-          reportedErrors.push(error);
+        {
+          onError(error) {
+            reportedErrors.push(error);
+          },
         },
-      },
-    );
+      );
 
-    await runtime.startListening();
-    await stt.disconnect();
+      await runtime.startListening();
+      await stt.disconnect();
 
-    runtime.sendAudioChunk({
-      data: Uint8Array.from([1]),
-      sampleRate: 16000,
-      encoding: 'linear16',
-      timestamp: 1,
-      sequence: 1,
-    });
+      runtime.sendAudioChunk({
+        data: Uint8Array.from([1]),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 1,
+        sequence: 1,
+      });
 
-    await advance(10);
+      await advance(10);
 
-    expect(reportedErrors).toHaveLength(1);
-    expect(reportedErrors[0]?.message).toBe(
-      'Failed to replay buffered STT audio chunk',
-    );
-    expect(reportedErrors[0]?.cause).toBeInstanceOf(Error);
-    expect((reportedErrors[0]?.cause as Error | undefined)?.message).toBe(
-      'mock replay send failure',
-    );
-    expect(traceEvents).toContainEqual(
-      expect.objectContaining({
-        event: 'stt.buffered_audio.flush_failed',
-        details: expect.objectContaining({
-          reason: 'send_failed',
-          nextBufferedAudioSequence: 1,
-          pendingBufferedAudioChunks: 1,
-          message: 'mock replay send failure',
+      expect(reportedErrors).toHaveLength(1);
+      expect(reportedErrors[0]?.message).toBe(
+        'Failed to replay buffered STT audio chunk',
+      );
+      expect(reportedErrors[0]?.cause).toBeInstanceOf(Error);
+      expect((reportedErrors[0]?.cause as Error | undefined)?.message).toBe(
+        'mock replay send failure',
+      );
+      expect(traceEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'stt.buffered_audio.flush_failed',
+          details: expect.objectContaining({
+            reason: 'send_failed',
+            nextBufferedAudioSequence: 1,
+            pendingBufferedAudioChunks: 1,
+            message: 'mock replay send failure',
+          }),
         }),
-      }),
-    );
-    expect(stt.sentAudioChunks).toHaveLength(0);
+      );
+      expect(stt.sentAudioChunks).toHaveLength(0);
+    });
   });
 
   test('reports VAD end without transcript and returns to idle', async () => {
     const reportedErrors: string[] = [];
-    const { config } = createConfig();
-    const runtime = createVoiceSession(config, {
+    const { createRuntime } = createConfig();
+    const runtime = createRuntime({
       onError(error) {
         reportedErrors.push(error.message);
       },
@@ -1171,8 +1414,8 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config, tts } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config);
+    const { tts, createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime();
     const request = createRequest('typed request');
 
     const response = await runtime.processRequest(request, {
@@ -1217,36 +1460,39 @@ describe('createVoiceSession runtime finalization', () => {
 
     const stt = new MockSTTProvider();
     const tts = new MockTTSProvider();
-    const runtime = createVoiceSession({
-      stt,
-      tts,
-      sessionId: SessionId('session-test'),
-      buildChartRequest,
-      processIntent,
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession({
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('session-test'),
+        buildChartRequest,
+        processIntent,
+      });
+
+      await runtime.startListening();
+      stt.emit({
+        type: 'transcript',
+        result: { text: 'hello async', isFinal: true },
+      });
+      runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+      await advance(550);
+
+      expect(builderEvents).toEqual(['build:hello async']);
+      expect(builderSessionIds).toEqual([SessionId('session-test')]);
+      expect(processIntentCalls).toEqual([]);
+      expect(runtime.getVoiceState()).toBe('processing');
+
+      resolveBuilder(createRequest('hello async'));
+      await advance(0);
+
+      expect(builderEvents).toEqual([
+        'build:hello async',
+        'build:resolved:hello async',
+      ]);
+      expect(processIntentCalls).toEqual(['hello async']);
+      expect(runtime.getVoiceState()).toBe('idle');
     });
-
-    await runtime.startListening();
-    stt.emit({
-      type: 'transcript',
-      result: { text: 'hello async', isFinal: true },
-    });
-    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
-    await advance(550);
-
-    expect(builderEvents).toEqual(['build:hello async']);
-    expect(builderSessionIds).toEqual([SessionId('session-test')]);
-    expect(processIntentCalls).toEqual([]);
-    expect(runtime.getVoiceState()).toBe('processing');
-
-    resolveBuilder(createRequest('hello async'));
-    await advance(0);
-
-    expect(builderEvents).toEqual([
-      'build:hello async',
-      'build:resolved:hello async',
-    ]);
-    expect(processIntentCalls).toEqual(['hello async']);
-    expect(runtime.getVoiceState()).toBe('idle');
   });
 
   test('processRequest stops active speech before entering processing', async () => {
@@ -1256,8 +1502,8 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config, tts } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config);
+    const { tts, createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime();
     const request = createRequest('typed request');
 
     await runtime.speak('hello world');
@@ -1269,23 +1515,33 @@ describe('createVoiceSession runtime finalization', () => {
 
   test('runtime voice state stays authoritative without provider speaking accessors', async () => {
     const voiceStates: string[] = [];
-    const { config } = createConfig({ tts: new EventOnlyTTSProvider() });
-    const runtime = createVoiceSession(config);
+    const stt = new MockSTTProvider();
+    const tts = new EventOnlyTTSProvider();
 
-    runtime.onVoiceStateChange((state) => {
-      voiceStates.push(state);
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession({
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('session-test'),
+        buildChartRequest: defaultBuildChartRequest,
+        processIntent: defaultProcessIntent,
+      });
+
+      runtime.onVoiceStateChange((state) => {
+        voiceStates.push(state);
+      });
+
+      await runtime.speak('hello world');
+
+      expect(voiceStates).toEqual(['speaking', 'idle']);
+      expect(runtime.getVoiceState()).toBe('idle');
     });
-
-    await runtime.speak('hello world');
-
-    expect(voiceStates).toEqual(['speaking', 'idle']);
-    expect(runtime.getVoiceState()).toBe('idle');
   });
 
   test('returns to idle and reports an error when TTS disconnects mid-speech', async () => {
     const reportedErrors: string[] = [];
-    const { config, tts } = createConfig();
-    const runtime = createVoiceSession(config, {
+    const { tts, createRuntime } = createConfig();
+    const runtime = createRuntime({
       onError(error) {
         reportedErrors.push(error.message);
       },
@@ -1302,59 +1558,83 @@ describe('createVoiceSession runtime finalization', () => {
     const speechStarts: string[] = [];
     const speechStops: boolean[] = [];
     const tts = new AutoEventTTSProvider();
-    const { config, stt } = createConfig({ tts });
-    const runtime = createVoiceSession(config, {
-      onSpeechStarted(speech) {
-        speechStarts.push(speech.text);
-      },
-      onSpeechStopped(completed) {
-        speechStops.push(completed);
-      },
+    const stt = new MockSTTProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onSpeechStarted(speech) {
+            speechStarts.push(speech.text);
+          },
+          onSpeechStopped(completed) {
+            speechStops.push(completed);
+          },
+        },
+      );
+
+      await runtime.speak('hello world');
+
+      expect(runtime.getVoiceState()).toBe('speaking');
+      expect(runtime.shouldAutoRestart()).toBe(false);
+      expect(speechStarts).toEqual(['hello world']);
+
+      const initialConnectCalls = stt.connectCalls;
+      tts.emit({ type: 'completed' });
+      await advance(550);
+
+      expect(speechStops).toEqual([true]);
+      expect(runtime.getVoiceState()).toBe('listening');
+      expect(runtime.shouldAutoRestart()).toBe(false);
+      expect(stt.connectCalls).toBe(initialConnectCalls + 1);
     });
-
-    await runtime.speak('hello world');
-
-    expect(runtime.getVoiceState()).toBe('speaking');
-    expect(runtime.shouldAutoRestart()).toBe(false);
-    expect(speechStarts).toEqual(['hello world']);
-
-    const initialConnectCalls = stt.connectCalls;
-    tts.emit({ type: 'completed' });
-    await advance(550);
-
-    expect(speechStops).toEqual([true]);
-    expect(runtime.getVoiceState()).toBe('listening');
-    expect(runtime.shouldAutoRestart()).toBe(false);
-    expect(stt.connectCalls).toBe(initialConnectCalls + 1);
   });
 
   test('interrupting active speech stops playback, reports user interrupt, and does not auto-restart listening', async () => {
     const interrupts: Array<'user' | 'system'> = [];
     const speechStops: boolean[] = [];
     const tts = new AutoEventTTSProvider();
-    const { config, stt } = createConfig({ tts });
-    const runtime = createVoiceSession(config, {
-      onInterrupt(source) {
-        interrupts.push(source);
-      },
-      onSpeechStopped(completed) {
-        speechStops.push(completed);
-      },
+    const stt = new MockSTTProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onInterrupt(source) {
+            interrupts.push(source);
+          },
+          onSpeechStopped(completed) {
+            speechStops.push(completed);
+          },
+        },
+      );
+
+      await runtime.speak('hello world');
+
+      expect(runtime.getVoiceState()).toBe('speaking');
+
+      runtime.interrupt();
+      await advance(550);
+
+      expect(tts.stopCalls).toBe(1);
+      expect(interrupts).toEqual(['user']);
+      expect(speechStops).toEqual([false]);
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(runtime.shouldAutoRestart()).toBe(true);
+      expect(stt.connectCalls).toBe(0);
     });
-
-    await runtime.speak('hello world');
-
-    expect(runtime.getVoiceState()).toBe('speaking');
-
-    runtime.interrupt();
-    await advance(550);
-
-    expect(tts.stopCalls).toBe(1);
-    expect(interrupts).toEqual(['user']);
-    expect(speechStops).toEqual([false]);
-    expect(runtime.getVoiceState()).toBe('idle');
-    expect(runtime.shouldAutoRestart()).toBe(true);
-    expect(stt.connectCalls).toBe(0);
   });
 
   test('interrupting processing aborts the in-flight turn and prevents stale speech', async () => {
@@ -1372,8 +1652,8 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const { config, stt, tts } = createConfig({ processIntent });
-    const runtime = createVoiceSession(config, {
+    const { stt, tts, createRuntime } = createConfig({ processIntent });
+    const runtime = createRuntime({
       onInterrupt(source) {
         interrupts.push(source);
       },
@@ -1424,21 +1704,30 @@ describe('createVoiceSession runtime finalization', () => {
     }
 
     const tts = new DelayedConnectTTSProvider();
-    const { config } = createConfig({ tts });
-    const runtime = createVoiceSession(config);
+    const stt = new MockSTTProvider();
 
-    const speakPromise = runtime.speak('hello world');
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession({
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('session-test'),
+        buildChartRequest: defaultBuildChartRequest,
+        processIntent: defaultProcessIntent,
+      });
 
-    expect(runtime.getVoiceState()).toBe('speaking');
+      const speakPromise = runtime.speak('hello world');
 
-    runtime.interrupt();
+      expect(runtime.getVoiceState()).toBe('speaking');
 
-    expect(runtime.getVoiceState()).toBe('idle');
+      runtime.interrupt();
 
-    await advance(10);
-    await speakPromise;
+      expect(runtime.getVoiceState()).toBe('idle');
 
-    expect(tts.spokenTexts).toEqual([]);
+      await advance(10);
+      await speakPromise;
+
+      expect(tts.spokenTexts).toEqual([]);
+    });
   });
 
   test('does not auto-restart listening after destroy when a delayed TTS completion arrives', async () => {
@@ -1453,31 +1742,36 @@ describe('createVoiceSession runtime finalization', () => {
       },
     };
 
-    const runtime = createVoiceSession(
-      {
-        stt,
-        tts,
-        sessionId: SessionId('session-test'),
-        processIntent,
-        buildChartRequest: defaultBuildChartRequest,
-      },
-      {
-        onError(error) {
-          reportedErrors.push(error.message);
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          processIntent,
+          buildChartRequest: defaultBuildChartRequest,
         },
-      },
-    );
+        {
+          onError(error) {
+            reportedErrors.push(error.message);
+          },
+        },
+      );
 
-    await runtime.startListening();
-    stt.emit({ type: 'transcript', result: { text: 'hello', isFinal: true } });
-    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
-    await advance(sharedVadFinalDebounceMs);
+      await runtime.startListening();
+      stt.emit({
+        type: 'transcript',
+        result: { text: 'hello', isFinal: true },
+      });
+      runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+      await advance(sharedVadFinalDebounceMs);
 
-    runtime.destroy();
-    tts.emit({ type: 'completed' });
-    await advance(550);
+      runtime.destroy();
+      tts.emit({ type: 'completed' });
+      await advance(550);
 
-    expect(stt.connectCalls).toBe(1);
-    expect(reportedErrors).toEqual([]);
+      expect(stt.connectCalls).toBe(1);
+      expect(reportedErrors).toEqual([]);
+    });
   });
 });
