@@ -12,12 +12,8 @@ import { err, ok } from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../assert-never.js';
 import type { Logger } from '../../logger.js';
-import type {
-  RawActionExecution,
-  SkippedAction,
-  SimulationState,
-  ValidationLookups,
-} from './validation-context.js';
+import type { SimulationState, ValidationLookups } from './state.js';
+import type { RawActionExecution, SkippedAction } from './types.js';
 
 export interface ResolvedAction {
   readonly instance: VesselInstanceSnapshot;

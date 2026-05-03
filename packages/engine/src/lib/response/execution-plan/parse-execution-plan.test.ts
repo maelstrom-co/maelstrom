@@ -10,7 +10,7 @@ import {
 
 import { silentLogger } from '../../__test-helpers__/fixtures.js';
 import { parseExecutionPlan } from './parse-execution-plan.js';
-import type { RawActionExecution } from './validation-context.js';
+import type { RawActionExecution } from './types.js';
 
 // Two-action plan whose validity depends on the writer mutating between
 // iterations: action #2's `expand` is only valid on variant `expanded`,

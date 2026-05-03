@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { InstanceId, VariantName } from '@maelstrom-co/protocol';
 
-import { createSimulationState } from './validation-context.js';
+import { createSimulationState } from './state.js';
 
 describe('createSimulationState', () => {
   test('seeds the underlying Map from the iterable', () => {

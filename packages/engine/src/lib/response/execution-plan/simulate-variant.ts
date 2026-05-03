@@ -2,10 +2,8 @@ import type { VariantName } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../../logger.js';
 import type { ResolvedAction } from './resolve-action.js';
-import type {
-  RawActionExecution,
-  SimulationStateWriter,
-} from './validation-context.js';
+import type { SimulationStateWriter } from './state.js';
+import type { RawActionExecution } from './types.js';
 
 /**
  * `drift` carries `targetVariant` so the caller can surface it without

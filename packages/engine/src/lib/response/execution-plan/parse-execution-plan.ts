@@ -15,13 +15,12 @@ import {
 } from './resolve-action.js';
 import { updateSimulatedVariant } from './simulate-variant.js';
 import type {
-  RawActionExecution,
   SimulationState,
   SimulationStateWriter,
-  SkippedAction,
   ValidationLookups,
-} from './validation-context.js';
-import { createSimulationState } from './validation-context.js';
+} from './state.js';
+import { createSimulationState } from './state.js';
+import type { RawActionExecution, SkippedAction } from './types.js';
 
 function parseSingleAction(
   item: RawActionExecution,
@@ -29,22 +28,18 @@ function parseSingleAction(
   simReader: SimulationState,
   simWriter: SimulationStateWriter,
   skippedActions: SkippedAction[],
+  logger: Logger,
 ): ActionExecution[] {
   const resolution = resolveAction(item, lookups, simReader);
   if (isErr(resolution)) {
-    logResolveFailure(item, resolution.error, lookups.logger);
+    logResolveFailure(item, resolution.error, logger);
     skippedActions.push(resolveFailureToSkipped(item, resolution.error));
     return [];
   }
   const resolved = resolution.value;
 
   if (!item.paramsJson) {
-    const outcome = updateSimulatedVariant(
-      item,
-      resolved,
-      lookups.logger,
-      simWriter,
-    );
+    const outcome = updateSimulatedVariant(item, resolved, logger, simWriter);
     if (outcome.kind === 'drift') {
       skippedActions.push(
         stateDriftSkipped(item, resolved, outcome.targetVariant),
@@ -58,7 +53,7 @@ function parseSingleAction(
     item.paramsJson,
     item.action,
     item.instanceId,
-    lookups.logger,
+    logger,
   );
 
   if (params === undefined) {
@@ -71,12 +66,7 @@ function parseSingleAction(
     return [];
   }
 
-  const outcome = updateSimulatedVariant(
-    item,
-    resolved,
-    lookups.logger,
-    simWriter,
-  );
+  const outcome = updateSimulatedVariant(item, resolved, logger, simWriter);
   if (outcome.kind === 'drift') {
     skippedActions.push(
       stateDriftSkipped(item, resolved, outcome.targetVariant),
@@ -100,7 +90,6 @@ export function parseExecutionPlan(
   const lookups: ValidationLookups = {
     instanceMap: new Map(instances.map((i) => [i.instanceId, i])),
     vesselMap: new Map(vessels.map((v) => [v.id, v])),
-    logger,
   };
 
   const { reader: simReader, writer: simWriter } = createSimulationState(
@@ -112,7 +101,14 @@ export function parseExecutionPlan(
   // against the variant left by the previous one. Reordering would break the
   // validation contract.
   const resultPlan = plan.flatMap((item) =>
-    parseSingleAction(item, lookups, simReader, simWriter, skippedActions),
+    parseSingleAction(
+      item,
+      lookups,
+      simReader,
+      simWriter,
+      skippedActions,
+      logger,
+    ),
   );
 
   return { plan: resultPlan, skippedActions };
