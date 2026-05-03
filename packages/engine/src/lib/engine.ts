@@ -21,7 +21,7 @@ import { assertNever } from './assert-never.js';
 import type { EngineConfig } from './config.js';
 import { resolveConfig } from './config.js';
 import type { EngineError } from './errors.js';
-import { historyError, validationError } from './errors.js';
+import { cancellationError, historyError, validationError } from './errors.js';
 import type {
   HistoryManager,
   LLMContextMessage,
@@ -78,6 +78,25 @@ export interface Engine {
    * `signal` cancels mid-flight: a pre-aborted signal short-circuits to
    * `CancellationError` without invoking the LLM; an abort during the LLM
    * call is mapped to `CancellationError` via the adapter.
+   *
+   * **Idempotency.** When `history` is configured on {@link EngineConfig},
+   * two duplicate `chart_request` envelopes sharing the same `(sessionId,
+   * id)` collapse onto a single LLM call: a duplicate that arrives after
+   * the original completed replays the stored `chart_response` from
+   * history; a duplicate that arrives mid-flight awaits the leader's
+   * promise. Failures are not persisted — the next duplicate after a
+   * failure reaches the LLM as a fresh request. Eviction is bounded by
+   * `HistoryManager` truncation only. Without `history` configured, no
+   * dedup happens and every request reaches the LLM.
+   *
+   * **Cancellation note for idempotency followers.** A follower (second
+   * concurrent caller) that aborts its own `signal` resolves its own await
+   * with `Err(CancellationError)`; the leader's LLM call continues. If the
+   * leader's signal aborts, the leader's promise resolves with
+   * `Err(CancellationError)` (Result-typed; never rejects), and any
+   * followers awaiting it observe that same `Err` value via the shared
+   * promise. Callers that don't want another caller's abort to surface to
+   * them must not reuse the `messageId`.
    */
   handle(
     message: EngineMessage,
@@ -285,6 +304,96 @@ export function createEngine(config: EngineConfig): Engine {
     });
   };
 
+  const runAndRecord = async (
+    message: ChartRequestMessage,
+    signal?: AbortSignal,
+  ): Promise<Result<ChartResponseOutput, EngineError>> => {
+    const result = await runChartRequest(message, signal);
+    if (isOk(result) && history !== undefined) {
+      // Advisory write: the user already has their response, so a
+      // history failure must not retroactively fail the turn.
+      try {
+        await history.recordTurn(message, result.value);
+      } catch (error) {
+        logger.error('Failed to record turn', error, {
+          messageId: message.id,
+          sessionId: message.sessionId,
+        });
+      }
+    }
+    return result;
+  };
+
+  // Process-local in-flight tracking for chart_request idempotency. Engine-
+  // instance-scoped — multi-engine deployments do not coalesce dedup state
+  // across instances. A duplicate (sessionId, messageId) that arrives while
+  // the leader is still running collapses onto the leader's promise.
+  // Cleared on settle, AFTER recordTurn completes inside runAndRecord, so
+  // a follower arriving in the post-LLM / pre-recordTurn window still hits
+  // the entry instead of starting a duplicate LLM call.
+  type InflightKey = `${SessionId}::${MessageId}`;
+  const inflight = new Map<
+    InflightKey,
+    Promise<Result<ChartResponseOutput, EngineError>>
+  >();
+  const inflightKey = (
+    sessionId: SessionId,
+    messageId: MessageId,
+  ): InflightKey => `${sessionId}::${messageId}`;
+
+  // Followers race the shared leader promise against their own AbortSignal.
+  // A follower-side abort resolves only that follower's await with
+  // CancellationError; the leader's LLM call continues. If the leader's
+  // signal aborts, the leader resolves with Err(CancellationError) (Result-
+  // typed; never rejects under engine contract) and followers observe that
+  // same Err via the shared promise's resolved value.
+  const awaitWithSignal = (
+    leaderPromise: Promise<Result<ChartResponseOutput, EngineError>>,
+    signal: AbortSignal | undefined,
+    sessionId: SessionId,
+    messageId: MessageId,
+  ): Promise<Result<ChartResponseOutput, EngineError>> => {
+    if (signal === undefined) {
+      return leaderPromise;
+    }
+    if (signal.aborted) {
+      return Promise.resolve(
+        err(cancellationError('aborted by caller', signal.reason)),
+      );
+    }
+    return new Promise((resolve) => {
+      const onAbort = () => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(err(cancellationError('aborted by caller', signal.reason)));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      leaderPromise.then(
+        (r) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(r);
+        },
+        // Defensive catch-all: leaderPromise is Result-typed and should
+        // never reject under contract. If it does (an unguarded throw
+        // deeper in the pipeline escapes the per-stage try/catch), we'd
+        // otherwise hang every follower forever. Surface as a
+        // `leader_pipeline` HistoryError so the follower sees an Err shape
+        // and the operator log lets them grep by tag.
+        (error: unknown) => {
+          signal.removeEventListener('abort', onAbort);
+          logger.error('Leader promise rejected unexpectedly', error, {
+            sessionId,
+            messageId,
+          });
+          resolve(
+            err(
+              historyError('leader pipeline threw', 'leader_pipeline', error),
+            ),
+          );
+        },
+      );
+    });
+  };
+
   return {
     async handle(rawMessage, signal) {
       // Wire-format validation runs first. Smart constructors enforce envelope
@@ -301,20 +410,51 @@ export function createEngine(config: EngineConfig): Engine {
 
       switch (message.type) {
         case 'chart_request': {
-          const result = await runChartRequest(message, signal);
-          if (isOk(result) && history !== undefined) {
-            // Advisory write: the user already has their response, so a
-            // history failure must not retroactively fail the turn.
-            try {
-              await history.recordTurn(message, result.value);
-            } catch (error) {
-              logger.error('Failed to record turn', error, {
-                messageId: message.id,
-                sessionId: message.sessionId,
-              });
-            }
+          if (history === undefined) {
+            return runAndRecord(message, signal);
           }
-          return result;
+          // Advisory read: a failed cache lookup must not retroactively fail
+          // the turn. Fall through to the in-flight + fresh LLM path — same
+          // observable outcome as a cache miss.
+          let cached: ChartResponseOutput | null = null;
+          try {
+            cached = await history.getResponseById(
+              message.sessionId,
+              message.id,
+            );
+          } catch (error) {
+            logger.error('Failed to look up cached response', error, {
+              messageId: message.id,
+              sessionId: message.sessionId,
+            });
+          }
+          if (cached !== null) {
+            return ok(cached);
+          }
+          const key = inflightKey(message.sessionId, message.id);
+          const existing = inflight.get(key);
+          if (existing !== undefined) {
+            return awaitWithSignal(
+              existing,
+              signal,
+              message.sessionId,
+              message.id,
+            );
+          }
+          const leader = runAndRecord(message, signal);
+          inflight.set(key, leader);
+          // Two cleanup handlers (not `.finally`) so that an unguarded
+          // pipeline throw — which would make `leader` reject rather than
+          // resolve to `Err` — is absorbed here: `.then(cleanup, cleanup)`
+          // returns a resolved promise either way, while `.finally(cleanup)`
+          // would propagate the rejection and emit an unhandledRejection
+          // off the `void`-discarded handle. The caller's own `await leader`
+          // still surfaces the rejection if one occurs.
+          void leader.then(
+            () => inflight.delete(key),
+            () => inflight.delete(key),
+          );
+          return leader;
         }
         case 'assistant_message': {
           if (history === undefined) {

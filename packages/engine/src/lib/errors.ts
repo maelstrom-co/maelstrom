@@ -82,6 +82,12 @@ export interface CancellationError {
  * reserved tags — `recordTurn` failures in the `chart_request` arm are
  * advisory (logged but not returned); `clear` is exposed on the public
  * `HistoryManager` interface but not surfaced through `Engine.handle`.
+ * `leader_pipeline` is a defensive catch-all kept as a follower-hang
+ * guard inside the idempotency machinery in {@link Engine.handle} —
+ * unreachable under normal operation (every per-stage error path returns
+ * via the Result channel), but if some future refactor lets a throw
+ * escape, followers awaiting the in-flight leader observe this
+ * discriminant instead of hanging forever.
  */
 export interface HistoryError {
   readonly _tag: 'HistoryError';
@@ -90,7 +96,8 @@ export interface HistoryError {
     | 'record_turn'
     | 'add_assistant_message'
     | 'clear'
-    | 'get_llm_context';
+    | 'get_llm_context'
+    | 'leader_pipeline';
   readonly cause: unknown;
   readonly stack?: string;
 }

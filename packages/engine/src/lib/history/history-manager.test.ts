@@ -75,20 +75,34 @@ const buildOutput = (
   };
 };
 
+// Spread `inner`'s methods and apply `overrides` on top so future
+// HistoryStore additions only need bindings updated here, not in every
+// inline mock. The explicit per-method spread (rather than `...inner`)
+// makes a missing method on `inner` surface as a TypeScript error here
+// rather than at each call site.
+const wrap = (
+  inner: HistoryStore,
+  overrides: Partial<HistoryStore>,
+): HistoryStore => ({
+  append: inner.append.bind(inner),
+  get: inner.get.bind(inner),
+  replace: inner.replace.bind(inner),
+  clear: inner.clear.bind(inner),
+  getResponseById: inner.getResponseById.bind(inner),
+  ...overrides,
+});
+
 const recordingStore = (): { store: HistoryStore; calls: string[] } => {
   const inner = createInMemoryStore();
   const calls: string[] = [];
   return {
     calls,
-    store: {
+    store: wrap(inner, {
       async append(sid, entry) {
         calls.push(`append:${entry.kind}:${entry.input.id}`);
         return inner.append(sid, entry);
       },
-      get: inner.get.bind(inner),
-      replace: inner.replace.bind(inner),
-      clear: inner.clear.bind(inner),
-    },
+    }),
   };
 };
 
@@ -346,10 +360,7 @@ describe('HistoryManager.recordTurn', () => {
       calls.push(`end:${entry.input.id}`);
       return { inserted: true };
     };
-    const wrappedStore: HistoryStore = {
-      ...store,
-      append: slowAppend,
-    };
+    const wrappedStore = wrap(store, { append: slowAppend });
 
     const mgr = createHistoryManager({
       store: wrappedStore,
@@ -379,7 +390,7 @@ describe('HistoryManager.recordTurn', () => {
 
   test('parallelizes recordTurn calls across different sessions', async () => {
     const order: string[] = [];
-    const wrappedStore: HistoryStore = {
+    const wrappedStore = wrap(createInMemoryStore(), {
       async append(_sid, entry) {
         order.push(`start:${entry.input.id}`);
         await Promise.resolve();
@@ -387,12 +398,7 @@ describe('HistoryManager.recordTurn', () => {
         order.push(`end:${entry.input.id}`);
         return { inserted: true };
       },
-      async get() {
-        return [];
-      },
-      async replace() {},
-      async clear() {},
-    };
+    });
     const mgr = createHistoryManager({
       store: wrappedStore,
       maxEntries: 10,
@@ -465,7 +471,7 @@ describe('HistoryManager.addAssistantMessage', () => {
     const turnGate = defer<void>();
     const inner = createInMemoryStore();
     const events: string[] = [];
-    const wrappedStore: HistoryStore = {
+    const wrappedStore = wrap(inner, {
       async append(sid, entry) {
         events.push(`append-start:${entry.kind}`);
         if (entry.kind === 'turn') {
@@ -475,10 +481,7 @@ describe('HistoryManager.addAssistantMessage', () => {
         events.push(`append-end:${entry.kind}`);
         return r;
       },
-      get: inner.get.bind(inner),
-      replace: inner.replace.bind(inner),
-      clear: inner.clear.bind(inner),
-    };
+    });
     const mgr = createHistoryManager({
       store: wrappedStore,
       maxEntries: 10,
@@ -819,15 +822,14 @@ describe('HistoryManager.clear', () => {
   test('serializes against an in-flight recordTurn on the same session', async () => {
     const turnGate = defer<void>();
     const inner = createInMemoryStore();
-    const wrappedStore: HistoryStore = {
-      ...inner,
+    const wrappedStore = wrap(inner, {
       async append(sid, entry) {
         if (entry.kind === 'turn') {
           await turnGate.promise;
         }
         return inner.append(sid, entry);
       },
-    };
+    });
     const mgr = createHistoryManager({
       store: wrappedStore,
       maxEntries: 10,
@@ -869,5 +871,26 @@ describe('HistoryManager.clear', () => {
     // was removed and clear always goes through lockFor).
     await mgr.clear(SessionId('never-touched'));
     expect(await store.get(SessionId('never-touched'))).toEqual([]);
+  });
+});
+
+describe('HistoryManager.getResponseById', () => {
+  test('delegates to store.getResponseById and returns its result verbatim', async () => {
+    const store = createInMemoryStore();
+    const manager = createHistoryManager({
+      maxEntries: 10,
+      maxChars: 1_000,
+      store,
+    });
+    const sessionId = SessionId('s-1');
+    const messageId = MessageId('msg-1');
+    const input = buildInput(sessionId, messageId, 'hi');
+    const output = buildOutput(sessionId, messageId, 'hi back');
+
+    expect(await manager.getResponseById(sessionId, messageId)).toBeNull();
+
+    await manager.recordTurn(input, output);
+
+    expect(await manager.getResponseById(sessionId, messageId)).toEqual(output);
   });
 });

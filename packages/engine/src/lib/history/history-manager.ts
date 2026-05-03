@@ -2,6 +2,7 @@ import type {
   AssistantInjectionMessage,
   ChartRequestMessage,
   ChartResponseOutput,
+  MessageId,
   SessionId,
   UpdateReason,
 } from '@maelstrom-co/protocol';
@@ -88,6 +89,16 @@ export interface HistoryManager<TMeta = unknown> {
   getHistory(sessionId: SessionId): Promise<readonly HistoryEntry<TMeta>[]>;
   getLLMContext(sessionId: SessionId): Promise<readonly LLMContextMessage[]>;
   clear(sessionId: SessionId): Promise<void>;
+  /**
+   * Point-lookup of a previously recorded `turn`'s response. Returns `null`
+   * if no `turn` exists for `(sessionId, messageId)` (never seen, evicted by
+   * truncation, or occupied by an `injection`). Pure passthrough to
+   * {@link HistoryStore.getResponseById}; lock-free read.
+   */
+  getResponseById(
+    sessionId: SessionId,
+    messageId: MessageId,
+  ): Promise<ChartResponseOutput | null>;
 }
 
 export function createHistoryManager<TMeta = unknown>(
@@ -198,6 +209,10 @@ export function createHistoryManager<TMeta = unknown>(
       // append could survive the clear. Symmetric locking removes the race.
       await lockFor(sessionId).run(() => store.clear(sessionId));
       sessionLocks.delete(sessionId);
+    },
+
+    async getResponseById(sessionId, messageId) {
+      return store.getResponseById(sessionId, messageId);
     },
   };
 }

@@ -2,6 +2,7 @@ import type {
   AssistantInjectionMessage,
   ChartRequestMessage,
   ChartResponseOutput,
+  MessageId,
   SessionId,
 } from '@maelstrom-co/protocol';
 
@@ -65,4 +66,21 @@ export interface HistoryStore<TMeta = unknown> {
 
   /** Wipes all entries for a session. No-op on an unknown session. */
   clear(sessionId: SessionId): Promise<void>;
+
+  /**
+   * Returns the response stored under `(sessionId, messageId)`, or `null` if:
+   * - no entry exists for that id (never seen, or evicted by truncation), or
+   * - the entry exists but is an `injection` (only `turn` entries carry a
+   *   response).
+   *
+   * Used by the engine to replay a successful `chart_request` without
+   * re-invoking the LLM. Stores backed by a remote backend should implement
+   * this against backend-native point-lookup primitives (Redis `HGET`,
+   * Postgres `SELECT response WHERE …`) to avoid materializing the full
+   * {@link HistoryEntry}.
+   */
+  getResponseById(
+    sessionId: SessionId,
+    messageId: MessageId,
+  ): Promise<ChartResponseOutput | null>;
 }
