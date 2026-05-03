@@ -68,19 +68,29 @@ export interface CancellationError {
 }
 
 /**
- * Raised when the configured `HistoryStore` fails while recording a turn or
- * persisting an assistant_message. Distinct from {@link ProviderError}: that
- * one is the LLM adapter; history persistence is a separate subsystem, and
- * callers typically route the two failure modes to different recovery
- * strategies (LLM retry / fallback vs. store reconnection / degraded mode).
+ * Raised when the configured `HistoryStore` fails. Distinct from
+ * {@link ProviderError}: that one is the LLM adapter; history persistence
+ * is a separate subsystem, and callers typically route the two failure
+ * modes to different recovery strategies (LLM retry / fallback vs. store
+ * reconnection / degraded mode).
  *
- * `operation` names which engine entry point the failure originated in, so
- * callers can branch without string-matching `message`.
+ * `operation` discriminates the failing call site so callers can branch
+ * without string-matching `message`. Today the engine emits two members
+ * on its public Err channel: `add_assistant_message` from the
+ * `assistant_message` entry point, and `get_llm_context` from
+ * `chart_request` history-context loading. `record_turn` and `clear` are
+ * reserved tags — `recordTurn` failures in the `chart_request` arm are
+ * advisory (logged but not returned); `clear` is exposed on the public
+ * `HistoryManager` interface but not surfaced through `Engine.handle`.
  */
 export interface HistoryError {
   readonly _tag: 'HistoryError';
   readonly message: string;
-  readonly operation: 'record_turn' | 'add_assistant_message' | 'clear';
+  readonly operation:
+    | 'record_turn'
+    | 'add_assistant_message'
+    | 'clear'
+    | 'get_llm_context';
   readonly cause: unknown;
   readonly stack?: string;
 }

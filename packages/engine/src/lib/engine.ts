@@ -6,6 +6,7 @@ import type {
   LayoutMode,
   MessageId,
   Result,
+  SessionId,
 } from '@maelstrom-co/protocol';
 import {
   err,
@@ -21,7 +22,10 @@ import type { EngineConfig } from './config.js';
 import { resolveConfig } from './config.js';
 import type { EngineError } from './errors.js';
 import { historyError, validationError } from './errors.js';
-import type { HistoryManager } from './history/history-manager.js';
+import type {
+  HistoryManager,
+  LLMContextMessage,
+} from './history/history-manager.js';
 import { createHistoryManager } from './history/history-manager.js';
 import type { Logger } from './logger.js';
 import { callLLM } from './pipeline/call-llm.js';
@@ -167,10 +171,21 @@ export function createEngine(config: EngineConfig): Engine {
 
     // Prior conversation is what lets the LLM reason across turns.
     // Empty when history isn't configured — callLLM treats that case the
-    // same as a fresh first turn.
-    const historyContext = history
-      ? await history.getLLMContext(message.sessionId)
-      : [];
+    // same as a fresh first turn. A throw from a remote-backed store
+    // (Redis blip, Postgres timeout, deserialization error) would
+    // otherwise reject the returned promise and break the documented
+    // `Promise<Result<…>>` contract — surface it as a HistoryError so
+    // callers see the same Err shape they see for assistant_message
+    // persistence failures.
+    const historyContext = await loadHistoryContext(
+      history,
+      message.sessionId,
+      message.id,
+      logger,
+    );
+    if (isErr(historyContext)) {
+      return historyContext;
+    }
 
     const runOnce = async (
       attemptUserPrompt: string,
@@ -181,7 +196,7 @@ export function createEngine(config: EngineConfig): Engine {
         systemPrompt,
         attemptUserPrompt,
         outputSchema,
-        historyContext,
+        historyContext.value,
         attemptSignal,
       );
       if (isErr(llmResult)) {
@@ -295,6 +310,7 @@ export function createEngine(config: EngineConfig): Engine {
             } catch (error) {
               logger.error('Failed to record turn', error, {
                 messageId: message.id,
+                sessionId: message.sessionId,
               });
             }
           }
@@ -326,6 +342,7 @@ export function createEngine(config: EngineConfig): Engine {
           } catch (error) {
             logger.error('Failed to persist assistant_message', error, {
               messageId: message.id,
+              sessionId: message.sessionId,
             });
             return err(
               historyError(
@@ -352,6 +369,32 @@ export function createEngine(config: EngineConfig): Engine {
       }
     },
   };
+}
+
+async function loadHistoryContext(
+  history: HistoryManager | undefined,
+  sessionId: SessionId,
+  messageId: MessageId,
+  logger: Logger,
+): Promise<Result<readonly LLMContextMessage[], EngineError>> {
+  if (history === undefined) {
+    return ok([]);
+  }
+  try {
+    return ok(await history.getLLMContext(sessionId));
+  } catch (error) {
+    logger.error('Failed to load history context', error, {
+      messageId,
+      sessionId,
+    });
+    return err(
+      historyError(
+        'failed to load history context',
+        'get_llm_context',
+        error,
+      ),
+    );
+  }
 }
 
 function logEngineError(

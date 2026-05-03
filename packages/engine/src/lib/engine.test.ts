@@ -480,6 +480,135 @@ describe('engine.handle — chart_request', () => {
     expect(result.error._tag).toBe('CancellationError');
   });
 
+  test('returns HistoryError when getLLMContext throws (no LLM call)', async () => {
+    const throwingStore: HistoryStore = {
+      ...createInMemoryStore(),
+      get: async () => {
+        throw new Error('network down');
+      },
+    };
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('HistoryError');
+    if (result.error._tag !== 'HistoryError') return;
+    expect(result.error.operation).toBe('get_llm_context');
+    expect(result.error.cause).toBeInstanceOf(Error);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  test('preserves non-Error throw values from getLLMContext as cause', async () => {
+    // Bun/Node consumers can throw any value, not just Error instances.
+    // The HistoryError must carry the original cause through unchanged so
+    // downstream diagnostics can inspect it (a string thrown by a buggy
+    // adapter would otherwise be silently coerced and lose context).
+    const throwingStore: HistoryStore = {
+      ...createInMemoryStore(),
+      get: async () => {
+        throw 'string-shaped store failure';
+      },
+    };
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('HistoryError');
+    if (result.error._tag !== 'HistoryError') return;
+    expect(result.error.operation).toBe('get_llm_context');
+    expect(result.error.cause).toBe('string-shaped store failure');
+  });
+
+  test('logs the getLLMContext failure with sessionId/messageId context', async () => {
+    // Failure observability hinges on the log carrying enough context for
+    // operators to find the failing session. A regression that drops
+    // either correlation field would break dashboards that group by
+    // session, so pin both explicitly.
+    const logged: Array<{ message: string; data?: Record<string, unknown> }> =
+      [];
+    const captureLogger: Parameters<typeof createEngine>[0]['logger'] = {
+      debug: () => undefined,
+      info: () => undefined,
+      warn: () => undefined,
+      error: (message, _error, data) => {
+        logged.push({ message, data });
+      },
+    };
+    const throwingStore: HistoryStore = {
+      ...createInMemoryStore(),
+      get: async () => {
+        throw new Error('network down');
+      },
+    };
+    const sessionId = SessionId('failing-session');
+    const messageId = MessageId('failing-msg');
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: captureLogger,
+      history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
+    });
+
+    await engine.handle(
+      toChartRequestMessage(makeGridRequest(), sessionId, messageId),
+    );
+
+    const failureLog = logged.find(
+      (l) => l.message === 'Failed to load history context',
+    );
+    expect(failureLog).toBeDefined();
+    expect(failureLog?.data).toMatchObject({ sessionId, messageId });
+  });
+
+  test('discriminates HistoryError.operation between get_llm_context and add_assistant_message', async () => {
+    // The operation discriminant is what consumers branch on to route
+    // history-store failures by call site. Without per-operation tests, a
+    // regression that re-tagged one path with another's operation (e.g.
+    // add_assistant_message slipping into get_llm_context's catch) would
+    // typecheck and pass the existing 'returns HistoryError' tests.
+    const inner = createInMemoryStore();
+    const recordThrows: HistoryStore = {
+      ...inner,
+      append: async () => {
+        throw new Error('append failed');
+      },
+    };
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 1_000, store: recordThrows },
+    });
+
+    const result = await engine.handle(
+      AssistantInjectionMessage({
+        sessionId: SessionId('s'),
+        content: 'hi',
+        id: MessageId('m'),
+      }),
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('HistoryError');
+    if (result.error._tag !== 'HistoryError') return;
+    expect(result.error.operation).toBe('add_assistant_message');
+  });
+
   test('uses consoleLogger when no logger is provided', async () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
     const engine = createEngine({ adapter: dummyAdapter });
