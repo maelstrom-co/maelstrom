@@ -1,12 +1,14 @@
 import type { Engine } from '@maelstrom-co/engine-old';
-import type { ChartRequest } from '@maelstrom-co/protocol';
+import type { ChartRequest, ChartRequestMessage } from '@maelstrom-co/protocol';
 import type {
   ChartRequest as LegacyChartRequest,
+  MaelstromResponse as LegacyMaelstromResponse,
   VoiceClientMessage,
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
 import type { AudioChunk, VoiceSession } from '@maelstrom-co/voice-server';
 
+import { adaptEnvelopeToLegacyRequest } from './legacy-engine-adapter.js';
 import { toProtocolChartRequest } from './voice-intent-adapter.js';
 
 type WsTransport = {
@@ -196,22 +198,34 @@ export function createDemoVoiceWsSessionController(
       type: 'client.maelstrom.process';
     },
   ) => {
-    latestChartRequest = mirrorChartRequest(request.request);
+    // Wire format carries a ChartRequestMessage envelope (MAE-148), not the
+    // legacy flat ChartRequest that protocol-old types suggest.
+    const envelope = request.request as unknown as ChartRequestMessage;
+    const legacyRequest = adaptEnvelopeToLegacyRequest(envelope);
+    latestChartRequest = mirrorChartRequest(legacyRequest);
 
     if (voiceSession) {
-      await voiceSession.processRequest(latestChartRequest, {
+      const response = await voiceSession.processRequest(latestChartRequest, {
         speakResponse: latestChartRequest.context.updateReasons.some(
           (reason) => reason.type === 'user_intent',
         ),
       });
+      if (response) {
+        sendMessage({
+          type: 'engine.maelstrom.response',
+          sessionId,
+          requestId: envelope.id,
+          response: response as unknown as LegacyMaelstromResponse,
+        });
+      }
       return;
     }
 
-    const response = await engine.process(request.request);
+    const response = await engine.process(legacyRequest);
     sendMessage({
       type: 'engine.maelstrom.response',
       sessionId,
-      requestId: request.request.id,
+      requestId: envelope.id,
       response,
     });
   };
