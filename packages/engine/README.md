@@ -4,6 +4,8 @@ Reference implementation of the Maelstrom orchestration engine. Given the curren
 
 This package is a **reference implementation** — it ships to demonstrate how the engine contract works and to power local development and demos. Production deployments are expected to supply their own engine behind the same `Engine` interface.
 
+> Looking for an introduction? See [The Engine](https://docs.maelstrom-ai.co/understanding/engine) on the docs site. This README is the technical reference for the reference implementation itself.
+
 ---
 
 ## Quickstart

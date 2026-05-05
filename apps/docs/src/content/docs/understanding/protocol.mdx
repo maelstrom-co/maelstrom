@@ -1,0 +1,101 @@
+---
+title: The Protocol
+description: The shared types, branded IDs, and message envelopes that both sides of Maelstrom speak.
+---
+
+`@maelstrom-co/protocol` is the lingua franca between the engine and everything that talks to it. Both sides import from it; neither has its own dialect. It's transport-agnostic — WebSocket, HTTP, in-process, or your own carrier — every payload is the same shape on both sides.
+
+The protocol is the API surface that survives implementation changes. The current [Engine](/understanding/engine) is one implementation; future engines speak the same envelopes.
+
+## Branded IDs
+
+Every identifier is a branded string — structurally a `string`, nominally distinct.
+
+```ts
+import { SessionId, VesselId } from '@maelstrom-co/protocol';
+
+const session = SessionId('user-42');     // SessionId
+const vessel = VesselId('calendar');      // VesselId
+session === vessel;  // type error — different brands
+```
+
+Brands prevent the confusion bugs that pure-string IDs invite. They cost nothing at runtime — they erase to plain strings on the wire.
+
+The catalogue: `SessionId`, `MessageId`, `InstanceId`, `VesselId`, `VariantName`, `ActionName`. `MessageId()` auto-generates a UUID when you don't supply one; `SessionId()` does the same with a `session-` prefix for log grepping. The rest are always developer-provided.
+
+## Message envelopes
+
+Every message into the engine has a uniform shape:
+
+```ts
+type EngineMessage =
+  | { type: 'chart_request';     sessionId; id; timestamp; request }
+  | { type: 'assistant_message'; sessionId; id; timestamp; content };
+```
+
+`ChartRequestMessage` asks the engine for a layout. `AssistantInjectionMessage` persists developer-supplied content into history without invoking the LLM. Outputs mirror the same envelope shape, so callers can correlate request and response without external bookkeeping.
+
+Smart constructors fill in defaults:
+
+```ts
+import { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
+
+const message = ChartRequestMessage({
+  sessionId: SessionId('user-42'),
+  request: buildChartRequest(),
+  // id and timestamp auto-fill unless passed.
+});
+```
+
+## Vessel definitions
+
+A `Vessel` describes one component the engine can reason about: variants (states), actions (transitions), and the metadata the LLM uses to choose between them.
+
+```ts
+import { defineVessel, validateVessel } from '@maelstrom-co/protocol';
+
+const calendar = defineVessel({
+  id: 'calendar',
+  name: 'Calendar',
+  defaultVariant: 'month',
+  variants: { month: { /* ... */ }, week: { /* ... */ } },
+});
+
+const result = validateVessel(calendar);
+if (result.valid) {
+  // result.vessel is fully branded
+}
+```
+
+Validation enforces that `defaultVariant` exists, action names are unique within a variant, and `transitionsTo` targets resolve. Hand-written authoring stays readable; brands flow in after validation.
+
+## Layouts
+
+Two layout modes are first-class:
+
+- **`GridLayout`** — explicit `(row, column, width, height)` placement on a discrete grid.
+- **`TilingLayout`** — a binary tree of horizontal / vertical splits with instance leaves.
+
+The engine returns one or the other inside `MaelstromResponse`; the client renders it.
+
+## Result type
+
+A small discriminated union for fallible operations. The engine returns `Result<EngineOutput, EngineError>` from `handle()` and never throws across the boundary.
+
+```ts
+type Result<T, E> =
+  | { ok: true;  value: T }
+  | { ok: false; error: E };
+```
+
+Use `isOk` / `isErr` to narrow, or `unwrap` when you've already checked.
+
+## Drift guards
+
+Internal compile-time checks keep the hand-written TypeScript interfaces and Zod schemas synchronised. A wire-format change that drifts from the type contract fails to build — the package can't ship a silent divergence.
+
+## Next steps
+
+- [The Engine](/understanding/engine) — what consumes these types
+- [Architecture Overview](/understanding/architecture) — how the protocol sits between client and engine
+- [Protocol package README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/protocol/README.md) — full technical reference

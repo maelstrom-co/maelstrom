@@ -180,6 +180,8 @@ export default defineConfig({
           items: [
             { slug: 'understanding/why-maelstrom' },
             { slug: 'understanding/architecture' },
+            { slug: 'understanding/engine' },
+            { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },
             { slug: 'understanding/vessel-state-machine' },
             { slug: 'understanding/grid-vs-tiling' },

@@ -118,3 +118,7 @@ The `@maelstrom-co/*` packages are published to external consumers, so the comme
 - Uses inferred targets via plugins (`@nx/js/typescript`, `@nx/vite/plugin`, `@nx/vitest`)
 - No ESLint configured (linter: none)
 - Tests depend on built packages (`"dependsOn": ["^build"]`)
+
+## Linear Workflow
+
+When picking up a Linear ticket (MAE-XXX) to start work on it, immediately move it to "In Progress" before doing anything else. Do this as the first action when a ticket is picked up — not after planning, not after the first commit. If the ticket is already In Progress, leave it.
