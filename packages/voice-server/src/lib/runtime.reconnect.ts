@@ -43,6 +43,8 @@ export async function reconnectSTT(
   reportError: (error: unknown) => void,
   ensureSTTConnected: () => Promise<void>,
   flushBufferedAudio: (traceEvent: string) => void,
+  flushPendingAudioDropEvent: () => void,
+  resetBufferedAudioState: () => void,
   setVoiceState: (state: VoiceSessionState) => void,
 ): Promise<void> {
   if (state.reconnectPromise) {
@@ -62,14 +64,16 @@ export async function reconnectSTT(
             attempts: state.reconnectAttempts,
             maxReconnectAttempts,
             state: state.state,
-            pendingBufferedAudioChunks: state.pendingAudioChunks.length,
+            pendingBufferedAudioMs: state.pendingAudioDurationMs,
             lastErrorMessage: lastError?.message ?? null,
           });
+          flushPendingAudioDropEvent();
           reportError(
             new Error('STT connection lost after max retries', {
               cause: lastError,
             }),
           );
+          resetBufferedAudioState();
           setVoiceState('idle');
           resetReconnectLifecycle(state);
           return;
@@ -80,7 +84,7 @@ export async function reconnectSTT(
           attempt,
           maxReconnectAttempts,
           state: state.state,
-          pendingBufferedAudioChunks: state.pendingAudioChunks.length,
+          pendingBufferedAudioMs: state.pendingAudioDurationMs,
         });
 
         state.reconnectAttempts = attempt;
@@ -94,7 +98,7 @@ export async function reconnectSTT(
         try {
           await ensureSTTConnected();
           trace('stt.reconnect.succeeded', {
-            pendingBufferedAudioChunks: state.pendingAudioChunks.length,
+            pendingBufferedAudioMs: state.pendingAudioDurationMs,
             state: state.state,
           });
           scheduleReconnectReset(state);
@@ -112,7 +116,7 @@ export async function reconnectSTT(
             attempt,
             maxReconnectAttempts,
             state: state.state,
-            pendingBufferedAudioChunks: state.pendingAudioChunks.length,
+            pendingBufferedAudioMs: state.pendingAudioDurationMs,
             message: normalizedError.message,
           });
         }
@@ -124,11 +128,12 @@ export async function reconnectSTT(
         message: normalizedError.message,
         state: state.state,
         reconnectAttempts: state.reconnectAttempts,
-        pendingBufferedAudioChunks: state.pendingAudioChunks.length,
+        pendingBufferedAudioMs: state.pendingAudioDurationMs,
       });
       reportError(normalizedError);
 
       if (!state.destroyed && isReconnectableState(state.state)) {
+        resetBufferedAudioState();
         setVoiceState('idle');
       }
 

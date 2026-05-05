@@ -57,16 +57,24 @@ export function handleSTTEvent(
 
     case 'error':
       trace('stt.error', {
+        kind: event.error.kind,
         message: event.error.message,
+        provider: event.error.provider,
       });
       reportError(event.error);
-      setVoiceState('idle');
+
+      if (
+        event.error.kind !== 'transport' ||
+        (state.state !== 'listening' && state.state !== 'processing')
+      ) {
+        setVoiceState('idle');
+      }
       break;
 
     case 'disconnected':
       trace('stt.disconnected', {
         state: state.state,
-        pendingBufferedAudioChunks: state.pendingAudioChunks.length,
+        pendingBufferedAudioMs: state.pendingAudioDurationMs,
       });
       if (state.state === 'listening' || state.state === 'processing') {
         // WHY: We reconnect in both states because the active user turn may still matter even after STT

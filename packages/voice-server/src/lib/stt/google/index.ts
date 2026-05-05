@@ -1,6 +1,7 @@
 import { type protos, v2 } from '@google-cloud/speech';
 
 import { parseGoogleCredentialsJSON } from '../../google/credentials.js';
+import { classifySTTError, createSTTError } from '../../provider-errors.js';
 import type {
   AudioChunk,
   STTEvent,
@@ -192,7 +193,7 @@ export function createGoogleSTT(options: GoogleSTTOptions): STTProvider {
     });
 
     streamInstance.on('error', (error: Error) => {
-      emit({ type: 'error', error });
+      emit({ type: 'error', error: classifySTTError(error, 'google') });
     });
 
     streamInstance.on('close', () => {
@@ -276,7 +277,11 @@ export function createGoogleSTT(options: GoogleSTTOptions): STTProvider {
       if (!stream || !isConnectedFlag) {
         emit({
           type: 'error',
-          error: new Error('Google STT stream is not connected'),
+          error: createSTTError(
+            'google',
+            'transport',
+            'Google STT stream is not connected',
+          ),
         });
         return;
       }

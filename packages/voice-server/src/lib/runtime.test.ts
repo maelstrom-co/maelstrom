@@ -6,17 +6,20 @@ import {
   type MaelstromResponse,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
-import { createVoiceSession } from './runtime.js';
+import { createVoiceSession, defaultAudioDropDebounceMs } from './runtime.js';
 import { sttProviderFactories } from './stt/registry.js';
 import { resolveVoiceSessionConfig } from './types.js';
 import type {
   AudioChunk,
   ProcessIntent,
   SpeechOptions,
+  STTError,
   STTEvent,
   STTProvider,
+  TTSError,
   TTSEvent,
   TTSProvider,
+  VoiceSessionAudioDroppedEvent,
   VoiceSessionCallbacks,
   VoiceSessionConfig,
   VoiceSessionIntentRequestBuilder,
@@ -24,6 +27,22 @@ import type {
 import { ttsProviderFactories } from './tts/registry.js';
 
 type ProcessIntentResponse = Awaited<ReturnType<ProcessIntent['process']>>;
+
+function createMockSTTError(kind: STTError['kind'], message: string): STTError {
+  return Object.assign(new Error(message), {
+    source: 'stt' as const,
+    provider: 'mock-stt',
+    kind,
+  });
+}
+
+function createMockTTSError(kind: TTSError['kind'], message: string): TTSError {
+  return Object.assign(new Error(message), {
+    source: 'tts' as const,
+    provider: 'mock-tts',
+    kind,
+  });
+}
 
 class MockSTTProvider implements STTProvider {
   readonly name = 'mock-stt';
@@ -128,6 +147,42 @@ class ThrowOnNthSendSTTProvider extends MockSTTProvider {
 
   override sendAudio(chunk: AudioChunk): void {
     if (this.sentAudioChunks.length + 1 === this.throwOnSendCount) {
+      throw new Error(this.failureMessage);
+    }
+
+    super.sendAudio(chunk);
+  }
+}
+
+class ThrowOnceOnSendSTTProvider extends MockSTTProvider {
+  private hasThrown = false;
+
+  constructor(private readonly failureMessage = 'mock replay send failure') {
+    super();
+  }
+
+  override sendAudio(chunk: AudioChunk): void {
+    if (!this.hasThrown) {
+      this.hasThrown = true;
+      throw new Error(this.failureMessage);
+    }
+
+    super.sendAudio(chunk);
+  }
+}
+
+class ThrowAndDisconnectOnceOnSendSTTProvider extends MockSTTProvider {
+  private hasThrown = false;
+
+  constructor(private readonly failureMessage = 'mock live send failure') {
+    super();
+  }
+
+  override sendAudio(chunk: AudioChunk): void {
+    if (!this.hasThrown) {
+      this.hasThrown = true;
+      this.connected = false;
+      this.emit({ type: 'disconnected' });
       throw new Error(this.failureMessage);
     }
 
@@ -267,6 +322,71 @@ const defaultProcessIntent: ProcessIntent = {
 };
 
 const sharedVadFinalDebounceMs = 500;
+const audioDropDebounceMs = defaultAudioDropDebounceMs;
+
+type AudioDroppedEvent = VoiceSessionAudioDroppedEvent;
+
+function makeLinear16Chunk(ms: number, sequence: number): AudioChunk {
+  return {
+    data: new Uint8Array(ms * 32),
+    sampleRate: 16000,
+    encoding: 'linear16',
+    bytesPerSample: 2,
+    channels: 1,
+    timestamp: sequence,
+    sequence,
+  };
+}
+
+function makeOpusChunk(
+  sequence: number,
+  overrides: Partial<AudioChunk> = {},
+): AudioChunk {
+  return {
+    data: Uint8Array.from([1, 2, 3, 4]),
+    sampleRate: 48000,
+    encoding: 'opus',
+    timestamp: sequence,
+    sequence,
+    ...overrides,
+  };
+}
+
+function createAudioDroppedRecorder() {
+  const events: AudioDroppedEvent[] = [];
+
+  function record(event: AudioDroppedEvent) {
+    const previousEvent = events.at(-1);
+
+    if (
+      previousEvent?.type === event.type &&
+      previousEvent.reason === event.reason &&
+      previousEvent.droppedDurationMs === event.droppedDurationMs
+    ) {
+      return;
+    }
+
+    events.push(event);
+  }
+
+  const callbacks: VoiceSessionCallbacks & {
+    onAudioDropped?: (event: AudioDroppedEvent) => void;
+  } = {
+    onAudioDropped(event: AudioDroppedEvent) {
+      record(event);
+    },
+  };
+
+  return {
+    events,
+    callbacks,
+    attach(runtime: ReturnType<typeof createVoiceSession>) {
+      runtime.onAudioDropped((event) => {
+        record(event);
+      });
+    },
+  };
+}
 
 const testSTTProviderType = 'google';
 const testTTSProviderType = 'google';
@@ -348,14 +468,14 @@ describe('resolveVoiceSessionConfig', () => {
       },
       {
         vadFinalDebounceMs: 250,
-        maxPendingAudioChunks: 12,
+        audioBufferMaxMs: 12,
         maxReconnectAttempts: 4,
         reconnectDelayMs: 1500,
       },
     );
 
     expect(resolved.vadFinalDebounceMs).toBe(250);
-    expect(resolved.maxPendingAudioChunks).toBe(12);
+    expect(resolved.audioBufferMaxMs).toBe(12);
     expect(resolved.maxReconnectAttempts).toBe(4);
     expect(resolved.reconnectDelayMs).toBe(1500);
     expect(resolved.autoRestartListening).toBe(true);
@@ -380,7 +500,7 @@ describe('resolveVoiceSessionConfig', () => {
         },
         {
           vadFinalDebounceMs: 250,
-          maxPendingAudioChunks: 12,
+          audioBufferMaxMs: 12,
           maxReconnectAttempts: 4,
           reconnectDelayMs: 1500,
         },
@@ -393,7 +513,7 @@ describe('resolveVoiceSessionConfig', () => {
 
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).toBe(
-      'Failed to construct STT provider for voice session: boom',
+      'Failed to construct STT provider for voice session',
     );
     expect((thrown as { cause?: unknown }).cause).toBeInstanceOf(Error);
     expect((thrown as { cause: Error }).cause.message).toBe('boom');
@@ -416,7 +536,7 @@ describe('resolveVoiceSessionConfig', () => {
         },
         {
           vadFinalDebounceMs: 250,
-          maxPendingAudioChunks: 12,
+          audioBufferMaxMs: 12,
           maxReconnectAttempts: 4,
           reconnectDelayMs: 1500,
         },
@@ -429,10 +549,69 @@ describe('resolveVoiceSessionConfig', () => {
 
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).toBe(
-      'Failed to construct TTS provider for voice session: tts boom',
+      'Failed to construct TTS provider for voice session',
     );
     expect((thrown as { cause?: unknown }).cause).toBeInstanceOf(Error);
     expect((thrown as { cause: Error }).cause.message).toBe('tts boom');
+  });
+
+  test('rejects invalid audioBufferMaxMs values', () => {
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          audioBufferMaxMs: Number.NaN,
+        },
+        {
+          vadFinalDebounceMs: 250,
+          audioBufferMaxMs: 12,
+          maxReconnectAttempts: 4,
+          reconnectDelayMs: 1500,
+        },
+      ),
+    ).toThrow(
+      'Voice session audioBufferMaxMs must be a finite number greater than 0, received NaN',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          audioBufferMaxMs: -1,
+        },
+        {
+          vadFinalDebounceMs: 250,
+          audioBufferMaxMs: 12,
+          maxReconnectAttempts: 4,
+          reconnectDelayMs: 1500,
+        },
+      ),
+    ).toThrow(
+      'Voice session audioBufferMaxMs must be a finite number greater than 0, received -1',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          audioBufferMaxMs: 0,
+        },
+        {
+          vadFinalDebounceMs: 250,
+          audioBufferMaxMs: 12,
+          maxReconnectAttempts: 4,
+          reconnectDelayMs: 1500,
+        },
+      ),
+    ).toThrow(
+      'Voice session audioBufferMaxMs must be a finite number greater than 0, received 0',
+    );
   });
 });
 
@@ -944,7 +1123,7 @@ describe('createVoiceSession runtime finalization', () => {
     });
   });
 
-  test('surfaces STT provider error events through onError and returns to idle', async () => {
+  test('surfaces non-transport STT provider errors through onError and returns to idle', async () => {
     const reportedErrors: Error[] = [];
     const { stt, createRuntime } = createConfig();
     const runtime = createRuntime({
@@ -954,11 +1133,38 @@ describe('createVoiceSession runtime finalization', () => {
     });
 
     await runtime.startListening();
-    stt.emit({ type: 'error', error: new Error('mock stt provider error') });
+    stt.emit({
+      type: 'error',
+      error: createMockSTTError('server', 'mock stt provider error'),
+    });
 
     expect(reportedErrors).toHaveLength(1);
     expect(reportedErrors[0]?.message).toBe('mock stt provider error');
     expect(runtime.getVoiceState()).toBe('idle');
+  });
+
+  test('keeps reconnect eligible after a transport STT error until disconnect triggers recovery', async () => {
+    const reportedErrors: Error[] = [];
+    const { stt, createRuntime } = createConfig({ reconnectDelayMs: 1 });
+    const runtime = createRuntime({
+      onError(error) {
+        reportedErrors.push(error);
+      },
+    });
+
+    await runtime.startListening();
+    stt.emit({
+      type: 'error',
+      error: createMockSTTError('transport', 'mock stt transport error'),
+    });
+    await stt.disconnect();
+    await advance(10);
+
+    expect(reportedErrors).toHaveLength(1);
+    expect(reportedErrors[0]?.message).toBe('mock stt transport error');
+    expect((reportedErrors[0] as STTError).kind).toBe('transport');
+    expect(runtime.getVoiceState()).toBe('listening');
+    expect(stt.connectCalls).toBe(2);
   });
 
   test('reuses one reconnect attempt when duplicate disconnect events arrive before reconnect succeeds', async () => {
@@ -1097,7 +1303,10 @@ describe('createVoiceSession runtime finalization', () => {
     });
 
     await runtime.speak('hello world');
-    tts.emit({ type: 'error', error: new Error('mock tts provider error') });
+    tts.emit({
+      type: 'error',
+      error: createMockTTSError('server', 'mock tts provider error'),
+    });
 
     expect(reportedErrors).toHaveLength(1);
     expect(reportedErrors[0]?.message).toBe('mock tts provider error');
@@ -1160,14 +1369,41 @@ describe('createVoiceSession runtime finalization', () => {
     });
   });
 
-  test('reports buffered-audio overflow instead of silently dropping it', async () => {
-    const reportedErrors: string[] = [];
-    const { stt, createRuntime } = createConfig({ maxPendingAudioChunks: 1 });
-    const runtime = createRuntime({
-      onError(error) {
-        reportedErrors.push(error.message);
-      },
+  test('drops oldest buffered audio by duration and reports droppedDurationMs', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { stt, createRuntime } = createConfig({
+      audioBufferMaxMs: 5,
     });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+
+    await advance(audioDropDebounceMs - 1);
+    expect(audioDropped.events).toEqual([]);
+
+    await advance(2);
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 3,
+      },
+    ]);
+
+    await runtime.startListening();
+
+    expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([2]);
+  });
+
+  test('reports buffered-audio overflow instead of silently dropping it', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { stt, createRuntime } = createConfig({ audioBufferMaxMs: 0.05 });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
 
     runtime.sendAudioChunk({
       data: Uint8Array.from([1]),
@@ -1185,12 +1421,16 @@ describe('createVoiceSession runtime finalization', () => {
     });
 
     await runtime.startListening();
+    await advance(audioDropDebounceMs + 1);
 
-    expect(reportedErrors).toContain(
-      'STT audio buffer overflow: buffered chunk limit (1) reached',
-    );
-    expect(stt.sentAudioChunks).toHaveLength(1);
-    expect(stt.sentAudioChunks[0]?.sequence).toBe(1);
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 0.03125,
+      },
+    ]);
+    expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([2]);
   });
 
   test('replays buffered audio in FIFO order after reconnect', async () => {
@@ -1247,8 +1487,8 @@ describe('createVoiceSession runtime finalization', () => {
       expect(
         traceEvents
           .filter((entry) => entry.event === 'stt.buffered_audio.replayed')
-          .map((entry) => entry.details?.remainingBufferedAudioChunks),
-      ).toEqual([2, 1, 0]);
+          .map((entry) => entry.details?.remainingBufferedAudioMs),
+      ).toEqual([0.0625, 0.03125, 0]);
     });
   });
 
@@ -1306,7 +1546,7 @@ describe('createVoiceSession runtime finalization', () => {
           event: 'stt.buffered_audio.flush_stopped',
           details: expect.objectContaining({
             reason: 'stt_disconnected',
-            pendingBufferedAudioChunks: 2,
+            pendingBufferedAudioMs: 0.0625,
             nextBufferedAudioSequence: 2,
           }),
         }),
@@ -1318,10 +1558,473 @@ describe('createVoiceSession runtime finalization', () => {
       expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([
         1, 2, 3,
       ]);
+      expect(
+        traceEvents
+          .filter((entry) => entry.event === 'stt.buffered_audio.replayed')
+          .map((entry) => entry.details?.remainingBufferedAudioMs),
+      ).toEqual([0.0625, 0.03125, 0]);
     });
   });
 
+  test('debounces reconnect-buffer audio_dropped notifications and sums droppedDurationMs', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { stt, createRuntime } = createConfig({
+      reconnectDelayMs: 1000,
+      audioBufferMaxMs: 5,
+    });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    await runtime.startListening();
+    await stt.disconnect();
+
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 3));
+
+    await advance(audioDropDebounceMs - 1);
+    expect(audioDropped.events).toEqual([]);
+
+    await advance(2);
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'reconnect_buffer_full',
+        droppedDurationMs: 8,
+      },
+    ]);
+  });
+
+  test('coalesces overflow notifications without starving them under sustained pressure', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { createRuntime } = createConfig({ audioBufferMaxMs: 5 });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+    await advance(50);
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 3));
+    await advance(60);
+
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 8,
+      },
+    ]);
+
+    await advance(audioDropDebounceMs);
+    expect(audioDropped.events).toHaveLength(1);
+  });
+
+  test('flushes the pending audio_dropped bucket immediately when the reason changes within the debounce window', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { stt, createRuntime } = createConfig({
+      audioBufferMaxMs: 5,
+      reconnectDelayMs: 1000,
+    });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+
+    await advance(50);
+    expect(audioDropped.events).toEqual([]);
+
+    await runtime.startListening();
+    await stt.disconnect();
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 3));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 4));
+
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 3,
+      },
+    ]);
+
+    await advance(audioDropDebounceMs + 1);
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 3,
+      },
+      {
+        type: 'audio_dropped',
+        reason: 'reconnect_buffer_full',
+        droppedDurationMs: 4,
+      },
+    ]);
+  });
+
+  test('does not emit debounced audio_dropped notifications after destroy', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { stt, createRuntime } = createConfig({
+      reconnectDelayMs: 1000,
+      audioBufferMaxMs: 5,
+    });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    await runtime.startListening();
+    await stt.disconnect();
+
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+
+    await advance(50);
+    runtime.destroy();
+    await advance(audioDropDebounceMs);
+
+    expect(audioDropped.events).toEqual([]);
+  });
+
+  test('clears buffered reconnect audio and pending drop state on stopListening', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const { stt, createRuntime } = createConfig({
+      reconnectDelayMs: 1000,
+      audioBufferMaxMs: 5,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    await runtime.startListening();
+    await stt.disconnect();
+
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+
+    await advance(50);
+    await runtime.stopListening();
+    await advance(audioDropDebounceMs);
+
+    expect(audioDropped.events).toEqual([]);
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'stt.stop_listening.requested',
+        details: expect.objectContaining({
+          pendingBufferedAudioMs: 4,
+        }),
+      }),
+    );
+  });
+
+  test('flushes pending reconnect audio_dropped notifications before reconnect exhaustion', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const reportedErrors: Error[] = [];
+    const stt = new FailOnNthConnectSTTProvider([2]);
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          maxReconnectAttempts: 1,
+          audioBufferMaxMs: 5,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          ...audioDropped.callbacks,
+          onError(error) {
+            reportedErrors.push(error);
+          },
+        },
+      );
+
+      audioDropped.attach(runtime);
+
+      await runtime.startListening();
+      await stt.disconnect();
+
+      runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
+      runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+      await advance(10);
+
+      expect(audioDropped.events).toEqual([
+        {
+          type: 'audio_dropped',
+          reason: 'reconnect_buffer_full',
+          droppedDurationMs: 4,
+        },
+      ]);
+      expect(reportedErrors.map((error) => error.message)).toContain(
+        'STT connection lost after max retries',
+      );
+
+      await runtime.startListening();
+      await advance(audioDropDebounceMs + 1);
+
+      expect(stt.sentAudioChunks).toEqual([]);
+      expect(audioDropped.events).toEqual([
+        {
+          type: 'audio_dropped',
+          reason: 'reconnect_buffer_full',
+          droppedDurationMs: 4,
+        },
+      ]);
+    });
+  });
+
+  test('emits audio_dropped to listeners and callback with the same payload', async () => {
+    const callbackEvents: AudioDroppedEvent[] = [];
+    const listenerEvents: AudioDroppedEvent[] = [];
+    const { createRuntime } = createConfig({
+      audioBufferMaxMs: 5,
+    });
+    const runtime = createRuntime({
+      onAudioDropped(event: AudioDroppedEvent) {
+        callbackEvents.push(event);
+      },
+    });
+
+    runtime.onAudioDropped((event) => {
+      listenerEvents.push(event);
+    });
+
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+
+    await advance(audioDropDebounceMs + 1);
+
+    expect(listenerEvents).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 3,
+      },
+    ]);
+    expect(callbackEvents).toEqual(listenerEvents);
+  });
+
+  test('isolates audio_dropped listeners so one throwing observer does not break the others', async () => {
+    const reportedErrors: string[] = [];
+    const seenEvents: AudioDroppedEvent[] = [];
+    const { createRuntime } = createConfig({ audioBufferMaxMs: 5 });
+    const runtime = createRuntime({
+      onError(error) {
+        reportedErrors.push(error.message);
+      },
+    });
+
+    runtime.onAudioDropped(() => {
+      throw new Error('audio drop listener exploded');
+    });
+    runtime.onAudioDropped((event) => {
+      seenEvents.push(event);
+    });
+
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+
+    await advance(audioDropDebounceMs + 1);
+
+    expect(seenEvents).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 3,
+      },
+    ]);
+    expect(reportedErrors).toContain('audio drop listener exploded');
+  });
+
+  test('rejects a single buffered chunk that exceeds audioBufferMaxMs even after draining the queue', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { stt, createRuntime } = createConfig({
+      reconnectDelayMs: 1,
+      audioBufferMaxMs: 5,
+    });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    await runtime.startListening();
+    await stt.disconnect();
+
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(8, 2));
+
+    await advance(audioDropDebounceMs + 1);
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'reconnect_buffer_full',
+        droppedDurationMs: 11,
+      },
+    ]);
+
+    await advance(10);
+    expect(stt.sentAudioChunks).toEqual([]);
+  });
+
+  test('buffers a chunk that fills audioBufferMaxMs exactly without dropping it', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { stt, createRuntime } = createConfig({ audioBufferMaxMs: 5 });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    runtime.sendAudioChunk(makeLinear16Chunk(5, 1));
+    await advance(audioDropDebounceMs + 1);
+
+    expect(audioDropped.events).toEqual([]);
+
+    await runtime.startListening();
+    expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([1]);
+  });
+
+  test('rejects invalid buffered chunks without corrupting later buffering', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const reportedErrors: string[] = [];
+    const { stt, createRuntime } = createConfig({ audioBufferMaxMs: 5 });
+    const runtime = createRuntime({
+      ...audioDropped.callbacks,
+      onError(error) {
+        reportedErrors.push(error.message);
+      },
+    });
+
+    audioDropped.attach(runtime);
+
+    runtime.sendAudioChunk({
+      data: new Uint8Array(0),
+      sampleRate: 16000,
+      encoding: 'linear16',
+      bytesPerSample: 2,
+      channels: 1,
+      timestamp: 1,
+      sequence: 1,
+    });
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 2));
+
+    await advance(audioDropDebounceMs + 1);
+
+    expect(reportedErrors).toContain(
+      'STT audio chunk duration must be positive, received 0ms',
+    );
+    expect(audioDropped.events).toEqual([]);
+
+    await runtime.startListening();
+    expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([2]);
+  });
+
+  test('rejects buffered opus chunks without explicit bytesPerSample and keeps later buffering intact', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const reportedErrors: string[] = [];
+    const { stt, createRuntime } = createConfig({ audioBufferMaxMs: 5 });
+    const runtime = createRuntime({
+      ...audioDropped.callbacks,
+      onError(error) {
+        reportedErrors.push(error.message);
+      },
+    });
+
+    audioDropped.attach(runtime);
+
+    runtime.sendAudioChunk(makeOpusChunk(1));
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 2));
+
+    await advance(audioDropDebounceMs + 1);
+
+    expect(reportedErrors).toContain(
+      'Opus audio chunks must provide bytesPerSample before buffering so duration can be estimated safely',
+    );
+    expect(audioDropped.events).toEqual([]);
+
+    await runtime.startListening();
+    expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([2]);
+  });
+
+  test('recovers cleanly after rejecting an oversized chunk and buffers the next in-budget chunk', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { stt, createRuntime } = createConfig({ audioBufferMaxMs: 5 });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(8, 2));
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 3));
+
+    await advance(audioDropDebounceMs + 1);
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 11,
+      },
+    ]);
+
+    await runtime.startListening();
+    expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([3]);
+  });
+
+  test('flushes the pending bucket immediately when a reconnect oversized rejection changes the reason', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const { stt, createRuntime } = createConfig({
+      audioBufferMaxMs: 5,
+      reconnectDelayMs: 1000,
+    });
+    const runtime = createRuntime(audioDropped.callbacks);
+
+    audioDropped.attach(runtime);
+
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+
+    await advance(50);
+
+    await runtime.startListening();
+    await stt.disconnect();
+    runtime.sendAudioChunk(makeLinear16Chunk(8, 3));
+
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 3,
+      },
+    ]);
+
+    await advance(audioDropDebounceMs + 1);
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 3,
+      },
+      {
+        type: 'audio_dropped',
+        reason: 'reconnect_buffer_full',
+        droppedDurationMs: 8,
+      },
+    ]);
+  });
+
   test('reports buffered-audio replay failures instead of silently abandoning the chunk', async () => {
+    const audioDropped = createAudioDroppedRecorder();
     const reportedErrors: Error[] = [];
     const traceEvents: Array<{
       event: string;
@@ -1344,11 +2047,14 @@ describe('createVoiceSession runtime finalization', () => {
           processIntent: defaultProcessIntent,
         },
         {
+          ...audioDropped.callbacks,
           onError(error) {
             reportedErrors.push(error);
           },
         },
       );
+
+      audioDropped.attach(runtime);
 
       await runtime.startListening();
       await stt.disconnect();
@@ -1361,7 +2067,7 @@ describe('createVoiceSession runtime finalization', () => {
         sequence: 1,
       });
 
-      await advance(10);
+      await advance(audioDropDebounceMs + 1);
 
       expect(reportedErrors).toHaveLength(1);
       expect(reportedErrors[0]?.message).toBe(
@@ -1377,12 +2083,159 @@ describe('createVoiceSession runtime finalization', () => {
           details: expect.objectContaining({
             reason: 'send_failed',
             nextBufferedAudioSequence: 1,
-            pendingBufferedAudioChunks: 1,
+            pendingBufferedAudioMs: 0,
+            flushFailedChunkMs: 0.03125,
             message: 'mock replay send failure',
           }),
         }),
       );
+      expect(audioDropped.events).toEqual([
+        {
+          type: 'audio_dropped',
+          reason: 'reconnect_buffer_full',
+          droppedDurationMs: 0.03125,
+        },
+      ]);
       expect(stt.sentAudioChunks).toHaveLength(0);
+    });
+  });
+
+  test('drops a failing replay chunk and continues replaying later buffered audio', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const reportedErrors: Error[] = [];
+    const stt = new ThrowOnceOnSendSTTProvider();
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          ...audioDropped.callbacks,
+          onError(error) {
+            reportedErrors.push(error);
+          },
+        },
+      );
+
+      audioDropped.attach(runtime);
+
+      await runtime.startListening();
+      await stt.disconnect();
+
+      runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+      runtime.sendAudioChunk(makeLinear16Chunk(3, 2));
+
+      await advance(audioDropDebounceMs + 1);
+
+      expect(reportedErrors.map((error) => error.message)).toContain(
+        'Failed to replay buffered STT audio chunk',
+      );
+      expect(audioDropped.events).toEqual([
+        {
+          type: 'audio_dropped',
+          reason: 'reconnect_buffer_full',
+          droppedDurationMs: 3,
+        },
+      ]);
+      expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([2]);
+    });
+  });
+
+  test('reports buffer overflow through onError alongside audio_dropped', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const reportedErrors: string[] = [];
+    const { createRuntime } = createConfig({ audioBufferMaxMs: 5 });
+    const runtime = createRuntime({
+      ...audioDropped.callbacks,
+      onError(error) {
+        reportedErrors.push(error.message);
+      },
+    });
+
+    audioDropped.attach(runtime);
+
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+    runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+    await advance(audioDropDebounceMs + 1);
+
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'pre_connection_buffer_full',
+        droppedDurationMs: 3,
+      },
+    ]);
+    expect(reportedErrors).toContain(
+      'Dropped 3ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs',
+    );
+  });
+
+  test('reports non-listening audio chunks through onError and audio_dropped', async () => {
+    const audioDropped = createAudioDroppedRecorder();
+    const reportedErrors: string[] = [];
+    const { createRuntime } = createConfig();
+    const runtime = createRuntime({
+      ...audioDropped.callbacks,
+      onError(error) {
+        reportedErrors.push(error.message);
+      },
+    });
+
+    audioDropped.attach(runtime);
+
+    await runtime.speak('hello world');
+    runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+
+    expect(reportedErrors).toContain(
+      'Cannot accept audio chunk while voice session is speaking',
+    );
+    await advance(audioDropDebounceMs + 1);
+    expect(audioDropped.events).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'state_not_listening',
+        droppedDurationMs: 3,
+      },
+    ]);
+  });
+
+  test('buffers and replays a live audio chunk when sendAudio fails mid-listen', async () => {
+    const reportedErrors: string[] = [];
+    const stt = new ThrowAndDisconnectOnceOnSendSTTProvider();
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onError(error) {
+            reportedErrors.push(error.message);
+          },
+        },
+      );
+
+      await runtime.startListening();
+      runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
+      await advance(10);
+
+      expect(reportedErrors).toContain(
+        'Failed to send STT audio chunk while listening',
+      );
+      expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([1]);
     });
   });
 
@@ -1538,12 +2391,12 @@ describe('createVoiceSession runtime finalization', () => {
     });
   });
 
-  test('returns to idle and reports an error when TTS disconnects mid-speech', async () => {
-    const reportedErrors: string[] = [];
+  test('returns to idle and reports a classified transport error when TTS disconnects mid-speech', async () => {
+    const reportedErrors: Error[] = [];
     const { tts, createRuntime } = createConfig();
     const runtime = createRuntime({
       onError(error) {
-        reportedErrors.push(error.message);
+        reportedErrors.push(error);
       },
     });
 
@@ -1551,7 +2404,10 @@ describe('createVoiceSession runtime finalization', () => {
     tts.emit({ type: 'disconnected' });
 
     expect(runtime.getVoiceState()).toBe('idle');
-    expect(reportedErrors).toContain('TTS disconnected while speaking');
+    expect(reportedErrors).toHaveLength(1);
+    expect(reportedErrors[0]?.message).toBe('TTS disconnected while speaking');
+    expect((reportedErrors[0] as TTSError).kind).toBe('transport');
+    expect((reportedErrors[0] as TTSError).provider).toBe('mock-tts');
   });
 
   test('auto-restarts listening after speech completes naturally', async () => {

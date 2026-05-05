@@ -216,6 +216,8 @@ describe('createGoogleSTT', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('unknown');
+      expect(lastEvent.error.provider).toBe('google');
       expect(lastEvent.error.message).toBe('stream boom');
     }
   });

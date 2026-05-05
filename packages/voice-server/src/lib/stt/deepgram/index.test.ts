@@ -198,6 +198,8 @@ describe('createDeepgramSTT', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('parse');
+      expect(lastEvent.error.provider).toBe('deepgram');
       expect(lastEvent.error.message).toContain('is_final');
     }
   });
@@ -237,6 +239,7 @@ describe('createDeepgramSTT', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('parse');
       expect(lastEvent.error.message).toContain('linear16');
     }
   });
@@ -262,6 +265,7 @@ describe('createDeepgramSTT', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('parse');
       expect(lastEvent.error.message).toContain('sampleRate 16000');
     }
   });
@@ -295,6 +299,7 @@ describe('createDeepgramSTT', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('transport');
       expect(lastEvent.error.message).toBe('Deepgram WebSocket error');
     }
   });
@@ -317,6 +322,7 @@ describe('createDeepgramSTT', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('parse');
       expect(lastEvent.error.message).toBe(
         'Bad Request: failed to process audio',
       );
@@ -349,6 +355,7 @@ describe('createDeepgramSTT', () => {
     const errorEvent = events.at(-2);
     expect(errorEvent?.type).toBe('error');
     if (errorEvent?.type === 'error') {
+      expect(errorEvent.error.kind).toBe('transport');
       expect(errorEvent.error.message).toBe(
         'Deepgram WebSocket closed unexpectedly (1011): upstream failure',
       );

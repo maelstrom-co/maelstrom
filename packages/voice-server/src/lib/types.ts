@@ -134,6 +134,73 @@ export interface VADEvent {
   durationMs?: number;
 }
 
+/** Stable classification kinds emitted by provider-boundary voice errors. */
+export type VoiceProviderErrorKind =
+  | 'auth'
+  | 'quota'
+  | 'transport'
+  | 'parse'
+  | 'server'
+  | 'unknown';
+
+/**
+ * Shared metadata attached to provider-classified voice errors.
+ *
+ * WHY: Consumers often need to branch on the failure class without depending on provider SDK error
+ * shapes. The package keeps the shared metadata intentionally small so provider-specific detail can
+ * stay in `cause` and the stable contract remains source, provider, and kind.
+ */
+export interface VoiceProviderErrorBase {
+  /** Whether the failure originated from STT or TTS provider transport. */
+  source: 'stt' | 'tts';
+  /** Stable provider identifier that emitted the error. */
+  provider: string;
+  /** Coarse-grained failure class for retry, UX, and telemetry decisions. */
+  kind: VoiceProviderErrorKind;
+  /** Original provider/SDK error when the classified wrapper had to normalize one. */
+  cause?: unknown;
+}
+
+type STTErrorVariant<K extends VoiceProviderErrorKind> = Error &
+  VoiceProviderErrorBase & {
+    source: 'stt';
+    kind: K;
+  };
+
+type TTSErrorVariant<K extends VoiceProviderErrorKind> = Error &
+  VoiceProviderErrorBase & {
+    source: 'tts';
+    kind: K;
+  };
+
+/**
+ * Classified provider error surfaced from STT boundaries.
+ *
+ * WHY: Public STT events need stable discrimination so downstream callers can distinguish
+ * reconnectable transport issues from authentication, quota, parse, or server failures.
+ */
+export type STTError = {
+  [K in VoiceProviderErrorKind]: STTErrorVariant<K>;
+}[VoiceProviderErrorKind];
+
+/**
+ * Classified provider error surfaced from TTS boundaries.
+ *
+ * WHY: TTS failures often need different caller handling than generic runtime exceptions because a
+ * transport loss mid-speech is user-visible even when the session itself survives.
+ */
+export type TTSError = {
+  [K in VoiceProviderErrorKind]: TTSErrorVariant<K>;
+}[VoiceProviderErrorKind];
+
+/**
+ * Errors that can cross the public runtime callback boundary.
+ *
+ * WHY: Most runtime failures are still regular `Error` objects, but provider-boundary failures carry
+ * stable classification metadata through {@link STTError} and {@link TTSError}.
+ */
+export type VoiceSessionError = Error | STTError | TTSError;
+
 /**
  * Events emitted by the STT provider.
  *
@@ -149,7 +216,7 @@ export type STTEvent =
   | { type: 'connected' }
   | { type: 'disconnected' }
   | { type: 'transcript'; result: TranscriptionResult }
-  | { type: 'error'; error: Error };
+  | { type: 'error'; error: STTError };
 
 /**
  * Speech-to-Text provider interface.
@@ -238,6 +305,48 @@ export interface SpeechStart {
 }
 
 /**
+ * Reasons the runtime may drop buffered client audio instead of replaying it.
+ *
+ * WHY: Audio can arrive while the STT side is still connecting or reconnecting. The public contract
+ * needs to distinguish whether the buffer filled before the first provider connection or during a
+ * later reconnect so adapters can trace startup pressure separately from recovery pressure.
+ */
+export type VoiceSessionAudioDropReason =
+  /** Buffer overflowed before STT was first connected for this session. */
+  | 'pre_connection_buffer_full'
+  /** Buffer overflowed while STT was reconnecting after a mid-session disconnect. */
+  | 'reconnect_buffer_full'
+  /** Audio arrived while the runtime was in a state that must not accept new STT input. */
+  | 'state_not_listening'
+  /** Audio was buffered after a live STT send failed while the transport still appeared connected. */
+  | 'stt_send_failed';
+
+/**
+ * Metadata emitted when buffered client audio is dropped.
+ *
+ * WHY: Downstream transports and observability hooks care about how much user audio was discarded,
+ * but this task intentionally keeps the contract at the duration level rather than exposing any
+ * runtime-internal queue representation.
+ */
+export interface VoiceSessionAudioDroppedEvent {
+  /** Stable event discriminator for callback/listener consumers. */
+  type: 'audio_dropped';
+  /** Why the runtime could not accept or retain this client audio. */
+  reason: VoiceSessionAudioDropReason;
+  /**
+   * Total measurable dropped client-audio duration represented by this emitted debounce bucket, in milliseconds.
+   *
+   * Repeated measurable drops with the same reason are accumulated into one emitted bucket until the
+   * bucket is delivered, after which the accumulated value resets. A reason change flushes the
+   * previous bucket immediately and starts a new bucket for the new reason. The runtime only emits
+   * this event when the accumulated value is strictly greater than zero, so loss paths that cannot
+   * measure duration precisely are reported through `onError` and trace hooks instead of
+   * synthesizing a best-effort duration here.
+   */
+  droppedDurationMs: number;
+}
+
+/**
  * TTS provider capabilities.
  *
  * WHY: Same rationale as STT — providers differ. Cartesia supports streaming,
@@ -267,7 +376,7 @@ export type TTSEvent =
   | { type: 'chunk'; chunk: SpeechChunk }
   | { type: 'completed' }
   | { type: 'stopped' }
-  | { type: 'error'; error: Error };
+  | { type: 'error'; error: TTSError };
 
 /**
  * Text-to-Speech provider interface.
@@ -325,6 +434,16 @@ export interface VoiceSessionCallbacks {
   onVADEvent?: (event: VADEvent) => void;
   /** Called for each TTS chunk that should be shipped to the playback side. */
   onAudioOutput?: (chunk: SpeechChunk) => void;
+  /**
+   * Called when buffered client audio is discarded instead of being replayed into STT.
+   *
+   * WHY: This is the structured telemetry hook for user-audio loss. It stays optional so existing
+   * adapters do not need to adopt drop accounting immediately, but when present it is the most
+   * precise signal for measurable overflow-, state-, and replay-related loss. This callback is
+   * intentionally more selective than `onError`: only measurable dropped-duration buckets are
+   * delivered here, and they may be debounced/coalesced before emission.
+   */
+  onAudioDropped?: (event: VoiceSessionAudioDroppedEvent) => void;
   /** Called when a new spoken turn starts and playback setup can begin. */
   onSpeechStarted?: (speech: SpeechStart) => void;
   /**
@@ -340,9 +459,11 @@ export interface VoiceSessionCallbacks {
    * Called for provider, runtime, and callback-safety failures.
    *
    * WHY: The runtime catches and reports errors instead of crashing the process because voice flows
-   * often run inside long-lived server transports.
+   * often run inside long-lived server transports. This channel is not debounced: repeated overflow
+   * or transport failures may surface here more frequently than `onAudioDropped`, and some loss
+   * paths that cannot measure dropped duration precisely are only reported through this callback.
    */
-  onError?: (error: Error) => void;
+  onError?: (error: VoiceSessionError) => void;
 }
 
 /**
@@ -413,8 +534,18 @@ interface VoiceSessionBaseConfig {
   autoRestartListening?: boolean;
   /** Delay, in milliseconds, before a VAD end signal is treated as the final turn boundary. */
   vadFinalDebounceMs?: number;
-  /** Maximum audio chunks to buffer while the STT transport is reconnecting. */
-  maxPendingAudioChunks?: number;
+  /**
+   * Maximum client-audio duration, in milliseconds, to buffer while the STT transport is not ready.
+   *
+   * WHY: The runtime keeps a FIFO reconnect/startup buffer so short STT outages do not immediately
+   * erase user speech. Once the total buffered duration would exceed this cap, the oldest retained
+   * audio is dropped first. If a single chunk is itself larger than the cap, the runtime rejects the
+   * entire chunk after draining the queue.
+   *
+   * This applies both before the first provider connection and during mid-session reconnects.
+   * Defaults to `1000` and must be a finite number strictly greater than zero.
+   */
+  audioBufferMaxMs?: number;
   /** Maximum consecutive STT reconnect attempts before surfacing failure. */
   maxReconnectAttempts?: number;
   /** Delay, in milliseconds, between STT reconnect attempts. */
@@ -469,8 +600,8 @@ export interface ResolvedVoiceSessionConfig {
   autoRestartListening: boolean;
   /** Debounce window used before a VAD end signal becomes a hard finalization boundary. */
   vadFinalDebounceMs: number;
-  /** Maximum number of audio chunks that may queue while STT is not ready. */
-  maxPendingAudioChunks: number;
+  /** Maximum client-audio duration, in milliseconds, that may queue while STT is not ready. */
+  audioBufferMaxMs: number;
   /** Maximum consecutive STT reconnect attempts before the runtime gives up. */
   maxReconnectAttempts: number;
   /** Delay between reconnect attempts after an STT disconnect. */
@@ -493,35 +624,72 @@ export function resolveVoiceSessionConfig(
   config: VoiceSessionConfig,
   defaults: {
     vadFinalDebounceMs: number;
-    maxPendingAudioChunks: number;
+    audioBufferMaxMs: number;
     maxReconnectAttempts: number;
     reconnectDelayMs: number;
   },
 ): ResolvedVoiceSessionConfig {
+  const resolvedVadFinalDebounceMs =
+    config.vadFinalDebounceMs ?? defaults.vadFinalDebounceMs;
+  const resolvedAudioBufferMaxMs =
+    config.audioBufferMaxMs ?? defaults.audioBufferMaxMs;
+  const resolvedMaxReconnectAttempts =
+    config.maxReconnectAttempts ?? defaults.maxReconnectAttempts;
+  const resolvedReconnectDelayMs =
+    config.reconnectDelayMs ?? defaults.reconnectDelayMs;
+
+  function assertFiniteNonNegativeDuration(
+    value: number,
+    fieldName: 'vadFinalDebounceMs' | 'audioBufferMaxMs' | 'reconnectDelayMs',
+  ): number {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(
+        `Voice session ${fieldName} must be a finite number greater than or equal to 0, received ${value}`,
+      );
+    }
+
+    return value;
+  }
+
+  function assertFinitePositiveDuration(
+    value: number,
+    fieldName: string,
+  ): number {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(
+        `Voice session ${fieldName} must be a finite number greater than 0, received ${value}`,
+      );
+    }
+
+    return value;
+  }
+
+  function assertNonNegativeInteger(value: number, fieldName: string): number {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(
+        `Voice session ${fieldName} must be a non-negative integer, received ${value}`,
+      );
+    }
+
+    return value;
+  }
+
   let stt: STTProvider;
   try {
     stt = createSTT(config.stt);
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Failed to construct STT provider for voice session: ${detail}`,
-      {
-        cause: error,
-      },
-    );
+    throw new Error('Failed to construct STT provider for voice session', {
+      cause: error,
+    });
   }
 
   let tts: TTSProvider;
   try {
     tts = createTTS(config.tts);
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Failed to construct TTS provider for voice session: ${detail}`,
-      {
-        cause: error,
-      },
-    );
+    throw new Error('Failed to construct TTS provider for voice session', {
+      cause: error,
+    });
   }
 
   return {
@@ -532,13 +700,22 @@ export function resolveVoiceSessionConfig(
     interimResults:
       config.interimResults ?? stt.capabilities.interimTranscripts,
     autoRestartListening: config.autoRestartListening ?? true,
-    vadFinalDebounceMs:
-      config.vadFinalDebounceMs ?? defaults.vadFinalDebounceMs,
-    maxPendingAudioChunks:
-      config.maxPendingAudioChunks ?? defaults.maxPendingAudioChunks,
-    maxReconnectAttempts:
-      config.maxReconnectAttempts ?? defaults.maxReconnectAttempts,
-    reconnectDelayMs: config.reconnectDelayMs ?? defaults.reconnectDelayMs,
+    vadFinalDebounceMs: assertFiniteNonNegativeDuration(
+      resolvedVadFinalDebounceMs,
+      'vadFinalDebounceMs',
+    ),
+    audioBufferMaxMs: assertFinitePositiveDuration(
+      resolvedAudioBufferMaxMs,
+      'audioBufferMaxMs',
+    ),
+    maxReconnectAttempts: assertNonNegativeInteger(
+      resolvedMaxReconnectAttempts,
+      'maxReconnectAttempts',
+    ),
+    reconnectDelayMs: assertFiniteNonNegativeDuration(
+      resolvedReconnectDelayMs,
+      'reconnectDelayMs',
+    ),
     trace: config.trace,
     intentBoundary:
       config.buildChartRequest && config.processIntent
@@ -607,6 +784,26 @@ export interface VoiceSession {
   onVADEvent(callback: (event: VADEvent) => void): () => void;
   /** Subscribe to TTS chunks that should be forwarded to playback. */
   onAudioOutput(callback: (chunk: SpeechChunk) => void): () => void;
+  /**
+   * Subscribe to buffered-client-audio drop notifications.
+   *
+   * WHY: This is the precise loss-accounting hook for adapters that need telemetry, alerts, or UX
+   * around discarded user audio. Events are coalesced for roughly 100 ms, `droppedDurationMs`
+   * aggregates the total measurable loss inside that bucket, and a new drop `reason` flushes the
+   * previous bucket immediately before a new one begins. Listener and callback throws are isolated
+   * and routed through `onError`, pending debounced events are dropped when the session is
+   * destroyed, and loss paths without a trustworthy duration measurement are reported through
+   * `onError`/trace only rather than emitting a synthetic `audio_dropped` event.
+   *
+   * @example
+   * const unsubscribe = voiceSession.onAudioDropped((event) => {
+   *   metrics.count('voice.audio_dropped', 1, { reason: event.reason });
+   *   metrics.histogram('voice.audio_dropped_ms', event.droppedDurationMs);
+   * });
+   */
+  onAudioDropped(
+    callback: (event: VoiceSessionAudioDroppedEvent) => void,
+  ): () => void;
   /**
    * Reports whether the runtime is currently eligible to auto-restart listening.
    *

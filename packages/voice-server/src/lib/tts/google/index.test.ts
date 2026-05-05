@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
-import type { TTSEvent } from '../../types.js';
+import type { TTSEvent, TTSError } from '../../types.js';
 
 const synthesizeRequests: unknown[] = [];
 let lastTextToSpeechClientOptions: unknown;
@@ -203,5 +203,27 @@ describe('createGoogleTTS', () => {
     expect(firstChunkEvent).toBeDefined();
     expect(firstChunkEvent?.chunk.data.length).toBeGreaterThan(0);
     expect(events.at(-1)).toEqual({ type: 'completed' });
+  });
+
+  test('classifies synthesis failures instead of surfacing raw provider errors', async () => {
+    synthesizeSpeech.mockRejectedValueOnce(new Error('google transport boom'));
+
+    const { createGoogleTTS } = await import('./index.js');
+    const provider = createGoogleTTS();
+    const events: TTSEvent[] = [];
+    provider.onEvent((event) => events.push(event));
+
+    await provider.connect();
+    provider.speak('Hello failure');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const lastEvent = events.at(-1);
+    expect(lastEvent?.type).toBe('error');
+    if (lastEvent?.type === 'error') {
+      const error: TTSError = lastEvent.error;
+      expect(error.kind).toBe('transport');
+      expect(error.provider).toBe('google');
+      expect(error.message).toBe('google transport boom');
+    }
   });
 });

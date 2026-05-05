@@ -36,6 +36,11 @@ class MockWebSocket {
     this.onclose?.(new CloseEvent('close'));
   }
 
+  simulateClose(code = 1000, reason = '') {
+    this.readyState = 3;
+    this.onclose?.(new CloseEvent('close', { code, reason }));
+  }
+
   simulateMessage(data: string) {
     this.onmessage?.(new MessageEvent('message', { data }));
   }
@@ -211,6 +216,7 @@ describe('createCartesiaTTS', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('parse');
       expect(lastEvent.error.message).toBe('Voice ID is required');
     }
   });
@@ -250,6 +256,7 @@ describe('createCartesiaTTS', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('unknown');
       expect(lastEvent.error.message).toBe('cartesia boom');
     }
   });
@@ -270,6 +277,7 @@ describe('createCartesiaTTS', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('parse');
       expect(lastEvent.error.message).toContain(
         'Cartesia message must be a JSON object',
       );
@@ -297,9 +305,36 @@ describe('createCartesiaTTS', () => {
     const lastEvent = events.at(-1);
     expect(lastEvent?.type).toBe('error');
     if (lastEvent?.type === 'error') {
+      expect(lastEvent.error.kind).toBe('parse');
       expect(lastEvent.error.message).toContain(
         'Cartesia message field `data` must be a string',
       );
     }
+  });
+
+  test('emits a classified transport error before disconnect when the websocket closes unexpectedly mid-speech', async () => {
+    const provider = createCartesiaTTS({
+      apiKey: mockApiKey,
+      defaultVoiceId: 'voice-1',
+    });
+    const events: TTSEvent[] = [];
+    provider.onEvent((event) => events.push(event));
+
+    await provider.connect();
+    provider.speak('Hello');
+
+    const mockWs = MockWebSocket.instances.at(-1);
+    mockWs?.simulateClose(1011, 'upstream failure');
+
+    const errorEvent = events.at(-2);
+    expect(errorEvent?.type).toBe('error');
+    if (errorEvent?.type === 'error') {
+      expect(errorEvent.error.kind).toBe('transport');
+      expect(errorEvent.error.provider).toBe('cartesia');
+      expect(errorEvent.error.message).toBe(
+        'Cartesia WebSocket closed unexpectedly (1011: upstream failure)',
+      );
+    }
+    expect(events.at(-1)).toEqual({ type: 'disconnected' });
   });
 });

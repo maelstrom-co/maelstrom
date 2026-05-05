@@ -1,9 +1,11 @@
 import type {
   AudioChunk,
+  STTError,
   STTEvent,
   STTProvider,
   TranscriptionResult,
 } from '../../types.js';
+import { classifySTTError, createSTTError } from '../../provider-errors.js';
 import { createWebSocket } from '../../websocket.js';
 
 /**
@@ -167,7 +169,7 @@ export function createDeepgramSTT(
     }
   }
 
-  function getMessageError(data: unknown): Error | null {
+  function getMessageError(data: unknown): STTError | null {
     if (!data || typeof data !== 'object') {
       return null;
     }
@@ -187,7 +189,10 @@ export function createDeepgramSTT(
     );
 
     if (type === 'Error' || type === 'error') {
-      return new Error(message ?? 'Deepgram reported a streaming error');
+      return classifySTTError(
+        new Error(message ?? 'Deepgram reported a streaming error'),
+        'deepgram',
+      );
     }
 
     return null;
@@ -287,7 +292,7 @@ export function createDeepgramSTT(
     } catch (error) {
       emit({
         type: 'error',
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: classifySTTError(error, 'deepgram'),
       });
     }
   }
@@ -315,7 +320,13 @@ export function createDeepgramSTT(
         const timeout = setTimeout(() => {
           if (ws && ws.readyState !== WebSocket.OPEN) {
             ws.close();
-            reject(new Error('Deepgram WebSocket connection timeout'));
+            reject(
+              createSTTError(
+                'deepgram',
+                'transport',
+                'Deepgram WebSocket connection timeout',
+              ),
+            );
           }
         }, connectionTimeoutInSeconds * 1000);
 
@@ -332,7 +343,11 @@ export function createDeepgramSTT(
 
         ws.onerror = () => {
           clearTimeout(timeout);
-          const error = new Error('Deepgram WebSocket error');
+          const error = createSTTError(
+            'deepgram',
+            'transport',
+            'Deepgram WebSocket error',
+          );
           emit({ type: 'error', error });
           reject(error);
         };
@@ -348,7 +363,9 @@ export function createDeepgramSTT(
             const reasonSuffix = event.reason ? `: ${event.reason}` : '';
             emit({
               type: 'error',
-              error: new Error(
+              error: createSTTError(
+                'deepgram',
+                'transport',
                 `Deepgram WebSocket closed unexpectedly (${event.code})${reasonSuffix}`,
               ),
             });
@@ -367,14 +384,23 @@ export function createDeepgramSTT(
     },
     sendAudio(chunk: AudioChunk): void {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        emit({ type: 'error', error: new Error('Not connected to Deepgram') });
+        emit({
+          type: 'error',
+          error: createSTTError(
+            'deepgram',
+            'transport',
+            'Not connected to Deepgram',
+          ),
+        });
         return;
       }
 
       if (chunk.encoding !== 'linear16') {
         emit({
           type: 'error',
-          error: new Error(
+          error: createSTTError(
+            'deepgram',
+            'parse',
             `Deepgram STT only supports linear16 input, received ${chunk.encoding}`,
           ),
         });
@@ -384,7 +410,9 @@ export function createDeepgramSTT(
       if (chunk.sampleRate !== sampleRate) {
         emit({
           type: 'error',
-          error: new Error(
+          error: createSTTError(
+            'deepgram',
+            'parse',
             `Deepgram STT expected sampleRate ${sampleRate}, received ${chunk.sampleRate}`,
           ),
         });

@@ -2,9 +2,17 @@ import type {
   AudioChunk,
   SpeechChunk,
   TranscriptionResult,
+  VoiceSessionAudioDropReason,
+  VoiceSessionAudioDroppedEvent,
   VADEvent,
   VoiceSessionState,
 } from './types.js';
+
+export interface BufferedAudioChunk {
+  chunk: AudioChunk;
+  durationMs: number;
+  bufferingReason: VoiceSessionAudioDropReason;
+}
 
 /**
  * Internal mutable state for a live voice session.
@@ -23,7 +31,10 @@ export interface VoiceRuntimeState {
   autoRestartTimeout: ReturnType<typeof setTimeout> | null;
   isInitializing: boolean;
   startListeningPromise: Promise<void> | null;
-  pendingAudioChunks: AudioChunk[];
+  pendingAudioChunks: BufferedAudioChunk[];
+  pendingAudioDurationMs: number;
+  pendingAudioDropEvent: VoiceSessionAudioDroppedEvent | null;
+  pendingAudioDropDebounceTimeout: ReturnType<typeof setTimeout> | null;
   accumulatedTranscript: string;
   pendingFinalFromVAD: boolean;
   vadFinalDebounceTimeout: ReturnType<typeof setTimeout> | null;
@@ -46,6 +57,7 @@ export interface VoiceRuntimeListeners {
   transcript: Set<(result: TranscriptionResult) => void>;
   vad: Set<(event: VADEvent) => void>;
   audioOutput: Set<(chunk: SpeechChunk) => void>;
+  audioDropped: Set<(event: VoiceSessionAudioDroppedEvent) => void>;
 }
 
 export function createInitialVoiceRuntimeState(): VoiceRuntimeState {
@@ -60,6 +72,9 @@ export function createInitialVoiceRuntimeState(): VoiceRuntimeState {
     isInitializing: false,
     startListeningPromise: null,
     pendingAudioChunks: [],
+    pendingAudioDurationMs: 0,
+    pendingAudioDropEvent: null,
+    pendingAudioDropDebounceTimeout: null,
     accumulatedTranscript: '',
     pendingFinalFromVAD: false,
     vadFinalDebounceTimeout: null,
@@ -78,5 +93,6 @@ export function createVoiceRuntimeListeners(): VoiceRuntimeListeners {
     transcript: new Set(),
     vad: new Set(),
     audioOutput: new Set(),
+    audioDropped: new Set(),
   };
 }

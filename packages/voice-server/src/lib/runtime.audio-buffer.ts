@@ -1,37 +1,127 @@
-import type { AudioChunk, STTProvider } from './types.js';
-import type { VoiceRuntimeState } from './runtime.state.js';
+import type {
+  AudioChunk,
+  AudioEncoding,
+  STTProvider,
+  VoiceSessionAudioDropReason,
+} from './types.js';
+import type { BufferedAudioChunk, VoiceRuntimeState } from './runtime.state.js';
+
+function defaultBytesPerSample(encoding: AudioEncoding): number {
+  switch (encoding) {
+    case 'linear16':
+      return 2;
+    case 'pcm':
+      return 4;
+    case 'opus':
+      throw new Error(
+        'Opus audio chunks must provide bytesPerSample before buffering so duration can be estimated safely',
+      );
+  }
+
+  const exhaustiveEncoding: never = encoding;
+
+  throw new Error(`Unsupported audio encoding: ${String(exhaustiveEncoding)}`);
+}
+
+export function measureAudioChunkDurationMs(chunk: AudioChunk): number {
+  const bytesPerSample =
+    chunk.bytesPerSample ?? defaultBytesPerSample(chunk.encoding);
+  const channels = chunk.channels ?? 1;
+  const bytesPerSecond = chunk.sampleRate * bytesPerSample * channels;
+
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
+    return Number.NaN;
+  }
+
+  return (chunk.data.byteLength / bytesPerSecond) * 1000;
+}
+
+export function addPendingDroppedDuration(
+  state: VoiceRuntimeState,
+  reason: VoiceSessionAudioDropReason,
+  droppedDurationMs: number,
+): VoiceRuntimeState['pendingAudioDropEvent'] | null {
+  if (droppedDurationMs <= 0) {
+    return null;
+  }
+  const previousEvent = state.pendingAudioDropEvent;
+  if (previousEvent && previousEvent.reason !== reason) {
+    state.pendingAudioDropEvent = {
+      type: 'audio_dropped',
+      reason,
+      droppedDurationMs,
+    };
+    return previousEvent;
+  }
+  state.pendingAudioDropEvent = previousEvent
+    ? {
+        ...previousEvent,
+        droppedDurationMs: previousEvent.droppedDurationMs + droppedDurationMs,
+      }
+    : {
+        type: 'audio_dropped',
+        reason,
+        droppedDurationMs,
+      };
+  return null;
+}
+
+function shiftBufferedAudio(
+  state: VoiceRuntimeState,
+): BufferedAudioChunk | undefined {
+  const nextEntry = state.pendingAudioChunks.shift();
+
+  if (!nextEntry) {
+    return undefined;
+  }
+
+  state.pendingAudioDurationMs = Math.max(
+    0,
+    state.pendingAudioDurationMs - nextEntry.durationMs,
+  );
+
+  if (state.pendingAudioChunks.length === 0) {
+    state.pendingAudioDurationMs = 0;
+  }
+
+  return nextEntry;
+}
 
 export function flushBufferedAudio(
   state: VoiceRuntimeState,
   stt: STTProvider,
   trace: (event: string, details?: Record<string, unknown>) => void,
   reportError: (error: unknown) => void,
+  emitReplacedPendingDropEvent: (
+    event: NonNullable<VoiceRuntimeState['pendingAudioDropEvent']>,
+  ) => void,
+  schedulePendingAudioDropNotification: () => void,
   traceEvent: string,
 ) {
   function traceFlushStopped(
     reason: 'stt_disconnected' | 'state_changed',
-    chunk: AudioChunk,
+    entry: BufferedAudioChunk,
   ) {
     trace('stt.buffered_audio.flush_stopped', {
       reason,
       state: state.state,
-      nextBufferedAudioSequence: chunk.sequence ?? null,
-      nextBufferedAudioTimestamp: chunk.timestamp,
-      pendingBufferedAudioChunks: state.pendingAudioChunks.length,
+      nextBufferedAudioSequence: entry.chunk.sequence ?? null,
+      nextBufferedAudioTimestamp: entry.chunk.timestamp,
+      pendingBufferedAudioMs: state.pendingAudioDurationMs,
     });
   }
 
   while (state.pendingAudioChunks.length > 0) {
-    const chunk = state.pendingAudioChunks[0];
+    const entry = state.pendingAudioChunks[0];
 
-    if (!chunk) {
+    if (!entry) {
       const error = new Error(
         'Buffered STT audio flush lost track of the next queued chunk',
       );
       trace('stt.buffered_audio.flush_failed', {
         reason: 'queue_corrupted',
         state: state.state,
-        pendingBufferedAudioChunks: state.pendingAudioChunks.length,
+        pendingBufferedAudioMs: state.pendingAudioDurationMs,
         message: error.message,
       });
       reportError(error);
@@ -39,24 +129,38 @@ export function flushBufferedAudio(
     }
 
     if (state.state !== 'listening') {
-      traceFlushStopped('state_changed', chunk);
+      traceFlushStopped('state_changed', entry);
       return;
     }
 
     if (!stt.isConnected()) {
-      traceFlushStopped('stt_disconnected', chunk);
+      traceFlushStopped('stt_disconnected', entry);
       return;
     }
 
     try {
       trace(traceEvent, {
-        bytes: chunk.data.length,
-        sampleRate: chunk.sampleRate,
-        encoding: chunk.encoding,
-        remainingBufferedAudioChunks: state.pendingAudioChunks.length - 1,
+        bytes: entry.chunk.data.length,
+        sampleRate: entry.chunk.sampleRate,
+        encoding: entry.chunk.encoding,
+        remainingBufferedAudioMs:
+          state.pendingAudioDurationMs - entry.durationMs,
       });
-      stt.sendAudio(chunk);
+      stt.sendAudio(entry.chunk);
     } catch (error) {
+      shiftBufferedAudio(state);
+      const replacedPendingDropEvent = addPendingDroppedDuration(
+        state,
+        entry.bufferingReason,
+        entry.durationMs,
+      );
+
+      if (replacedPendingDropEvent) {
+        emitReplacedPendingDropEvent(replacedPendingDropEvent);
+      }
+
+      schedulePendingAudioDropNotification();
+
       const normalizedError =
         error instanceof Error
           ? error
@@ -64,9 +168,10 @@ export function flushBufferedAudio(
       trace('stt.buffered_audio.flush_failed', {
         reason: 'send_failed',
         state: state.state,
-        pendingBufferedAudioChunks: state.pendingAudioChunks.length,
-        nextBufferedAudioSequence: chunk.sequence ?? null,
-        nextBufferedAudioTimestamp: chunk.timestamp,
+        pendingBufferedAudioMs: state.pendingAudioDurationMs,
+        nextBufferedAudioSequence: entry.chunk.sequence ?? null,
+        nextBufferedAudioTimestamp: entry.chunk.timestamp,
+        flushFailedChunkMs: entry.durationMs,
         message: normalizedError.message,
       });
       reportError(
@@ -74,10 +179,15 @@ export function flushBufferedAudio(
           cause: normalizedError,
         }),
       );
-      return;
+
+      if (!stt.isConnected()) {
+        return;
+      }
+
+      continue;
     }
 
-    if (state.pendingAudioChunks[0] !== chunk) {
+    if (state.pendingAudioChunks[0] !== entry) {
       // WHY: The queue is expected to behave like a strict FIFO while replaying. If the head changes
       // under us, some other code path is mutating buffered audio concurrently and replay order can no
       // longer be trusted.
@@ -87,48 +197,138 @@ export function flushBufferedAudio(
       trace('stt.buffered_audio.flush_failed', {
         reason: 'queue_mutated',
         state: state.state,
-        pendingBufferedAudioChunks: state.pendingAudioChunks.length,
-        nextBufferedAudioSequence: chunk.sequence ?? null,
-        nextBufferedAudioTimestamp: chunk.timestamp,
+        pendingBufferedAudioMs: state.pendingAudioDurationMs,
+        nextBufferedAudioSequence: entry.chunk.sequence ?? null,
+        nextBufferedAudioTimestamp: entry.chunk.timestamp,
         message: error.message,
       });
       reportError(error);
       return;
     }
 
-    state.pendingAudioChunks.shift();
+    shiftBufferedAudio(state);
   }
 }
 
 export function bufferAudioChunk(
   state: VoiceRuntimeState,
-  maxPendingAudioChunks: number,
+  audioBufferMaxMs: number,
   reportError: (error: unknown) => void,
   trace: (event: string, details?: Record<string, unknown>) => void,
   chunk: AudioChunk,
+  dropReason: VoiceSessionAudioDropReason,
+  emitReplacedPendingDropEvent: (
+    event: NonNullable<VoiceRuntimeState['pendingAudioDropEvent']>,
+  ) => void,
   traceEvent: string,
   traceDetails: Record<string, unknown>,
 ): boolean {
-  if (state.pendingAudioChunks.length >= maxPendingAudioChunks) {
-    // WHY: Overflow is surfaced as an error instead of silently dropping the oldest chunk because
-    // losing early audio often corrupts recognition in a way that is impossible for callers to debug.
-    reportError(
-      new Error(
-        `STT audio buffer overflow: buffered chunk limit (${maxPendingAudioChunks}) reached`,
-      ),
-    );
-    trace('stt.audio.buffer_overflow', {
+  let durationMs: number;
+
+  try {
+    durationMs = measureAudioChunkDurationMs(chunk);
+  } catch (error) {
+    const normalizedError =
+      error instanceof Error
+        ? error
+        : new Error(String(error), { cause: error });
+    reportError(normalizedError);
+    trace('stt.audio.buffer_rejected', {
       ...traceDetails,
-      bufferedAudioChunks: state.pendingAudioChunks.length,
-      maxPendingAudioChunks,
+      pendingBufferedAudioMs: state.pendingAudioDurationMs,
+      chunkDurationMs: null,
+      audioBufferMaxMs,
+      reason: 'invalid_duration',
+      bytesPerSample: chunk.bytesPerSample ?? null,
+      channels: chunk.channels ?? null,
+      message: normalizedError.message,
     });
     return false;
   }
 
-  state.pendingAudioChunks.push(chunk);
+  if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    const error = new Error(
+      `STT audio chunk duration must be positive, received ${durationMs}ms`,
+    );
+    reportError(error);
+    trace('stt.audio.buffer_rejected', {
+      ...traceDetails,
+      pendingBufferedAudioMs: state.pendingAudioDurationMs,
+      chunkDurationMs: durationMs,
+      audioBufferMaxMs,
+      reason: 'invalid_duration',
+      bytesPerSample: chunk.bytesPerSample ?? null,
+      channels: chunk.channels ?? null,
+      message: error.message,
+    });
+    return false;
+  }
+
+  let droppedDurationMs = 0;
+
+  while (state.pendingAudioDurationMs + durationMs > audioBufferMaxMs) {
+    const droppedEntry = shiftBufferedAudio(state);
+
+    if (!droppedEntry) {
+      droppedDurationMs += durationMs;
+      const replacedPendingDropEvent = addPendingDroppedDuration(
+        state,
+        dropReason,
+        droppedDurationMs,
+      );
+
+      if (replacedPendingDropEvent) {
+        emitReplacedPendingDropEvent(replacedPendingDropEvent);
+      }
+
+      trace('stt.audio.buffer_overflow', {
+        ...traceDetails,
+        pendingBufferedAudioMs: state.pendingAudioDurationMs,
+        chunkDurationMs: durationMs,
+        droppedDurationMs,
+        audioBufferMaxMs,
+      });
+      reportError(
+        new Error(
+          `Dropped ${droppedDurationMs}ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs`,
+        ),
+      );
+      return false;
+    }
+
+    droppedDurationMs += droppedEntry.durationMs;
+  }
+
+  if (droppedDurationMs > 0) {
+    const replacedPendingDropEvent = addPendingDroppedDuration(
+      state,
+      dropReason,
+      droppedDurationMs,
+    );
+
+    if (replacedPendingDropEvent) {
+      emitReplacedPendingDropEvent(replacedPendingDropEvent);
+    }
+
+    reportError(
+      new Error(
+        `Dropped ${droppedDurationMs}ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs`,
+      ),
+    );
+  }
+
+  state.pendingAudioChunks.push({
+    chunk,
+    durationMs,
+    bufferingReason: dropReason,
+  });
+  state.pendingAudioDurationMs += durationMs;
   trace(traceEvent, {
     ...traceDetails,
-    bufferedAudioChunks: state.pendingAudioChunks.length,
+    pendingBufferedAudioMs: state.pendingAudioDurationMs,
+    chunkDurationMs: durationMs,
+    droppedDurationMs,
+    audioBufferMaxMs,
   });
   return true;
 }

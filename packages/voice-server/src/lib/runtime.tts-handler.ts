@@ -1,3 +1,4 @@
+import { createTTSError } from './provider-errors.js';
 import type {
   VoiceRuntimeListeners,
   VoiceRuntimeState,
@@ -95,7 +96,9 @@ export function handleTTSEvent(
       break;
     case 'error':
       trace('tts.error', {
+        kind: event.error.kind,
         message: event.error.message,
+        provider: event.error.provider,
       });
       reportError(event.error);
       setVoiceState('idle');
@@ -112,7 +115,13 @@ export function handleTTSEvent(
       if (state.state === 'speaking') {
         // WHY: A mid-turn TTS disconnect is observable user-facing failure, not an ignorable transport
         // blip. The runtime treats it like an interrupted reply so callers can recover cleanly.
-        reportError(new Error('TTS disconnected while speaking'));
+        reportError(
+          createTTSError(
+            ttsName,
+            'transport',
+            'TTS disconnected while speaking',
+          ),
+        );
         setVoiceState('idle');
         notifyCallbackSafely(
           callbacks.onSpeechStopped,

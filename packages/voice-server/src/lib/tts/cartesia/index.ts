@@ -4,6 +4,7 @@ import type {
   TTSEvent,
   TTSProvider,
 } from '../../types.js';
+import { classifyTTSError, createTTSError } from '../../provider-errors.js';
 import { createWebSocket } from '../../websocket.js';
 
 /**
@@ -254,12 +255,15 @@ export function createCartesiaTTS(
       if (message.error) {
         isSpeakingFlag = false;
         currentContextId = null;
-        emit({ type: 'error', error: new Error(message.error) });
+        emit({
+          type: 'error',
+          error: classifyTTSError(new Error(message.error), 'cartesia'),
+        });
       }
     } catch (error) {
       emit({
         type: 'error',
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: classifyTTSError(error, 'cartesia'),
       });
     }
   }
@@ -289,17 +293,18 @@ export function createCartesiaTTS(
         const timeout = setTimeout(() => {
           if (settled) return;
           settled = true;
-          const error = new Error('Cartesia WebSocket connection timeout');
+          const error = createTTSError(
+            'cartesia',
+            'transport',
+            'Cartesia WebSocket connection timeout',
+          );
           emit({ type: 'error', error });
           try {
             ws?.close();
           } catch (closeError) {
             emit({
               type: 'error',
-              error:
-                closeError instanceof Error
-                  ? closeError
-                  : new Error(String(closeError)),
+              error: classifyTTSError(closeError, 'cartesia'),
             });
           }
           reject(error);
@@ -323,25 +328,44 @@ export function createCartesiaTTS(
           if (settled) return;
           settled = true;
           clearTimeout(timeout);
-          const error = new Error('Cartesia WebSocket error');
+          const error = createTTSError(
+            'cartesia',
+            'transport',
+            'Cartesia WebSocket error',
+          );
           emit({ type: 'error', error });
           reject(error);
         };
 
         ws.onclose = (event) => {
           clearTimeout(timeout);
+          const wasSpeaking = isSpeakingFlag;
           isConnectedFlag = false;
           isSpeakingFlag = false;
           currentContextId = null;
           if (!settled) {
             settled = true;
-            const error = new Error(
+            const error = createTTSError(
+              'cartesia',
+              'transport',
               `Cartesia WebSocket closed before ready (code ${event.code}${event.reason ? `: ${event.reason}` : ''})`,
             );
             emit({ type: 'error', error });
             reject(error);
             return;
           }
+
+          if (event.code !== 1000 && wasSpeaking) {
+            emit({
+              type: 'error',
+              error: createTTSError(
+                'cartesia',
+                'transport',
+                `Cartesia WebSocket closed unexpectedly (${event.code}${event.reason ? `: ${event.reason}` : ''})`,
+              ),
+            });
+          }
+
           emitDisconnected();
         };
       });
@@ -357,13 +381,23 @@ export function createCartesiaTTS(
     },
     speak(text: string, options?: CartesiaSpeechOptions): void {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        emit({ type: 'error', error: new Error('Not connected to Cartesia') });
+        emit({
+          type: 'error',
+          error: createTTSError(
+            'cartesia',
+            'transport',
+            'Not connected to Cartesia',
+          ),
+        });
         return;
       }
 
       const voiceId = options?.voice || defaultVoiceId;
       if (!voiceId) {
-        emit({ type: 'error', error: new Error('Voice ID is required') });
+        emit({
+          type: 'error',
+          error: createTTSError('cartesia', 'parse', 'Voice ID is required'),
+        });
         return;
       }
 

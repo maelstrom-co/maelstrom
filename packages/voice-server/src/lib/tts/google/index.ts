@@ -1,6 +1,7 @@
 import { protos, TextToSpeechClient } from '@google-cloud/text-to-speech';
 
 import { parseGoogleCredentialsJSON } from '../../google/credentials.js';
+import { classifyTTSError } from '../../provider-errors.js';
 import type {
   SpeechChunk,
   SpeechOptions,
@@ -212,7 +213,7 @@ export function createGoogleTTS(options: GoogleTTSOptions = {}): TTSProvider {
 
           emit({
             type: 'error',
-            error: error instanceof Error ? error : new Error(String(error)),
+            error: classifyTTSError(error, 'google'),
           });
         }
       })();
