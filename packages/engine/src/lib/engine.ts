@@ -182,7 +182,7 @@ export function createEngine(config: EngineConfig): Engine {
       logger.error('Failed to build user prompt', error, {
         messageId: message.id,
       });
-      return err(validationError(errorMessage, 'prompt'));
+      return err(validationError(errorMessage, 'prompt', error));
     }
 
     const outputSchema =
@@ -253,6 +253,7 @@ export function createEngine(config: EngineConfig): Engine {
           validationError(
             error instanceof Error ? error.message : String(error),
             'response',
+            error,
           ),
         );
       }

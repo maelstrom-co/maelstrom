@@ -35,12 +35,18 @@ export interface ProviderError {
  * misconfiguration does not surface here either; it throws synchronously at
  * `createEngine` time.
  *
- * `field` optionally identifies the offending input path.
+ * `field` optionally identifies the offending input path. `cause` carries
+ * the underlying thrown value when this error wraps a caught throw, so a
+ * consumer-supplied `Error` subclass (with its stack and `Error.cause`
+ * chain) survives the boundary. Both fields are absent — not `undefined` —
+ * when the engine synthesizes the failure itself (e.g. a
+ * `history not configured` guard with no upstream throw to attribute).
  */
 export interface ValidationError {
   readonly _tag: 'ValidationError';
   readonly message: string;
   readonly field?: string;
+  readonly cause?: unknown;
   readonly stack?: string;
 }
 
@@ -163,10 +169,16 @@ export const providerError = (
 export const validationError = (
   message: string,
   field?: string,
+  cause?: unknown,
 ): ValidationError => ({
   _tag: 'ValidationError',
   message,
-  field,
+  // Conditional spread keeps optional keys absent (not `undefined`-valued)
+  // when the caller omits them, matching the type's optionality and keeping
+  // `'cause' in err` / `'field' in err` honest for consumers that branch on
+  // key presence (logging, JSON serialization, shallow equality).
+  ...(field !== undefined && { field }),
+  ...(cause !== undefined && { cause }),
   stack: captureStack(message),
 });
 

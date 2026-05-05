@@ -341,10 +341,24 @@ describe('createEngine — system prompt memoization', () => {
     if (result.error._tag !== 'ValidationError') return;
     expect(result.error.field).toBe('prompt');
     expect(result.error.message).toMatch(/customizer for "vessels" threw/);
+    // The user-thrown error must remain reachable across the engine boundary
+    // so debuggers can recover the customizer's original failure. Walk the
+    // `.cause` chain rather than asserting a fixed depth — that decouples
+    // this test from prompt-builder's wrapping shape.
+    expect(findCauseMessage(result.error.cause, 'user boom')).toBe(true);
     // chat() must not be called when prompt construction fails.
     expect(mockChat).not.toHaveBeenCalled();
   });
 });
+
+const findCauseMessage = (cause: unknown, target: string): boolean => {
+  let current: unknown = cause;
+  while (current instanceof Error) {
+    if (current.message === target) return true;
+    current = current.cause;
+  }
+  return false;
+};
 
 // ---------------------------------------------------------------------------
 // chart_request variant

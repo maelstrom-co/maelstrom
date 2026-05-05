@@ -38,11 +38,32 @@ describe('Error constructors', () => {
     expect(e.stack).toBeString();
   });
 
-  test('validationError creates tagged error without field', () => {
+  test('validationError omits absent optional keys (no undefined-valued field/cause)', () => {
     const e = validationError('general validation failure');
     expect(e._tag).toBe('ValidationError');
     expect(e.message).toBe('general validation failure');
-    expect(e.field).toBeUndefined();
+    // Locks the conditional-spread contract: `'field' in e` / `'cause' in e`
+    // must be false when omitted, so consumers that branch on key presence
+    // (logging, JSON serialization, shallow equality) see a stable shape.
+    expect('field' in e).toBe(false);
+    expect('cause' in e).toBe(false);
+  });
+
+  test('validationError preserves underlying cause', () => {
+    const cause = new Error('customizer boom');
+    const e = validationError('prompt build failed', 'prompt', cause);
+    expect(e._tag).toBe('ValidationError');
+    expect(e.field).toBe('prompt');
+    expect(e.cause).toBe(cause);
+    expect(e.stack).toBeString();
+  });
+
+  test('validationError accepts non-Error cause unchanged', () => {
+    // `cause: unknown` must passthrough whatever was thrown — strings, plain
+    // objects, undefined-via-throw — without coercion, so downstream
+    // diagnostics can recover the original shape.
+    const e = validationError('build failed', 'prompt', 'boom');
+    expect(e.cause).toBe('boom');
   });
 
   test('timeoutError creates tagged error with stack', () => {
