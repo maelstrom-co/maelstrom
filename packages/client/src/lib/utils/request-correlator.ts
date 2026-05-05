@@ -20,11 +20,11 @@ import type { MaelstromResponse, MessageId } from '@maelstrom-co/protocol';
  * correlator.resolve(response.requestId, response);
  * ```
  */
-export class RequestCorrelator {
+export class RequestCorrelator<TResponse = MaelstromResponse> {
   #pending = new Map<
     MessageId,
     {
-      resolve: (value: MaelstromResponse) => void;
+      resolve: (value: TResponse) => void;
       reject: (reason: Error) => void;
       timeoutId: ReturnType<typeof setTimeout>;
     }
@@ -38,7 +38,7 @@ export class RequestCorrelator {
    * @param timeoutMs - Timeout in milliseconds before rejecting
    * @returns Promise that resolves with the response
    */
-  create(id: MessageId, timeoutMs: number): Promise<MaelstromResponse> {
+  create(id: MessageId, timeoutMs: number): Promise<TResponse> {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         if (this.#pending.delete(id)) {
@@ -57,7 +57,7 @@ export class RequestCorrelator {
    * @param response - Response value to resolve with
    * @returns true if a pending request was found and resolved, false otherwise
    */
-  resolve(id: MessageId, response: MaelstromResponse): boolean {
+  resolve(id: MessageId, response: TResponse): boolean {
     const entry = this.#pending.get(id);
     if (!entry) {
       return false;

@@ -1,8 +1,10 @@
 import type {
   ChartRequestMessage,
   MaelstromResponse,
+  SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
+import { SessionHistoryEntryArraySchema } from '@maelstrom-co/protocol';
 import type { Unsubscribe } from '../../types.js';
 import type {
   AssistantMessage,
@@ -102,11 +104,36 @@ export class HttpConnector implements EngineConnector {
   }
 
   /**
+   * Fetch the engine-recorded history for a session via POST `/history`.
+   *
+   * POST (not GET) keeps the request body symmetric with `/process` and
+   * `/assistant-message`, lets clients send opaque session ids without URL
+   * encoding concerns, and avoids accidental caching by intermediaries that
+   * cache GET responses.
+   */
+  async getHistory(
+    sessionId: SessionId,
+  ): Promise<readonly SessionHistoryEntry[]> {
+    const raw = await this.#postJson<unknown>('/history', { sessionId });
+    const parsed = SessionHistoryEntryArraySchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        `HttpConnector.getHistory: /history returned a malformed payload (${parsed.error.issues[0]?.message ?? 'schema mismatch'})`,
+      );
+    }
+    return parsed.data;
+  }
+
+  /**
    * Shared POST helper with timeout, headers, and error handling.
    */
   async #postJson<T = unknown>(path: string, body: unknown): Promise<T> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.#timeout);
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.#timeout);
 
     try {
       const response = await fetch(`${this.#baseUrl}${path}`, {
@@ -117,6 +144,16 @@ export class HttpConnector implements EngineConnector {
         },
         body: JSON.stringify(body),
         signal: controller.signal,
+      }).catch((err) => {
+        // Replace the opaque AbortError with a useful timeout message that
+        // names the endpoint and the configured timeout — matches the
+        // diagnostic quality of the WebSocket path's RequestCorrelator.
+        if (timedOut) {
+          throw new Error(
+            `HTTP ${path} timed out after ${this.#timeout}ms`,
+          );
+        }
+        throw err;
       });
 
       if (!response.ok) {

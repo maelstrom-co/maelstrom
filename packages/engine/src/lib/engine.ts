@@ -6,8 +6,10 @@ import type {
   LayoutMode,
   MessageId,
   Result,
+  SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
+import { toSessionHistoryEntry } from './history/wire-projection.js';
 import {
   err,
   GridResponseSchema,
@@ -27,6 +29,7 @@ import type {
   LLMContextMessage,
 } from './history/history-manager.js';
 import { createHistoryManager } from './history/history-manager.js';
+import type { HistoryEntry } from './history/history-store.js';
 import type { Logger } from './logger.js';
 import { callLLM } from './pipeline/call-llm.js';
 import { callWithRetry } from './pipeline/retry.js';
@@ -102,6 +105,30 @@ export interface Engine {
     message: EngineMessage,
     signal?: AbortSignal,
   ): Promise<Result<EngineOutput, EngineError>>;
+
+  /**
+   * Read the recorded history for a session, projected into the public wire
+   * shape. Used by clients that persist a session id and need to rehydrate
+   * prior context after a refresh, on a new device, or in a parallel tab.
+   *
+   * The engine's internal storage record is heavier (full request and
+   * response payloads, optional metadata); the returned
+   * {@link SessionHistoryEntry} carries only what a chat UI needs to render
+   * the conversation. This decoupling lets the engine evolve its storage
+   * shape without breaking the wire contract.
+   *
+   * Lock-free read — does not serialize with concurrent `handle` calls on
+   * the same session. Entries are returned in chronological order by
+   * envelope `timestamp`, matching {@link HistoryManager.getHistory}.
+   *
+   * Returns `Err(ValidationError)` when the engine was constructed without
+   * a `history` config — the same shape used by `assistant_message` so
+   * callers can branch on `_tag` once. Returns `Err(HistoryError)` with
+   * `operation: 'get_history'` when the underlying store throws.
+   */
+  getHistory(
+    sessionId: SessionId,
+  ): Promise<Result<readonly SessionHistoryEntry[], EngineError>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -507,6 +534,48 @@ export function createEngine(config: EngineConfig): Engine {
           // upstream); reachable only if a new variant lands in the schema
           // and TS interface but not in this switch.
           return assertNever(message, 'engine.handle');
+      }
+    },
+
+    async getHistory(sessionId) {
+      if (history === undefined) {
+        return err(validationError('history not configured', 'history'));
+      }
+      // Two try/catches so the log + error message can distinguish a store
+      // failure from a projection failure — both surface the same
+      // `operation: 'get_history'` tag (callers shouldn't have to branch on
+      // a deeper distinction), but on-call gets a clear signal whether to
+      // look at the HistoryStore backend or at a HistoryEntry shape drift.
+      let entries: readonly HistoryEntry[];
+      try {
+        entries = await history.getHistory(sessionId);
+      } catch (error) {
+        logger.error('Failed to load session history from store', error, {
+          sessionId,
+        });
+        return err(
+          historyError(
+            'failed to load session history from store',
+            'get_history',
+            error,
+          ),
+        );
+      }
+      try {
+        return ok(entries.map(toSessionHistoryEntry));
+      } catch (error) {
+        logger.error(
+          'Failed to project session history entry to wire DTO',
+          error,
+          { sessionId },
+        );
+        return err(
+          historyError(
+            'failed to project session history entry',
+            'get_history',
+            error,
+          ),
+        );
       }
     },
   };

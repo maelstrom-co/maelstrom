@@ -209,6 +209,9 @@ function createMockVoiceConnector(): VoiceConnector & {
       return () => {};
     },
     async addAssistantMessage() {},
+    async getHistory() {
+      return [];
+    },
 
     simulateVoiceMessage(message: VoiceServerMessage) {
       voiceMessageCallbacks.forEach((cb) => {

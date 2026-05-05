@@ -9,6 +9,8 @@ import type {
   ActionExecution,
   ChartRequestMessage,
   MaelstromResponse,
+  SessionHistoryEntry,
+  SessionId,
   TilingLayout,
 } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
@@ -119,6 +121,12 @@ export class DemoConnector implements EngineConnector {
 
   async addAssistantMessage(_message: AssistantMessage): Promise<void> {
     // no-op for demo
+  }
+
+  async getHistory(
+    _sessionId: SessionId,
+  ): Promise<readonly SessionHistoryEntry[]> {
+    return [];
   }
 
   subscribe(_handler: (event: ConnectorEvent) => void): Unsubscribe {

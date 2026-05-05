@@ -217,7 +217,15 @@ export function createHistoryManager<TMeta = unknown>(
   };
 }
 
-const extractUserIntent = (reasons: readonly UpdateReason[]): string =>
+/**
+ * Concatenates every `user_intent` UpdateReason on a request into a single
+ * string, joined by a space. Internal — used by both the default LLM-context
+ * projection (so prior turns appear as user messages to the LLM) and by
+ * `Engine.getHistory`'s wire DTO projection (so clients see the same string
+ * the LLM saw). Keeping a single helper means the two projections cannot
+ * silently drift apart on the join character or filter predicate.
+ */
+export const extractUserIntent = (reasons: readonly UpdateReason[]): string =>
   reasons
     .filter(
       (r): r is Extract<UpdateReason, { type: 'user_intent' }> =>

@@ -2119,3 +2119,223 @@ describe('engine.handle — chart_request idempotency', () => {
     expect(entries[0]?.kind).toBe('injection');
   });
 });
+
+// ---------------------------------------------------------------------------
+// engine.getHistory
+// ---------------------------------------------------------------------------
+
+describe('engine.getHistory', () => {
+  test('returns a ValidationError when history is not configured', async () => {
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+    });
+    const result = await engine.getHistory(SessionId('s-unknown'));
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('ValidationError');
+    expect(result.error.message).toMatch(/history not configured/i);
+  });
+
+  test('returns an empty array for a session with no recorded entries', async () => {
+    const store = createInMemoryStore();
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 1_000, store },
+    });
+    const result = await engine.getHistory(SessionId('s-empty'));
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value).toEqual([]);
+  });
+
+  test('projects turn and injection entries to the wire DTO in chronological order', async () => {
+    mockChat.mockResolvedValue(gridLLMResponse);
+    const store = createInMemoryStore();
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 10_000, store },
+    });
+    const sessionId = SessionId('s-mixed');
+
+    // Inject (timestamp t=1), then run a chart_request (timestamp t=2),
+    // both built explicitly so the test pins ordering by `input.timestamp`,
+    // not by store insertion order.
+    await engine.handle(
+      AssistantInjectionMessage({
+        sessionId,
+        content: 'seeded',
+        id: MessageId('inj-1'),
+        timestamp: 1,
+      }),
+    );
+    await engine.handle(
+      ChartRequestMessage({
+        sessionId,
+        id: MessageId('req-1'),
+        timestamp: 2,
+        request: makeGridRequest() as unknown as BrandedChartRequest,
+      }),
+    );
+
+    const result = await engine.getHistory(sessionId);
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value.length).toBe(2);
+
+    const [first, second] = result.value;
+    expect(first).toEqual({
+      kind: 'injection',
+      id: MessageId('inj-1'),
+      sessionId,
+      timestamp: 1,
+      content: 'seeded',
+    });
+    if (second?.kind !== 'turn') throw new Error('expected turn entry');
+    expect(second.id).toBe(MessageId('req-1'));
+    expect(second.sessionId).toBe(sessionId);
+    expect(second.timestamp).toBe(2);
+    // makeGridRequest seeds `user_intent: 'Show me my calendar'` —
+    // toSessionHistoryEntry's projection joins all user_intent reasons.
+    expect(second.userIntent).toBe('Show me my calendar');
+    expect(second.assistantMessage).toBe(gridLLMResponse.userMessage);
+  });
+
+  test('isolates entries per sessionId — does not leak across sessions', async () => {
+    const store = createInMemoryStore();
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 1_000, store },
+    });
+    await engine.handle(
+      AssistantInjectionMessage({
+        sessionId: SessionId('s-a'),
+        content: 'in a',
+        id: MessageId('a-1'),
+      }),
+    );
+
+    const a = await engine.getHistory(SessionId('s-a'));
+    const b = await engine.getHistory(SessionId('s-b'));
+    expect(isOk(a) && a.value.length).toBe(1);
+    expect(isOk(b) && b.value.length).toBe(0);
+  });
+
+  test('concatenates multiple user_intent reasons and ignores non-user-intent reasons', async () => {
+    mockChat.mockResolvedValue(gridLLMResponse);
+    const store = createInMemoryStore();
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 10_000, store },
+    });
+    const sessionId = SessionId('s-multi-intent');
+    const request = makeGridRequest({
+      context: {
+        updateReasons: [
+          { type: 'user_intent', intent: 'first' },
+          { type: 'chart_resize', previous: { columns: 12, rows: 8 }, current: { columns: 14, rows: 8 } },
+          { type: 'user_intent', intent: 'second' },
+        ],
+        chartDimensions: { columns: 14, rows: 8 },
+        layoutMode: 'grid',
+      },
+    });
+
+    await engine.handle(toChartRequestMessage(request, sessionId, MessageId('multi-1')));
+    const result = await engine.getHistory(sessionId);
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    const turn = result.value[0];
+    if (turn?.kind !== 'turn') throw new Error('expected turn entry');
+    // Single-space join, non-user-intent reasons dropped.
+    expect(turn.userIntent).toBe('first second');
+  });
+
+  test('returns empty userIntent when no user_intent reasons are present', async () => {
+    mockChat.mockResolvedValue(gridLLMResponse);
+    const store = createInMemoryStore();
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 10_000, store },
+    });
+    const sessionId = SessionId('s-no-intent');
+    const request = makeGridRequest({
+      context: {
+        updateReasons: [
+          { type: 'chart_resize', previous: { columns: 12, rows: 8 }, current: { columns: 14, rows: 8 } },
+        ],
+        chartDimensions: { columns: 14, rows: 8 },
+        layoutMode: 'grid',
+      },
+    });
+
+    await engine.handle(toChartRequestMessage(request, sessionId, MessageId('noi-1')));
+    const result = await engine.getHistory(sessionId);
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    const turn = result.value[0];
+    if (turn?.kind !== 'turn') throw new Error('expected turn entry');
+    // Empty is a legal value with semantic meaning ("no user input on this turn").
+    expect(turn.userIntent).toBe('');
+  });
+
+  test('surfaces a HistoryError when the store returns an entry with an unknown kind (assertNever runtime path)', async () => {
+    // Custom HistoryStore that smuggles a malformed entry past the engine's
+    // type checker — simulates a remote-backed store deserializing an entry
+    // shape the engine doesn't understand (schema drift, future variant).
+    // The compile-time exhaustiveness in toSessionHistoryEntry catches the
+    // shape at build time; this test pins the runtime guardrail.
+    const inner = createInMemoryStore();
+    const malformed: HistoryStore = {
+      ...inner,
+      get: async () =>
+        [
+          {
+            kind: 'unknown_variant' as never,
+            input: {
+              id: MessageId('m-1'),
+              sessionId: SessionId('s-1'),
+              timestamp: 1,
+            },
+          } as never,
+        ] as never,
+    };
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 1_000, store: malformed },
+    });
+    const result = await engine.getHistory(SessionId('s-1'));
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('HistoryError');
+    if (result.error._tag !== 'HistoryError') return;
+    expect(result.error.operation).toBe('get_history');
+  });
+
+  test('surfaces a HistoryError when the store throws', async () => {
+    const inner = createInMemoryStore();
+    const failing: HistoryStore = {
+      ...inner,
+      get: async () => {
+        throw new Error('store down');
+      },
+    };
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 1_000, store: failing },
+    });
+    const result = await engine.getHistory(SessionId('s-1'));
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('HistoryError');
+    if (result.error._tag !== 'HistoryError') return;
+    expect(result.error.operation).toBe('get_history');
+  });
+});

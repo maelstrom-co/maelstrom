@@ -40,6 +40,7 @@ import type {
   ChartRequestMessage,
   MaelstromResponse,
   MessageId,
+  SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
 
@@ -382,6 +383,23 @@ export interface EngineConnector {
    * Used for programmatic messages (greetings, notifications).
    */
   addAssistantMessage(message: AssistantMessage): Promise<void>;
+
+  /**
+   * Fetch the engine-recorded history for the given session.
+   *
+   * Used by clients that persist a session id and need to rehydrate the
+   * conversation after a refresh, on a different device, or in a parallel
+   * tab. The session id is supplied explicitly (not taken from the connector's
+   * current connection) so callers can fetch any session they have an id for —
+   * including a session that predates the current orchestrator instance.
+   *
+   * Implementations translate transport / engine errors into thrown `Error`s,
+   * matching the existing `process` and `addAssistantMessage` shape. Whether
+   * an unknown or empty session resolves to `[]` or rejects is the engine's
+   * call (the reference engine resolves to `[]`); connectors do not synthesize
+   * that behavior themselves.
+   */
+  getHistory(sessionId: SessionId): Promise<readonly SessionHistoryEntry[]>;
 }
 
 // ============================================================================

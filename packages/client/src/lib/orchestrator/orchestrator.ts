@@ -3,6 +3,8 @@ import {
   MessageId,
   type ChartResizeReason,
   type MaelstromResponse,
+  type SessionHistoryEntry,
+  type SessionId,
   type UpdateReason,
   type VesselMutationReason,
 } from '@maelstrom-co/protocol';
@@ -216,6 +218,29 @@ export class Orchestrator {
       message,
     };
     await this.#connector.addAssistantMessage(assistantMessage);
+  }
+
+  /**
+   * Fetch the engine-recorded history for the given session.
+   *
+   * Use this to rehydrate a conversation after a refresh, on a new device,
+   * or in a parallel tab — anywhere a developer has persisted a session id
+   * and wants to seed UI state from the server. The session id is passed
+   * explicitly (rather than read from the orchestrator's own
+   * `config.sessionId`) so callers can fetch any session they have an id
+   * for, including a session that predates this orchestrator instance.
+   *
+   * Errors from the connector (transport failure, engine error) propagate
+   * as thrown `Error`s — same shape as `addAssistantMessage` and
+   * `processIntent`.
+   */
+  async getHistory(
+    sessionId: SessionId,
+  ): Promise<readonly SessionHistoryEntry[]> {
+    if (this.#isDisposed) {
+      throw new Error('Orchestrator is disposed');
+    }
+    return this.#connector.getHistory(sessionId);
   }
 
   // ==========================================================================

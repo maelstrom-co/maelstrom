@@ -52,6 +52,8 @@ function createMockConnector(): EngineConnector & {
 
     addAssistantMessage: mock(() => Promise.resolve()),
 
+    getHistory: mock(() => Promise.resolve([])),
+
     triggerEvent: (event: ConnectorEvent) => {
       handlers.forEach((h) => {
         h(event);

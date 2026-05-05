@@ -44,5 +44,9 @@ export function createMockConnector(overrides?: {
     async addAssistantMessage(_message: AssistantMessage): Promise<void> {
       // no-op for tests
     },
+
+    async getHistory(_sessionId: SessionId) {
+      return [];
+    },
   };
 }

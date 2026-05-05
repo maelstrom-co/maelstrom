@@ -14,6 +14,13 @@ import type {
  * seeded into history so subsequent LLM turns see it in context, without
  * actually invoking the LLM for the injection itself.
  *
+ * Engine-internal: this is the storage shape, persisted by the configured
+ * {@link HistoryStore} and consumed by the prompt-builder. Clients fetching
+ * history through `Engine.getHistory` see a leaner wire DTO
+ * ({@link SessionHistoryEntry} in `@maelstrom-co/protocol`); this internal
+ * type is free to evolve (extra metadata fields, store-specific keys, etc.)
+ * without breaking the wire contract.
+ *
  * Consumers may pin `TMeta` to attach typed metadata (tenant id, experiment
  * arm, token counts, audit trail, etc.) that rides along every entry and
  * flows through the store, the `transformEntry` hook, and any configured

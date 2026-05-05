@@ -37,6 +37,7 @@ function createMockConnector(
         () => {},
     ),
     addAssistantMessage: mock(() => Promise.resolve()),
+    getHistory: mock(() => Promise.resolve([])),
     ...overrides,
   };
 }

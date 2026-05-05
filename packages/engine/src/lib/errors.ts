@@ -81,19 +81,19 @@ export interface CancellationError {
  * reconnection / degraded mode).
  *
  * `operation` discriminates the failing call site so callers can branch
- * without string-matching `message`. Today the engine emits two members
+ * without string-matching `message`. Today the engine emits three members
  * on its public Err channel: `add_assistant_message` from the
- * `assistant_message` entry point, and `get_llm_context` from
- * `chart_request` history-context loading. `record_turn` and `clear` are
- * reserved tags — `recordTurn` failures in the `chart_request` arm are
- * advisory (logged but not returned); `clear` is exposed on the public
- * `HistoryManager` interface but not surfaced through `Engine.handle`.
- * `leader_pipeline` is a defensive catch-all kept as a follower-hang
- * guard inside the idempotency machinery in {@link Engine.handle} —
- * unreachable under normal operation (every per-stage error path returns
- * via the Result channel), but if some future refactor lets a throw
- * escape, followers awaiting the in-flight leader observe this
- * discriminant instead of hanging forever.
+ * `assistant_message` entry point, `get_llm_context` from `chart_request`
+ * history-context loading, and `get_history` from {@link Engine.getHistory}.
+ * `record_turn` and `clear` are reserved tags — `recordTurn` failures in
+ * the `chart_request` arm are advisory (logged but not returned); `clear`
+ * is exposed on the public `HistoryManager` interface but not surfaced
+ * through `Engine.handle`. `leader_pipeline` is a defensive catch-all kept
+ * as a follower-hang guard inside the idempotency machinery in
+ * {@link Engine.handle} — unreachable under normal operation (every
+ * per-stage error path returns via the Result channel), but if some future
+ * refactor lets a throw escape, followers awaiting the in-flight leader
+ * observe this discriminant instead of hanging forever.
  */
 export interface HistoryError {
   readonly _tag: 'HistoryError';
@@ -103,6 +103,7 @@ export interface HistoryError {
     | 'add_assistant_message'
     | 'clear'
     | 'get_llm_context'
+    | 'get_history'
     | 'leader_pipeline';
   readonly cause: unknown;
   readonly stack?: string;

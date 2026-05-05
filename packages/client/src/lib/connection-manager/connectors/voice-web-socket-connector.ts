@@ -5,9 +5,13 @@ import type {
 import type {
   ChartRequestMessage,
   MaelstromResponse,
+  SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
-import { MessageId } from '@maelstrom-co/protocol';
+import {
+  MessageId,
+  SessionHistoryEntryArraySchema,
+} from '@maelstrom-co/protocol';
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import type {
@@ -76,6 +80,9 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
 
   #ws: WebSocket | null = null;
   #correlator = new RequestCorrelator();
+  // Separate correlator for getHistory replies — see WebSocketConnector for
+  // rationale (typed isolation between MaelstromResponse and SessionHistoryEntry[]).
+  #historyCorrelator = new RequestCorrelator<readonly SessionHistoryEntry[]>();
 
   /** Transport-level event handlers (disconnected, error) */
   #handlers = new Set<(event: ConnectorEvent) => void>();
@@ -157,7 +164,9 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
    * Closes the WebSocket connection and rejects all pending requests.
    */
   async disconnect(): Promise<void> {
-    this.#correlator.rejectAll(new Error('Disconnected'));
+    const disconnected = new Error('Disconnected');
+    this.#correlator.rejectAll(disconnected);
+    this.#historyCorrelator.rejectAll(disconnected);
     if (this.#ws) {
       this.#ws.close();
       this.#ws = null;
@@ -324,6 +333,29 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
     this.#ws.send(JSON.stringify(voiceMessage));
   }
 
+  /**
+   * Sends a `client.history.get` request and waits for the correlated
+   * `engine.history.response`. See `WebSocketConnector.getHistory` — same
+   * wire shape, correlation goes through `#historyCorrelator` so the
+   * response can't be misrouted to `process()`'s `MaelstromResponse`
+   * correlator on an id collision.
+   */
+  async getHistory(sessionId: SessionId): Promise<readonly SessionHistoryEntry[]> {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+    const requestId = MessageId();
+    const promise = this.#historyCorrelator.create(requestId, this.#timeout);
+    this.#ws.send(
+      JSON.stringify({
+        type: 'client.history.get',
+        id: requestId,
+        sessionId,
+      }),
+    );
+    return promise;
+  }
+
   // ============================================================================
   // PushConnector methods
   // ============================================================================
@@ -357,7 +389,9 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
     };
 
     this.#ws.onclose = (event) => {
-      this.#correlator.rejectAll(new Error('WebSocket closed'));
+      const closed = new Error('WebSocket closed');
+      this.#correlator.rejectAll(closed);
+      this.#historyCorrelator.rejectAll(closed);
       const isClean = event.code === 1000;
       this.#handlers.forEach((h) => {
         h({
@@ -431,13 +465,56 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
           }
         }
       } else if (
+        data.type === 'engine.history.response' &&
+        isCorrelatableId(data.requestId)
+      ) {
+        const requestId = MessageId(data.requestId);
+        // safeParse at the wire boundary — see WebSocketConnector for
+        // rationale. Malformed payload rejects the awaiting caller with a
+        // useful error rather than silently coercing to [].
+        const parsed = SessionHistoryEntryArraySchema.safeParse(data.entries);
+        if (!parsed.success) {
+          const rejected = this.#historyCorrelator.reject(
+            requestId,
+            new Error(
+              `engine.history.response: malformed entries (${parsed.error.issues[0]?.message ?? 'schema mismatch'})`,
+            ),
+          );
+          if (!rejected) {
+            console.warn(
+              `[VoiceConnector] engine.history.response with malformed entries and no pending request: requestId=${data.requestId}`,
+            );
+          }
+          return;
+        }
+        const resolved = this.#historyCorrelator.resolve(requestId, parsed.data);
+        if (this.#debug) {
+          console.log(
+            `[VoiceConnector] engine.history.response requestId=${data.requestId} correlated=${resolved}`,
+          );
+        }
+        if (!resolved) {
+          console.warn(
+            `[VoiceConnector] engine.history.response with no pending request: requestId=${data.requestId}`,
+          );
+        }
+      } else if (
         data.type === 'engine.error' &&
         isCorrelatableId(data.requestId)
       ) {
-        this.#correlator.reject(
-          MessageId(data.requestId),
-          new Error(data.error || 'Engine error'),
-        );
+        // engine.error is shared across response types — reject both
+        // correlators unconditionally so a request id pending in both
+        // observes the error in both places. reject() is a no-op for unknown
+        // ids; the redundant call is free. Aligned with WebSocketConnector.
+        const requestId = MessageId(data.requestId);
+        const error = new Error(data.error || data.message || 'Engine error');
+        const inChart = this.#correlator.reject(requestId, error);
+        const inHistory = this.#historyCorrelator.reject(requestId, error);
+        if (!inChart && !inHistory) {
+          console.warn(
+            `[VoiceConnector] engine.error with no pending request: requestId=${data.requestId} error=${error.message}`,
+          );
+        }
       } else {
         // All other messages are voice messages
         this.#voiceMessageListeners.forEach((listener) => {

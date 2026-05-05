@@ -77,6 +77,11 @@ export type {
   EngineOutput,
   EngineOutputBase,
 } from './lib/engine-output.js';
+export type { SessionHistoryEntry } from './lib/session-history-entry.js';
+export {
+  SessionHistoryEntryArraySchema,
+  SessionHistoryEntrySchema,
+} from './lib/session-history-entry.js';
 export {
   ActionExecutionSchema,
   ChartPositionSchema,

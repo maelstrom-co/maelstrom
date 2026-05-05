@@ -73,5 +73,8 @@ export function createMockVoiceConnector(overrides?: {
     async addAssistantMessage(_message: AssistantMessage) {
       // no-op
     },
+    async getHistory(_sessionId: SessionId) {
+      return [];
+    },
   };
 }

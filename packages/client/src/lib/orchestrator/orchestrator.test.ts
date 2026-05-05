@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:te
 import {
   InstanceId,
   MessageId,
+  SessionId,
   type ChartRequestMessage,
   type MaelstromResponse,
-  type SessionId,
+  type SessionHistoryEntry,
   type VariantName,
   type VesselId,
 } from '@maelstrom-co/protocol';
@@ -41,6 +42,7 @@ function createMockConnector(
         () => {},
     ),
     addAssistantMessage: mock(() => Promise.resolve()),
+    getHistory: mock(() => Promise.resolve([])),
     ...overrides,
   };
 }
@@ -567,6 +569,69 @@ describe('Orchestrator', () => {
       expect(call.sessionId).toBeUndefined();
 
       orchestrator.dispose();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // getHistory
+  // --------------------------------------------------------------------------
+
+  describe('getHistory', () => {
+    it('should delegate to the connector and pass through non-empty entries', async () => {
+      const entries: readonly SessionHistoryEntry[] = [
+        {
+          kind: 'turn',
+          id: MessageId('m-1'),
+          sessionId: SessionId('persisted-session'),
+          timestamp: 1,
+          userIntent: 'show calendar',
+          assistantMessage: 'Here is your calendar.',
+        },
+        {
+          kind: 'injection',
+          id: MessageId('i-1'),
+          sessionId: SessionId('persisted-session'),
+          timestamp: 2,
+          content: 'seeded',
+        },
+      ];
+      const getHistory = mock(() => Promise.resolve(entries));
+      const connector = createMockConnector({ getHistory });
+      const { orchestrator } = createTestOrchestrator(connector);
+      const target = SessionId('persisted-session');
+
+      const result = await orchestrator.getHistory(target);
+
+      // Reference equality — orchestrator must not deep-clone.
+      expect(result).toBe(entries);
+      expect(getHistory).toHaveBeenCalledTimes(1);
+      const call = (getHistory as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(call).toBe(target);
+
+      orchestrator.dispose();
+    });
+
+    it('should propagate connector errors', async () => {
+      const getHistory = mock(() =>
+        Promise.reject(new Error('transport down')),
+      );
+      const connector = createMockConnector({ getHistory });
+      const { orchestrator } = createTestOrchestrator(connector);
+
+      await expect(
+        orchestrator.getHistory(SessionId('any')),
+      ).rejects.toThrow(/transport down/);
+
+      orchestrator.dispose();
+    });
+
+    it('should reject after dispose', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.dispose();
+
+      await expect(
+        orchestrator.getHistory(SessionId('any')),
+      ).rejects.toThrow(/disposed/i);
     });
   });
 
