@@ -245,15 +245,22 @@ If every attempt produces `recommend === true`, the **last** attempt's response 
 
 ## Concurrency
 
-The engine serializes `chart_request` processing per session via an in-process async mutex. Concurrent `chart_request` messages on the same session queue; messages on different sessions run in parallel.
+The engine has **two** layers of per-session coordination, each protecting a different invariant:
+
+1. **In-flight dedup Map** (in `chart-request-dedup`). Collapses concurrent duplicates that share the same `(sessionId, messageId)` onto a single LLM call — a follower attaches to the leader's promise instead of issuing its own. Idempotency only; it does NOT serialize *different* `chart_request`s on the same session.
+2. **Per-session async mutex** (in `HistoryManager`). Serializes the post-LLM history-write path: `recordTurn`'s `store.append` + truncation, the truncation step inside `addAssistantMessage`, and `clear`. The LLM call itself runs OUTSIDE the mutex — concurrent `chart_request`s on the same session race their LLM reads/calls; the mutex only prevents racing truncations from clobbering each other's appends.
 
 `assistant_message` is partially decoupled: the **append is lock-free** (dedup correctness is owned by `HistoryStore.append`'s atomicity), so an injection write doesn't queue behind a long-running `chart_request`. **Truncation, however, serializes via the same mutex** — both `recordTurn` and `addAssistantMessage` call `store.replace`, and racing replaces can clobber each other's appends. That gives correct bounds on the store *and* keeps the common case (write-then-resolve) fast when the cap isn't hit.
+
+What this means in practice: two distinct `chart_request`s on the same session see the same prior history (both call `getLLMContext` lock-free) and run their LLM calls in parallel. They serialize only when they reach `recordTurn` — second writer queues behind the first. This is by design; the alternative (full chart_request serialization) would push end-to-end latency for back-to-back requests to the sum of their LLM calls instead of the max.
 
 ### Multi-instance deployment caveat
 
 > **The in-process mutex only serializes within a single Node/Bun process.**
 
-If two engine instances (pods, containers, processes) serve the same `sessionId`, their mutexes don't talk to each other. Concurrent `chart_request` messages across instances will race — producing stale LLM context, divergent assistant responses, and inconsistent history truncation. The LLM call is 1–5 seconds wide; this is a user-visible bug, not a theoretical one.
+If two engine instances (pods, containers, processes) serve the same `sessionId`, their mutexes don't talk to each other. Concurrent `recordTurn` / `addAssistantMessage` truncations across pods can clobber each other's appends, resurrecting evicted entries or duplicating retained ones.
+
+Stale LLM context and divergent assistant responses are a separate concern this mutex does **not** address even within a single process — the LLM call runs outside the critical section by design. Closing that gap requires session-level serialization at a higher layer (one of the options below); the LLM call is 1–5 seconds wide, so when this matters it's a user-visible bug, not a theoretical one.
 
 Production multi-instance deployments MUST close this gap at a higher layer. Options:
 

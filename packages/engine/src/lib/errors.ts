@@ -210,7 +210,11 @@ export const cancellationError = (
   stack: captureStack(message),
 });
 
-export const historyError = (
+// Single source of truth for the HistoryError shape. Private so the
+// `operation` literal can only be set via one of the per-operation
+// constructors below — a typo there becomes a compile error rather than a
+// silently-misattributed log line that no test catches.
+const buildHistoryError = (
   message: string,
   operation: HistoryError['operation'],
   cause: unknown,
@@ -221,6 +225,31 @@ export const historyError = (
   cause,
   stack: captureStack(message),
 });
+
+/**
+ * Per-operation factories for {@link HistoryError}. Each constructor pins
+ * its `operation` literal at the type level, so an in-package call site
+ * can no longer tag (for example) a `record_turn` failure as
+ * `add_assistant_message` by passing the wrong string.
+ *
+ * Prefer these over hand-constructing the discriminated union directly. The
+ * type itself remains structurally exported for consumers' pattern-matching;
+ * the constructor-only guarantee applies to in-package construction only.
+ */
+export const historyError = {
+  recordTurn: (message: string, cause: unknown): HistoryError =>
+    buildHistoryError(message, 'record_turn', cause),
+  addAssistantMessage: (message: string, cause: unknown): HistoryError =>
+    buildHistoryError(message, 'add_assistant_message', cause),
+  clear: (message: string, cause: unknown): HistoryError =>
+    buildHistoryError(message, 'clear', cause),
+  getLLMContext: (message: string, cause: unknown): HistoryError =>
+    buildHistoryError(message, 'get_llm_context', cause),
+  getHistory: (message: string, cause: unknown): HistoryError =>
+    buildHistoryError(message, 'get_history', cause),
+  leaderPipeline: (message: string, cause: unknown): HistoryError =>
+    buildHistoryError(message, 'leader_pipeline', cause),
+} as const;
 
 // Envelope field names, type-gated against `EngineMessageBase` (plus the
 // `type` discriminator that lives on each `EngineMessage` variant) so a

@@ -188,44 +188,57 @@ describe('InMemoryStore.clear', () => {
 });
 
 describe('InMemoryStore.getResponseById', () => {
-  test('returns the response for a stored turn', async () => {
+  test('returns hit for a stored turn', async () => {
     const store = createInMemoryStore();
     const s = SessionId('s-1');
     const id = MessageId('msg-1');
     const entry = turn(s, id);
     await store.append(s, entry);
     const got = await store.getResponseById(s, id);
-    expect(got).not.toBeNull();
-    if (entry.kind === 'turn') {
-      expect(got).toEqual(entry.output);
+    expect(got.kind).toBe('hit');
+    if (got.kind === 'hit' && entry.kind === 'turn') {
+      expect(got.output).toEqual(entry.output);
     }
   });
 
-  test('returns null for an unknown (sessionId, messageId)', async () => {
+  test('returns miss for an unknown (sessionId, messageId)', async () => {
     const store = createInMemoryStore();
     const got = await store.getResponseById(
       SessionId('s-1'),
       MessageId('never-seen'),
     );
-    expect(got).toBeNull();
+    expect(got).toEqual({ kind: 'miss' });
   });
 
-  test('returns null when an injection occupies the id slot', async () => {
+  test('returns miss for a known session but unknown messageId', async () => {
+    // Distinct from the previous case: ensures an existing session map
+    // with a different id still reports `miss` rather than throwing or
+    // returning a half-shape.
+    const store = createInMemoryStore();
+    const s = SessionId('s-1');
+    await store.append(s, turn(s, MessageId('present')));
+    const got = await store.getResponseById(s, MessageId('absent'));
+    expect(got).toEqual({ kind: 'miss' });
+  });
+
+  test('returns kind-mismatch with slotKind when an injection occupies the id slot', async () => {
     const store = createInMemoryStore();
     const s = SessionId('s-1');
     const id = MessageId('shared');
     await store.append(s, injection(s, 'hello', id));
     const got = await store.getResponseById(s, id);
-    expect(got).toBeNull();
+    // slotKind carries the actual stored kind so a future third entry
+    // kind doesn't quietly misattribute downstream warnings.
+    expect(got).toEqual({ kind: 'kind-mismatch', slotKind: 'injection' });
   });
 
-  test('returns null after the entry has been evicted via replace', async () => {
+  test('returns miss after the entry has been evicted via replace', async () => {
     const store = createInMemoryStore();
     const s = SessionId('s-1');
     const id = MessageId('msg-1');
     await store.append(s, turn(s, id));
     await store.replace(s, []);
     const got = await store.getResponseById(s, id);
-    expect(got).toBeNull();
+    expect(got).toEqual({ kind: 'miss' });
   });
 });

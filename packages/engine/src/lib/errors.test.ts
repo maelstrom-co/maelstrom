@@ -94,9 +94,9 @@ describe('Error constructors', () => {
     expect(e.stack).toBeString();
   });
 
-  test('historyError creates tagged error with operation + cause', () => {
+  test('historyError.addAssistantMessage pins operation literal', () => {
     const cause = new Error('store offline');
-    const e = historyError('failed to persist', 'add_assistant_message', cause);
+    const e = historyError.addAssistantMessage('failed to persist', cause);
     expect(e._tag).toBe('HistoryError');
     expect(e.message).toBe('failed to persist');
     expect(e.operation).toBe('add_assistant_message');
@@ -104,6 +104,24 @@ describe('Error constructors', () => {
     expect(e.stack).toBeString();
   });
 
+  test.each([
+    ['recordTurn', 'record_turn'],
+    ['getLLMContext', 'get_llm_context'],
+    ['clear', 'clear'],
+    ['leaderPipeline', 'leader_pipeline'],
+  ] as const)(
+    'historyError.%s tags operation as %s',
+    (factoryName, expectedOperation) => {
+      const factory = historyError[factoryName];
+      const cause = new Error('store offline');
+      const e = factory('boom', cause);
+      expect(e._tag).toBe('HistoryError');
+      expect(e.message).toBe('boom');
+      expect(e.operation).toBe(expectedOperation);
+      expect(e.cause).toBe(cause);
+      expect(e.stack).toBeString();
+    },
+  );
 });
 
 // One escape hatch (this single cast) instead of one per call site — keeps
@@ -224,7 +242,7 @@ describe('EngineError pattern matching', () => {
       requestValidationError([]),
       timeoutError('d', 1000),
       cancellationError('e', 'reason'),
-      historyError('f', 'add_assistant_message', new Error('store')),
+      historyError.addAssistantMessage('f', new Error('store')),
     ];
 
     const tags = errors.map((e) => {

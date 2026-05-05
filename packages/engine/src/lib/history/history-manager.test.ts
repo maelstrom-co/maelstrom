@@ -887,10 +887,42 @@ describe('HistoryManager.getResponseById', () => {
     const input = buildInput(sessionId, messageId, 'hi');
     const output = buildOutput(sessionId, messageId, 'hi back');
 
-    expect(await manager.getResponseById(sessionId, messageId)).toBeNull();
+    expect(await manager.getResponseById(sessionId, messageId)).toEqual({
+      kind: 'miss',
+    });
 
     await manager.recordTurn(input, output);
 
-    expect(await manager.getResponseById(sessionId, messageId)).toEqual(output);
+    expect(await manager.getResponseById(sessionId, messageId)).toEqual({
+      kind: 'hit',
+      output,
+    });
+  });
+
+  test('surfaces kind-mismatch with slotKind when an injection occupies the slot', async () => {
+    // Pins the third discriminant pass-through. Without this, a manager-side
+    // filter that simplifies kind-mismatch → miss (a plausible future
+    // change) would regress the consumer's ability to distinguish the cases.
+    const store = createInMemoryStore();
+    const manager = createHistoryManager({
+      maxEntries: 10,
+      maxChars: 1_000,
+      store,
+    });
+    const sessionId = SessionId('s-collide');
+    const sharedId = MessageId('shared');
+
+    await manager.addAssistantMessage(
+      AssistantInjectionMessage({
+        sessionId,
+        content: 'prior injection',
+        id: sharedId,
+      }),
+    );
+
+    expect(await manager.getResponseById(sessionId, sharedId)).toEqual({
+      kind: 'kind-mismatch',
+      slotKind: 'injection',
+    });
   });
 });

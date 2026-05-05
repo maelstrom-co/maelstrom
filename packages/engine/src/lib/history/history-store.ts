@@ -75,19 +75,42 @@ export interface HistoryStore<TMeta = unknown> {
   clear(sessionId: SessionId): Promise<void>;
 
   /**
-   * Returns the response stored under `(sessionId, messageId)`, or `null` if:
-   * - no entry exists for that id (never seen, or evicted by truncation), or
-   * - the entry exists but is an `injection` (only `turn` entries carry a
-   *   response).
+   * Point-lookup of a previously recorded `turn`'s response.
    *
-   * Used by the engine to replay a successful `chart_request` without
-   * re-invoking the LLM. Stores backed by a remote backend should implement
-   * this against backend-native point-lookup primitives (Redis `HGET`,
-   * Postgres `SELECT response WHERE …`) to avoid materializing the full
-   * {@link HistoryEntry}.
+   * Returns one of three semantically distinct outcomes (see
+   * {@link GetResponseByIdResult}). The engine's replay path treats `miss`
+   * and `kind-mismatch` identically (both fall through to a fresh LLM
+   * call), but the type-level distinction lets the consumer decide what
+   * to do about a `messageId` reuse across kinds — surface it as a
+   * warning, page on it, etc. Stores backed by a remote backend should
+   * implement this against backend-native point-lookup primitives (Redis
+   * `HGET`, Postgres `SELECT response WHERE …`) to avoid materializing
+   * the full {@link HistoryEntry}.
    */
   getResponseById(
     sessionId: SessionId,
     messageId: MessageId,
-  ): Promise<ChartResponseOutput | null>;
+  ): Promise<GetResponseByIdResult>;
 }
+
+/**
+ * Result of {@link HistoryStore.getResponseById}. Three discriminated
+ * outcomes:
+ *
+ * - `hit` — a `turn` entry exists and its `response` is included.
+ * - `miss` — no entry exists for `(sessionId, messageId)`. The id was
+ *   never recorded, or the slot was evicted by truncation.
+ * - `kind-mismatch` — the id slot exists but holds a non-`turn` entry
+ *   (only `turn` entries carry a response). `slotKind` carries the
+ *   actual stored kind so a third entry kind doesn't quietly misattribute
+ *   downstream log lines as "injection." Structurally a miss for replay;
+ *   semantically a `messageId` reuse across kinds — a signal the consumer
+ *   may want to log or alert on.
+ */
+export type GetResponseByIdResult =
+  | { readonly kind: 'hit'; readonly output: ChartResponseOutput }
+  | { readonly kind: 'miss' }
+  | {
+      readonly kind: 'kind-mismatch';
+      readonly slotKind: Exclude<HistoryEntry['kind'], 'turn'>;
+    };

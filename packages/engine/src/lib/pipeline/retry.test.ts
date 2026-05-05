@@ -405,7 +405,7 @@ describe('callWithRetry', () => {
       ['CancellationError', cancellationError('cancel', 'user')],
       ['TimeoutError', timeoutError('slow', 5_000)],
       ['ValidationError', validationError('bad', 'prompt')],
-      ['HistoryError', historyError('store', 'record_turn', new Error('s'))],
+      ['HistoryError', historyError.recordTurn('store', new Error('s'))],
     ] as Array<[string, EngineError]>)('%s is fatal — no retry', async (_, e) => {
       const { runOnce, calls } = recordingRunOnce([err(e)]);
 

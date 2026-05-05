@@ -265,6 +265,25 @@ interface Engine {
 └─────────────────────────────────────────────────┘
 ```
 
+## Multi-Instance Gaps (audit, MAE-192)
+
+The reference engine carries three state-bearing primitives that are
+process-local. None blocks the in-process reference deployment; all three
+need a substrate before the engine can fan out across pods. Greppable via
+`TODO(multi-instance)` in the source.
+
+| Site | Primitive | Failure mode under multi-instance | Substrate |
+|------|-----------|-----------------------------------|-----------|
+| `chart-request-dedup.ts` | `inflight` Map keyed by `${sessionId}::${messageId}` | Concurrent duplicates on different pods each spin up their own leader → double LLM charge during the leader's window | Distributed lease (Redis SETNX with TTL + leadership renewal, or DB row lock with `NOWAIT`) so followers on other pods await the first writer's settle |
+| `history-manager.ts` | `sessionLocks` Map of per-session `AsyncMutex` | Two pods racing on the same session interleave the read-truncate-replace inside `recordTurn`, clobbering each other's truncation | Shared lease (Redis Redlock or backend row lock) keyed by `sessionId`, OR move truncation server-side as `HistoryStore.recordAndTruncate(...)` so the lock collapses into the store's transaction |
+| `async-mutex.ts` | `AsyncMutex` itself (single-process promise-chain) | Cross-pod `chart_request` on the same session race producing stale LLM context, divergent assistants, inconsistent truncation | Session affinity at the LB, distributed lock service, or per-session message queue partitioned on `sessionId` |
+
+The overview pointer lives in `engine.ts`'s `Engine` interface JSDoc so a
+consumer reading the public surface sees the gap before they hit it.
+Implementing any of these requires a swap-in `HistoryStore` plus the
+substrate of choice — none of the engine's pure-pipeline code (prompt
+build, LLM call, response process, retry, heal) needs to change.
+
 ## Validation System (MAE-121)
 
 Five layers of validation, added incrementally:

@@ -9,7 +9,11 @@ import type {
 
 import type { AsyncMutex } from './async-mutex.js';
 import { createAsyncMutex } from './async-mutex.js';
-import type { HistoryEntry, HistoryStore } from './history-store.js';
+import type {
+  GetResponseByIdResult,
+  HistoryEntry,
+  HistoryStore,
+} from './history-store.js';
 import { truncate } from './truncation.js';
 
 /**
@@ -90,15 +94,15 @@ export interface HistoryManager<TMeta = unknown> {
   getLLMContext(sessionId: SessionId): Promise<readonly LLMContextMessage[]>;
   clear(sessionId: SessionId): Promise<void>;
   /**
-   * Point-lookup of a previously recorded `turn`'s response. Returns `null`
-   * if no `turn` exists for `(sessionId, messageId)` (never seen, evicted by
-   * truncation, or occupied by an `injection`). Pure passthrough to
-   * {@link HistoryStore.getResponseById}; lock-free read.
+   * Point-lookup of a previously recorded `turn`'s response. Pure passthrough
+   * to {@link HistoryStore.getResponseById}; lock-free read. See
+   * {@link GetResponseByIdResult} for the three outcomes (`hit`, `miss`,
+   * `kind-mismatch`).
    */
   getResponseById(
     sessionId: SessionId,
     messageId: MessageId,
-  ): Promise<ChartResponseOutput | null>;
+  ): Promise<GetResponseByIdResult>;
 }
 
 export function createHistoryManager<TMeta = unknown>(
@@ -106,6 +110,20 @@ export function createHistoryManager<TMeta = unknown>(
 ): HistoryManager<TMeta> {
   const store = config.store;
   const deriveLLMContext = config.deriveLLMContext ?? defaultDeriveLLMContext;
+  // TODO(multi-instance): per-session mutex is process-local.
+  // Failure mode: two instances racing on the same session can interleave
+  // the read-truncate-replace sequence inside `recordTurn`. The
+  // `HistoryStore.append` atomicity contract protects single-entry writes
+  // (`assistant_message` dedup), but the truncation pass `entries → prune
+  // → store.replace(entries')` is a multi-step compare-and-swap that
+  // {@link AsyncMutex} only serializes within one process. Across
+  // instances the second writer can clobber the first writer's truncation,
+  // resurrecting evicted entries or duplicating retained ones.
+  // Substrate: shared lease (Redis Redlock or backend-native row lock)
+  // keyed by `sessionId`, OR move truncation server-side as an atomic
+  // store operation (`HistoryStore.recordAndTruncate(...)`) so the lock
+  // requirement collapses into the store's transaction. Grep
+  // `TODO(multi-instance)`.
   const sessionLocks = new Map<SessionId, AsyncMutex>();
 
   const lockFor = (sessionId: SessionId): AsyncMutex => {

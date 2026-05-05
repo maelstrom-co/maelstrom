@@ -1,18 +1,6 @@
 import type { MessageId, SessionId } from '@maelstrom-co/protocol';
 
-import type { Logger } from '../logger.js';
 import type { HistoryEntry, HistoryStore } from './history-store.js';
-
-/**
- * Optional configuration for {@link createInMemoryStore}. Pass a `logger`
- * to surface diagnostics that would otherwise be silent (e.g.
- * `getResponseById` finding the slot occupied by an `injection` rather
- * than a `turn` — a `messageId` reuse across kinds, distinct from a clean
- * miss). Default behavior is silent.
- */
-export interface InMemoryStoreOptions {
-  readonly logger?: Logger;
-}
 
 /**
  * Reference implementation of {@link HistoryStore} backed by a nested map.
@@ -23,10 +11,7 @@ export interface InMemoryStoreOptions {
  * is enough for the in-process reference engine; distributed deployments
  * must provide a store that delegates atomicity to the backend.
  */
-export function createInMemoryStore<TMeta = unknown>(
-  options: InMemoryStoreOptions = {},
-): HistoryStore<TMeta> {
-  const { logger } = options;
+export function createInMemoryStore<TMeta = unknown>(): HistoryStore<TMeta> {
   const data = new Map<SessionId, Map<MessageId, HistoryEntry<TMeta>>>();
 
   const sessionFor = (
@@ -74,25 +59,21 @@ export function createInMemoryStore<TMeta = unknown>(
     async getResponseById(sessionId, messageId) {
       const session = data.get(sessionId);
       if (session === undefined) {
-        return null;
+        return { kind: 'miss' };
       }
       const entry = session.get(messageId);
       if (entry === undefined) {
-        return null;
+        return { kind: 'miss' };
       }
+      // Slot exists but holds a non-`turn` entry (today only `injection`
+      // exists, but the store reports the actual kind via `slotKind` so
+      // downstream observability stays correct if a third kind ever lands).
+      // Reporting it as a third outcome lets the consumer decide whether
+      // to warn, page, or treat it like a miss.
       if (entry.kind !== 'turn') {
-        // Slot exists but holds an `injection` — a real messageId reuse
-        // across kinds, semantically distinct from a clean miss. Surface
-        // it so the dual outcome stays distinguishable in production logs;
-        // the engine's replay path treats both the same (cache miss →
-        // fresh LLM call), so this is observability only.
-        logger?.warn(
-          'getResponseById: slot kind mismatch (returning null)',
-          { sessionId, messageId, slotKind: entry.kind },
-        );
-        return null;
+        return { kind: 'kind-mismatch', slotKind: entry.kind };
       }
-      return entry.output;
+      return { kind: 'hit', output: entry.output };
     },
   };
 }

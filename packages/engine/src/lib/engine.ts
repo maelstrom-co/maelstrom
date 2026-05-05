@@ -9,27 +9,25 @@ import type {
   SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
-import { toSessionHistoryEntry } from './history/wire-projection.js';
 import {
   err,
   GridResponseSchema,
   isErr,
-  isOk,
   ok,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
 
 import { assertNever } from './assert-never.js';
+import { createChartRequestDedup } from './chart-request-dedup.js';
 import type { EngineConfig } from './config.js';
 import { resolveConfig } from './config.js';
 import type { EngineError } from './errors.js';
-import { cancellationError, historyError, validationError } from './errors.js';
-import type {
-  HistoryManager,
-  LLMContextMessage,
-} from './history/history-manager.js';
+import { historyError, validationError } from './errors.js';
+import type { HistoryManager } from './history/history-manager.js';
 import { createHistoryManager } from './history/history-manager.js';
 import type { HistoryEntry } from './history/history-store.js';
+import { loadHistoryContext } from './history/load-history-context.js';
+import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
 import { callLLM } from './pipeline/call-llm.js';
 import { callWithRetry } from './pipeline/retry.js';
@@ -52,12 +50,23 @@ import {
 /**
  * The engine's public surface. Construct via {@link createEngine}.
  *
- * Stateful at the session level (per-session async mutex serializes
- * `chart_request` processing; in-process only — multi-instance deployments
- * must close that gap externally, see the README's Concurrency section).
+ * Stateful at the session level: a per-session async mutex inside
+ * `HistoryManager` serializes `recordTurn` and the truncation step of
+ * `addAssistantMessage` and `clear`; in-process only — multi-instance
+ * deployments must close that gap externally, see the README's Concurrency
+ * section. The LLM call itself is NOT mutex-protected — concurrent
+ * `chart_request`s on the same session race their LLM reads/calls; the
+ * in-flight dedup Map only collapses identical `(sessionId, messageId)`
+ * duplicates, not different requests.
+ *
  * Stateless at the request level: a `chart_request` flows prompt → LLM →
  * response-processor → optional retry → history record without retained
  * inter-call state beyond what the configured `HistoryStore` persists.
+ *
+ * TODO(multi-instance): the per-session mutex (HistoryManager) and the
+ * in-flight dedup Map (chart-request-dedup) are both process-local. See the
+ * `TODO(multi-instance)` comments at their declaration sites for the
+ * specific failure modes and the substrates that would close each gap.
  */
 export interface Engine {
   /**
@@ -96,10 +105,12 @@ export interface Engine {
    * concurrent caller) that aborts its own `signal` resolves its own await
    * with `Err(CancellationError)`; the leader's LLM call continues. If the
    * leader's signal aborts, the leader's promise resolves with
-   * `Err(CancellationError)` (Result-typed; never rejects), and any
-   * followers awaiting it observe that same `Err` value via the shared
-   * promise. Callers that don't want another caller's abort to surface to
-   * them must not reuse the `messageId`.
+   * `Err(CancellationError)` under the engine contract — an unguarded
+   * pipeline throw escapes as `Err(historyError.leaderPipeline)` instead
+   * (see the defensive catch in `chart-request-dedup`'s `awaitWithSignal`).
+   * Either way, any followers awaiting the leader observe the same `Err`
+   * value via the shared promise. Callers that don't want another caller's
+   * abort to surface to them must not reuse the `messageId`.
    */
   handle(
     message: EngineMessage,
@@ -332,95 +343,11 @@ export function createEngine(config: EngineConfig): Engine {
     });
   };
 
-  const runAndRecord = async (
-    message: ChartRequestMessage,
-    signal?: AbortSignal,
-  ): Promise<Result<ChartResponseOutput, EngineError>> => {
-    const result = await runChartRequest(message, signal);
-    if (isOk(result) && history !== undefined) {
-      // Advisory write: the user already has their response, so a
-      // history failure must not retroactively fail the turn.
-      try {
-        await history.recordTurn(message, result.value);
-      } catch (error) {
-        logger.error('Failed to record turn', error, {
-          messageId: message.id,
-          sessionId: message.sessionId,
-        });
-      }
-    }
-    return result;
-  };
-
-  // Process-local in-flight tracking for chart_request idempotency. Engine-
-  // instance-scoped — multi-engine deployments do not coalesce dedup state
-  // across instances. A duplicate (sessionId, messageId) that arrives while
-  // the leader is still running collapses onto the leader's promise.
-  // Cleared on settle, AFTER recordTurn completes inside runAndRecord, so
-  // a follower arriving in the post-LLM / pre-recordTurn window still hits
-  // the entry instead of starting a duplicate LLM call.
-  type InflightKey = `${SessionId}::${MessageId}`;
-  const inflight = new Map<
-    InflightKey,
-    Promise<Result<ChartResponseOutput, EngineError>>
-  >();
-  const inflightKey = (
-    sessionId: SessionId,
-    messageId: MessageId,
-  ): InflightKey => `${sessionId}::${messageId}`;
-
-  // Followers race the shared leader promise against their own AbortSignal.
-  // A follower-side abort resolves only that follower's await with
-  // CancellationError; the leader's LLM call continues. If the leader's
-  // signal aborts, the leader resolves with Err(CancellationError) (Result-
-  // typed; never rejects under engine contract) and followers observe that
-  // same Err via the shared promise's resolved value.
-  const awaitWithSignal = (
-    leaderPromise: Promise<Result<ChartResponseOutput, EngineError>>,
-    signal: AbortSignal | undefined,
-    sessionId: SessionId,
-    messageId: MessageId,
-  ): Promise<Result<ChartResponseOutput, EngineError>> => {
-    if (signal === undefined) {
-      return leaderPromise;
-    }
-    if (signal.aborted) {
-      return Promise.resolve(
-        err(cancellationError('aborted by caller', signal.reason)),
-      );
-    }
-    return new Promise((resolve) => {
-      const onAbort = () => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(err(cancellationError('aborted by caller', signal.reason)));
-      };
-      signal.addEventListener('abort', onAbort, { once: true });
-      leaderPromise.then(
-        (r) => {
-          signal.removeEventListener('abort', onAbort);
-          resolve(r);
-        },
-        // Defensive catch-all: leaderPromise is Result-typed and should
-        // never reject under contract. If it does (an unguarded throw
-        // deeper in the pipeline escapes the per-stage try/catch), we'd
-        // otherwise hang every follower forever. Surface as a
-        // `leader_pipeline` HistoryError so the follower sees an Err shape
-        // and the operator log lets them grep by tag.
-        (error: unknown) => {
-          signal.removeEventListener('abort', onAbort);
-          logger.error('Leader promise rejected unexpectedly', error, {
-            sessionId,
-            messageId,
-          });
-          resolve(
-            err(
-              historyError('leader pipeline threw', 'leader_pipeline', error),
-            ),
-          );
-        },
-      );
-    });
-  };
+  const dedup = createChartRequestDedup({
+    runChartRequest,
+    history,
+    logger,
+  });
 
   return {
     async handle(rawMessage, signal) {
@@ -437,53 +364,8 @@ export function createEngine(config: EngineConfig): Engine {
       const message = validated.value;
 
       switch (message.type) {
-        case 'chart_request': {
-          if (history === undefined) {
-            return runAndRecord(message, signal);
-          }
-          // Advisory read: a failed cache lookup must not retroactively fail
-          // the turn. Fall through to the in-flight + fresh LLM path — same
-          // observable outcome as a cache miss.
-          let cached: ChartResponseOutput | null = null;
-          try {
-            cached = await history.getResponseById(
-              message.sessionId,
-              message.id,
-            );
-          } catch (error) {
-            logger.error('Failed to look up cached response', error, {
-              messageId: message.id,
-              sessionId: message.sessionId,
-            });
-          }
-          if (cached !== null) {
-            return ok(cached);
-          }
-          const key = inflightKey(message.sessionId, message.id);
-          const existing = inflight.get(key);
-          if (existing !== undefined) {
-            return awaitWithSignal(
-              existing,
-              signal,
-              message.sessionId,
-              message.id,
-            );
-          }
-          const leader = runAndRecord(message, signal);
-          inflight.set(key, leader);
-          // Two cleanup handlers (not `.finally`) so that an unguarded
-          // pipeline throw — which would make `leader` reject rather than
-          // resolve to `Err` — is absorbed here: `.then(cleanup, cleanup)`
-          // returns a resolved promise either way, while `.finally(cleanup)`
-          // would propagate the rejection and emit an unhandledRejection
-          // off the `void`-discarded handle. The caller's own `await leader`
-          // still surfaces the rejection if one occurs.
-          void leader.then(
-            () => inflight.delete(key),
-            () => inflight.delete(key),
-          );
-          return leader;
-        }
+        case 'chart_request':
+          return dedup.handle(message, signal);
         case 'assistant_message': {
           if (history === undefined) {
             return err(validationError('history not configured', 'history'));
@@ -513,9 +395,8 @@ export function createEngine(config: EngineConfig): Engine {
               sessionId: message.sessionId,
             });
             return err(
-              historyError(
+              historyError.addAssistantMessage(
                 'failed to persist assistant_message',
-                'add_assistant_message',
                 error,
               ),
             );
@@ -551,12 +432,12 @@ export function createEngine(config: EngineConfig): Engine {
         entries = await history.getHistory(sessionId);
       } catch (error) {
         logger.error('Failed to load session history from store', error, {
+          op: 'get_history',
           sessionId,
         });
         return err(
-          historyError(
+          historyError.getHistory(
             'failed to load session history from store',
-            'get_history',
             error,
           ),
         );
@@ -567,44 +448,17 @@ export function createEngine(config: EngineConfig): Engine {
         logger.error(
           'Failed to project session history entry to wire DTO',
           error,
-          { sessionId },
+          { op: 'get_history', sessionId },
         );
         return err(
-          historyError(
+          historyError.getHistory(
             'failed to project session history entry',
-            'get_history',
             error,
           ),
         );
       }
     },
   };
-}
-
-async function loadHistoryContext(
-  history: HistoryManager | undefined,
-  sessionId: SessionId,
-  messageId: MessageId,
-  logger: Logger,
-): Promise<Result<readonly LLMContextMessage[], EngineError>> {
-  if (history === undefined) {
-    return ok([]);
-  }
-  try {
-    return ok(await history.getLLMContext(sessionId));
-  } catch (error) {
-    logger.error('Failed to load history context', error, {
-      messageId,
-      sessionId,
-    });
-    return err(
-      historyError(
-        'failed to load history context',
-        'get_llm_context',
-        error,
-      ),
-    );
-  }
 }
 
 function logEngineError(
