@@ -28,6 +28,12 @@ export type { MaelstromProviderProps } from './lib/provider.js';
 export type { CreateMaelstromConfig } from './lib/create-maelstrom.js';
 export type { ChartProps } from './lib/chart/chart.js';
 
-// Types -- voice
-export type { UseVoiceOptions, UseVoiceReturn, VoiceSessionState } from './lib/voice/use-voice-types.js';
-export type { VoiceOrbProps } from './lib/voice/voice-orb.js';
+// Types — extension API (for extension package authors)
+export type {
+  MaelstromExtension,
+  MaelstromExtensionContext,
+  MaelstromExtensionContextValue,
+} from './lib/extension-types.js';
+
+// Utilities — reusable by extension packages
+export { warnOnce } from './lib/warn-once.js';

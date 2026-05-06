@@ -58,6 +58,8 @@
         "@maelstrom-co/protocol": "workspace:*",
         "@maelstrom-co/protocol-old": "workspace:*",
         "@maelstrom-co/react": "workspace:*",
+        "@maelstrom-co/react-voice": "workspace:*",
+        "@maelstrom-co/voice": "workspace:*",
         "@maelstrom-co/voice-server": "workspace:*",
         "@tanstack/react-router": "catalog:",
         "@tanstack/react-start": "catalog:",
@@ -163,8 +165,8 @@
         "effect": "catalog:",
       },
       "devDependencies": {
-        "@maelstrom-co/protocol": "0.0.9-prealpha.0",
-        "@maelstrom-co/protocol-old": "0.0.9-prealpha.0",
+        "@maelstrom-co/protocol": "0.0.10-prealpha.0",
+        "@maelstrom-co/protocol-old": "0.0.10-prealpha.0",
       },
     },
     "packages/protocol": {
@@ -192,11 +194,27 @@
         "@tanstack/react-store": "catalog:",
       },
       "devDependencies": {
-        "@maelstrom-co/voice": "workspace:*",
         "@testing-library/react": "catalog:",
         "happy-dom": "catalog:",
       },
       "peerDependencies": {
+        "react": ">=18.0.0",
+        "react-dom": ">=18.0.0",
+      },
+    },
+    "packages/react-voice": {
+      "name": "@maelstrom-co/react-voice",
+      "version": "0.0.10-prealpha.0",
+      "devDependencies": {
+        "@maelstrom-co/client": "0.0.10-prealpha.0",
+        "@maelstrom-co/protocol": "0.0.10-prealpha.0",
+        "@maelstrom-co/react": "0.0.10-prealpha.0",
+        "@maelstrom-co/voice": "0.0.10-prealpha.0",
+        "@testing-library/react": "catalog:",
+        "happy-dom": "catalog:",
+      },
+      "peerDependencies": {
+        "@maelstrom-co/react": "0.0.10-prealpha.0",
         "@maelstrom-co/voice": "0.0.10-prealpha.0",
         "react": ">=18.0.0",
         "react-dom": ">=18.0.0",
@@ -866,6 +884,8 @@
     "@maelstrom-co/protocol-old": ["@maelstrom-co/protocol-old@workspace:packages/protocol-old"],
 
     "@maelstrom-co/react": ["@maelstrom-co/react@workspace:packages/react"],
+
+    "@maelstrom-co/react-voice": ["@maelstrom-co/react-voice@workspace:packages/react-voice"],
 
     "@maelstrom-co/voice": ["@maelstrom-co/voice@workspace:packages/voice"],
 

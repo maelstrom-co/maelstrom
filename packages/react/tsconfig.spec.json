@@ -13,6 +13,7 @@
     "src/**/*.spec.jsx",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
+    "src/**/*.test.isolated.tsx",
     "src/**/*.test.js",
     "src/**/*.test.jsx",
     "src/**/__tests__/*.ts",

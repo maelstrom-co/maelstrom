@@ -9,10 +9,11 @@ import {
 } from 'bun:test';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { createMockConnector } from '../__tests__/mock-connector.js';
-import { createMockVoiceConnector } from '../__tests__/mock-voice-connector.js';
-import { createMaelstrom } from '../create-maelstrom.js';
-import { resetWarnings } from '../warn-once.js';
+import { createMaelstrom } from '@maelstrom-co/react';
+import { resetWarnings } from '@maelstrom-co/react/_testing';
+import { createMockConnector } from './__tests__/mock-connector.js';
+import { createMockVoiceConnector } from './__tests__/mock-voice-connector.js';
+import { maelstromVoice } from './maelstrom-voice.js';
 import type { UseVoiceOptions, VoiceSessionState } from './use-voice-types.js';
 
 // ─── Mock VoiceSession ──────────────────────────────────────────────────────
@@ -79,6 +80,22 @@ class MockVoiceSession {
     this._emit('transcript', text, isFinal);
   }
 
+  _simulateResponse(r: { userMessage?: string; requestId: string }) {
+    this._emit('response', r);
+  }
+
+  _simulateSpeechStarted(text: string) {
+    this._emit('speechStarted', text);
+  }
+
+  _simulateAudioLevel(level: number) {
+    this._emit('audioLevel', level);
+  }
+
+  _simulateError(err: unknown) {
+    this._emit('error', err);
+  }
+
   // Mirrors the real `#handleServerReady` gate so React-layer tests catch
   // regressions where forwarding flips the consumer's autoAcquireMic value.
   // If React silently switched true→false, this no-ops on ready and the
@@ -124,7 +141,7 @@ describe('m.useVoice()', () => {
 
   it('returns idle state with isVoiceSupported true when connector has voice capability', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -140,7 +157,7 @@ describe('m.useVoice()', () => {
 
   it('useVoice({}) with empty options does not claim ownership', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -165,7 +182,7 @@ describe('m.useVoice()', () => {
 
   it('returns isVoiceSupported false when connector lacks voice capability', async () => {
     const connector = createMockConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -181,7 +198,7 @@ describe('m.useVoice()', () => {
 
   it('useVoice(opts) triggers dynamic import and becomes ready', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -206,7 +223,7 @@ describe('m.useVoice()', () => {
 
   it('forwards autoAcquireMic: false to VoiceSession', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -223,7 +240,7 @@ describe('m.useVoice()', () => {
 
   it('forwards autoAcquireMic: true to VoiceSession', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -240,7 +257,7 @@ describe('m.useVoice()', () => {
 
   it('autoAcquireMic: false suppresses greeting + prepareAudio on server ready', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -263,7 +280,7 @@ describe('m.useVoice()', () => {
 
   it('autoAcquireMic: true emits greeting and acquires mic on server ready', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -288,7 +305,7 @@ describe('m.useVoice()', () => {
 
   it('owner and observer share state', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -326,7 +343,7 @@ describe('m.useVoice()', () => {
 
   it('owner unmount destroys session and resets observers to idle', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -363,7 +380,7 @@ describe('m.useVoice()', () => {
 
   it('unmount invokes every session unsubscribe exactly once', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -406,7 +423,7 @@ describe('m.useVoice()', () => {
 
   it('start/stop/interrupt are no-ops when session is null', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -425,7 +442,7 @@ describe('m.useVoice()', () => {
 
   it('second owner is rejected with a warning when first owner has active session', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 
     const wrapper = ({ children }: { children: ReactNode }) => (
@@ -462,7 +479,7 @@ describe('m.useVoice()', () => {
 
   it('second owner is rejected during import-pending window (before isReady)', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 
     const wrapper = ({ children }: { children: ReactNode }) => (
@@ -496,7 +513,7 @@ describe('m.useVoice()', () => {
   it('start() routes prepareAudio errors through onError instead of rejecting', async () => {
     const connector = createMockVoiceConnector();
     const onError = mock(() => {});
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -526,7 +543,7 @@ describe('m.useVoice()', () => {
 
   it('while dynamic import resolves, isReady is false and start is a no-op', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -557,7 +574,7 @@ describe('m.useVoice()', () => {
 
   it('start() calls prepareAudio then startListening in order', async () => {
     const connector = createMockVoiceConnector();
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -613,7 +630,7 @@ describe('m.useVoice()', () => {
     const connector = createMockVoiceConnector();
     const onStateChange = mock(() => {});
     const onTranscript = mock(() => {});
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -656,7 +673,7 @@ describe('m.useVoice()', () => {
     const connector = createMockVoiceConnector();
     const onTranscript = mock(() => {});
     const onStateChange = mock(() => {});
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -695,7 +712,7 @@ describe('m.useVoice()', () => {
   it('propagates interim and final transcript updates in order', async () => {
     const connector = createMockVoiceConnector();
     const onTranscript = mock(() => {});
-    const m = createMaelstrom({ vessels: [] });
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <m.Provider connector={connector}>{children}</m.Provider>
@@ -737,5 +754,264 @@ describe('m.useVoice()', () => {
       'show my lab results',
       true,
     );
+  });
+
+  it('onTranscript callback from rerender fires instead of stale closure — no ownerOptionsRef regression', async () => {
+    const connector = createMockVoiceConnector();
+    const callbackA = mock(() => {});
+    const callbackB = mock(() => {});
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    let onTranscript = callbackA;
+    const { rerender } = renderHook(
+      () => m.useVoice({ autoAcquireMic: true, greeting: 'hi', onTranscript }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    // Switch callback and rerender — ownerOptionsRef aliasing must pick up new ref
+    onTranscript = callbackB;
+    rerender();
+
+    await act(() => {
+      mockVoiceSessionInstance!._simulateTranscript('hello', true);
+    });
+
+    expect(callbackB).toHaveBeenCalledWith('hello', true);
+    expect(callbackA).not.toHaveBeenCalled();
+  });
+
+  it('onResponse callback is propagated from session', async () => {
+    const connector = createMockVoiceConnector();
+    const onResponse = mock(() => {});
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    renderHook(
+      () => m.useVoice({ autoAcquireMic: true, greeting: 'hi', onResponse }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    const response = { userMessage: 'hello', requestId: 'req-1' };
+    await act(() => {
+      mockVoiceSessionInstance!._simulateResponse(response);
+    });
+
+    expect(onResponse).toHaveBeenCalledWith(response);
+  });
+
+  it('onSpeechStarted callback is propagated from session', async () => {
+    const connector = createMockVoiceConnector();
+    const onSpeechStarted = mock(() => {});
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    renderHook(
+      () =>
+        m.useVoice({ autoAcquireMic: true, greeting: 'hi', onSpeechStarted }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    await act(() => {
+      mockVoiceSessionInstance!._simulateSpeechStarted('partial text');
+    });
+
+    expect(onSpeechStarted).toHaveBeenCalledWith('partial text');
+  });
+
+  it('onAudioLevel callback is propagated from session', async () => {
+    const connector = createMockVoiceConnector();
+    const onAudioLevel = mock(() => {});
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    renderHook(
+      () =>
+        m.useVoice({ autoAcquireMic: true, greeting: 'hi', onAudioLevel }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    await act(() => {
+      mockVoiceSessionInstance!._simulateAudioLevel(0.75);
+    });
+
+    expect(onAudioLevel).toHaveBeenCalledWith(0.75);
+  });
+
+  it('routes errors to console.error when no onError callback provided', async () => {
+    const connector = createMockVoiceConnector();
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+    const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    renderHook(() => m.useVoice({ autoAcquireMic: true }), { wrapper });
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    const err = new Error('voice error');
+    await act(() => {
+      mockVoiceSessionInstance!._simulateError(err);
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[Maelstrom] Voice session error:',
+      err,
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  describe('live-session actions route to the underlying session', () => {
+    it('stop() forwards to session.stopListening()', async () => {
+      const connector = createMockVoiceConnector();
+      const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <m.Provider connector={connector}>{children}</m.Provider>
+      );
+
+      const { result } = renderHook(
+        () => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await flushPromises();
+      });
+
+      const stopSpy = spyOn(mockVoiceSessionInstance!, 'stopListening');
+      result.current.stop();
+
+      expect(stopSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('interrupt() forwards to session.interrupt()', async () => {
+      const connector = createMockVoiceConnector();
+      const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <m.Provider connector={connector}>{children}</m.Provider>
+      );
+
+      const { result } = renderHook(
+        () => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await flushPromises();
+      });
+
+      const interruptSpy = spyOn(mockVoiceSessionInstance!, 'interrupt');
+      result.current.interrupt();
+
+      expect(interruptSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('prepareAudio() forwards to session.prepareAudio()', async () => {
+      const connector = createMockVoiceConnector();
+      const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <m.Provider connector={connector}>{children}</m.Provider>
+      );
+
+      const { result } = renderHook(
+        () => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await flushPromises();
+      });
+
+      // mockVoiceSessionInstance.prepareAudioCalls is incremented inside the
+      // mock's `prepareAudio()`. The hook's internal bootstrap may already
+      // have called it once, so we capture the baseline rather than assuming
+      // zero.
+      const baseline = mockVoiceSessionInstance!.prepareAudioCalls;
+      result.current.prepareAudio();
+      await act(async () => {
+        await flushPromises();
+      });
+
+      expect(mockVoiceSessionInstance!.prepareAudioCalls).toBe(baseline + 1);
+    });
+  });
+
+  it('forwards full option set (language, vad, bargein, debug) to VoiceSession', async () => {
+    const connector = createMockVoiceConnector();
+    const m = createMaelstrom({ vessels: [], debug: true }).with(maelstromVoice());
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    renderHook(
+      () =>
+        m.useVoice({
+          autoAcquireMic: true,
+          greeting: 'hi',
+          language: 'es-ES',
+          useVadToFinalizeInterims: false,
+          allowBargeIn: false,
+          vadOptions: { minSpeechDurationSeconds: 0.42 },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    const opts = mockVoiceSessionInstance!.options as {
+      language?: string;
+      useVadToFinalizeInterims?: boolean;
+      allowBargeIn?: boolean;
+      vadOptions?: { activationThreshold?: number; minSpeechDurationSeconds?: number };
+      debugMode?: boolean;
+    };
+
+    expect(opts.language).toBe('es-ES');
+    expect(opts.useVadToFinalizeInterims).toBe(false);
+    expect(opts.allowBargeIn).toBe(false);
+    expect(opts.debugMode).toBe(true);
+    // react-voice merges its activationThreshold default (0.5) under any
+    // user-supplied override. Both fields should land on the session.
+    expect(opts.vadOptions?.activationThreshold).toBe(0.5);
+    expect(opts.vadOptions?.minSpeechDurationSeconds).toBe(0.42);
   });
 });

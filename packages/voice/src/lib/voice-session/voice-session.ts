@@ -38,9 +38,18 @@ import type { VoiceEvent, VoiceEventMap } from './events.js';
 /**
  * Simplified state representation for UI consumers.
  *
- * These four states cover all meaningful UI variations. Internal state
+ * These five states cover all meaningful UI variations. Internal state
  * (isInitializing, isPreparingAudio) is hidden because UI doesn't need
  * to distinguish between "preparing" and "not yet started".
+ *
+ * - `idle`: session is connected but not actively listening.
+ * - `listening`: actively capturing audio, no speech detected yet.
+ * - `silence`: VAD has detected speech and is awaiting more input.
+ *   Counterintuitive name — the user *is* speaking; the label refers to
+ *   the brief pauses VAD swallows between phrases. Treat it as "user
+ *   talking" in the UI, not "no audio".
+ * - `speaking`: the assistant is producing audio output.
+ * - `error`: session entered an unrecoverable state.
  */
 export type VoiceSessionState =
   | 'idle'

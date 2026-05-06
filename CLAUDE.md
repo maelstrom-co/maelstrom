@@ -54,6 +54,11 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
     ▼            ▼
 @maelstrom-co/react  @maelstrom-co/voice
 (React bindings)  (audio capture/playback, VAD)
+    │            │
+    └─────┬──────┘
+          ▼
+@maelstrom-co/react-voice
+(React voice extension via .with(maelstromVoice()))
 ```
 
 ### Package Locations
@@ -63,8 +68,9 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 | `@maelstrom-co/protocol-old` | `packages/protocol/` | Core types, zod schemas, and message definitions (transport-agnostic) |
 | `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Message Processor, Orchestrator |
 | `@maelstrom-co/engine-old` | `packages/engine/` | LLM decision engine using @tanstack/ai + Effect, voice providers (Deepgram STT, Cartesia TTS) |
-| `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, useVoice, VoiceOrb |
+| `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
 | `@maelstrom-co/voice` | `packages/voice/` | Client-side audio: capture, playback, VAD (Silero via onnxruntime-web), voice sessions |
+| `@maelstrom-co/react-voice` | `packages/react-voice/` | Optional React voice extension: `maelstromVoice()` factory adding `useVoice` and `VoiceOrb` to a Maelstrom instance via `.with()` |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts

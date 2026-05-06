@@ -12,11 +12,45 @@ import type { DynamicVesselHandle, UntypedVesselProps } from './dynamic-vessel-t
 import type { MaelstromProviderProps } from './provider.js';
 import type { MaelstromState } from './maelstrom-state-types.js';
 import type { ChartProps } from './chart/chart.js';
-import type { UseVoiceOptions, UseVoiceReturn } from './voice/use-voice-types.js';
-import type { VoiceOrbProps } from './voice/voice-orb.js';
+import type { ExtensionOutput, MaelstromExtension } from './extension-types.js';
 
-/** Return type of createMaelstrom() */
-export interface MaelstromInstance<T extends readonly AnyVesselEntry[]> {
+/**
+ * Reserved keys on the core instance shape. Extensions are forbidden from
+ * defining keys with these names so `.with()` cannot silently overwrite
+ * `Provider`, `Chart`, the hook surface, etc.
+ */
+export type ReservedInstanceKeys =
+  | 'vessels'
+  | 'Provider'
+  | 'Chart'
+  | 'useMaelstrom'
+  | 'useVessel'
+  | 'useActions'
+  | 'useInstance'
+  | 'registerVessel'
+  | 'with';
+
+/**
+ * Branded compile-time guard: when an extension's return type contains any
+ * `ReservedInstanceKeys`, the `with()` argument type narrows to this error
+ * literal so the call no longer accepts the offending extension function.
+ */
+type ExtensionRejectsReserved<NewExt extends ExtensionOutput> =
+  Extract<keyof NewExt, ReservedInstanceKeys> extends never
+    ? MaelstromExtension<NewExt>
+    : `Error: extension cannot define reserved Maelstrom key '${Extract<keyof NewExt & ReservedInstanceKeys, string>}'`;
+
+/**
+ * Core Maelstrom instance fields. Generic over `Ext` so the recursive
+ * `with()` return type can carry accumulated extensions; the public type
+ * is `MaelstromInstance<T, Ext> = MaelstromInstanceCore<T, Ext> & Ext`,
+ * so extension fields are structurally part of the instance — no
+ * intersection casts needed at the merge site.
+ */
+export interface MaelstromInstanceCore<
+  T extends readonly AnyVesselEntry[],
+  Ext extends ExtensionOutput = {},
+> {
   vessels: T;
   Provider: ComponentType<MaelstromProviderProps>;
   Chart: ComponentType<ChartProps>;
@@ -104,33 +138,34 @@ export interface MaelstromInstance<T extends readonly AnyVesselEntry[]> {
   ) => DynamicVesselHandle<V>;
 
   /**
-   * Voice hook with session ownership semantics.
+   * Apply an extension to the instance, returning a new instance with the
+   * extension's fields merged onto the public surface.
    *
-   * - `useVoice({ ...options })` — **owner**: creates the voice session with
-   *   your configuration and callbacks. When the owner unmounts, the session is
-   *   destroyed. Only one owner should exist at a time.
-   * - `useVoice()` — **observer**: reads the shared session state. Actions like
-   *   `start()`/`stop()` operate on the owner's session.
-   * - `useVoice({})` — treated as observer (empty options = no ownership).
+   * The returned instance is fresh — calling `.with()` does not mutate the
+   * receiver, so branched chains like
+   * `const a = m.with(extA); const b = m.with(extB);` produce independent
+   * instances that do not share each other's extension fields.
    *
-   * `@maelstrom-co/voice` is loaded via dynamic import only when an owner mounts.
-   *
-   * @example
-   * // Owner — configures session, wires callbacks
-   * const voice = m.useVoice({ greeting: 'Hello!', onError: console.error });
-   * // Observer — reads state, triggers actions on shared session
-   * const voice = m.useVoice();
-   */
-  useVoice: (options?: UseVoiceOptions) => UseVoiceReturn;
-
-  /**
-   * Self-contained voice indicator button. Internally observes the shared
-   * voice session and toggles listening on click. Renders null if voice
-   * is not supported.
+   * Reserved keys (`vessels`, `Provider`, `Chart`, the hook surface,
+   * `with`) are rejected at compile time. When two extensions in the same
+   * chain define the same custom key, the later wins at runtime and a
+   * one-shot `console.warn` flags the collision.
    *
    * @example
-   * <m.VoiceOrb />
-   * <m.VoiceOrb size={48} />
+   * const analytics: MaelstromExtension<{ track: (event: string) => void }> = () => ({
+   *   track: (event) => console.log('[analytics]', event),
+   * });
+   *
+   * const m = createMaelstrom({ vessels }).with(analytics);
+   * m.track('app:start');
    */
-  VoiceOrb: ComponentType<VoiceOrbProps>;
+  with<NewExt extends ExtensionOutput>(
+    ext: ExtensionRejectsReserved<NewExt>,
+  ): MaelstromInstance<T, Ext & NewExt>;
 }
+
+/** Return type of createMaelstrom() — core fields plus any applied extensions. */
+export type MaelstromInstance<
+  T extends readonly AnyVesselEntry[],
+  Ext extends ExtensionOutput = {},
+> = MaelstromInstanceCore<T, Ext> & Ext;

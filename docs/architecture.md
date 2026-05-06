@@ -382,8 +382,13 @@ These enable:
     ▼         ▼
 @maelstrom-co/client   @maelstrom-co/engine-old
          │
-         ▼
-@maelstrom-co/react
+    ┌────┴───────────────┐
+    ▼                    ▼
+@maelstrom-co/react   @maelstrom-co/voice
+         │                    │
+         └────────┬───────────┘
+                  ▼
+         @maelstrom-co/react-voice
 ```
 
 ### Why This Structure?
@@ -391,7 +396,9 @@ These enable:
 - **protocol**: Foundation - types and message contract shared by all
 - **client**: Framework-agnostic client, can be used anywhere
 - **engine**: Server-side only, has LLM provider dependencies
-- **react**: React-specific bindings, optional
+- **react**: React-specific bindings, optional. Voice-free.
+- **voice**: Browser-side voice runtime (audio capture, VAD, sessions)
+- **react-voice**: Optional React extension that wires voice into a Maelstrom instance via `.with(maelstromVoice())`. Depends on react (peer) + voice.
 
 ---
 

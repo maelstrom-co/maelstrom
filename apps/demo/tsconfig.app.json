@@ -25,7 +25,13 @@
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
   "references": [
     {
-      "path": "../../packages/protocol/tsconfig.lib.json"
+      "path": "../../packages/voice-server/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/voice/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/react-voice/tsconfig.lib.json"
     },
     {
       "path": "../../packages/react/tsconfig.lib.json"
@@ -34,13 +40,13 @@
       "path": "../../packages/protocol-old/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/protocol/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/engine-old/tsconfig.lib.json"
     },
     {
       "path": "../../packages/client/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/voice-server/tsconfig.lib.json"
     }
   ]
 }

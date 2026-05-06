@@ -22,6 +22,9 @@
       "path": "./packages/react"
     },
     {
+      "path": "./packages/react-voice"
+    },
+    {
       "path": "./tools/astro-plugin"
     },
     {

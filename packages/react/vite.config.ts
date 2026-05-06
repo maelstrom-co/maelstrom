@@ -21,9 +21,11 @@ export default defineConfig(() => ({
       transformMixedEsModules: true,
     },
     lib: {
-      entry: 'src/index.ts',
+      entry: {
+        index: 'src/index.ts',
+        _testing: 'src/_testing.ts',
+      },
       name: '@maelstrom-co/react',
-      fileName: 'index',
       formats: ['es' as const],
     },
     rollupOptions: {
@@ -34,7 +36,6 @@ export default defineConfig(() => ({
         '@maelstrom-co/protocol-old',
         '@maelstrom-co/client',
         '@tanstack/react-store',
-        '@maelstrom-co/voice',
       ],
     },
   },

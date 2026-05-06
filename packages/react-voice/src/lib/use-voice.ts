@@ -1,8 +1,8 @@
-import type { VoiceConnector } from '@maelstrom-co/client';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
+import type { MaelstromExtensionContext } from '@maelstrom-co/react';
+import { warnOnce } from '@maelstrom-co/react';
+import type { VoiceSession, VoiceSessionConfig } from '@maelstrom-co/voice';
 
-import type { MaelstromContextPair } from '../context.js';
-import { warnOnce } from '../warn-once.js';
 import type {
   UseVoiceOptions,
   UseVoiceReturn,
@@ -12,7 +12,7 @@ import type {
 /**
  * Factory that creates the m.useVoice() hook bound to a specific Maelstrom context.
  */
-export function createUseVoice(contextPair: MaelstromContextPair) {
+export function createUseVoice(contextPair: MaelstromExtensionContext) {
   const { useMaelstromContext } = contextPair;
 
   const store = createVoiceSessionStore();
@@ -99,13 +99,24 @@ export function createUseVoice(contextPair: MaelstromContextPair) {
         .then((voiceModule) => {
           if (!voiceModule || cancelled || store.getOwnerId() !== myId) return;
 
-          const { VoiceSession } = voiceModule;
-          if (!VoiceSession) return;
+          const VoiceSessionCtor = (voiceModule as { VoiceSession?: typeof VoiceSession })
+            .VoiceSession;
+          if (!VoiceSessionCtor) {
+            warnOnce(
+              'voice-missing-export',
+              '[Maelstrom] @maelstrom-co/voice loaded but did not export VoiceSession.',
+            );
+            store.setIsVoiceSupported(false);
+            return;
+          }
 
-          // hasOptions guard above guarantees `current` is defined here.
-          const opts = hookOptionsRef.current!;
+          const opts = hookOptionsRef.current;
+          if (!opts) return;
+          // `connector` is EngineConnector; VoiceSessionConfig.connector is
+          // VoiceConnector (extends EngineConnector). When voiceSupported is
+          // true the connector implements the full VoiceConnector surface.
           const baseConfig = {
-            connector: connector as VoiceConnector,
+            connector: connector as VoiceSessionConfig['connector'],
             sessionId: 'default',
             ...(opts.language && { language: opts.language }),
             useVadToFinalizeInterims: opts.useVadToFinalizeInterims ?? true,
@@ -116,7 +127,7 @@ export function createUseVoice(contextPair: MaelstromContextPair) {
             },
             debugMode: config.debug,
           };
-          const session = new VoiceSession(
+          const session = new VoiceSessionCtor(
             opts.autoAcquireMic
               ? {
                   ...baseConfig,
@@ -127,24 +138,21 @@ export function createUseVoice(contextPair: MaelstromContextPair) {
           );
 
           const unsubs = [
-            session.on('transcript', (text: string, isFinal: boolean) => {
+            session.on('transcript', (text, isFinal) => {
               ownerOptionsRef?.current?.onTranscript?.(text, isFinal);
             }),
-            session.on('stateChange', (s: VoiceSessionState) => {
+            session.on('stateChange', (s) => {
               store.setState(s);
               ownerOptionsRef?.current?.onStateChange?.(s);
             }),
-            session.on(
-              'response',
-              (r: { userMessage?: string; requestId: string }) => {
-                ownerOptionsRef?.current?.onResponse?.(r);
-              },
-            ),
-            session.on('speechStarted', (t: string) => {
+            session.on('response', (r) => {
+              ownerOptionsRef?.current?.onResponse?.(r);
+            }),
+            session.on('speechStarted', (t) => {
               ownerOptionsRef?.current?.onSpeechStarted?.(t);
             }),
             session.on('error', handleVoiceError),
-            session.on('audioLevel', (level: number) => {
+            session.on('audioLevel', (level) => {
               ownerOptionsRef?.current?.onAudioLevel?.(level);
             }),
           ];
@@ -155,9 +163,9 @@ export function createUseVoice(contextPair: MaelstromContextPair) {
       return () => {
         cancelled = true;
         if (store.getOwnerId() === myId) {
-          ownerOptionsRef = null;
           store.unsubscribeAll();
           store.getSession()?.destroy();
+          ownerOptionsRef = null;
           store.reset();
         }
       };
@@ -181,23 +189,13 @@ interface VoiceSnapshot {
   isVoiceSupported: boolean | undefined;
 }
 
-interface VoiceSessionLike {
-  isAudioReady: boolean;
-  prepareAudio(): Promise<void>;
-  startListening(): Promise<void>;
-  stopListening(): void;
-  interrupt(): void;
-  destroy(): void;
-  on(event: string, cb: (...args: unknown[]) => void): () => void;
-}
-
 interface VoiceSessionStore {
   subscribe: (callback: () => void) => () => void;
   getSnapshot: () => VoiceSnapshot;
-  getSession: () => VoiceSessionLike | null;
+  getSession: () => VoiceSession | null;
   getOwnerId: () => symbol | null;
   setOwnerId: (id: symbol) => void;
-  claimSession: (session: VoiceSessionLike, unsubs: (() => void)[]) => void;
+  claimSession: (session: VoiceSession, unsubs: (() => void)[]) => void;
   unsubscribeAll: () => void;
   setState: (state: VoiceSessionState) => void;
   setIsVoiceSupported: (supported: boolean) => void;
@@ -205,7 +203,7 @@ interface VoiceSessionStore {
 }
 
 function createVoiceSessionStore(): VoiceSessionStore {
-  let session: VoiceSessionLike | null = null;
+  let session: VoiceSession | null = null;
   let ownerId: symbol | null = null;
   let eventUnsubs: (() => void)[] = [];
   let state: VoiceSessionState = 'idle';

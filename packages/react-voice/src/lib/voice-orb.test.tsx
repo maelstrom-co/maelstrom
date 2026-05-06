@@ -130,4 +130,40 @@ describe('VoiceOrb', () => {
     const { container } = render(<VoiceOrb />);
     expect(getButton(container).hasAttribute('disabled')).toBe(true);
   });
+
+  it('shows "Speaking..." aria-label when state is speaking', () => {
+    const VoiceOrb = createVoiceOrb(createMockUseVoice({ state: 'speaking' }));
+    const { container } = render(<VoiceOrb />);
+    expect(getButton(container).getAttribute('aria-label')).toBe('Speaking...');
+  });
+
+  it('shows "Voice error — click to retry" aria-label when state is error', () => {
+    const VoiceOrb = createVoiceOrb(createMockUseVoice({ state: 'error' }));
+    const { container } = render(<VoiceOrb />);
+    expect(getButton(container).getAttribute('aria-label')).toBe(
+      'Voice error — click to retry',
+    );
+  });
+
+  it('injects the keyframes <style> exactly once across multiple orb mounts', () => {
+    const useVoice = createMockUseVoice();
+    const VoiceOrbA = createVoiceOrb(useVoice);
+    const VoiceOrbB = createVoiceOrb(useVoice);
+
+    render(<VoiceOrbA />);
+    render(<VoiceOrbA />);
+    render(<VoiceOrbB />);
+
+    // Each createVoiceOrb factory has its own stylesInjected flag, but the
+    // injected element is identified by `data-maelstrom="voice-orb"`. The
+    // count we care about is the number of style tags actually attached to
+    // the document — repeat mounts of the same factory must not re-inject.
+    const styleTags = Array.from(document.head.getElementsByTagName('style')).filter(
+      (s) => s.getAttribute('data-maelstrom') === 'voice-orb',
+    );
+    // Two factories, each injects once on first render → 2 tags total.
+    // The point of this test is that re-rendering the same factory does NOT
+    // push the count higher.
+    expect(styleTags.length).toBe(2);
+  });
 });

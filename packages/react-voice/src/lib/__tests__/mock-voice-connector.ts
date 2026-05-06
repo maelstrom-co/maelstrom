@@ -5,7 +5,12 @@ import type {
   Unsubscribe,
   VoiceConnector,
 } from '@maelstrom-co/client';
-import type { ChartRequestMessage, MaelstromResponse, SessionId } from '@maelstrom-co/protocol';
+import type {
+  ChartRequestMessage,
+  MaelstromResponse,
+  SessionHistoryEntry,
+  SessionId,
+} from '@maelstrom-co/protocol';
 
 export function createMockVoiceConnector(overrides?: {
   process?: (message: ChartRequestMessage) => Promise<MaelstromResponse>;
@@ -73,7 +78,7 @@ export function createMockVoiceConnector(overrides?: {
     async addAssistantMessage(_message: AssistantMessage) {
       // no-op
     },
-    async getHistory(_sessionId: SessionId) {
+    async getHistory(_sessionId: SessionId): Promise<readonly SessionHistoryEntry[]> {
       return [];
     },
   };
