@@ -21,7 +21,7 @@ import {
   createInMemoryHistoryStore,
   createTanStackProvider,
 } from '@maelstrom-co/engine-old';
-import { SessionId } from '@maelstrom-co/protocol';
+import { SessionId, type MessageId } from '@maelstrom-co/protocol';
 import type {
   TranscriptMessage,
   VoiceServerMessage,
@@ -141,12 +141,13 @@ app.get(
       }
     };
 
-    const sendEngineError = (error: string) => {
+    const sendEngineError = (error: string, requestId?: MessageId) => {
       sendMessage({
         type: 'engine.error',
         sessionId,
         error,
         timestamp: performance.now(),
+        ...(requestId !== undefined && { requestId }),
       });
     };
 
@@ -264,6 +265,7 @@ app.get(
       sessionId,
       sendMessage,
       () => voiceWsSession?.getLatestChartRequest() ?? null,
+      (request) => voiceWsSession?.getExplicitRequestId(request) ?? null,
     );
 
     const demoVoiceProviderKeys = getDemoVoiceProviderKeys();

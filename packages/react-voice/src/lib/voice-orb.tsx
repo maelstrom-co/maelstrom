@@ -35,14 +35,30 @@ export function createVoiceOrb(
 
     if (!voice.isVoiceSupported) return null;
 
-    const visualState = mapToVisualState(voice.state);
-    const isDisabled = disabled || !voice.isReady;
+    // `needsUserGesture` is a recoverable-pre-error: the click that fires
+    // here IS the gesture, so the orb must accept it even though the
+    // pipeline isn't "ready" in the strict sense.
+    const visualState = voice.needsUserGesture
+      ? 'idle'
+      : mapToVisualState(voice.state);
+    const isDisabled =
+      disabled || (!voice.isReady && !voice.needsUserGesture);
 
     const handleClick = () => {
       if (isDisabled) return;
+      // `voice.start` returns Promise<void> but its rejections are funneled
+      // to the `onError` option / console inside the hook, so call sites
+      // here intentionally fire-and-forget with `void`.
+
+      // Gesture-deferred bootstrap: click satisfies the browser activation
+      // requirement and unblocks prepareAudio()/startListening().
+      if (voice.needsUserGesture) {
+        void voice.start();
+        return;
+      }
       switch (voice.state) {
         case 'idle':
-          voice.start();
+          void voice.start();
           return;
         // `silence` is a sub-state of listening (mic hot, VAD detected user
         // is talking). Treat it as hot — click stops capture.
@@ -54,7 +70,12 @@ export function createVoiceOrb(
           voice.interrupt();
           return;
         case 'error':
-          // Click in error state is a no-op until the session is reset.
+          // Universal retry: start() is idempotent — it re-enters
+          // prepareAudio() / startListening() and routes failures through
+          // the same onError pipeline. For terminal errors (unsupported
+          // browser, no mic hardware) start() rejects again and the orb
+          // stays in error; the user has no worse affordance than today.
+          void voice.start();
           return;
         default: {
           const _exhaustive: never = voice.state;
@@ -81,7 +102,11 @@ export function createVoiceOrb(
           transition: 'all 0.15s ease-out',
           ...stateStyles,
         }}
-        aria-label={getAriaLabel(visualState)}
+        aria-label={
+          voice.needsUserGesture
+            ? 'Click to enable voice'
+            : getAriaLabel(visualState)
+        }
       />
     );
   };

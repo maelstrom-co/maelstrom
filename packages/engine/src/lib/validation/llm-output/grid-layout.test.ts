@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import type { GridResponse, VariantName, VesselId } from '@maelstrom-co/protocol';
+import type {
+  GridResponse,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 
 import { makeGridRequest } from '../../__test-helpers__/fixtures.js';
@@ -87,7 +91,10 @@ describe('healGridLayout', () => {
     expect(healed.layout.positions).toHaveLength(1);
     expect(healed.layout.positions[0]?.position).toEqual({ row: 0, column: 0 });
     expect(healed.droppedEntries).toEqual([
-      { reason: 'duplicate_instance_id', instanceId: InstanceId('calendar-main') },
+      {
+        reason: 'duplicate_instance_id',
+        instanceId: InstanceId('calendar-main'),
+      },
     ]);
   });
 
@@ -223,8 +230,16 @@ describe('healGridLayout', () => {
     // overflows. The healed layout retains the valid one only.
     const request = makeGridRequest({
       instances: [
-        { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
-        { instanceId: InstanceId('extra'), vesselId: 'calendar', variant: 'month' },
+        {
+          instanceId: InstanceId('calendar-main'),
+          vesselId: 'calendar',
+          variant: 'month',
+        },
+        {
+          instanceId: InstanceId('extra'),
+          vesselId: 'calendar',
+          variant: 'month',
+        },
       ],
     });
     const healed = healGridLayout(
@@ -248,7 +263,9 @@ describe('healGridLayout', () => {
     );
 
     expect(healed.layout.positions).toHaveLength(1);
-    expect(healed.layout.positions[0]?.instanceId).toBe(InstanceId('calendar-main'));
+    expect(healed.layout.positions[0]?.instanceId).toBe(
+      InstanceId('calendar-main'),
+    );
     expect(healed.droppedEntries).toHaveLength(1);
     expect(healed.droppedEntries[0]?.reason).toBe('position_overflow');
   });

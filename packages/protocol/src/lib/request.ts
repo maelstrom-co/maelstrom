@@ -86,10 +86,7 @@ export const ChartResizeReasonSchema = z.object({
  */
 export const VesselMutationReasonSchema = z.object({
   type: z.literal('vessel_mutation'),
-  instanceId: z
-    .string()
-    .min(1, 'instanceId is required')
-    .transform(InstanceId),
+  instanceId: z.string().min(1, 'instanceId is required').transform(InstanceId),
   changes: z.string(),
 });
 

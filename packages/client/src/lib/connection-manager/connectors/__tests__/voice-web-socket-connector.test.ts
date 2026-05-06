@@ -508,7 +508,9 @@ describe('VoiceWebSocketConnector getHistory', () => {
       ]);
       expect(winner).toBe('still-pending');
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('engine.history.response with no pending request'),
+        expect.stringContaining(
+          'engine.history.response with no pending request',
+        ),
       );
 
       // Settle process() so the test doesn't leak an unhandled rejection.

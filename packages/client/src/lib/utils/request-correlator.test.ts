@@ -278,7 +278,10 @@ describe('RequestCorrelator', () => {
       const correlator = new RequestCorrelator();
 
       correlator.create(MessageId('req-1'), 1000);
-      correlator.resolve(MessageId('req-1'), createMockResponse('req-1', 'test'));
+      correlator.resolve(
+        MessageId('req-1'),
+        createMockResponse('req-1', 'test'),
+      );
 
       expect(correlator.has(MessageId('req-1'))).toBe(false);
     });
@@ -296,7 +299,10 @@ describe('RequestCorrelator', () => {
       correlator.create(MessageId('req-2'), 1000);
       expect(correlator.pendingCount).toBe(2);
 
-      correlator.resolve(MessageId('req-1'), createMockResponse('req-1', 'test'));
+      correlator.resolve(
+        MessageId('req-1'),
+        createMockResponse('req-1', 'test'),
+      );
       expect(correlator.pendingCount).toBe(1);
     });
   });
@@ -348,15 +354,24 @@ describe('RequestCorrelator', () => {
 
       // Resolve in different order
       clock.setTimeout(() => {
-        correlator.resolve(MessageId('req-2'), createMockResponse('req-2', 'response-2'));
+        correlator.resolve(
+          MessageId('req-2'),
+          createMockResponse('req-2', 'response-2'),
+        );
       }, 10);
 
       clock.setTimeout(() => {
-        correlator.resolve(MessageId('req-1'), createMockResponse('req-1', 'response-1'));
+        correlator.resolve(
+          MessageId('req-1'),
+          createMockResponse('req-1', 'response-1'),
+        );
       }, 20);
 
       clock.setTimeout(() => {
-        correlator.resolve(MessageId('req-3'), createMockResponse('req-3', 'response-3'));
+        correlator.resolve(
+          MessageId('req-3'),
+          createMockResponse('req-3', 'response-3'),
+        );
       }, 30);
 
       await clock.tickAsync(30);
@@ -389,7 +404,10 @@ describe('RequestCorrelator', () => {
 
       // Resolve first request
       clock.setTimeout(() => {
-        correlator.resolve(MessageId('req-1'), createMockResponse('req-1', 'response-1'));
+        correlator.resolve(
+          MessageId('req-1'),
+          createMockResponse('req-1', 'response-1'),
+        );
       }, 10);
 
       await clock.tickAsync(10);

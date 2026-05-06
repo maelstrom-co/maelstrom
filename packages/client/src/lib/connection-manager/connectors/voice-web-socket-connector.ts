@@ -340,7 +340,9 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
    * response can't be misrouted to `process()`'s `MaelstromResponse`
    * correlator on an id collision.
    */
-  async getHistory(sessionId: SessionId): Promise<readonly SessionHistoryEntry[]> {
+  async getHistory(
+    sessionId: SessionId,
+  ): Promise<readonly SessionHistoryEntry[]> {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
@@ -487,7 +489,10 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
           }
           return;
         }
-        const resolved = this.#historyCorrelator.resolve(requestId, parsed.data);
+        const resolved = this.#historyCorrelator.resolve(
+          requestId,
+          parsed.data,
+        );
         if (this.#debug) {
           console.log(
             `[VoiceConnector] engine.history.response requestId=${data.requestId} correlated=${resolved}`,
@@ -522,7 +527,11 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
         });
       }
     } catch (err) {
-      console.error('[VoiceConnector] Failed to parse message:', err, event.data);
+      console.error(
+        '[VoiceConnector] Failed to parse message:',
+        err,
+        event.data,
+      );
     }
   }
 }

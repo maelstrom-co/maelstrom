@@ -1310,6 +1310,226 @@ describe('VoiceSession', () => {
 
       session.destroy();
     });
+
+    it('defers prepareAudio and greeting when no prior user activation has occurred', async () => {
+      (globalThis as Record<string, unknown>).navigator = {
+        mediaDevices: { getUserMedia: createMockGetUserMedia(true) },
+        userActivation: { hasBeenActive: false },
+      };
+
+      const events: { type: string; needsGesture: boolean }[] = [];
+      const session = new VoiceSession({
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+        greeting: 'Hello',
+      });
+      session.on('needsUserGesture', (needsGesture) => {
+        events.push({ type: 'needsUserGesture', needsGesture });
+      });
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.stt.ready',
+        sessionId: 'test-session',
+        timestamp: Date.now(),
+      });
+
+      await flush();
+
+      expect(session.isAudioReady).toBe(false);
+      expect(session.needsUserGesture).toBe(true);
+      expect(events).toEqual([{ type: 'needsUserGesture', needsGesture: true }]);
+      const speakMessage = mockConnector.sentMessages.find(
+        (m) => (m as { type: string }).type === 'client.voice.speak',
+      );
+      expect(speakMessage).toBeUndefined();
+
+      session.destroy();
+    });
+
+    it('clears needsUserGesture and sends the deferred greeting once a gesture-driven prepareAudio resolves', async () => {
+      (globalThis as Record<string, unknown>).navigator = {
+        mediaDevices: { getUserMedia: createMockGetUserMedia(true) },
+        userActivation: { hasBeenActive: false },
+      };
+
+      const events: { type: string; needsGesture: boolean }[] = [];
+      const session = new VoiceSession({
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+        greeting: 'Hello after gesture',
+      });
+      session.on('needsUserGesture', (needsGesture) => {
+        events.push({ type: 'needsUserGesture', needsGesture });
+      });
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.stt.ready',
+        sessionId: 'test-session',
+        timestamp: Date.now(),
+      });
+      await flush();
+
+      // Simulate the user gesture (button click): prepareAudio resolves.
+      await session.prepareAudio();
+
+      expect(session.isAudioReady).toBe(true);
+      expect(session.needsUserGesture).toBe(false);
+      expect(events).toEqual([
+        { type: 'needsUserGesture', needsGesture: true },
+        { type: 'needsUserGesture', needsGesture: false },
+      ]);
+      const speakMessage = mockConnector.sentMessages.find(
+        (m) => (m as { type: string }).type === 'client.voice.speak',
+      );
+      expect(speakMessage).toBeDefined();
+      expect((speakMessage as { text: string }).text).toBe(
+        'Hello after gesture',
+      );
+
+      session.destroy();
+    });
+
+    it('keeps needsUserGesture true and the greeting deferred when the gesture-driven prepareAudio rejects', async () => {
+      // Ready arrives without a prior gesture → session waits.
+      (globalThis as Record<string, unknown>).navigator = {
+        mediaDevices: { getUserMedia: createMockGetUserMedia(true) },
+        userActivation: { hasBeenActive: false },
+      };
+
+      const events: { type: string; needsGesture: boolean }[] = [];
+      const session = new VoiceSession({
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+        greeting: 'Hello after retry',
+      });
+      session.on('needsUserGesture', (needsGesture) => {
+        events.push({ type: 'needsUserGesture', needsGesture });
+      });
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.stt.ready',
+        sessionId: 'test-session',
+        timestamp: Date.now(),
+      });
+      await flush();
+      expect(session.needsUserGesture).toBe(true);
+
+      // Simulate the user's first click landing in a denied-mic state.
+      (globalThis as Record<string, unknown>).navigator = {
+        mediaDevices: { getUserMedia: createMockGetUserMedia(false) },
+        userActivation: { hasBeenActive: true },
+      };
+
+      await expect(session.prepareAudio()).rejects.toBeDefined();
+
+      expect(session.isAudioReady).toBe(false);
+      // Sticky on failure — dialog should stay up so the user can retry.
+      expect(session.needsUserGesture).toBe(true);
+      // No `false` event was emitted between the initial `true` and now.
+      expect(events).toEqual([{ type: 'needsUserGesture', needsGesture: true }]);
+      const speakBeforeRetry = mockConnector.sentMessages.find(
+        (m) => (m as { type: string }).type === 'client.voice.speak',
+      );
+      expect(speakBeforeRetry).toBeUndefined();
+
+      // Second click with mic permission granted: gating clears, greeting drains.
+      (globalThis as Record<string, unknown>).navigator = {
+        mediaDevices: { getUserMedia: createMockGetUserMedia(true) },
+        userActivation: { hasBeenActive: true },
+      };
+
+      await session.prepareAudio();
+
+      expect(session.isAudioReady).toBe(true);
+      expect(session.needsUserGesture).toBe(false);
+      expect(events).toEqual([
+        { type: 'needsUserGesture', needsGesture: true },
+        { type: 'needsUserGesture', needsGesture: false },
+      ]);
+      const speakAfterRetry = mockConnector.sentMessages.find(
+        (m) => (m as { type: string }).type === 'client.voice.speak',
+      );
+      expect(speakAfterRetry).toBeDefined();
+      expect((speakAfterRetry as { text: string }).text).toBe(
+        'Hello after retry',
+      );
+
+      session.destroy();
+    });
+
+    it('takes the eager path when navigator.userActivation is undefined (older browsers, jsdom)', async () => {
+      // No `userActivation` property → optimistic fallback in
+      // hasPriorUserActivation() returns true, so the session skips the
+      // deferred branch and prepareAudio runs immediately. Pre-existing
+      // MICROPHONE_DENIED recovery handles real failures.
+      (globalThis as Record<string, unknown>).navigator = {
+        mediaDevices: { getUserMedia: createMockGetUserMedia(true) },
+      };
+
+      const events: { type: string; needsGesture: boolean }[] = [];
+      const session = new VoiceSession({
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+        greeting: 'Hi via optimistic fallback',
+      });
+      session.on('needsUserGesture', (needsGesture) => {
+        events.push({ type: 'needsUserGesture', needsGesture });
+      });
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.stt.ready',
+        sessionId: 'test-session',
+        timestamp: Date.now(),
+      });
+      await flush();
+      await flush();
+
+      expect(session.isAudioReady).toBe(true);
+      expect(session.needsUserGesture).toBe(false);
+      // Never set true — eager path bypasses the gate entirely.
+      expect(events).toEqual([]);
+      const speakMessage = mockConnector.sentMessages.find(
+        (m) => (m as { type: string }).type === 'client.voice.speak',
+      );
+      expect(speakMessage).toBeDefined();
+
+      session.destroy();
+    });
+
+    it('takes the eager path when navigator.userActivation reports a prior gesture', async () => {
+      (globalThis as Record<string, unknown>).navigator = {
+        mediaDevices: { getUserMedia: createMockGetUserMedia(true) },
+        userActivation: { hasBeenActive: true },
+      };
+
+      const session = new VoiceSession({
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+        greeting: 'Hi',
+      });
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.stt.ready',
+        sessionId: 'test-session',
+        timestamp: Date.now(),
+      });
+      await flush();
+      await flush();
+
+      expect(session.isAudioReady).toBe(true);
+      expect(session.needsUserGesture).toBe(false);
+      const speakMessage = mockConnector.sentMessages.find(
+        (m) => (m as { type: string }).type === 'client.voice.speak',
+      );
+      expect(speakMessage).toBeDefined();
+
+      session.destroy();
+    });
   });
 
   // ---------------------------------------------------------------------------

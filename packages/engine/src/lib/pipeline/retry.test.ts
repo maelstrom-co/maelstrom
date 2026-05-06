@@ -5,7 +5,14 @@ import type {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
-import { InstanceId, err, isErr, isOk, ok, MessageId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  err,
+  isErr,
+  isOk,
+  ok,
+  MessageId,
+} from '@maelstrom-co/protocol';
 
 import type { EngineError } from '../errors.js';
 import {
@@ -172,9 +179,9 @@ describe('callWithRetry', () => {
       // The `if (attempt > 0)` guard around `Retry succeeded` is the only
       // thing keeping clean calls quiet — pin it so a future refactor that
       // drops the guard fires the log on every clean call.
-      expect(
-        entries.filter((e) => e.msg === 'Retry succeeded'),
-      ).toHaveLength(0);
+      expect(entries.filter((e) => e.msg === 'Retry succeeded')).toHaveLength(
+        0,
+      );
     });
 
     test('healed-but-not-recommended response ships without retry', async () => {
@@ -406,7 +413,9 @@ describe('callWithRetry', () => {
       ['TimeoutError', timeoutError('slow', 5_000)],
       ['ValidationError', validationError('bad', 'prompt')],
       ['HistoryError', historyError.recordTurn('store', new Error('s'))],
-    ] as Array<[string, EngineError]>)('%s is fatal — no retry', async (_, e) => {
+    ] as Array<
+      [string, EngineError]
+    >)('%s is fatal — no retry', async (_, e) => {
       const { runOnce, calls } = recordingRunOnce([err(e)]);
 
       const result = await callWithRetry({
@@ -832,18 +841,17 @@ describe('buildRetryPrompt', () => {
       },
       'instance "dupe" appeared multiple times in layout',
     ],
-  ] satisfies Array<[DroppedLayoutEntry, string]>)(
-    'formats DroppedLayoutEntry %p',
-    (drop, expected) => {
-      const out = buildRetryPrompt('orig', {
-        skippedActions: [],
-        droppedLayoutEntries: [drop],
-        warnings: [],
-        retryHint: recommendMedium,
-      });
-      expect(out).toContain(`- ${expected}`);
-    },
-  );
+  ] satisfies Array<
+    [DroppedLayoutEntry, string]
+  >)('formats DroppedLayoutEntry %p', (drop, expected) => {
+    const out = buildRetryPrompt('orig', {
+      skippedActions: [],
+      droppedLayoutEntries: [drop],
+      warnings: [],
+      retryHint: recommendMedium,
+    });
+    expect(out).toContain(`- ${expected}`);
+  });
 
   // Pin every non-state_drift SkippedAction formatter.
   test.each([
@@ -897,18 +905,17 @@ describe('buildRetryPrompt', () => {
       },
       'Action "badAction" is not valid on instance "a" in variant "default" — valid actions: x, y',
     ],
-  ] satisfies Array<[SkippedAction, string]>)(
-    'formats SkippedAction %p',
-    (skipped, expected) => {
-      const out = buildRetryPrompt('orig', {
-        skippedActions: [skipped],
-        droppedLayoutEntries: [],
-        warnings: [],
-        retryHint: recommendMedium,
-      });
-      expect(out).toContain(expected);
-    },
-  );
+  ] satisfies Array<
+    [SkippedAction, string]
+  >)('formats SkippedAction %p', (skipped, expected) => {
+    const out = buildRetryPrompt('orig', {
+      skippedActions: [skipped],
+      droppedLayoutEntries: [],
+      warnings: [],
+      retryHint: recommendMedium,
+    });
+    expect(out).toContain(expected);
+  });
 
   test('action_not_valid with empty validActions formats "(none)"', () => {
     const out = buildRetryPrompt('orig', {

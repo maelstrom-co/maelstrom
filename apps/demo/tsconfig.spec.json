@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./out-tsc/vitest",
+    "lib": ["es2022", "dom"],
     "types": [
       "bun",
       "vitest/globals",
@@ -26,6 +27,10 @@
     "src/**/*.spec.js",
     "src/**/*.test.jsx",
     "src/**/*.spec.jsx",
+    "src/**/*.test.isolated.ts",
+    "src/**/*.test.isolated.tsx",
+    "src/**/__tests__/*.ts",
+    "src/**/__tests__/*.tsx",
     "src/**/*.d.ts"
   ],
   "references": [

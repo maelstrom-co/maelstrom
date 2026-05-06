@@ -46,9 +46,7 @@ export function buildRetryPrompt(
   return lines.join('\n');
 }
 
-function describeLayoutDrops(
-  drops: readonly DroppedLayoutEntry[],
-): string[] {
+function describeLayoutDrops(drops: readonly DroppedLayoutEntry[]): string[] {
   // Tree drops carry token-position fields the LLM never emitted; collapse
   // every tree_* drop to a single advisory line rather than citing useless
   // indices. Per-instance drops route through the shared formatter.

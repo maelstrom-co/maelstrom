@@ -114,7 +114,8 @@ type GetActionParams<A, ActionName extends string> = A extends {
 /**
  * Union of all action names across all variants of a vessel.
  */
-export type AllVariantActionNames<V extends VesselDefinition> = GetAllActions<V>['name'];
+export type AllVariantActionNames<V extends VesselDefinition> =
+  GetAllActions<V>['name'];
 
 /**
  * Extracts the parameter object for a specific action name.
@@ -154,11 +155,12 @@ export type ActionHandler<Params> = [Params] extends [undefined]
  * };
  * ```
  */
-export type ActionRunner<V extends VesselDefinition = VesselDefinition> = Partial<{
-  [Name in AllVariantActionNames<V>]: ActionHandler<
-    GetActionParams<GetAllActions<V>, Name>
-  >;
-}>;
+export type ActionRunner<V extends VesselDefinition = VesselDefinition> =
+  Partial<{
+    [Name in AllVariantActionNames<V>]: ActionHandler<
+      GetActionParams<GetAllActions<V>, Name>
+    >;
+  }>;
 
 /**
  * Untyped action runner map used for internal storage.
@@ -180,7 +182,8 @@ export type ActionHandlersFor<V extends VesselDefinition> = ActionRunner<V>;
 /**
  * Alias for all action names on a vessel.
  */
-export type ActionNamesFor<V extends VesselDefinition> = AllVariantActionNames<V>;
+export type ActionNamesFor<V extends VesselDefinition> =
+  AllVariantActionNames<V>;
 
 /**
  * Alias for action param extraction.

@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, test } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
 
-import {
-  type ActionExecution,
-  InstanceId,
-} from '@maelstrom-co/protocol';
+import { type ActionExecution, InstanceId } from '@maelstrom-co/protocol';
 
 import {
   createExecuteActionsCommand,
   createSetLayoutCommand,
 } from '../../../test-utils/command-mocks.js';
 import type { Command } from './command.types.js';
-import { CommandProcessor, toRunnerExecutionPlan } from './command-processor.js';
+import {
+  CommandProcessor,
+  toRunnerExecutionPlan,
+} from './command-processor.js';
 
 describe('CommandProcessor (Event Loop)', () => {
   let processor: CommandProcessor;

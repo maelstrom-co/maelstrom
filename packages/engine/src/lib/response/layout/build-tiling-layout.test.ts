@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  InstanceId,
-  VariantName,
-  VesselId,
-} from '@maelstrom-co/protocol';
+import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
 
 import { buildTilingLayout } from './build-tiling-layout.js';
 

@@ -130,7 +130,9 @@ describe('WebSocketConnector silent-failure hygiene', () => {
 
       expect(errorSpy).toHaveBeenCalledTimes(1);
       const callArgs = errorSpy.mock.calls[0];
-      expect(callArgs[0]).toContain('[WebSocketConnector] Failed to parse message');
+      expect(callArgs[0]).toContain(
+        '[WebSocketConnector] Failed to parse message',
+      );
       expect(callArgs[1]).toBeInstanceOf(Error); // bound parse exception
       expect(callArgs[2]).toBe('{not-json'); // raw event.data preserved
     } finally {
@@ -459,7 +461,9 @@ describe('WebSocketConnector cross-correlator isolation', () => {
       ]);
       expect(winner).toBe('still-pending');
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('engine.history.response with no pending request'),
+        expect.stringContaining(
+          'engine.history.response with no pending request',
+        ),
       );
 
       // Settle process() so the test doesn't leak an unhandled rejection.

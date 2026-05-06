@@ -5,9 +5,6 @@ import {
   type MaelstromResponse,
   MessageId,
   SessionId,
-  type VariantName,
-  type VesselId,
-  VesselSchema,
 } from '@maelstrom-co/protocol';
 import type {
   ChartRequest as LegacyChartRequest,
@@ -19,10 +16,11 @@ import type { ProcessIntent } from '@maelstrom-co/voice-server';
 function toLegacyChartRequest(
   request: ChartRequest,
   sessionId: string,
+  id: MessageId,
 ): LegacyChartRequest {
   return {
     type: 'chart_request',
-    id: MessageId(`voice-${crypto.randomUUID()}`),
+    id,
     context: {
       ...request.context,
       timestamp: Date.now(),
@@ -52,56 +50,6 @@ function toLegacyChartRequest(
             tree: request.layout.tree.map((node) => node),
             instances: request.layout.instances.map((instance) => ({
               instanceId: instance.instanceId,
-              vesselId: instance.vesselId,
-              variant: instance.variant,
-            })),
-          },
-  };
-}
-
-export function toProtocolChartRequest(
-  request: LegacyChartRequest,
-): ChartRequest {
-  return {
-    type: 'chart_request',
-    context: {
-      ...request.context,
-      updateReasons: request.context.updateReasons.map((reason) => {
-        if (reason.type === 'vessel_mutation') {
-          return {
-            ...reason,
-            instanceId: InstanceId(reason.instanceId),
-          };
-        }
-
-        return { ...reason };
-      }),
-    },
-    instances: request.instances.map((instance) => ({
-      instanceId: InstanceId(instance.instanceId),
-      vesselId: instance.vesselId as VesselId,
-      variant: instance.variant as VariantName,
-    })),
-    vessels: request.vessels.map((vessel) => VesselSchema.parse(vessel)),
-    layout:
-      request.layout.type === 'grid'
-        ? {
-            type: 'grid',
-            positions: request.layout.positions.map((position) => ({
-              instanceId: InstanceId(position.instanceId),
-              position: position.position,
-              size: position.size,
-            })),
-          }
-        : {
-            type: 'tiling',
-            tree: request.layout.tree.map((node) =>
-              node === null || node === 'H' || node === 'V'
-                ? node
-                : InstanceId(node),
-            ),
-            instances: request.layout.instances.map((instance) => ({
-              instanceId: InstanceId(instance.instanceId),
               vesselId: instance.vesselId,
               variant: instance.variant,
             })),
@@ -153,6 +101,8 @@ export function createDemoVoiceIntentAdapter(
   sessionId: string,
   sendMessage: (message: VoiceServerMessage) => void,
   getLatestChartRequest: () => ChartRequest | null,
+  getExplicitRequestId: (request: ChartRequest) => MessageId | null = () =>
+    null,
 ): {
   buildChartRequest: (input: {
     transcript: string;
@@ -233,9 +183,41 @@ export function createDemoVoiceIntentAdapter(
           throw new Error('Intent processing aborted');
         }
 
-        const legacyResponse = await engine.process(
-          toLegacyChartRequest(request, sessionId),
-        );
+        // For requests originating from `client.maelstrom.process`, the WS
+        // session controller stages the envelope id (keyed on the request
+        // reference) so the response can be correlated with the client's
+        // pending promise. STT-driven turns arrive without one and get a
+        // synthetic `voice-…` id.
+        const requestId =
+          getExplicitRequestId(request) ??
+          MessageId(`voice-${crypto.randomUUID()}`);
+
+        let legacyResponse: LegacyMaelstromResponse;
+        try {
+          legacyResponse = await engine.process(
+            toLegacyChartRequest(request, sessionId, requestId),
+          );
+        } catch (err) {
+          // Voice runtime swallows this throw via its onError pipeline, which
+          // emits an uncorrelated engine.error frame. Surface a correlated one
+          // first so the client's pending promise rejects immediately instead
+          // of timing out.
+          //
+          // Single-emit contract: this adapter is the sole layer that should
+          // emit `engine.error` for failures along the intent path. The
+          // ws-session controller's own catch around `voiceSession.processRequest`
+          // is a defensive fallback for a future runtime change that lets
+          // exceptions bubble — if both fire today, that's a regression in
+          // either layer, not a duplicate-emit feature.
+          sendMessage({
+            type: 'engine.error',
+            sessionId,
+            requestId,
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: performance.now(),
+          });
+          throw err;
+        }
 
         const response = toProtocolResponse(legacyResponse);
 

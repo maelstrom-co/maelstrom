@@ -190,6 +190,22 @@ export class VoiceSession {
   #currentTurnId = 0;
   #finalizedTurn: { turnId: number; normalizedText: string } | null = null;
 
+  // Set when `engine.stt.ready` arrives before any user activation has
+  // occurred, in `autoAcquireMic: true` mode. We can't call prepareAudio()
+  // yet because browsers require a gesture for getUserMedia/AudioContext.
+  //
+  // Intentionally sticky across failed retries: a rejected gesture-driven
+  // prepareAudio() (e.g. mic permission denied) leaves both this flag and
+  // `#pendingAfterPrepare` set so the consumer-rendered affordance stays
+  // visible and a subsequent click can retry. Cleared only on a successful
+  // prepareAudio() (success path drains the continuation in tandem) or on
+  // a fresh `engine.stt.ready` that re-evaluates the gesture state.
+  #needsUserGesture = false;
+  // Continuation deferred from `#handleServerReady` until the first
+  // successful prepareAudio(). Today this only re-triggers the greeting
+  // send. Survives rejected retries by design (see #needsUserGesture above).
+  #pendingAfterPrepare: (() => void) | null = null;
+
   constructor(config: VoiceSessionConfig) {
     this.#config = config;
     this.#useVadToFinalizeInterims = config.useVadToFinalizeInterims ?? true;
@@ -345,6 +361,14 @@ export class VoiceSession {
         }
 
         this.#state.isAudioPipelineReady = true;
+
+        // The pipeline is live, so a prior gesture must have unlocked the
+        // browser audio APIs. Clear the deferred flag and run any continuation
+        // (e.g. the greeting that #handleServerReady stashed for after gesture).
+        this.#clearNeedsUserGesture();
+        const continuation = this.#pendingAfterPrepare;
+        this.#pendingAfterPrepare = null;
+        continuation?.();
 
         if (this.#config.debugMode) {
           console.log('[VoiceSession] Audio pipeline ready');
@@ -530,6 +554,16 @@ export class VoiceSession {
 
   get error(): VoiceError | null {
     return this.#state.error;
+  }
+
+  /**
+   * True when the session is waiting for a user gesture before it can
+   * acquire the microphone or unlock playback. Consumers should render an
+   * affordance (button, dialog) whose click invokes `startListening()` or
+   * `prepareAudio()` to satisfy the browser activation requirement.
+   */
+  get needsUserGesture(): boolean {
+    return this.#needsUserGesture;
   }
 
   // ── Initialization wiring ───────────────────────────────────────────────
@@ -939,26 +973,37 @@ export class VoiceSession {
       return;
     }
 
+    const sessionId = message.sessionId;
+    const sendGreetingIfNeeded = () => {
+      if (!this.#config.greeting || this.#greetingSent) {
+        return;
+      }
+      this.#greetingSent = true;
+      if (this.#config.debugMode) {
+        console.log('[VoiceSession] Sending greeting');
+      }
+      this.#config.connector.sendVoiceMessage({
+        type: 'client.voice.speak',
+        sessionId,
+        timestamp: performance.now(),
+        text: this.#config.greeting,
+        id: MessageId(),
+      });
+    };
+
+    // Browsers require a prior user gesture for getUserMedia() and for
+    // AudioContext.resume(); calling prepareAudio() before that lands the
+    // session in MICROPHONE_DENIED with no obvious recovery affordance.
+    // When we can detect the missing gesture, defer mic + greeting until
+    // the consumer triggers prepareAudio()/startListening() from a click.
+    if (!hasPriorUserActivation()) {
+      this.#pendingAfterPrepare = sendGreetingIfNeeded;
+      this.#setNeedsUserGesture();
+      return;
+    }
+
     this.prepareAudio()
-      .then(() => {
-        if (!this.#config.greeting || this.#greetingSent) {
-          return;
-        }
-
-        this.#greetingSent = true;
-
-        if (this.#config.debugMode) {
-          console.log('[VoiceSession] Sending greeting');
-        }
-
-        this.#config.connector.sendVoiceMessage({
-          type: 'client.voice.speak',
-          sessionId: message.sessionId,
-          timestamp: performance.now(),
-          text: this.#config.greeting,
-          id: MessageId(),
-        });
-      })
+      .then(sendGreetingIfNeeded)
       .catch((err) => {
         // prepareAudio already surfaced the error via #setError. Reset
         // greetingSent so a subsequent retry (e.g. reconnect) re-emits the
@@ -1170,6 +1215,18 @@ export class VoiceSession {
     this.#emit('stateChange', currentState);
   }
 
+  #setNeedsUserGesture(): void {
+    if (this.#needsUserGesture) return;
+    this.#needsUserGesture = true;
+    this.#emit('needsUserGesture', true);
+  }
+
+  #clearNeedsUserGesture(): void {
+    if (!this.#needsUserGesture) return;
+    this.#needsUserGesture = false;
+    this.#emit('needsUserGesture', false);
+  }
+
   #setError(error: VoiceError): void {
     // Guard against duplicate emissions when the same error is surfaced by
     // multiple layers (e.g. prepareAudio() rethrows → startListening() catch
@@ -1242,6 +1299,27 @@ interface VoiceSessionInnerState {
   vad: VADProcessor;
 }
 
+/**
+ * Best-effort check that a user has interacted with the page since load.
+ *
+ * `navigator.userActivation.hasBeenActive` is the spec API (Chromium 72+,
+ * Firefox 119+, Safari 17+). When the property is unavailable (older
+ * browsers, jsdom, SSR) we optimistically return `true` so the session
+ * falls back to the legacy eager-prepare path — letting the existing
+ * `MICROPHONE_DENIED` recovery handle the rejection if a gesture really
+ * was missing.
+ */
+function hasPriorUserActivation(): boolean {
+  if (typeof navigator === 'undefined') return true;
+  const activation = (
+    navigator as { userActivation?: { hasBeenActive?: boolean } }
+  ).userActivation;
+  if (!activation || typeof activation.hasBeenActive !== 'boolean') {
+    return true;
+  }
+  return activation.hasBeenActive;
+}
+
 /** Concatenate two Float32Arrays into a new array. */
 function concatFloat32Arrays(a: Float32Array, b: Float32Array): Float32Array {
   const result = new Float32Array(a.length + b.length);
@@ -1286,6 +1364,8 @@ function buildVoiceEvent(
       return { type: 'speechStarted', text: args[0] as string };
     case 'audioOutput':
       return { type: 'audioOutput', audioData: args[0] as Uint8Array };
+    case 'needsUserGesture':
+      return { type: 'needsUserGesture', needsGesture: args[0] as boolean };
     default: {
       const _exhaustive: never = event;
       throw new Error(

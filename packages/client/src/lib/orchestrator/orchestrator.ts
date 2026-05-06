@@ -341,9 +341,7 @@ export class Orchestrator {
           // dispatchResponse delegates to CommandProcessor; failures here are
           // not surfaced upstream, so we log and reject queued flushes.
           const error = err instanceof Error ? err : new Error(String(err));
-          this.#logger.error(
-            `Timer-flush dispatch failed: ${error.message}`,
-          );
+          this.#logger.error(`Timer-flush dispatch failed: ${error.message}`);
           this.#requestCoordinator.rejectFlushPromises(error);
           return;
         }

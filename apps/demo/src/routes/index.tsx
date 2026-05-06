@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
+import { EnableVoiceDialog } from '../components/enable-voice-dialog';
 import { createDemoConnector } from '../lib/connector';
 import { m } from '../lib/maelstrom';
 
@@ -18,7 +19,7 @@ function HomePage() {
 }
 
 function DemoApp() {
-  m.useVoice({
+  const voice = m.useVoice({
     autoAcquireMic: true,
     allowBargeIn: true,
     greeting:
@@ -48,6 +49,15 @@ function DemoApp() {
 
       {/* Intent input */}
       <IntentInput />
+
+      {voice.needsUserGesture && (
+        <EnableVoiceDialog
+          onEnable={() => {
+            void voice.start();
+          }}
+          voiceState={voice.state}
+        />
+      )}
     </div>
   );
 }

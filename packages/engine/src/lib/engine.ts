@@ -31,10 +31,7 @@ import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
 import { callLLM } from './pipeline/call-llm.js';
 import { callWithRetry } from './pipeline/retry.js';
-import {
-  buildSystemPrompt,
-  buildUserPrompt,
-} from './prompt/prompt-builder.js';
+import { buildSystemPrompt, buildUserPrompt } from './prompt/prompt-builder.js';
 import { processResponse } from './response/response-processor.js';
 import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
@@ -320,19 +317,14 @@ export function createEngine(config: EngineConfig): Engine {
       diagnostics.droppedLayoutEntries.length > 0 ||
       diagnostics.warnings.length > 0
     ) {
-      logAtSeverity(
-        logger,
-        diagnostics.retryHint.severity,
-        'Response healed',
-        {
-          messageId: message.id,
-          skippedActions: diagnostics.skippedActions.length,
-          droppedLayoutEntries: diagnostics.droppedLayoutEntries.length,
-          warnings: diagnostics.warnings.length,
-          retrySeverity: diagnostics.retryHint.severity,
-          retryRecommend: diagnostics.retryHint.recommend,
-        },
-      );
+      logAtSeverity(logger, diagnostics.retryHint.severity, 'Response healed', {
+        messageId: message.id,
+        skippedActions: diagnostics.skippedActions.length,
+        droppedLayoutEntries: diagnostics.droppedLayoutEntries.length,
+        warnings: diagnostics.warnings.length,
+        retrySeverity: diagnostics.retryHint.severity,
+        retryRecommend: diagnostics.retryHint.recommend,
+      });
     }
 
     return ok({

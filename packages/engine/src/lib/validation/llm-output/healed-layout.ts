@@ -46,7 +46,10 @@ export type DroppedLayoutEntry =
       readonly minWidth: number;
       readonly minHeight: number;
     }
-  | { readonly reason: 'duplicate_instance_id'; readonly instanceId: InstanceId }
+  | {
+      readonly reason: 'duplicate_instance_id';
+      readonly instanceId: InstanceId;
+    }
   | { readonly reason: 'tree_missing_child'; readonly atTokenIndex: number }
   | {
       readonly reason: 'tree_orphan_reference';

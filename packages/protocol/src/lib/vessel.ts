@@ -19,17 +19,10 @@ export const ActionParameterSchema = z.object({
 });
 
 export const VesselActionSchema = z.object({
-  name: z
-    .string()
-    .min(1, 'Action name is required')
-    .transform(ActionName),
+  name: z.string().min(1, 'Action name is required').transform(ActionName),
   description: z.string().min(1, 'Action description is required'),
   parameters: z.array(ActionParameterSchema).optional(),
-  transitionsTo: z
-    .string()
-    .min(1)
-    .transform(VariantName)
-    .optional(),
+  transitionsTo: z.string().min(1).transform(VariantName).optional(),
 });
 
 export const VesselVariantSchema = z.object({
@@ -41,10 +34,7 @@ export const VesselVariantSchema = z.object({
 
 export const VesselSchema = z
   .object({
-    id: z
-      .string()
-      .min(1, 'Vessel id is required')
-      .transform(VesselId),
+    id: z.string().min(1, 'Vessel id is required').transform(VesselId),
     name: z.string().min(1, 'Vessel name is required'),
     description: z.string().min(1, 'Vessel description is required'),
     defaultVariant: z

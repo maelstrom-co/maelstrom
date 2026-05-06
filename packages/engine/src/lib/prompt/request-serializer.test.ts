@@ -291,8 +291,16 @@ describe('buildTilingChartState', () => {
     const request: ChartRequest = {
       ...makeTilingRequest(),
       instances: [
-        { instanceId: InstanceId('a'), vesselId: 'calendar' as VesselId, variant: 'month' as VariantName },
-        { instanceId: InstanceId('b'), vesselId: 'calendar' as VesselId, variant: 'month' as VariantName },
+        {
+          instanceId: InstanceId('a'),
+          vesselId: 'calendar' as VesselId,
+          variant: 'month' as VariantName,
+        },
+        {
+          instanceId: InstanceId('b'),
+          vesselId: 'calendar' as VesselId,
+          variant: 'month' as VariantName,
+        },
       ],
       layout: {
         type: 'tiling',

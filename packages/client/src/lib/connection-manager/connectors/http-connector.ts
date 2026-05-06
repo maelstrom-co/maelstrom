@@ -149,9 +149,7 @@ export class HttpConnector implements EngineConnector {
         // names the endpoint and the configured timeout — matches the
         // diagnostic quality of the WebSocket path's RequestCorrelator.
         if (timedOut) {
-          throw new Error(
-            `HTTP ${path} timed out after ${this.#timeout}ms`,
-          );
+          throw new Error(`HTTP ${path} timed out after ${this.#timeout}ms`);
         }
         throw err;
       });

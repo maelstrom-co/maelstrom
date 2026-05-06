@@ -72,7 +72,9 @@ function tree(...nodes: Array<'H' | 'V' | string | null>): TilingNode[] {
 describe('healTilingLayout', () => {
   test('healthy response heals to itself, no drops, no warnings', () => {
     const healed = healTilingLayout(makeTilingResponse(), requestWithVessels());
-    expect(healed.layout.tree).toEqual(tree('V', 'calendar-main', 'tasks-main'));
+    expect(healed.layout.tree).toEqual(
+      tree('V', 'calendar-main', 'tasks-main'),
+    );
     expect(healed.layout.instances).toHaveLength(2);
     expect(healed.droppedEntries).toEqual([]);
     expect(healed.warnings).toEqual([]);
@@ -248,7 +250,9 @@ describe('healTilingLayout', () => {
       requestWithVessels(),
     );
     expect(healed.warnings).toEqual([{ kind: 'missing_rationale' }]);
-    expect(healed.layout.tree).toEqual(tree('V', 'calendar-main', 'tasks-main'));
+    expect(healed.layout.tree).toEqual(
+      tree('V', 'calendar-main', 'tasks-main'),
+    );
   });
 
   test('unknown_variant: instance dropped from list AND its leaf pruned from tree', () => {
@@ -417,9 +421,7 @@ describe('healTilingLayout', () => {
       }),
       requestWithVessels(),
     );
-    expect(healed.layout.tree).toEqual(
-      tree('H', 'V', 'a', 'b', 'H', 'c', 'd'),
-    );
+    expect(healed.layout.tree).toEqual(tree('H', 'V', 'a', 'b', 'H', 'c', 'd'));
     expect(healed.droppedEntries).toEqual([]);
   });
 

@@ -2,10 +2,7 @@ import { describe, expect, mock, test } from 'bun:test';
 
 import { InstanceId, MessageId, SessionId } from '@maelstrom-co/protocol';
 
-import {
-  createDemoVoiceIntentAdapter,
-  toProtocolChartRequest,
-} from './voice-intent-adapter.js';
+import { createDemoVoiceIntentAdapter } from './voice-intent-adapter.js';
 
 function createMirroredChartRequest() {
   return {
@@ -162,41 +159,10 @@ describe('voice-intent-adapter', () => {
     });
   });
 
-  test('toProtocolChartRequest drops envelope-only ids while converting instance ids to branded protocol values', () => {
-    const request = toProtocolChartRequest({
-      type: 'chart_request',
-      id: 'req-legacy',
-      context: {
-        updateReasons: [
-          { type: 'vessel_mutation', instanceId: 'inst-1', changes: 'changed' },
-        ],
-        chartDimensions: { columns: 12, rows: 8 },
-        timestamp: 1,
-        sessionId: 'session-legacy',
-        layoutMode: 'tiling',
-      },
-      instances: [
-        { instanceId: 'inst-1', vesselId: 'calendar', variant: 'month' },
-      ],
-      vessels: [],
-      layout: {
-        type: 'tiling',
-        tree: ['inst-1'],
-        instances: [
-          { instanceId: 'inst-1', vesselId: 'calendar', variant: 'month' },
-        ],
-      },
-    });
-
-    expect(request).not.toHaveProperty('id');
-    expect(request.instances[0]?.instanceId).toBe('inst-1');
-    expect(request.layout.tree[0]).toBe('inst-1');
-  });
-
   test('processIntent forwards the legacy engine response and returns the protocol response', async () => {
     const engine = {
-      process: mock(async () => ({
-        requestId: 'req-1',
+      process: mock(async (legacyRequest) => ({
+        requestId: legacyRequest.id,
         userMessage: 'hello back',
         rationale: 'rationale',
         executionPlan: [],
@@ -231,10 +197,115 @@ describe('voice-intent-adapter', () => {
       expect.objectContaining({
         type: 'engine.maelstrom.response',
         sessionId: 'session-1',
-        requestId: 'req-1',
+        requestId: expect.stringMatching(/^voice-/),
       }),
     );
     expect(response.userMessage).toBe('hello back');
+  });
+
+  test('processIntent uses the explicit request id when one is staged', async () => {
+    const engine = {
+      process: mock(async (legacyRequest) => ({
+        requestId: legacyRequest.id,
+        userMessage: '',
+        rationale: '',
+        executionPlan: [],
+        layout: { type: 'tiling', tree: [], instances: [] },
+      })),
+    };
+    const sendMessage = mock(() => {});
+    const request = createProtocolChartRequest('hello');
+    const getExplicitRequestId = mock(() => MessageId('explicit-id-42'));
+    const adapter = createDemoVoiceIntentAdapter(
+      engine,
+      SessionId('session-1'),
+      sendMessage,
+      () => null,
+      getExplicitRequestId,
+    );
+
+    await adapter.processIntent.process(request);
+
+    expect(getExplicitRequestId).toHaveBeenCalledTimes(1);
+    // Lookup-by-reference: the adapter passes the exact request it received.
+    expect(getExplicitRequestId.mock.calls[0]?.[0]).toBe(request);
+    expect(engine.process.mock.calls[0]?.[0]?.id).toBe('explicit-id-42');
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'engine.maelstrom.response',
+        requestId: 'explicit-id-42',
+      }),
+    );
+  });
+
+  test('processIntent emits a correlated engine.error before rethrowing engine.process failures', async () => {
+    const engineError = new Error('LLM timeout');
+    const engine = {
+      process: mock(async () => {
+        throw engineError;
+      }),
+    };
+    const sendMessage = mock(() => {});
+    const request = createProtocolChartRequest('hello');
+    const getExplicitRequestId = mock(() => MessageId('explicit-id-99'));
+    const adapter = createDemoVoiceIntentAdapter(
+      engine,
+      SessionId('session-1'),
+      sendMessage,
+      () => null,
+      getExplicitRequestId,
+    );
+
+    await expect(adapter.processIntent.process(request)).rejects.toBe(
+      engineError,
+    );
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'engine.error',
+        sessionId: 'session-1',
+        requestId: 'explicit-id-99',
+        error: 'LLM timeout',
+      }),
+    );
+    // No success frame emitted on the failure path.
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'engine.maelstrom.response' }),
+    );
+  });
+
+  test('processIntent emits engine.error tagged with the synthetic voice id when no explicit id is staged', async () => {
+    const engine = {
+      process: mock(async () => {
+        throw new Error('boom');
+      }),
+    };
+    const sendMessage = mock(() => {});
+    const adapter = createDemoVoiceIntentAdapter(
+      engine,
+      SessionId('session-1'),
+      sendMessage,
+      () => null,
+    );
+
+    await expect(
+      adapter.processIntent.process(createProtocolChartRequest('hello')),
+    ).rejects.toThrow('boom');
+
+    const errorCall = sendMessage.mock.calls.find(
+      (call) => call[0]?.type === 'engine.error',
+    );
+    expect(errorCall?.[0]?.requestId).toMatch(/^voice-/);
+    // MessageId is a stable branded `string`; matchers like `toBeTypeOf`
+    // are sufficient since the brand erases at runtime. The /^voice-/
+    // prefix above already pins the shape.
+    expect(typeof errorCall?.[0]?.requestId).toBe('string');
+    expect(errorCall?.[0]?.error).toBe('boom');
+    // Parity with the explicit-id test: no success frame on the failure path.
+    const successCall = sendMessage.mock.calls.find(
+      (call) => call[0]?.type === 'engine.maelstrom.response',
+    );
+    expect(successCall).toBeUndefined();
   });
 
   test('processIntent aborts before emitting side effects when the signal is already aborted', async () => {

@@ -230,24 +230,38 @@ describe('ChartRequestMessageSchema', () => {
   });
 
   test('rejects +Infinity timestamp', () => {
-    const env = { ...validChartRequestEnvelope(), timestamp: Number.POSITIVE_INFINITY };
+    const env = {
+      ...validChartRequestEnvelope(),
+      timestamp: Number.POSITIVE_INFINITY,
+    };
     expect(ChartRequestMessageSchema.safeParse(env).success).toBe(false);
   });
 
   test('rejects -Infinity timestamp', () => {
-    const env = { ...validChartRequestEnvelope(), timestamp: Number.NEGATIVE_INFINITY };
+    const env = {
+      ...validChartRequestEnvelope(),
+      timestamp: Number.NEGATIVE_INFINITY,
+    };
     expect(ChartRequestMessageSchema.safeParse(env).success).toBe(false);
   });
 
   test('rejects string timestamp', () => {
-    const env = { ...validChartRequestEnvelope(), timestamp: '123' as unknown as number };
+    const env = {
+      ...validChartRequestEnvelope(),
+      timestamp: '123' as unknown as number,
+    };
     expect(ChartRequestMessageSchema.safeParse(env).success).toBe(false);
   });
 
   test('rejects malformed inner request', () => {
     const env = {
       ...validChartRequestEnvelope(),
-      request: { ...validChartRequestEnvelope().request, context: { /* missing fields */ } },
+      request: {
+        ...validChartRequestEnvelope().request,
+        context: {
+          /* missing fields */
+        },
+      },
     };
     expect(ChartRequestMessageSchema.safeParse(env).success).toBe(false);
   });
@@ -265,8 +279,9 @@ describe('ChartRequestMessageSchema', () => {
 describe('AssistantInjectionMessageSchema', () => {
   test('parses a valid envelope', () => {
     expect(
-      AssistantInjectionMessageSchema.safeParse(validAssistantInjectionEnvelope())
-        .success,
+      AssistantInjectionMessageSchema.safeParse(
+        validAssistantInjectionEnvelope(),
+      ).success,
     ).toBe(true);
   });
 
@@ -289,11 +304,15 @@ describe('AssistantInjectionMessageSchema', () => {
 
 describe('EngineMessageSchema (discriminated union)', () => {
   test('parses chart_request', () => {
-    expect(EngineMessageSchema.safeParse(validChartRequestEnvelope()).success).toBe(true);
+    expect(
+      EngineMessageSchema.safeParse(validChartRequestEnvelope()).success,
+    ).toBe(true);
   });
 
   test('parses assistant_message', () => {
-    expect(EngineMessageSchema.safeParse(validAssistantInjectionEnvelope()).success).toBe(true);
+    expect(
+      EngineMessageSchema.safeParse(validAssistantInjectionEnvelope()).success,
+    ).toBe(true);
   });
 
   test('rejects unknown discriminator', () => {

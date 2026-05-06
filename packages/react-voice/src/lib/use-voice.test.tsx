@@ -96,6 +96,10 @@ class MockVoiceSession {
     this._emit('error', err);
   }
 
+  _simulateNeedsUserGesture(needsGesture: boolean) {
+    this._emit('needsUserGesture', needsGesture);
+  }
+
   // Mirrors the real `#handleServerReady` gate so React-layer tests catch
   // regressions where forwarding flips the consumer's autoAcquireMic value.
   // If React silently switched true→false, this no-ops on ready and the
@@ -1013,5 +1017,82 @@ describe('m.useVoice()', () => {
     // user-supplied override. Both fields should land on the session.
     expect(opts.vadOptions?.activationThreshold).toBe(0.5);
     expect(opts.vadOptions?.minSpeechDurationSeconds).toBe(0.42);
+  });
+
+  it('needsUserGesture event flips snapshot field and notifies observers', async () => {
+    const connector = createMockVoiceConnector();
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    const { result: ownerResult } = renderHook(
+      () => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }),
+      { wrapper },
+    );
+
+    const { result: observerResult } = renderHook(() => m.useVoice(), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    expect(ownerResult.current.needsUserGesture).toBe(false);
+    expect(observerResult.current.needsUserGesture).toBe(false);
+
+    await act(() => {
+      mockVoiceSessionInstance!._simulateNeedsUserGesture(true);
+    });
+
+    // Owner AND observer both see the flip — verifies the event flows
+    // through the shared store, not a per-hook subscription.
+    expect(ownerResult.current.needsUserGesture).toBe(true);
+    expect(observerResult.current.needsUserGesture).toBe(true);
+
+    await act(() => {
+      mockVoiceSessionInstance!._simulateNeedsUserGesture(false);
+    });
+
+    expect(ownerResult.current.needsUserGesture).toBe(false);
+    expect(observerResult.current.needsUserGesture).toBe(false);
+  });
+
+  it('owner unmount clears needsUserGesture for observers', async () => {
+    const connector = createMockVoiceConnector();
+    const m = createMaelstrom({ vessels: [] }).with(maelstromVoice());
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    const { unmount: unmountOwner } = renderHook(
+      () => m.useVoice({ autoAcquireMic: true, greeting: 'hi' }),
+      { wrapper },
+    );
+
+    const { result: observerResult } = renderHook(() => m.useVoice(), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await flushPromises();
+    });
+
+    await act(() => {
+      mockVoiceSessionInstance!._simulateNeedsUserGesture(true);
+    });
+
+    expect(observerResult.current.needsUserGesture).toBe(true);
+
+    await act(() => {
+      unmountOwner();
+    });
+
+    // Reset wipes the field — the dialog should not linger after the
+    // session is gone.
+    expect(observerResult.current.needsUserGesture).toBe(false);
   });
 });

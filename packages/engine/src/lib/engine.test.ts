@@ -95,7 +95,10 @@ type ChartRequest = {
   }>;
   readonly vessels: ReadonlyArray<Vessel>;
   readonly layout:
-    | { readonly type: 'grid'; readonly positions: AuthorGridLayout['positions'] }
+    | {
+        readonly type: 'grid';
+        readonly positions: AuthorGridLayout['positions'];
+      }
     | {
         readonly type: 'tiling';
         readonly tree: AuthorTilingLayout['tree'];
@@ -224,28 +227,28 @@ describe('createEngine', () => {
       },
       pattern: /customizer for "rules" threw: boom/,
     },
-  ])(
-    'throws synchronously when a system prompt customizer is misconfigured ($name)',
-    ({ system, pattern }) => {
-      let caught: unknown;
-      try {
-        createEngine({
-          adapter: dummyAdapter,
-          logger: silentLogger,
-          prompt: { system },
-        });
-      } catch (e) {
-        caught = e;
-      }
-      expect(caught).toBeInstanceOf(Error);
-      const error = caught as Error;
-      // Same `Invalid EngineConfig:` shape as Zod-config failures so consumers
-      // can match a single prefix to detect any factory-time misconfig.
-      expect(error.message).toMatch(/^Invalid EngineConfig: prompt\.system:/);
-      expect(error.message).toMatch(pattern);
-      expect(error.cause).toBeInstanceOf(Error);
-    },
-  );
+  ])('throws synchronously when a system prompt customizer is misconfigured ($name)', ({
+    system,
+    pattern,
+  }) => {
+    let caught: unknown;
+    try {
+      createEngine({
+        adapter: dummyAdapter,
+        logger: silentLogger,
+        prompt: { system },
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    const error = caught as Error;
+    // Same `Invalid EngineConfig:` shape as Zod-config failures so consumers
+    // can match a single prefix to detect any factory-time misconfig.
+    expect(error.message).toMatch(/^Invalid EngineConfig: prompt\.system:/);
+    expect(error.message).toMatch(pattern);
+    expect(error.cause).toBeInstanceOf(Error);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -334,7 +337,9 @@ describe('createEngine — system prompt memoization', () => {
       },
     });
 
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
     expect(result.error._tag).toBe('ValidationError');
@@ -939,7 +944,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
       logger: silentLogger,
       maxRetries: 3,
     });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'chart_response') return;
@@ -978,7 +985,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
       logger: spyLogger,
       maxRetries: 2,
     });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'chart_response') return;
@@ -1025,7 +1034,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
       logger: silentLogger,
       maxRetries: 3,
     });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
 
     expect(isOk(result)).toBe(true);
     expect(mockChat).toHaveBeenCalledTimes(2);
@@ -1043,7 +1054,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
       adapter: dummyAdapter,
       logger: silentLogger,
     });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
 
     expect(isOk(result)).toBe(true);
     expect(mockChat).toHaveBeenCalledTimes(2);
@@ -1057,7 +1070,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
       logger: silentLogger,
       maxRetries: 0,
     });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
 
     expect(isOk(result)).toBe(true);
     expect(mockChat).toHaveBeenCalledTimes(1);
@@ -1077,7 +1092,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
       logger: silentLogger,
       maxRetries: 3,
     });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
 
     expect(isOk(result)).toBe(true);
     expect(mockChat).toHaveBeenCalledTimes(1);
@@ -1099,7 +1116,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
       logger: silentLogger,
       maxRetries: 3,
     });
-    const result = await engine.handle(toChartRequestMessage(makeGridRequest()));
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
 
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
@@ -1569,10 +1588,7 @@ describe('engine.handle — wire-format validation', () => {
       logger: silentLogger,
     });
 
-    const env = toChartRequestMessage(
-      makeGridRequest(),
-      SessionId('sess-1'),
-    );
+    const env = toChartRequestMessage(makeGridRequest(), SessionId('sess-1'));
     // Mutate envelope to corrupt inner payload.
     const corrupted = invalid<typeof env>({
       ...env,
@@ -1636,17 +1652,13 @@ describe('engine.handle — wire-format validation', () => {
       logger: silentLogger,
     });
 
-    const env = toChartRequestMessage(
-      makeGridRequest(),
-      SessionId('sess-1'),
-    );
+    const env = toChartRequestMessage(makeGridRequest(), SessionId('sess-1'));
 
     const result = await engine.handle(env);
     expect(isOk(result)).toBe(true);
     expect(mockChat).toHaveBeenCalledTimes(1);
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // engine.getHistory
@@ -1765,7 +1777,11 @@ describe('engine.getHistory', () => {
       context: {
         updateReasons: [
           { type: 'user_intent', intent: 'first' },
-          { type: 'chart_resize', previous: { columns: 12, rows: 8 }, current: { columns: 14, rows: 8 } },
+          {
+            type: 'chart_resize',
+            previous: { columns: 12, rows: 8 },
+            current: { columns: 14, rows: 8 },
+          },
           { type: 'user_intent', intent: 'second' },
         ],
         chartDimensions: { columns: 14, rows: 8 },
@@ -1773,7 +1789,9 @@ describe('engine.getHistory', () => {
       },
     });
 
-    await engine.handle(toChartRequestMessage(request, sessionId, MessageId('multi-1')));
+    await engine.handle(
+      toChartRequestMessage(request, sessionId, MessageId('multi-1')),
+    );
     const result = await engine.getHistory(sessionId);
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
@@ -1795,14 +1813,20 @@ describe('engine.getHistory', () => {
     const request = makeGridRequest({
       context: {
         updateReasons: [
-          { type: 'chart_resize', previous: { columns: 12, rows: 8 }, current: { columns: 14, rows: 8 } },
+          {
+            type: 'chart_resize',
+            previous: { columns: 12, rows: 8 },
+            current: { columns: 14, rows: 8 },
+          },
         ],
         chartDimensions: { columns: 14, rows: 8 },
         layoutMode: 'grid',
       },
     });
 
-    await engine.handle(toChartRequestMessage(request, sessionId, MessageId('noi-1')));
+    await engine.handle(
+      toChartRequestMessage(request, sessionId, MessageId('noi-1')),
+    );
     const result = await engine.getHistory(sessionId);
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;

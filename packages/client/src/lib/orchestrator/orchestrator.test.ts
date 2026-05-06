@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test';
 import {
   InstanceId,
   MessageId,
@@ -618,9 +626,9 @@ describe('Orchestrator', () => {
       const connector = createMockConnector({ getHistory });
       const { orchestrator } = createTestOrchestrator(connector);
 
-      await expect(
-        orchestrator.getHistory(SessionId('any')),
-      ).rejects.toThrow(/transport down/);
+      await expect(orchestrator.getHistory(SessionId('any'))).rejects.toThrow(
+        /transport down/,
+      );
 
       orchestrator.dispose();
     });
@@ -629,9 +637,9 @@ describe('Orchestrator', () => {
       const { orchestrator } = createTestOrchestrator();
       orchestrator.dispose();
 
-      await expect(
-        orchestrator.getHistory(SessionId('any')),
-      ).rejects.toThrow(/disposed/i);
+      await expect(orchestrator.getHistory(SessionId('any'))).rejects.toThrow(
+        /disposed/i,
+      );
     });
   });
 
@@ -993,7 +1001,8 @@ describe('Orchestrator', () => {
         const dispatchLogs = errorSpy.mock.calls.filter((args) =>
           args.some(
             (a) =>
-              typeof a === 'string' && a.includes('Timer-flush dispatch failed'),
+              typeof a === 'string' &&
+              a.includes('Timer-flush dispatch failed'),
           ),
         );
         expect(dispatchLogs).toHaveLength(1);

@@ -89,7 +89,10 @@ type ChartRequest = {
   }>;
   readonly vessels: ReadonlyArray<Vessel>;
   readonly layout:
-    | { readonly type: 'grid'; readonly positions: AuthorGridLayout['positions'] }
+    | {
+        readonly type: 'grid';
+        readonly positions: AuthorGridLayout['positions'];
+      }
     | {
         readonly type: 'tiling';
         readonly tree: AuthorTilingLayout['tree'];
@@ -112,7 +115,6 @@ const processResponse = processResponseBranded as unknown as (input: {
   readonly messageId: ReturnType<typeof MessageId>;
   readonly logger: Logger;
 }) => ReturnType<typeof processResponseBranded>;
-
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -2117,7 +2119,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       expect(result.value.diagnostics.warnings).toEqual([]);
@@ -2145,7 +2152,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       expect(result.value.diagnostics.warnings.length).toBeGreaterThan(0);
@@ -2170,7 +2182,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       expect(result.value.diagnostics.warnings).toEqual([
@@ -2197,7 +2214,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       expect(result.value.diagnostics.retryHint.recommend).toBe(true);
@@ -2225,7 +2247,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       expect(result.value.executionPlan).toEqual([]);
@@ -2238,8 +2265,16 @@ describe('processResponse', () => {
       // partial UI update — better than waiting for a re-roll.
       const request = makeGridRequest({
         instances: [
-          { instanceId: InstanceId('calendar-main'), vesselId: 'calendar', variant: 'month' },
-          { instanceId: InstanceId('extra'), vesselId: 'calendar', variant: 'month' },
+          {
+            instanceId: InstanceId('calendar-main'),
+            vesselId: 'calendar',
+            variant: 'month',
+          },
+          {
+            instanceId: InstanceId('extra'),
+            vesselId: 'calendar',
+            variant: 'month',
+          },
         ],
       });
       const llmOutput: GridResponse = {
@@ -2261,7 +2296,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse({ llmOutput, request, messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       expect(result.value.diagnostics.retryHint.recommend).toBe(false);
@@ -2307,7 +2347,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse({ llmOutput, request, messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       const skipReasons = result.value.diagnostics.skippedActions.map(
@@ -2352,7 +2397,11 @@ describe('processResponse', () => {
       };
       const request = makeGridRequest({
         instances: [
-          { instanceId: InstanceId('a'), vesselId: 'mixed', variant: 'compact' },
+          {
+            instanceId: InstanceId('a'),
+            vesselId: 'mixed',
+            variant: 'compact',
+          },
         ],
         vessels: [vesselWithGood],
       });
@@ -2373,7 +2422,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse({ llmOutput, request, messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       const skipReasons = result.value.diagnostics.skippedActions
@@ -2392,7 +2446,12 @@ describe('processResponse', () => {
         executionPlan: [],
         layout: { positions: [] },
       };
-      const result = processResponse({ llmOutput, request, messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       expect(result.value.diagnostics.retryHint.recommend).toBe(false);
@@ -2424,7 +2483,12 @@ describe('processResponse', () => {
           ],
         },
       };
-      const result = processResponse({ llmOutput, request: makeGridRequest(), messageId: MessageId('req-1'), logger: silentLogger });
+      const result = processResponse({
+        llmOutput,
+        request: makeGridRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
       expect(result.value.diagnostics.retryHint.recommend).toBe(true);

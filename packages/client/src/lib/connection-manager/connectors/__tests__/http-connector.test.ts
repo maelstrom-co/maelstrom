@@ -6,9 +6,11 @@ import { HttpConnector } from '../http-connector.js';
 type FetchMock = (input: string, init?: RequestInit) => Promise<Response>;
 
 let originalFetch: typeof globalThis.fetch;
-let lastCall:
-  | { url: string; method: string | undefined; body: unknown }
-  | null = null;
+let lastCall: {
+  url: string;
+  method: string | undefined;
+  body: unknown;
+} | null = null;
 
 const installFetch = (impl: FetchMock): void => {
   globalThis.fetch = ((url: string, init?: RequestInit) => {

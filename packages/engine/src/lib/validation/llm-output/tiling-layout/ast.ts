@@ -8,7 +8,11 @@ import type { InstanceId } from '@maelstrom-co/protocol';
  * diagnostics can cite the original index.
  */
 export type Ast =
-  | { readonly kind: 'leaf'; readonly tokenIndex: number; readonly id: InstanceId }
+  | {
+      readonly kind: 'leaf';
+      readonly tokenIndex: number;
+      readonly id: InstanceId;
+    }
   | { readonly kind: 'null_leaf'; readonly tokenIndex: number }
   | {
       readonly kind: 'split';
@@ -26,7 +30,11 @@ export type Ast =
  * adversarial input ('H' × 10k with no leaves) cannot overflow.
  */
 export type StackFrame =
-  | { readonly kind: 'await-left'; readonly dir: 'H' | 'V'; readonly tokenIndex: number }
+  | {
+      readonly kind: 'await-left';
+      readonly dir: 'H' | 'V';
+      readonly tokenIndex: number;
+    }
   | {
       readonly kind: 'await-right';
       readonly dir: 'H' | 'V';

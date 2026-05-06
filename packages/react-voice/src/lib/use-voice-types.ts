@@ -106,11 +106,26 @@ export interface UseVoiceReturn {
   isVoiceSupported: boolean;
 
   /**
+   * `true` when the underlying session is waiting for a user gesture before
+   * it can acquire the microphone or unlock playback. Apps using
+   * `autoAcquireMic: true` should render an explicit affordance (button,
+   * dialog) so the user's click can satisfy the browser activation rule —
+   * `start()` invoked from that handler will resolve the gate.
+   */
+  needsUserGesture: boolean;
+
+  /**
    * Begin (or resume) capturing user audio. Triggers mic acquisition if
    * `autoAcquireMic: false` was used and the gesture-deferred bootstrap
    * has not yet run.
+   *
+   * Returns a `Promise<void>` that resolves once the audio pipeline is live
+   * and the connector is in `listening`. Rejections are forwarded to the
+   * `onError` option (or `console.error`); the returned promise itself
+   * never rejects, so call sites can stay one-liner safe (`void start()`)
+   * while still being able to `.then()` for UI feedback.
    */
-  start: () => void;
+  start: () => Promise<void>;
 
   /** Stop capturing user audio. Safe to call when not listening. */
   stop: () => void;

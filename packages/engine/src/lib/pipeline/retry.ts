@@ -68,7 +68,8 @@ export async function callWithRetry(
         logAtSeverity(logger, retryHint.severity, 'Retries exhausted', {
           attempts: attempt + 1,
           retrySeverity: retryHint.severity,
-          droppedLayoutCount: lastResponse.diagnostics.droppedLayoutEntries.length,
+          droppedLayoutCount:
+            lastResponse.diagnostics.droppedLayoutEntries.length,
           skippedActionCount: lastResponse.diagnostics.skippedActions.length,
           warningCount: lastResponse.diagnostics.warnings.length,
         });
@@ -85,7 +86,8 @@ export async function callWithRetry(
         attempt: attempt + 1,
         maxRetries,
         retrySeverity: retryHint.severity,
-        droppedLayoutCount: lastResponse.diagnostics.droppedLayoutEntries.length,
+        droppedLayoutCount:
+          lastResponse.diagnostics.droppedLayoutEntries.length,
         skippedActionCount: lastResponse.diagnostics.skippedActions.length,
         warningCount: lastResponse.diagnostics.warnings.length,
       },

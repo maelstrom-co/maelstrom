@@ -1,19 +1,20 @@
 import type { Engine } from '@maelstrom-co/engine-old';
-import type { ChartRequest, ChartRequestMessage } from '@maelstrom-co/protocol';
 import type {
-  ChartRequest as LegacyChartRequest,
-  MaelstromResponse as LegacyMaelstromResponse,
+  ChartRequest,
+  ChartRequestMessage,
+  MessageId,
+} from '@maelstrom-co/protocol';
+import type {
   VoiceClientMessage,
   VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
 import type { AudioChunk, VoiceSession } from '@maelstrom-co/voice-server';
 
 import { adaptEnvelopeToLegacyRequest } from './legacy-engine-adapter.js';
-import { toProtocolChartRequest } from './voice-intent-adapter.js';
 
 type WsTransport = {
   sendMessage: (message: VoiceServerMessage) => void;
-  sendEngineError: (error: string) => void;
+  sendEngineError: (error: string, requestId?: MessageId) => void;
 };
 
 type BinaryAudioSender = (data: ArrayBuffer | Blob) => Promise<void>;
@@ -54,46 +55,6 @@ function isAudioEncoding(value: string): value is AudioChunk['encoding'] {
   return value === 'linear16' || value === 'opus' || value === 'pcm';
 }
 
-function mirrorChartRequest(request: LegacyChartRequest): ChartRequest {
-  const protocolRequest = toProtocolChartRequest(request);
-
-  return {
-    type: protocolRequest.type,
-    context: {
-      updateReasons: protocolRequest.context.updateReasons.map((reason) => ({
-        ...reason,
-      })),
-      chartDimensions: protocolRequest.context.chartDimensions,
-      layoutMode: protocolRequest.context.layoutMode,
-    },
-    instances: protocolRequest.instances.map((instance) => ({
-      instanceId: instance.instanceId,
-      vesselId: instance.vesselId,
-      variant: instance.variant,
-    })),
-    vessels: protocolRequest.vessels.map((vessel) => vessel),
-    layout:
-      protocolRequest.layout.type === 'grid'
-        ? {
-            type: 'grid',
-            positions: protocolRequest.layout.positions.map((position) => ({
-              instanceId: position.instanceId,
-              position: position.position,
-              size: position.size,
-            })),
-          }
-        : {
-            type: 'tiling',
-            tree: protocolRequest.layout.tree.map((node) => node),
-            instances: protocolRequest.layout.instances.map((instance) => ({
-              instanceId: instance.instanceId,
-              vesselId: instance.vesselId,
-              variant: instance.variant,
-            })),
-          },
-  };
-}
-
 export function createDemoVoiceWsSessionController(
   options: DemoVoiceWsSessionControllerOptions,
 ) {
@@ -107,11 +68,22 @@ export function createDemoVoiceWsSessionController(
 
   const { sendMessage, sendEngineError } = transport;
   let latestChartRequest: ChartRequest | null = null;
+  // Identity-keyed map from the ChartRequest that enters voiceSession.processRequest
+  // to the originating client envelope id. The adapter looks up by reference inside
+  // processIntent so explicit responses correlate with the client's pending promise
+  // instead of the synthetic `voice-…` id used for STT-driven turns. WeakMap (vs.
+  // a single slot) prevents two concurrent client.maelstrom.process turns — or an
+  // STT turn racing an explicit one — from clobbering each other's correlation.
+  const explicitRequestIdByRef = new WeakMap<ChartRequest, MessageId>();
 
-  const reportEngineError = (context: string, error: unknown) => {
+  const reportEngineError = (
+    context: string,
+    error: unknown,
+    requestId?: MessageId,
+  ) => {
     const message = getErrorMessage(error);
     console.error(`${context}: ${message}`);
-    sendEngineError(message);
+    sendEngineError(message, requestId);
   };
 
   const forwardAudioInput = (audio: AudioChunk) => {
@@ -194,45 +166,75 @@ export function createDemoVoiceWsSessionController(
   };
 
   const handleMaelstromProcess = async (
-    request: VoiceClientMessage & {
+    message: VoiceClientMessage & {
       type: 'client.maelstrom.process';
     },
   ) => {
-    // Wire format carries a ChartRequestMessage envelope (MAE-148), not the
-    // legacy flat ChartRequest that protocol-old types suggest.
-    const envelope = request.request as unknown as ChartRequestMessage;
-    const legacyRequest = adaptEnvelopeToLegacyRequest(envelope);
-    latestChartRequest = mirrorChartRequest(legacyRequest);
+    // The wire payload's `request` field is a new-protocol ChartRequestMessage
+    // envelope; the protocol-old type still labels it as a legacy ChartRequest,
+    // so cast at the boundary.
+    const envelope = message.request as unknown as ChartRequestMessage;
+    const chartRequest = envelope.request;
+    latestChartRequest = chartRequest;
 
     if (voiceSession) {
-      const response = await voiceSession.processRequest(latestChartRequest, {
-        speakResponse: latestChartRequest.context.updateReasons.some(
-          (reason) => reason.type === 'user_intent',
-        ),
-      });
-      if (response) {
-        sendMessage({
-          type: 'engine.maelstrom.response',
-          sessionId,
-          requestId: envelope.id,
-          response: response as unknown as LegacyMaelstromResponse,
+      explicitRequestIdByRef.set(chartRequest, envelope.id);
+      try {
+        const response = await voiceSession.processRequest(chartRequest, {
+          speakResponse: chartRequest.context.updateReasons.some(
+            (reason) => reason.type === 'user_intent',
+          ),
         });
+        // `processRequest` resolves to undefined when the runtime aborted
+        // before the intent boundary ran (e.g. an STT turn superseded this
+        // explicit one). The adapter never reached its emit path, so the
+        // client's pending promise would otherwise time out — surface a
+        // correlated engine.error instead.
+        if (response === undefined) {
+          sendEngineError(
+            'Request superseded before intent processing',
+            envelope.id,
+          );
+        }
+      } catch (err) {
+        // Voice runtime normally swallows processIntent errors via its onError
+        // pipeline; this catch is a defensive fallback so a future runtime change
+        // that lets exceptions bubble still produces a correlated engine.error.
+        reportEngineError('[Demo WS] processRequest error', err, envelope.id);
       }
       return;
     }
 
-    const response = await engine.process(legacyRequest);
-    sendMessage({
-      type: 'engine.maelstrom.response',
-      sessionId,
-      requestId: envelope.id,
-      response,
-    });
+    try {
+      const response = await engine.process(
+        adaptEnvelopeToLegacyRequest(envelope),
+      );
+      sendMessage({
+        type: 'engine.maelstrom.response',
+        sessionId,
+        requestId: envelope.id,
+        response,
+      });
+    } catch (err) {
+      reportEngineError('[Demo WS] engine.process error', err, envelope.id);
+    }
   };
 
   return {
     getLatestChartRequest() {
       return latestChartRequest;
+    },
+
+    getExplicitRequestId(request: ChartRequest): MessageId | null {
+      const id = explicitRequestIdByRef.get(request);
+      if (id === undefined) {
+        return null;
+      }
+      // Delete so a buggy double-read can't replay a stale id; the WeakMap
+      // would also drop the entry once the request is GC'd, but explicit
+      // delete tightens the contract.
+      explicitRequestIdByRef.delete(request);
+      return id;
     },
 
     async onOpen() {

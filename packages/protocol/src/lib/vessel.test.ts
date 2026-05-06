@@ -11,7 +11,7 @@ import { VesselId } from './vessel-id.js';
 // fails the typecheck. Brands erase at runtime, so this is the only layer
 // that can pin the schema-to-type contract.
 type Equals<X, Y> =
-  (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2)
+  (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
     ? true
     : false;
 

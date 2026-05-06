@@ -80,8 +80,7 @@ const toChartRequestMessage = (
   request: ChartRequest,
   sessionId: SessionId = DEFAULT_SESSION_ID,
   id: MessageId = DEFAULT_MESSAGE_ID,
-): ChartRequestMessage =>
-  ChartRequestMessage({ sessionId, id, request });
+): ChartRequestMessage => ChartRequestMessage({ sessionId, id, request });
 
 afterEach(() => {
   mockChat.mockReset();
@@ -560,9 +559,7 @@ describe('engine.handle — chart_request idempotency', () => {
     // with structured data — `slotKind` carries the actual stored kind so
     // future third entry kinds don't quietly misattribute.
     const kindMismatchWarns = logs.filter(
-      (l) =>
-        l.level === 'warn' &&
-        l.message.includes('reuses a non-turn slot'),
+      (l) => l.level === 'warn' && l.message.includes('reuses a non-turn slot'),
     );
     expect(kindMismatchWarns).toHaveLength(2);
     expect(kindMismatchWarns[0]?.data).toEqual({

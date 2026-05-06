@@ -135,10 +135,7 @@ describe('ActionManager', () => {
         testAction: async () => Err(new Error('runner B')),
       };
 
-      const disposerA = manager.registerRunner<MockVessel>(
-        i1,
-        runnerA,
-      );
+      const disposerA = manager.registerRunner<MockVessel>(i1, runnerA);
       manager.registerRunner<MockVessel>(i1, runnerB);
 
       // Calling disposerA should NOT remove runnerB
@@ -173,10 +170,7 @@ describe('ActionManager', () => {
 
       expect(manager.hasRunner(i1)).toBe(true);
       expect(manager.hasRunner(i2)).toBe(true);
-      expect(manager.getRegisteredInstances()).toEqual([
-        i1,
-        i2,
-      ]);
+      expect(manager.getRegisteredInstances()).toEqual([i1, i2]);
     });
   });
 
@@ -506,9 +500,7 @@ describe('ActionManager', () => {
 
       let result: BatchExecutionResult | null = null;
       timeoutManager
-        .executeActions([
-          { instanceId: i1, action: 'testAction' },
-        ])
+        .executeActions([{ instanceId: i1, action: 'testAction' }])
         .then((_result) => {
           result = _result;
         });
@@ -537,9 +529,7 @@ describe('ActionManager', () => {
 
       let result: BatchExecutionResult | null = null;
       timeoutManager
-        .executeActions([
-          { instanceId: i1, action: 'testAction' },
-        ])
+        .executeActions([{ instanceId: i1, action: 'testAction' }])
         .then((_result) => {
           result = _result;
         });
@@ -566,9 +556,7 @@ describe('ActionManager', () => {
 
       let result: BatchExecutionResult | null = null;
       timeoutManager
-        .executeActions([
-          { instanceId: i1, action: 'testAction' },
-        ])
+        .executeActions([{ instanceId: i1, action: 'testAction' }])
         .then((_result) => {
           result = _result;
         });

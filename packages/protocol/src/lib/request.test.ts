@@ -19,7 +19,7 @@ import { VesselId } from './vessel-id.js';
 // flips from `true` to `false` and tsc fails the typecheck step — which is
 // the only place this test layer can run, since brands erase at runtime.
 type Equals<X, Y> =
-  (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2)
+  (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
     ? true
     : false;
 
@@ -241,10 +241,7 @@ describe('VesselMutationReasonSchema', () => {
     if (!result.success) throw new Error('expected success');
     expect(result.data.instanceId).toBe(InstanceId('cal-1'));
 
-    type _Branded = Equals<
-      typeof result.data.instanceId,
-      InstanceId
-    >;
+    type _Branded = Equals<typeof result.data.instanceId, InstanceId>;
     const _check: _Branded = true;
     void _check;
   });
@@ -499,9 +496,7 @@ describe('contextual validation messages', () => {
       executionPlan: [],
       layout: {
         tree: [],
-        instances: [
-          { instanceId: 'a', vesselId: '', variant: 'default' },
-        ],
+        instances: [{ instanceId: 'a', vesselId: '', variant: 'default' }],
       },
     });
     expect(result.success).toBe(false);
@@ -518,9 +513,7 @@ describe('contextual validation messages', () => {
       executionPlan: [],
       layout: {
         tree: [],
-        instances: [
-          { instanceId: 'a', vesselId: 'calendar', variant: '' },
-        ],
+        instances: [{ instanceId: 'a', vesselId: 'calendar', variant: '' }],
       },
     });
     expect(result.success).toBe(false);

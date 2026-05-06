@@ -27,16 +27,22 @@ export function createUseVoice(contextPair: MaelstromExtensionContext) {
   }
 
   const actions = {
-    start: () => {
+    start: (): Promise<void> => {
       const session = store.getSession();
       if (!session) {
         warnOnce(
           'voice-no-session',
           '[Maelstrom] voice.start() called but no session exists. Call useVoice() with options in a parent component to create a session.',
         );
-        return;
+        return Promise.resolve();
       }
-      (session.isAudioReady ? Promise.resolve() : session.prepareAudio())
+      // Surface errors via onError without forcing call sites to chain
+      // .catch — the type contract still resolves (returned promise never
+      // rejects) so callers that *do* want UI feedback can attach .then()
+      // and read voice state, while bare-call sites stay one-liner safe.
+      return (
+        session.isAudioReady ? Promise.resolve() : session.prepareAudio()
+      )
         .then(() => session.startListening())
         .catch(handleVoiceError);
     },
@@ -155,6 +161,9 @@ export function createUseVoice(contextPair: MaelstromExtensionContext) {
             session.on('audioLevel', (level) => {
               ownerOptionsRef?.current?.onAudioLevel?.(level);
             }),
+            session.on('needsUserGesture', (needsGesture) => {
+              store.setNeedsUserGesture(needsGesture);
+            }),
           ];
 
           store.claimSession(session, unsubs);
@@ -178,6 +187,7 @@ export function createUseVoice(contextPair: MaelstromExtensionContext) {
         snapshot.isVoiceSupported !== undefined
           ? snapshot.isVoiceSupported
           : voiceSupported,
+      needsUserGesture: snapshot.needsUserGesture,
       ...actions,
     };
   };
@@ -187,6 +197,7 @@ interface VoiceSnapshot {
   state: VoiceSessionState;
   isReady: boolean;
   isVoiceSupported: boolean | undefined;
+  needsUserGesture: boolean;
 }
 
 interface VoiceSessionStore {
@@ -199,6 +210,7 @@ interface VoiceSessionStore {
   unsubscribeAll: () => void;
   setState: (state: VoiceSessionState) => void;
   setIsVoiceSupported: (supported: boolean) => void;
+  setNeedsUserGesture: (needsGesture: boolean) => void;
   reset: () => void;
 }
 
@@ -209,21 +221,24 @@ function createVoiceSessionStore(): VoiceSessionStore {
   let state: VoiceSessionState = 'idle';
   let isReady = false;
   let isVoiceSupported: boolean | undefined;
+  let needsUserGesture = false;
   const listeners = new Set<() => void>();
 
   let cachedSnapshot: VoiceSnapshot = {
     state: 'idle',
     isReady: false,
     isVoiceSupported: undefined,
+    needsUserGesture: false,
   };
 
   function getSnapshot(): VoiceSnapshot {
     if (
       cachedSnapshot.state !== state ||
       cachedSnapshot.isReady !== isReady ||
-      cachedSnapshot.isVoiceSupported !== isVoiceSupported
+      cachedSnapshot.isVoiceSupported !== isVoiceSupported ||
+      cachedSnapshot.needsUserGesture !== needsUserGesture
     ) {
-      cachedSnapshot = { state, isReady, isVoiceSupported };
+      cachedSnapshot = { state, isReady, isVoiceSupported, needsUserGesture };
     }
     return cachedSnapshot;
   }
@@ -267,12 +282,17 @@ function createVoiceSessionStore(): VoiceSessionStore {
       isVoiceSupported = supported;
       notifyListeners();
     },
+    setNeedsUserGesture: (value) => {
+      needsUserGesture = value;
+      notifyListeners();
+    },
     reset: () => {
       session = null;
       ownerId = null;
       state = 'idle';
       isReady = false;
       isVoiceSupported = undefined;
+      needsUserGesture = false;
       notifyListeners();
     },
   };

@@ -10,6 +10,14 @@ export interface VoiceEventMap {
   response: (response: { userMessage?: string; requestId: string }) => void;
   speechStarted: (text: string) => void;
   audioOutput: (audioData: Uint8Array) => void;
+  /**
+   * Audio bootstrap is gated on a prior user gesture (`getUserMedia` and
+   * `AudioContext.resume()` reject without one). Fires `true` when the server
+   * is ready but no gesture has occurred yet, and `false` once a gesture
+   * unlocks the pipeline. Consumers use this to render an explicit affordance
+   * (e.g. a "tap to start" dialog) rather than landing in a silent error.
+   */
+  needsUserGesture: (needsGesture: boolean) => void;
   /** Discriminated union catchall — receives ALL events as a tagged union */
   event: (event: VoiceEvent) => void;
 }
@@ -22,4 +30,5 @@ export type VoiceEvent =
   | { type: 'audioLevel'; level: number }
   | { type: 'response'; userMessage?: string; requestId: string }
   | { type: 'speechStarted'; text: string }
-  | { type: 'audioOutput'; audioData: Uint8Array };
+  | { type: 'audioOutput'; audioData: Uint8Array }
+  | { type: 'needsUserGesture'; needsGesture: boolean };

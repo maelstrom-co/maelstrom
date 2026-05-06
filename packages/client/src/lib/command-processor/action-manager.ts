@@ -212,9 +212,10 @@ export class ActionManager {
    * @param executionPlan - Array of actions to execute
    * @returns Result of the batch execution
    */
-  async executeActions<V extends OldVessel = OldVessel, Name extends string = string>(
-    executionPlan: ActionExecution<V, Name>[],
-  ): Promise<BatchExecutionResult> {
+  async executeActions<
+    V extends OldVessel = OldVessel,
+    Name extends string = string,
+  >(executionPlan: ActionExecution<V, Name>[]): Promise<BatchExecutionResult> {
     if (executionPlan.length === 0) {
       return {
         actions: [],

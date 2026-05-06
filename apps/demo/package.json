@@ -9,7 +9,7 @@
     "dev:client": "vite dev --port 3000",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
-    "test": "bun test"
+    "test": "bun test && bun test ./src/server/voice-session-config.test.isolated.ts"
   },
   "dependencies": {
     "@maelstrom-co/client": "workspace:*",
@@ -30,10 +30,12 @@
     "vite": "catalog:"
   },
   "devDependencies": {
+    "@testing-library/react": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@tailwindcss/vite": "catalog:",
+    "happy-dom": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "catalog:"

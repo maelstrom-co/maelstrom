@@ -201,7 +201,9 @@ export class WebSocketConnector implements EngineConnector {
    * to `process()`'s `MaelstromResponse` correlator even if the freshly
    * generated request id happens to collide with an in-flight chart request.
    */
-  async getHistory(sessionId: SessionId): Promise<readonly SessionHistoryEntry[]> {
+  async getHistory(
+    sessionId: SessionId,
+  ): Promise<readonly SessionHistoryEntry[]> {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
@@ -286,7 +288,10 @@ export class WebSocketConnector implements EngineConnector {
           }
           return;
         }
-        const resolved = this.#historyCorrelator.resolve(requestId, parsed.data);
+        const resolved = this.#historyCorrelator.resolve(
+          requestId,
+          parsed.data,
+        );
         if (!resolved) {
           console.warn(
             `[WebSocketConnector] engine.history.response with no pending request: requestId=${data.requestId}`,

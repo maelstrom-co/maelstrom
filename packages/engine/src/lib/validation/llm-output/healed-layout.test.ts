@@ -109,10 +109,7 @@ describe('isTreeDrop', () => {
       true,
     ],
     [{ reason: 'tree_extra_tokens', fromTokenIndex: 0, count: 1 }, true],
-    [
-      { reason: 'unknown_instance', instanceId: InstanceId('a') },
-      false,
-    ],
+    [{ reason: 'unknown_instance', instanceId: InstanceId('a') }, false],
     [
       {
         reason: 'unknown_vessel',
@@ -153,10 +150,7 @@ describe('isTreeDrop', () => {
       },
       false,
     ],
-    [
-      { reason: 'duplicate_instance_id', instanceId: InstanceId('a') },
-      false,
-    ],
+    [{ reason: 'duplicate_instance_id', instanceId: InstanceId('a') }, false],
   ])('returns %p for entry %p', (entry, expected) => {
     expect(isTreeDrop(entry)).toBe(expected);
   });

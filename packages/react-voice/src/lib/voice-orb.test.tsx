@@ -10,6 +10,7 @@ function createMockUseVoice(overrides: Partial<UseVoiceReturn> = {}) {
     state: 'idle' as VoiceSessionState,
     isReady: true,
     isVoiceSupported: true,
+    needsUserGesture: false,
     start: mock(() => Promise.resolve()),
     stop: mock(() => {}),
     interrupt: mock(() => {}),
@@ -98,7 +99,7 @@ describe('VoiceOrb', () => {
     expect(interruptMock).toHaveBeenCalledTimes(1);
   });
 
-  it('does not call start() on click when in error state', () => {
+  it('retries via start() on click when in error state (gesture-recoverable)', () => {
     const startMock = mock(() => Promise.resolve());
     const stopMock = mock(() => {});
     const interruptMock = mock(() => {});
@@ -112,9 +113,66 @@ describe('VoiceOrb', () => {
     );
     const { container } = render(<VoiceOrb />);
     fireEvent.click(getButton(container));
-    expect(startMock).not.toHaveBeenCalled();
+    expect(startMock).toHaveBeenCalledTimes(1);
     expect(stopMock).not.toHaveBeenCalled();
     expect(interruptMock).not.toHaveBeenCalled();
+  });
+
+  it('retries via start() in error state when needsUserGesture is false (pure-error retry)', () => {
+    const startMock = mock(() => Promise.resolve());
+    const stopMock = mock(() => {});
+    const interruptMock = mock(() => {});
+    const VoiceOrb = createVoiceOrb(
+      createMockUseVoice({
+        state: 'error',
+        needsUserGesture: false,
+        isReady: true,
+        start: startMock,
+        stop: stopMock,
+        interrupt: interruptMock,
+      }),
+    );
+    const { container } = render(<VoiceOrb />);
+    fireEvent.click(getButton(container));
+    expect(startMock).toHaveBeenCalledTimes(1);
+    expect(stopMock).not.toHaveBeenCalled();
+    expect(interruptMock).not.toHaveBeenCalled();
+  });
+
+  it('stays clickable in error state across consecutive retries', () => {
+    const startMock = mock(() => Promise.resolve());
+    const VoiceOrb = createVoiceOrb(
+      createMockUseVoice({
+        state: 'error',
+        needsUserGesture: false,
+        isReady: true,
+        start: startMock,
+      }),
+    );
+    const { container } = render(<VoiceOrb />);
+    const button = getButton(container);
+    fireEvent.click(button);
+    expect(button.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(button);
+    expect(startMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('renders an actionable orb when needsUserGesture, even with isReady=false', () => {
+    const startMock = mock(() => Promise.resolve());
+    const VoiceOrb = createVoiceOrb(
+      createMockUseVoice({
+        state: 'idle',
+        isReady: false,
+        needsUserGesture: true,
+        start: startMock,
+      }),
+    );
+    const { container } = render(<VoiceOrb />);
+    const button = getButton(container);
+    expect(button.hasAttribute('disabled')).toBe(false);
+    expect(button.getAttribute('aria-label')).toBe('Click to enable voice');
+    fireEvent.click(button);
+    expect(startMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns null when isVoiceSupported is false', () => {
