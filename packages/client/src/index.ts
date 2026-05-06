@@ -92,13 +92,16 @@ export {
 export type { CommandProcessorOptions } from './lib/command-processor/command-processor.types.js';
 // Action Manager
 export { ActionManager } from './lib/command-processor/action-manager.js';
+export type { ActionResult } from './lib/command-processor/action-result.js';
 export type {
+  ActionHandler,
+  ActionNames,
+  ActionParams,
   ActionRecord,
   ActionRunner,
-  AllVariantActionNames,
   AnyActionRunner,
   BatchExecutionResult,
-  ExtractActionParams,
+  VariantNames,
 } from './lib/command-processor/action-runner.types.js';
 // Layout Manager
 export { applyLayout } from './lib/command-processor/layout-manager.js';

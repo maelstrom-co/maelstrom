@@ -11,7 +11,7 @@
 import { describe, it, expect, afterEach, mock } from 'bun:test';
 import { render, cleanup, act } from '@testing-library/react';
 import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
-import { Success } from '@maelstrom-co/protocol-old';
+import { ok } from '@maelstrom-co/protocol';
 import type { VesselInstance, ActionRunner } from '@maelstrom-co/client';
 import type {
   MaelstromResponse,
@@ -89,7 +89,7 @@ const baseInstance: VesselInstance = {
 
 describe('useVessel + useActions integration', () => {
   it('engine-initiated action fires registered runner with correct params', async () => {
-    const viewDetailHandler = mock((_params: { orderId: string }) => Success(undefined));
+    const viewDetailHandler = mock((_params: { orderId: string }) => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = { viewDetail: viewDetailHandler };
     const m = createMaelstrom({ vessels: [entry] });
 
@@ -135,7 +135,7 @@ describe('useVessel + useActions integration', () => {
   });
 
   it('user-initiated executeAction triggers optimistic transition and fires registered runner', async () => {
-    const viewDetailHandler = mock((_params: { orderId: string }) => Success(undefined));
+    const viewDetailHandler = mock((_params: { orderId: string }) => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = { viewDetail: viewDetailHandler };
     const m = createMaelstrom({ vessels: [entry] });
 

@@ -5,7 +5,7 @@ import type {
   TilingLayout,
   VesselDefinition,
 } from '@maelstrom-co/protocol';
-import type { ActionExecution as RunnerActionExecution } from '@maelstrom-co/protocol-old';
+import { toError } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
 import type { Unsubscribe } from '../types.js';
@@ -38,7 +38,7 @@ export type CommandProcessorEvents = {
   };
   /** Fired when one or more actions in a batch fail or are skipped. */
   action_error: {
-    instanceId: string;
+    instanceId: InstanceId;
     action: string;
     error: Error | undefined;
     timestamp: number;
@@ -250,15 +250,14 @@ export class CommandProcessor {
         }
         case 'execute_actions': {
           const result = await this.#actionManager.executeActions(
-            toRunnerExecutionPlan(command.executionPlan),
+            command.executionPlan,
           );
           for (const record of result.actions) {
-            if (!record.result.success) {
+            if (!record.result.ok) {
               this.#emitter.emit('action_error', {
                 instanceId: record.instanceId,
                 action: record.action,
-                error:
-                  'error' in record.result ? record.result.error : undefined,
+                error: record.result.error,
                 timestamp: performance.now(),
               });
             }
@@ -269,7 +268,7 @@ export class CommandProcessor {
     } catch (error) {
       this.#logger.error('Error processing command:', error);
       const errorObj =
-        error instanceof Error ? error : new Error(String(error));
+        toError(error);
       this.store.setState((state) => ({
         ...state,
         status: 'error' as const,
@@ -304,14 +303,3 @@ export class CommandProcessor {
   }
 }
 
-// Bridge between the new-protocol ActionExecution (branded InstanceId, readonly
-// fields) and the legacy RunnerActionExecution shape ActionManager still
-// consumes. The shapes are structurally compatible at runtime — brands are
-// erased and `readonly` is a compile-time marker only. Collapse to a single
-// `unknown` cast here so the seam has one named home; revisit once
-// protocol-old shapes are gone. Exported only for unit testing the seam.
-export function toRunnerExecutionPlan(
-  plan: readonly ActionExecution[],
-): RunnerActionExecution[] {
-  return plan as unknown as RunnerActionExecution[];
-}

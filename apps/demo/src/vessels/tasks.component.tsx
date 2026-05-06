@@ -1,4 +1,4 @@
-import { Err, Success } from '@maelstrom-co/protocol-old';
+import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
 import { m } from '../lib/maelstrom';
@@ -38,25 +38,25 @@ export default function TasksComponent({
   m.useActions('tasks', instanceId, {
     addTask: async ({ title }) => {
       tasksActions.addTask(title);
-      return Success<undefined>();
+      return ok(undefined);
     },
     removeTask: async ({ title }) => {
-      if (!tasksActions.removeTask(title)) return Err(noMatchError(title));
-      return Success<undefined>();
+      if (!tasksActions.removeTask(title)) return err(noMatchError(title));
+      return ok(undefined);
     },
     checkTask: async ({ title }) => {
-      if (!tasksActions.checkTask(title)) return Err(noMatchError(title));
-      return Success<undefined>();
+      if (!tasksActions.checkTask(title)) return err(noMatchError(title));
+      return ok(undefined);
     },
     uncheckTask: async ({ title }) => {
-      if (!tasksActions.uncheckTask(title)) return Err(noMatchError(title));
-      return Success<undefined>();
+      if (!tasksActions.uncheckTask(title)) return err(noMatchError(title));
+      return ok(undefined);
     },
     addSubtask: async ({ taskTitle, subtaskTitle }) => {
       if (!tasksActions.addSubtask(taskTitle, subtaskTitle)) {
-        return Err(noMatchError(taskTitle));
+        return err(noMatchError(taskTitle));
       }
-      return Success<undefined>();
+      return ok(undefined);
     },
   });
 

@@ -1,25 +1,42 @@
 import type { ComponentType } from 'react';
 import type { InstanceId, VesselDefinition } from '@maelstrom-co/protocol';
 
-import type { ActionRunner, AllVariantActionNames, ExtractActionParams } from '@maelstrom-co/client';
-// VariantPropsUnion is the React-side prop-inference helper. It stays on
-// protocol-old until the vessel-inference follow-up.
 import type {
-  Vessel as OldVessel,
-  VariantPropsUnion,
-} from '@maelstrom-co/protocol-old';
+  ActionNames,
+  ActionParams,
+  ActionRunner,
+  VariantNames,
+} from '@maelstrom-co/client';
+
+/**
+ * Discriminated union of variant prop shapes for vessel `V`.
+ *
+ * For each variant `K` in `V`, contributes a member
+ * `{ variant: K } & V['variants'][K]['props']`. Components consume this
+ * to render different content per variant while preserving literal-type
+ * narrowing on the `variant` discriminant.
+ *
+ * @example
+ * ```typescript
+ * function OrdersComponent({ variantProps }: { variantProps: VariantProps<typeof ordersVessel> }) {
+ *   if (variantProps.variant === 'list') {
+ *     // variantProps narrowed to the 'list' variant's props
+ *   }
+ * }
+ * ```
+ */
+export type VariantProps<V extends VesselDefinition> = {
+  [K in VariantNames<V>]: { variant: K } & V['variants'][K]['props'];
+}[VariantNames<V>];
 
 /** Typed props delivered to a vessel component */
 export interface TypedVesselProps<V extends VesselDefinition> {
   instanceId: InstanceId;
-  // VariantPropsUnion is constrained to protocol-old's `Vessel`. Intersect
-  // with the old-Vessel shape to satisfy the constraint; erases to the same
-  // runtime shape.
-  variantProps: VariantPropsUnion<V & OldVessel>;
-  executeAction: <N extends AllVariantActionNames<V>>(
-    ...args: ExtractActionParams<V, N> extends undefined
+  variantProps: VariantProps<V>;
+  executeAction: <N extends ActionNames<V>>(
+    ...args: ActionParams<V, N> extends undefined
       ? [name: N]
-      : [name: N, params: ExtractActionParams<V, N>]
+      : [name: N, params: ActionParams<V, N>]
   ) => void;
 }
 

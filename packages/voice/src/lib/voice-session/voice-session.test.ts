@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
-import { MessageId } from '@maelstrom-co/protocol';
-import type { VoiceServerMessage } from '@maelstrom-co/protocol-old';
+import {
+  MessageId,
+  type VoiceServerMessage,
+} from '@maelstrom-co/protocol';
 
 import type { AudioChunk, AudioFrameMeta, VoiceConnector } from '../types.js';
 import type { VoiceEvent } from './events.js';
@@ -706,7 +708,7 @@ describe('VoiceSession', () => {
         requestId: 'req-456',
         response: {
           type: 'maelstrom_response',
-          requestId: 'req-456',
+          requestId: MessageId('req-456'),
           layout: { type: 'tiling', tree: [], instances: [] },
           userMessage: 'Done!',
           rationale: 'Test rationale',
@@ -1671,7 +1673,7 @@ describe('VoiceSession', () => {
         requestId: 'req-123',
         response: {
           type: 'maelstrom_response',
-          requestId: 'req-123',
+          requestId: MessageId('req-123'),
           layout: { type: 'tiling', tree: [], instances: [] },
           userMessage: 'Here is your calendar',
           rationale: 'Test rationale',

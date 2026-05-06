@@ -1,16 +1,15 @@
 import type {
-  VoiceClientMessage,
-  VoiceServerMessage,
-} from '@maelstrom-co/protocol-old';
-import type {
   ChartRequestMessage,
   MaelstromResponse,
   SessionHistoryEntry,
   SessionId,
+  VoiceClientMessage,
+  VoiceServerMessage,
 } from '@maelstrom-co/protocol';
 import {
   MessageId,
   SessionHistoryEntryArraySchema,
+  toError,
 } from '@maelstrom-co/protocol';
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
@@ -155,7 +154,7 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
         this.#ws.addEventListener('error', onError);
         this.#ws.addEventListener('close', onClose);
       } catch (err) {
-        reject(err instanceof Error ? err : new Error(String(err)));
+        reject(toError(err));
       }
     });
   }

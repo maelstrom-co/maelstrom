@@ -9,7 +9,7 @@ import type {
   VesselId,
 } from '@maelstrom-co/protocol';
 import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
-import { Success } from '@maelstrom-co/protocol-old';
+import { ok } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
@@ -161,7 +161,7 @@ describe('m.registerVessel()', () => {
         () => ({
           activate: () => {
             runnerCalled = true;
-            return Success(undefined);
+            return ok(undefined);
           },
         }),
         [],
@@ -324,10 +324,10 @@ describe('m.registerVessel()', () => {
       },
     });
 
-    const handlerA = mock(() => Success(undefined));
+    const handlerA = mock(() => ok(undefined));
     const runnerA: ActionRunner<typeof widgetVessel> = { activate: handlerA };
 
-    const handlerB = mock(() => Success(undefined));
+    const handlerB = mock(() => ok(undefined));
     const runnerB: ActionRunner<typeof widgetVessel> = { activate: handlerB };
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;

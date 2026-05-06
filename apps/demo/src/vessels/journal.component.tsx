@@ -1,4 +1,4 @@
-import { Err, Success } from '@maelstrom-co/protocol-old';
+import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
 import { m } from '../lib/maelstrom';
@@ -18,7 +18,7 @@ export default function JournalComponent({
   m.useActions('journal', instanceId, {
     createEntry: async ({ title }) => {
       journalActions.createEntry(title);
-      return Success<undefined>();
+      return ok(undefined);
     },
     openEntry: async ({ title }) => {
       const match = journalActions.openEntry(title);
@@ -26,7 +26,7 @@ export default function JournalComponent({
         const available = getJournalSnapshot().entries.map(
           (e) => `"${e.title}"`,
         );
-        return Err(
+        return err(
           new Error(
             `No journal entry matches "${title}". Available: ${available.join(
               ', ',
@@ -34,21 +34,21 @@ export default function JournalComponent({
           ),
         );
       }
-      return Success<undefined>();
+      return ok(undefined);
     },
     writeContent: async ({ text }) => {
       if (!journalActions.writeContent(text)) {
-        return Err(
+        return err(
           new Error(
             'No active journal entry. Call openEntry or createEntry first.',
           ),
         );
       }
-      return Success<undefined>();
+      return ok(undefined);
     },
     backToList: async () => {
       journalActions.backToList();
-      return Success<undefined>();
+      return ok(undefined);
     },
   });
 

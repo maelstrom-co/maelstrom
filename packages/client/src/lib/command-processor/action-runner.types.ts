@@ -1,27 +1,26 @@
 /**
  * Client-specific types for action execution and vessel management.
  *
- * Imports are split across two packages during the `@maelstrom-co/protocol-old`
- * to `@maelstrom-co/protocol` migration:
- * - `ActionParameter` / `Vessel` come from the new `@maelstrom-co/protocol`.
- * - `ActionExecution` / `Result` remain on `@maelstrom-co/protocol-old` until
- *   the runner runtime is ported.
+ * Vessel-shape inference primitives (`ActionNames`, `ActionParams`,
+ * `VariantNames`) and the action-runner contract (`ActionRunner`,
+ * `ActionHandler`, `ActionResult`) live here. Wire-format types
+ * (`ActionExecution`, `VesselDefinition`, `Result`) come from
+ * `@maelstrom-co/protocol`.
  */
 
 import type {
   ActionExecution,
-  Result,
-  Vessel as OldVessel,
-} from '@maelstrom-co/protocol-old';
-import type { ActionParameter, VesselDefinition } from '@maelstrom-co/protocol';
+  ActionParameter,
+  InstanceId,
+  VesselDefinition,
+} from '@maelstrom-co/protocol';
+
+import type { ActionResult } from './action-result.js';
 
 // ============================================================================
 // Type Mapping Utilities
 // ============================================================================
 
-/**
- * Maps action parameter type strings to TypeScript types.
- */
 type ParamTypeToTS<T extends string> = T extends 'string'
   ? string
   : T extends 'number'
@@ -32,23 +31,14 @@ type ParamTypeToTS<T extends string> = T extends 'string'
         ? Record<string, unknown>
         : unknown;
 
-/**
- * Flattens all actions across all variants into a single union.
- */
 type GetAllActions<V extends VesselDefinition> =
   V['variants'][keyof V['variants']]['actions'][number];
 
-/**
- * Extract a parameter definition by name.
- */
 type ParamForName<
   Params extends ReadonlyArray<ActionParameter>,
   Name extends string,
 > = Extract<Params[number], { name: Name }>;
 
-/**
- * Keys for required parameters.
- */
 type RequiredParamKeys<Params extends ReadonlyArray<ActionParameter>> =
   Params[number] extends infer P
     ? P extends { name: unknown; required: false }
@@ -60,9 +50,6 @@ type RequiredParamKeys<Params extends ReadonlyArray<ActionParameter>> =
         : never
     : never;
 
-/**
- * Keys for optional parameters.
- */
 type OptionalParamKeys<Params extends ReadonlyArray<ActionParameter>> =
   Params[number] extends infer P
     ? P extends { name: infer N; required: false }
@@ -72,9 +59,6 @@ type OptionalParamKeys<Params extends ReadonlyArray<ActionParameter>> =
       : never
     : never;
 
-/**
- * Resolves a parameter's TypeScript type by name.
- */
 type ParamTypeFor<
   Params extends ReadonlyArray<ActionParameter>,
   Name extends string,
@@ -83,21 +67,13 @@ type ParamTypeFor<
     ? ParamTypeToTS<T & string>
     : unknown;
 
-/**
- * Builds a params object type from a parameter definition array.
- */
 type ParamsToObject<Params extends ReadonlyArray<ActionParameter>> = {
   [K in RequiredParamKeys<Params>]: ParamTypeFor<Params, K>;
 } & {
   [K in OptionalParamKeys<Params>]?: ParamTypeFor<Params, K>;
 };
 
-/**
- * Extracts the params object for a given action name.
- */
-type GetActionParams<A, ActionName extends string> = A extends {
-  name: ActionName;
-}
+type GetActionParams<A, Name extends string> = A extends { name: Name }
   ? A extends { parameters: infer P }
     ? P extends ReadonlyArray<ActionParameter>
       ? P['length'] extends 0
@@ -108,33 +84,41 @@ type GetActionParams<A, ActionName extends string> = A extends {
   : never;
 
 // ============================================================================
-// Public Type Exports
+// Vessel-Inference Primitives
 // ============================================================================
 
 /**
- * Union of all action names across all variants of a vessel.
+ * Union of action names across all variants of vessel `V`.
  */
-export type AllVariantActionNames<V extends VesselDefinition> =
-  GetAllActions<V>['name'];
+export type ActionNames<V extends VesselDefinition> = GetAllActions<V>['name'];
 
 /**
- * Extracts the parameter object for a specific action name.
+ * Typed parameter object for action `Name` on vessel `V`. Resolves to
+ * `undefined` for parameterless actions.
  */
-export type ExtractActionParams<
+export type ActionParams<
   V extends VesselDefinition,
-  Name extends AllVariantActionNames<V>,
+  Name extends ActionNames<V>,
 > = GetActionParams<GetAllActions<V>, Name>;
 
 /**
+ * Union of variant keys (variant names) for vessel `V`.
+ */
+export type VariantNames<V extends VesselDefinition> = keyof V['variants'] &
+  string;
+
+// ============================================================================
+// Action Handlers
+// ============================================================================
+
+/**
  * Handler type for an action. Supports both sync and async handlers.
- * - No params: returns Result (or Promise<Result>) directly
- * - With params: receives typed params object, returns Promise<Result>
+ * - No params: returns `ActionResult` (or `Promise<ActionResult>`) directly
+ * - With params: receives typed params object, returns `Promise<ActionResult>`
  */
 export type ActionHandler<Params> = [Params] extends [undefined]
-  ? () => Promise<Result<undefined, Error>> | Result<undefined, Error>
-  : (
-      params: Params,
-    ) => Promise<Result<undefined, Error>> | Result<undefined, Error>;
+  ? () => Promise<ActionResult> | ActionResult
+  : (params: Params) => Promise<ActionResult> | ActionResult;
 
 /**
  * Typed action runner map keyed by action name.
@@ -143,55 +127,35 @@ export type ActionHandler<Params> = [Params] extends [undefined]
  *
  * @example
  * ```typescript
+ * import { ok } from '@maelstrom-co/protocol';
+ *
  * const runner: ActionRunner<typeof myVessel> = {
  *   selectOrder: (params) => {
  *     // params is fully typed based on vessel definition
  *     console.log(params.orderId);
- *     return Success();
+ *     return ok(undefined);
  *   },
  *   closeOrderDetails: () => {
- *     return Success();
+ *     return ok(undefined);
  *   },
  * };
  * ```
  */
 export type ActionRunner<V extends VesselDefinition = VesselDefinition> =
   Partial<{
-    [Name in AllVariantActionNames<V>]: ActionHandler<
+    [Name in ActionNames<V>]: ActionHandler<
       GetActionParams<GetAllActions<V>, Name>
     >;
   }>;
 
 /**
  * Untyped action runner map used for internal storage.
- * This is the runtime representation - type safety is enforced at compile time.
+ * This is the runtime representation — type safety is enforced at compile time.
  */
 export type AnyActionRunner = Record<
   string,
-  (
-    params: unknown,
-  ) => Promise<Result<undefined, Error>> | Result<undefined, Error>
+  (params: unknown) => Promise<ActionResult> | ActionResult
 >;
-
-/**
- * Alias for ActionRunner.
- * @deprecated Use ActionRunner instead
- */
-export type ActionHandlersFor<V extends VesselDefinition> = ActionRunner<V>;
-
-/**
- * Alias for all action names on a vessel.
- */
-export type ActionNamesFor<V extends VesselDefinition> =
-  AllVariantActionNames<V>;
-
-/**
- * Alias for action param extraction.
- */
-export type ActionParamsFor<
-  V extends VesselDefinition,
-  ActionName extends AllVariantActionNames<V>,
-> = ExtractActionParams<V, ActionName>;
 
 // ============================================================================
 // Action Manager Types
@@ -200,16 +164,8 @@ export type ActionParamsFor<
 /**
  * Internal action execution record with resolved runner.
  */
-export interface ExecutableAction<
-  V extends VesselDefinition = VesselDefinition,
-  Name extends string = string,
-> {
-  // ActionExecution still lives on `@maelstrom-co/protocol-old`; the action
-  // runner runtime continues to depend on `@maelstrom-co/protocol-old` shapes,
-  // so this constraint stays loose until that migration completes. Cast the
-  // vessel param at this seam — both `Vessel` shapes are structurally
-  // compatible at the level of fields the old `ActionExecution` reads.
-  execution: ActionExecution<V & OldVessel, Name>;
+export interface ExecutableAction {
+  execution: ActionExecution;
   runner: AnyActionRunner | undefined;
 }
 
@@ -217,9 +173,9 @@ export interface ExecutableAction<
  * Action execution summary.
  */
 export interface ActionRecord {
-  instanceId: string;
+  instanceId: InstanceId;
   action: string;
-  result: Result<undefined, Error>;
+  result: ActionResult;
   duration: number;
   skipped?: boolean;
 }
@@ -233,26 +189,4 @@ export interface BatchExecutionResult {
   successCount: number;
   failureCount: number;
   skippedCount: number;
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Creates an execution plan for a specific vessel.
- * This helper function provides type inference for constructing execution plans.
- *
- * @example
- * ```typescript
- * const plan = createExecutionPlan<typeof orderVessel>([
- *   { instanceId: 'orders-1', action: 'selectOrder', params: { orderId: '123' } },
- *   { instanceId: 'orders-1', action: 'closeOrderDetails' },
- * ]);
- * ```
- */
-export function createExecutionPlan<V extends VesselDefinition>(
-  executions: ActionExecution<V & OldVessel>[],
-): ActionExecution<V & OldVessel>[] {
-  return executions;
 }

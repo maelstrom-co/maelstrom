@@ -33,15 +33,13 @@
  */
 
 import type {
-  VoiceClientMessage,
-  VoiceServerMessage,
-} from '@maelstrom-co/protocol-old';
-import type {
   ChartRequestMessage,
   MaelstromResponse,
   MessageId,
   SessionHistoryEntry,
   SessionId,
+  VoiceClientMessage,
+  VoiceServerMessage,
 } from '@maelstrom-co/protocol';
 
 import type { Unsubscribe } from '../types.js';

@@ -1,17 +1,14 @@
-import { beforeEach, describe, expect, it, test } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
 
-import { type ActionExecution, InstanceId } from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
 
 import {
   createExecuteActionsCommand,
   createSetLayoutCommand,
 } from '../../../test-utils/command-mocks.js';
 import type { Command } from './command.types.js';
-import {
-  CommandProcessor,
-  toRunnerExecutionPlan,
-} from './command-processor.js';
+import { CommandProcessor } from './command-processor.js';
 
 describe('CommandProcessor (Event Loop)', () => {
   let processor: CommandProcessor;
@@ -307,48 +304,5 @@ describe('CommandProcessor (Event Loop)', () => {
         processor.store.state.instances.has(InstanceId('instance-1')),
       ).toBe(true);
     });
-  });
-});
-
-describe('toRunnerExecutionPlan', () => {
-  test('passes branded ActionExecutions through with their runtime shape intact', () => {
-    const plan: readonly ActionExecution[] = [
-      {
-        instanceId: InstanceId('orders-1'),
-        action: 'selectOrder',
-        params: { orderId: 'o-42' },
-      },
-      { instanceId: InstanceId('orders-1'), action: 'closeOrderDetails' },
-    ];
-
-    const runnerPlan = toRunnerExecutionPlan(plan);
-
-    expect(runnerPlan).toHaveLength(2);
-    // toMatchObject avoids the legacy RunnerActionExecution's fixed-Vessel
-    // generic narrowing `params` to `undefined`; the runtime shape is what
-    // we want to pin here, not the generic instantiation.
-    expect(runnerPlan[0]).toMatchObject({
-      instanceId: 'orders-1',
-      action: 'selectOrder',
-      params: { orderId: 'o-42' },
-    });
-    expect(runnerPlan[1]).toMatchObject({
-      instanceId: 'orders-1',
-      action: 'closeOrderDetails',
-    });
-  });
-
-  test('returns the same array reference (no copy, just a type cast)', () => {
-    // Pin the no-copy contract: ActionManager already iterates the plan, so
-    // a defensive clone here would be wasted work and a perf regression.
-    const plan: readonly ActionExecution[] = [
-      { instanceId: InstanceId('a'), action: 'noop' },
-    ];
-    const runnerPlan = toRunnerExecutionPlan(plan);
-    expect(runnerPlan as unknown as readonly ActionExecution[]).toBe(plan);
-  });
-
-  test('accepts an empty plan', () => {
-    expect(toRunnerExecutionPlan([])).toEqual([]);
   });
 });

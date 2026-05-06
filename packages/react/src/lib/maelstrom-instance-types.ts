@@ -97,7 +97,7 @@ export interface MaelstromInstanceCore<
    *
    * @example
    * m.useActions('calendar', instanceId, {
-   *   showWeek: () => Success(),
+   *   showWeek: () => ok(undefined),
    * });
    */
   useActions: <Id extends VesselIds<T>>(

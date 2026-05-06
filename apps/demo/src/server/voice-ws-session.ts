@@ -3,14 +3,13 @@ import type {
   ChartRequest,
   ChartRequestMessage,
   MessageId,
-} from '@maelstrom-co/protocol';
-import type {
   VoiceClientMessage,
   VoiceServerMessage,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
 import type { AudioChunk, VoiceSession } from '@maelstrom-co/voice-server';
 
 import { adaptEnvelopeToLegacyRequest } from './legacy-engine-adapter.js';
+import { toProtocolResponse } from './voice-intent-adapter.js';
 
 type WsTransport = {
   sendMessage: (message: VoiceServerMessage) => void;
@@ -206,14 +205,14 @@ export function createDemoVoiceWsSessionController(
     }
 
     try {
-      const response = await engine.process(
+      const legacyResponse = await engine.process(
         adaptEnvelopeToLegacyRequest(envelope),
       );
       sendMessage({
         type: 'engine.maelstrom.response',
         sessionId,
         requestId: envelope.id,
-        response,
+        response: toProtocolResponse(legacyResponse),
       });
     } catch (err) {
       reportEngineError('[Demo WS] engine.process error', err, envelope.id);

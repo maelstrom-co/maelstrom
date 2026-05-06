@@ -4,18 +4,20 @@ export { createMaelstrom } from './lib/create-maelstrom.js';
 
 // Types — vessel system
 export type {
-  VariantNames,
-  VariantPropsUnion,
+  ActionHandler,
   ActionNames,
-} from '@maelstrom-co/protocol-old';
-
-export type { ActionRunner } from '@maelstrom-co/client';
+  ActionParams,
+  ActionResult,
+  ActionRunner,
+  VariantNames,
+} from '@maelstrom-co/client';
 
 export type {
-  TypedVesselProps,
-  VesselEntry,
-  LazyVesselEntry,
   LazyVesselComponentLoader,
+  LazyVesselEntry,
+  TypedVesselProps,
+  VariantProps,
+  VesselEntry,
   VesselIds,
 } from './lib/vessel-entry-types.js';
 

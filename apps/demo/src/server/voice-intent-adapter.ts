@@ -5,15 +5,18 @@ import {
   type MaelstromResponse,
   MessageId,
   SessionId,
+  type VariantName,
+  type VesselId,
+  type VoiceServerMessage,
+  VesselSchema,
 } from '@maelstrom-co/protocol';
 import type {
   ChartRequest as LegacyChartRequest,
   MaelstromResponse as LegacyMaelstromResponse,
-  VoiceServerMessage,
 } from '@maelstrom-co/protocol-old';
 import type { ProcessIntent } from '@maelstrom-co/voice-server';
 
-function toLegacyChartRequest(
+export function toLegacyChartRequest(
   request: ChartRequest,
   sessionId: string,
   id: MessageId,
@@ -57,7 +60,57 @@ function toLegacyChartRequest(
   };
 }
 
-function toProtocolResponse(
+export function toProtocolChartRequest(
+  request: LegacyChartRequest,
+): ChartRequest {
+  return {
+    type: 'chart_request',
+    context: {
+      ...request.context,
+      updateReasons: request.context.updateReasons.map((reason) => {
+        if (reason.type === 'vessel_mutation') {
+          return {
+            ...reason,
+            instanceId: InstanceId(reason.instanceId),
+          };
+        }
+
+        return { ...reason };
+      }),
+    },
+    instances: request.instances.map((instance) => ({
+      instanceId: InstanceId(instance.instanceId),
+      vesselId: instance.vesselId as VesselId,
+      variant: instance.variant as VariantName,
+    })),
+    vessels: request.vessels.map((vessel) => VesselSchema.parse(vessel)),
+    layout:
+      request.layout.type === 'grid'
+        ? {
+            type: 'grid',
+            positions: request.layout.positions.map((position) => ({
+              instanceId: InstanceId(position.instanceId),
+              position: position.position,
+              size: position.size,
+            })),
+          }
+        : {
+            type: 'tiling',
+            tree: request.layout.tree.map((node) =>
+              node === null || node === 'H' || node === 'V'
+                ? node
+                : InstanceId(node),
+            ),
+            instances: request.layout.instances.map((instance) => ({
+              instanceId: InstanceId(instance.instanceId),
+              vesselId: instance.vesselId,
+              variant: instance.variant,
+            })),
+          },
+  };
+}
+
+export function toProtocolResponse(
   response: LegacyMaelstromResponse,
 ): MaelstromResponse {
   return {
@@ -229,7 +282,7 @@ export function createDemoVoiceIntentAdapter(
           type: 'engine.maelstrom.response',
           sessionId,
           requestId: legacyResponse.requestId,
-          response: legacyResponse,
+          response,
         });
 
         return response;

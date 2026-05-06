@@ -1,9 +1,14 @@
 import { describe, it } from 'bun:test';
 import { defineVessel, type InstanceId } from '@maelstrom-co/protocol';
 
-import type { ExtractActionParams } from '@maelstrom-co/client';
+import type { ActionParams } from '@maelstrom-co/client';
 
-import type { TypedVesselProps, VesselIds, ExtractVesselByIdFromEntries } from './vessel-entry-types.js';
+import type {
+  ExtractVesselByIdFromEntries,
+  TypedVesselProps,
+  VariantProps,
+  VesselIds,
+} from './vessel-entry-types.js';
 import { vessel } from './vessel.js';
 import { testVessel, type TestVessel } from './__tests__/test-vessel.fixture';
 
@@ -60,8 +65,8 @@ describe('TypedVesselProps', () => {
 
   it('maps action params to concrete types (not unknown)', () => {
     // The TestVessel's selectOrder action has parameter orderId of type 'string'.
-    // After the fix, ExtractActionParams should map it to string, not unknown.
-    type SelectParams = ExtractActionParams<TestVessel, 'selectOrder'>;
+    // ActionParams should map it to string, not unknown.
+    type SelectParams = ActionParams<TestVessel, 'selectOrder'>;
     // If this were unknown, assigning string would pass but the reverse wouldn't
     type _OrderIdIsString = SelectParams extends { orderId: string }
       ? string extends SelectParams['orderId']
@@ -160,5 +165,53 @@ describe('ExtractVesselByIdFromEntries', () => {
     type _IsLiteral = MonthView extends 'month' ? ('month' extends MonthView ? true : never) : never;
     const _check: _IsLiteral = true;
     void _check;
+  });
+});
+
+describe('VariantProps', () => {
+  it('builds a discriminated union with the variant key as discriminant', () => {
+    const props: VariantProps<TestVessel> = {
+      variant: 'list',
+      view: 'list',
+      pageSize: 10,
+    };
+    if (props.variant === 'list') {
+      const _view: 'list' = props.view;
+      const _pageSize: number = props.pageSize;
+      void [_view, _pageSize];
+    }
+    void props;
+  });
+
+  it('narrows to a single variant via the discriminant', () => {
+    const props: VariantProps<TestVessel> = {
+      variant: 'detail',
+      view: 'detail',
+      orderId: '',
+    };
+    if (props.variant === 'detail') {
+      const _orderId: string = props.orderId;
+      void _orderId;
+      // @ts-expect-error - 'pageSize' belongs to the 'list' variant only
+      props.pageSize;
+    }
+    void props;
+  });
+
+  it('rejects unknown variant keys', () => {
+    // @ts-expect-error - 'bogus' is not a valid variant key
+    const _bogus: VariantProps<TestVessel> = { variant: 'bogus' };
+    void _bogus;
+  });
+
+  it('rejects mismatched per-variant prop shapes', () => {
+    const _wrongProps: VariantProps<TestVessel> = {
+      variant: 'list',
+      view: 'list',
+      pageSize: 10,
+      // @ts-expect-error - 'orderId' belongs to the 'detail' variant
+      orderId: '',
+    };
+    void _wrongProps;
   });
 });

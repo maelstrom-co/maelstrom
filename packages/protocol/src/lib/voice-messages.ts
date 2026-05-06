@@ -1,28 +1,23 @@
 /**
- * Voice message types for Maelstrom protocol.
+ * Voice message types for the Maelstrom wire protocol.
  *
- * These messages enable bidirectional audio streaming between
- * client and server over the same WebSocket connection used for
- * chart requests/responses.
+ * These messages enable bidirectional audio streaming between client
+ * and server over the same WebSocket connection used for chart
+ * requests/responses.
+ *
+ * Event names follow `{source}.{component}.{event}` where source is
+ * `client` or `engine`, component identifies the subsystem (e.g.,
+ * `audio_capture`, `stt`, `tts`, `voice`, `maelstrom`), and event is
+ * the specific signal.
  */
 
-import type { ChartRequest, MaelstromResponse } from './protocol.js';
+import type { ChartRequestMessage } from './engine-message.js';
+import type { MaelstromResponse } from './response.js';
 
 interface TimeEvent {
-  /**
-   * Timestamp in milliseconds since epoch
-   * Should be sent by the emisor
-   * */
+  /** Timestamp in milliseconds since epoch, set by the emitter. */
   timestamp: number;
 }
-
-// ============================================================================
-// The (non-bidirectional) event name of the events follows the pattern: {source}.{component}.{event} where:
-// - source: 'client' or 'engine' (server)
-// - component: 'audio_capture', 'stt', 'tts', 'voice', 'maelstrom', etc.
-// - event: specific event name (e.g., 'audio_sent', 'transcript', 'ready')
-// This naming convention allows for easy filtering and handling of events on both client and server sides.
-// ============================================================================
 
 // ============================================================================
 // Audio Input (Client → Server)
@@ -34,7 +29,6 @@ interface TimeEvent {
  */
 export interface AudioInputMessage extends TimeEvent {
   type: 'client.audio_capture.audio_sent';
-  /** Session identifier */
   sessionId: string;
   /** Audio data as bytes (opus-encoded recommended) */
   data: Uint8Array;
@@ -81,7 +75,6 @@ export interface StopListeningMessage extends TimeEvent {
 export interface TranscriptMessage extends TimeEvent {
   type: 'engine.stt.transcript';
   sessionId: string;
-  /** Transcribed text */
   text: string;
   /** Whether this is the final result */
   isFinal: boolean;
@@ -104,19 +97,15 @@ export interface TranscriptMessage extends TimeEvent {
 export interface AudioOutputMessage extends TimeEvent {
   type: 'engine.tts.sent';
   sessionId: string;
-  /** Audio data as bytes */
   data: Uint8Array;
   /** Audio format (e.g., 'opus', 'mp3') */
   format: string;
-  /** Sample rate in Hz */
   sampleRate: number;
   /** Text that this chunk represents (for word alignment) */
   text?: string;
-  /** Sequence number for ordering chunks */
   sequence: number;
-  /** Whether this is the final chunk */
   isFinal: boolean;
-  /** We might consider some messages that cannot be cancelled. For example, legal disclaimers */
+  /** Some messages cannot be cancelled (e.g., legal disclaimers). */
   cancellable?: boolean;
 }
 
@@ -155,9 +144,7 @@ export interface SpeechStoppedMessage extends TimeEvent {
 export interface VoiceStateMessage extends TimeEvent {
   type: 'engine.voice.state';
   sessionId: string;
-  /** Current voice session state */
   state: 'idle' | 'listening' | 'processing' | 'speaking';
-  /** Previous state */
   previousState?: 'idle' | 'listening' | 'processing' | 'speaking';
 }
 
@@ -219,10 +206,16 @@ export interface AddAssistantMessageCommand extends TimeEvent {
 /**
  * Client requests the Maelstrom engine to process a chart request.
  * Allows voice interactions to trigger chart updates.
+ *
+ * The `request` field carries a {@link ChartRequestMessage} envelope —
+ * `id`, `sessionId`, and `timestamp` live on the envelope, with the inner
+ * {@link import('./request.js').ChartRequest} payload nested under
+ * `request.request`. The server uses the envelope id for response
+ * correlation.
  */
 export interface MaelstromProcessMessageCommand extends TimeEvent {
   type: 'client.maelstrom.process';
-  request: ChartRequest;
+  request: ChartRequestMessage;
 }
 
 /**
@@ -243,7 +236,6 @@ export interface MaelstromResponseMessage {
 export interface VADSpeechStartMessage {
   type: 'client.vad.speech_start';
   sessionId: string;
-  /** Timestamp when speech was detected */
   timestamp: number;
 }
 
@@ -254,7 +246,6 @@ export interface VADSpeechStartMessage {
 export interface VADSpeechEndMessage {
   type: 'client.vad.speech_end';
   sessionId: string;
-  /** Timestamp when silence was detected */
   timestamp: number;
 }
 

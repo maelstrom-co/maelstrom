@@ -3,8 +3,8 @@ import {
   MessageId,
   SessionId,
   type MaelstromResponse,
+  type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
-import type { VoiceServerMessage } from '@maelstrom-co/protocol-old';
 
 import { VoiceWebSocketConnector } from '../voice-web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';

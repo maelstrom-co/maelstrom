@@ -11,7 +11,7 @@ import {
   VariantName,
   defineVessel,
 } from '@maelstrom-co/protocol';
-import { Err, Success } from '@maelstrom-co/protocol-old';
+import { err, ok } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { type ReactNode, useMemo } from 'react';
@@ -470,7 +470,7 @@ describe('m.useVessel() — optimistic transitions', () => {
       // Register a runner so executeAction's command doesn't block the queue
       const runner = useMemo(
         () => ({
-          viewDetail: () => Success(undefined),
+          viewDetail: () => ok(undefined),
         }),
         [],
       );
@@ -582,7 +582,7 @@ describe('m.useVessel() — optimistic transitions', () => {
       props = m.useVessel('orders', 'inst-1');
       const runner = useMemo(
         () => ({
-          viewDetail: () => Err(new Error('action failed')),
+          viewDetail: () => err(new Error('action failed')),
         }),
         [],
       );

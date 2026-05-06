@@ -24,8 +24,10 @@
  * await session.startListening();
  * ```
  */
-import { MessageId } from '@maelstrom-co/protocol';
-import type { VoiceServerMessage } from '@maelstrom-co/protocol-old';
+import {
+  MessageId,
+  type VoiceServerMessage,
+} from '@maelstrom-co/protocol';
 import { VoiceError } from '@maelstrom-co/protocol-old';
 
 import { AudioCapture } from '../audio-capture/index.js';

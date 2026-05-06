@@ -4,7 +4,6 @@ import type {
   GridLayout,
   MaelstromResponse,
   TilingLayout,
-  Vessel,
   VesselAction,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol-old';
@@ -54,12 +53,12 @@ function buildLayout(
   };
 }
 
-function validateExecutionPlan<V extends Vessel = Vessel>(
+function validateExecutionPlan(
   plan: LLMResponse['executionPlan'],
   request: ChartRequest,
   layout: GridLayout | TilingLayout,
-): ActionExecution<V, string>[] {
-  const valid: ActionExecution<V, string>[] = [];
+): ActionExecution[] {
+  const valid: ActionExecution[] = [];
   const knownInstances = new Map(
     request.instances.map((instance) => [instance.instanceId, instance]),
   );
@@ -115,7 +114,7 @@ function validateExecutionPlan<V extends Vessel = Vessel>(
       continue;
     }
 
-    const parsedAction: ActionExecution<V, string> = {
+    const parsedAction: ActionExecution = {
       instanceId: item.instanceId,
       action: item.action,
     };

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { afterEach, describe, it, expect, mock } from 'bun:test';
 import { render, cleanup, act } from '@testing-library/react';
 import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
-import { Success } from '@maelstrom-co/protocol-old';
+import { ok } from '@maelstrom-co/protocol';
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { ActionRunner } from '@maelstrom-co/client';
 import type {
@@ -109,7 +109,7 @@ describe('useActions vesselId validation', () => {
     });
 
     const runner: ActionRunner<typeof calendarVessel> = {
-      next: () => Success(undefined),
+      next: () => ok(undefined),
     };
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -165,7 +165,7 @@ describe('useActions vesselId validation', () => {
     });
 
     // Use a runner for 'orders' actions so the handler is found
-    const refreshHandler = mock(() => Success(undefined));
+    const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = {
       refresh: refreshHandler,
     };
@@ -221,10 +221,10 @@ describe('useActions disposer identity check', () => {
       },
     });
 
-    const handlerA = mock(() => Success(undefined));
+    const handlerA = mock(() => ok(undefined));
     const runnerA: ActionRunner<typeof orderVessel> = { refresh: handlerA };
 
-    const handlerB = mock(() => Success(undefined));
+    const handlerB = mock(() => ok(undefined));
     const runnerB: ActionRunner<typeof orderVessel> = { refresh: handlerB };
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;

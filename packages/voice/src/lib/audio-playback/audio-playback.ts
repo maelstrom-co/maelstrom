@@ -1,3 +1,4 @@
+import { toError } from '@maelstrom-co/protocol';
 /**
  * Framework-agnostic audio playback engine for streaming TTS output.
  *
@@ -375,7 +376,7 @@ export class AudioPlayback {
   }
 
   #reportError(err: unknown): void {
-    const error = err instanceof Error ? err : new Error(String(err));
+    const error = toError(err);
     console.error('[AudioPlayback] Audio playback error:', error);
     this.#emit('error', error);
   }

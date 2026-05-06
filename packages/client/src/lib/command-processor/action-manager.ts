@@ -1,9 +1,11 @@
 import {
   type ActionExecution,
-  Success,
-  type Vessel as OldVessel,
-} from '@maelstrom-co/protocol-old';
-import type { InstanceId, VesselDefinition } from '@maelstrom-co/protocol';
+  type InstanceId,
+  type VesselDefinition,
+  err,
+  ok,
+  toError
+} from '@maelstrom-co/protocol';
 
 import { isPromise, type Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
@@ -36,11 +38,11 @@ import type {
  *   selectOrder: async (params) => {
  *     // params is fully typed based on vessel definition
  *     setSelectedOrderId(params.orderId);
- *     return Success();
+ *     return ok(undefined);
  *   },
  *   closeOrderDetails: async () => {
  *     setSelectedOrderId(null);
- *     return Success();
+ *     return ok(undefined);
  *   },
  * });
  *
@@ -77,7 +79,7 @@ export class ActionManager {
    * actionManager.registerRunner(InstanceId('instance-1'), {
    *   selectOrder: async (params) => {
    *     setSelectedOrderId(params.orderId);
-   *     return { success: true, value: undefined };
+   *     return ok(undefined);
    *   },
    * });
    * ```
@@ -212,10 +214,9 @@ export class ActionManager {
    * @param executionPlan - Array of actions to execute
    * @returns Result of the batch execution
    */
-  async executeActions<
-    V extends OldVessel = OldVessel,
-    Name extends string = string,
-  >(executionPlan: ActionExecution<V, Name>[]): Promise<BatchExecutionResult> {
+  async executeActions(
+    executionPlan: readonly ActionExecution[],
+  ): Promise<BatchExecutionResult> {
     if (executionPlan.length === 0) {
       return {
         actions: [],
@@ -251,7 +252,7 @@ export class ActionManager {
             return actionDefs.map((a) => ({
               instanceId,
               action: a.execution.action,
-              result: Success(undefined),
+              result: ok(undefined),
               duration: 0,
               skipped: true,
             }));
@@ -259,7 +260,7 @@ export class ActionManager {
 
           // Get the runner now that we're ready
           const runner = this.#getRunnerForInstance(instanceId);
-          const actions: ExecutableAction<V, Name>[] = actionDefs.map((a) => ({
+          const actions: ExecutableAction[] = actionDefs.map((a) => ({
             execution: a.execution,
             runner,
           }));
@@ -273,7 +274,7 @@ export class ActionManager {
     const allActions = instanceResults.flat();
 
     const successCount = allActions.filter(
-      (a) => a.result.success && !a.skipped,
+      (a) => a.result.ok && !a.skipped,
     ).length;
     const skippedCount = allActions.filter((a) => a.skipped).length;
     const failureCount = allActions.length - successCount - skippedCount;
@@ -308,18 +309,13 @@ export class ActionManager {
    * Group actions by their target instance ID.
    * Also looks up runners for each instance.
    */
-  #groupActionsByInstance<
-    V extends OldVessel = OldVessel,
-    Name extends string = string,
-  >(
-    executionPlan: ActionExecution<V, Name>[],
-  ): Map<InstanceId, ExecutableAction<V, Name>[]> {
-    const grouped = new Map<InstanceId, ExecutableAction<V, Name>[]>();
+  #groupActionsByInstance(
+    executionPlan: readonly ActionExecution[],
+  ): Map<InstanceId, ExecutableAction[]> {
+    const grouped = new Map<InstanceId, ExecutableAction[]>();
 
     for (const execution of executionPlan) {
-      // ActionExecution from protocol-old carries a raw string instanceId; brand
-      // at the seam so the lookup map keys remain branded throughout.
-      const id = execution.instanceId as InstanceId;
+      const id = execution.instanceId;
       const runner = this.#getRunnerForInstance(id);
 
       if (!grouped.has(id)) {
@@ -344,12 +340,9 @@ export class ActionManager {
    * Execute all actions for a single instance sequentially.
    * Actions are executed in the order they appear in the array.
    */
-  async #executeInstanceActions<
-    V extends OldVessel = OldVessel,
-    Name extends string = string,
-  >(
+  async #executeInstanceActions(
     instanceId: InstanceId,
-    actions: ExecutableAction<V, Name>[],
+    actions: ExecutableAction[],
   ): Promise<ActionRecord[]> {
     const records: ActionRecord[] = [];
 
@@ -364,7 +357,7 @@ export class ActionManager {
         records.push({
           instanceId,
           action: execution.action,
-          result: Success(undefined),
+          result: ok(undefined),
           duration: 0,
           skipped: true,
         });
@@ -380,7 +373,7 @@ export class ActionManager {
         records.push({
           instanceId,
           action: execution.action,
-          result: Success(undefined),
+          result: ok(undefined),
           duration: 0,
           skipped: true,
         });
@@ -427,10 +420,7 @@ export class ActionManager {
         records.push({
           instanceId,
           action: execution.action,
-          result: {
-            success: false,
-            error: error instanceof Error ? error : new Error(String(error)),
-          },
+          result: err(toError(error)),
           duration,
         });
       }

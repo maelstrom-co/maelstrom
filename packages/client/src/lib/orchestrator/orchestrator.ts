@@ -7,6 +7,7 @@ import {
   type SessionId,
   type UpdateReason,
   type VesselMutationReason,
+  toError
 } from '@maelstrom-co/protocol';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
@@ -316,7 +317,7 @@ export class Orchestrator {
           // Synchronous construction failure (e.g., ChartRequestMessage's
           // resolveTimestamp guard). RequestCoordinator never saw it, so we
           // need to log here AND settle queued flush promises.
-          const error = err instanceof Error ? err : new Error(String(err));
+          const error = toError(err);
           this.#logger.error(
             `Timer-flush request construction failed: ${error.message}`,
           );
@@ -330,7 +331,7 @@ export class Orchestrator {
         } catch (err) {
           // send() already surfaces the error via the 'error' event.
           // Settle queued flush promises so consumers don't time out.
-          const error = err instanceof Error ? err : new Error(String(err));
+          const error = toError(err);
           this.#requestCoordinator.rejectFlushPromises(error);
           return;
         }
@@ -340,7 +341,7 @@ export class Orchestrator {
         } catch (err) {
           // dispatchResponse delegates to CommandProcessor; failures here are
           // not surfaced upstream, so we log and reject queued flushes.
-          const error = err instanceof Error ? err : new Error(String(err));
+          const error = toError(err);
           this.#logger.error(`Timer-flush dispatch failed: ${error.message}`);
           this.#requestCoordinator.rejectFlushPromises(error);
           return;

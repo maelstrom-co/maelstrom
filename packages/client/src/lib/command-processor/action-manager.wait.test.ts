@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { type ActionExecution, Success } from '@maelstrom-co/protocol-old';
-import { defineVessel, InstanceId } from '@maelstrom-co/protocol';
+import {
+  type ActionExecution,
+  defineVessel,
+  InstanceId,
+  ok,
+} from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { ActionManager } from './action-manager.js';
@@ -46,7 +50,7 @@ describe('ActionManager waitForReady', () => {
       let promiseResolved = false;
       let result = false;
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
       manager.registerRunner<MockVessel>(i1, runner);
 
@@ -65,7 +69,7 @@ describe('ActionManager waitForReady', () => {
 
     it('should wait for runner to be registered', async () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
 
       let result = false;
@@ -112,7 +116,7 @@ describe('ActionManager waitForReady', () => {
 
     it('should handle multiple waiters for same instance', async () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
       let result1 = false;
       let result2 = false;
@@ -154,7 +158,7 @@ describe('ActionManager waitForReady', () => {
 
     it('should clean up waiters after resolution', async () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
 
       let promiseResolvedCount = 0;
@@ -190,7 +194,7 @@ describe('ActionManager waitForReady', () => {
 
     it('should handle different timeout values for different waiters', async () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
 
       let shortResolved = false;
@@ -236,7 +240,7 @@ describe('ActionManager waitForReady', () => {
       const runner: ActionRunner<MockVessel> = {
         testAction: async () => {
           runnerCallCount++;
-          return Success(undefined);
+          return ok(undefined);
         },
       };
 
@@ -277,10 +281,10 @@ describe('ActionManager waitForReady', () => {
         true,
       );
       expect(
-        (result as unknown as BatchExecutionResult).actions[0].result.success,
+        (result as unknown as BatchExecutionResult).actions[0].result.ok,
       ).toBe(true);
       expect(
-        (result as unknown as BatchExecutionResult).actions[1].result.success,
+        (result as unknown as BatchExecutionResult).actions[1].result.ok,
       ).toBe(true);
     });
 
@@ -305,7 +309,7 @@ describe('ActionManager waitForReady', () => {
         (result as unknown as BatchExecutionResult).actions[0].skipped,
       ).toBe(true);
       expect(
-        (result as unknown as BatchExecutionResult).actions[0].result.success,
+        (result as unknown as BatchExecutionResult).actions[0].result.ok,
       ).toBe(true); // Skipped actions return success
     });
 
@@ -314,7 +318,7 @@ describe('ActionManager waitForReady', () => {
       const runner: ActionRunner<MockVessel> = {
         testAction: async () => {
           runnerCallCount++;
-          return Success(undefined);
+          return ok(undefined);
         },
       };
 
@@ -341,7 +345,7 @@ describe('ActionManager waitForReady', () => {
         true,
       );
       expect(
-        (result as unknown as BatchExecutionResult).actions[0].result.success,
+        (result as unknown as BatchExecutionResult).actions[0].result.ok,
       ).toBe(true);
     });
 
@@ -350,7 +354,7 @@ describe('ActionManager waitForReady', () => {
       const registeredRunner: ActionRunner<MockVessel> = {
         testAction: async () => {
           registeredRunnerCalls++;
-          return Success(undefined);
+          return ok(undefined);
         },
       };
 
@@ -387,7 +391,7 @@ describe('ActionManager waitForReady', () => {
       const runner: ActionRunner<MockVessel> = {
         testAction: async () => {
           runnerCallCount++;
-          return Success(undefined);
+          return ok(undefined);
         },
       };
 

@@ -3,6 +3,7 @@ import type {
   MaelstromResponse,
   MessageId,
 } from '@maelstrom-co/protocol';
+import { toError } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
 import type { EngineConnector } from '../connection-manager/connector.types.js';
@@ -104,7 +105,7 @@ export class RequestCoordinator {
 
       return response;
     } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
+      const error = toError(err);
       this.#logger.error(`Request ${requestId} failed: ${error.message}`);
 
       this.#emitter.emit('error', {

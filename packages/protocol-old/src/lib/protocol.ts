@@ -1,5 +1,4 @@
 import type { MessageId, SessionId } from '@maelstrom-co/protocol';
-import type { ActionExecution } from './action-runner.js';
 import type {
   ChartDimensions,
   ChartPosition,
@@ -8,6 +7,13 @@ import type {
   TilingNode,
 } from './chart.js';
 import type { Vessel } from './vessel.js';
+
+/** Action execution shape consumed by engine-old. Non-generic; brand-free. */
+export interface ActionExecution {
+  instanceId: string;
+  action: string;
+  params?: Record<string, unknown>;
+}
 
 // ============================================================================
 // Update Reason Types
@@ -193,38 +199,6 @@ export type MaelstromEvent =
   | ActionStartedEvent
   | ActionCompletedEvent
   | LayoutAppliedEvent;
-
-// Utility Types
-// ============================================================================
-
-export type Success<T> = {
-  readonly success: true;
-  readonly value: T;
-};
-
-export type Err<E extends Error = Error> = {
-  readonly success: false;
-  readonly error: E;
-};
-
-export type Result<T, E extends Error = Error> = Success<T> | Err<E>;
-
-export const Success = <T>(value?: T): Success<T | undefined> => ({
-  success: true,
-  value,
-});
-
-export const Err = <E extends Error = Error>(error: E): Err<E> => ({
-  success: false,
-  error,
-});
-
-export const isSuccess = <T, E extends Error>(
-  r: Result<T, E>,
-): r is Success<T> => r.success;
-
-export const isErr = <T, E extends Error>(r: Result<T, E>): r is Err<E> =>
-  !r.success;
 
 // ============================================================================
 // Type Guards

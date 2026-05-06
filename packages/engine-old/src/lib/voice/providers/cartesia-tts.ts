@@ -1,3 +1,4 @@
+import { toError } from '@maelstrom-co/protocol';
 /**
  * Cartesia Text-to-Speech provider with WebSocket support.
  *
@@ -193,7 +194,7 @@ export function createCartesiaTTS(
     } catch (error) {
       emit({
         type: 'error',
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: toError(error),
       });
     }
   }

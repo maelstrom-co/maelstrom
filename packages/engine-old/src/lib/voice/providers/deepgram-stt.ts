@@ -31,6 +31,7 @@
 
 import { Effect } from 'effect';
 
+import { toError } from '@maelstrom-co/protocol';
 import type {
   AudioChunk,
   STTEvent,
@@ -151,7 +152,7 @@ export function createDeepgramSTT(
     } catch (error) {
       emit({
         type: 'error',
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: toError(error),
       });
     }
   }

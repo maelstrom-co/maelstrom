@@ -66,6 +66,7 @@
 
 import { floatToPcm16 } from '../audio-utils.js';
 
+import { toError } from '@maelstrom-co/protocol';
 const WORKLET_CODE = `
 class AudioCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -281,7 +282,7 @@ export class AudioCapture {
       if (this.#options.debugMode) {
         console.error('[AudioCapture] Start error:', err);
       }
-      this.#emitError(err instanceof Error ? err : new Error(String(err)));
+      this.#emitError(toError(err));
     }
   }
 

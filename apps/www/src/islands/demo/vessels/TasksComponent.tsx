@@ -1,4 +1,4 @@
-import { Success } from '@maelstrom-co/protocol-old';
+import { ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { useState } from 'react';
 
@@ -17,7 +17,7 @@ export default function TasksComponent({ instanceId }: TypedVesselProps<typeof t
   m.useActions('tasks', instanceId, {
     addTask: async ({ title }) => {
       setExtraTasks((prev) => [...prev, title]);
-      return Success<undefined>();
+      return ok(undefined);
     },
   });
 

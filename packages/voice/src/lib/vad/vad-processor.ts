@@ -9,7 +9,8 @@ import { floatToPcm16 } from '../audio-utils.js';
 import { SileroVAD } from './silero-vad.js';
 import type { VADModelConfig, VADEvent, VADEvents } from './types.js';
 
-const WINDOW_SIZE_SAMPLES = 512;
+
+import { toError } from '@maelstrom-co/protocol';const WINDOW_SIZE_SAMPLES = 512;
 const SAMPLE_RATE = 16000;
 const DEFAULT_VAD_MODEL_URL = 'https://pub-fa2f334103a642e4985ac6016c6e7180.r2.dev/silero_vad.v5.onnx';
 const PLAYBACK_ACTIVATION_THRESHOLD = 0.8;
@@ -133,7 +134,7 @@ export class VADProcessor {
       await this.#vad.load(this.#modelPath);
     } catch (error) {
       this.#events.onError?.(
-        error instanceof Error ? error : new Error(String(error)),
+        toError(error),
       );
       throw error;
     }
@@ -161,7 +162,7 @@ export class VADProcessor {
       }
     } catch (error) {
       this.#events.onError?.(
-        error instanceof Error ? error : new Error(String(error)),
+        toError(error),
       );
     }
   }

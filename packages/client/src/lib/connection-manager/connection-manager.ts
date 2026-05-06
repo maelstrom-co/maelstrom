@@ -1,4 +1,5 @@
 import type { SessionId } from '@maelstrom-co/protocol';
+import { toError } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
 import { Logger } from '../utils/logger.js';
@@ -180,7 +181,7 @@ export class ConnectionManager {
 
         return;
       } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
+        lastError = toError(error);
 
         this.#logger.warn(
           `Connection attempt ${attempt}/${maxAttempts} failed:`,
@@ -306,7 +307,7 @@ export class ConnectionManager {
 
         this.#emitter.emit('circuit_closed', {} as Record<string, never>);
       } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
+        const err = toError(error);
 
         this.#emitter.emit('connection_error', {
           error: err,

@@ -1,5 +1,6 @@
 export type { Result } from './lib/result.js';
 export { ok, err, isOk, isErr, unwrap } from './lib/result.js';
+export { toError } from './lib/to-error.js';
 export type { Brand } from './lib/brand.js';
 export { SessionId, SessionIdSchema } from './lib/session.js';
 export { MessageId, MessageIdSchema } from './lib/message.js';
@@ -93,3 +94,8 @@ export {
   TilingTreeSchema,
   VesselInstanceSnapshotSchema,
 } from './lib/schemas.js';
+export type {
+  TranscriptMessage,
+  VoiceClientMessage,
+  VoiceServerMessage,
+} from './lib/voice-messages.js';

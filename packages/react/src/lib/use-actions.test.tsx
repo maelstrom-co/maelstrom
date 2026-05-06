@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, mock } from 'bun:test';
 import { useState } from 'react';
 import { render, cleanup, act } from '@testing-library/react';
 import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
-import { Success } from '@maelstrom-co/protocol-old';
+import { ok } from '@maelstrom-co/protocol';
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { ActionRunner } from '@maelstrom-co/client';
 import type {
@@ -85,7 +85,7 @@ function makeResponse(
 describe('m.useActions()', () => {
   it('registers runner with ActionManager on mount', async () => {
     const m = createMaelstrom({ vessels: [entry] });
-    const refreshHandler = mock(() => Success(undefined));
+    const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = { refresh: refreshHandler };
 
     // Connector returns an execution plan that fires 'refresh'
@@ -114,7 +114,7 @@ describe('m.useActions()', () => {
 
   it('runner handler receives typed params from engine execution plan', async () => {
     const m = createMaelstrom({ vessels: [entry] });
-    const selectOrderHandler = mock((_params: { orderId: string }) => Success(undefined));
+    const selectOrderHandler = mock((_params: { orderId: string }) => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = { selectOrder: selectOrderHandler };
 
     const connector = createMockConnector({
@@ -147,7 +147,7 @@ describe('m.useActions()', () => {
 
   it('unregisters runner on unmount so actions are not dispatched after unmount', async () => {
     const m = createMaelstrom({ vessels: [entry] });
-    const refreshHandler = mock(() => Success(undefined));
+    const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = { refresh: refreshHandler };
 
     const connector = createMockConnector({
@@ -188,7 +188,7 @@ describe('m.useActions()', () => {
 
   it('only calls handlers for the registered instance, not other instances', async () => {
     const m = createMaelstrom({ vessels: [entry] });
-    const refreshHandler = mock(() => Success(undefined));
+    const refreshHandler = mock(() => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = { refresh: refreshHandler };
 
     // Engine fires 'refresh' on inst-2, but runner is registered on inst-1

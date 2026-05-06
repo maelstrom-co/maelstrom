@@ -3,11 +3,12 @@ import FakeTimers from '@sinonjs/fake-timers';
 
 import {
   type ActionExecution,
-  Err,
+  defineVessel,
+  err,
+  InstanceId,
   isErr,
-  Success,
-} from '@maelstrom-co/protocol-old';
-import { defineVessel, InstanceId } from '@maelstrom-co/protocol';
+  ok,
+} from '@maelstrom-co/protocol';
 
 import { ActionManager } from './action-manager.js';
 import type {
@@ -52,7 +53,7 @@ describe('ActionManager', () => {
   describe('runner registration', () => {
     it('should register a runner for an instance', () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
 
       manager.registerRunner<MockVessel>(i1, runner);
@@ -63,7 +64,7 @@ describe('ActionManager', () => {
 
     it('should unregister a runner', () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
       manager.registerRunner<MockVessel>(i1, runner);
 
@@ -75,10 +76,10 @@ describe('ActionManager', () => {
 
     it('should overwrite existing runner when registering same instance', async () => {
       const runner1: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
       const runner2: ActionRunner<MockVessel> = {
-        testAction: async () => Err(new Error('overwritten')),
+        testAction: async () => err(new Error('overwritten')),
       };
 
       manager.registerRunner<MockVessel>(i1, runner1);
@@ -107,7 +108,7 @@ describe('ActionManager', () => {
 
     it('registerRunner returns a disposer function', () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
 
       const disposer = manager.registerRunner<MockVessel>(i1, runner);
@@ -117,7 +118,7 @@ describe('ActionManager', () => {
 
     it('disposer removes the runner when identity matches', () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
 
       const disposer = manager.registerRunner<MockVessel>(i1, runner);
@@ -129,10 +130,10 @@ describe('ActionManager', () => {
 
     it('disposer does not remove a different runner registered for the same instanceId', () => {
       const runnerA: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
       const runnerB: ActionRunner<MockVessel> = {
-        testAction: async () => Err(new Error('runner B')),
+        testAction: async () => err(new Error('runner B')),
       };
 
       const disposerA = manager.registerRunner<MockVessel>(i1, runnerA);
@@ -145,7 +146,7 @@ describe('ActionManager', () => {
 
     it('disposer is idempotent', () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
 
       const disposer = manager.registerRunner<MockVessel>(i1, runner);
@@ -159,10 +160,10 @@ describe('ActionManager', () => {
 
     it('should support multiple instances with different runners', () => {
       const runner1: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
       const runner2: ActionRunner<MockVessel> = {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       };
 
       manager.registerRunner<MockVessel>(i1, runner1);
@@ -191,7 +192,7 @@ describe('ActionManager', () => {
       let executedAction = '';
       const mockTestAction = mock(async () => {
         executedAction = 'testAction';
-        return Success(undefined);
+        return ok(undefined);
       });
       const runner: ActionRunner<MockVessel> = {
         testAction: mockTestAction,
@@ -209,12 +210,12 @@ describe('ActionManager', () => {
       expect(result.allSucceeded).toBe(true);
       expect(result.actions[0].instanceId).toBe(i1);
       expect(result.actions[0].action).toBe('testAction');
-      expect(result.actions[0].result.success).toBe(true);
+      expect(result.actions[0].result.ok).toBe(true);
     });
 
     it('should handle action failure', async () => {
       const runner: ActionRunner<MockVessel> = {
-        testAction: async () => Err(new Error('Action failed')),
+        testAction: async () => err(new Error('Action failed')),
       };
       manager.registerRunner<MockVessel>(i1, runner);
 
@@ -225,7 +226,7 @@ describe('ActionManager', () => {
 
       expect(result.allSucceeded).toBe(false);
       expect(result.failureCount).toBe(1);
-      expect(result.actions[0].result.success).toBe(false);
+      expect(result.actions[0].result.ok).toBe(false);
       expect((result.actions[0].result as { error: Error }).error.message).toBe(
         'Action failed',
       );
@@ -240,7 +241,7 @@ describe('ActionManager', () => {
           executionOrder.push('start-testAction');
           await new Promise((resolve) => setTimeout(resolve, 10));
           executionOrder.push('end-testAction');
-          return Success(undefined);
+          return ok(undefined);
         },
       };
       manager.registerRunner<MockVessel>(i1, runner);
@@ -272,7 +273,7 @@ describe('ActionManager', () => {
           executionOrder.push('start-instance-1');
           await new Promise((resolve) => setTimeout(resolve, 20));
           executionOrder.push('end-instance-1');
-          return Success(undefined);
+          return ok(undefined);
         },
       };
       const runner2: ActionRunner<MockVessel> = {
@@ -280,7 +281,7 @@ describe('ActionManager', () => {
           executionOrder.push('start-instance-2');
           await new Promise((resolve) => setTimeout(resolve, 20));
           executionOrder.push('end-instance-2');
-          return Success(undefined);
+          return ok(undefined);
         },
       };
 
@@ -309,7 +310,7 @@ describe('ActionManager', () => {
       expect(result.skippedCount).toBe(1);
       expect(result.successCount).toBe(0);
       expect(result.actions[0].skipped).toBe(true);
-      expect(result.actions[0].result.success).toBe(true);
+      expect(result.actions[0].result.ok).toBe(true);
     });
   });
 
@@ -317,11 +318,11 @@ describe('ActionManager', () => {
     it('should handle multiple instances with different runners', async () => {
       // runner 1: success
       manager.registerRunner<MockVessel>(i1, {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       });
       // runner 2: failure
       manager.registerRunner<MockVessel>(i2, {
-        testAction: async () => Err(new Error('Instance 2 failed')),
+        testAction: async () => err(new Error('Instance 2 failed')),
       });
 
       const executionPlan: ActionExecution[] = [
@@ -350,7 +351,7 @@ describe('ActionManager', () => {
 
       expect(result.allSucceeded).toBe(false);
       expect(result.failureCount).toBe(1);
-      expect(result.actions[0].result.success).toBe(false);
+      expect(result.actions[0].result.ok).toBe(false);
       expect(isErr(result.actions[0].result)).toBe(true);
       expect(
         isErr(result.actions[0].result) &&
@@ -361,13 +362,13 @@ describe('ActionManager', () => {
     it('should handle sync and async runners', async () => {
       // Sync runner (wrapped in Promise.resolve)
       manager.registerRunner<MockVessel>(i1, {
-        testAction: () => Success(undefined),
+        testAction: () => ok(undefined),
       });
       // Async runner
       manager.registerRunner<MockVessel>(i2, {
         testAction: async () => {
           await new Promise((resolve) => setTimeout(resolve, 5));
-          return Success(undefined);
+          return ok(undefined);
         },
       });
 
@@ -384,7 +385,7 @@ describe('ActionManager', () => {
     it('should handle registered and unregistered instances', async () => {
       // Only register runner for instance-1
       manager.registerRunner<MockVessel>(i1, {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       });
 
       const executionPlan: ActionExecution[] = [
@@ -394,9 +395,9 @@ describe('ActionManager', () => {
       const result = await manager.executeActions(executionPlan);
 
       expect(result.actions).toHaveLength(2);
-      expect(result.actions[0].result.success).toBe(true); // executed
+      expect(result.actions[0].result.ok).toBe(true); // executed
       expect(result.actions[0].skipped).toBeUndefined(); // not skipped
-      expect(result.actions[1].result.success).toBe(true); // skipped (no runner)
+      expect(result.actions[1].result.ok).toBe(true); // skipped (no runner)
       expect(result.actions[1].skipped).toBe(true); // marked as skipped
       expect(result.successCount).toBe(1);
       expect(result.skippedCount).toBe(1);
@@ -408,7 +409,7 @@ describe('ActionManager', () => {
     it('should skip action when runner exists but handler for the action name is missing', async () => {
       // Register a runner with testAction but execute a different action name
       manager.registerRunner<MockVessel>(i1, {
-        testAction: async () => Success(undefined),
+        testAction: async () => ok(undefined),
       });
 
       const executionPlan: ActionExecution[] = [
@@ -459,7 +460,7 @@ describe('ActionManager', () => {
           const _testParam: string = params.testParam;
           void _testParam;
           receivedParams = params;
-          return Success(undefined);
+          return ok(undefined);
         },
       };
       manager.registerRunner<ParamVessel>(i1, runner);
@@ -510,7 +511,7 @@ describe('ActionManager', () => {
       expect(result).not.toBeNull();
       expect(result!.failureCount).toBe(1);
       expect(result!.allSucceeded).toBe(false);
-      expect(result!.actions[0].result.success).toBe(false);
+      expect(result!.actions[0].result.ok).toBe(false);
       expect(
         isErr(result!.actions[0].result) &&
           result!.actions[0].result.error.message,
@@ -524,7 +525,7 @@ describe('ActionManager', () => {
       });
 
       timeoutManager.registerRunner<MockVessel>(i1, {
-        testAction: () => Success(undefined),
+        testAction: () => ok(undefined),
       });
 
       let result: BatchExecutionResult | null = null;
@@ -550,7 +551,7 @@ describe('ActionManager', () => {
       timeoutManager.registerRunner<MockVessel>(i1, {
         testAction: async () => {
           await new Promise((resolve) => setTimeout(resolve, 10));
-          return Success(undefined);
+          return ok(undefined);
         },
       });
 
@@ -575,7 +576,7 @@ describe('ActionManager', () => {
       const runner: ActionRunner<MockVessel> = {
         testAction: async () => {
           actionCount++;
-          return Success(undefined);
+          return ok(undefined);
         },
       };
       manager.registerRunner<MockVessel>(i1, runner);
@@ -602,7 +603,7 @@ describe('ActionManager', () => {
         manager.registerRunner<MockVessel>(instanceId, {
           testAction: async () => {
             executedInstances.push(instanceId);
-            return Success(undefined);
+            return ok(undefined);
           },
         });
       }
@@ -610,7 +611,7 @@ describe('ActionManager', () => {
       const executionPlan: ActionExecution[] = Array.from(
         { length: 50 },
         (_, i) => ({
-          instanceId: `instance-${i}`,
+          instanceId: InstanceId(`instance-${i}`),
           action: 'testAction',
         }),
       );
@@ -625,11 +626,11 @@ describe('ActionManager', () => {
         const instanceId = InstanceId(`instance-${i}`);
         if (i % 2 === 0) {
           manager.registerRunner<MockVessel>(instanceId, {
-            testAction: async () => Success(undefined),
+            testAction: async () => ok(undefined),
           });
         } else {
           manager.registerRunner<MockVessel>(instanceId, {
-            testAction: async () => Err(new Error(`Failure ${i}`)),
+            testAction: async () => err(new Error(`Failure ${i}`)),
           });
         }
       }
@@ -637,7 +638,7 @@ describe('ActionManager', () => {
       const executionPlan: ActionExecution[] = Array.from(
         { length: 20 },
         (_, i) => ({
-          instanceId: `instance-${i}`,
+          instanceId: InstanceId(`instance-${i}`),
           action: 'testAction',
         }),
       );

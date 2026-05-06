@@ -347,7 +347,10 @@ describe('createDemoVoiceWsSessionController', () => {
       expect.objectContaining({
         type: 'engine.maelstrom.response',
         requestId: 'envelope-id-42',
-        response: engineResponse,
+        response: {
+          ...engineResponse,
+          type: 'maelstrom_response',
+        },
       }),
     );
     expect(sendEngineError).not.toHaveBeenCalled();
@@ -656,7 +659,10 @@ describe('createDemoVoiceWsSessionController', () => {
       type: 'engine.maelstrom.response',
       sessionId: 'session-direct',
       requestId: 'req-direct',
-      response: engineResponse,
+      response: {
+        ...engineResponse,
+        type: 'maelstrom_response',
+      },
     });
     expect(sendEngineError).not.toHaveBeenCalled();
   });
@@ -711,6 +717,7 @@ describe('createDemoVoiceWsSessionController', () => {
       expect.objectContaining({ type: 'engine.maelstrom.response' }),
     );
   });
+
 
   test('rejects malformed audio payloads instead of forwarding empty chunks', async () => {
     const sendEngineError = mock(() => {});

@@ -4,7 +4,8 @@ import type { MaelstromContextPair } from './context.js';
 import type { MaelstromState } from './maelstrom-state-types.js';
 import { useStoreSelector } from './use-store-selector.js';
 
-export function createUseMaelstrom(contextPair: MaelstromContextPair) {
+
+import { toError } from '@maelstrom-co/protocol';export function createUseMaelstrom(contextPair: MaelstromContextPair) {
   const { useMaelstromContext } = contextPair;
 
   function useMaelstrom(): MaelstromState;
@@ -20,7 +21,7 @@ export function createUseMaelstrom(contextPair: MaelstromContextPair) {
         try {
           await orchestrator.processIntent(intent);
         } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
+          const error = toError(err);
           setLastError(error);
           if (config.debug && !onErrorRef.current) {
             console.warn('[Maelstrom] processIntent failed:', error);

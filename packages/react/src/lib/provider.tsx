@@ -1,6 +1,7 @@
 import { Orchestrator, SessionId } from '@maelstrom-co/client';
 import type { EngineConnector } from '@maelstrom-co/client';
 import type { LayoutMode, VesselId } from '@maelstrom-co/protocol';
+import { toError } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -106,7 +107,7 @@ export function createProvider(
           instance.vesselManager.registerVessel(entry.vessel);
         }
       } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
+        const error = toError(err);
         console.error('[Maelstrom] Failed to create Orchestrator:', error);
         onErrorRef.current?.(error);
         return;
@@ -115,7 +116,7 @@ export function createProvider(
       setOrchestrator(instance);
 
       instance.connect().catch((err) => {
-        const error = err instanceof Error ? err : new Error(String(err));
+        const error = toError(err);
         onErrorRef.current?.(error);
       });
 

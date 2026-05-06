@@ -10,7 +10,8 @@ import { buildResponse } from './response-parser.js';
 import type { EngineConfig, LLMResponse, RetryConfig } from './types.js';
 import { EngineError } from './types.js';
 
-export type { AssistantMessageInput } from './history/history-manager.js';
+
+import { toError } from '@maelstrom-co/protocol';export type { AssistantMessageInput } from './history/history-manager.js';
 
 /**
  * The Maelstrom decision engine.
@@ -148,7 +149,7 @@ async function retryWithBackoff<T>(
     try {
       return await fn();
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+      lastError = toError(error);
 
       if (attempt === config.maxAttempts) {
         break;

@@ -11,7 +11,7 @@
 import { describe, it } from 'bun:test';
 
 import { defineVessel } from '@maelstrom-co/protocol';
-import { Success } from '@maelstrom-co/protocol-old';
+import { ok } from '@maelstrom-co/protocol';
 
 import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import { vessel } from './vessel.js';
@@ -56,7 +56,7 @@ describe('MaelstromInstance.useActions inference', () => {
         selectOrder: async (params) => {
           const _id: string = params.orderId;
           void _id;
-          return Success();
+          return ok(undefined);
         },
       });
     }
@@ -68,7 +68,7 @@ describe('MaelstromInstance.useActions inference', () => {
         selectOrder: async ({ orderId }) => {
           const _id: string = orderId;
           void _id;
-          return Success();
+          return ok(undefined);
         },
       });
     }
@@ -77,8 +77,8 @@ describe('MaelstromInstance.useActions inference', () => {
   it('allows parameterless actions as zero-arg handlers', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
       m.useActions('orders', 'inst-1', {
-        refresh: async () => Success(),
-        close: async () => Success(),
+        refresh: async () => ok(undefined),
+        close: async () => ok(undefined),
       });
     }
   });
@@ -87,7 +87,7 @@ describe('MaelstromInstance.useActions inference', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
       m.useActions('orders', 'inst-1', {
         // @ts-expect-error - 'bogus' is not an action on the orders vessel
-        bogus: async () => Success(),
+        bogus: async () => ok(undefined),
       });
     }
   });

@@ -7,6 +7,7 @@ import type {
 import {
   MessageId,
   SessionHistoryEntryArraySchema,
+  toError,
 } from '@maelstrom-co/protocol';
 import type { Unsubscribe } from '../../types.js';
 import { RequestCorrelator } from '../../utils/request-correlator.js';
@@ -127,7 +128,7 @@ export class WebSocketConnector implements EngineConnector {
         this.#ws.addEventListener('error', onError);
         this.#ws.addEventListener('close', onClose);
       } catch (err) {
-        reject(err instanceof Error ? err : new Error(String(err)));
+        reject(toError(err));
       }
     });
   }

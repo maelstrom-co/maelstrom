@@ -2,7 +2,7 @@ import type { EngineConnector } from '@maelstrom-co/client';
 import type {
   VoiceClientMessage,
   VoiceServerMessage,
-} from '@maelstrom-co/protocol-old';
+} from '@maelstrom-co/protocol';
 
 export type { EngineConnector } from '@maelstrom-co/client';
 

@@ -21,11 +21,12 @@ import {
   createInMemoryHistoryStore,
   createTanStackProvider,
 } from '@maelstrom-co/engine-old';
-import { SessionId, type MessageId } from '@maelstrom-co/protocol';
-import type {
-  TranscriptMessage,
-  VoiceServerMessage,
-} from '@maelstrom-co/protocol-old';
+import {
+  SessionId,
+  type MessageId,
+  type TranscriptMessage,
+  type VoiceServerMessage,
+} from '@maelstrom-co/protocol';
 import {
   type AudioChunk,
   createVoiceSession,

@@ -1,6 +1,8 @@
 import type { ComputedTile, Rect, VesselInstance } from '@maelstrom-co/client';
 import { computeTilingLayout, parseTilingTree } from '@maelstrom-co/client';
-import { InstanceId } from '@maelstrom-co/protocol';
+import { InstanceId,
+  toError
+} from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 import {
   type CSSProperties,
@@ -65,7 +67,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
             },
           ]);
         } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
+          const error = toError(err);
           onErrorRef.current?.(error);
         }
       },
