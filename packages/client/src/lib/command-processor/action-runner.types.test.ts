@@ -206,11 +206,12 @@ describe('VariantNames Type Tests', () => {
 
 describe('ActionResult ↔ Result equivalence', () => {
   it('resolves to Result<undefined, Error>', () => {
-    type _AssertActionResult = ActionResult extends Result<undefined, Error>
-      ? Result<undefined, Error> extends ActionResult
-        ? true
-        : never
-      : never;
+    type _AssertActionResult =
+      ActionResult extends Result<undefined, Error>
+        ? Result<undefined, Error> extends ActionResult
+          ? true
+          : never
+        : never;
     const _check: _AssertActionResult = true;
     void _check;
   });

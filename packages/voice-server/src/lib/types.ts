@@ -3,9 +3,8 @@ import type {
   MaelstromResponse,
   SessionId,
 } from '@maelstrom-co/protocol';
-
-import { createSTT, type STTProviderConfig } from './stt/registry.js';
-import { createTTS, type TTSProviderConfig } from './tts/registry.js';
+import type { STTProviderConfig } from './stt/registry.js';
+import type { TTSProviderConfig } from './tts/registry.js';
 
 /**
  * Voice session states reflecting the internal loop: STT → process → TTS.
@@ -134,7 +133,17 @@ export interface VADEvent {
   durationMs?: number;
 }
 
-/** Stable classification kinds emitted by provider-boundary voice errors. */
+/**
+ * Stable classification attached to provider-originated STT/TTS failures.
+ *
+ * WHY: Consumers often need one small, provider-agnostic discriminator for retry, UX, and
+ * telemetry decisions while keeping provider-specific detail in `cause`. Narrow provider-classified
+ * errors by checking the shared `source`, `kind`, and `provider` fields on `VoiceSessionError`.
+ *
+ * This union intentionally mirrors the canonical provider-error-kind contract in
+ * `@maelstrom-co/protocol`'s voice messages until that package re-exports the type from its public
+ * root barrel.
+ */
 export type VoiceProviderErrorKind =
   | 'auth'
   | 'quota'
@@ -197,7 +206,8 @@ export type TTSError = {
  * Errors that can cross the public runtime callback boundary.
  *
  * WHY: Most runtime failures are still regular `Error` objects, but provider-boundary failures carry
- * stable classification metadata through {@link STTError} and {@link TTSError}.
+ * stable classification metadata through {@link STTError} and {@link TTSError}. Consumers can
+ * narrow those cases by checking for the shared `source`, `kind`, and `provider` fields.
  */
 export type VoiceSessionError = Error | STTError | TTSError;
 
@@ -613,121 +623,6 @@ export interface ResolvedVoiceSessionConfig {
 }
 
 /**
- * Resolves a public session config into the runtime's internal, non-optional shape.
- *
- * @remarks
- * The runtime intentionally derives `interimResults` from the STT provider when the caller does not
- * override it. That keeps provider capability and runtime forwarding policy aligned by default while
- * still letting advanced adapters silence interim callbacks without changing providers.
- */
-export function resolveVoiceSessionConfig(
-  config: VoiceSessionConfig,
-  defaults: {
-    vadFinalDebounceMs: number;
-    audioBufferMaxMs: number;
-    maxReconnectAttempts: number;
-    reconnectDelayMs: number;
-  },
-): ResolvedVoiceSessionConfig {
-  const resolvedVadFinalDebounceMs =
-    config.vadFinalDebounceMs ?? defaults.vadFinalDebounceMs;
-  const resolvedAudioBufferMaxMs =
-    config.audioBufferMaxMs ?? defaults.audioBufferMaxMs;
-  const resolvedMaxReconnectAttempts =
-    config.maxReconnectAttempts ?? defaults.maxReconnectAttempts;
-  const resolvedReconnectDelayMs =
-    config.reconnectDelayMs ?? defaults.reconnectDelayMs;
-
-  function assertFiniteNonNegativeDuration(
-    value: number,
-    fieldName: 'vadFinalDebounceMs' | 'audioBufferMaxMs' | 'reconnectDelayMs',
-  ): number {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new Error(
-        `Voice session ${fieldName} must be a finite number greater than or equal to 0, received ${value}`,
-      );
-    }
-
-    return value;
-  }
-
-  function assertFinitePositiveDuration(
-    value: number,
-    fieldName: string,
-  ): number {
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new Error(
-        `Voice session ${fieldName} must be a finite number greater than 0, received ${value}`,
-      );
-    }
-
-    return value;
-  }
-
-  function assertNonNegativeInteger(value: number, fieldName: string): number {
-    if (!Number.isInteger(value) || value < 0) {
-      throw new Error(
-        `Voice session ${fieldName} must be a non-negative integer, received ${value}`,
-      );
-    }
-
-    return value;
-  }
-
-  let stt: STTProvider;
-  try {
-    stt = createSTT(config.stt);
-  } catch (error) {
-    throw new Error('Failed to construct STT provider for voice session', {
-      cause: error,
-    });
-  }
-
-  let tts: TTSProvider;
-  try {
-    tts = createTTS(config.tts);
-  } catch (error) {
-    throw new Error('Failed to construct TTS provider for voice session', {
-      cause: error,
-    });
-  }
-
-  return {
-    stt,
-    tts,
-    sessionId: config.sessionId,
-    language: config.language,
-    interimResults:
-      config.interimResults ?? stt.capabilities.interimTranscripts,
-    autoRestartListening: config.autoRestartListening ?? true,
-    vadFinalDebounceMs: assertFiniteNonNegativeDuration(
-      resolvedVadFinalDebounceMs,
-      'vadFinalDebounceMs',
-    ),
-    audioBufferMaxMs: assertFinitePositiveDuration(
-      resolvedAudioBufferMaxMs,
-      'audioBufferMaxMs',
-    ),
-    maxReconnectAttempts: assertNonNegativeInteger(
-      resolvedMaxReconnectAttempts,
-      'maxReconnectAttempts',
-    ),
-    reconnectDelayMs: assertFiniteNonNegativeDuration(
-      resolvedReconnectDelayMs,
-      'reconnectDelayMs',
-    ),
-    trace: config.trace,
-    intentBoundary:
-      config.buildChartRequest && config.processIntent
-        ? {
-            buildChartRequest: config.buildChartRequest,
-            processIntent: config.processIntent,
-          }
-        : null,
-  };
-}
-
-/**
  * The voice session runtime interface.
  *
  * WHY: This is what the caller (server adapter) interacts with.
@@ -863,11 +758,3 @@ export type ResolvedVoiceProvisionConfig = ResolvedVoiceSessionConfig;
 
 /** @deprecated Use `VoiceSession` instead. */
 export type VoiceProvision = VoiceSession;
-
-/**
- * @deprecated Use `resolveVoiceSessionConfig` instead.
- *
- * This value alias exists so older imports keep compiling while consumers move to the
- * `VoiceSession*` API names.
- */
-export const resolveVoiceProvisionConfig = resolveVoiceSessionConfig;

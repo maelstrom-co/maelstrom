@@ -7,7 +7,7 @@ import {
   type SessionId,
   type UpdateReason,
   type VesselMutationReason,
-  toError
+  toError,
 } from '@maelstrom-co/protocol';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';

@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "@maelstrom-co/source",
@@ -242,6 +241,7 @@
         "@google-cloud/speech": "catalog:",
         "@google-cloud/text-to-speech": "catalog:",
         "@maelstrom-co/protocol": "workspace:*",
+        "@maelstrom-co/protocol-old": "workspace:*",
       },
     },
     "tools/astro-plugin": {

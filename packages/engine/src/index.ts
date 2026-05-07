@@ -62,5 +62,8 @@ export type {
   LLMContextMessage,
 } from './lib/history/history-manager.js';
 export { createHistoryManager } from './lib/history/history-manager.js';
-export type { HistoryEntry, HistoryStore } from './lib/history/history-store.js';
+export type {
+  HistoryEntry,
+  HistoryStore,
+} from './lib/history/history-store.js';
 export { createInMemoryStore } from './lib/history/in-memory-store.js';

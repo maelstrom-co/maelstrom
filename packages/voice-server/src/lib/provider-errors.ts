@@ -2,10 +2,21 @@ import type { STTError, TTSError, VoiceProviderErrorKind } from './types.js';
 
 type ProviderErrorSource = 'stt' | 'tts';
 
-interface ProviderErrorMetadata<TSource extends ProviderErrorSource> {
+type ProviderErrorForSource<TSource extends ProviderErrorSource> =
+  TSource extends 'stt' ? STTError : TTSError;
+
+type ProviderErrorFor<
+  TSource extends ProviderErrorSource,
+  TKind extends VoiceProviderErrorKind,
+> = Extract<ProviderErrorForSource<TSource>, { source: TSource; kind: TKind }>;
+
+interface ProviderErrorMetadata<
+  TSource extends ProviderErrorSource,
+  TKind extends VoiceProviderErrorKind,
+> {
   provider: string;
   source: TSource;
-  kind: VoiceProviderErrorKind;
+  kind: TKind;
   cause?: unknown;
 }
 
@@ -15,6 +26,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readMessage(error: unknown): string {
   if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (isRecord(error) && typeof error.message === 'string') {
     return error.message;
   }
 
@@ -55,6 +70,12 @@ function readStatus(error: unknown): number | undefined {
 
 function includesAny(message: string, phrases: readonly string[]): boolean {
   return phrases.some((phrase) => message.includes(phrase));
+}
+
+interface ProviderErrorClassificationSignals {
+  message: string;
+  normalizedCode: string | number | undefined;
+  status: number | undefined;
 }
 
 const GRPC_STATUS_PERMISSION_DENIED = 7;
@@ -141,18 +162,31 @@ const quotaMessageIndicators = [
   'limit exceeded',
 ] as const;
 
-function classifyProviderErrorKind(error: unknown): VoiceProviderErrorKind {
+function readClassificationSignals(
+  error: unknown,
+): ProviderErrorClassificationSignals {
   const message = readMessage(error).trim().toLowerCase();
   const code = readCode(error);
-  const normalizedCode =
-    typeof code === 'string' ? code.trim().toLowerCase() : code;
-  const status = readStatus(error);
+
+  return {
+    message,
+    normalizedCode: typeof code === 'string' ? code.trim().toLowerCase() : code,
+    status: readStatus(error),
+  };
+}
+
+function classifyProviderErrorKind(error: unknown): VoiceProviderErrorKind {
+  const { message, normalizedCode, status } = readClassificationSignals(error);
 
   if (isExplicitAuthStatusOrCode(status, normalizedCode)) {
     return 'auth';
   }
 
   if (isExplicitQuotaStatusOrCode(status, normalizedCode)) {
+    return 'quota';
+  }
+
+  if (includesAny(message, quotaMessageIndicators)) {
     return 'quota';
   }
 
@@ -164,8 +198,8 @@ function classifyProviderErrorKind(error: unknown): VoiceProviderErrorKind {
     return 'transport';
   }
 
-  if (includesAny(message, quotaMessageIndicators)) {
-    return 'quota';
+  if (includesAny(message, authMessageIndicators)) {
+    return 'auth';
   }
 
   if (status !== undefined && status >= 500) {
@@ -184,18 +218,36 @@ function classifyProviderErrorKind(error: unknown): VoiceProviderErrorKind {
     return 'parse';
   }
 
-  if (includesAny(message, authMessageIndicators)) {
-    return 'auth';
-  }
-
   return 'unknown';
 }
 
-function annotateError<TSource extends ProviderErrorSource>(
+function traceUnknownProviderErrorClassification(
+  error: unknown,
+  provider: string,
+  source: ProviderErrorSource,
+): void {
+  const { message, normalizedCode, status } = readClassificationSignals(error);
+
+  console.warn('Unclassified voice provider error', {
+    provider,
+    source,
+    status,
+    code: normalizedCode,
+    message,
+    error,
+  });
+}
+
+function annotateError<
+  TSource extends ProviderErrorSource,
+  TKind extends VoiceProviderErrorKind,
+>(
   error: Error,
-  metadata: ProviderErrorMetadata<TSource>,
-): Error & ProviderErrorMetadata<TSource> {
-  const classifiedError = error as Error & ProviderErrorMetadata<TSource>;
+  metadata: ProviderErrorMetadata<TSource, TKind>,
+): ProviderErrorFor<TSource, TKind> {
+  // Intentionally mutate and return the original error instance so upstream code keeps
+  // reference identity, stack, and provider SDK details while gaining shared metadata.
+  const classifiedError = error as ProviderErrorFor<TSource, TKind>;
   classifiedError.provider = metadata.provider;
   classifiedError.source = metadata.source;
   classifiedError.kind = metadata.kind;
@@ -207,23 +259,33 @@ function annotateError<TSource extends ProviderErrorSource>(
   return classifiedError;
 }
 
-function createProviderError<TSource extends ProviderErrorSource>(
-  metadata: Omit<ProviderErrorMetadata<TSource>, 'kind'> & {
-    kind?: VoiceProviderErrorKind;
+function createProviderError<
+  TSource extends ProviderErrorSource,
+  TKind extends VoiceProviderErrorKind,
+>(
+  metadata: ProviderErrorMetadata<TSource, TKind> & {
     message: string;
   },
-): Error & ProviderErrorMetadata<TSource> {
+): ProviderErrorFor<TSource, TKind> {
   return annotateError(new Error(metadata.message, { cause: metadata.cause }), {
     provider: metadata.provider,
     source: metadata.source,
-    kind:
-      metadata.kind ??
-      classifyProviderErrorKind(metadata.cause ?? metadata.message),
+    kind: metadata.kind,
     cause: metadata.cause,
   });
 }
 
-export function classifySTTError(error: unknown, provider: string): STTError {
+function classifyProviderError<TSource extends ProviderErrorSource>(
+  error: unknown,
+  provider: string,
+  source: TSource,
+): ProviderErrorFor<TSource, VoiceProviderErrorKind> {
+  const kind = classifyProviderErrorKind(error);
+
+  if (kind === 'unknown') {
+    traceUnknownProviderErrorClassification(error, provider, source);
+  }
+
   const normalizedError =
     error instanceof Error
       ? error
@@ -231,24 +293,18 @@ export function classifySTTError(error: unknown, provider: string): STTError {
 
   return annotateError(normalizedError, {
     provider,
-    source: 'stt',
-    kind: classifyProviderErrorKind(error),
+    source,
+    kind,
     cause: normalizedError.cause,
-  }) as STTError;
+  });
+}
+
+export function classifySTTError(error: unknown, provider: string): STTError {
+  return classifyProviderError(error, provider, 'stt');
 }
 
 export function classifyTTSError(error: unknown, provider: string): TTSError {
-  const normalizedError =
-    error instanceof Error
-      ? error
-      : new Error(readMessage(error), { cause: error });
-
-  return annotateError(normalizedError, {
-    provider,
-    source: 'tts',
-    kind: classifyProviderErrorKind(error),
-    cause: normalizedError.cause,
-  }) as TTSError;
+  return classifyProviderError(error, provider, 'tts');
 }
 
 export function createSTTError(
@@ -263,7 +319,7 @@ export function createSTTError(
     kind,
     message,
     cause,
-  }) as STTError;
+  });
 }
 
 export function createTTSError(
@@ -278,5 +334,5 @@ export function createTTSError(
     kind,
     message,
     cause,
-  }) as TTSError;
+  });
 }

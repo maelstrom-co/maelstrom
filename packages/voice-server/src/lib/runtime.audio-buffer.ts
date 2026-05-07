@@ -1,10 +1,21 @@
+import { addPendingDroppedDuration } from './runtime.audio-drop.js';
+import type { BufferedAudioChunk, VoiceRuntimeState } from './runtime.state.js';
 import type {
   AudioChunk,
   AudioEncoding,
   STTProvider,
+  VoiceSessionAudioDroppedEvent,
   VoiceSessionAudioDropReason,
 } from './types.js';
-import type { BufferedAudioChunk, VoiceRuntimeState } from './runtime.state.js';
+
+export interface VoiceRuntimeAudioBufferContext {
+  state: VoiceRuntimeState;
+  audioBufferMaxMs: number;
+  trace: (event: string, details?: Record<string, unknown>) => void;
+  reportError: (error: unknown) => void;
+  emitPendingAudioDropEvent: (event: VoiceSessionAudioDroppedEvent) => void;
+  schedulePendingAudioDropNotification: () => void;
+}
 
 function defaultBytesPerSample(encoding: AudioEncoding): number {
   switch (encoding) {
@@ -36,36 +47,6 @@ export function measureAudioChunkDurationMs(chunk: AudioChunk): number {
   return (chunk.data.byteLength / bytesPerSecond) * 1000;
 }
 
-export function addPendingDroppedDuration(
-  state: VoiceRuntimeState,
-  reason: VoiceSessionAudioDropReason,
-  droppedDurationMs: number,
-): VoiceRuntimeState['pendingAudioDropEvent'] | null {
-  if (droppedDurationMs <= 0) {
-    return null;
-  }
-  const previousEvent = state.pendingAudioDropEvent;
-  if (previousEvent && previousEvent.reason !== reason) {
-    state.pendingAudioDropEvent = {
-      type: 'audio_dropped',
-      reason,
-      droppedDurationMs,
-    };
-    return previousEvent;
-  }
-  state.pendingAudioDropEvent = previousEvent
-    ? {
-        ...previousEvent,
-        droppedDurationMs: previousEvent.droppedDurationMs + droppedDurationMs,
-      }
-    : {
-        type: 'audio_dropped',
-        reason,
-        droppedDurationMs,
-      };
-  return null;
-}
-
 function shiftBufferedAudio(
   state: VoiceRuntimeState,
 ): BufferedAudioChunk | undefined {
@@ -88,16 +69,18 @@ function shiftBufferedAudio(
 }
 
 export function flushBufferedAudio(
-  state: VoiceRuntimeState,
+  context: VoiceRuntimeAudioBufferContext,
   stt: STTProvider,
-  trace: (event: string, details?: Record<string, unknown>) => void,
-  reportError: (error: unknown) => void,
-  emitReplacedPendingDropEvent: (
-    event: NonNullable<VoiceRuntimeState['pendingAudioDropEvent']>,
-  ) => void,
-  schedulePendingAudioDropNotification: () => void,
   traceEvent: string,
 ) {
+  const {
+    state,
+    trace,
+    reportError,
+    emitPendingAudioDropEvent,
+    schedulePendingAudioDropNotification,
+  } = context;
+
   function traceFlushStopped(
     reason: 'stt_disconnected' | 'state_changed',
     entry: BufferedAudioChunk,
@@ -156,7 +139,7 @@ export function flushBufferedAudio(
       );
 
       if (replacedPendingDropEvent) {
-        emitReplacedPendingDropEvent(replacedPendingDropEvent);
+        emitPendingAudioDropEvent(replacedPendingDropEvent);
       }
 
       schedulePendingAudioDropNotification();
@@ -211,18 +194,21 @@ export function flushBufferedAudio(
 }
 
 export function bufferAudioChunk(
-  state: VoiceRuntimeState,
-  audioBufferMaxMs: number,
-  reportError: (error: unknown) => void,
-  trace: (event: string, details?: Record<string, unknown>) => void,
+  context: VoiceRuntimeAudioBufferContext,
   chunk: AudioChunk,
   dropReason: VoiceSessionAudioDropReason,
-  emitReplacedPendingDropEvent: (
-    event: NonNullable<VoiceRuntimeState['pendingAudioDropEvent']>,
-  ) => void,
   traceEvent: string,
   traceDetails: Record<string, unknown>,
 ): boolean {
+  const {
+    state,
+    audioBufferMaxMs,
+    reportError,
+    trace,
+    emitPendingAudioDropEvent,
+    schedulePendingAudioDropNotification,
+  } = context;
+
   let durationMs: number;
 
   try {
@@ -278,8 +264,10 @@ export function bufferAudioChunk(
       );
 
       if (replacedPendingDropEvent) {
-        emitReplacedPendingDropEvent(replacedPendingDropEvent);
+        emitPendingAudioDropEvent(replacedPendingDropEvent);
       }
+
+      schedulePendingAudioDropNotification();
 
       trace('stt.audio.buffer_overflow', {
         ...traceDetails,
@@ -307,8 +295,10 @@ export function bufferAudioChunk(
     );
 
     if (replacedPendingDropEvent) {
-      emitReplacedPendingDropEvent(replacedPendingDropEvent);
+      emitPendingAudioDropEvent(replacedPendingDropEvent);
     }
+
+    schedulePendingAudioDropNotification();
 
     reportError(
       new Error(

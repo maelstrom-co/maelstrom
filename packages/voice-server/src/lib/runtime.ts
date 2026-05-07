@@ -2,8 +2,15 @@ import {
   bufferAudioChunk,
   flushBufferedAudio,
   measureAudioChunkDurationMs,
-  addPendingDroppedDuration,
+  type VoiceRuntimeAudioBufferContext,
 } from './runtime.audio-buffer.js';
+import {
+  discardPendingAudioDropEvent,
+  flushPendingAudioDropEvent,
+  handleNonListeningAudioChunkDrop,
+  schedulePendingAudioDropNotification,
+} from './runtime.audio-drop.js';
+import { resolveVoiceSessionConfig } from './runtime.config.js';
 import { reconnectSTT as reconnectSTTHelper } from './runtime.reconnect.js';
 import {
   createInitialVoiceRuntimeState,
@@ -36,14 +43,14 @@ import type {
   VoiceSessionIntentRequestOptions,
   VoiceSessionState,
 } from './types.js';
-import { resolveVoiceSessionConfig } from './types.js';
 
 const defaultVadFinalDebounceMs = 500;
 const defaultAudioBufferMaxMs = 1000;
 const defaultMaxReconnectAttempts = 3;
 const defaultReconnectDelayMs = 1000;
-export const defaultAudioDropDebounceMs = 100;
 const autoRestartDelayMs = 500;
+
+export { defaultAudioDropDebounceMs } from './runtime.audio-drop.js';
 
 /**
  * Creates the runtime that turns injected STT, TTS, and client VAD signals into a single
@@ -171,28 +178,16 @@ export function createVoiceSession(
     }
   }
 
-  function clearPendingAudioDropDebounceTimeout() {
-    if (runtimeState.pendingAudioDropDebounceTimeout) {
-      clearTimeout(runtimeState.pendingAudioDropDebounceTimeout);
-      runtimeState.pendingAudioDropDebounceTimeout = null;
-    }
-  }
-
   function clearBufferedAudio() {
     runtimeState.pendingAudioChunks.length = 0;
     runtimeState.pendingAudioDurationMs = 0;
-  }
-
-  function discardPendingAudioDropEvent() {
-    clearPendingAudioDropDebounceTimeout();
-    runtimeState.pendingAudioDropEvent = null;
   }
 
   function resetBufferedAudioState() {
     // WHY: Manual stop/destroy are explicit teardown boundaries. We intentionally discard any
     // pending debounced drop bucket here so stale loss telemetry does not leak into the next turn.
     clearBufferedAudio();
-    discardPendingAudioDropEvent();
+    discardPendingAudioDropEvent(runtimeState);
   }
 
   function emitAudioDropped(event: VoiceSessionAudioDroppedEvent) {
@@ -208,7 +203,7 @@ export function createVoiceSession(
     );
   }
 
-  function replacePendingAudioDropEvent(event: VoiceSessionAudioDroppedEvent) {
+  function emitPendingAudioDropEvent(event: VoiceSessionAudioDroppedEvent) {
     if (runtimeState.destroyed) {
       return;
     }
@@ -216,39 +211,18 @@ export function createVoiceSession(
     emitAudioDropped(event);
   }
 
-  function schedulePendingAudioDropNotification() {
-    if (
-      !runtimeState.pendingAudioDropEvent ||
-      runtimeState.pendingAudioDropDebounceTimeout
-    ) {
-      return;
-    }
-
-    runtimeState.pendingAudioDropDebounceTimeout = setTimeout(() => {
-      runtimeState.pendingAudioDropDebounceTimeout = null;
-
-      if (runtimeState.destroyed || !runtimeState.pendingAudioDropEvent) {
-        return;
-      }
-
-      const event = runtimeState.pendingAudioDropEvent;
-      runtimeState.pendingAudioDropEvent = null;
-      emitAudioDropped(event);
-    }, defaultAudioDropDebounceMs);
-  }
-
-  function flushPendingAudioDropEvent() {
-    clearPendingAudioDropDebounceTimeout();
-
-    if (runtimeState.destroyed || !runtimeState.pendingAudioDropEvent) {
-      runtimeState.pendingAudioDropEvent = null;
-      return;
-    }
-
-    const event = runtimeState.pendingAudioDropEvent;
-    runtimeState.pendingAudioDropEvent = null;
-    emitAudioDropped(event);
-  }
+  const audioBufferContext: VoiceRuntimeAudioBufferContext = {
+    state: runtimeState,
+    audioBufferMaxMs,
+    trace,
+    reportError,
+    emitPendingAudioDropEvent,
+    schedulePendingAudioDropNotification: () =>
+      schedulePendingAudioDropNotification(
+        runtimeState,
+        emitPendingAudioDropEvent,
+      ),
+  };
 
   function abortActiveProcessing() {
     runtimeState.activeProcessAbortController?.abort();
@@ -495,17 +469,8 @@ export function createVoiceSession(
       trace,
       reportError,
       ensureSTTConnected,
-      (traceEvent) =>
-        flushBufferedAudio(
-          runtimeState,
-          stt,
-          trace,
-          reportError,
-          replacePendingAudioDropEvent,
-          schedulePendingAudioDropNotification,
-          traceEvent,
-        ),
-      flushPendingAudioDropEvent,
+      (traceEvent) => flushBufferedAudio(audioBufferContext, stt, traceEvent),
+      () => flushPendingAudioDropEvent(runtimeState, emitPendingAudioDropEvent),
       resetBufferedAudioState,
       setVoiceState,
     );
@@ -588,15 +553,7 @@ export function createVoiceSession(
       resetTurnTracking(runtimeState);
       setVoiceState('listening');
 
-      flushBufferedAudio(
-        runtimeState,
-        stt,
-        trace,
-        reportError,
-        replacePendingAudioDropEvent,
-        schedulePendingAudioDropNotification,
-        'stt.buffered_audio.sent',
-      );
+      flushBufferedAudio(audioBufferContext, stt, 'stt.buffered_audio.sent');
     })();
 
     try {
@@ -625,7 +582,8 @@ export function createVoiceSession(
     stt.endStream();
     const transcriptToFinalize =
       runtimeState.currentTranscript || runtimeState.accumulatedTranscript;
-    resetBufferedAudioState();
+    flushPendingAudioDropEvent(runtimeState, emitPendingAudioDropEvent);
+    clearBufferedAudio();
     clearPendingFinalization(runtimeState);
 
     const { emitted, startedProcessing } =
@@ -811,13 +769,9 @@ export function createVoiceSession(
       }
       if (runtimeState.isInitializing || runtimeState.state === 'idle') {
         bufferAudioChunk(
-          runtimeState,
-          audioBufferMaxMs,
-          reportError,
-          trace,
+          audioBufferContext,
           chunk,
           'pre_connection_buffer_full',
-          replacePendingAudioDropEvent,
           'stt.audio.buffered',
           {
             bytes: chunk.data.length,
@@ -827,47 +781,20 @@ export function createVoiceSession(
             isInitializing: runtimeState.isInitializing,
           },
         );
-        if (runtimeState.pendingAudioDropEvent) {
-          schedulePendingAudioDropNotification();
-        }
         return;
       }
 
       if (runtimeState.state !== 'listening') {
-        const error = new Error(
-          `Cannot accept audio chunk while voice session is ${runtimeState.state}`,
-        );
-        try {
-          const droppedDurationMs = measureAudioChunkDurationMs(chunk);
-          if (Number.isFinite(droppedDurationMs) && droppedDurationMs > 0) {
-            const replacedPendingDropEvent = addPendingDroppedDuration(
-              runtimeState,
-              'state_not_listening',
-              droppedDurationMs,
-            );
-            if (replacedPendingDropEvent) {
-              replacePendingAudioDropEvent(replacedPendingDropEvent);
-            }
-            schedulePendingAudioDropNotification();
-          }
-        } catch (durationError) {
-          const normalizedDurationError = normalizeError(durationError);
-          trace('stt.audio.dropped.duration_unavailable', {
-            bytes: chunk.data.length,
-            sampleRate: chunk.sampleRate,
-            encoding: chunk.encoding,
-            state: runtimeState.state,
-            message: normalizedDurationError.message,
-          });
-        }
-        trace('stt.audio.dropped', {
-          bytes: chunk.data.length,
-          sampleRate: chunk.sampleRate,
-          encoding: chunk.encoding,
-          state: runtimeState.state,
-          message: error.message,
+        handleNonListeningAudioChunkDrop({
+          state: runtimeState,
+          voiceState: runtimeState.state,
+          chunk,
+          measureAudioChunkDurationMs,
+          normalizeError,
+          trace,
+          emitPendingAudioDropEvent,
+          reportError,
         });
-        reportError(error);
         return;
       }
 
@@ -894,13 +821,9 @@ export function createVoiceSession(
           );
 
           bufferAudioChunk(
-            runtimeState,
-            audioBufferMaxMs,
-            reportError,
-            trace,
+            audioBufferContext,
             chunk,
             'stt_send_failed',
-            replacePendingAudioDropEvent,
             'stt.audio.buffered.after_send_failure',
             {
               bytes: chunk.data.length,
@@ -909,21 +832,14 @@ export function createVoiceSession(
               state: runtimeState.state,
             },
           );
-          if (runtimeState.pendingAudioDropEvent) {
-            schedulePendingAudioDropNotification();
-          }
         }
         return;
       }
 
       bufferAudioChunk(
-        runtimeState,
-        audioBufferMaxMs,
-        reportError,
-        trace,
+        audioBufferContext,
         chunk,
         'reconnect_buffer_full',
-        replacePendingAudioDropEvent,
         'stt.audio.buffered.waiting_for_connection',
         {
           bytes: chunk.data.length,
@@ -931,9 +847,6 @@ export function createVoiceSession(
           encoding: chunk.encoding,
         },
       );
-      if (runtimeState.pendingAudioDropEvent) {
-        schedulePendingAudioDropNotification();
-      }
     },
     speak,
     handleVADEvent,

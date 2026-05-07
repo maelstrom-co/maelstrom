@@ -4,7 +4,7 @@ import {
   type VesselDefinition,
   err,
   ok,
-  toError
+  toError,
 } from '@maelstrom-co/protocol';
 
 import { isPromise, type Unsubscribe } from '../types.js';

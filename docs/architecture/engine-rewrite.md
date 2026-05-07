@@ -144,7 +144,7 @@ The voice-server owns the full STT → process → TTS loop:
 │  - audio(data, cancellable)                                   │
 │  - state(idle | listening | processing | speaking)            │
 │  - response(MaelstromResponse)                                │
-│  - error(Error)                                               │
+│  - engine.error(error string + optional provider metadata)    │
 │                                                                │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -206,6 +206,24 @@ Same AudioPlayback
 ```
 
 The voice message protocol (defined in `@maelstrom-co/protocol`) is the durable contract. Message types (`client.vad.speech_start`, `engine.stt.transcript`, `engine.tts.sent`, etc.) and the binary audio frame format are the API surface that must remain stable.
+
+For the current demo websocket boundary, `engine.error` keeps a verbose,
+human-readable `error` string in all cases. Provider metadata is optional and
+limited to `kind`, `source`, and `provider`, and it is only attached when a
+classified STT or TTS runtime error crosses the boundary.
+
+The shared provider taxonomy is intentionally coarse:
+
+- `auth`
+- `quota`
+- `transport`
+- `parse`
+- `server`
+- `unknown`
+
+Generic setup and runtime failures that do not carry classified provider data
+continue to serialize as the legacy flat string payload. The wire contract does
+not send raw `cause` objects or stack traces.
 
 ## Envelope Model (MAE-102 ✅)
 

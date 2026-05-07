@@ -14,6 +14,17 @@
 import type { ChartRequestMessage } from './engine-message.js';
 import type { MaelstromResponse } from './response.js';
 
+export const voiceProviderErrorKinds = [
+  'auth',
+  'quota',
+  'transport',
+  'parse',
+  'server',
+  'unknown',
+] as const;
+
+export type VoiceProviderErrorKind = (typeof voiceProviderErrorKinds)[number];
+
 interface TimeEvent {
   /** Timestamp in milliseconds since epoch, set by the emitter. */
   timestamp: number;
@@ -174,6 +185,9 @@ export interface VoiceErrorMessage extends TimeEvent {
   /** Correlation handle for chart_request errors. */
   requestId?: string;
   error: string;
+  kind?: VoiceProviderErrorKind;
+  source?: 'stt' | 'tts';
+  provider?: string;
 }
 
 /**

@@ -4,13 +4,15 @@
  * This file is a real Bun test so CI surfaces contract drift as a failing test,
  * while the body stays focused on compile-time guarantees rather than runtime behavior.
  */
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { SessionId } from '@maelstrom-co/protocol';
+import * as voiceServer from '@maelstrom-co/voice-server';
 import {
-  createSTT,
-  createTTS,
   type BaseSTTOptions,
   type BaseTTSOptions,
+  createSTT,
+  createTTS,
+  type SpeechStart,
   type STTError,
   type STTEvent,
   type STTProvider,
@@ -23,15 +25,16 @@ import {
   type TTSProviderType,
   type VoiceProviderErrorKind,
   type VoiceSession,
-  type VoiceSessionCallbacks,
   type VoiceSessionAudioDroppedEvent,
   type VoiceSessionAudioDropReason,
+  type VoiceSessionCallbacks,
   type VoiceSessionConfig,
   type VoiceSessionError,
 } from '@maelstrom-co/voice-server';
 
 test('public API contract is locked', () => {
   const sessionId = SessionId('contract-session');
+  const explicitAudioBufferMaxMs = 1_000;
   const stt: VoiceSessionConfig['stt'] = {
     type: 'deepgram',
     options: { apiKey: 'deepgram-key' },
@@ -53,7 +56,7 @@ test('public API contract is locked', () => {
     stt,
     tts,
     sessionId,
-    audioBufferMaxMs: 1_000,
+    audioBufferMaxMs: explicitAudioBufferMaxMs,
   };
 
   type OnAudioDroppedIsOptional =
@@ -82,12 +85,28 @@ test('public API contract is locked', () => {
     void error;
   };
   const voiceProviderErrorKind: VoiceProviderErrorKind = 'quota';
+  const speechStart: SpeechStart = {
+    text: 'hello world',
+    format: 'mp3',
+    sampleRate: 24_000,
+  };
+
+  const narrowedProviderTag = narrowVoiceSessionProviderTag(sttError);
+  const narrowedGenericTag = narrowVoiceSessionProviderTag(
+    new Error('generic runtime'),
+  );
+  const resolverDefaults = {
+    vadFinalDebounceMs: 150,
+    audioBufferMaxMs: 1_500,
+    maxReconnectAttempts: 2,
+    reconnectDelayMs: 250,
+  };
 
   const legacyVoiceSessionConfig = {
     stt,
     tts,
     sessionId,
-    // @ts-expect-error `maxPendingAudioChunks` was removed from the public config contract.
+    // @ts-expect-error `maxPendingAudioChunks` is not part of the public config contract.
     maxPendingAudioChunks: 4,
   } satisfies VoiceSessionConfig;
 
@@ -99,6 +118,9 @@ test('public API contract is locked', () => {
   void ttsErrorEvent;
   void runtimeErrorCallback;
   void voiceProviderErrorKind;
+  void speechStart;
+  void narrowedProviderTag;
+  void narrowedGenericTag;
   void legacyVoiceSessionConfig;
 
   function assertRegistryContracts(): void {
@@ -214,12 +236,8 @@ test('public API contract is locked', () => {
     // @ts-expect-error Public drop reasons must stay a closed string-literal union.
     const invalidDropReason: VoiceSessionAudioDropReason = 'unknown_reason';
 
-    // @ts-expect-error STT error kinds must stay a closed discriminated union.
-    const invalidSttErrorKind: STTError = Object.assign(new Error('bad'), {
-      source: 'stt' as const,
-      provider: 'deepgram',
-      kind: 'bad_kind',
-    });
+    // @ts-expect-error Provider error kinds must stay a closed string-literal union.
+    const invalidVoiceProviderErrorKind: VoiceProviderErrorKind = 'bad_kind';
 
     // @ts-expect-error TTSError must keep the `tts` source discriminant.
     const invalidTtsErrorSource: TTSError = Object.assign(new Error('bad'), {
@@ -236,7 +254,7 @@ test('public API contract is locked', () => {
     void sttExhaustive;
     void ttsExhaustive;
     void invalidDropReason;
-    void invalidSttErrorKind;
+    void invalidVoiceProviderErrorKind;
     void invalidTtsErrorSource;
   }
 
@@ -248,6 +266,63 @@ test('public API contract is locked', () => {
     void ttsFactory;
   }
 
+  function assertRootResolverExports(): void {
+    const sessionResolver: typeof voiceServer.resolveVoiceSessionConfig =
+      voiceServer.resolveVoiceSessionConfig;
+    const provisionResolver: typeof voiceServer.resolveVoiceProvisionConfig =
+      voiceServer.resolveVoiceProvisionConfig;
+    const providerDrivenInterimResults = createSTT(publicVoiceSessionConfig.stt)
+      .capabilities.interimTranscripts;
+    const resolvedSessionConfig = sessionResolver(
+      publicVoiceSessionConfig,
+      resolverDefaults,
+    );
+    const resolvedProvisionConfig = provisionResolver(
+      publicVoiceSessionConfig,
+      resolverDefaults,
+    );
+
+    expect(sessionResolver).toBe(provisionResolver);
+    expect(resolvedSessionConfig.interimResults).toBe(
+      providerDrivenInterimResults,
+    );
+    expect(resolvedSessionConfig.intentBoundary).toBeNull();
+    expect(resolvedSessionConfig.audioBufferMaxMs).toBe(
+      explicitAudioBufferMaxMs,
+    );
+    expect(resolvedProvisionConfig.interimResults).toBe(
+      resolvedSessionConfig.interimResults,
+    );
+    expect(resolvedProvisionConfig.intentBoundary).toBe(
+      resolvedSessionConfig.intentBoundary,
+    );
+    expect(resolvedProvisionConfig.audioBufferMaxMs).toBe(
+      resolvedSessionConfig.audioBufferMaxMs,
+    );
+    expect(resolvedProvisionConfig.maxReconnectAttempts).toBe(
+      resolvedSessionConfig.maxReconnectAttempts,
+    );
+  }
+
+  function assertNarrowingHelperRuntime(): void {
+    expect(narrowedProviderTag).toBe('provider:stt:transport');
+    expect(narrowedGenericTag).toBe('generic');
+  }
+
   assertRegistryContracts();
   assertRootFactoryExports();
+  assertRootResolverExports();
+  assertNarrowingHelperRuntime();
+
+  function narrowVoiceSessionProviderTag(
+    error: VoiceSessionError,
+  ):
+    | `provider:${STTError['source'] | TTSError['source']}:${VoiceProviderErrorKind}`
+    | 'generic' {
+    if ('source' in error && 'kind' in error && 'provider' in error) {
+      return `provider:${error.source}:${error.kind}`;
+    }
+
+    return 'generic';
+  }
 });

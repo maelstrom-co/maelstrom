@@ -9,6 +9,25 @@ function normalizeReconnectError(error: unknown): Error {
     : new Error(String(error), { cause: error });
 }
 
+function createReconnectExhaustedError(errors: Error[]): AggregateError {
+  const lastError = errors.at(-1);
+
+  return new AggregateError(errors, 'STT connection lost after max retries', {
+    cause: lastError,
+  });
+}
+
+function isTerminalReconnectError(
+  error: Error,
+): error is Error & { kind: 'auth' | 'quota' } {
+  const kind = (error as { kind?: unknown }).kind;
+
+  // WHY: Only explicit auth/quota failures are terminal in the current provider error taxonomy.
+  // Transport/server/unknown failures can be transient, and parse stays retryable because a broken
+  // stream can surface truncated provider payloads that disappear after reconnect.
+  return kind === 'auth' || kind === 'quota';
+}
+
 function isReconnectableState(state: VoiceSessionState): boolean {
   return state === 'listening' || state === 'processing';
 }
@@ -35,6 +54,23 @@ function resetReconnectLifecycle(state: VoiceRuntimeState) {
   state.reconnectAttempts = 0;
 }
 
+function failReconnectTerminally(
+  state: VoiceRuntimeState,
+  error: Error,
+  reportError: (error: unknown) => void,
+  flushPendingAudioDropEvent: () => void,
+  resetBufferedAudioState: () => void,
+  setVoiceState: (state: VoiceSessionState) => void,
+) {
+  // WHY: Flush reconnect-era audio-drop telemetry before we clear the buffered state. Once reset
+  // runs, that pending loss accounting is gone and the terminal provider error would hide it.
+  flushPendingAudioDropEvent();
+  reportError(error);
+  resetBufferedAudioState();
+  setVoiceState('idle');
+  resetReconnectLifecycle(state);
+}
+
 export async function reconnectSTT(
   state: VoiceRuntimeState,
   maxReconnectAttempts: number,
@@ -56,6 +92,7 @@ export async function reconnectSTT(
   state.reconnectPromise = (async () => {
     clearReconnectResetTimeout(state);
     let lastError: Error | undefined;
+    const reconnectErrors: Error[] = [];
 
     try {
       while (!state.destroyed && isReconnectableState(state.state)) {
@@ -68,11 +105,7 @@ export async function reconnectSTT(
             lastErrorMessage: lastError?.message ?? null,
           });
           flushPendingAudioDropEvent();
-          reportError(
-            new Error('STT connection lost after max retries', {
-              cause: lastError,
-            }),
-          );
+          reportError(createReconnectExhaustedError(reconnectErrors));
           resetBufferedAudioState();
           setVoiceState('idle');
           resetReconnectLifecycle(state);
@@ -112,6 +145,7 @@ export async function reconnectSTT(
         } catch (error) {
           const normalizedError = normalizeReconnectError(error);
           lastError = normalizedError;
+          reconnectErrors.push(normalizedError);
           trace('stt.reconnect.failed', {
             attempt,
             maxReconnectAttempts,
@@ -119,6 +153,22 @@ export async function reconnectSTT(
             pendingBufferedAudioMs: state.pendingAudioDurationMs,
             message: normalizedError.message,
           });
+
+          if (isTerminalReconnectError(normalizedError)) {
+            failReconnectTerminally(
+              state,
+              normalizedError,
+              reportError,
+              flushPendingAudioDropEvent,
+              resetBufferedAudioState,
+              setVoiceState,
+            );
+            return;
+          }
+
+          if (attempt === 1) {
+            reportError(normalizedError);
+          }
         }
       }
       resetReconnectLifecycle(state);
@@ -130,6 +180,7 @@ export async function reconnectSTT(
         reconnectAttempts: state.reconnectAttempts,
         pendingBufferedAudioMs: state.pendingAudioDurationMs,
       });
+      flushPendingAudioDropEvent();
       reportError(normalizedError);
 
       if (!state.destroyed && isReconnectableState(state.state)) {

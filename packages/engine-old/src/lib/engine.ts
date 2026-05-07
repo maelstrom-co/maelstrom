@@ -10,8 +10,8 @@ import { buildResponse } from './response-parser.js';
 import type { EngineConfig, LLMResponse, RetryConfig } from './types.js';
 import { EngineError } from './types.js';
 
-
-import { toError } from '@maelstrom-co/protocol';export type { AssistantMessageInput } from './history/history-manager.js';
+import { toError } from '@maelstrom-co/protocol';
+export type { AssistantMessageInput } from './history/history-manager.js';
 
 /**
  * The Maelstrom decision engine.

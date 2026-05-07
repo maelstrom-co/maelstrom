@@ -267,8 +267,7 @@ export class CommandProcessor {
       }
     } catch (error) {
       this.#logger.error('Error processing command:', error);
-      const errorObj =
-        toError(error);
+      const errorObj = toError(error);
       this.store.setState((state) => ({
         ...state,
         status: 'error' as const,
@@ -302,4 +301,3 @@ export class CommandProcessor {
     return null;
   }
 }
-

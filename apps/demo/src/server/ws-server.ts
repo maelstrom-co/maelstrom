@@ -31,14 +31,23 @@ import {
   type TranscriptionResult,
   type VoiceSession,
   type VoiceSessionCallbacks,
+  type VoiceSessionError,
   type VoiceSessionState,
 } from '@maelstrom-co/voice-server';
 import { Hono } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { cors } from 'hono/cors';
 import { DEMO_KEYTERMS } from './demo-keyterms.js';
+import { getProviderErrorMetadata } from './provider-error-metadata.js';
+import { flattenErrorChain } from './voice-error-format.js';
 import { createDemoVoiceIntentAdapter } from './voice-intent-adapter.js';
 import { createDemoVoiceWsSessionController } from './voice-ws-session.js';
+
+type VoiceErrorMetadata = {
+  kind?: 'auth' | 'quota' | 'transport' | 'parse' | 'server' | 'unknown';
+  source?: 'stt' | 'tts';
+  provider?: string;
+};
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
 
@@ -79,20 +88,18 @@ function getDemoVoiceProviderKeys(): {
   return { deepgramApiKey, cartesiaApiKey };
 }
 
-function flattenErrorChain(error: unknown): string {
-  const parts: string[] = [];
-  let current: unknown = error;
-
-  while (current instanceof Error) {
-    parts.push(current.message);
-    current = (current as { cause?: unknown }).cause;
-  }
-
-  if (current !== undefined && current !== null) {
-    parts.push(String(current));
-  }
-
-  return parts.join(': ');
+function toVoiceErrorMessage(
+  sessionId: string,
+  error: unknown,
+  metadata?: VoiceErrorMetadata,
+) {
+  return {
+    type: 'engine.error' as const,
+    sessionId,
+    error: flattenErrorChain(error),
+    timestamp: performance.now(),
+    ...metadata,
+  };
 }
 
 if (!getDemoVoiceProviderKeys()) {
@@ -132,12 +139,22 @@ app.get(
       }
     };
 
-    const sendEngineError = (error: string, requestId?: MessageId) => {
+    const sendEngineError = (
+      error: unknown,
+      requestIdOrMetadata?: MessageId | VoiceErrorMetadata,
+      metadata?: VoiceErrorMetadata,
+    ) => {
+      const requestId =
+        typeof requestIdOrMetadata === 'string'
+          ? requestIdOrMetadata
+          : undefined;
+      const resolvedMetadata =
+        typeof requestIdOrMetadata === 'string'
+          ? metadata
+          : requestIdOrMetadata;
+
       sendMessage({
-        type: 'engine.error',
-        sessionId,
-        error,
-        timestamp: performance.now(),
+        ...toVoiceErrorMessage(sessionId, error, resolvedMetadata),
         ...(requestId !== undefined && { requestId }),
       });
     };
@@ -225,8 +242,8 @@ app.get(
         });
       },
       onSpeechStopped: () => {},
-      onError: (error: Error) => {
-        sendEngineError(error.message);
+      onError: (error: VoiceSessionError) => {
+        sendEngineError(error, getProviderErrorMetadata(error));
       },
       onInterrupt: (source: string) => {
         console.log(`[Demo WS] Interrupt from: ${source}`);
@@ -246,7 +263,7 @@ app.get(
     });
 
     let voiceSession: VoiceSession | null = null;
-    let voiceSessionInitializationError: string | null = null;
+    let voiceSessionInitializationError: unknown = null;
     let voiceWsSession: ReturnType<
       typeof createDemoVoiceWsSessionController
     > | null = null;
@@ -296,7 +313,7 @@ app.get(
         );
       } catch (error) {
         console.error('[Demo WS] Failed to construct voice session', error);
-        voiceSessionInitializationError = flattenErrorChain(error);
+        voiceSessionInitializationError = error;
         voiceSession = null;
       }
     }
