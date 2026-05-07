@@ -905,6 +905,16 @@ describe('buildRetryPrompt', () => {
       },
       'Action "badAction" is not valid on instance "a" in variant "default" — valid actions: x, y',
     ],
+    [
+      {
+        reason: 'self_transition_noop' as const,
+        instanceId: InstanceId('cal-main'),
+        action: 'showWeek' as ActionName,
+        vesselId: 'calendar' as VesselId,
+        currentVariant: 'week' as VariantName,
+      },
+      'Action "showWeek" on instance "cal-main" is already a no-op — instance "cal-main" is already in variant "week". Omit this specific (instance, action) pair from your next response. Other instances may still legitimately call "showWeek".',
+    ],
   ] satisfies Array<
     [SkippedAction, string]
   >)('formats SkippedAction %p', (skipped, expected) => {

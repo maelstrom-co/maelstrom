@@ -4,11 +4,10 @@ import {
   InstanceId,
   VariantName,
   VesselId,
-  type Vessel,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 
-import { silentLogger } from '../../__test-helpers__/fixtures.js';
+import { makeVessel, silentLogger } from '../../__test-helpers__/fixtures.js';
 import { parseExecutionPlan } from './parse-execution-plan.js';
 import type { RawActionExecution } from './types.js';
 
@@ -25,7 +24,7 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
   const expandAction = 'expand' as ActionName;
   const instanceId = InstanceId('panel-1');
 
-  const panelVessel: Vessel = {
+  const panelVessel = makeVessel({
     id: panelVesselId,
     name: 'Panel',
     description: 'Stateful panel',
@@ -55,7 +54,7 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
         ],
       },
     },
-  } as unknown as Vessel;
+  });
 
   const initialInstance: VesselInstanceSnapshot = {
     instanceId,
@@ -109,6 +108,223 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
     expect(skippedActions[0]).toMatchObject({
       reason: 'action_not_valid',
       action: expandAction,
+    });
+  });
+});
+
+describe('parseExecutionPlan — self-transition no-op classification', () => {
+  const calendarVesselId = 'calendar' as VesselId;
+  const month = 'month' as VariantName;
+  const week = 'week' as VariantName;
+  const day = 'day' as VariantName;
+  const showMonth = 'showMonth' as ActionName;
+  const showWeek = 'showWeek' as ActionName;
+  const showDay = 'showDay' as ActionName;
+  const calendarInstanceId = InstanceId('calendar-main');
+
+  const calendarVessel = makeVessel({
+    id: calendarVesselId,
+    name: 'Calendar',
+    description: 'Calendar with three views',
+    defaultVariant: month,
+    variants: {
+      [month]: {
+        description: 'Month view',
+        props: {},
+        minSize: { width: 4, height: 4 },
+        actions: [
+          { name: showWeek, description: 'Switch to week', transitionsTo: week },
+          { name: showDay, description: 'Switch to day', transitionsTo: day },
+        ],
+      },
+      [week]: {
+        description: 'Week view',
+        props: {},
+        minSize: { width: 4, height: 4 },
+        actions: [
+          { name: showMonth, description: 'Switch to month', transitionsTo: month },
+          { name: showDay, description: 'Switch to day', transitionsTo: day },
+        ],
+      },
+      [day]: {
+        description: 'Day view',
+        props: {},
+        minSize: { width: 4, height: 4 },
+        actions: [
+          { name: showMonth, description: 'Switch to month', transitionsTo: month },
+          { name: showWeek, description: 'Switch to week', transitionsTo: week },
+        ],
+      },
+    },
+  });
+
+  const inDayVariant: VesselInstanceSnapshot = {
+    instanceId: calendarInstanceId,
+    vesselId: calendarVesselId,
+    variant: day,
+  };
+
+  test('action targeting the simulator current variant is classified as self_transition_noop', () => {
+    const plan: RawActionExecution[] = [
+      { instanceId: calendarInstanceId, action: showDay },
+    ];
+
+    const { plan: result, skippedActions } = parseExecutionPlan(
+      plan,
+      [inDayVariant],
+      [calendarVessel],
+      silentLogger,
+    );
+
+    expect(result).toHaveLength(0);
+    expect(skippedActions).toHaveLength(1);
+    expect(skippedActions[0]).toEqual({
+      reason: 'self_transition_noop',
+      instanceId: calendarInstanceId,
+      action: showDay,
+      vesselId: calendarVesselId,
+      currentVariant: day,
+    });
+  });
+
+  test('action absent from the vessel entirely still surfaces as action_not_valid (regression lock)', () => {
+    // Typo / absent-from-vessel must remain re-promptable; the no-op
+    // classification only fires when same-named definitions exist.
+    const plan: RawActionExecution[] = [
+      { instanceId: calendarInstanceId, action: 'showQuarter' as ActionName },
+    ];
+
+    const { plan: result, skippedActions } = parseExecutionPlan(
+      plan,
+      [inDayVariant],
+      [calendarVessel],
+      silentLogger,
+    );
+
+    expect(result).toHaveLength(0);
+    expect(skippedActions).toHaveLength(1);
+    expect(skippedActions[0]).toMatchObject({
+      reason: 'action_not_valid',
+      action: 'showQuarter',
+    });
+  });
+
+  test('ambiguous action on multiple variants (some target current variant, some do not) → action_not_valid', () => {
+    // The protocol permits the same action name on multiple variants with
+    // different transitionsTo. If even one same-named definition points
+    // elsewhere the LLM may have meant that one — exempting from retry
+    // would silently suppress a fixable mistake.
+    const ambiguousVessel = makeVessel({
+      id: calendarVesselId,
+      name: 'Calendar',
+      description: 'Calendar with ambiguous showWeek action',
+      defaultVariant: month,
+      variants: {
+        [month]: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            { name: showWeek, description: 'Switch to week', transitionsTo: week },
+          ],
+        },
+        [week]: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            { name: showMonth, description: 'Switch to month', transitionsTo: month },
+          ],
+        },
+        [day]: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            { name: showMonth, description: 'Switch to month', transitionsTo: month },
+            // Same name as month's showWeek but different target — disambiguator.
+            { name: showWeek, description: 'Restart week elsewhere', transitionsTo: month },
+          ],
+        },
+      },
+    });
+
+    const inWeekVariant: VesselInstanceSnapshot = {
+      instanceId: calendarInstanceId,
+      vesselId: calendarVesselId,
+      variant: week,
+    };
+
+    const plan: RawActionExecution[] = [
+      { instanceId: calendarInstanceId, action: showWeek },
+    ];
+
+    const { plan: result, skippedActions } = parseExecutionPlan(
+      plan,
+      [inWeekVariant],
+      [ambiguousVessel],
+      silentLogger,
+    );
+
+    expect(result).toHaveLength(0);
+    expect(skippedActions).toHaveLength(1);
+    expect(skippedActions[0]).toMatchObject({
+      reason: 'action_not_valid',
+      action: showWeek,
+    });
+  });
+
+  test('action exists on another variant but transitionsTo points elsewhere → action_not_valid (regression lock)', () => {
+    // Action exists on a sibling variant but its target is not the current
+    // sim variant, so the no-op classifier correctly falls through. `day`
+    // here intentionally drops `showWeek` from its action list.
+    const customVessel = makeVessel({
+      id: calendarVesselId,
+      name: 'Calendar',
+      description: 'Calendar with showWeek removed from day variant',
+      defaultVariant: month,
+      variants: {
+        [month]: {
+          description: 'Month view',
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            { name: showWeek, description: 'Switch to week', transitionsTo: week },
+            { name: showDay, description: 'Switch to day', transitionsTo: day },
+          ],
+        },
+        [week]: {
+          description: 'Week view',
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            { name: showMonth, description: 'Switch to month', transitionsTo: month },
+            { name: showDay, description: 'Switch to day', transitionsTo: day },
+          ],
+        },
+        [day]: {
+          description: 'Day view',
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            { name: showMonth, description: 'Switch to month', transitionsTo: month },
+          ],
+        },
+      },
+    });
+    const plan: RawActionExecution[] = [
+      { instanceId: calendarInstanceId, action: showWeek },
+    ];
+
+    const { plan: result, skippedActions } = parseExecutionPlan(
+      plan,
+      [inDayVariant],
+      [customVessel],
+      silentLogger,
+    );
+
+    expect(result).toHaveLength(0);
+    expect(skippedActions).toHaveLength(1);
+    expect(skippedActions[0]).toMatchObject({
+      reason: 'action_not_valid',
+      action: showWeek,
     });
   });
 });

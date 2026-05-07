@@ -57,4 +57,19 @@ export type SkippedAction =
       readonly action: ActionName;
       readonly vesselId: VesselId;
       readonly targetVariant: VariantName;
+    }
+  // Action absent from the simulator's current variant for this instance,
+  // but present elsewhere on the vessel with `transitionsTo` equal to that
+  // current variant — i.e. a transition action whose target is where the
+  // instance already is. The action would be a no-op even if it were valid
+  // on the current variant; the LLM emitted it (often alongside a direct
+  // mutation in layout.instances) and re-prompting the LLM cannot fix the
+  // pattern. `deriveRetryHint` excludes this from `anySkipFixable` so the
+  // retry layer doesn't waste calls on it.
+  | {
+      readonly reason: 'self_transition_noop';
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
+      readonly vesselId: VesselId;
+      readonly currentVariant: VariantName;
     };

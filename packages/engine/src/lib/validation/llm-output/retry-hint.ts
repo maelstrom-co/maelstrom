@@ -16,17 +16,42 @@ interface DeriveRetryHintInput {
 }
 
 /**
+ * Predicate for skip reasons where re-prompting the LLM has a chance of
+ * producing a usable plan. The negation captures the cases retrying cannot
+ * fix:
+ * - `state_drift`: engine-state mismatch the LLM doesn't have visibility
+ *   into; feedback would be noise.
+ * - `self_transition_noop`: LLM emitted a transition action whose target
+ *   equals the simulator's current variant; the chart is already in the
+ *   desired variant and the LLM has nothing useful to change on retry.
+ */
+export function isFixableSkip(reason: SkippedAction['reason']): boolean {
+  switch (reason) {
+    case 'state_drift':
+    case 'self_transition_noop':
+      return false;
+    case 'unknown_instance':
+    case 'unknown_vessel':
+    case 'no_simulated_variant':
+    case 'variant_not_on_vessel':
+    case 'action_not_valid':
+    case 'params_parse_failed':
+      return true;
+    default:
+      return assertNever(reason, 'isFixableSkip');
+  }
+}
+
+/**
  * Recommend retry when the user would experience a no-op or empty UI —
  * either the rendered layout is empty (request asked for instances) or
  * every proposed action got dropped for a re-promptable reason. A partial
  * layout + partial execution plan does NOT recommend retry; partial UI
  * update beats waiting for a re-roll.
  *
- * `state_drift` skips are excluded from "re-promptable" because they
- * indicate engine-state corruption that re-prompting can't fix. But the
- * presence of one drift skip alongside an otherwise-fixable failure does
- * not suppress retry — if any skipped action is fixable AND no actions
- * survived, retry has a chance of producing a usable plan.
+ * Non-fixable skips (see {@link isFixableSkip}) don't suppress retry on
+ * their own — if any *other* skip in the same response is fixable AND no
+ * actions survived, retry still has a chance of producing a usable plan.
  *
  * `severity = 'unrecoverable'` is reserved for the layout-empty case. The
  * action-empty-only case is `'medium' + recommend: true` — the layout
@@ -40,8 +65,8 @@ export function deriveRetryHint(input: DeriveRetryHintInput): RetryHint {
     return { severity: 'unrecoverable', recommend: true };
   }
 
-  const anySkipFixable = input.skippedActions.some(
-    (s) => s.reason !== 'state_drift',
+  const anySkipFixable = input.skippedActions.some((s) =>
+    isFixableSkip(s.reason),
   );
   const actionsAllSkippedForFixableReason =
     input.proposedActionCount > 0 &&

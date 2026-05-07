@@ -1190,20 +1190,21 @@ describe('processResponse', () => {
       expect(result.value.executionPlan[2].action).toBe('restore');
     });
 
-    test('skips action that is invalid in simulated variant state', () => {
+    test('skips action whose target equals the simulated variant (self-transition no-op)', () => {
       const warnings: string[] = [];
       const logger: Logger = {
         ...silentLogger,
         warn: (msg: string) => warnings.push(msg),
       };
 
-      // compact -> expand (valid), then expand again (invalid - already in expanded)
+      // Pins the simulation hand-off (writer mutations visible on the next
+      // iteration) AND the self-transition no-op classification at once.
       const llmOutput: GridResponse = {
         userMessage: 'Invalid sequence',
         rationale: 'Trying expand after already expanded',
         executionPlan: [
           { instanceId: 'widget-1', action: 'expand' },
-          { instanceId: 'widget-1', action: 'expand' }, // invalid in 'expanded'
+          { instanceId: 'widget-1', action: 'expand' },
         ],
         layout: { positions: [] },
       };
@@ -1225,7 +1226,58 @@ describe('processResponse', () => {
       expect(warnings).toHaveLength(1);
       expect(warnings[0]).toContain('expand');
       expect(warnings[0]).toContain('expanded');
-      expect(warnings[0]).toContain('not valid');
+      expect(warnings[0]).toContain('no-op');
+
+      // Skip is classified as self_transition_noop, not action_not_valid —
+      // the retry layer reads this discriminator to decide whether retrying
+      // can help.
+      expect(result.value.diagnostics.skippedActions).toHaveLength(1);
+      expect(result.value.diagnostics.skippedActions[0]).toMatchObject({
+        reason: 'self_transition_noop',
+        action: 'expand',
+        currentVariant: 'expanded',
+      });
+    });
+
+    test('skips action that is genuinely not valid for the current variant (regression lock)', () => {
+      const warnings: string[] = [];
+      const logger: Logger = {
+        ...silentLogger,
+        warn: (msg: string) => warnings.push(msg),
+      };
+
+      // Detours through `fullscreen` so the third action's target is
+      // `compact` (not `fullscreen`), guaranteeing the no-op classifier
+      // falls through and the genuine `action_not_valid` path is exercised.
+      const llmOutput: GridResponse = {
+        userMessage: 'Invalid sequence',
+        rationale: 'collapse from fullscreen is not a defined transition',
+        executionPlan: [
+          { instanceId: 'widget-1', action: 'expand' },
+          { instanceId: 'widget-1', action: 'maximize' },
+          { instanceId: 'widget-1', action: 'collapse' },
+        ],
+        layout: { positions: [] },
+      };
+
+      const result = processResponse({
+        llmOutput,
+        request: makeMultiStateRequest('compact'),
+        messageId: MessageId('req-1'),
+        logger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+
+      expect(result.value.executionPlan).toHaveLength(2);
+      expect(result.value.executionPlan[0].action).toBe('expand');
+      expect(result.value.executionPlan[1].action).toBe('maximize');
+      expect(result.value.diagnostics.skippedActions).toHaveLength(1);
+      expect(result.value.diagnostics.skippedActions[0]).toMatchObject({
+        reason: 'action_not_valid',
+        action: 'collapse',
+        variant: 'fullscreen',
+      });
     });
 
     test('handles multi-step transitions across non-consecutive actions', () => {
@@ -2516,6 +2568,167 @@ describe('processResponse', () => {
         .sort();
       expect(skipReasons).toEqual(['params_parse_failed', 'state_drift']);
       expect(result.value.executionPlan).toEqual([]);
+      expect(result.value.diagnostics.retryHint.recommend).toBe(true);
+    });
+
+    // self_transition_noop is a non-fixable LLM mistake (the action it
+    // tried to fire would no-op against the simulator's current variant).
+    // Same family as state_drift: present in skippedActions for diagnostics
+    // but excluded from `anySkipFixable` so the retry layer doesn't burn
+    // calls re-prompting an LLM that has nothing useful to change.
+    test('self_transition_noop-only skip does NOT recommend retry', () => {
+      const calendarVessel: Vessel = {
+        id: 'calendar',
+        name: 'Calendar',
+        description: 'Calendar with two views',
+        defaultVariant: 'month',
+        variants: {
+          month: {
+            props: {},
+            minSize: { width: 4, height: 4 },
+            actions: [
+              {
+                name: 'showWeek',
+                description: 'Switch to week',
+                transitionsTo: 'week',
+              },
+            ],
+          },
+          week: {
+            props: {},
+            minSize: { width: 4, height: 4 },
+            actions: [
+              {
+                name: 'showMonth',
+                description: 'Switch to month',
+                transitionsTo: 'month',
+              },
+            ],
+          },
+        },
+      };
+      const request = makeTilingRequest({
+        instances: [
+          {
+            instanceId: InstanceId('calendar-main'),
+            vesselId: 'calendar',
+            variant: 'week',
+          },
+        ],
+        vessels: [calendarVessel],
+      });
+      const llmOutput: TilingResponse = {
+        userMessage: 'Already on week view',
+        rationale: 'no-op',
+        // showWeek lives on `month` with transitionsTo: 'week'. Sim variant
+        // is `week`, so this is a textbook self-transition no-op.
+        executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
+        layout: {
+          tree: ['calendar-main'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'week',
+            },
+          ],
+        },
+      };
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      expect(result.value.executionPlan).toHaveLength(0);
+      expect(result.value.diagnostics.skippedActions).toHaveLength(1);
+      expect(result.value.diagnostics.skippedActions[0]).toMatchObject({
+        reason: 'self_transition_noop',
+        instanceId: InstanceId('calendar-main'),
+        action: 'showWeek',
+      });
+      expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+    });
+
+    test('self_transition_noop alongside a fixable skip DOES recommend retry', () => {
+      // Pins the `some(...)` rule: as soon as ANY skip is fixable, retry
+      // is recommended even if a self_transition_noop skip is also present.
+      // Without this, an over-eager exemption would silently suppress retry
+      // on responses that mix a no-op with a typo'd action name.
+      const calendarVessel: Vessel = {
+        id: 'calendar',
+        name: 'Calendar',
+        description: 'Calendar with two views',
+        defaultVariant: 'month',
+        variants: {
+          month: {
+            props: {},
+            minSize: { width: 4, height: 4 },
+            actions: [
+              {
+                name: 'showWeek',
+                description: 'Switch to week',
+                transitionsTo: 'week',
+              },
+            ],
+          },
+          week: {
+            props: {},
+            minSize: { width: 4, height: 4 },
+            actions: [
+              {
+                name: 'showMonth',
+                description: 'Switch to month',
+                transitionsTo: 'month',
+              },
+            ],
+          },
+        },
+      };
+      const request = makeTilingRequest({
+        instances: [
+          {
+            instanceId: InstanceId('calendar-main'),
+            vesselId: 'calendar',
+            variant: 'week',
+          },
+        ],
+        vessels: [calendarVessel],
+      });
+      const llmOutput: TilingResponse = {
+        userMessage: 'Mixed',
+        rationale: 'mixed',
+        executionPlan: [
+          // (1) self-transition no-op
+          { instanceId: 'calendar-main', action: 'showWeek' },
+          // (2) typo / unknown action — fixable
+          { instanceId: 'calendar-main', action: 'showQuarter' },
+        ],
+        layout: {
+          tree: ['calendar-main'],
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'week',
+            },
+          ],
+        },
+      };
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+      const skipReasons = result.value.diagnostics.skippedActions
+        .map((s) => s.reason)
+        .sort();
+      expect(skipReasons).toEqual(['action_not_valid', 'self_transition_noop']);
       expect(result.value.diagnostics.retryHint.recommend).toBe(true);
     });
 

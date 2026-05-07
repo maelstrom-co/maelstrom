@@ -2,6 +2,7 @@ import type {
   ActionName,
   ChartRequest,
   VariantName,
+  Vessel,
   VesselId,
 } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
@@ -77,25 +78,36 @@ export function getLastUserMessage(
  * strings for branded slots — brands erase at runtime, so the cast at the
  * boundary is sound for trusted fixture inputs.
  */
-type AuthorVesselAction = {
+export type AuthorVesselAction = {
   readonly name: string;
   readonly description: string;
   readonly parameters?: ReadonlyArray<unknown>;
   readonly transitionsTo?: string;
 };
-type AuthorVesselVariant = {
+export type AuthorVesselVariant = {
   readonly description?: string;
   readonly props: Readonly<Record<string, unknown>>;
   readonly minSize: { readonly width: number; readonly height: number };
   readonly actions: ReadonlyArray<AuthorVesselAction>;
 };
-type AuthorVessel = {
+export type AuthorVessel = {
   readonly id: string;
   readonly name: string;
   readonly description: string;
   readonly defaultVariant: string;
   readonly variants: Readonly<Record<string, AuthorVesselVariant>>;
 };
+
+/**
+ * Constructs a typed `Vessel` from a plain author shape. `Vessel`'s ids,
+ * variant keys, and action name/transitionsTo are branded by the schema's
+ * `.transform()` step, but brands erase at runtime — so a single cast at
+ * this factory boundary is sound for trusted fixture inputs and keeps
+ * test fixtures free of per-call `as unknown as Vessel` escape hatches.
+ */
+export function makeVessel(author: AuthorVessel): Vessel {
+  return author as unknown as Vessel;
+}
 type AuthorTilingNode = 'H' | 'V' | string | null;
 type ChartRequestAuthorOverrides = Partial<{
   readonly type: 'chart_request';

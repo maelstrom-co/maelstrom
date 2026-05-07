@@ -75,12 +75,23 @@ function describeSkippedActions(skipped: readonly SkippedAction[]): string[] {
   // state_drift skips reflect engine-state mismatch (variant the LLM thought
   // it was acting on differs from current state). The LLM cannot fix this by
   // re-prompting; suppress them from the retry message rather than confuse
-  // the model with feedback it cannot act on.
+  // the model with feedback it cannot act on. self_transition_noop is also
+  // a non-actionable diagnostic on its own — but on a mixed retry it helps
+  // the LLM drop the redundant transition, so we emit a short hint.
   const lines: string[] = [];
   for (const s of skipped) {
     switch (s.reason) {
       case 'state_drift':
         continue;
+      case 'self_transition_noop':
+        // Anchor the directive to the (instanceId, action) pair and remind
+        // the LLM that the same action name may legitimately apply to OTHER
+        // instances on the next response — without that clause a weaker
+        // model can drop unrelated correct calls in a mixed retry batch.
+        lines.push(
+          `Action "${s.action}" on instance "${s.instanceId}" is already a no-op — instance "${s.instanceId}" is already in variant "${s.currentVariant}". Omit this specific (instance, action) pair from your next response. Other instances may still legitimately call "${s.action}".`,
+        );
+        break;
       case 'params_parse_failed':
         lines.push(
           `Action "${s.action}" on instance "${s.instanceId}" had unparseable params: ${s.paramsJson}`,

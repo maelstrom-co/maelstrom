@@ -37,6 +37,11 @@ export type ResolveFailure =
       readonly vesselId: VesselId;
       readonly variant: VariantName;
       readonly validActions: readonly ActionName[];
+    }
+  | {
+      readonly kind: 'self_transition_noop';
+      readonly vesselId: VesselId;
+      readonly currentVariant: VariantName;
     };
 
 // Compile-time witness: every `ResolveFailure.kind` must also be a
@@ -81,6 +86,13 @@ export function resolveAction(
 
   const actionDef = variantDef.actions.find((a) => a.name === item.action);
   if (!actionDef) {
+    if (isSelfTransitionNoOp(vessel, item.action, currentVariant)) {
+      return err({
+        kind: 'self_transition_noop',
+        vesselId: instance.vesselId,
+        currentVariant,
+      });
+    }
     const validActions = variantDef.actions.map((a) => a.name);
     return err({
       kind: 'action_not_valid',
@@ -91,6 +103,31 @@ export function resolveAction(
   }
 
   return ok({ instance, vessel, currentVariant, variantDef, actionDef });
+}
+
+// The protocol allows the same action name to appear on multiple variants
+// with different `transitionsTo` targets (vessel.ts only forbids duplicate
+// names within a single variant). So an LLM emitting an action absent from
+// the current variant is unambiguously a no-op only when EVERY same-named
+// definition on the vessel transitions to that current variant — otherwise
+// the LLM may have meant the sibling definition that targets somewhere
+// else, and exempting the skip from retry would silently swallow a
+// fixable mistake. Returns false if no same-named definition exists at all
+// (typo / genuinely-absent action) so it still recommends retry.
+function isSelfTransitionNoOp(
+  vessel: Vessel,
+  actionName: ActionName,
+  currentVariant: VariantName,
+): boolean {
+  let foundAny = false;
+  for (const variant of Object.values(vessel.variants)) {
+    for (const action of variant.actions) {
+      if (action.name !== actionName) continue;
+      foundAny = true;
+      if (action.transitionsTo !== currentVariant) return false;
+    }
+  }
+  return foundAny;
 }
 
 export function stateDriftSkipped(
@@ -154,6 +191,14 @@ export function logResolveFailure(
         `Action "${item.action}" is not valid for vessel "${failure.vesselId}" in variant "${failure.variant}" (valid: ${failure.validActions.join(', ') || 'none'}), skipping`,
       );
       return;
+    case 'self_transition_noop':
+      // Same severity tier as `action_not_valid` (LLM-sourced mistake) so
+      // log aggregators don't have to special-case it, but the message
+      // names the no-op so on-call doesn't chase a "missing action" bug.
+      logger.warn(
+        `Action "${item.action}" on instance "${item.instanceId}" is a no-op transition — vessel "${failure.vesselId}" is already in variant "${failure.currentVariant}", skipping`,
+      );
+      return;
     default:
       assertNever(failure, 'Unhandled ResolveFailure kind');
   }
@@ -189,6 +234,13 @@ export function resolveFailureToSkipped(
         vesselId: failure.vesselId,
         variant: failure.variant,
         validActions: failure.validActions,
+      };
+    case 'self_transition_noop':
+      return {
+        ...base,
+        reason: 'self_transition_noop',
+        vesselId: failure.vesselId,
+        currentVariant: failure.currentVariant,
       };
     default:
       assertNever(failure, 'Unhandled ResolveFailure kind');
