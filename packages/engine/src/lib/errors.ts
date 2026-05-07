@@ -35,12 +35,16 @@ export interface ProviderError {
  * misconfiguration does not surface here either; it throws synchronously at
  * `createEngine` time.
  *
- * `field` optionally identifies the offending input path. `cause` carries
- * the underlying thrown value when this error wraps a caught throw, so a
- * consumer-supplied `Error` subclass (with its stack and `Error.cause`
- * chain) survives the boundary. Both fields are absent — not `undefined` —
- * when the engine synthesizes the failure itself (e.g. a
- * `history not configured` guard with no upstream throw to attribute).
+ * `field` optionally identifies the offending input path as a free-form
+ * symbolic name (e.g. `'prompt'`, `'history'`) — not a structured Zod path.
+ * For wire-format validation failures with structured access paths, see
+ * {@link RequestValidationError} and its `path` field.
+ *
+ * `cause` carries the underlying thrown value when this error wraps a caught
+ * throw, so a consumer-supplied `Error` subclass (with its stack and
+ * `Error.cause` chain) survives the boundary. Both `field` and `cause` are
+ * absent — not `undefined` — when the engine synthesizes the failure itself
+ * (e.g. a `history not configured` guard with no upstream throw to attribute).
  */
 export interface ValidationError {
   readonly _tag: 'ValidationError';
@@ -116,24 +120,39 @@ export interface HistoryError {
  * a `RequestValidationError` always means the *caller* sent malformed
  * input and should fix it client-side.
  *
+ * `layer` and `path` are both derived from the first envelope-touching issue,
+ * falling back to the first issue overall. Cross-field invariant: when
+ * `layer === 'envelope'`, `path` is either `[]` (root-level failure) or
+ * `path[0]` is one of the envelope discriminator/header keys (`sessionId` |
+ * `id` | `timestamp` | `type`). The type does not encode this — prefer the
+ * {@link requestValidationError} constructor over hand-built object literals
+ * to keep the invariant intact.
+ *
  * `layer` distinguishes envelope-level failures (`sessionId` / `id` /
  * `timestamp` / `type` discriminator) from inner-payload failures
  * (`request.*` body for chart_request, `content` for assistant_message).
- * Derived from the first issue's path during construction.
  *
- * `field` is a dot-separated path string for human-readable logs only —
- * numeric array indices are stringified (`request.instances.0.vesselId` is
- * indistinguishable from a key named `'0'`). Programmatic consumers
- * (alerting, grouping, UI navigation) should read `issues[0].path` instead,
- * which preserves indices as numbers.
+ * `path` is the structured access path to the offending field, with array
+ * indices preserved as numbers (e.g. `['request', 'instances', 2, 'vesselId']`
+ * — index `2` is a `number`, not the string `'2'`). Use this for programmatic
+ * consumers (alerting, grouping, UI navigation). For human-readable logs,
+ * join with `'.'`; be aware that joining conflates a numeric-index segment
+ * with a string key literally named `'0'`. An empty array means a root-level
+ * failure — typically a non-object envelope, but also the defensive fallback
+ * when an empty `issues` list is passed in. Symbol segments (only reachable
+ * from programmatic callers passing `superRefine`-emitted issues) are coerced
+ * via `Symbol.prototype.toString()`; wire-ingress paths never contain symbols.
  *
- * `issues` carries the structured ZodIssue list for programmatic inspection.
+ * `message` is derived from `layer` and `path` at construction; do not
+ * synthesize independently.
+ *
+ * `issues` carries the structured ZodIssue list for full diagnostic detail.
  */
 export interface RequestValidationError {
   readonly _tag: 'RequestValidationError';
   readonly message: string;
   readonly layer: 'envelope' | 'payload';
-  readonly field: string;
+  readonly path: readonly (string | number)[];
   readonly issues: readonly z.ZodIssue[];
   readonly stack?: string;
 }
@@ -263,21 +282,33 @@ const ENVELOPE_FIELDS = new Set<EnvelopeField>([
   'type',
 ]);
 
-const formatField = (path: readonly PropertyKey[]): string =>
-  path.length > 0 ? path.map(String).join('.') : '(root)';
+// Zod types `ZodIssue.path` as `PropertyKey[]` (`string | number | symbol`)
+// to support `.superRefine` callbacks that emit symbol-keyed paths. Wire
+// ingress (JSON.parse → Zod) cannot produce a symbol segment, but programmatic
+// callers of `requestValidationError` could. Stringify defensively so the
+// public `path` honors its `(string | number)[]` contract without a cast.
+const normalizePath = (
+  path: readonly PropertyKey[],
+): readonly (string | number)[] =>
+  path.map((segment) =>
+    typeof segment === 'symbol' ? segment.toString() : segment,
+  );
+
+const formatPathForMessage = (path: readonly (string | number)[]): string =>
+  path.length > 0 ? path.join('.') : '(root)';
 
 const buildError = (
   layer: 'envelope' | 'payload',
-  path: readonly PropertyKey[],
+  rawPath: readonly PropertyKey[],
   issues: readonly z.ZodIssue[],
 ): RequestValidationError => {
-  const field = formatField(path);
-  const message = `request validation failed at ${layer}.${field}`;
+  const path = normalizePath(rawPath);
+  const message = `request validation failed at ${layer}.${formatPathForMessage(path)}`;
   return {
     _tag: 'RequestValidationError',
     message,
     layer,
-    field,
+    path,
     issues,
     stack: captureStack(message),
   };
@@ -299,7 +330,10 @@ export const requestValidationError = (
   // `issues[0]` — Zod's issue ordering is not a documented stable contract,
   // and a future schema change (e.g. a `.superRefine` on the inner payload)
   // could surface a payload issue before the envelope one and silently flip
-  // the layer.
+  // the layer. The `String()` coercion handles the same defensive symbol case
+  // as `normalizePath`: a `Symbol('sessionId')` first segment stringifies to
+  // `'Symbol(sessionId)'`, misses `ENVELOPE_FIELDS`, and correctly falls
+  // through to payload classification.
   const envelopeIssue = issues.find(
     (i) =>
       i.path.length > 0 &&

@@ -1576,7 +1576,7 @@ describe('engine.handle — wire-format validation', () => {
       expect(result.error._tag).toBe('RequestValidationError');
       if (result.error._tag === 'RequestValidationError') {
         expect(result.error.layer).toBe('envelope');
-        expect(result.error.field).toBe('sessionId');
+        expect(result.error.path).toEqual(['sessionId']);
       }
     }
     expect(mockChat).not.toHaveBeenCalled();
@@ -1602,7 +1602,7 @@ describe('engine.handle — wire-format validation', () => {
       expect(result.error._tag).toBe('RequestValidationError');
       if (result.error._tag === 'RequestValidationError') {
         expect(result.error.layer).toBe('payload');
-        expect(result.error.field.startsWith('request')).toBe(true);
+        expect(result.error.path[0]).toBe('request');
       }
     }
     expect(mockChat).not.toHaveBeenCalled();
@@ -1638,7 +1638,7 @@ describe('engine.handle — wire-format validation', () => {
       expect(result.error._tag).toBe('RequestValidationError');
       if (result.error._tag === 'RequestValidationError') {
         expect(result.error.layer).toBe('payload');
-        expect(result.error.field).toBe('content');
+        expect(result.error.path).toEqual(['content']);
       }
     }
     expect(append).not.toHaveBeenCalled();

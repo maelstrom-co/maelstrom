@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import { isErr, isOk } from '@maelstrom-co/protocol';
 
-import { validateEngineMessage } from './engine-message.js';
+import type { Logger } from '../logger.js';
+import { logValidationFailure, validateEngineMessage } from './engine-message.js';
 
 const validChartRequestEnvelope = () => ({
   type: 'chart_request',
@@ -86,7 +87,7 @@ describe('validateEngineMessage — envelope rejections', () => {
     if (isErr(result)) {
       expect(result.error._tag).toBe('RequestValidationError');
       expect(result.error.layer).toBe('envelope');
-      expect(result.error.field).toBe('sessionId');
+      expect(result.error.path).toEqual(['sessionId']);
     }
   });
 
@@ -96,7 +97,7 @@ describe('validateEngineMessage — envelope rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('envelope');
-      expect(result.error.field).toBe('sessionId');
+      expect(result.error.path).toEqual(['sessionId']);
     }
   });
 
@@ -109,7 +110,7 @@ describe('validateEngineMessage — envelope rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('envelope');
-      expect(result.error.field).toBe('sessionId');
+      expect(result.error.path).toEqual(['sessionId']);
     }
   });
 
@@ -133,7 +134,7 @@ describe('validateEngineMessage — envelope rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('envelope');
-      expect(result.error.field).toBe('id');
+      expect(result.error.path).toEqual(['id']);
     }
   });
 
@@ -143,7 +144,7 @@ describe('validateEngineMessage — envelope rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('envelope');
-      expect(result.error.field).toBe('timestamp');
+      expect(result.error.path).toEqual(['timestamp']);
     }
   });
 
@@ -156,7 +157,7 @@ describe('validateEngineMessage — envelope rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('envelope');
-      expect(result.error.field).toBe('timestamp');
+      expect(result.error.path).toEqual(['timestamp']);
     }
   });
 
@@ -169,7 +170,7 @@ describe('validateEngineMessage — envelope rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('envelope');
-      expect(result.error.field).toBe('timestamp');
+      expect(result.error.path).toEqual(['timestamp']);
     }
   });
 
@@ -179,7 +180,7 @@ describe('validateEngineMessage — envelope rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('envelope');
-      expect(result.error.field).toBe('type');
+      expect(result.error.path).toEqual(['type']);
     }
   });
 });
@@ -192,7 +193,7 @@ describe('validateEngineMessage — payload rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('payload');
-      expect(result.error.field.startsWith('request')).toBe(true);
+      expect(result.error.path[0]).toBe('request');
     }
   });
 
@@ -203,7 +204,7 @@ describe('validateEngineMessage — payload rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('payload');
-      expect(result.error.field).toContain('layoutMode');
+      expect(result.error.path).toContain('layoutMode');
     }
   });
 
@@ -213,7 +214,63 @@ describe('validateEngineMessage — payload rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('payload');
-      expect(result.error.field).toBe('content');
+      expect(result.error.path).toEqual(['content']);
     }
+  });
+});
+
+describe('logValidationFailure — payload contract', () => {
+  type WarnCall = { msg: string; data: Record<string, unknown> | undefined };
+
+  const captureLogger = () => {
+    const calls: WarnCall[] = [];
+    const logger: Logger = {
+      debug: () => {},
+      info: () => {},
+      warn: (msg, data) => {
+        calls.push({ msg, data });
+      },
+      error: () => {},
+    };
+    return { logger, calls };
+  };
+
+  // Defends the dashboard-grouping contract: a future revert to `field:` would
+  // pass every validation-level test but break log consumers.
+  test('emits structured `path` (not `field`) on the warn payload', () => {
+    const { logger, calls } = captureLogger();
+    const env = { ...validChartRequestEnvelope(), sessionId: '' };
+    const result = validateEngineMessage(env);
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    logValidationFailure(logger, env, result.error);
+
+    expect(calls).toHaveLength(1);
+    const data = calls[0]?.data;
+    expect(data).toBeDefined();
+    if (data === undefined) return;
+    expect('path' in data).toBe(true);
+    expect('field' in data).toBe(false);
+    expect(data.path).toEqual(['sessionId']);
+    expect(data.layer).toBe('envelope');
+    expect(data.issueCount).toBe(result.error.issues.length);
+  });
+
+  test('includes `sessionIdCandidate` only when extractable from raw input', () => {
+    const { logger, calls } = captureLogger();
+    // String-typed sessionId is extractable even when otherwise invalid (here:
+    // empty string violates the brand's `.refine`).
+    const envWithSession = { ...validChartRequestEnvelope(), sessionId: '' };
+    const r1 = validateEngineMessage(envWithSession);
+    if (!isErr(r1)) throw new Error('expected failure');
+    logValidationFailure(logger, envWithSession, r1.error);
+    expect(calls[0]?.data?.sessionIdCandidate).toBe('');
+
+    // Non-object input cannot yield a sessionId candidate; the conditional
+    // spread must omit the key entirely (not emit `undefined`).
+    const r2 = validateEngineMessage(null);
+    if (!isErr(r2)) throw new Error('expected failure');
+    logValidationFailure(logger, null, r2.error);
+    expect('sessionIdCandidate' in (calls[1]?.data ?? {})).toBe(false);
   });
 });

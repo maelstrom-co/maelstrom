@@ -54,9 +54,12 @@ export function extractSessionIdCandidate(input: unknown): string | undefined {
 
 /**
  * Logs a wire-format validation failure at `warn` (caller-fault, not engine
- * fault). Emits structured fields a dashboard can group on (`layer`,
- * `field`, `issueCount`) plus enough context to debug a malformed-request
- * flood (`stack`, `sessionIdCandidate` if extractable from the raw input).
+ * fault). Emits structured fields a dashboard can group on (`layer`, `path`,
+ * `issueCount`) plus enough context to debug a malformed-request flood
+ * (`stack`, `sessionIdCandidate` if extractable from the raw input).
+ *
+ * See {@link RequestValidationError} for the `path` structure and the
+ * dot-join caveat.
  */
 export function logValidationFailure(
   logger: Logger,
@@ -66,7 +69,7 @@ export function logValidationFailure(
   const sessionIdCandidate = extractSessionIdCandidate(rawInput);
   logger.warn('EngineMessage validation failed', {
     layer: error.layer,
-    field: error.field,
+    path: error.path,
     issueCount: error.issues.length,
     errorMessage: error.message,
     stack: error.stack,

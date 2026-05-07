@@ -142,7 +142,7 @@ describe('requestValidationError', () => {
     ]);
     expect(e._tag).toBe('RequestValidationError');
     expect(e.layer).toBe('envelope');
-    expect(e.field).toBe('sessionId');
+    expect(e.path).toEqual(['sessionId']);
     expect(e.issues).toHaveLength(1);
     expect(e.stack).toBeString();
   });
@@ -156,7 +156,7 @@ describe('requestValidationError', () => {
       }),
     ]);
     expect(e.layer).toBe('payload');
-    expect(e.field).toBe('request.context.layoutMode');
+    expect(e.path).toEqual(['request', 'context', 'layoutMode']);
   });
 
   test('classifies a content issue as payload layer', () => {
@@ -168,7 +168,7 @@ describe('requestValidationError', () => {
       }),
     ]);
     expect(e.layer).toBe('payload');
-    expect(e.field).toBe('content');
+    expect(e.path).toEqual(['content']);
   });
 
   test('classifies an id issue as envelope layer', () => {
@@ -200,7 +200,8 @@ describe('requestValidationError', () => {
       makeIssue({ code: 'invalid_type', path: [], message: 'expected object' }),
     ]);
     expect(e.layer).toBe('envelope');
-    expect(e.field).toBe('(root)');
+    expect(e.path).toEqual([]);
+    expect(e.message).toContain('envelope.(root)');
   });
 
   test('classifies based on the envelope issue even when payload issues come first', () => {
@@ -216,7 +217,116 @@ describe('requestValidationError', () => {
       makeIssue({ code: 'too_small', path: ['sessionId'], message: 'y' }),
     ]);
     expect(e.layer).toBe('envelope');
-    expect(e.field).toBe('sessionId');
+    expect(e.path).toEqual(['sessionId']);
+  });
+
+  test('preserves numeric array indices as numbers in path', () => {
+    // The whole point of switching from a dot-joined string to a structured
+    // path: a numeric index must arrive as `number`, not the string `'2'`,
+    // so consumers can distinguish `instances[2]` from a key literally
+    // named `'2'`.
+    const e = requestValidationError([
+      makeIssue({
+        code: 'invalid_type',
+        path: ['request', 'instances', 2, 'vesselId'],
+        message: 'expected string',
+      }),
+    ]);
+    expect(e.layer).toBe('payload');
+    expect(e.path).toEqual(['request', 'instances', 2, 'vesselId']);
+    expect(typeof e.path[2]).toBe('number');
+  });
+
+  test('distinguishes numeric index 2 from string key "2" structurally and on the wire', () => {
+    // Locks the lossless guarantee against a future regression that would
+    // coerce everything to string (e.g. someone "simplifying" `normalizePath`
+    // to `path.map(String)`). The dot-joined message form intentionally
+    // collapses the distinction — that's the documented caveat.
+    const numeric = requestValidationError([
+      makeIssue({
+        code: 'invalid_type',
+        path: ['instances', 2, 'vesselId'],
+        message: 'x',
+      }),
+    ]);
+    const stringy = requestValidationError([
+      makeIssue({
+        code: 'invalid_type',
+        path: ['instances', '2', 'vesselId'],
+        message: 'x',
+      }),
+    ]);
+    expect(numeric.path[1]).toBe(2);
+    expect(stringy.path[1]).toBe('2');
+    expect(numeric.path[1] === stringy.path[1]).toBe(false);
+    expect(JSON.stringify(numeric.path)).not.toBe(JSON.stringify(stringy.path));
+    // Conflated by intent in the human-readable message format.
+    expect(numeric.message).toBe(stringy.message);
+  });
+
+  test('stringifies symbol path segments to honor the (string | number)[] contract', () => {
+    // Wire ingress can't produce symbol-keyed paths (JSON has no symbols),
+    // but a programmatic caller of `requestValidationError` could pass a
+    // ZodIssue from a `.superRefine` that emits one. Coerce defensively so
+    // the public type stays accurate without forcing a downstream cast.
+    const sym = Symbol('weird');
+    const e = requestValidationError([
+      makeIssue({
+        code: 'custom',
+        path: ['request', sym],
+        message: 'oddly-keyed',
+      }),
+    ]);
+    expect(e.path[0]).toBe('request');
+    expect(e.path[1]).toBe(sym.toString());
+  });
+
+  test('classifies a first-segment symbol as payload (envelope-field check uses raw String() coercion)', () => {
+    // Defensive-only: a `.superRefine` could emit `path: [Symbol('sessionId')]`.
+    // The `ENVELOPE_FIELDS.has(String(path[0]))` lookup gets `'Symbol(sessionId)'`,
+    // which is NOT in the envelope set, so layer correctly falls through to
+    // payload. `normalizePath` independently stringifies the segment for the
+    // public `path`. Both behaviors must hold together.
+    const sym = Symbol('sessionId');
+    const e = requestValidationError([
+      makeIssue({ code: 'custom', path: [sym], message: 'oddly-keyed root' }),
+    ]);
+    expect(e.layer).toBe('payload');
+    expect(e.path).toEqual([sym.toString()]);
+  });
+
+  test('envelope-classified errors always have an envelope-rooted or empty path', () => {
+    // Negative-direction invariant: regardless of the issues passed in, an
+    // envelope-classified error must have either path === [] or path[0] in
+    // {sessionId, id, timestamp, type}. Guards against a future regression in
+    // the layer-selection logic that misroutes a payload issue as envelope.
+    const ENVELOPE_FIELDS = ['sessionId', 'id', 'timestamp', 'type'];
+    const fixtures = [
+      [makeIssue({ code: 'invalid_type', path: [], message: 'root' })],
+      [makeIssue({ code: 'invalid_type', path: ['sessionId'], message: 'x' })],
+      [makeIssue({ code: 'invalid_type', path: ['id'], message: 'x' })],
+      [makeIssue({ code: 'invalid_type', path: ['timestamp'], message: 'x' })],
+      [makeIssue({ code: 'invalid_value', path: ['type'], message: 'x' })],
+      // Mixed: envelope must win regardless of position.
+      [
+        makeIssue({ code: 'invalid_value', path: ['request', 'context'], message: 'x' }),
+        makeIssue({ code: 'too_small', path: ['sessionId'], message: 'y' }),
+      ],
+      // Root + payload simultaneously: root wins, layer === envelope.
+      [
+        makeIssue({ code: 'invalid_type', path: [], message: 'root' }),
+        makeIssue({ code: 'invalid_value', path: ['request', 'context'], message: 'x' }),
+      ],
+      [],
+    ];
+    for (const issues of fixtures) {
+      const e = requestValidationError(issues);
+      if (e.layer === 'envelope') {
+        const root = e.path.length === 0;
+        const headed = typeof e.path[0] === 'string' && ENVELOPE_FIELDS.includes(e.path[0]);
+        expect(root || headed).toBe(true);
+      }
+    }
   });
 
   test('handles degenerate empty issues without crashing', () => {
@@ -225,7 +335,7 @@ describe('requestValidationError', () => {
     // root envelope failure rather than crashing the engine.
     const e = requestValidationError([]);
     expect(e.layer).toBe('envelope');
-    expect(e.field).toBe('(root)');
+    expect(e.path).toEqual([]);
     expect(e.issues).toHaveLength(0);
   });
 });
