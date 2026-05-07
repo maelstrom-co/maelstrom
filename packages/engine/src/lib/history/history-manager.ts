@@ -69,6 +69,26 @@ export interface HistoryConfig<TMeta = unknown> {
   readonly store: HistoryStore<TMeta>;
 }
 
+/**
+ * Per-session conversation history coordinator. Wraps a {@link HistoryStore}
+ * with the session-scoped policy the engine pipeline needs:
+ *
+ * - {@link recordTurn} writes a completed `chart_request` turn under a
+ *   per-session async mutex, then truncates the session against the
+ *   `maxEntries` / `maxChars` budgets.
+ * - {@link addAssistantMessage} persists a developer-supplied assistant
+ *   message lock-free; idempotency is delegated to the store.
+ * - {@link getLLMContext} projects retained entries into the slim
+ *   `LLMContextMessage[]` shape the prompt builder consumes.
+ *
+ * `createEngine` constructs one of these internally when {@link HistoryConfig}
+ * is supplied; consumers building a custom engine pipeline can construct it
+ * directly via {@link createHistoryManager}.
+ *
+ * Concurrency note: the per-session mutex is process-local. Distributed
+ * deployments must serialize `chart_request` turns externally (sticky
+ * routing, distributed lease, etc.) — see the README's Concurrency section.
+ */
 export interface HistoryManager<TMeta = unknown> {
   recordTurn(
     input: ChartRequestMessage,
@@ -105,6 +125,16 @@ export interface HistoryManager<TMeta = unknown> {
   ): Promise<GetResponseByIdResult>;
 }
 
+/**
+ * Construct a {@link HistoryManager} from the given config. The passed-in
+ * {@link HistoryStore} is the only persistence boundary; this manager adds
+ * per-session mutual exclusion (for `recordTurn`), truncation policy, and
+ * the default LLM-context projection on top.
+ *
+ * Most consumers should let `createEngine` wire this up via
+ * {@link EngineConfig.history}. Construct directly only when assembling a
+ * custom engine pipeline that needs the manager outside `createEngine`.
+ */
 export function createHistoryManager<TMeta = unknown>(
   config: HistoryConfig<TMeta>,
 ): HistoryManager<TMeta> {

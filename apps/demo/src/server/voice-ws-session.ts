@@ -1,15 +1,18 @@
-import type { Engine } from '@maelstrom-co/engine-old';
-import type {
-  ChartRequest,
-  ChartRequestMessage,
+import type { Engine } from '@maelstrom-co/engine';
+import {
+  AssistantInjectionMessage,
+  type ChartRequest,
+  type ChartRequestMessage,
+  ChartRequestMessageSchema,
+  type GridLayout,
+  isErr,
   MessageId,
-  VoiceClientMessage,
-  VoiceServerMessage,
+  type SessionId,
+  type TilingLayout,
+  type VoiceClientMessage,
+  type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
 import type { AudioChunk, VoiceSession } from '@maelstrom-co/voice-server';
-
-import { adaptEnvelopeToLegacyRequest } from './legacy-engine-adapter.js';
-import { toProtocolResponse } from './voice-intent-adapter.js';
 
 type WsTransport = {
   sendMessage: (message: VoiceServerMessage) => void;
@@ -19,15 +22,24 @@ type WsTransport = {
 type BinaryAudioSender = (data: ArrayBuffer | Blob) => Promise<void>;
 
 interface DemoVoiceWsSessionControllerOptions {
-  sessionId: string;
+  sessionId: SessionId;
   voiceSession: VoiceSession | null;
-  engine: Pick<Engine, 'process' | 'addAssistantMessage'>;
+  engine: Engine;
   transport: WsTransport;
   forwardBinaryAudioInput: BinaryAudioSender;
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string'
+  ) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function normalizeAudioData(data: unknown): Uint8Array | null {
@@ -54,6 +66,28 @@ function isAudioEncoding(value: string): value is AudioChunk['encoding'] {
   return value === 'linear16' || value === 'opus' || value === 'pcm';
 }
 
+/**
+ * Re-attach the layout discriminator after `safeParse`. `GridLayoutSchema` /
+ * `TilingLayoutSchema` don't model the `type` field that the hand-written
+ * `GridLayout` / `TilingLayout` interfaces carry, so Zod strips it on parse —
+ * but the prompt builder gates on `layout.type`. `context.layoutMode` is the
+ * authoritative source for which branch we have.
+ */
+function reattachLayoutDiscriminator(request: ChartRequest): ChartRequest {
+  if (request.context.layoutMode === 'grid') {
+    const grid = request.layout as GridLayout;
+    return { ...request, layout: { ...grid, type: 'grid' } };
+  }
+  const tiling = request.layout as TilingLayout;
+  return { ...request, layout: { ...tiling, type: 'tiling' } };
+}
+
+function extractRequestIdHint(raw: unknown): MessageId | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const id = (raw as { id?: unknown }).id;
+  return typeof id === 'string' && id.length > 0 ? MessageId(id) : undefined;
+}
+
 export function createDemoVoiceWsSessionController(
   options: DemoVoiceWsSessionControllerOptions,
 ) {
@@ -67,12 +101,13 @@ export function createDemoVoiceWsSessionController(
 
   const { sendMessage, sendEngineError } = transport;
   let latestChartRequest: ChartRequest | null = null;
-  // Identity-keyed map from the ChartRequest that enters voiceSession.processRequest
+  // Identity-keyed map from the ChartRequest passed to voiceSession.processRequest
   // to the originating client envelope id. The adapter looks up by reference inside
   // processIntent so explicit responses correlate with the client's pending promise
   // instead of the synthetic `voice-…` id used for STT-driven turns. WeakMap (vs.
-  // a single slot) prevents two concurrent client.maelstrom.process turns — or an
-  // STT turn racing an explicit one — from clobbering each other's correlation.
+  // a single slot) lets concurrent client.maelstrom.process turns coexist without
+  // clobbering each other's correlation. STT turns build a fresh ChartRequest in
+  // the adapter, never write here, and naturally fall through to the synthetic id.
   const explicitRequestIdByRef = new WeakMap<ChartRequest, MessageId>();
 
   const reportEngineError = (
@@ -153,14 +188,19 @@ export function createDemoVoiceWsSessionController(
     console.log(
       `[Demo WS] Adding assistant message: "${message.message.substring(0, 50)}..."`,
     );
-    try {
-      await engine.addAssistantMessage({
-        id: message.id,
-        sessionId,
-        message: message.message,
-      });
-    } catch (err: unknown) {
-      reportEngineError('[Demo WS] Add assistant message error', err);
+    const messageId = MessageId(message.id);
+    const envelope = AssistantInjectionMessage({
+      sessionId,
+      id: messageId,
+      content: message.message,
+    });
+    const result = await engine.handle(envelope);
+    if (isErr(result)) {
+      reportEngineError(
+        '[Demo WS] Add assistant message error',
+        result.error,
+        messageId,
+      );
     }
   };
 
@@ -169,11 +209,25 @@ export function createDemoVoiceWsSessionController(
       type: 'client.maelstrom.process';
     },
   ) => {
-    // The wire payload's `request` field is a new-protocol ChartRequestMessage
-    // envelope; the protocol-old type still labels it as a legacy ChartRequest,
-    // so cast at the boundary.
-    const envelope = message.request as unknown as ChartRequestMessage;
-    const chartRequest = envelope.request;
+    // JSON.parse on the WS frame yields a typed-but-untrusted envelope.
+    // safeParse against the wire schema before it reaches the voice runtime
+    // or engine, and reject with a correlated engine.error on shape failure.
+    const parsed = ChartRequestMessageSchema.safeParse(message.request);
+    if (!parsed.success) {
+      reportEngineError(
+        '[Demo WS] Invalid chart_request envelope',
+        parsed.error,
+        extractRequestIdHint(message.request),
+      );
+      return;
+    }
+    // Reattach layout.type before handing the request downstream — see
+    // `reattachLayoutDiscriminator`. The cast around the envelope itself
+    // is type-only: `z.infer` types `layout` without `type`, even though
+    // the runtime data carries it.
+    const validated = parsed.data as unknown as ChartRequestMessage;
+    const chartRequest = reattachLayoutDiscriminator(validated.request);
+    const envelope: ChartRequestMessage = { ...validated, request: chartRequest };
     latestChartRequest = chartRequest;
 
     if (voiceSession) {
@@ -184,11 +238,13 @@ export function createDemoVoiceWsSessionController(
             (reason) => reason.type === 'user_intent',
           ),
         });
-        // `processRequest` resolves to undefined when the runtime aborted
-        // before the intent boundary ran (e.g. an STT turn superseded this
-        // explicit one). The adapter never reached its emit path, so the
-        // client's pending promise would otherwise time out — surface a
-        // correlated engine.error instead.
+        // processRequest resolves to undefined when the voice runtime aborted,
+        // was destroyed, was superseded by a newer turn, or absorbed a thrown
+        // intent error. The supersession case is the dominant one. The
+        // adapter's own catch already emits a correlated engine.error for
+        // thrown errors, so a frame here is a benign duplicate in that case;
+        // we still need this branch so the supersession case doesn't leave
+        // the client's pending promise hanging until timeout.
         if (response === undefined) {
           sendEngineError(
             'Request superseded before intent processing',
@@ -196,27 +252,38 @@ export function createDemoVoiceWsSessionController(
           );
         }
       } catch (err) {
-        // Voice runtime normally swallows processIntent errors via its onError
-        // pipeline; this catch is a defensive fallback so a future runtime change
-        // that lets exceptions bubble still produces a correlated engine.error.
+        // Voice runtime catches processIntent throws and returns undefined
+        // (see runtime.executeIntentRequest). This branch is defensive: if
+        // that absorption ever changes, we still want a correlated
+        // engine.error rather than the silent timeout the client would
+        // otherwise observe.
         reportEngineError('[Demo WS] processRequest error', err, envelope.id);
       }
       return;
     }
 
-    try {
-      const legacyResponse = await engine.process(
-        adaptEnvelopeToLegacyRequest(envelope),
-      );
-      sendMessage({
-        type: 'engine.maelstrom.response',
-        sessionId,
-        requestId: envelope.id,
-        response: toProtocolResponse(legacyResponse),
-      });
-    } catch (err) {
-      reportEngineError('[Demo WS] engine.process error', err, envelope.id);
+    const result = await engine.handle(envelope);
+    if (isErr(result)) {
+      reportEngineError('[Demo WS] engine.handle error', result.error, envelope.id);
+      return;
     }
+    if (result.value.type !== 'chart_response') {
+      // Defensive against a future EngineOutput variant. chart_request inputs
+      // route to chart_response today; surface a correlated error rather than
+      // letting the client's pending promise hang.
+      reportEngineError(
+        '[Demo WS] Unexpected engine output for chart_request',
+        new Error(`got ${result.value.type}, expected chart_response`),
+        envelope.id,
+      );
+      return;
+    }
+    sendMessage({
+      type: 'engine.maelstrom.response',
+      sessionId,
+      requestId: result.value.id,
+      response: result.value.response,
+    });
   };
 
   return {

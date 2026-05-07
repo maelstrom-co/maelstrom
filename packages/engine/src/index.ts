@@ -54,3 +54,13 @@ export {
   buildSystemPrompt,
   buildUserPrompt,
 } from './lib/prompt/prompt-builder.js';
+
+// History
+export type {
+  HistoryConfig,
+  HistoryManager,
+  LLMContextMessage,
+} from './lib/history/history-manager.js';
+export { createHistoryManager } from './lib/history/history-manager.js';
+export type { HistoryEntry, HistoryStore } from './lib/history/history-store.js';
+export { createInMemoryStore } from './lib/history/in-memory-store.js';

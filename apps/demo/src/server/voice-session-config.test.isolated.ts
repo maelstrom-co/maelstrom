@@ -23,11 +23,13 @@ const createVoiceSession = mock((config: unknown, callbacks: unknown) => {
   return voiceSessionStub;
 });
 const createEngine = mock(() => ({
-  process: mock(async () => ({ userMessage: '' })),
-  addAssistantMessage: mock(async () => {}),
+  handle: mock(async () => ({
+    ok: true,
+    value: { type: 'chart_response', response: { userMessage: '' } },
+  })),
 }));
-const createInMemoryHistoryStore = mock(() => ({ kind: 'history-store' }));
-const createTanStackProvider = mock(() => ({ kind: 'provider' }));
+const createInMemoryStore = mock(() => ({ kind: 'history-store' }));
+const geminiText = mock(() => ({ kind: 'gemini-adapter' }));
 const buildChartRequest = mock(() => ({
   type: 'chart_request',
   context: {
@@ -52,10 +54,13 @@ const createDemoVoiceWsSessionController = mock(() => ({
   getLatestChartRequest: mock(() => null),
 }));
 
-mock.module('@maelstrom-co/engine-old', () => ({
+mock.module('@maelstrom-co/engine', () => ({
   createEngine,
-  createInMemoryHistoryStore,
-  createTanStackProvider,
+  createInMemoryStore,
+}));
+
+mock.module('@tanstack/ai-gemini', () => ({
+  geminiText,
 }));
 
 mock.module('@maelstrom-co/protocol', () => ({
@@ -109,8 +114,10 @@ describe('ws-server voice session config', () => {
     capturedVoiceSessionCallbacks = undefined;
     createVoiceSession.mockClear();
     createDemoVoiceWsSessionController.mockClear();
-    process.env.DEEPGRAM_API_KEY = undefined;
-    process.env.CARTESIA_API_KEY = undefined;
+    // `process.env.X = undefined` writes the literal string "undefined";
+    // delete actually clears the variable.
+    delete process.env.DEEPGRAM_API_KEY;
+    delete process.env.CARTESIA_API_KEY;
   });
 
   test('passes discriminated deepgram and cartesia configs into createVoiceSession', async () => {

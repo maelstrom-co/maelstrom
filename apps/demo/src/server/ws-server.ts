@@ -16,17 +16,14 @@
  * Usage: bun run apps/demo/src/server/ws-server.ts
  */
 
-import {
-  createEngine,
-  createInMemoryHistoryStore,
-  createTanStackProvider,
-} from '@maelstrom-co/engine-old';
+import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
 import {
   SessionId,
   type MessageId,
   type TranscriptMessage,
   type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
+import { geminiText } from '@tanstack/ai-gemini';
 import {
   type AudioChunk,
   createVoiceSession,
@@ -60,14 +57,9 @@ app.get('/health', (c) =>
   c.json({ status: 'healthy', timestamp: new Date().toISOString() }),
 );
 
-const historyStore = createInMemoryHistoryStore({
-  sessionTtlMs: 60 * 60 * 1000,
-  maxEntriesPerSession: 50,
-});
+const historyStore = createInMemoryStore();
 
 const CUSTOM_INSTRUCTIONS = `
-
-ADDITIONAL INSTRUCTIONS:
 - Try to always keep at least one vessel visible on the chart
 - Give each vessel adequate space for its content`;
 
@@ -116,8 +108,6 @@ app.get(
       c.req.query('sessionId') || crypto.randomUUID(),
     );
     const language = c.req.query('language') || 'en';
-
-    const provider = createTanStackProvider('gemini-3.1-flash-lite-preview');
 
     let ws: { send: (data: string | ArrayBuffer) => void } | null = null;
 
@@ -244,15 +234,15 @@ app.get(
     });
 
     const engine = createEngine({
-      provider,
-      timeout: 30000,
-      retry: { maxAttempts: 2, initialDelayMs: 500 },
+      adapter: geminiText('gemini-3.1-flash-lite-preview'),
+      maxRetries: 2,
       history: {
         store: historyStore,
-        contentLevel: 'full' as const,
         maxEntries: 20,
       },
-      systemPromptExtension: CUSTOM_INSTRUCTIONS,
+      prompt: {
+        system: { rules: { append: CUSTOM_INSTRUCTIONS } },
+      },
     });
 
     let voiceSession: VoiceSession | null = null;

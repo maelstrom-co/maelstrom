@@ -1,5 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 
+import { MessageId, SessionId } from '@maelstrom-co/protocol';
+
 import { createDemoVoiceWsSessionController } from './voice-ws-session.js';
 
 function createVoiceSessionStub(initialState = 'idle', overrides = {}) {
@@ -17,7 +19,7 @@ function createVoiceSessionStub(initialState = 'idle', overrides = {}) {
     interrupt: mock(() => {
       state = 'idle';
     }),
-    processRequest: mock(async () => undefined),
+    processRequest: mock(async () => ({})),
     handleVADEvent: mock(() => {}),
     sendAudioChunk: mock(() => {}),
     speak: mock(async () => {}),
@@ -28,21 +30,73 @@ function createVoiceSessionStub(initialState = 'idle', overrides = {}) {
   };
 }
 
+function createEngineStub(overrides = {}) {
+  return {
+    handle: mock(async (envelope) => {
+      if (envelope.type === 'chart_request') {
+        return {
+          ok: true,
+          value: {
+            type: 'chart_response',
+            sessionId: envelope.sessionId,
+            id: envelope.id,
+            response: {
+              type: 'maelstrom_response',
+              requestId: envelope.id,
+              userMessage: '',
+              rationale: '',
+              executionPlan: [],
+              layout: { type: 'tiling', tree: [], instances: [] },
+            },
+          },
+        };
+      }
+      return {
+        ok: true,
+        value: {
+          type: 'assistant_message_result',
+          sessionId: envelope.sessionId,
+          id: envelope.id,
+          outcome: 'inserted',
+        },
+      };
+    }),
+    ...overrides,
+  };
+}
+
+const validProcessMessage = {
+  type: 'client.maelstrom.process',
+  request: {
+    type: 'chart_request',
+    sessionId: 'session-voice',
+    id: 'msg-explicit-1',
+    timestamp: 1,
+    request: {
+      type: 'chart_request',
+      context: {
+        updateReasons: [{ type: 'user_intent', intent: 'show chart' }],
+        chartDimensions: { columns: 12, rows: 8 },
+        layoutMode: 'tiling',
+      },
+      instances: [],
+      vessels: [],
+      layout: { type: 'tiling', tree: [], instances: [] },
+    },
+  },
+};
+
 describe('createDemoVoiceWsSessionController', () => {
   test('covers open, audio capture lifecycle, and speak flow', async () => {
     const sendMessage = mock(() => {});
     const sendEngineError = mock(() => {});
     const forwardBinaryAudioInput = mock(async () => {});
     const voiceSession = createVoiceSessionStub();
-    const engine = {
-      process: mock(async () => ({ userMessage: 'hello back' })),
-      addAssistantMessage: mock(async () => {}),
-    };
 
     const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-123',
+      sessionId: SessionId('session-123'),
       voiceSession,
-      engine,
+      engine: createEngineStub(),
       transport: { sendMessage, sendEngineError },
       forwardBinaryAudioInput,
     });
@@ -71,7 +125,7 @@ describe('createDemoVoiceWsSessionController', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'engine.stt.ready',
-        sessionId: 'session-123',
+        sessionId: SessionId('session-123'),
       }),
     );
     expect(voiceSession.startListening).toHaveBeenCalledTimes(1);
@@ -95,22 +149,16 @@ describe('createDemoVoiceWsSessionController', () => {
     });
 
     const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-123',
+      sessionId: SessionId('session-123'),
       voiceSession,
-      engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {}),
-      },
+      engine: createEngineStub(),
       transport: { sendMessage, sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });
 
     await controller.onOpen();
 
-    // Match on call[0] (message) instead of `toHaveBeenCalledWith` so the
-    // assertion stays robust to controller changes that pass `undefined`
-    // as the optional second arg.
-    expect(sendEngineError.mock.calls[0]?.[0]).toBe('warmup failed');
+    expect(sendEngineError).toHaveBeenCalledWith('warmup failed', undefined);
     expect(sendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'engine.stt.ready' }),
     );
@@ -121,16 +169,13 @@ describe('createDemoVoiceWsSessionController', () => {
     const forwardBinaryAudioInput = mock(async () => {});
 
     const startController = createDemoVoiceWsSessionController({
-      sessionId: 'session-start',
+      sessionId: SessionId('session-start'),
       voiceSession: createVoiceSessionStub('idle', {
         startListening: mock(async () => {
           throw new Error('start failed');
         }),
       }),
-      engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {}),
-      },
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput,
     });
@@ -141,16 +186,13 @@ describe('createDemoVoiceWsSessionController', () => {
     await Promise.resolve();
 
     const stopController = createDemoVoiceWsSessionController({
-      sessionId: 'session-stop',
+      sessionId: SessionId('session-stop'),
       voiceSession: createVoiceSessionStub('listening', {
         stopListening: mock(async () => {
           throw new Error('stop failed');
         }),
       }),
-      engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {}),
-      },
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput,
     });
@@ -161,16 +203,13 @@ describe('createDemoVoiceWsSessionController', () => {
     await Promise.resolve();
 
     const speakController = createDemoVoiceWsSessionController({
-      sessionId: 'session-speak',
+      sessionId: SessionId('session-speak'),
       voiceSession: createVoiceSessionStub('idle', {
         speak: mock(async () => {
           throw new Error('speak failed');
         }),
       }),
-      engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {}),
-      },
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput,
     });
@@ -180,13 +219,13 @@ describe('createDemoVoiceWsSessionController', () => {
     );
 
     const historyController = createDemoVoiceWsSessionController({
-      sessionId: 'session-history',
+      sessionId: SessionId('session-history'),
       voiceSession: createVoiceSessionStub(),
       engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {
-          throw new Error('history failed');
-        }),
+        handle: mock(async () => ({
+          ok: false,
+          error: { type: 'history', message: 'history failed' },
+        })),
       },
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput,
@@ -208,335 +247,179 @@ describe('createDemoVoiceWsSessionController', () => {
     ]);
   });
 
-  test('routes client.maelstrom.process through voiceSession when voice is enabled', async () => {
+  test('routes client.maelstrom.process through voiceSession when voice is enabled and stages an explicit request id', async () => {
     const sendMessage = mock(() => {});
     const sendEngineError = mock(() => {});
-    // `getExplicitRequestId` is delete-on-read, so the only safe place to
-    // observe the staged id is inside the mock — once processRequest returns
-    // and the assertion phase begins, the entry is already consumed.
-    let explicitIdDuringProcessing = null;
     const voiceSession = createVoiceSessionStub();
-    // The runtime would call processIntent.process(request, signal) with the
-    // exact same request reference; emulate that here so the adapter-side
-    // lookup-by-reference is exercised.
-    voiceSession.processRequest = mock(async (request) => {
-      explicitIdDuringProcessing = controller.getExplicitRequestId(request);
-      // Return a falsy-but-defined response so handleMaelstromProcess does NOT
-      // treat this as the runtime-aborted path.
-      return { userMessage: '' };
-    });
-    const engine = {
-      process: mock(async () => ({ userMessage: 'should not be used' })),
-      addAssistantMessage: mock(async () => {}),
-    };
+    const engine = createEngineStub();
 
     const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-voice',
+      sessionId: SessionId('session-voice'),
       voiceSession,
       engine,
       transport: { sendMessage, sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });
 
-    const innerChartRequest = {
-      type: 'chart_request',
-      context: {
-        updateReasons: [{ type: 'user_intent', intent: 'show chart' }],
-        chartDimensions: { columns: 12, rows: 8 },
-        layoutMode: 'tiling',
-      },
-      instances: [],
-      vessels: [],
-      layout: { type: 'tiling', tree: [], instances: [] },
-    };
-    await controller.onMessage(
-      JSON.stringify({
-        type: 'client.maelstrom.process',
-        timestamp: 1,
-        request: {
-          type: 'chart_request',
-          sessionId: 'session-voice',
-          id: 'req-1',
-          timestamp: 1,
-          request: innerChartRequest,
-        },
-      }),
-    );
+    await controller.onMessage(JSON.stringify(validProcessMessage));
 
-    // Assert call count before reading mock.calls[0] — guards against any
-    // future regression that fires processRequest twice and would otherwise
-    // silently last-write-wins on the captured explicit id.
     expect(voiceSession.processRequest).toHaveBeenCalledTimes(1);
-    const [calledWithRequest, calledWithOptions] =
-      voiceSession.processRequest.mock.calls[0] ?? [];
-    const liveChartRequest = controller.getLatestChartRequest();
-    expect(liveChartRequest).toEqual(innerChartRequest);
-    expect(calledWithRequest).toBe(liveChartRequest);
-    expect(calledWithOptions).toEqual({ speakResponse: true });
-    expect(explicitIdDuringProcessing).toBe('req-1');
-    // Reading is delete-on-read; a second lookup against the same reference
-    // returns null so a stale id can't replay onto a later turn.
-    expect(controller.getExplicitRequestId(liveChartRequest)).toBeNull();
-    expect(engine.process).not.toHaveBeenCalled();
-    expect(sendEngineError).not.toHaveBeenCalled();
-    // processRequest returns undefined → no correlation response sent
-    expect(sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'engine.maelstrom.response' }),
+    const [stagedRequest, processOptions] =
+      voiceSession.processRequest.mock.calls[0];
+    expect(processOptions).toEqual({ speakResponse: true });
+    expect(controller.getExplicitRequestId(stagedRequest)).toBe(
+      MessageId('msg-explicit-1'),
     );
-  });
-
-  // The "voice session present + processRequest resolves with a response →
-  // engine.maelstrom.response is emitted with the envelope id" path is owned
-  // by `voice-intent-adapter` (see processIntent.process there), not by the
-  // ws-session controller — the controller only stages the envelope id and
-  // returns. The corresponding adapter test covers correlation end-to-end at
-  // `voice-intent-adapter.test.js:processIntent uses the explicit request id`.
-
-  test('unwraps ChartRequestMessage envelope and uses envelope id for engine correlation', async () => {
-    const sendMessage = mock(() => {});
-    const sendEngineError = mock(() => {});
-    const engineResponse = {
-      requestId: 'engine-resp-1',
-      userMessage: 'done',
-      rationale: '',
-      executionPlan: [],
-      layout: { type: 'tiling', tree: [], instances: [] },
-    };
-    const engine = {
-      process: mock(async () => engineResponse),
-      addAssistantMessage: mock(async () => {}),
-    };
-
-    const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-engine',
-      voiceSession: null,
-      engine,
-      transport: { sendMessage, sendEngineError },
-      forwardBinaryAudioInput: mock(async () => {}),
-    });
-
-    await controller.onMessage(
-      JSON.stringify({
-        type: 'client.maelstrom.process',
-        request: {
-          type: 'chart_request',
-          id: 'envelope-id-42',
-          sessionId: 'session-engine',
-          timestamp: 2000,
-          request: {
-            type: 'chart_request',
-            context: {
-              updateReasons: [{ type: 'user_intent', intent: 'bar chart' }],
-              chartDimensions: { columns: 12, rows: 8 },
-              layoutMode: 'tiling',
-            },
-            instances: [],
-            vessels: [],
-            layout: { type: 'tiling', tree: [], instances: [] },
-          },
-        },
-      }),
-    );
-
-    expect(engine.process).toHaveBeenCalledTimes(1);
-    const latestRequest = controller.getLatestChartRequest();
-    expect(latestRequest?.context.updateReasons).toEqual([
-      { type: 'user_intent', intent: 'bar chart' },
-    ]);
-    expect(sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'engine.maelstrom.response',
-        requestId: 'envelope-id-42',
-        response: {
-          ...engineResponse,
-          type: 'maelstrom_response',
-        },
-      }),
-    );
+    // Single-shot read: a buggy double-read returns null.
+    expect(controller.getExplicitRequestId(stagedRequest)).toBeNull();
+    expect(engine.handle).not.toHaveBeenCalled();
     expect(sendEngineError).not.toHaveBeenCalled();
   });
 
-  test('forwards speakResponse=false when no update reason carries user_intent', async () => {
-    const voiceSession = createVoiceSessionStub();
-    let observedOptions = null;
-    voiceSession.processRequest = mock(async (_request, options) => {
-      observedOptions = options;
-      return { userMessage: '' };
-    });
-
-    const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-resize',
-      voiceSession,
-      engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {}),
-      },
-      transport: {
-        sendMessage: mock(() => {}),
-        sendEngineError: mock(() => {}),
-      },
-      forwardBinaryAudioInput: mock(async () => {}),
-    });
-
-    await controller.onMessage(
-      JSON.stringify({
-        type: 'client.maelstrom.process',
-        timestamp: 1,
-        request: {
-          type: 'chart_request',
-          sessionId: 'session-resize',
-          id: 'req-resize',
-          timestamp: 1,
-          request: {
-            type: 'chart_request',
-            context: {
-              updateReasons: [
-                {
-                  type: 'chart_resize',
-                  previous: { columns: 12, rows: 8 },
-                  current: { columns: 14, rows: 9 },
-                },
-              ],
-              chartDimensions: { columns: 14, rows: 9 },
-              layoutMode: 'tiling',
-            },
-            instances: [],
-            vessels: [],
-            layout: { type: 'tiling', tree: [], instances: [] },
-          },
-        },
-      }),
-    );
-
-    expect(observedOptions).toEqual({ speakResponse: false });
-  });
-
-  test('emits a correlated engine.error when voiceSession.processRequest is aborted', async () => {
-    const sendMessage = mock(() => {});
+  test('emits a correlated engine.error when voiceSession.processRequest is superseded (resolves undefined)', async () => {
     const sendEngineError = mock(() => {});
     const voiceSession = createVoiceSessionStub();
-    // Runtime returns undefined when an STT turn supersedes the explicit one.
     voiceSession.processRequest = mock(async () => undefined);
 
     const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-aborted',
+      sessionId: SessionId('session-superseded'),
       voiceSession,
-      engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {}),
-      },
-      transport: { sendMessage, sendEngineError },
+      engine: createEngineStub(),
+      transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });
 
-    await controller.onMessage(
-      JSON.stringify({
-        type: 'client.maelstrom.process',
-        timestamp: 1,
-        request: {
-          type: 'chart_request',
-          sessionId: 'session-aborted',
-          id: 'req-aborted',
-          timestamp: 1,
-          request: {
-            type: 'chart_request',
-            context: {
-              updateReasons: [{ type: 'user_intent', intent: 'hi' }],
-              chartDimensions: { columns: 12, rows: 8 },
-              layoutMode: 'tiling',
-            },
-            instances: [],
-            vessels: [],
-            layout: { type: 'tiling', tree: [], instances: [] },
-          },
-        },
-      }),
-    );
+    await controller.onMessage(JSON.stringify(validProcessMessage));
 
     expect(sendEngineError).toHaveBeenCalledWith(
       'Request superseded before intent processing',
-      'req-aborted',
+      MessageId('msg-explicit-1'),
     );
   });
 
-  test('emits a correlated engine.error if voiceSession.processRequest itself throws', async () => {
-    const sendMessage = mock(() => {});
+  test('emits a correlated engine.error when voiceSession.processRequest throws (defensive fallback)', async () => {
     const sendEngineError = mock(() => {});
     const voiceSession = createVoiceSessionStub();
     voiceSession.processRequest = mock(async () => {
-      throw new Error('voice runtime crashed');
+      throw new Error('processRequest kaboom');
     });
 
     const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-throw',
+      sessionId: SessionId('session-throw'),
       voiceSession,
-      engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {}),
-      },
-      transport: { sendMessage, sendEngineError },
+      engine: createEngineStub(),
+      transport: { sendMessage: mock(() => {}), sendEngineError },
+      forwardBinaryAudioInput: mock(async () => {}),
+    });
+
+    await controller.onMessage(JSON.stringify(validProcessMessage));
+
+    expect(sendEngineError).toHaveBeenCalledWith(
+      'processRequest kaboom',
+      MessageId('msg-explicit-1'),
+    );
+  });
+
+  test('routes client.maelstrom.process with non-user-intent reasons through voiceSession with speakResponse: false', async () => {
+    const voiceSession = createVoiceSessionStub();
+    const controller = createDemoVoiceWsSessionController({
+      sessionId: SessionId('session-mutation'),
+      voiceSession,
+      engine: createEngineStub(),
+      transport: { sendMessage: mock(() => {}), sendEngineError: mock(() => {}) },
       forwardBinaryAudioInput: mock(async () => {}),
     });
 
     await controller.onMessage(
       JSON.stringify({
         type: 'client.maelstrom.process',
-        timestamp: 1,
         request: {
-          type: 'chart_request',
-          sessionId: 'session-throw',
-          id: 'req-throw',
-          timestamp: 1,
+          ...validProcessMessage.request,
           request: {
-            type: 'chart_request',
+            ...validProcessMessage.request.request,
             context: {
-              updateReasons: [{ type: 'user_intent', intent: 'hi' }],
-              chartDimensions: { columns: 12, rows: 8 },
-              layoutMode: 'tiling',
+              ...validProcessMessage.request.request.context,
+              updateReasons: [
+                {
+                  type: 'chart_resize',
+                  previous: { rows: 8, columns: 12 },
+                  current: { rows: 8, columns: 16 },
+                },
+              ],
             },
-            instances: [],
-            vessels: [],
-            layout: { type: 'tiling', tree: [], instances: [] },
           },
         },
       }),
     );
 
-    expect(sendEngineError).toHaveBeenCalledWith(
-      'voice runtime crashed',
-      'req-throw',
-    );
+    expect(voiceSession.processRequest).toHaveBeenCalledTimes(1);
+    const [, processOptions] = voiceSession.processRequest.mock.calls[0];
+    expect(processOptions).toEqual({ speakResponse: false });
   });
 
-  test('keeps explicit ids identity-keyed across concurrent requests', async () => {
-    let firstRequest = null;
-    let secondRequest = null;
-    let resolveFirst = null;
-    let resolveSecond = null;
-
-    const voiceSession = createVoiceSessionStub();
-    voiceSession.processRequest = mock(async (request) => {
-      if (firstRequest === null) {
-        firstRequest = request;
-        await new Promise((resolve) => {
-          resolveFirst = resolve;
-        });
-      } else {
-        secondRequest = request;
-        await new Promise((resolve) => {
-          resolveSecond = resolve;
-        });
-      }
-      return { userMessage: '' };
-    });
+  test('routes client.maelstrom.process through engine.handle when voice is disabled', async () => {
+    const sendMessage = mock(() => {});
+    const sendEngineError = mock(() => {});
+    const engine = createEngineStub();
 
     const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-multi',
-      voiceSession,
-      engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {}),
-      },
+      sessionId: SessionId('session-text'),
+      voiceSession: null,
+      engine,
+      transport: { sendMessage, sendEngineError },
+      forwardBinaryAudioInput: mock(async () => {}),
+    });
+
+    await controller.onMessage(JSON.stringify(validProcessMessage));
+
+    expect(engine.handle).toHaveBeenCalledTimes(1);
+    const envelope = engine.handle.mock.calls[0]?.[0];
+    expect(envelope.type).toBe('chart_request');
+    expect(envelope.sessionId).toBe('session-voice');
+    expect(envelope.id).toBe('msg-explicit-1');
+    // Reattached layout discriminator survives safeParse strip.
+    expect(envelope.request.layout.type).toBe('tiling');
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'engine.maelstrom.response',
+      sessionId: SessionId('session-text'),
+      requestId: MessageId('msg-explicit-1'),
+      response: expect.objectContaining({
+        type: 'maelstrom_response',
+        requestId: MessageId('msg-explicit-1'),
+      }),
+    });
+    expect(sendEngineError).not.toHaveBeenCalled();
+  });
+
+  test('rejects malformed chart_request envelopes via wire-ingress validation', async () => {
+    const sendEngineError = mock(() => {});
+    const engine = createEngineStub();
+
+    const controller = createDemoVoiceWsSessionController({
+      sessionId: SessionId('session-bad'),
+      voiceSession: null,
+      engine,
+      transport: { sendMessage: mock(() => {}), sendEngineError },
+      forwardBinaryAudioInput: mock(async () => {}),
+    });
+
+    await controller.onMessage(
+      JSON.stringify({
+        type: 'client.maelstrom.process',
+        request: { type: 'chart_request', request: { malformed: true } },
+      }),
+    );
+
+    expect(engine.handle).not.toHaveBeenCalled();
+    expect(sendEngineError).toHaveBeenCalledTimes(1);
+  });
+
+  test('passes the assistant message id through as an AssistantInjectionMessage', async () => {
+    const engine = createEngineStub();
+    const controller = createDemoVoiceWsSessionController({
+      sessionId: SessionId('session-history'),
+      voiceSession: createVoiceSessionStub(),
+      engine,
       transport: {
         sendMessage: mock(() => {}),
         sendEngineError: mock(() => {}),
@@ -544,191 +427,28 @@ describe('createDemoVoiceWsSessionController', () => {
       forwardBinaryAudioInput: mock(async () => {}),
     });
 
-    const buildEnvelopeJson = (id, intent) =>
-      JSON.stringify({
-        type: 'client.maelstrom.process',
-        timestamp: 1,
-        request: {
-          type: 'chart_request',
-          sessionId: 'session-multi',
-          id,
-          timestamp: 1,
-          request: {
-            type: 'chart_request',
-            context: {
-              updateReasons: [{ type: 'user_intent', intent }],
-              chartDimensions: { columns: 12, rows: 8 },
-              layoutMode: 'tiling',
-            },
-            instances: [],
-            vessels: [],
-            layout: { type: 'tiling', tree: [], instances: [] },
-          },
-        },
-      });
-
-    // Poll on the deterministic signal we actually care about — that the
-    // mock recorded the request — rather than guessing how many microtasks
-    // separate `onMessage` from `processRequest`. Bun's mock list reflects
-    // calls synchronously, so this loop needs only a single await once the
-    // call has reached the mock.
-    const waitFor = async (predicate) => {
-      while (!predicate()) {
-        await Promise.resolve();
-      }
-    };
-
-    const firstDone = controller.onMessage(buildEnvelopeJson('req-A', 'first'));
-    await waitFor(() => firstRequest !== null);
-    const secondDone = controller.onMessage(
-      buildEnvelopeJson('req-B', 'second'),
-    );
-    await waitFor(() => secondRequest !== null);
-
-    // Both requests are mid-flight. Each id is only retrievable via the
-    // matching ChartRequest reference — no clobbering, no cross-talk.
-    expect(controller.getExplicitRequestId(firstRequest)).toBe('req-A');
-    expect(controller.getExplicitRequestId(secondRequest)).toBe('req-B');
-
-    // Delete-on-read: a second lookup against either reference returns null.
-    expect(controller.getExplicitRequestId(firstRequest)).toBeNull();
-    expect(controller.getExplicitRequestId(secondRequest)).toBeNull();
-
-    resolveFirst();
-    resolveSecond();
-    await firstDone;
-    await secondDone;
-  });
-
-  test('routes the no-voice-session engine path with envelope-correlated response', async () => {
-    const sendMessage = mock(() => {});
-    const sendEngineError = mock(() => {});
-    const engineResponse = {
-      requestId: 'req-direct',
-      userMessage: 'ok',
-      rationale: '',
-      executionPlan: [],
-      layout: { type: 'tiling', tree: [], instances: [] },
-    };
-    const engine = {
-      process: mock(async () => engineResponse),
-      addAssistantMessage: mock(async () => {}),
-    };
-
-    const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-direct',
-      voiceSession: null,
-      engine,
-      transport: { sendMessage, sendEngineError },
-      forwardBinaryAudioInput: mock(async () => {}),
-    });
-
     await controller.onMessage(
       JSON.stringify({
-        type: 'client.maelstrom.process',
-        timestamp: 7,
-        request: {
-          type: 'chart_request',
-          sessionId: 'session-direct',
-          id: 'req-direct',
-          timestamp: 7,
-          request: {
-            type: 'chart_request',
-            context: {
-              updateReasons: [{ type: 'user_intent', intent: 'hello' }],
-              chartDimensions: { columns: 12, rows: 8 },
-              layoutMode: 'tiling',
-            },
-            instances: [],
-            vessels: [],
-            layout: { type: 'tiling', tree: [], instances: [] },
-          },
-        },
+        type: 'client.history.add_assistant_message',
+        id: 'msg-42',
+        message: 'assistant says hi',
       }),
     );
 
-    expect(engine.process).toHaveBeenCalledTimes(1);
-    // Verify the adapter ran outside the mock body so a failed assertion
-    // surfaces as a clean test failure rather than a generic engine error
-    // that the controller's catch would swallow into sendEngineError.
-    const legacyRequest = engine.process.mock.calls[0]?.[0];
-    expect(legacyRequest?.id).toBe('req-direct');
-    expect(legacyRequest?.context.sessionId).toBe('session-direct');
-    expect(legacyRequest?.context.timestamp).toBe(7);
-    expect(sendMessage).toHaveBeenCalledWith({
-      type: 'engine.maelstrom.response',
-      sessionId: 'session-direct',
-      requestId: 'req-direct',
-      response: {
-        ...engineResponse,
-        type: 'maelstrom_response',
-      },
-    });
-    expect(sendEngineError).not.toHaveBeenCalled();
+    expect(engine.handle).toHaveBeenCalledTimes(1);
+    const envelope = engine.handle.mock.calls[0]?.[0];
+    expect(envelope.type).toBe('assistant_message');
+    expect(envelope.id).toBe(MessageId('msg-42'));
+    expect(envelope.content).toBe('assistant says hi');
   });
-
-  test('emits a correlated engine.error when the no-voice engine path throws', async () => {
-    const sendMessage = mock(() => {});
-    const sendEngineError = mock(() => {});
-    const engine = {
-      process: mock(async () => {
-        throw new Error('LLM provider unavailable');
-      }),
-      addAssistantMessage: mock(async () => {}),
-    };
-
-    const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-fail',
-      voiceSession: null,
-      engine,
-      transport: { sendMessage, sendEngineError },
-      forwardBinaryAudioInput: mock(async () => {}),
-    });
-
-    await controller.onMessage(
-      JSON.stringify({
-        type: 'client.maelstrom.process',
-        timestamp: 1,
-        request: {
-          type: 'chart_request',
-          sessionId: 'session-fail',
-          id: 'req-fail',
-          timestamp: 1,
-          request: {
-            type: 'chart_request',
-            context: {
-              updateReasons: [{ type: 'user_intent', intent: 'hi' }],
-              chartDimensions: { columns: 12, rows: 8 },
-              layoutMode: 'tiling',
-            },
-            instances: [],
-            vessels: [],
-            layout: { type: 'tiling', tree: [], instances: [] },
-          },
-        },
-      }),
-    );
-
-    expect(sendEngineError).toHaveBeenCalledWith(
-      'LLM provider unavailable',
-      'req-fail',
-    );
-    expect(sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'engine.maelstrom.response' }),
-    );
-  });
-
 
   test('rejects malformed audio payloads instead of forwarding empty chunks', async () => {
     const sendEngineError = mock(() => {});
     const voiceSession = createVoiceSessionStub('listening');
     const controller = createDemoVoiceWsSessionController({
-      sessionId: 'session-audio',
+      sessionId: SessionId('session-audio'),
       voiceSession,
-      engine: {
-        process: mock(async () => ({ userMessage: '' })),
-        addAssistantMessage: mock(async () => {}),
-      },
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });

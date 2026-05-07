@@ -47,18 +47,12 @@ function createMirroredChartRequest() {
   };
 }
 
-function createProtocolChartRequest(
-  transcript,
-  sessionId = SessionId('session-1'),
-) {
+function createProtocolChartRequest(transcript) {
   return {
     type: 'chart_request',
-    id: MessageId('req-voice-test'),
     context: {
       updateReasons: [{ type: 'user_intent', intent: transcript }],
       chartDimensions: { columns: 12, rows: 8 },
-      timestamp: 1,
-      sessionId,
       layoutMode: 'tiling',
     },
     instances: [
@@ -83,20 +77,35 @@ function createProtocolChartRequest(
   };
 }
 
-describe('voice-intent-adapter', () => {
-  test('buildChartRequest returns an empty tiling fallback when no mirrored chart context exists', () => {
-    const adapter = createDemoVoiceIntentAdapter(
-      {
-        process: mock(async () => ({
-          requestId: 'req-1',
+function createEngineStub(response = {}) {
+  return {
+    handle: mock(async (envelope) => ({
+      ok: true,
+      value: {
+        type: 'chart_response',
+        sessionId: envelope.sessionId,
+        id: envelope.id,
+        response: {
+          type: 'maelstrom_response',
+          requestId: envelope.id,
           userMessage: '',
           rationale: '',
           executionPlan: [],
           layout: { type: 'tiling', tree: [], instances: [] },
-        })),
+          ...response,
+        },
       },
+    })),
+  };
+}
+
+describe('voice-intent-adapter', () => {
+  test('buildChartRequest returns an empty tiling fallback when no mirrored chart context exists', () => {
+    const adapter = createDemoVoiceIntentAdapter(
+      createEngineStub(),
       SessionId('session-1'),
       mock(() => {}),
+      () => null,
       () => null,
     );
 
@@ -121,32 +130,17 @@ describe('voice-intent-adapter', () => {
   test('buildChartRequest reuses mirrored chart state and only swaps updateReasons for the transcript intent', () => {
     const mirroredRequest = createMirroredChartRequest();
     const adapter = createDemoVoiceIntentAdapter(
-      {
-        process: mock(async () => ({
-          requestId: 'req-1',
-          userMessage: '',
-          rationale: '',
-          executionPlan: [],
-          layout: { type: 'tiling', tree: [], instances: [] },
-        })),
-      },
+      createEngineStub(),
       SessionId('session-1'),
       mock(() => {}),
       () => mirroredRequest,
+      () => null,
     );
 
     const request = adapter.buildChartRequest({
       transcript: 'show my glucose trends',
       sessionId: SessionId('session-2'),
     });
-
-    expect(request.instances).toEqual(mirroredRequest.instances);
-    expect(request.vessels).toEqual(mirroredRequest.vessels);
-    expect(request.layout).toEqual(mirroredRequest.layout);
-    expect(request.context.chartDimensions).toEqual(
-      mirroredRequest.context.chartDimensions,
-    );
-    expect(request.context.layoutMode).toBe(mirroredRequest.context.layoutMode);
 
     expect(request).toEqual({
       ...mirroredRequest,
@@ -159,178 +153,155 @@ describe('voice-intent-adapter', () => {
     });
   });
 
-  test('processIntent forwards the legacy engine response and returns the protocol response', async () => {
-    const engine = {
-      process: mock(async (legacyRequest) => ({
-        requestId: legacyRequest.id,
-        userMessage: 'hello back',
-        rationale: 'rationale',
-        executionPlan: [],
-        layout: { type: 'tiling', tree: [], instances: [] },
-      })),
-    };
+  test('processIntent uses the staged envelope id when one is available', async () => {
+    const engine = createEngineStub({ userMessage: 'hello back' });
     const sendMessage = mock(() => {});
+    const explicitId = MessageId('explicit-req-1');
     const adapter = createDemoVoiceIntentAdapter(
       engine,
       SessionId('session-1'),
       sendMessage,
       () => null,
+      () => explicitId,
     );
     const request = createProtocolChartRequest('hello');
 
     const response = await adapter.processIntent.process(request);
 
-    expect(engine.process).toHaveBeenCalledTimes(1);
-    expect(engine.process).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'chart_request',
-        id: expect.stringMatching(/^voice-/),
-        context: expect.objectContaining({
-          sessionId: 'session-1',
-          updateReasons: [{ type: 'user_intent', intent: 'hello' }],
-          chartDimensions: { columns: 12, rows: 8 },
-          layoutMode: 'tiling',
-        }),
-      }),
-    );
+    expect(engine.handle).toHaveBeenCalledTimes(1);
+    expect(engine.handle.mock.calls[0]?.[0]).toMatchObject({
+      type: 'chart_request',
+      sessionId: SessionId('session-1'),
+      id: explicitId,
+      request,
+    });
     expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'engine.maelstrom.response',
-        sessionId: 'session-1',
-        requestId: expect.stringMatching(/^voice-/),
+        sessionId: SessionId('session-1'),
+        requestId: explicitId,
       }),
     );
     expect(response.userMessage).toBe('hello back');
   });
 
-  test('processIntent uses the explicit request id when one is staged', async () => {
+  test('processIntent falls back to a synthetic voice id when no explicit id is staged', async () => {
+    const engine = createEngineStub();
+    const adapter = createDemoVoiceIntentAdapter(
+      engine,
+      SessionId('session-1'),
+      mock(() => {}),
+      () => null,
+      () => null,
+    );
+
+    await adapter.processIntent.process(createProtocolChartRequest('hi'));
+
+    const envelope = engine.handle.mock.calls[0]?.[0];
+    expect(envelope.id).toMatch(/^voice-/);
+  });
+
+  test('processIntent surfaces engine errors as thrown errors and emits a correlated engine.error', async () => {
     const engine = {
-      process: mock(async (legacyRequest) => ({
-        requestId: legacyRequest.id,
-        userMessage: '',
-        rationale: '',
-        executionPlan: [],
-        layout: { type: 'tiling', tree: [], instances: [] },
+      handle: mock(async () => ({
+        ok: false,
+        error: { type: 'provider', message: 'gemini outage' },
       })),
     };
     const sendMessage = mock(() => {});
-    const request = createProtocolChartRequest('hello');
-    const getExplicitRequestId = mock(() => MessageId('explicit-id-42'));
+    const explicitId = MessageId('err-req-1');
     const adapter = createDemoVoiceIntentAdapter(
       engine,
       SessionId('session-1'),
       sendMessage,
       () => null,
-      getExplicitRequestId,
-    );
-
-    await adapter.processIntent.process(request);
-
-    expect(getExplicitRequestId).toHaveBeenCalledTimes(1);
-    // Lookup-by-reference: the adapter passes the exact request it received.
-    expect(getExplicitRequestId.mock.calls[0]?.[0]).toBe(request);
-    expect(engine.process.mock.calls[0]?.[0]?.id).toBe('explicit-id-42');
-    expect(sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'engine.maelstrom.response',
-        requestId: 'explicit-id-42',
-      }),
-    );
-  });
-
-  test('processIntent emits a correlated engine.error before rethrowing engine.process failures', async () => {
-    const engineError = new Error('LLM timeout');
-    const engine = {
-      process: mock(async () => {
-        throw engineError;
-      }),
-    };
-    const sendMessage = mock(() => {});
-    const request = createProtocolChartRequest('hello');
-    const getExplicitRequestId = mock(() => MessageId('explicit-id-99'));
-    const adapter = createDemoVoiceIntentAdapter(
-      engine,
-      SessionId('session-1'),
-      sendMessage,
-      () => null,
-      getExplicitRequestId,
-    );
-
-    await expect(adapter.processIntent.process(request)).rejects.toBe(
-      engineError,
-    );
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'engine.error',
-        sessionId: 'session-1',
-        requestId: 'explicit-id-99',
-        error: 'LLM timeout',
-      }),
-    );
-    // No success frame emitted on the failure path.
-    expect(sendMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'engine.maelstrom.response' }),
-    );
-  });
-
-  test('processIntent emits engine.error tagged with the synthetic voice id when no explicit id is staged', async () => {
-    const engine = {
-      process: mock(async () => {
-        throw new Error('boom');
-      }),
-    };
-    const sendMessage = mock(() => {});
-    const adapter = createDemoVoiceIntentAdapter(
-      engine,
-      SessionId('session-1'),
-      sendMessage,
-      () => null,
+      () => explicitId,
     );
 
     await expect(
-      adapter.processIntent.process(createProtocolChartRequest('hello')),
-    ).rejects.toThrow('boom');
-
-    const errorCall = sendMessage.mock.calls.find(
-      (call) => call[0]?.type === 'engine.error',
+      adapter.processIntent.process(createProtocolChartRequest('hi')),
+    ).rejects.toThrow('gemini outage');
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'engine.error',
+        sessionId: SessionId('session-1'),
+        requestId: explicitId,
+        error: 'gemini outage',
+      }),
     );
-    expect(errorCall?.[0]?.requestId).toMatch(/^voice-/);
-    // MessageId is a stable branded `string`; matchers like `toBeTypeOf`
-    // are sufficient since the brand erases at runtime. The /^voice-/
-    // prefix above already pins the shape.
-    expect(typeof errorCall?.[0]?.requestId).toBe('string');
-    expect(errorCall?.[0]?.error).toBe('boom');
-    // Parity with the explicit-id test: no success frame on the failure path.
-    const successCall = sendMessage.mock.calls.find(
-      (call) => call[0]?.type === 'engine.maelstrom.response',
-    );
-    expect(successCall).toBeUndefined();
   });
 
-  test('processIntent aborts before emitting side effects when the signal is already aborted', async () => {
+  test('processIntent emits a correlated engine.error and re-throws when engine.handle throws synchronously (defensive fallback)', async () => {
+    const engine = {
+      handle: mock(async () => {
+        throw new Error('runtime kaboom');
+      }),
+    };
     const sendMessage = mock(() => {});
+    const explicitId = MessageId('throw-req-1');
     const adapter = createDemoVoiceIntentAdapter(
-      {
-        process: mock(async () => ({
-          requestId: 'req-1',
-          userMessage: '',
-          rationale: '',
-          executionPlan: [],
-          layout: { type: 'tiling', tree: [], instances: [] },
-        })),
-      },
+      engine,
       SessionId('session-1'),
       sendMessage,
       () => null,
+      () => explicitId,
     );
-    const request = createProtocolChartRequest('hello');
+
+    await expect(
+      adapter.processIntent.process(createProtocolChartRequest('hi')),
+    ).rejects.toThrow('runtime kaboom');
+    // Single emit at this layer — exactly one engine.error frame, correlated.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'engine.error',
+        sessionId: SessionId('session-1'),
+        requestId: explicitId,
+        error: 'runtime kaboom',
+      }),
+    );
+  });
+
+  test('processIntent forwards the abort signal to engine.handle', async () => {
+    const engine = createEngineStub();
+    const adapter = createDemoVoiceIntentAdapter(
+      engine,
+      SessionId('session-1'),
+      mock(() => {}),
+      () => null,
+      () => null,
+    );
+    const controller = new AbortController();
+
+    await adapter.processIntent.process(
+      createProtocolChartRequest('hi'),
+      controller.signal,
+    );
+
+    expect(engine.handle).toHaveBeenCalledTimes(1);
+    expect(engine.handle.mock.calls[0]?.[1]).toBe(controller.signal);
+  });
+
+  test('processIntent aborts before emitting side effects when the signal is already aborted', async () => {
+    const engine = createEngineStub();
+    const sendMessage = mock(() => {});
+    const adapter = createDemoVoiceIntentAdapter(
+      engine,
+      SessionId('session-1'),
+      sendMessage,
+      () => null,
+      () => null,
+    );
     const controller = new AbortController();
     controller.abort();
 
     await expect(
-      adapter.processIntent.process(request, controller.signal),
+      adapter.processIntent.process(
+        createProtocolChartRequest('hello'),
+        controller.signal,
+      ),
     ).rejects.toThrow('Intent processing aborted');
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(engine.handle).not.toHaveBeenCalled();
   });
 });
