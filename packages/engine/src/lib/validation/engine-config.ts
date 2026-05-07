@@ -161,8 +161,16 @@ export function validateEngineConfig(config: unknown): EngineConfig {
       cause: result.error,
     });
   }
+  // Return the caller's original instance, not `result.data`. Zod's
+  // `.object().loose()` rebuilds objects by copying own-enumerable keys,
+  // which strips prototype methods from class-based providers — e.g. the
+  // Gemini adapter's `chatStream` calls `this.mapCommonOptionsToGemini`,
+  // and that helper lives on the prototype. The schema is validate-only
+  // (no transforms or defaults — defaults are applied in `resolveConfig`),
+  // so discarding `result.data` is safe and keeps adapter, logger, and
+  // history.store identity intact across the validation boundary.
   // See `_AdapterContract` — phantom `~types` field requires this cast.
-  return result.data as unknown as EngineConfig;
+  return config as EngineConfig;
 }
 
 function formatIssues(error: z.ZodError): string {

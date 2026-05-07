@@ -281,6 +281,87 @@ describe('processResponse', () => {
       });
     });
 
+    // The tiling system prompt instructs the LLM: "To CREATE a new
+    // instance: add it to the instances array... If the new instance
+    // requires specific configuration, you MUST add an action in
+    // executionPlan to configure it." That contract requires the action
+    // resolver to recognize newly-declared instances from
+    // `llmOutput.layout.instances` — not just `request.instances`.
+    // Without the merge, "create + configure" workflows silently drop
+    // every configuration action with `unknown_instance` and the heal
+    // layer wastes the retry budget producing the same broken output.
+    test('accepts action targeting a newly-declared tiling instance', () => {
+      const llmOutput: TilingResponse = {
+        userMessage: 'Opening the journal so you can capture a quick entry',
+        rationale: 'User asked to journal',
+        executionPlan: [
+          {
+            instanceId: 'journal-retro',
+            action: 'createEntry',
+            paramsJson: '{"title":"Today"}',
+          },
+        ],
+        layout: {
+          tree: ['journal-retro'],
+          instances: [
+            {
+              instanceId: 'journal-retro',
+              vesselId: 'journal',
+              variant: 'compose',
+            },
+          ],
+        },
+      };
+
+      const request = makeTilingRequest({
+        instances: [],
+        vessels: [
+          {
+            id: 'journal',
+            name: 'Journal',
+            description: 'Captures journal entries',
+            defaultVariant: 'compose',
+            variants: {
+              compose: {
+                props: {},
+                minSize: { width: 4, height: 4 },
+                actions: [
+                  {
+                    name: 'createEntry',
+                    description: 'Create a new journal entry',
+                    parameters: [
+                      {
+                        name: 'title',
+                        type: 'string',
+                        description: 'Entry title',
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      });
+
+      const result = processResponse({
+        llmOutput,
+        request,
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+
+      expect(result.value.executionPlan).toHaveLength(1);
+      expect(result.value.executionPlan[0]).toEqual({
+        instanceId: InstanceId('journal-retro'),
+        action: 'createEntry',
+        params: { title: 'Today' },
+      });
+      expect(result.value.diagnostics.skippedActions).toHaveLength(0);
+    });
+
     test('skips invalid action in tiling mode and records diagnostic', () => {
       // Symmetry check: simulation and validation are layout-mode-agnostic.
       // An invalid action in tiling mode must drop, warn, and diagnose

@@ -253,6 +253,18 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('binary tree');
   });
 
+  // Regression lock for the LLM "two ways to change a variant" footgun.
+  // The simulator validates each action against the instance's pre-action
+  // variant; an LLM that both mutates layout.instances directly AND adds a
+  // matching transition action causes the action to fail the no-op check
+  // and the heal layer wastes the retry budget. Pin: the prompt explicitly
+  // forbids mixing the two methods.
+  test('tiling system prompt forbids mixing transition action with direct variant mutation', () => {
+    const prompt = buildSystemPrompt('tiling');
+    expect(prompt).toContain('exactly ONE method');
+    expect(prompt).toContain('NEVER mix the two');
+  });
+
   test('accepts section overrides', () => {
     const prompt = buildSystemPrompt('grid', {
       system: { identity: 'Custom identity.' },

@@ -52,9 +52,10 @@ For each instance in the instances array:
 - variant: The variant the instance should be in
 
 To CREATE a new instance:
-- Add it to the instances array with the desired variant
+- Add it to the instances array with the variant you want it to start in. That declared variant IS the new instance's starting state.
 - Include it in the tree if it should be visible
-- If the new instance requires specific configuration, you MUST add an action in executionPlan to configure it
+- If the new instance needs configuration (loading data, setting parameters), add a configuration action in executionPlan
+- DO NOT add a transition action whose target equals the variant you just declared. The new instance has no prior variant for the action to transition from, so the simulator rejects it as a no-op and the action is silently dropped.
 
 To DELETE an instance:
 - Simply don't include it in the instances array
@@ -62,9 +63,10 @@ To DELETE an instance:
 To HIDE an instance:
 - Include it in instances but not in the tree
 
-To CHANGE an instance's variant:
-- Prefer using an action that transitions to the new variant
-- The instances array should reflect the expected state AFTER actions execute
+To CHANGE an EXISTING instance's variant — pick exactly ONE method, never both:
+- PREFERRED: use a transition action. Add the action (whose definition has \`transitionsTo\` equal to the desired variant) to executionPlan; record the post-action variant in the instances array. The action drives the change; the instances entry just confirms the resulting state.
+- DIRECT: only when no transition action exists for the change you want. Set the variant in the instances array to the desired value WITHOUT adding any transition action.
+- NEVER mix the two for the same instance change. The simulator validates each action against the instance's pre-action variant; if you also mutated the instance's variant directly to the action's target, the simulator sees no actual transition and skips the action.
 - ${NO_OP_VARIANT_ACKNOWLEDGEMENT}
 
 Examples:

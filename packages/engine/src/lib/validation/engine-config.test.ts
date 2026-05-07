@@ -125,6 +125,35 @@ describe('validateEngineConfig', () => {
     ).toBe('hello');
   });
 
+  // Real provider adapters (e.g. @tanstack/ai-gemini's GeminiTextAdapter)
+  // are class instances whose internal helpers live on the prototype and
+  // get invoked via `this.helper()` from the public methods. A schema that
+  // rebuilds the adapter as a plain object — losing the prototype chain —
+  // makes those `this` calls blow up at runtime even though the public
+  // methods are still callable. Pin: the validated adapter must keep its
+  // prototype so `chatStream` can reach `this.helper()`.
+  test('preserves adapter prototype-chain methods (class-based providers)', () => {
+    class FakeProviderAdapter {
+      readonly kind = 'text';
+      readonly name = 'fake';
+      readonly model = 'fake-model';
+      mapOptions(value: number): number {
+        return value + 1;
+      }
+      chatStream(): unknown {
+        return this.mapOptions(0);
+      }
+      structuredOutput(): unknown {
+        return this.mapOptions(0);
+      }
+    }
+    const adapter = new FakeProviderAdapter();
+    const result = validateEngineConfig({ adapter });
+    const validated = result.adapter as unknown as FakeProviderAdapter;
+    expect(validated.chatStream()).toBe(1);
+    expect(validated.structuredOutput()).toBe(1);
+  });
+
   test('preserves extra logger fields (loose — pino/winston/bunyan)', () => {
     const pinoLike = {
       ...silentLogger,

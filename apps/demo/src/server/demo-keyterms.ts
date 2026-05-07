@@ -17,4 +17,5 @@ export const DEMO_KEYTERMS = [
   'sidebar',
   'column',
   'row',
+  'journal',
 ];

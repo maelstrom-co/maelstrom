@@ -10,6 +10,7 @@ import type {
   TilingLayout,
   TilingNode,
   TilingResponse,
+  VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import { err, ok } from '@maelstrom-co/protocol';
 
@@ -24,6 +25,7 @@ import {
 import type {
   DroppedLayoutEntry,
   HealedLayout,
+  HealedTilingInstance,
   LayoutWarning,
   RetryHint,
 } from '../validation/llm-output/healed-layout.js';
@@ -112,9 +114,24 @@ export function processResponse({
       );
     }
   }
+  // Tiling allows the LLM to declare new instances in `layout.instances`
+  // alongside an action that configures them (per the system prompt:
+  // "To CREATE a new instance, add it to the instances array... add an
+  // action in executionPlan to configure it"). Without merging those
+  // healed declarations into the action resolver's instance map, every
+  // new-instance + configure-action pair gets skipped as unknown_instance
+  // and the retry loop wastes attempts on output the LLM has no reason
+  // to change. Existing instances keep their pre-request variant —
+  // mid-plan transitions are still simulated by `parseExecutionPlan`.
+  // Grid mode has no separate instance-declaration channel (positions
+  // reference existing instanceIds), so it stays as-is.
+  const planInstances: readonly VesselInstanceSnapshot[] =
+    healed.mode === 'tiling'
+      ? mergeTilingInstances(request.instances, healed.layout.instances)
+      : request.instances;
   const { plan: executionPlan, skippedActions } = parseExecutionPlan(
     llmOutput.executionPlan,
-    request.instances,
+    planInstances,
     request.vessels,
     logger,
   );
@@ -143,4 +160,22 @@ export function processResponse({
       retryHint,
     },
   });
+}
+
+// Existing instances win on conflict — the LLM declaring a different
+// variant for an already-extant instance shouldn't silently overwrite
+// the simulator's starting state. Variant transitions go through the
+// executionPlan path so the simulator can validate them.
+function mergeTilingInstances(
+  requestInstances: readonly VesselInstanceSnapshot[],
+  healedInstances: readonly HealedTilingInstance[],
+): readonly VesselInstanceSnapshot[] {
+  const seen = new Set(requestInstances.map((i) => i.instanceId));
+  const merged: VesselInstanceSnapshot[] = [...requestInstances];
+  for (const instance of healedInstances) {
+    if (seen.has(instance.instanceId)) continue;
+    merged.push(instance);
+    seen.add(instance.instanceId);
+  }
+  return merged;
 }
