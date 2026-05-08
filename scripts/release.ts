@@ -1,9 +1,9 @@
+import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import {
-  releaseChangelog,
-  releasePublish,
-  releaseVersion,
-} from 'nx/release';
+import { releaseChangelog, releaseVersion } from 'nx/release';
+import { createProjectGraphAsync } from 'nx/src/project-graph/project-graph';
 import {
   gitCommit,
   gitPush,
@@ -121,13 +121,54 @@ if (values['skip-publish']) {
   process.exit(0);
 }
 
-const publishResults = await releasePublish({
-  releaseGraph,
-  firstRelease,
-  dryRun,
-  verbose,
-});
+// Step 7: Publish each non-private project directly with `npm publish`.
+// We bypass Nx's `releasePublish` because its dist-tag pre-check runs
+// `npm view <pkg> versions dist-tags --json` against the registry; GitHub
+// Packages returns a manifest with an empty `_id`, npm 10.x silently emits
+// no output for that, and Nx then `JSON.parse('')` throws "Unexpected EOF".
+const npmTag = preid ?? 'latest';
+const registry =
+  process.env.RELEASE_REGISTRY ?? 'https://npm.pkg.github.com';
+const projectGraph = await createProjectGraphAsync();
+const failures: string[] = [];
 
-process.exit(
-  Object.values(publishResults).every((result) => result.code === 0) ? 0 : 1,
-);
+for (const [, projectNames] of releaseGraph.releaseGroupToFilteredProjects) {
+  for (const projectName of projectNames) {
+    const projectNode = projectGraph.nodes[projectName];
+    if (!projectNode) {
+      console.warn(`Skipping ${projectName} (not in project graph).`);
+      continue;
+    }
+    const projectRoot = projectNode.data.root;
+    const pkgJsonPath = join(process.cwd(), projectRoot, 'package.json');
+    const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8')) as {
+      name: string;
+      version: string;
+      private?: boolean;
+    };
+    if (pkgJson.private === true) {
+      console.log(`Skipping ${pkgJson.name} (private).`);
+      continue;
+    }
+    const args = ['publish', '--tag', npmTag, '--registry', registry];
+    if (dryRun) args.push('--dry-run');
+    console.log(
+      `\n→ ${pkgJson.name}@${pkgJson.version} → ${registry} [tag=${npmTag}]${
+        dryRun ? ' (dry-run)' : ''
+      }`,
+    );
+    try {
+      execSync(`npm ${args.join(' ')}`, {
+        cwd: join(process.cwd(), projectRoot),
+        stdio: verbose ? 'inherit' : ['ignore', 'inherit', 'inherit'],
+      });
+    } catch {
+      failures.push(pkgJson.name);
+    }
+  }
+}
+
+if (failures.length > 0) {
+  console.error(`\nPublish failed for: ${failures.join(', ')}`);
+  process.exit(1);
+}
