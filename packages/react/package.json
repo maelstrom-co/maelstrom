@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/react",
-  "version": "0.0.10-prealpha.0",
+  "version": "0.0.11-prealpha.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -34,9 +34,9 @@
     "access": "restricted"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.0.10-prealpha.0",
-    "@maelstrom-co/protocol": "0.0.10-prealpha.0",
-    "@maelstrom-co/protocol-old": "0.0.10-prealpha.0",
+    "@maelstrom-co/client": "0.0.11-prealpha.0",
+    "@maelstrom-co/protocol": "0.0.11-prealpha.0",
+    "@maelstrom-co/protocol-old": "0.0.11-prealpha.0",
     "@tanstack/react-store": "catalog:"
   },
   "devDependencies": {
