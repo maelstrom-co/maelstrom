@@ -195,7 +195,7 @@ const validChartRequestEnvelope = () => ({
     },
     instances: [],
     vessels: [],
-    layout: { positions: [] },
+    layout: { type: 'grid' as const, positions: [] },
   },
 });
 

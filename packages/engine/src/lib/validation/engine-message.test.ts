@@ -1,10 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
-import { isErr, isOk } from '@maelstrom-co/protocol';
+import { isErr, isOk, type LayoutMode } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../logger.js';
 import { logValidationFailure, validateEngineMessage } from './engine-message.js';
 
+// `layoutMode` is widened to `LayoutMode` (and the layout/instances/vessels
+// typed as `unknown`) so cross-rule tests can mutate either field without
+// per-assignment casts. The fixture defaults are runtime-valid wire payloads;
+// TS-level validation against the schema input shape is intentionally relaxed
+// via `unknown` so individual tests can inject incoherent payloads.
 const validChartRequestEnvelope = () => ({
   type: 'chart_request',
   sessionId: 'sess-1',
@@ -15,11 +20,11 @@ const validChartRequestEnvelope = () => ({
     context: {
       updateReasons: [{ type: 'user_intent', intent: 'hi' }],
       chartDimensions: { rows: 12, columns: 16 },
-      layoutMode: 'grid',
+      layoutMode: 'grid' as LayoutMode,
     },
-    instances: [],
-    vessels: [],
-    layout: { positions: [] },
+    instances: [] as unknown[],
+    vessels: [] as unknown[],
+    layout: { type: 'grid', positions: [] } as unknown,
   },
 });
 
@@ -218,7 +223,6 @@ describe('validateEngineMessage — payload rejections', () => {
     }
   });
 });
-
 describe('logValidationFailure — payload contract', () => {
   type WarnCall = { msg: string; data: Record<string, unknown> | undefined };
 
@@ -272,5 +276,129 @@ describe('logValidationFailure — payload contract', () => {
     if (!isErr(r2)) throw new Error('expected failure');
     logValidationFailure(logger, null, r2.error);
     expect('sessionIdCandidate' in (calls[1]?.data ?? {})).toBe(false);
+  });
+});
+
+describe('validateEngineMessage — cross-validation rejections', () => {
+  test('surfaces a layoutMode↔layout.type mismatch as a payload-layer failure', () => {
+    const env = validChartRequestEnvelope();
+    env.request.layout = { type: 'tiling', tree: [], instances: [] };
+    const result = validateEngineMessage(env);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.layer).toBe('payload');
+      expect(result.error.path).toEqual([
+        'request',
+        'context',
+        'layoutMode',
+      ]);
+    }
+  });
+
+  test('surfaces a missing-vessel reference with a precise instance-indexed path', () => {
+    const env = validChartRequestEnvelope();
+    env.request.instances = [
+      { instanceId: 'cal-1', vesselId: 'unknown', variant: 'default' },
+    ];
+    env.request.layout = {
+      type: 'grid',
+      positions: [
+        {
+          instanceId: 'cal-1',
+          position: { row: 0, column: 0 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+    };
+    const result = validateEngineMessage(env);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      // payload, not envelope, because the path starts with `request.*`
+      expect(result.error.layer).toBe('payload');
+      expect(result.error.path).toEqual([
+        'request',
+        'instances',
+        0,
+        'vesselId',
+      ]);
+    }
+  });
+
+  test('path derivation pins layoutMode mismatch as the headline issue under multi-rule failure', () => {
+    // Both rule 1 (layoutMode↔layout.type) and rule 4 (grid position
+    // references unknown instance) fire. `RequestValidationError.path`
+    // derives from issue order — operations dashboards group on it, so the
+    // order is a contract.
+    const env = validChartRequestEnvelope();
+    env.request.context.layoutMode = 'tiling';
+    env.request.layout = {
+      type: 'grid',
+      positions: [
+        {
+          instanceId: 'ghost-1',
+          position: { row: 0, column: 0 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+    };
+    const result = validateEngineMessage(env);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.layer).toBe('payload');
+      expect(result.error.path).toEqual([
+        'request',
+        'context',
+        'layoutMode',
+      ]);
+      // Headline `path` is rule 1's; the structured issue list still carries
+      // every rule that fired, scoped to `request.*` (the validator runs from
+      // the outer envelope schema).
+      const issuePaths = result.error.issues.map((i) => i.path);
+      expect(issuePaths).toContainEqual([
+        'request',
+        'context',
+        'layoutMode',
+      ]);
+      expect(issuePaths).toContainEqual([
+        'request',
+        'layout',
+        'positions',
+        0,
+        'instanceId',
+      ]);
+    }
+  });
+
+  test('surfaces a tiling tree-leaf failure with the indexed tree path', () => {
+    const env = validChartRequestEnvelope();
+    env.request.context.layoutMode = 'tiling';
+    env.request.layout = {
+      type: 'tiling',
+      tree: ['cal-1', 'ghost-leaf'],
+      instances: [
+        { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+      ],
+    };
+    env.request.vessels = [
+      {
+        id: 'calendar',
+        name: 'calendar',
+        description: 'calendar vessel',
+        defaultVariant: 'default',
+        variants: {
+          default: {
+            props: {},
+            minSize: { width: 1, height: 1 },
+            actions: [],
+          },
+        },
+      },
+    ];
+    const result = validateEngineMessage(env);
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.layer).toBe('payload');
+      expect(result.error.path).toEqual(['request', 'layout', 'tree', 1]);
+    }
   });
 });

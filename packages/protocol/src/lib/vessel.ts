@@ -51,7 +51,13 @@ export const VesselSchema = z
     'Vessel must have at least one variant',
   )
   .superRefine((vessel, ctx) => {
-    if (vessel.defaultVariant && !vessel.variants[vessel.defaultVariant]) {
+    // `Object.hasOwn` rather than truthiness on indexed access — a variant
+    // name like `'toString'` would resolve to `Object.prototype.toString`
+    // (truthy) and silently slip past these existence checks.
+    if (
+      vessel.defaultVariant &&
+      !Object.hasOwn(vessel.variants, vessel.defaultVariant)
+    ) {
       ctx.addIssue({
         code: 'custom',
         message: `Default variant "${vessel.defaultVariant}" does not exist in variants`,
@@ -78,7 +84,10 @@ export const VesselSchema = z
           seenActionNames.add(action.name);
         }
 
-        if (action.transitionsTo && !vessel.variants[action.transitionsTo]) {
+        if (
+          action.transitionsTo &&
+          !Object.hasOwn(vessel.variants, action.transitionsTo)
+        ) {
           ctx.addIssue({
             code: 'custom',
             message: `Action "${action.name}" in variant "${variantName}" transitions to non-existent variant "${action.transitionsTo}"`,

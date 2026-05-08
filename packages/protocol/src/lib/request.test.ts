@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { z } from 'zod';
 
 import { ActionName } from './action-name.js';
 import { InstanceId } from './instance.js';
@@ -11,6 +12,7 @@ import {
   UserIntentReasonSchema,
   VesselMutationReasonSchema,
 } from './request.js';
+import { VesselInstanceSnapshotSchema } from './schemas.js';
 import { VariantName } from './variant-name.js';
 import { VesselId } from './vessel-id.js';
 
@@ -297,7 +299,7 @@ const validChartRequest = () => ({
   },
   instances: [],
   vessels: [],
-  layout: { positions: [] },
+  layout: { type: 'grid' as const, positions: [] },
 });
 
 describe('ChartRequestSchema', () => {
@@ -337,7 +339,7 @@ describe('ChartRequestSchema', () => {
     const tiling = {
       ...req,
       context: { ...req.context, layoutMode: 'tiling' as const },
-      layout: { tree: [], instances: [] },
+      layout: { type: 'tiling' as const, tree: [], instances: [] },
     };
     expect(ChartRequestSchema.safeParse(tiling).success).toBe(true);
   });
@@ -349,6 +351,610 @@ describe('ChartRequestSchema', () => {
     if (result.success) {
       expect('extra' in result.data).toBe(false);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-validation fixture builders
+// ---------------------------------------------------------------------------
+
+// Pinned to the schema's input shape so a future field on
+// `VesselInstanceSnapshotSchema` breaks fixture call sites at compile time.
+type InstanceLiteral = z.input<typeof VesselInstanceSnapshotSchema>;
+
+const minimalVessel = (id: string, variantNames: readonly string[]) => ({
+  id,
+  name: id,
+  description: `${id} vessel`,
+  defaultVariant: variantNames[0],
+  variants: Object.fromEntries(
+    variantNames.map((name) => [
+      name,
+      {
+        props: {},
+        minSize: { width: 1, height: 1 },
+        actions: [],
+      },
+    ]),
+  ),
+});
+
+// `satisfies` pins each builder's return to the schema's input shape, so a
+// fixture mistake (renamed field, missing required key) is a compile error
+// at the builder rather than a runtime parse failure inside a test. Param
+// arrays are mutable — Zod's inferred input shape is mutable, and shallow
+// spreads at the call sites keep callers unaware of the distinction.
+const gridChartRequest = (overrides: {
+  instances?: InstanceLiteral[];
+  vessels?: Array<ReturnType<typeof minimalVessel>>;
+  positions?: Array<{ instanceId: string }>;
+}) =>
+  ({
+    type: 'chart_request' as const,
+    context: {
+      updateReasons: [{ type: 'user_intent', intent: 'show calendar' }],
+      chartDimensions: { rows: 12, columns: 16 },
+      layoutMode: 'grid' as const,
+    },
+    instances: overrides.instances ?? [],
+    vessels: overrides.vessels ?? [],
+    layout: {
+      type: 'grid' as const,
+      positions: (overrides.positions ?? []).map((p) => ({
+        instanceId: p.instanceId,
+        position: { row: 0, column: 0 },
+        size: { width: 1, height: 1 },
+      })),
+    },
+  }) satisfies z.input<typeof ChartRequestSchema>;
+
+// `layoutInstances` is taken at face value rather than mirroring `instances`
+// — the auto-mirror would let rule 5 (subset) silently auto-pass whenever a
+// caller forgot to set it, masking missing test coverage.
+const tilingChartRequest = (overrides: {
+  instances?: InstanceLiteral[];
+  vessels?: Array<ReturnType<typeof minimalVessel>>;
+  layoutInstances?: InstanceLiteral[];
+  tree?: Array<string | null>;
+}) =>
+  ({
+    type: 'chart_request' as const,
+    context: {
+      updateReasons: [{ type: 'user_intent', intent: 'show calendar' }],
+      chartDimensions: { rows: 12, columns: 16 },
+      layoutMode: 'tiling' as const,
+    },
+    instances: overrides.instances ?? [],
+    vessels: overrides.vessels ?? [],
+    layout: {
+      type: 'tiling' as const,
+      tree: overrides.tree ?? [],
+      instances: overrides.layoutInstances ?? [],
+    },
+  }) satisfies z.input<typeof ChartRequestSchema>;
+
+describe('ChartRequestSchema cross-validation', () => {
+  describe('rule 1: layoutMode ↔ layout.type', () => {
+    test('rejects layoutMode=grid with layout.type=tiling', () => {
+      const req = {
+        ...gridChartRequest({}),
+        layout: { type: 'tiling' as const, tree: [], instances: [] },
+      };
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'context.layoutMode' &&
+            /layoutMode is "grid".*layout\.type is "tiling"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+
+    test('rejects layoutMode=tiling with layout.type=grid', () => {
+      const req = {
+        ...tilingChartRequest({}),
+        layout: { type: 'grid' as const, positions: [] },
+      };
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) => i.path.join('.') === 'context.layoutMode',
+        ),
+      ).toBe(true);
+    });
+
+    test('accepts layoutMode=grid with layout.type=grid', () => {
+      expect(
+        ChartRequestSchema.safeParse(gridChartRequest({})).success,
+      ).toBe(true);
+    });
+
+    test('accepts layoutMode=tiling with layout.type=tiling', () => {
+      expect(
+        ChartRequestSchema.safeParse(tilingChartRequest({})).success,
+      ).toBe(true);
+    });
+  });
+
+  describe('layout discriminator (rejects shape ambiguity)', () => {
+    test('rejects a layout missing the type discriminator', () => {
+      const req = {
+        ...gridChartRequest({}),
+        layout: { positions: [] },
+      };
+      expect(ChartRequestSchema.safeParse(req).success).toBe(false);
+    });
+
+    test('rejects an unknown layout.type value', () => {
+      const req = {
+        ...gridChartRequest({}),
+        layout: { type: 'flex', positions: [] },
+      };
+      expect(ChartRequestSchema.safeParse(req).success).toBe(false);
+    });
+
+    test('parses unambiguously when type=grid is set, even with stray tiling fields', () => {
+      const req = {
+        ...gridChartRequest({}),
+        layout: {
+          type: 'grid' as const,
+          positions: [],
+          // Stray tiling-only fields are stripped by the discriminated-union
+          // arm; the discriminator pins the variant.
+          tree: [],
+          instances: [],
+        },
+      };
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error('expected success');
+      expect('tree' in result.data.layout).toBe(false);
+      expect('instances' in result.data.layout).toBe(false);
+    });
+
+    test('parses unambiguously when type=tiling is set, even with stray grid fields', () => {
+      const req = {
+        ...tilingChartRequest({}),
+        layout: {
+          type: 'tiling' as const,
+          tree: [],
+          instances: [],
+          positions: [],
+        },
+      };
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error('expected success');
+      expect('positions' in result.data.layout).toBe(false);
+    });
+  });
+
+  describe('rule 2: instance.vesselId must exist in vessels', () => {
+    test('rejects an instance referencing a missing vessel', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        vessels: [],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'instances.0.vesselId' &&
+            /calendar/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+
+    test('emits one issue per broken instance with correct indexing', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+          { instanceId: 'tasks-1', vesselId: 'tasks', variant: 'default' },
+        ],
+        vessels: [],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      const vesselIssuePaths = result.error.issues
+        .filter((i) => /vesselId/.test(i.path.join('.')))
+        .map((i) => i.path.join('.'));
+      expect(vesselIssuePaths).toEqual([
+        'instances.0.vesselId',
+        'instances.1.vesselId',
+      ]);
+    });
+
+    test('accepts an instance whose vessel is registered', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        vessels: [minimalVessel('calendar', ['default'])],
+        positions: [{ instanceId: 'cal-1' }],
+      });
+      expect(ChartRequestSchema.safeParse(req).success).toBe(true);
+    });
+  });
+
+  describe("rule 3: instance.variant must exist in vessel's variants", () => {
+    test('rejects an instance with a variant the vessel does not declare', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'detail' },
+        ],
+        vessels: [minimalVessel('calendar', ['default'])],
+        positions: [{ instanceId: 'cal-1' }],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'instances.0.variant' &&
+            // Pin the input-side `Instance` label to distinguish from the
+            // tiling layout-side `Layout instance` label that the same
+            // `checkVesselVariantRef` helper emits.
+            /Instance "cal-1".*variant "detail"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+
+    // Without `Object.hasOwn`, the `in` operator walks the prototype chain
+    // and a variant name colliding with `Object.prototype` (e.g. `'toString'`,
+    // `'__proto__'`, `'constructor'`, `'hasOwnProperty'`) would silently
+    // resolve and bypass the rule, letting downstream code dereference an
+    // inherited method as if it were a variant.
+    test.each([
+      'toString',
+      '__proto__',
+      'constructor',
+      'hasOwnProperty',
+      'valueOf',
+    ])('rejects variant=%s (Object.prototype member)', (variant) => {
+      const req = gridChartRequest({
+        instances: [{ instanceId: 'cal-1', vesselId: 'calendar', variant }],
+        vessels: [minimalVessel('calendar', ['default'])],
+        positions: [{ instanceId: 'cal-1' }],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) => i.path.join('.') === 'instances.0.variant',
+        ),
+      ).toBe(true);
+    });
+
+    test('does not check variant when vessel itself is missing', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'detail' },
+        ],
+        vessels: [],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      const variantIssues = result.error.issues.filter(
+        (i) => i.path.join('.') === 'instances.0.variant',
+      );
+      expect(variantIssues).toHaveLength(0);
+    });
+  });
+
+  describe('rule 4: grid positions reference existing instances', () => {
+    test('rejects a position pointing at an unknown instance', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        vessels: [minimalVessel('calendar', ['default'])],
+        positions: [{ instanceId: 'ghost-1' }],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'layout.positions.0.instanceId' &&
+            /ghost-1/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+
+    test('accepts positions whose instanceIds are all in instances', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        vessels: [minimalVessel('calendar', ['default'])],
+        positions: [{ instanceId: 'cal-1' }],
+      });
+      expect(ChartRequestSchema.safeParse(req).success).toBe(true);
+    });
+  });
+
+  describe('rule 5: tiling layout.instances must include all input instances', () => {
+    test('rejects when an input instance is missing from layout.instances', () => {
+      const req = tilingChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        vessels: [minimalVessel('calendar', ['default'])],
+        layoutInstances: [],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'instances.0.instanceId' &&
+            /cal-1/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+
+    test('accepts extras in layout.instances beyond input instances', () => {
+      const req = tilingChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        vessels: [
+          minimalVessel('calendar', ['default']),
+          minimalVessel('tasks', ['default']),
+        ],
+        layoutInstances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+          { instanceId: 'tasks-1', vesselId: 'tasks', variant: 'default' },
+        ],
+      });
+      expect(ChartRequestSchema.safeParse(req).success).toBe(true);
+    });
+  });
+
+  describe('rule 6: duplicate vesselId in vessels', () => {
+    test('rejects two vessels with the same id at the indexed path', () => {
+      const req = gridChartRequest({
+        vessels: [
+          minimalVessel('calendar', ['default']),
+          minimalVessel('calendar', ['default']),
+        ],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'vessels.1.id' &&
+            /Duplicate vessel id "calendar"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('rule 7: duplicate instanceId in instances', () => {
+    test('rejects two instances with the same instanceId at the second occurrence', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        vessels: [minimalVessel('calendar', ['default'])],
+        positions: [{ instanceId: 'cal-1' }],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'instances.1.instanceId' &&
+            /Duplicate instance id "cal-1"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('rule 8: duplicate instanceId in tiling layout.instances', () => {
+    test('rejects duplicate ids in layout.instances at the indexed path', () => {
+      const req = tilingChartRequest({
+        instances: [],
+        vessels: [minimalVessel('calendar', ['default'])],
+        layoutInstances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'layout.instances.1.instanceId' &&
+            /Duplicate layout\.instances id "cal-1"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('rule 9: duplicate instanceId in grid layout.positions', () => {
+    test('rejects two positions referencing the same instance', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        vessels: [minimalVessel('calendar', ['default'])],
+        positions: [{ instanceId: 'cal-1' }, { instanceId: 'cal-1' }],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'layout.positions.1.instanceId' &&
+            /Duplicate grid position for instanceId "cal-1"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('rule 10: layout.instances must reference valid vessel + variant', () => {
+    test('rejects a layout.instances entry with an unknown vesselId', () => {
+      const req = tilingChartRequest({
+        instances: [],
+        vessels: [minimalVessel('calendar', ['default'])],
+        layoutInstances: [
+          { instanceId: 'ghost-1', vesselId: 'unknown', variant: 'default' },
+        ],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'layout.instances.0.vesselId' &&
+            /Layout instance "ghost-1".*unknown.*"unknown"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+
+    test('rejects a layout.instances entry with an unknown variant', () => {
+      const req = tilingChartRequest({
+        instances: [],
+        vessels: [minimalVessel('calendar', ['default'])],
+        layoutInstances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'detail' },
+        ],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'layout.instances.0.variant' &&
+            /Layout instance "cal-1".*variant "detail"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('rule 11: tiling tree leaves must be declared in layout.instances', () => {
+    test('rejects a tree leaf that does not appear in layout.instances', () => {
+      const req = tilingChartRequest({
+        instances: [],
+        vessels: [minimalVessel('calendar', ['default'])],
+        layoutInstances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        tree: ['cal-1', 'ghost-leaf'],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      expect(
+        result.error.issues.some(
+          (i) =>
+            i.path.join('.') === 'layout.tree.1' &&
+            /Tiling tree leaf "ghost-leaf"/.test(i.message),
+        ),
+      ).toBe(true);
+    });
+
+    test('accepts H/V/null tree nodes without flagging', () => {
+      const req = tilingChartRequest({
+        instances: [],
+        vessels: [minimalVessel('calendar', ['default'])],
+        layoutInstances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        tree: ['V', 'cal-1', 'H', null],
+      });
+      expect(ChartRequestSchema.safeParse(req).success).toBe(true);
+    });
+  });
+
+  describe('multi-rule coherence failures surface together', () => {
+    test('a payload that breaks vessel + variant + grid-position rules emits issues for each', () => {
+      const req = gridChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'unknown', variant: 'default' },
+          { instanceId: 'tasks-1', vesselId: 'tasks', variant: 'unknown' },
+        ],
+        vessels: [minimalVessel('tasks', ['default'])],
+        positions: [{ instanceId: 'ghost-1' }],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('instances.0.vesselId');
+      expect(paths).toContain('instances.1.variant');
+      expect(paths).toContain('layout.positions.0.instanceId');
+    });
+
+    test('rule 1 (mode mismatch) does not short-circuit the layout-side checks', () => {
+      // layoutMode=tiling + layout.type=grid with a ghost position: rule 1
+      // fires AND rule 4 (grid position existence) fires. The contract is
+      // that callers learn about every problem in a single parse pass.
+      const req = {
+        ...tilingChartRequest({}),
+        layout: {
+          type: 'grid' as const,
+          positions: [
+            {
+              instanceId: 'ghost-1',
+              position: { row: 0, column: 0 },
+              size: { width: 1, height: 1 },
+            },
+          ],
+        },
+      };
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('context.layoutMode');
+      expect(paths).toContain('layout.positions.0.instanceId');
+    });
+
+    test('a tiling payload breaking layout.instances coherence + subset + tree-leaf rules emits all three', () => {
+      const req = tilingChartRequest({
+        instances: [
+          { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
+        ],
+        vessels: [minimalVessel('calendar', ['default'])],
+        layoutInstances: [
+          { instanceId: 'tasks-1', vesselId: 'unknown', variant: 'default' },
+        ],
+        tree: ['ghost-leaf'],
+      });
+      const result = ChartRequestSchema.safeParse(req);
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected failure');
+      const paths = result.error.issues.map((i) => i.path.join('.'));
+      expect(paths).toContain('layout.instances.0.vesselId');
+      expect(paths).toContain('instances.0.instanceId');
+      expect(paths).toContain('layout.tree.0');
+    });
   });
 });
 

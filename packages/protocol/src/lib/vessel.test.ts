@@ -152,6 +152,54 @@ describe('validateVessel', () => {
     ).toBe(true);
   });
 
+  // Without `Object.hasOwn`, indexing `vessel.variants[key]` returns the
+  // matching `Object.prototype` member (truthy) for keys like `'toString'` /
+  // `'__proto__'` / `'constructor'`, silently bypassing the existence check.
+  describe('Object.prototype member names', () => {
+    test.each(['toString', '__proto__', 'constructor', 'hasOwnProperty'])(
+      'rejects defaultVariant=%s',
+      (defaultVariant) => {
+        const result = validateVessel({ ...validVessel, defaultVariant });
+        expect(result.valid).toBe(false);
+        if (result.valid) throw new Error('expected invalid result');
+        expect(
+          result.issues.some((i) =>
+            /Default variant .* does not exist/.test(i.message),
+          ),
+        ).toBe(true);
+      },
+    );
+
+    test.each(['toString', '__proto__', 'constructor'])(
+      'rejects transitionsTo=%s',
+      (transitionsTo) => {
+        const result = validateVessel({
+          ...validVessel,
+          variants: {
+            month: {
+              props: {},
+              minSize: { width: 4, height: 4 },
+              actions: [
+                {
+                  name: 'showMissing',
+                  description: 'transitions to a prototype member',
+                  transitionsTo,
+                },
+              ],
+            },
+          },
+        });
+        expect(result.valid).toBe(false);
+        if (result.valid) throw new Error('expected invalid result');
+        expect(
+          result.issues.some((i) =>
+            /transitions to non-existent variant/.test(i.message),
+          ),
+        ).toBe(true);
+      },
+    );
+  });
+
   test('rejects a vessel with an empty id', () => {
     const result = validateVessel({ ...validVessel, id: '' });
     expect(result.valid).toBe(false);
