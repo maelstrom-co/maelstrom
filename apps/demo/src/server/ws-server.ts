@@ -89,7 +89,7 @@ function getDemoVoiceProviderKeys(): {
 }
 
 function toVoiceErrorMessage(
-  sessionId: string,
+  sessionId: SessionId,
   error: unknown,
   metadata?: VoiceErrorMetadata,
 ) {

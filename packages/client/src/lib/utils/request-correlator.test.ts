@@ -2,18 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { MessageId, type MaelstromResponse } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
+import { createMockEmptyResponse } from '../../../test-utils/mocks.js';
 import { RequestCorrelator } from './request-correlator.js';
-
-function createMockResponse(id: string, message: string): MaelstromResponse {
-  return {
-    type: 'maelstrom_response',
-    requestId: MessageId(id),
-    userMessage: message,
-    rationale: 'test',
-    executionPlan: [],
-    layout: { type: 'grid', positions: [] },
-  };
-}
 
 describe('RequestCorrelator', () => {
   let clock: ReturnType<typeof FakeTimers.install>;
@@ -39,7 +29,7 @@ describe('RequestCorrelator', () => {
 
     it('should resolve when response arrives', async () => {
       const correlator = new RequestCorrelator();
-      const expectedResponse = createMockResponse('req-1', 'test');
+      const expectedResponse = createMockEmptyResponse(MessageId('req-1'), 'test');
 
       let resolved = false;
       let result: MaelstromResponse | undefined;
@@ -87,7 +77,7 @@ describe('RequestCorrelator', () => {
   describe('resolve', () => {
     it('should resolve pending request and return true', () => {
       const correlator = new RequestCorrelator();
-      const response = createMockResponse('req-1', 'test');
+      const response = createMockEmptyResponse(MessageId('req-1'), 'test');
 
       correlator.create(MessageId('req-1'), 1000);
       const result = correlator.resolve(MessageId('req-1'), response);
@@ -98,7 +88,7 @@ describe('RequestCorrelator', () => {
 
     it('should return false for unknown request ID', () => {
       const correlator = new RequestCorrelator();
-      const response = createMockResponse('unknown', 'test');
+      const response = createMockEmptyResponse(MessageId('unknown'), 'test');
 
       const result = correlator.resolve(MessageId('unknown'), response);
 
@@ -107,7 +97,7 @@ describe('RequestCorrelator', () => {
 
     it('should clear timeout when resolving', async () => {
       const correlator = new RequestCorrelator();
-      const response = createMockResponse('req-1', 'test');
+      const response = createMockEmptyResponse(MessageId('req-1'), 'test');
 
       let resolved = false;
       let result: MaelstromResponse | undefined;
@@ -280,7 +270,7 @@ describe('RequestCorrelator', () => {
       correlator.create(MessageId('req-1'), 1000);
       correlator.resolve(
         MessageId('req-1'),
-        createMockResponse('req-1', 'test'),
+        createMockEmptyResponse(MessageId('req-1'), 'test'),
       );
 
       expect(correlator.has(MessageId('req-1'))).toBe(false);
@@ -301,7 +291,7 @@ describe('RequestCorrelator', () => {
 
       correlator.resolve(
         MessageId('req-1'),
-        createMockResponse('req-1', 'test'),
+        createMockEmptyResponse(MessageId('req-1'), 'test'),
       );
       expect(correlator.pendingCount).toBe(1);
     });
@@ -356,21 +346,21 @@ describe('RequestCorrelator', () => {
       clock.setTimeout(() => {
         correlator.resolve(
           MessageId('req-2'),
-          createMockResponse('req-2', 'response-2'),
+          createMockEmptyResponse(MessageId('req-2'), 'response-2'),
         );
       }, 10);
 
       clock.setTimeout(() => {
         correlator.resolve(
           MessageId('req-1'),
-          createMockResponse('req-1', 'response-1'),
+          createMockEmptyResponse(MessageId('req-1'), 'response-1'),
         );
       }, 20);
 
       clock.setTimeout(() => {
         correlator.resolve(
           MessageId('req-3'),
-          createMockResponse('req-3', 'response-3'),
+          createMockEmptyResponse(MessageId('req-3'), 'response-3'),
         );
       }, 30);
 
@@ -406,7 +396,7 @@ describe('RequestCorrelator', () => {
       clock.setTimeout(() => {
         correlator.resolve(
           MessageId('req-1'),
-          createMockResponse('req-1', 'response-1'),
+          createMockEmptyResponse(MessageId('req-1'), 'response-1'),
         );
       }, 10);
 

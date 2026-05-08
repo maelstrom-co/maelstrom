@@ -12,7 +12,9 @@
  */
 
 import type { ChartRequestMessage } from './engine-message.js';
+import type { MessageId } from './message.js';
 import type { MaelstromResponse } from './response.js';
+import type { SessionId } from './session.js';
 
 export const voiceProviderErrorKinds = [
   'auth',
@@ -40,7 +42,7 @@ interface TimeEvent {
  */
 export interface AudioInputMessage extends TimeEvent {
   type: 'client.audio_capture.audio_sent';
-  sessionId: string;
+  sessionId: SessionId;
   /** Audio data as bytes (opus-encoded recommended) */
   data: Uint8Array;
   /** Sample rate in Hz (e.g., 16000) */
@@ -59,7 +61,7 @@ export interface AudioInputMessage extends TimeEvent {
  */
 export interface StartListeningMessage extends TimeEvent {
   type: 'client.audio_capture.ready';
-  sessionId: string;
+  sessionId: SessionId;
   /** Language hint for STT (e.g., 'en', 'es') */
   language?: string;
   /** Enable interim results (default: true) */
@@ -72,7 +74,7 @@ export interface StartListeningMessage extends TimeEvent {
  */
 export interface StopListeningMessage extends TimeEvent {
   type: 'client.audio_capture.closed';
-  sessionId: string;
+  sessionId: SessionId;
 }
 
 // ============================================================================
@@ -85,7 +87,7 @@ export interface StopListeningMessage extends TimeEvent {
  */
 export interface TranscriptMessage extends TimeEvent {
   type: 'engine.stt.transcript';
-  sessionId: string;
+  sessionId: SessionId;
   text: string;
   /** Whether this is the final result */
   isFinal: boolean;
@@ -107,7 +109,7 @@ export interface TranscriptMessage extends TimeEvent {
  */
 export interface AudioOutputMessage extends TimeEvent {
   type: 'engine.tts.sent';
-  sessionId: string;
+  sessionId: SessionId;
   data: Uint8Array;
   /** Audio format (e.g., 'opus', 'mp3') */
   format: string;
@@ -125,7 +127,7 @@ export interface AudioOutputMessage extends TimeEvent {
  */
 export interface SpeechStartedMessage extends TimeEvent {
   type: 'client.audio_playback.started';
-  sessionId: string;
+  sessionId: SessionId;
   /** Full text being spoken */
   text: string;
   /** Voice ID used */
@@ -137,7 +139,7 @@ export interface SpeechStartedMessage extends TimeEvent {
  */
 export interface SpeechStoppedMessage extends TimeEvent {
   type: 'client.audio_playback.stopped';
-  sessionId: string;
+  sessionId: SessionId;
   /** Whether speech completed naturally or was interrupted */
   completed: boolean;
   /** Total duration of speech in seconds before it was interrupted */
@@ -154,7 +156,7 @@ export interface SpeechStoppedMessage extends TimeEvent {
  */
 export interface VoiceStateMessage extends TimeEvent {
   type: 'engine.voice.state';
-  sessionId: string;
+  sessionId: SessionId;
   state: 'idle' | 'listening' | 'processing' | 'speaking';
   previousState?: 'idle' | 'listening' | 'processing' | 'speaking';
 }
@@ -169,7 +171,7 @@ export interface VoiceStateMessage extends TimeEvent {
  */
 export interface VoiceReadyMessage extends TimeEvent {
   type: 'engine.stt.ready';
-  sessionId: string;
+  sessionId: SessionId;
 }
 
 /**
@@ -181,9 +183,8 @@ export interface VoiceReadyMessage extends TimeEvent {
  */
 export interface VoiceErrorMessage extends TimeEvent {
   type: 'engine.error';
-  sessionId: string;
-  /** Correlation handle for chart_request errors. */
-  requestId?: string;
+  sessionId: SessionId;
+  requestId?: MessageId;
   error: string;
   kind?: VoiceProviderErrorKind;
   source?: 'stt' | 'tts';
@@ -196,9 +197,9 @@ export interface VoiceErrorMessage extends TimeEvent {
  */
 export interface SpeakMessageCommand extends TimeEvent {
   type: 'client.voice.speak';
-  sessionId: string;
+  sessionId: SessionId;
   /** Unique message identifier. Used for deduplication and history correlation. */
-  id: string;
+  id: MessageId;
   /** Text to speak and add to history */
   text: string;
 }
@@ -210,9 +211,9 @@ export interface SpeakMessageCommand extends TimeEvent {
  */
 export interface AddAssistantMessageCommand extends TimeEvent {
   type: 'client.history.add_assistant_message';
-  sessionId: string;
+  sessionId: SessionId;
   /** Unique message identifier. Used for deduplication and history correlation. */
-  id: string;
+  id: MessageId;
   /** Text to add to conversation history */
   message: string;
 }
@@ -238,28 +239,28 @@ export interface MaelstromProcessMessageCommand extends TimeEvent {
  */
 export interface MaelstromResponseMessage {
   type: 'engine.maelstrom.response';
-  sessionId: string;
-  requestId: string;
+  sessionId: SessionId;
+  requestId: MessageId;
   response: MaelstromResponse;
 }
 
 /**
- * VAD events sent from server to client when speech boundaries are detected.
- * Allows client to visualize speech activity in real-time.
+ * VAD event sent from client to server when local VAD detects the start of
+ * user speech. Lets the server track speech boundaries for processing.
  */
 export interface VADSpeechStartMessage {
   type: 'client.vad.speech_start';
-  sessionId: string;
+  sessionId: SessionId;
   timestamp: number;
 }
 
 /**
- * VAD event sent when silence is detected after speech.
- * Allows client to visualize end of speech activity.
+ * VAD event sent from client to server when local VAD detects the end of
+ * user speech (silence threshold met). Lets the server finalize the turn.
  */
 export interface VADSpeechEndMessage {
   type: 'client.vad.speech_end';
-  sessionId: string;
+  sessionId: SessionId;
   timestamp: number;
 }
 

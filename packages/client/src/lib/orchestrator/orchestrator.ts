@@ -214,6 +214,7 @@ export class Orchestrator {
   // ==========================================================================
 
   async addAssistantMessage(message: string): Promise<void> {
+    this.#logger.info('Injecting assistant message');
     const assistantMessage: AssistantMessage = {
       id: MessageId(),
       message,

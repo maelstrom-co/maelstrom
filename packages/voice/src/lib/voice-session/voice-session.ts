@@ -26,6 +26,7 @@
  */
 import {
   MessageId,
+  type SessionId,
   type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
 import { VoiceError } from '@maelstrom-co/protocol-old';
@@ -76,8 +77,12 @@ interface BaseVoiceSessionConfig {
    */
   interimResults?: boolean;
 
-  /** Correlation ID for server-side session tracking. */
-  sessionId?: string;
+  /**
+   * Correlation ID for server-side session tracking. Construct via the
+   * `SessionId` smart constructor — `SessionId()` mints a fresh ID;
+   * `SessionId(value)` brands an existing string.
+   */
+  sessionId: SessionId;
 
   /**
    * Configuration for the VAD stream processing.
@@ -787,7 +792,7 @@ export class VoiceSession {
     try {
       this.#config.connector.sendVoiceMessage({
         type: 'client.vad.speech_start',
-        sessionId: this.#config.sessionId ?? 'unknown',
+        sessionId: this.#config.sessionId,
         timestamp: performance.now(),
       });
 
@@ -834,7 +839,7 @@ export class VoiceSession {
     try {
       this.#config.connector.sendVoiceMessage({
         type: 'client.vad.speech_end',
-        sessionId: this.#config.sessionId ?? 'unknown',
+        sessionId: this.#config.sessionId,
         timestamp: performance.now(),
       });
     } catch (err) {
@@ -1168,7 +1173,7 @@ export class VoiceSession {
       try {
         this.#config.connector.sendVoiceMessage({
           type: 'client.vad.speech_end',
-          sessionId: this.#config.sessionId ?? 'unknown',
+          sessionId: this.#config.sessionId,
           timestamp: performance.now(),
         });
       } catch (err) {

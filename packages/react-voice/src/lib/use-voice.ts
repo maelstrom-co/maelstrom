@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { SessionId } from '@maelstrom-co/protocol';
 import type { MaelstromExtensionContext } from '@maelstrom-co/react';
 import { warnOnce } from '@maelstrom-co/react';
 import type { VoiceSession, VoiceSessionConfig } from '@maelstrom-co/voice';
@@ -123,7 +124,7 @@ export function createUseVoice(contextPair: MaelstromExtensionContext) {
           // true the connector implements the full VoiceConnector surface.
           const baseConfig = {
             connector: connector as VoiceSessionConfig['connector'],
-            sessionId: 'default',
+            sessionId: SessionId('default'),
             ...(opts.language && { language: opts.language }),
             useVadToFinalizeInterims: opts.useVadToFinalizeInterims ?? true,
             allowBargeIn: opts.allowBargeIn ?? true,

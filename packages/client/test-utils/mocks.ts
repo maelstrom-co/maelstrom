@@ -29,3 +29,21 @@ export const createMockLayout = (instanceId: string): TilingLayout => ({
     },
   ],
 });
+
+/**
+ * Lightweight response for routing/correlation tests where layout and
+ * execution plan are not under test. `userMessage` is parameterized so
+ * concurrent-request tests can assert that responses route to the right
+ * caller by content.
+ */
+export const createMockEmptyResponse = (
+  requestId: MessageId,
+  userMessage = 'ok',
+): MaelstromResponse => ({
+  type: 'maelstrom_response',
+  requestId,
+  userMessage,
+  rationale: 'test',
+  executionPlan: [],
+  layout: { type: 'tiling', tree: [], instances: [] },
+});

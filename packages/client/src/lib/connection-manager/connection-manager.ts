@@ -116,9 +116,11 @@ export class ConnectionManager {
 
     try {
       await this.#connector.disconnect();
-    } catch {
-      // Best-effort: update state to disconnected even if the connector
-      // fails to close cleanly (e.g. transport already gone).
+    } catch (err) {
+      // Best-effort: state must reach 'disconnected' even when the connector
+      // throws (e.g. transport already gone). Warn rather than escalate —
+      // the caller already wanted disconnect.
+      this.#logger.warn('Connector disconnect failed', err);
     }
 
     this.store.setState((state) => ({

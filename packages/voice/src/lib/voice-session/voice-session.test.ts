@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   MessageId,
+  SessionId,
   type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
 
@@ -392,7 +393,7 @@ describe('VoiceSession', () => {
         language: 'es',
         interimResults: false,
         greeting: 'Hola!',
-        sessionId: 'test-session-123',
+        sessionId: SessionId('test-session-123'),
         debugMode: false,
       });
 
@@ -406,9 +407,10 @@ describe('VoiceSession', () => {
       // Verify the type signature works with config-only properties.
       const config = {
         connector: mockConnector,
+        sessionId: SessionId('test'),
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
-      };
+      } satisfies VoiceSessionConfig;
 
       // Ensure extra callback-style properties are not in VoiceSessionConfig
       const hasOnTranscript = 'onTranscript' in config;
@@ -425,6 +427,7 @@ describe('VoiceSession', () => {
 
     it('uses default values for optional config', () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -448,6 +451,7 @@ describe('VoiceSession', () => {
   describe('initial state', () => {
     it('starts in idle state', () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -465,6 +469,7 @@ describe('VoiceSession', () => {
 
     it('isAudioReady is false before prepareAudio()', () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -483,6 +488,7 @@ describe('VoiceSession', () => {
   describe('event system', () => {
     it('on() returns an unsubscribe function that works', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -508,6 +514,7 @@ describe('VoiceSession', () => {
 
     it('multiple listeners on same event all fire', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -541,6 +548,7 @@ describe('VoiceSession', () => {
     it('catchall on("event") receives VoiceEvent discriminated unions', async () => {
       const events: VoiceEvent[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -553,7 +561,7 @@ describe('VoiceSession', () => {
       // Trigger a transcript event
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Hello',
         isFinal: true,
         timestamp: Date.now(),
@@ -583,6 +591,7 @@ describe('VoiceSession', () => {
       const catchallEvents: VoiceEvent[] = [];
 
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -595,7 +604,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Both fire',
         isFinal: true,
         timestamp: Date.now(),
@@ -612,6 +621,7 @@ describe('VoiceSession', () => {
 
     it('unsubscribing one listener does not affect others', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -646,6 +656,7 @@ describe('VoiceSession', () => {
     it('emits transcript events via on()', async () => {
       const transcripts: { text: string; isFinal: boolean }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -659,7 +670,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Test',
         isFinal: true,
         timestamp: Date.now(),
@@ -673,6 +684,7 @@ describe('VoiceSession', () => {
     it('emits error events via on()', () => {
       const errors: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -682,7 +694,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.error',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         error: 'Network failure',
         timestamp: Date.now(),
       });
@@ -695,6 +707,7 @@ describe('VoiceSession', () => {
     it('emits response events via on()', () => {
       const responses: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -704,8 +717,8 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.maelstrom.response',
-        sessionId: 'test',
-        requestId: 'req-456',
+        sessionId: SessionId('test'),
+        requestId: MessageId('req-456'),
         response: {
           type: 'maelstrom_response',
           requestId: MessageId('req-456'),
@@ -729,6 +742,7 @@ describe('VoiceSession', () => {
   describe('prepareAudio()', () => {
     it('sets isAudioReady to true after successful preparation', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -743,6 +757,7 @@ describe('VoiceSession', () => {
 
     it('deduplicates concurrent prepareAudio() calls', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -765,6 +780,7 @@ describe('VoiceSession', () => {
 
       const errors: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -788,6 +804,7 @@ describe('VoiceSession', () => {
       };
 
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -812,6 +829,7 @@ describe('VoiceSession', () => {
     it('transitions to listening state', async () => {
       const states: VoiceSessionState[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -830,6 +848,7 @@ describe('VoiceSession', () => {
 
     it('auto-prepares audio if not already ready', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -848,6 +867,7 @@ describe('VoiceSession', () => {
     it('is idempotent when already listening', async () => {
       const states: VoiceSessionState[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -867,6 +887,7 @@ describe('VoiceSession', () => {
 
     it('notifies connector to start listening with config', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -886,6 +907,7 @@ describe('VoiceSession', () => {
     it('transitions back to idle state', async () => {
       const states: VoiceSessionState[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -905,6 +927,7 @@ describe('VoiceSession', () => {
 
     it('is safe to call when not listening', () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -921,6 +944,7 @@ describe('VoiceSession', () => {
 
     it('notifies connector to stop listening', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -944,6 +968,7 @@ describe('VoiceSession', () => {
     it('updates transcript on interim results', async () => {
       const transcripts: { text: string; isFinal: boolean }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -957,7 +982,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Hello',
         isFinal: false,
         timestamp: Date.now(),
@@ -971,6 +996,7 @@ describe('VoiceSession', () => {
 
     it('clears transcript on final result', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -980,7 +1006,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Hello world',
         isFinal: false,
         timestamp: Date.now(),
@@ -989,7 +1015,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Hello world!',
         isFinal: true,
         timestamp: Date.now(),
@@ -1002,6 +1028,7 @@ describe('VoiceSession', () => {
     it('synthesizes final transcript after silence timeout', async () => {
       const transcripts: { text: string; isFinal: boolean }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -1018,7 +1045,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'show my lab results',
         isFinal: false,
         timestamp: Date.now(),
@@ -1038,6 +1065,7 @@ describe('VoiceSession', () => {
     it('deduplicates late server final after synthetic finalization', async () => {
       const transcripts: { text: string; isFinal: boolean }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -1054,7 +1082,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'open lab results',
         isFinal: false,
         timestamp: Date.now(),
@@ -1064,7 +1092,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Open lab results.',
         isFinal: true,
         timestamp: Date.now(),
@@ -1081,6 +1109,7 @@ describe('VoiceSession', () => {
     it('does not synthesize final when useVadToFinalizeInterims is false', async () => {
       const transcripts: { text: string; isFinal: boolean }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         useVadToFinalizeInterims: false,
@@ -1098,7 +1127,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'latest interim only',
         isFinal: false,
         timestamp: Date.now(),
@@ -1127,6 +1156,7 @@ describe('VoiceSession', () => {
       };
 
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1135,7 +1165,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
 
@@ -1170,6 +1200,7 @@ describe('VoiceSession', () => {
       // at compile time. The runtime gate is the second layer that protects
       // callers who bypass the type system (JS, `any`, dynamic config).
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         vadOptions: { activationThreshold: 0.8 },
         greeting: 'Hello! How can I help you?',
@@ -1178,7 +1209,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
 
@@ -1195,6 +1226,7 @@ describe('VoiceSession', () => {
 
     it('does not acquire mic on server ready when autoAcquireMic is false', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: false,
         vadOptions: { activationThreshold: 0.8 },
@@ -1202,7 +1234,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
 
@@ -1215,6 +1247,7 @@ describe('VoiceSession', () => {
 
     it('manual gesture: startListening() after server ready acquires mic when autoAcquireMic is false', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: false,
         vadOptions: { activationThreshold: 0.8 },
@@ -1222,7 +1255,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
       await flush();
@@ -1251,6 +1284,7 @@ describe('VoiceSession', () => {
       };
 
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1259,7 +1293,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
       await flush();
@@ -1277,7 +1311,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
       await flush();
@@ -1292,6 +1326,7 @@ describe('VoiceSession', () => {
 
     it('does not send greeting if not configured', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1299,7 +1334,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
 
@@ -1321,6 +1356,7 @@ describe('VoiceSession', () => {
 
       const events: { type: string; needsGesture: boolean }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1332,7 +1368,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
 
@@ -1357,6 +1393,7 @@ describe('VoiceSession', () => {
 
       const events: { type: string; needsGesture: boolean }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1368,7 +1405,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
       await flush();
@@ -1402,6 +1439,7 @@ describe('VoiceSession', () => {
 
       const events: { type: string; needsGesture: boolean }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1413,7 +1451,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
       await flush();
@@ -1473,6 +1511,7 @@ describe('VoiceSession', () => {
 
       const events: { type: string; needsGesture: boolean }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1484,7 +1523,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
       await flush();
@@ -1509,6 +1548,7 @@ describe('VoiceSession', () => {
       };
 
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1517,7 +1557,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.ready',
-        sessionId: 'test-session',
+        sessionId: SessionId('test-session'),
         timestamp: Date.now(),
       });
       await flush();
@@ -1542,6 +1582,7 @@ describe('VoiceSession', () => {
     it('sets error state on server error', () => {
       const errors: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1551,7 +1592,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.error',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         error: 'Something went wrong',
         timestamp: Date.now(),
       });
@@ -1567,6 +1608,7 @@ describe('VoiceSession', () => {
       console.error = () => {};
 
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1583,7 +1625,7 @@ describe('VoiceSession', () => {
       expect(() => {
         mockConnector.simulateVoiceMessage({
           type: 'engine.error',
-          sessionId: 'test',
+          sessionId: SessionId('test'),
           error: 'Something went wrong',
           timestamp: Date.now(),
         });
@@ -1597,6 +1639,7 @@ describe('VoiceSession', () => {
 
     it('transitions to error state and emits stateChange on error', () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1607,7 +1650,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.error',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         error: 'boom',
         timestamp: Date.now(),
       });
@@ -1621,6 +1664,7 @@ describe('VoiceSession', () => {
     it('surfaces AudioPlayback errors via session error event', async () => {
       const errors: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1660,6 +1704,7 @@ describe('VoiceSession', () => {
     it('emits response event with userMessage and requestId', () => {
       const responses: { userMessage?: string; requestId: string }[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1669,8 +1714,8 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.maelstrom.response',
-        sessionId: 'test',
-        requestId: 'req-123',
+        sessionId: SessionId('test'),
+        requestId: MessageId('req-123'),
         response: {
           type: 'maelstrom_response',
           requestId: MessageId('req-123'),
@@ -1697,6 +1742,7 @@ describe('VoiceSession', () => {
     it('transitions to speaking when audio received', async () => {
       const states: VoiceSessionState[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1736,6 +1782,7 @@ describe('VoiceSession', () => {
 
       const errors: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1767,6 +1814,7 @@ describe('VoiceSession', () => {
   describe('interrupt()', () => {
     it('stops playback and transitions state', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1789,6 +1837,7 @@ describe('VoiceSession', () => {
 
     it('drops stale audio after interrupt until new speaking turn', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1816,7 +1865,7 @@ describe('VoiceSession', () => {
       // New turn from server re-enables audio
       mockConnector.simulateVoiceMessage({
         type: 'engine.tts.sent',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Fresh response',
         timestamp: Date.now(),
         data: new Uint8Array(0),
@@ -1836,6 +1885,7 @@ describe('VoiceSession', () => {
 
     it('is safe to call when not speaking', () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1855,6 +1905,7 @@ describe('VoiceSession', () => {
   describe('state machine', () => {
     it('returns idle when nothing is active', () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1867,6 +1918,7 @@ describe('VoiceSession', () => {
 
     it('returns listening when isListening=true', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1881,6 +1933,7 @@ describe('VoiceSession', () => {
 
     it('speaking takes priority over listening', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1902,6 +1955,7 @@ describe('VoiceSession', () => {
     it('stateChange events fire on transitions', async () => {
       const states: VoiceSessionState[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1931,6 +1985,7 @@ describe('VoiceSession', () => {
     it('transitions idle -> listening -> idle via start/stop', async () => {
       const states: VoiceSessionState[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1961,6 +2016,7 @@ describe('VoiceSession', () => {
   describe('destroy()', () => {
     it('cleans up all resources and clears listeners', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -1979,7 +2035,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Should be ignored',
         isFinal: false,
         timestamp: Date.now(),
@@ -1990,6 +2046,7 @@ describe('VoiceSession', () => {
 
     it('is safe to call multiple times', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -2010,6 +2067,7 @@ describe('VoiceSession', () => {
   describe('debug mode', () => {
     it('does not throw with debugMode enabled', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -2020,7 +2078,7 @@ describe('VoiceSession', () => {
 
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'Debug test',
         isFinal: true,
         timestamp: Date.now(),
@@ -2062,6 +2120,7 @@ describe('VoiceSession', () => {
   describe('VAD-triggered paths', () => {
     it('barge-in via VAD speech start stops playback', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -2097,6 +2156,7 @@ describe('VoiceSession', () => {
 
     it('ignores VAD speech start during playback when allowBargeIn is false', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         allowBargeIn: false,
@@ -2133,6 +2193,7 @@ describe('VoiceSession', () => {
 
     it('buffered audio is forwarded to connector on VAD speech start', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -2163,6 +2224,7 @@ describe('VoiceSession', () => {
 
     it('isListening is restored to true after playback ends', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -2192,6 +2254,7 @@ describe('VoiceSession', () => {
 
     it('late playbackEnd does not revive isListening after stopListening', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: { activationThreshold: 0.8 },
@@ -2220,6 +2283,7 @@ describe('VoiceSession', () => {
     it('VAD errors are surfaced via the error event', async () => {
       const errors: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -2252,6 +2316,7 @@ describe('VoiceSession', () => {
     it('sendAudioChunk error in capture callback is surfaced via #setError', async () => {
       const errors: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -2288,6 +2353,7 @@ describe('VoiceSession', () => {
     it('sendVoiceMessage error in #handleVadSpeechStart is surfaced via #setError', async () => {
       const errors: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -2319,6 +2385,7 @@ describe('VoiceSession', () => {
 
     it('rolls back userIsTalking when connector throws in speech start', async () => {
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -2349,6 +2416,7 @@ describe('VoiceSession', () => {
     it('sendVoiceMessage error in #handleVadSpeechEnd is surfaced via #setError', async () => {
       const errors: unknown[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -2388,6 +2456,7 @@ describe('VoiceSession', () => {
     it('VAD speech-end → transcript finalization via scheduleInterimFinalize', async () => {
       const events: VoiceEvent[] = [];
       const session = new VoiceSession({
+        sessionId: SessionId('test'),
         connector: mockConnector,
         autoAcquireMic: true,
         vadOptions: {
@@ -2412,7 +2481,7 @@ describe('VoiceSession', () => {
       // 2. Send an interim transcript while user is talking
       mockConnector.simulateVoiceMessage({
         type: 'engine.stt.transcript',
-        sessionId: 'test',
+        sessionId: SessionId('test'),
         text: 'hello world',
         isFinal: false,
         timestamp: Date.now(),

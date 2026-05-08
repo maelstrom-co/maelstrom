@@ -579,6 +579,29 @@ describe('ConnectionManager', () => {
       expect(manager.store.state.connectionStatus).toBe('disconnected');
     });
 
+    it('should warn-log when connector.disconnect() throws', async () => {
+      await manager.connect();
+      const disconnectError = new Error('Transport already gone');
+      mockConnector.disconnect = mock(() => Promise.reject(disconnectError));
+
+      const originalWarn = console.warn;
+      const warnSpy = mock((..._args: unknown[]) => {});
+      console.warn = warnSpy;
+
+      try {
+        await manager.disconnect();
+      } finally {
+        console.warn = originalWarn;
+      }
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0]).toEqual([
+        '[ConnectionManager]',
+        'Connector disconnect failed',
+        disconnectError,
+      ]);
+    });
+
     it('should reset retry count on disconnect', async () => {
       const error = new Error('Connection failed');
       mockConnector.connect = mock(() => Promise.reject(error));
