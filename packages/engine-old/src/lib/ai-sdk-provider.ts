@@ -67,12 +67,7 @@ function createProvider(adapter: AnyTextAdapter): LLMProvider {
  * transport-agnostic inside the engine.
  */
 export function createOpenAIProvider(model: OpenAIChatModel): LLMProvider {
-  // `openaiText(model)` returns `OpenAITextAdapter<…>` whose `chatStream`
-  // signature does not structurally unify with `AnyTextAdapter.chatStream`
-  // exposed by `@tanstack/ai@0.14`. The peer-dep is satisfied at runtime;
-  // the mismatch is purely at the type level and the latest published
-  // `@tanstack/ai-openai` (0.8.2) predates the 0.14 adapter rework.
-  return createProvider(openaiText(model) as unknown as AnyTextAdapter);
+  return createProvider(openaiText(model));
 }
 
 /**
