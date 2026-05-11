@@ -1,9 +1,5 @@
-import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { releaseChangelog, releaseVersion } from 'nx/release';
-import { createProjectGraphAsync } from 'nx/src/project-graph/project-graph';
 import {
   gitCommit,
   gitPush,
@@ -16,6 +12,7 @@ import {
   handleDuplicateGitTags,
 } from 'nx/src/command-line/release/utils/shared';
 import { createRemoteReleaseClient } from 'nx/src/command-line/release/utils/remote-release-clients/remote-release-client';
+import { publishWorkspacePackages } from './publish-packages.ts';
 
 const { values } = parseArgs({
   options: {
@@ -121,52 +118,24 @@ if (values['skip-publish']) {
   process.exit(0);
 }
 
-// Step 7: Publish each non-private project directly with `npm publish`.
-// We bypass Nx's `releasePublish` because its dist-tag pre-check runs
+// Step 7: Publish each non-private project. The publish step bypasses Nx's
+// `releasePublish` because its dist-tag pre-check runs
 // `npm view <pkg> versions dist-tags --json` against the registry; GitHub
 // Packages returns a manifest with an empty `_id`, npm 10.x silently emits
 // no output for that, and Nx then `JSON.parse('')` throws "Unexpected EOF".
+// `publishWorkspacePackages` also rewrites `workspace:*` and `catalog:`
+// specs to concrete versions in the manifest before `npm publish`, which
+// neither npm nor a from-package-dir invocation does for us.
 const npmTag = preid ?? 'latest';
 const registry =
   process.env.RELEASE_REGISTRY ?? 'https://npm.pkg.github.com';
-const projectGraph = await createProjectGraphAsync();
-const failures: string[] = [];
 
-for (const [, projectNames] of releaseGraph.releaseGroupToFilteredProjects) {
-  for (const projectName of projectNames) {
-    const projectNode = projectGraph.nodes[projectName];
-    if (!projectNode) {
-      console.warn(`Skipping ${projectName} (not in project graph).`);
-      continue;
-    }
-    const projectRoot = projectNode.data.root;
-    const pkgJsonPath = join(process.cwd(), projectRoot, 'package.json');
-    const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8')) as {
-      name: string;
-      version: string;
-      private?: boolean;
-    };
-    if (pkgJson.private === true) {
-      console.log(`Skipping ${pkgJson.name} (private).`);
-      continue;
-    }
-    const args = ['publish', '--tag', npmTag, '--registry', registry];
-    if (dryRun) args.push('--dry-run');
-    console.log(
-      `\n→ ${pkgJson.name}@${pkgJson.version} → ${registry} [tag=${npmTag}]${
-        dryRun ? ' (dry-run)' : ''
-      }`,
-    );
-    try {
-      execSync(`npm ${args.join(' ')}`, {
-        cwd: join(process.cwd(), projectRoot),
-        stdio: verbose ? 'inherit' : ['ignore', 'inherit', 'inherit'],
-      });
-    } catch {
-      failures.push(pkgJson.name);
-    }
-  }
-}
+const { failures } = await publishWorkspacePackages({
+  tag: npmTag,
+  registry,
+  dryRun,
+  verbose,
+});
 
 if (failures.length > 0) {
   console.error(`\nPublish failed for: ${failures.join(', ')}`);
