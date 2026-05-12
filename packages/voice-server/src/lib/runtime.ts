@@ -11,7 +11,10 @@ import {
   schedulePendingAudioDropNotification,
 } from './runtime.audio-drop.js';
 import { resolveVoiceSessionConfig } from './runtime.config.js';
-import { reconnectSTT as reconnectSTTHelper } from './runtime.reconnect.js';
+import {
+  reconnectSTT as reconnectSTTHelper,
+  type STTReconnectTrigger,
+} from './runtime.reconnect.js';
 import {
   createInitialVoiceRuntimeState,
   createVoiceRuntimeListeners,
@@ -32,6 +35,7 @@ import type {
   AudioChunk,
   SpeechChunk,
   STTEvent,
+  SttCircuitStatus,
   TranscriptionResult,
   TTSEvent,
   VADEvent,
@@ -46,11 +50,46 @@ import type {
 
 const defaultVadFinalDebounceMs = 500;
 const defaultAudioBufferMaxMs = 1000;
-const defaultMaxReconnectAttempts = 3;
+// WHY: Five attempts gives the runtime enough room to ride out short network churn while still
+// surfacing a real outage quickly. A much lower default opens the circuit too aggressively, and a
+// much higher one delays failure visibility behind a long reconnect loop.
+const defaultMaxReconnectAttempts = 5;
 const defaultReconnectDelayMs = 1000;
+const defaultMaxReconnectDelayMs = 30000;
+const defaultReconnectBackoffMultiplier = 2;
+const defaultReconnectJitterMs = 0;
+const defaultCircuitBreakerTimeoutMs = 60000;
 const autoRestartDelayMs = 500;
 
 export { defaultAudioDropDebounceMs } from './runtime.audio-drop.js';
+
+export interface SttDisconnectSuppressionController {
+  isSuppressed(): boolean;
+  suppress(): () => void;
+}
+
+export function createSttDisconnectSuppressionController(): SttDisconnectSuppressionController {
+  let activeSuppressions = 0;
+
+  return {
+    isSuppressed() {
+      return activeSuppressions > 0;
+    },
+    suppress() {
+      activeSuppressions += 1;
+      let released = false;
+
+      return () => {
+        if (released) {
+          return;
+        }
+
+        released = true;
+        activeSuppressions = Math.max(0, activeSuppressions - 1);
+      };
+    },
+  };
+}
 
 /**
  * Creates the runtime that turns injected STT, TTS, and client VAD signals into a single
@@ -84,6 +123,10 @@ export function createVoiceSession(
     audioBufferMaxMs,
     maxReconnectAttempts,
     reconnectDelayMs,
+    maxReconnectDelayMs,
+    reconnectBackoffMultiplier,
+    reconnectJitterMs,
+    circuitBreakerTimeoutMs,
     trace: traceCallback,
     intentBoundary,
   } = resolveVoiceSessionConfig(config, {
@@ -91,17 +134,39 @@ export function createVoiceSession(
     audioBufferMaxMs: defaultAudioBufferMaxMs,
     maxReconnectAttempts: defaultMaxReconnectAttempts,
     reconnectDelayMs: defaultReconnectDelayMs,
+    maxReconnectDelayMs: defaultMaxReconnectDelayMs,
+    reconnectBackoffMultiplier: defaultReconnectBackoffMultiplier,
+    reconnectJitterMs: defaultReconnectJitterMs,
+    circuitBreakerTimeoutMs: defaultCircuitBreakerTimeoutMs,
   });
 
   const runtimeState = createInitialVoiceRuntimeState();
   const listeners = createVoiceRuntimeListeners();
+  const sttDisconnectSuppression = createSttDisconnectSuppressionController();
+
+  function reportTraceCallbackFailure(event: string, error: unknown) {
+    const traceError = new Error(
+      `Voice session trace callback failed for "${event}"`,
+      {
+        cause: normalizeError(error),
+      },
+    );
+
+    try {
+      callbacks.onError?.(traceError);
+    } catch {}
+  }
 
   function trace(event: string, details?: Record<string, unknown>) {
     if (!traceCallback) {
       return;
     }
 
-    traceCallback(event, details);
+    try {
+      traceCallback(event, details);
+    } catch (error) {
+      reportTraceCallbackFailure(event, error);
+    }
   }
 
   function normalizeError(error: unknown): Error {
@@ -234,6 +299,93 @@ export function createVoiceSession(
       clearTimeout(runtimeState.reconnectResetTimeout);
       runtimeState.reconnectResetTimeout = null;
     }
+  }
+
+  function clearSttCircuitCooldownTimeout() {
+    if (runtimeState.sttCircuitCooldownTimeout) {
+      clearTimeout(runtimeState.sttCircuitCooldownTimeout);
+      runtimeState.sttCircuitCooldownTimeout = null;
+    }
+  }
+
+  function setSttCircuitStatus(status: SttCircuitStatus) {
+    if (runtimeState.destroyed || runtimeState.sttCircuitStatus === status) {
+      return;
+    }
+
+    trace('stt.circuit.status_changed', {
+      previousStatus: runtimeState.sttCircuitStatus,
+      nextStatus: status,
+      reconnectDelayMs,
+      maxReconnectDelayMs,
+      reconnectBackoffMultiplier,
+      reconnectJitterMs,
+      circuitBreakerTimeoutMs,
+    });
+
+    runtimeState.sttCircuitStatus = status;
+    notifyListenersSafely(
+      listeners.sttCircuitStatusChange,
+      status,
+      'callback.onSttCircuitStatusChangeListener.failed',
+    );
+  }
+
+  function closeSttCircuit() {
+    runtimeState.sttCircuitOpenedAt = null;
+    clearSttCircuitCooldownTimeout();
+    setSttCircuitStatus('closed');
+  }
+
+  function openSttCircuit() {
+    runtimeState.sttCircuitOpenedAt = Date.now();
+    clearSttCircuitCooldownTimeout();
+    setSttCircuitStatus('open');
+
+    runtimeState.sttCircuitCooldownTimeout = setTimeout(() => {
+      runtimeState.sttCircuitCooldownTimeout = null;
+
+      if (runtimeState.destroyed || runtimeState.sttCircuitStatus !== 'open') {
+        return;
+      }
+
+      setSttCircuitStatus('half_open');
+    }, circuitBreakerTimeoutMs);
+  }
+
+  // WHY: Provider callbacks can settle out of order. The generation token lets the runtime ignore
+  // stale stop/completion signals from an older utterance, and the finished flag makes the winning
+  // utterance complete exactly once.
+  let activeSpeechGeneration = 0;
+  let activeSpeech = {
+    generation: 0,
+    finished: true,
+  };
+
+  function completeActiveSpeech(
+    generation: number,
+    completed: boolean,
+    nextState: VoiceSessionState = 'idle',
+  ) {
+    if (
+      runtimeState.destroyed ||
+      activeSpeech.generation !== generation ||
+      activeSpeech.finished
+    ) {
+      return;
+    }
+
+    activeSpeech.finished = true;
+    setVoiceState(nextState);
+    notifyCallbackSafely(
+      callbacks.onSpeechStopped,
+      'callback.onSpeechStopped.failed',
+      completed,
+    );
+  }
+
+  function interruptActiveSpeech() {
+    completeActiveSpeech(activeSpeech.generation, false);
   }
 
   function setVoiceState(newState: VoiceSessionState) {
@@ -427,6 +579,13 @@ export function createVoiceSession(
   }
 
   function handleSTTEvent(event: STTEvent) {
+    if (
+      event.type === 'disconnected' &&
+      sttDisconnectSuppression.isSuppressed()
+    ) {
+      return;
+    }
+
     handleSTTEventHelper(
       runtimeState,
       stt.name,
@@ -454,6 +613,7 @@ export function createVoiceSession(
     trace('stt.connecting', {
       provider: stt.name,
       language: connectConfig.language ?? null,
+      circuitStatus: runtimeState.sttCircuitStatus,
     });
     await stt.connect(connectConfig);
     if (!runtimeState.sttUnsubscribe) {
@@ -461,19 +621,75 @@ export function createVoiceSession(
     }
   }
 
-  async function reconnectSTT(): Promise<void> {
-    return reconnectSTTHelper(
-      runtimeState,
+  async function connectForegroundSTT(
+    operation: 'start_listening' | 'warmup',
+  ): Promise<void> {
+    if (runtimeState.sttCircuitStatus === 'open') {
+      trace('stt.connect.skipped', {
+        operation,
+        reason: 'circuit_open',
+      });
+
+      throw new Error(
+        operation === 'warmup'
+          ? 'Cannot warm up while the STT circuit is open'
+          : 'Cannot start listening while the STT circuit is open',
+      );
+    }
+
+    try {
+      await ensureSTTConnected();
+    } catch (error) {
+      if (runtimeState.sttCircuitStatus === 'half_open') {
+        openSttCircuit();
+      }
+
+      throw error;
+    }
+
+    if (runtimeState.sttCircuitStatus === 'half_open') {
+      closeSttCircuit();
+    }
+  }
+
+  async function connectSTT(forceReconnect = false) {
+    if (forceReconnect && stt.isConnected()) {
+      const releaseDisconnectSuppression = sttDisconnectSuppression.suppress();
+
+      try {
+        // WHY: Forced reconnect tears down the old STT transport on purpose. Suppressing that
+        // expected disconnect keeps it from being misread as a fresh outage that should schedule a
+        // second reconnect loop.
+        await stt.disconnect();
+      } finally {
+        releaseDisconnectSuppression();
+      }
+    }
+
+    await ensureSTTConnected();
+  }
+
+  async function reconnectSTT(trigger: STTReconnectTrigger): Promise<void> {
+    return reconnectSTTHelper({
+      state: runtimeState,
+      trigger,
       maxReconnectAttempts,
       reconnectDelayMs,
+      maxReconnectDelayMs,
+      reconnectBackoffMultiplier,
+      reconnectJitterMs,
       trace,
       reportError,
-      ensureSTTConnected,
-      (traceEvent) => flushBufferedAudio(audioBufferContext, stt, traceEvent),
-      () => flushPendingAudioDropEvent(runtimeState, emitPendingAudioDropEvent),
+      connectSTT,
+      flushBufferedAudio: (traceEvent) =>
+        flushBufferedAudio(audioBufferContext, stt, traceEvent),
+      flushPendingAudioDropEvent: () =>
+        flushPendingAudioDropEvent(runtimeState, emitPendingAudioDropEvent),
       resetBufferedAudioState,
       setVoiceState,
-    );
+      openSttCircuit,
+      closeSttCircuit,
+    });
   }
 
   function handleTTSEvent(event: TTSEvent) {
@@ -486,7 +702,7 @@ export function createVoiceSession(
       notifyListenersSafely,
       notifyCallbackSafely,
       reportError,
-      setVoiceState,
+      interruptActiveSpeech,
       event,
     );
   }
@@ -546,7 +762,8 @@ export function createVoiceSession(
       }
 
       runtimeState.isInitializing = true;
-      await ensureSTTConnected();
+      await connectForegroundSTT('start_listening');
+
       if (runtimeState.destroyed) {
         return;
       }
@@ -614,7 +831,7 @@ export function createVoiceSession(
     if (runtimeState.state === 'speaking') {
       runtimeState.suppressNextAutoRestart = true;
       tts.stop();
-      setVoiceState('idle');
+      interruptActiveSpeech();
       notifyCallbackSafely(
         callbacks.onInterrupt,
         'callback.onInterrupt.failed',
@@ -661,23 +878,58 @@ export function createVoiceSession(
       tts.stop();
     }
 
-    setVoiceState('speaking');
-
     if (!tts.isConnected()) {
       await ensureTTSConnected();
     }
 
-    if (runtimeState.state !== 'speaking') return;
+    if (runtimeState.destroyed) {
+      return;
+    }
 
     const speakOptions: { voice?: string } = {};
     if (voice) {
       speakOptions.voice = voice;
     }
+    const generation = activeSpeechGeneration + 1;
+    const handle = tts.speak(text, speakOptions);
+
+    activeSpeechGeneration = generation;
+    activeSpeech = {
+      generation,
+      finished: false,
+    };
+    setVoiceState('speaking');
     trace('tts.speak.dispatched', {
       provider: tts.name,
       requestedVoice: speakOptions.voice ?? null,
+      generation,
     });
-    tts.speak(text, speakOptions);
+    notifyCallbackSafely(
+      callbacks.onSpeechStarted,
+      'callback.onSpeechStarted.failed',
+      handle.speech,
+    );
+
+    // WHY: `SpeechSynthesisHandle.completion` is a non-rejecting public contract. This runtime
+    // catch is only an invariant guard for provider-contract violations so an unexpected rejection
+    // is surfaced through normal error reporting instead of leaving the active speech generation
+    // hanging forever.
+    void handle.completion
+      .then((reason) => {
+        if (reason === 'completed') {
+          completeActiveSpeech(generation, true);
+          return;
+        }
+
+        completeActiveSpeech(generation, false);
+      })
+      .catch((error) => {
+        reportAsyncFailure('tts.completion.failed', error, {
+          provider: tts.name,
+          generation,
+        });
+        completeActiveSpeech(generation, false);
+      });
   }
 
   function handleVADEvent(event: VADEvent): void {
@@ -699,11 +951,13 @@ export function createVoiceSession(
     runtimeState.destroyed = true;
     clearAutoRestartTimeout();
     clearReconnectResetTimeout();
+    clearSttCircuitCooldownTimeout();
     clearPendingFinalization(runtimeState);
     abortActiveProcessing();
     resetBufferedAudioState();
     cleanupProviders();
     listeners.stateChange.clear();
+    listeners.sttCircuitStatusChange.clear();
     listeners.transcript.clear();
     listeners.vad.clear();
     listeners.audioOutput.clear();
@@ -712,10 +966,12 @@ export function createVoiceSession(
 
   return {
     getVoiceState: () => runtimeState.state,
+    getSttCircuitStatus: () => runtimeState.sttCircuitStatus,
     warmup(): Promise<void> {
-      return Promise.all([ensureSTTConnected(), ensureTTSConnected()]).then(
-        () => undefined,
-      );
+      return Promise.all([
+        connectForegroundSTT('warmup'),
+        ensureTTSConnected(),
+      ]).then(() => undefined);
     },
     startListening,
     stopListening,
@@ -743,6 +999,17 @@ export function createVoiceSession(
     ): () => void {
       listeners.stateChange.add(callback);
       return () => listeners.stateChange.delete(callback);
+    },
+    onSttCircuitStatusChange(
+      callback: (status: SttCircuitStatus) => void,
+    ): () => void {
+      listeners.sttCircuitStatusChange.add(callback);
+      notifyCallbackSafely(
+        callback,
+        'callback.onSttCircuitStatusChange.failed',
+        runtimeState.sttCircuitStatus,
+      );
+      return () => listeners.sttCircuitStatusChange.delete(callback);
     },
     onTranscript(callback: (result: TranscriptionResult) => void): () => void {
       listeners.transcript.add(callback);

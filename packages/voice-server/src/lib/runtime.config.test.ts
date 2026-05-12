@@ -8,6 +8,7 @@ import { sttProviderFactories } from './stt/registry.js';
 import { ttsProviderFactories } from './tts/registry.js';
 import type {
   ProcessIntent,
+  SpeechSynthesisHandle,
   STTEvent,
   STTProvider,
   TTSEvent,
@@ -47,7 +48,16 @@ class MockTTSProvider implements TTSProvider {
 
   async disconnect(): Promise<void> {}
 
-  speak(): void {}
+  speak(): SpeechSynthesisHandle {
+    return {
+      speech: {
+        text: 'mock speech',
+        format: 'mp3',
+        sampleRate: 24000,
+      },
+      completion: Promise.resolve('completed'),
+    };
+  }
 
   stop(): void {}
 
@@ -65,6 +75,10 @@ const defaultResolveConfig = {
   audioBufferMaxMs: 12,
   maxReconnectAttempts: 4,
   reconnectDelayMs: 1500,
+  maxReconnectDelayMs: 8000,
+  reconnectBackoffMultiplier: 1.5,
+  reconnectJitterMs: 200,
+  circuitBreakerTimeoutMs: 45000,
 };
 
 const testSTTProviderType = 'google';
@@ -163,9 +177,35 @@ describe('resolveVoiceSessionConfig', () => {
     expect(resolved.audioBufferMaxMs).toBe(12);
     expect(resolved.maxReconnectAttempts).toBe(4);
     expect(resolved.reconnectDelayMs).toBe(1500);
+    expect(resolved.maxReconnectDelayMs).toBe(8000);
+    expect(resolved.reconnectBackoffMultiplier).toBe(1.5);
+    expect(resolved.reconnectJitterMs).toBe(200);
+    expect(resolved.circuitBreakerTimeoutMs).toBe(45000);
     expect(resolved.autoRestartListening).toBe(true);
     expect(resolved.interimResults).toBe(false);
     expect(resolved.intentBoundary).toBeNull();
+  });
+
+  test('preserves explicit bounded reconnect and circuit overrides', () => {
+    const resolved = resolveVoiceSessionConfig(
+      {
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('resolve-session'),
+        reconnectDelayMs: 2000,
+        maxReconnectDelayMs: 16000,
+        reconnectBackoffMultiplier: 2.5,
+        reconnectJitterMs: 350,
+        circuitBreakerTimeoutMs: 120000,
+      },
+      defaultResolveConfig,
+    );
+
+    expect(resolved.reconnectDelayMs).toBe(2000);
+    expect(resolved.maxReconnectDelayMs).toBe(16000);
+    expect(resolved.reconnectBackoffMultiplier).toBe(2.5);
+    expect(resolved.reconnectJitterMs).toBe(350);
+    expect(resolved.circuitBreakerTimeoutMs).toBe(120000);
   });
 
   test('resolveVoiceProvisionConfig remains an alias of resolveVoiceSessionConfig', () => {
@@ -363,6 +403,213 @@ describe('resolveVoiceSessionConfig', () => {
       ),
     ).toThrow(
       'Voice session reconnectDelayMs must be a finite number greater than or equal to 0, received Infinity',
+    );
+  });
+
+  test('rejects invalid maxReconnectDelayMs values', () => {
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          maxReconnectDelayMs: Number.NaN,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session maxReconnectDelayMs must be a finite number greater than 0, received NaN',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          maxReconnectDelayMs: 0,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session maxReconnectDelayMs must be a finite number greater than 0, received 0',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          maxReconnectDelayMs: -1,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session maxReconnectDelayMs must be a finite number greater than 0, received -1',
+    );
+  });
+
+  test('rejects maxReconnectDelayMs values below reconnectDelayMs', () => {
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          reconnectDelayMs: 1500,
+          maxReconnectDelayMs: 1499,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session maxReconnectDelayMs must be greater than or equal to reconnectDelayMs, received maxReconnectDelayMs=1499 and reconnectDelayMs=1500',
+    );
+  });
+
+  test('rejects invalid reconnectBackoffMultiplier values', () => {
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          reconnectBackoffMultiplier: Number.NaN,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session reconnectBackoffMultiplier must be a finite number greater than or equal to 1, received NaN',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          reconnectBackoffMultiplier: 0,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session reconnectBackoffMultiplier must be a finite number greater than or equal to 1, received 0',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          reconnectBackoffMultiplier: 0.5,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session reconnectBackoffMultiplier must be a finite number greater than or equal to 1, received 0.5',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          reconnectBackoffMultiplier: -1,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session reconnectBackoffMultiplier must be a finite number greater than or equal to 1, received -1',
+    );
+  });
+
+  test('rejects invalid reconnectJitterMs values', () => {
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          reconnectJitterMs: Number.NaN,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session reconnectJitterMs must be a finite number greater than or equal to 0, received NaN',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          reconnectJitterMs: -1,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session reconnectJitterMs must be a finite number greater than or equal to 0, received -1',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          reconnectJitterMs: Number.POSITIVE_INFINITY,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session reconnectJitterMs must be a finite number greater than or equal to 0, received Infinity',
+    );
+  });
+
+  test('rejects invalid circuitBreakerTimeoutMs values', () => {
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          circuitBreakerTimeoutMs: Number.NaN,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session circuitBreakerTimeoutMs must be a finite number greater than 0, received NaN',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          circuitBreakerTimeoutMs: 0,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session circuitBreakerTimeoutMs must be a finite number greater than 0, received 0',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          circuitBreakerTimeoutMs: -1,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session circuitBreakerTimeoutMs must be a finite number greater than 0, received -1',
     );
   });
 

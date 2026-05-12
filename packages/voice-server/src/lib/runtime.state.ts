@@ -1,6 +1,7 @@
 import type {
   AudioChunk,
   SpeechChunk,
+  SttCircuitStatus,
   TranscriptionResult,
   VoiceSessionAudioDropReason,
   VoiceSessionAudioDroppedEvent,
@@ -44,6 +45,9 @@ export interface VoiceRuntimeState {
   reconnectAttempts: number;
   reconnectPromise: Promise<void> | null;
   reconnectResetTimeout: ReturnType<typeof setTimeout> | null;
+  sttCircuitStatus: SttCircuitStatus;
+  sttCircuitOpenedAt: number | null;
+  sttCircuitCooldownTimeout: ReturnType<typeof setTimeout> | null;
 }
 
 /**
@@ -54,6 +58,7 @@ export interface VoiceRuntimeState {
  */
 export interface VoiceRuntimeListeners {
   stateChange: Set<(state: VoiceSessionState) => void>;
+  sttCircuitStatusChange: Set<(status: SttCircuitStatus) => void>;
   transcript: Set<(result: TranscriptionResult) => void>;
   vad: Set<(event: VADEvent) => void>;
   audioOutput: Set<(chunk: SpeechChunk) => void>;
@@ -84,12 +89,16 @@ export function createInitialVoiceRuntimeState(): VoiceRuntimeState {
     reconnectAttempts: 0,
     reconnectPromise: null,
     reconnectResetTimeout: null,
+    sttCircuitStatus: 'closed',
+    sttCircuitOpenedAt: null,
+    sttCircuitCooldownTimeout: null,
   };
 }
 
 export function createVoiceRuntimeListeners(): VoiceRuntimeListeners {
   return {
     stateChange: new Set(),
+    sttCircuitStatusChange: new Set(),
     transcript: new Set(),
     vad: new Set(),
     audioOutput: new Set(),

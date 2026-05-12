@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
-import type { TTSEvent, TTSError } from '../../types.js';
+import type { TTSError, TTSEvent } from '../../types.js';
 
 const synthesizeRequests: unknown[] = [];
 let lastTextToSpeechClientOptions: unknown;
@@ -99,7 +99,7 @@ describe('createGoogleTTS', () => {
         project_id: undefined,
       },
     });
-    expect(events).toContainEqual({ type: 'connected' });
+    expect(events).toEqual([]);
   });
 
   test('synthesizes and emits chunked unary audio output', async () => {
@@ -111,8 +111,12 @@ describe('createGoogleTTS', () => {
     provider.onEvent((event) => events.push(event));
 
     await provider.connect();
-    provider.speak('Hello world', { language: 'en-US', sampleRate: 16000 });
+    const handle = provider.speak('Hello world', {
+      language: 'en-US',
+      sampleRate: 16000,
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(handle.completion).resolves.toBe('completed');
 
     expect(synthesizeSpeech).toHaveBeenCalledTimes(1);
     expect(synthesizeRequests[0]).toMatchObject({
@@ -126,22 +130,18 @@ describe('createGoogleTTS', () => {
         sampleRateHertz: 16000,
       },
     });
-    expect(events[0]).toEqual({ type: 'connected' });
-    expect(events[1]).toEqual({
-      type: 'started',
-      speech: {
-        text: 'Hello world',
-        format: 'pcm_f32le',
-        sampleRate: 16000,
-      },
+    expect(handle.speech).toEqual({
+      text: 'Hello world',
+      format: 'pcm_f32le',
+      sampleRate: 16000,
     });
-    expect(events[2]?.type).toBe('chunk');
-    if (events[2]?.type === 'chunk') {
-      expect(events[2].chunk.format).toBe('pcm_f32le');
-      expect(events[2].chunk.sampleRate).toBe(16000);
+    expect(events[0]?.type).toBe('chunk');
+    if (events[0]?.type === 'chunk') {
+      expect(events[0].chunk.format).toBe('pcm_f32le');
+      expect(events[0].chunk.sampleRate).toBe(16000);
     }
-    expect(events[3]?.type).toBe('chunk');
-    expect(events[4]).toEqual({ type: 'completed' });
+    expect(events[1]?.type).toBe('chunk');
+    expect(events).toHaveLength(2);
   });
 
   test('stop suppresses stale completion after a request has started', async () => {
@@ -159,7 +159,7 @@ describe('createGoogleTTS', () => {
     provider.onEvent((event) => events.push(event));
 
     await provider.connect();
-    provider.speak('Hello world');
+    const handle = provider.speak('Hello world');
     provider.stop();
     resolveSynthesis?.([
       {
@@ -171,8 +171,8 @@ describe('createGoogleTTS', () => {
     ]);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(events).toContainEqual({ type: 'stopped' });
-    expect(events.some((event) => event.type === 'completed')).toBe(false);
+    await expect(handle.completion).resolves.toBe('stopped');
+    expect(events).toEqual([]);
   });
 
   test('decodes base64 string audioContent responses before chunking', async () => {
@@ -192,8 +192,9 @@ describe('createGoogleTTS', () => {
     provider.onEvent((event) => events.push(event));
 
     await provider.connect();
-    provider.speak('Hello base64 world');
+    const handle = provider.speak('Hello base64 world');
     await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(handle.completion).resolves.toBe('completed');
 
     const firstChunkEvent = events.find(
       (event): event is Extract<TTSEvent, { type: 'chunk' }> =>
@@ -202,7 +203,7 @@ describe('createGoogleTTS', () => {
 
     expect(firstChunkEvent).toBeDefined();
     expect(firstChunkEvent?.chunk.data.length).toBeGreaterThan(0);
-    expect(events.at(-1)).toEqual({ type: 'completed' });
+    expect(events.at(-1)?.type).toBe('chunk');
   });
 
   test('classifies synthesis failures instead of surfacing raw provider errors', async () => {
@@ -225,5 +226,49 @@ describe('createGoogleTTS', () => {
       expect(error.provider).toBe('google');
       expect(error.message).toBe('google transport boom');
     }
+  });
+
+  test('overwriting an in-flight request settles the prior handle as stopped', async () => {
+    let resolveFirstSynthesis: ((value: SynthResponse) => void) | undefined;
+    let firstRequestPending = true;
+    synthesizeSpeech.mockImplementation(() => {
+      if (firstRequestPending) {
+        firstRequestPending = false;
+
+        return new Promise<SynthResponse>((resolve) => {
+          resolveFirstSynthesis = resolve;
+        });
+      }
+
+      return Promise.resolve([
+        {
+          audioContent: Uint8Array.from([
+            ...new Uint8Array(44),
+            ...new Uint8Array(1000).fill(1),
+          ]),
+        },
+      ]);
+    });
+
+    const { createGoogleTTS } = await import('./index.js');
+    const provider = createGoogleTTS();
+
+    await provider.connect();
+
+    const firstHandle = provider.speak('Hello first');
+    const secondHandle = provider.speak('Hello second');
+
+    await expect(firstHandle.completion).resolves.toBe('stopped');
+
+    resolveFirstSynthesis?.([
+      {
+        audioContent: Uint8Array.from([
+          ...new Uint8Array(44),
+          ...new Uint8Array(1000).fill(1),
+        ]),
+      },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(secondHandle.completion).resolves.toBe('completed');
   });
 });

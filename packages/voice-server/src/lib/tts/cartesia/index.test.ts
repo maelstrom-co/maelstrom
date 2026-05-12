@@ -33,7 +33,7 @@ class MockWebSocket {
 
   close() {
     this.readyState = 3;
-    this.onclose?.(new CloseEvent('close'));
+    this.onclose?.(new CloseEvent('close', { code: 1000 }));
   }
 
   simulateClose(code = 1000, reason = '') {
@@ -43,6 +43,12 @@ class MockWebSocket {
 
   simulateMessage(data: string) {
     this.onmessage?.(new MessageEvent('message', { data }));
+  }
+}
+
+class ThrowOnSendWebSocket extends MockWebSocket {
+  override send(_data: string) {
+    throw new Error('mock cartesia send failure');
   }
 }
 
@@ -67,7 +73,7 @@ describe('createCartesiaTTS', () => {
     expect(provider.capabilities).toEqual({ streamingTts: true });
   });
 
-  test('connects and emits connected', async () => {
+  test('connects and reports ready transport state', async () => {
     const provider = createCartesiaTTS({
       apiKey: mockApiKey,
       defaultVoiceId: 'voice-1',
@@ -78,7 +84,7 @@ describe('createCartesiaTTS', () => {
     await provider.connect();
 
     expect(provider.isConnected()).toBe(true);
-    expect(events).toContainEqual({ type: 'connected' });
+    expect(events).toEqual([]);
     expect(MockWebSocket.instances.at(-1)?.options?.headers).toEqual({
       Authorization: `Bearer ${mockApiKey}`,
       'Cartesia-Version': '2024-06-10',
@@ -128,7 +134,7 @@ describe('createCartesiaTTS', () => {
     provider.onEvent((event) => events.push(event));
 
     await provider.connect();
-    provider.speak('Hello');
+    const handle = provider.speak('Hello');
 
     const mockWs = MockWebSocket.instances.at(-1);
     mockWs?.simulateMessage(
@@ -138,19 +144,16 @@ describe('createCartesiaTTS', () => {
       }),
     );
     mockWs?.simulateMessage(JSON.stringify({ done: true }));
+    await expect(handle.completion).resolves.toBe('completed');
 
-    expect(events[0]).toEqual({ type: 'connected' });
-    expect(events[1]).toEqual({
-      type: 'started',
-      speech: {
-        text: 'Hello',
-        format: 'pcm_f32le',
-        sampleRate: 44100,
-      },
+    expect(handle.speech).toEqual({
+      text: 'Hello',
+      format: 'pcm_f32le',
+      sampleRate: 44100,
     });
-    expect(events[2]?.type).toBe('chunk');
-    expect(events[3]?.type).toBe('chunk');
-    expect(events[4]).toEqual({ type: 'completed' });
+    expect(events[0]?.type).toBe('chunk');
+    expect(events[1]?.type).toBe('chunk');
+    expect(events).toHaveLength(2);
   });
 
   test('disconnect emits disconnected only once', async () => {
@@ -167,9 +170,15 @@ describe('createCartesiaTTS', () => {
     expect(
       events.filter((event) => event.type === 'disconnected'),
     ).toHaveLength(1);
+    expect(events.at(-1)).toEqual({
+      type: 'disconnected',
+      clean: true,
+      reason: 'clean_shutdown',
+      message: 'Cartesia WebSocket disconnected cleanly',
+    });
   });
 
-  test('stop sends a cancel message for the active context and emits stopped', async () => {
+  test('stop sends a cancel message for the active context', async () => {
     const provider = createCartesiaTTS({
       apiKey: mockApiKey,
       defaultVoiceId: 'voice-1',
@@ -178,15 +187,43 @@ describe('createCartesiaTTS', () => {
     provider.onEvent((event) => events.push(event));
 
     await provider.connect();
-    provider.speak('Hello');
+    const handle = provider.speak('Hello');
     provider.stop();
+    await expect(handle.completion).resolves.toBe('stopped');
 
     const mockWs = MockWebSocket.instances.at(-1);
     const cancelMessage = mockWs?.sentMessages.at(-1);
     expect(cancelMessage).toBeDefined();
     expect(typeof cancelMessage).toBe('string');
     expect(JSON.parse(String(cancelMessage))).toMatchObject({ cancel: true });
-    expect(events.at(-1)).toEqual({ type: 'stopped' });
+    expect(events).toEqual([]);
+  });
+
+  test('replacing an active speak settles the previous handle as stopped', async () => {
+    const provider = createCartesiaTTS({
+      apiKey: mockApiKey,
+      defaultVoiceId: 'voice-1',
+    });
+
+    await provider.connect();
+
+    const firstHandle = provider.speak('First');
+    const secondHandle = provider.speak('Second');
+
+    await expect(firstHandle.completion).resolves.toBe('stopped');
+
+    const mockWs = MockWebSocket.instances.at(-1);
+    const lastRequest = mockWs?.sentMessages.at(-1);
+
+    expect(secondHandle.speech).toEqual({
+      text: 'Second',
+      format: 'pcm_f32le',
+      sampleRate: 44100,
+    });
+    expect(lastRequest).toBeDefined();
+    expect(JSON.parse(String(lastRequest))).toMatchObject({
+      transcript: 'Second',
+    });
   });
 
   test('stop is a no-op when no speech is active', async () => {
@@ -200,25 +237,16 @@ describe('createCartesiaTTS', () => {
     await provider.connect();
     provider.stop();
 
-    expect(events).not.toContainEqual({ type: 'stopped' });
+    expect(events).toEqual([]);
   });
 
-  test('emits an error when speak is called without any voice id', async () => {
+  test('throws a classified parse error when speak is called without any voice id', async () => {
     const provider = createCartesiaTTS({
       apiKey: mockApiKey,
     });
-    const events: TTSEvent[] = [];
-    provider.onEvent((event) => events.push(event));
 
     await provider.connect();
-    provider.speak('Hello');
-
-    const lastEvent = events.at(-1);
-    expect(lastEvent?.type).toBe('error');
-    if (lastEvent?.type === 'error') {
-      expect(lastEvent.error.kind).toBe('parse');
-      expect(lastEvent.error.message).toBe('Voice ID is required');
-    }
+    expect(() => provider.speak('Hello')).toThrow('Voice ID is required');
   });
 
   test('clears turn state after provider error so a new speak emits started again', async () => {
@@ -230,14 +258,20 @@ describe('createCartesiaTTS', () => {
     provider.onEvent((event) => events.push(event));
 
     await provider.connect();
-    provider.speak('First');
+    const firstHandle = provider.speak('First');
 
     const mockWs = MockWebSocket.instances.at(-1);
     mockWs?.simulateMessage(JSON.stringify({ error: 'boom' }));
 
-    provider.speak('Second');
+    const secondHandle = provider.speak('Second');
+    await expect(firstHandle.completion).resolves.toBe('stopped');
 
-    expect(events.filter((event) => event.type === 'started')).toHaveLength(2);
+    expect(secondHandle.speech).toEqual({
+      text: 'Second',
+      format: 'pcm_f32le',
+      sampleRate: 44100,
+    });
+    expect(events).toHaveLength(1);
   });
 
   test('emits provider error messages from the websocket', async () => {
@@ -335,6 +369,66 @@ describe('createCartesiaTTS', () => {
         'Cartesia WebSocket closed unexpectedly (1011: upstream failure)',
       );
     }
-    expect(events.at(-1)).toEqual({ type: 'disconnected' });
+    expect(events.at(-1)).toEqual({
+      type: 'disconnected',
+      clean: false,
+      reason: 'transport_lost',
+      message:
+        'Cartesia WebSocket closed unexpectedly (1011: upstream failure)',
+    });
+  });
+
+  test('settles the active handle and emits an error when speak send throws', async () => {
+    globalThis.WebSocket = ThrowOnSendWebSocket as unknown as typeof WebSocket;
+
+    const provider = createCartesiaTTS({
+      apiKey: mockApiKey,
+      defaultVoiceId: 'voice-1',
+    });
+    const events: TTSEvent[] = [];
+    provider.onEvent((event) => events.push(event));
+
+    await provider.connect();
+
+    expect(() => provider.speak('Hello')).toThrow(
+      'Cartesia WebSocket send failed',
+    );
+    const errorEvent = events.at(-1);
+    expect(errorEvent?.type).toBe('error');
+    if (errorEvent?.type === 'error') {
+      expect(errorEvent.error.kind).toBe('transport');
+      expect(errorEvent.error.message).toBe('Cartesia WebSocket send failed');
+      expect((errorEvent.error.cause as Error | undefined)?.message).toBe(
+        'mock cartesia send failure',
+      );
+    }
+  });
+
+  test('listener failures do not block later Cartesia listeners', async () => {
+    const provider = createCartesiaTTS({
+      apiKey: mockApiKey,
+      defaultVoiceId: 'voice-1',
+    });
+    const received: TTSEvent[] = [];
+
+    provider.onEvent(() => {
+      throw new Error('cartesia listener exploded');
+    });
+    provider.onEvent((event) => {
+      received.push(event);
+    });
+
+    await provider.connect();
+
+    const mockWs = MockWebSocket.instances.at(-1);
+    mockWs?.simulateMessage(
+      JSON.stringify({
+        type: 'chunk',
+        data: Buffer.from(new Uint8Array([1, 2, 3])).toString('base64'),
+      }),
+    );
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.type).toBe('chunk');
   });
 });

@@ -26,6 +26,20 @@ export type VoiceSessionState =
   | 'speaking';
 
 /**
+ * Public circuit-breaker state for the STT reconnect subsystem.
+ *
+ * WHY: Reconnect health is a transport concern, not a conversational one. Exposing it separately
+ * lets adapters surface degraded STT connectivity without inventing new `VoiceSessionState`
+ * variants that would leak infrastructure detail into the UI-facing state machine.
+ *
+ * Transition semantics:
+ * - `closed`: normal operation, no reconnect cooldown is active
+ * - `open`: reconnect budget was exhausted and foreground STT entry points fail fast until cooldown
+ * - `half_open`: cooldown expired and the next foreground STT connect acts as a single probe
+ */
+export type SttCircuitStatus = 'closed' | 'open' | 'half_open';
+
+/**
  * Wire-level audio encodings accepted by the shared STT provider contract.
  *
  * WHY: `voice-server` sits between browsers, adapters, and vendor SDKs that rarely agree on naming.
@@ -212,19 +226,54 @@ export type TTSError = {
 export type VoiceSessionError = Error | STTError | TTSError;
 
 /**
+ * Stable disconnect reasons surfaced by provider transport events.
+ *
+ * WHY: `clean` is kept for compatibility with existing callers, but a boolean alone does not make
+ * the disconnect state self-describing. `reason` is the authoritative public discriminator so the
+ * event cannot express incompatible transport states while callers that already branch on `clean`
+ * keep working unchanged.
+ */
+export type VoiceDisconnectReason =
+  | 'clean_shutdown'
+  | 'idle_timeout'
+  | 'transport_lost';
+
+/**
+ * Shared provider disconnect payload.
+ *
+ * WHY: Providers need to distinguish expected clean shutdowns from clean-but-recoverable idle
+ * timeouts and unclean transport loss. The discriminated union keeps that state coherent while
+ * preserving the existing `clean` mirror and human-readable `message` field for compatibility.
+ */
+export type VoiceDisconnectedEvent =
+  | {
+      type: 'disconnected';
+      clean: true;
+      reason: 'clean_shutdown' | 'idle_timeout';
+      /** Diagnostic provider text. `reason` is the authoritative state discriminator. */
+      message: string;
+    }
+  | {
+      type: 'disconnected';
+      clean: false;
+      reason: 'transport_lost';
+      /** Diagnostic provider text. `reason` is the authoritative state discriminator. */
+      message: string;
+    };
+
+/**
  * Events emitted by the STT provider.
  *
  * WHY: The STT provider is a black box. It connects to external services
  * (Deepgram, Google STT) and emits events when something happens.
  * These events let the voice session runtime react to provider state changes without depending
  * on provider-specific SDK details.
- * - connected / disconnected: transport state for provider lifecycle and reconnect logic
+ * - disconnected: transport shutdown/loss state for provider lifecycle and reconnect logic
  * - transcript: recognition state for interim/final utterance assembly
  * - error: failure state that should be surfaced without crashing the whole session
  */
 export type STTEvent =
-  | { type: 'connected' }
-  | { type: 'disconnected' }
+  | VoiceDisconnectedEvent
   | { type: 'transcript'; result: TranscriptionResult }
   | { type: 'error'; error: STTError };
 
@@ -315,6 +364,34 @@ export interface SpeechStart {
 }
 
 /**
+ * Terminal outcome for a single TTS synthesis request.
+ *
+ * WHY: Providers may stop speaking either because synthesis completed normally or because the turn
+ * was interrupted. The runtime needs an explicit distinction so it can keep owning
+ * `onSpeechStopped(true | false)` without depending on provider-specific event names.
+ */
+export type SpeechStopReason = 'completed' | 'stopped';
+
+/**
+ * Deterministic handle returned when a provider begins speech synthesis.
+ *
+ * WHY: The runtime needs stable turn metadata immediately, plus a terminal promise it can await or
+ * ignore when a newer speak generation supersedes the old one. Keeping both pieces together makes
+ * the provider contract explicit without reintroducing positive lifecycle events.
+ */
+export interface SpeechSynthesisHandle {
+  speech: SpeechStart;
+  /**
+   * Terminal outcome for this synthesis request.
+   *
+   * WHY: The public contract is intentionally non-rejecting. Callers should observe `'completed'`
+   * or `'stopped'` here, while provider/runtime failures continue to surface through the normal TTS
+   * event and callback error channels instead of widening this promise into a second error path.
+   */
+  completion: Promise<SpeechStopReason>;
+}
+
+/**
  * Reasons the runtime may drop buffered client audio instead of replaying it.
  *
  * WHY: Audio can arrive while the STT side is still connecting or reconnecting. The public contract
@@ -373,19 +450,13 @@ export interface TTSProviderCapabilities {
  *
  * WHY: Similar to STT events — TTS is async and external. Events let the
  * runtime know how speech generation is progressing.
- * - connected / disconnected: transport state for provider lifecycle
- * - started: a new spoken turn has begun and the runtime should enter speaking state
+ * - disconnected: transport shutdown/loss state for provider lifecycle
  * - chunk: audio payload for playback, optionally streamed incrementally
- * - completed / stopped: terminal states for a spoken turn, either natural or interrupted
  * - error: failure state that should surface to the caller and end the turn safely
  */
 export type TTSEvent =
-  | { type: 'connected' }
-  | { type: 'disconnected' }
-  | { type: 'started'; speech: SpeechStart }
+  | VoiceDisconnectedEvent
   | { type: 'chunk'; chunk: SpeechChunk }
-  | { type: 'completed' }
-  | { type: 'stopped' }
   | { type: 'error'; error: TTSError };
 
 /**
@@ -404,7 +475,7 @@ export interface TTSProvider {
   /** Disconnect from the TTS service and clear any active synthesis transport state */
   disconnect(): Promise<void>;
   /** Start synthesizing a spoken turn with the current provider-specific voice settings */
-  speak(text: string, options?: SpeechOptions): void;
+  speak(text: string, options?: SpeechOptions): SpeechSynthesisHandle;
   /** Stop the active spoken turn immediately for interruption or replacement */
   stop(): void;
   onEvent(callback: (event: TTSEvent) => void): () => void;
@@ -472,6 +543,9 @@ export interface VoiceSessionCallbacks {
    * often run inside long-lived server transports. This channel is not debounced: repeated overflow
    * or transport failures may surface here more frequently than `onAudioDropped`, and some loss
    * paths that cannot measure dropped duration precisely are only reported through this callback.
+   * During STT reconnect loops, retryable reconnect failures are intentionally surfaced only once:
+   * callers receive the first retryable failure before exhaustion rather than every failed retry
+   * attempt.
    */
   onError?: (error: VoiceSessionError) => void;
 }
@@ -556,10 +630,46 @@ interface VoiceSessionBaseConfig {
    * Defaults to `1000` and must be a finite number strictly greater than zero.
    */
   audioBufferMaxMs?: number;
-  /** Maximum consecutive STT reconnect attempts before surfacing failure. */
+  /**
+   * Maximum consecutive STT reconnect attempts for retryable reconnect classes.
+   *
+   * WHY: This cap applies to retryable classes such as `transport`, `parse`, and `unknown`.
+   * Certain error classes intentionally override it: `auth` and `quota` remain terminal with no
+   * reconnect attempts, while `server` stays capped to a single retry even if this configured value
+   * is larger.
+   */
   maxReconnectAttempts?: number;
   /** Delay, in milliseconds, between STT reconnect attempts. */
   reconnectDelayMs?: number;
+  /**
+   * Upper bound, in milliseconds, for reconnect backoff delays after exponential growth.
+   *
+   * WHY: Backoff starts from `reconnectDelayMs`, but this cap keeps retry latency bounded during
+   * sustained outages and also limits the jitter headroom available on each attempt.
+   */
+  maxReconnectDelayMs?: number;
+  /**
+   * Unitless multiplier applied to each reconnect attempt before max-delay clamping.
+   *
+   * WHY: This controls the exponential growth curve without changing the base delay. Values below
+   * `1` are invalid because the reconnect delay must stay flat or increase across attempts.
+   */
+  reconnectBackoffMultiplier?: number;
+  /**
+   * Maximum jitter window, in milliseconds, added within the remaining headroom under
+   * `maxReconnectDelayMs`.
+   *
+   * WHY: Randomized jitter reduces synchronized reconnect spikes across many sessions while keeping
+   * the retry envelope inside the same bounded backoff limit.
+   */
+  reconnectJitterMs?: number;
+  /**
+   * Cooldown window, in milliseconds, before an open STT circuit becomes half-open again.
+   *
+   * WHY: The circuit breaker prevents rapid reconnect churn after sustained failures, then allows a
+   * probe reconnect after this timeout to test whether the provider has recovered.
+   */
+  circuitBreakerTimeoutMs?: number;
   /** Optional trace sink for runtime lifecycle and provider events. */
   trace?: (event: string, details?: Record<string, unknown>) => void;
 }
@@ -616,6 +726,14 @@ export interface ResolvedVoiceSessionConfig {
   maxReconnectAttempts: number;
   /** Delay between reconnect attempts after an STT disconnect. */
   reconnectDelayMs: number;
+  /** Maximum reconnect delay after exponential growth and max-delay clamping are applied. */
+  maxReconnectDelayMs: number;
+  /** Unitless multiplier used to grow successive reconnect delays. */
+  reconnectBackoffMultiplier: number;
+  /** Maximum reconnect jitter window applied within the bounded backoff headroom. */
+  reconnectJitterMs: number;
+  /** Circuit-breaker cooldown before an open STT circuit is allowed to probe again. */
+  circuitBreakerTimeoutMs: number;
   /** Optional trace sink for observability hooks. */
   trace?: (event: string, details?: Record<string, unknown>) => void;
   /** Intent-processing boundary, or `null` when the runtime should stay transport-only. */
@@ -633,6 +751,20 @@ export interface ResolvedVoiceSessionConfig {
 export interface VoiceSession {
   /** Read the current state of the runtime state machine. */
   getVoiceState(): VoiceSessionState;
+  /**
+   * Read the current STT reconnect circuit-breaker status.
+   *
+   * WHY: Reconnect health is exposed separately from `VoiceSessionState` so adapters can inspect
+   * transport recovery state without inventing extra conversation-state variants.
+   *
+   * Status semantics:
+   * - `closed`: STT can connect normally
+   * - `open`: the reconnect budget was exhausted, and `warmup()` / `startListening()` reject until
+   *   the cooldown advances the circuit
+   * - `half_open`: the cooldown elapsed, and the next foreground connect is treated as a probe that
+   *   closes the circuit on success or re-opens it on failure
+   */
+  getSttCircuitStatus(): SttCircuitStatus;
   /**
    * Pre-connect STT and TTS providers.
    *
@@ -673,6 +805,33 @@ export interface VoiceSession {
   ): Promise<MaelstromResponse | undefined>;
   /** Subscribe to runtime state transitions. */
   onVoiceStateChange(callback: (state: VoiceSessionState) => void): () => void;
+  /**
+   * Subscribe to STT circuit-breaker status changes.
+   *
+   * WHY: Subscription synchronously replays the current circuit status, then remains registered for
+   * future real transitions. That gives adapters immediate state on subscribe without waiting for
+   * the next reconnect event.
+   *
+   * Replay and dedupe semantics:
+   * - subscribing immediately calls `callback` once with the current status, even if nothing just
+   *   changed
+   * - after that replay, callbacks run only for real status transitions because duplicate writes are
+   *   suppressed inside the runtime
+   *
+   * Example:
+   * ```ts
+   * const seen: SttCircuitStatus[] = [];
+   * const unsubscribe = session.onSttCircuitStatusChange((status) => {
+   *   seen.push(status);
+   * });
+   *
+   * // If the circuit is currently closed, `seen` is already ['closed'] here.
+   * // Later transitions append values like 'open', 'half_open', and 'closed'.
+   * ```
+   */
+  onSttCircuitStatusChange(
+    callback: (status: SttCircuitStatus) => void,
+  ): () => void;
   /** Subscribe to transcript forwarding events. */
   onTranscript(callback: (result: TranscriptionResult) => void): () => void;
   /** Subscribe to client-owned VAD events after they reach the runtime. */

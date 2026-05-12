@@ -5,9 +5,11 @@ import type {
 } from './runtime.state.js';
 import type {
   TTSEvent,
+  VoiceDisconnectedEvent,
   VoiceSessionCallbacks,
-  VoiceSessionState,
 } from './types.js';
+
+type TTSDisconnectedEvent = VoiceDisconnectedEvent;
 
 type NotifyListenersSafely = <T>(
   listeners: Set<(value: T) => void>,
@@ -21,6 +23,18 @@ type NotifyCallbackSafely = <T extends unknown[]>(
   ...args: T
 ) => void;
 
+function isDisconnectedEvent(event: TTSEvent): event is TTSDisconnectedEvent {
+  return (
+    event.type === 'disconnected' &&
+    'clean' in event &&
+    'reason' in event &&
+    'message' in event &&
+    typeof event.clean === 'boolean' &&
+    typeof event.reason === 'string' &&
+    typeof event.message === 'string'
+  );
+}
+
 export function handleTTSEvent(
   state: VoiceRuntimeState,
   listeners: VoiceRuntimeListeners,
@@ -30,24 +44,10 @@ export function handleTTSEvent(
   notifyListenersSafely: NotifyListenersSafely,
   notifyCallbackSafely: NotifyCallbackSafely,
   reportError: (error: unknown) => void,
-  setVoiceState: (state: VoiceSessionState) => void,
+  handleInterruptedSpeech: () => void,
   event: TTSEvent,
 ) {
   switch (event.type) {
-    case 'started':
-      trace('tts.started', {
-        textLength: event.speech.text.length,
-        preview: event.speech.text.slice(0, 80),
-        format: event.speech.format,
-        sampleRate: event.speech.sampleRate,
-      });
-      setVoiceState('speaking');
-      notifyCallbackSafely(
-        callbacks.onSpeechStarted,
-        'callback.onSpeechStarted.failed',
-        event.speech,
-      );
-      break;
     case 'chunk':
       trace('tts.chunk.received', {
         bytes: event.chunk.data.length,
@@ -56,7 +56,6 @@ export function handleTTSEvent(
         sequence: event.chunk.sequence,
         isFinal: event.chunk.isFinal,
         listenerCount: listeners.audioOutput.size,
-        hasOnAudioOutputCallback: Boolean(callbacks.onAudioOutput),
       });
       notifyListenersSafely(
         listeners.audioOutput,
@@ -76,24 +75,6 @@ export function handleTTSEvent(
         event.chunk,
       );
       break;
-    case 'completed':
-      trace('tts.completed');
-      setVoiceState('idle');
-      notifyCallbackSafely(
-        callbacks.onSpeechStopped,
-        'callback.onSpeechStopped.failed',
-        true,
-      );
-      break;
-    case 'stopped':
-      trace('tts.stopped');
-      setVoiceState('idle');
-      notifyCallbackSafely(
-        callbacks.onSpeechStopped,
-        'callback.onSpeechStopped.failed',
-        false,
-      );
-      break;
     case 'error':
       trace('tts.error', {
         kind: event.error.kind,
@@ -101,33 +82,25 @@ export function handleTTSEvent(
         provider: event.error.provider,
       });
       reportError(event.error);
-      setVoiceState('idle');
-      break;
-    case 'connected':
-      trace('tts.connected', {
-        provider: ttsName,
-      });
+      handleInterruptedSpeech();
       break;
     case 'disconnected':
+      if (!isDisconnectedEvent(event)) {
+        break;
+      }
+
       trace('tts.disconnected', {
         provider: ttsName,
+        clean: event.clean,
+        message: event.message,
       });
       if (state.state === 'speaking') {
-        // WHY: A mid-turn TTS disconnect is observable user-facing failure, not an ignorable transport
-        // blip. The runtime treats it like an interrupted reply so callers can recover cleanly.
-        reportError(
-          createTTSError(
-            ttsName,
-            'transport',
-            'TTS disconnected while speaking',
-          ),
-        );
-        setVoiceState('idle');
-        notifyCallbackSafely(
-          callbacks.onSpeechStopped,
-          'callback.onSpeechStopped.failed',
-          false,
-        );
+        if (!event.clean) {
+          reportError(
+            createTTSError(ttsName, 'transport', event.message, event),
+          );
+        }
+        handleInterruptedSpeech();
       }
       break;
   }

@@ -1,10 +1,11 @@
+import { classifyTTSError, createTTSError } from '../../provider-errors.js';
 import type {
   SpeechChunk,
   SpeechOptions,
+  SpeechSynthesisHandle,
   TTSEvent,
   TTSProvider,
 } from '../../types.js';
-import { classifyTTSError, createTTSError } from '../../provider-errors.js';
 import { createWebSocket } from '../../websocket.js';
 
 /**
@@ -181,21 +182,57 @@ export function createCartesiaTTS(
   /** Chunk ordering within the current spoken turn. */
   let sequence = 0;
   let hasEmittedDisconnected = false;
+  let activeSynthesis: {
+    resolveCompletion: (reason: 'completed' | 'stopped') => void;
+    completionSettled: boolean;
+  } | null = null;
   const eventListeners = new Set<(event: TTSEvent) => void>();
 
   function emit(event: TTSEvent) {
     eventListeners.forEach((cb) => {
-      cb(event);
+      try {
+        cb(event);
+      } catch (error) {
+        console.error('Cartesia TTS event listener failed', error);
+      }
     });
   }
 
-  function emitDisconnected() {
+  function settleActiveSynthesis(reason: 'completed' | 'stopped') {
+    if (!activeSynthesis || activeSynthesis.completionSettled) {
+      return;
+    }
+
+    activeSynthesis.completionSettled = true;
+    activeSynthesis.resolveCompletion(reason);
+    activeSynthesis = null;
+  }
+
+  function resetActiveSynthesis(reason: 'completed' | 'stopped') {
+    isSpeakingFlag = false;
+    currentContextId = null;
+    settleActiveSynthesis(reason);
+  }
+
+  function emitTransportFailure(message: string, cause?: unknown) {
+    emit({
+      type: 'error',
+      error: createTTSError('cartesia', 'transport', message, cause),
+    });
+  }
+
+  function emitDisconnected(clean: boolean, message: string) {
     if (hasEmittedDisconnected) {
       return;
     }
 
     hasEmittedDisconnected = true;
-    emit({ type: 'disconnected' });
+    emit({
+      type: 'disconnected',
+      clean,
+      reason: clean ? 'clean_shutdown' : 'transport_lost',
+      message,
+    } as TTSEvent);
   }
 
   function buildWebSocketUrl(): string {
@@ -246,21 +283,19 @@ export function createCartesiaTTS(
             sequence,
           },
         });
-        isSpeakingFlag = false;
-        currentContextId = null;
-        emit({ type: 'completed' });
+        resetActiveSynthesis('completed');
         return;
       }
 
       if (message.error) {
-        isSpeakingFlag = false;
-        currentContextId = null;
+        resetActiveSynthesis('stopped');
         emit({
           type: 'error',
           error: classifyTTSError(new Error(message.error), 'cartesia'),
         });
       }
     } catch (error) {
+      resetActiveSynthesis('stopped');
       emit({
         type: 'error',
         error: classifyTTSError(error, 'cartesia'),
@@ -302,10 +337,10 @@ export function createCartesiaTTS(
           try {
             ws?.close();
           } catch (closeError) {
-            emit({
-              type: 'error',
-              error: classifyTTSError(closeError, 'cartesia'),
-            });
+            emitTransportFailure(
+              'Cartesia WebSocket close failed after connection timeout',
+              closeError,
+            );
           }
           reject(error);
         }, connectionTimeoutMs);
@@ -316,7 +351,6 @@ export function createCartesiaTTS(
           clearTimeout(timeout);
           hasEmittedDisconnected = false;
           isConnectedFlag = true;
-          emit({ type: 'connected' });
           resolve();
         };
 
@@ -325,24 +359,32 @@ export function createCartesiaTTS(
         };
 
         ws.onerror = () => {
-          if (settled) return;
-          settled = true;
           clearTimeout(timeout);
           const error = createTTSError(
             'cartesia',
             'transport',
             'Cartesia WebSocket error',
           );
+
+          if (!settled) {
+            settled = true;
+            emit({ type: 'error', error });
+            reject(error);
+            return;
+          }
+
+          if (isSpeakingFlag) {
+            resetActiveSynthesis('stopped');
+          }
+
           emit({ type: 'error', error });
-          reject(error);
         };
 
         ws.onclose = (event) => {
           clearTimeout(timeout);
           const wasSpeaking = isSpeakingFlag;
+          const reasonSuffix = event.reason ? `: ${event.reason}` : '';
           isConnectedFlag = false;
-          isSpeakingFlag = false;
-          currentContextId = null;
           if (!settled) {
             settled = true;
             const error = createTTSError(
@@ -355,18 +397,30 @@ export function createCartesiaTTS(
             return;
           }
 
+          if (wasSpeaking) {
+            resetActiveSynthesis('stopped');
+          } else {
+            isSpeakingFlag = false;
+            currentContextId = null;
+          }
+
           if (event.code !== 1000 && wasSpeaking) {
             emit({
               type: 'error',
               error: createTTSError(
                 'cartesia',
                 'transport',
-                `Cartesia WebSocket closed unexpectedly (${event.code}${event.reason ? `: ${event.reason}` : ''})`,
+                `Cartesia WebSocket closed unexpectedly (${event.code}${reasonSuffix})`,
               ),
             });
           }
 
-          emitDisconnected();
+          emitDisconnected(
+            event.code === 1000,
+            event.code === 1000
+              ? 'Cartesia WebSocket disconnected cleanly'
+              : `Cartesia WebSocket closed unexpectedly (${event.code}${reasonSuffix})`,
+          );
         };
       });
     },
@@ -376,46 +430,48 @@ export function createCartesiaTTS(
         ws = null;
       }
       isConnectedFlag = false;
+      settleActiveSynthesis('stopped');
       isSpeakingFlag = false;
       currentContextId = null;
     },
-    speak(text: string, options?: CartesiaSpeechOptions): void {
+    speak(
+      text: string,
+      options?: CartesiaSpeechOptions,
+    ): SpeechSynthesisHandle {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        emit({
-          type: 'error',
-          error: createTTSError(
-            'cartesia',
-            'transport',
-            'Not connected to Cartesia',
-          ),
-        });
-        return;
+        throw createTTSError(
+          'cartesia',
+          'transport',
+          'Not connected to Cartesia',
+        );
       }
 
       const voiceId = options?.voice || defaultVoiceId;
       if (!voiceId) {
-        emit({
-          type: 'error',
-          error: createTTSError('cartesia', 'parse', 'Voice ID is required'),
-        });
-        return;
+        throw createTTSError('cartesia', 'parse', 'Voice ID is required');
       }
 
       const isContinuing = options?.continue ?? false;
+      let resolveCompletion!: (reason: 'completed' | 'stopped') => void;
+      const completion = new Promise<'completed' | 'stopped'>((resolve) => {
+        resolveCompletion = resolve;
+      });
+
+      if (activeSynthesis && !activeSynthesis.completionSettled) {
+        settleActiveSynthesis('stopped');
+      }
+
       if (!currentContextId) {
         // WHY: Cartesia groups streamed chunks by `context_id`. Reusing the same context within one
         // spoken turn allows continuation and cancel to target the correct provider-side stream.
         currentContextId = generateContextId();
         isSpeakingFlag = true;
-        emit({
-          type: 'started',
-          speech: {
-            text,
-            format: 'pcm_f32le',
-            sampleRate,
-          },
-        });
       }
+
+      activeSynthesis = {
+        resolveCompletion,
+        completionSettled: false,
+      };
 
       const request: CartesiaRequest = {
         model_id: modelId,
@@ -436,7 +492,27 @@ export function createCartesiaTTS(
         ...(options?.speed && { speed: options.speed }),
       };
 
-      ws.send(JSON.stringify(request));
+      try {
+        ws.send(JSON.stringify(request));
+      } catch (error) {
+        resetActiveSynthesis('stopped');
+        emitTransportFailure('Cartesia WebSocket send failed', error);
+        throw createTTSError(
+          'cartesia',
+          'transport',
+          'Cartesia WebSocket send failed',
+          error,
+        );
+      }
+
+      return {
+        speech: {
+          text,
+          format: 'pcm_f32le',
+          sampleRate,
+        },
+        completion,
+      };
     },
     stop(): void {
       if (!isSpeakingFlag) {
@@ -446,16 +522,18 @@ export function createCartesiaTTS(
       if (ws && ws.readyState === WebSocket.OPEN && currentContextId) {
         // WHY: Stopping sends a provider cancel before local state resets so the remote stream stops
         // generating more chunks for a turn the runtime has already decided to abandon.
-        ws.send(
-          JSON.stringify({
-            context_id: currentContextId,
-            cancel: true,
-          }),
-        );
+        try {
+          ws.send(
+            JSON.stringify({
+              context_id: currentContextId,
+              cancel: true,
+            }),
+          );
+        } catch (error) {
+          emitTransportFailure('Cartesia WebSocket cancel failed', error);
+        }
       }
-      isSpeakingFlag = false;
-      currentContextId = null;
-      emit({ type: 'stopped' });
+      resetActiveSynthesis('stopped');
     },
     onEvent(callback: (event: TTSEvent) => void): () => void {
       eventListeners.add(callback);

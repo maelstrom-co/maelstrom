@@ -25,6 +25,10 @@ const mockStream = {
 const clientClose = mock(async () => {});
 const streamingRecognize = mock(() => mockStream);
 
+function emitStreamClose() {
+  streamHandlers.get('close')?.();
+}
+
 const SpeechClient = mock(function MockSpeechClient(options?: unknown) {
   lastSpeechClientOptions = options;
   return {
@@ -32,6 +36,15 @@ const SpeechClient = mock(function MockSpeechClient(options?: unknown) {
     close: clientClose,
   };
 });
+
+function createDisconnectedEvent(clean: boolean, message: string): STTEvent {
+  return {
+    type: 'disconnected',
+    clean,
+    reason: clean ? 'clean_shutdown' : 'transport_lost',
+    message,
+  } as STTEvent;
+}
 
 mock.module('@google-cloud/speech', () => ({
   protos: {
@@ -108,7 +121,7 @@ describe('createGoogleSTT', () => {
         project_id: undefined,
       },
     });
-    expect(events).toContainEqual({ type: 'connected' });
+    expect(events).toEqual([]);
     expect(streamWrite).toHaveBeenCalledTimes(1);
     expect(writtenRequests[0]).toMatchObject({
       recognizer: 'projects/proj-1/locations/global/recognizers/_',
@@ -199,7 +212,9 @@ describe('createGoogleSTT', () => {
 
     expect(streamEnd).toHaveBeenCalledTimes(1);
     expect(clientClose).toHaveBeenCalledTimes(1);
-    expect(events).toContainEqual({ type: 'disconnected' });
+    expect(events).toContainEqual(
+      createDisconnectedEvent(true, 'Google STT stream disconnected cleanly'),
+    );
   });
 
   test('emits error events from the streaming response', async () => {
@@ -251,5 +266,33 @@ describe('createGoogleSTT', () => {
         },
       },
     });
+  });
+
+  test('ignores a stale close from the previous stream after reconnect', async () => {
+    const { createGoogleSTT } = await import('./index.js');
+    const provider = createGoogleSTT({
+      projectId: 'proj-1',
+    });
+    const events: STTEvent[] = [];
+    provider.onEvent((event) => events.push(event));
+
+    await provider.connect();
+    const firstCloseHandler = streamHandlers.get('close');
+
+    await provider.disconnect();
+    events.length = 0;
+
+    await provider.connect();
+    firstCloseHandler?.();
+
+    expect(provider.isConnected()).toBe(true);
+    expect(events).toEqual([]);
+
+    emitStreamClose();
+
+    expect(provider.isConnected()).toBe(false);
+    expect(events).toEqual([
+      createDisconnectedEvent(false, 'Google STT stream closed unexpectedly'),
+    ]);
   });
 });

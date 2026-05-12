@@ -13,16 +13,21 @@ import {
   createSTT,
   createTTS,
   type SpeechStart,
+  type SpeechStopReason,
+  type SpeechSynthesisHandle,
   type STTError,
   type STTEvent,
   type STTProvider,
   type STTProviderConfig,
   type STTProviderType,
+  type SttCircuitStatus,
   type TTSError,
   type TTSEvent,
   type TTSProvider,
   type TTSProviderConfig,
   type TTSProviderType,
+  type VoiceDisconnectedEvent,
+  type VoiceDisconnectReason,
   type VoiceProviderErrorKind,
   type VoiceSession,
   type VoiceSessionAudioDroppedEvent,
@@ -79,6 +84,25 @@ test('public API contract is locked', () => {
   });
   const sttErrorEvent: STTEvent = { type: 'error', error: sttError };
   const ttsErrorEvent: TTSEvent = { type: 'error', error: ttsError };
+  const sttDisconnectedEvent: STTEvent = {
+    type: 'disconnected',
+    clean: true,
+    reason: 'clean_shutdown',
+    message: 'socket closed cleanly',
+  };
+  const ttsDisconnectedEvent: TTSEvent = {
+    type: 'disconnected',
+    clean: false,
+    reason: 'transport_lost',
+    message: 'transport lost',
+  };
+  const voiceDisconnectReason: VoiceDisconnectReason = 'idle_timeout';
+  const voiceDisconnectedEvent: VoiceDisconnectedEvent = {
+    type: 'disconnected',
+    clean: true,
+    reason: voiceDisconnectReason,
+    message: 'provider closed after idle timeout',
+  };
   const runtimeErrorCallback: NonNullable<VoiceSessionCallbacks['onError']> = (
     error: VoiceSessionError,
   ) => {
@@ -90,6 +114,21 @@ test('public API contract is locked', () => {
     format: 'mp3',
     sampleRate: 24_000,
   };
+  const speechStopReason: SpeechStopReason = 'completed';
+  const speechHandle: SpeechSynthesisHandle = {
+    speech: speechStart,
+    completion: Promise.resolve(speechStopReason),
+  };
+  const sttCircuitStatus: SttCircuitStatus = 'half_open';
+  const getSttCircuitStatus: VoiceSession['getSttCircuitStatus'] = () =>
+    sttCircuitStatus;
+  const onSttCircuitStatusChange: VoiceSession['onSttCircuitStatusChange'] = (
+    callback,
+  ) => {
+    callback(sttCircuitStatus);
+    return () => {};
+  };
+  const replayedCircuitStatuses: SttCircuitStatus[] = [];
 
   const narrowedProviderTag = narrowVoiceSessionProviderTag(sttError);
   const narrowedGenericTag = narrowVoiceSessionProviderTag(
@@ -100,6 +139,10 @@ test('public API contract is locked', () => {
     audioBufferMaxMs: 1_500,
     maxReconnectAttempts: 2,
     reconnectDelayMs: 250,
+    maxReconnectDelayMs: 1_000,
+    reconnectBackoffMultiplier: 2,
+    reconnectJitterMs: 125,
+    circuitBreakerTimeoutMs: 5_000,
   };
 
   const legacyVoiceSessionConfig = {
@@ -116,12 +159,25 @@ test('public API contract is locked', () => {
   void onAudioDroppedCallback;
   void sttErrorEvent;
   void ttsErrorEvent;
+  void sttDisconnectedEvent;
+  void ttsDisconnectedEvent;
   void runtimeErrorCallback;
   void voiceProviderErrorKind;
   void speechStart;
+  void speechStopReason;
+  void speechHandle;
+  void voiceDisconnectReason;
+  void voiceDisconnectedEvent;
+  void sttCircuitStatus;
+  void getSttCircuitStatus;
   void narrowedProviderTag;
   void narrowedGenericTag;
   void legacyVoiceSessionConfig;
+
+  onSttCircuitStatusChange((status) => {
+    replayedCircuitStatuses.push(status);
+  });
+  expect(replayedCircuitStatuses).toEqual(['half_open']);
 
   function assertRegistryContracts(): void {
     const sttType: STTProviderType = 'google';
@@ -239,6 +295,46 @@ test('public API contract is locked', () => {
     // @ts-expect-error Provider error kinds must stay a closed string-literal union.
     const invalidVoiceProviderErrorKind: VoiceProviderErrorKind = 'bad_kind';
 
+    // @ts-expect-error STT circuit status must stay a closed string-literal union.
+    const invalidSttCircuitStatus: SttCircuitStatus = 'degraded';
+
+    // @ts-expect-error Removed STT connected events must not remain in the public contract.
+    const removedSttConnectedEvent: STTEvent = { type: 'connected' };
+
+    // @ts-expect-error Disconnected STT events now require clean/message payloads.
+    const invalidSttDisconnectedEvent: STTEvent = { type: 'disconnected' };
+
+    const contradictorySttDisconnectedEvent: STTEvent = {
+      type: 'disconnected',
+      clean: true,
+      // @ts-expect-error Clean disconnects cannot use the transport_lost reason.
+      reason: 'transport_lost',
+      message: 'contradictory clean disconnect',
+    };
+
+    const removedTtsStartedEvent: TTSEvent = {
+      // @ts-expect-error Removed TTS started events must not remain in the public contract.
+      type: 'started',
+      speech: speechStart,
+    };
+
+    // @ts-expect-error Removed TTS completed events must not remain in the public contract.
+    const removedTtsCompletedEvent: TTSEvent = { type: 'completed' };
+
+    // @ts-expect-error Removed TTS stopped events must not remain in the public contract.
+    const removedTtsStoppedEvent: TTSEvent = { type: 'stopped' };
+
+    // @ts-expect-error Disconnected TTS events now require clean/message payloads.
+    const invalidTtsDisconnectedEvent: TTSEvent = { type: 'disconnected' };
+
+    const contradictoryTtsDisconnectedEvent: TTSEvent = {
+      type: 'disconnected',
+      clean: false,
+      // @ts-expect-error Unclean disconnects cannot use clean-only reasons.
+      reason: 'idle_timeout',
+      message: 'contradictory unclean disconnect',
+    };
+
     // @ts-expect-error TTSError must keep the `tts` source discriminant.
     const invalidTtsErrorSource: TTSError = Object.assign(new Error('bad'), {
       source: 'stt' as const,
@@ -255,6 +351,15 @@ test('public API contract is locked', () => {
     void ttsExhaustive;
     void invalidDropReason;
     void invalidVoiceProviderErrorKind;
+    void invalidSttCircuitStatus;
+    void removedSttConnectedEvent;
+    void invalidSttDisconnectedEvent;
+    void contradictorySttDisconnectedEvent;
+    void removedTtsStartedEvent;
+    void removedTtsCompletedEvent;
+    void removedTtsStoppedEvent;
+    void invalidTtsDisconnectedEvent;
+    void contradictoryTtsDisconnectedEvent;
     void invalidTtsErrorSource;
   }
 
@@ -301,6 +406,9 @@ test('public API contract is locked', () => {
     );
     expect(resolvedProvisionConfig.maxReconnectAttempts).toBe(
       resolvedSessionConfig.maxReconnectAttempts,
+    );
+    expect(resolvedProvisionConfig.reconnectDelayMs).toBe(
+      resolvedSessionConfig.reconnectDelayMs,
     );
   }
 

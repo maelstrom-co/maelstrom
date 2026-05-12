@@ -9,7 +9,11 @@ import type {
 
 function assertFiniteNonNegativeDuration(
   value: number,
-  fieldName: 'vadFinalDebounceMs' | 'audioBufferMaxMs' | 'reconnectDelayMs',
+  fieldName:
+    | 'vadFinalDebounceMs'
+    | 'audioBufferMaxMs'
+    | 'reconnectDelayMs'
+    | 'reconnectJitterMs',
 ): number {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(
@@ -27,6 +31,20 @@ function assertFinitePositiveDuration(
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(
       `Voice session ${fieldName} must be a finite number greater than 0, received ${value}`,
+    );
+  }
+
+  return value;
+}
+
+function assertFiniteMinimumUnitless(
+  value: number,
+  fieldName: string,
+  minimum: number,
+): number {
+  if (!Number.isFinite(value) || value < minimum) {
+    throw new Error(
+      `Voice session ${fieldName} must be a finite number greater than or equal to ${minimum}, received ${value}`,
     );
   }
 
@@ -58,6 +76,10 @@ export function resolveVoiceSessionConfig(
     audioBufferMaxMs: number;
     maxReconnectAttempts: number;
     reconnectDelayMs: number;
+    maxReconnectDelayMs: number;
+    reconnectBackoffMultiplier: number;
+    reconnectJitterMs: number;
+    circuitBreakerTimeoutMs: number;
   },
 ): ResolvedVoiceSessionConfig {
   const resolvedVadFinalDebounceMs =
@@ -68,6 +90,28 @@ export function resolveVoiceSessionConfig(
     config.maxReconnectAttempts ?? defaults.maxReconnectAttempts;
   const resolvedReconnectDelayMs =
     config.reconnectDelayMs ?? defaults.reconnectDelayMs;
+  const resolvedMaxReconnectDelayMs =
+    config.maxReconnectDelayMs ?? defaults.maxReconnectDelayMs;
+  const resolvedReconnectBackoffMultiplier =
+    config.reconnectBackoffMultiplier ?? defaults.reconnectBackoffMultiplier;
+  const resolvedReconnectJitterMs =
+    config.reconnectJitterMs ?? defaults.reconnectJitterMs;
+  const resolvedCircuitBreakerTimeoutMs =
+    config.circuitBreakerTimeoutMs ?? defaults.circuitBreakerTimeoutMs;
+  const validatedReconnectDelayMs = assertFiniteNonNegativeDuration(
+    resolvedReconnectDelayMs,
+    'reconnectDelayMs',
+  );
+  const validatedMaxReconnectDelayMs = assertFinitePositiveDuration(
+    resolvedMaxReconnectDelayMs,
+    'maxReconnectDelayMs',
+  );
+
+  if (validatedMaxReconnectDelayMs < validatedReconnectDelayMs) {
+    throw new Error(
+      `Voice session maxReconnectDelayMs must be greater than or equal to reconnectDelayMs, received maxReconnectDelayMs=${validatedMaxReconnectDelayMs} and reconnectDelayMs=${validatedReconnectDelayMs}`,
+    );
+  }
 
   let stt: STTProvider;
   try {
@@ -107,9 +151,20 @@ export function resolveVoiceSessionConfig(
       resolvedMaxReconnectAttempts,
       'maxReconnectAttempts',
     ),
-    reconnectDelayMs: assertFiniteNonNegativeDuration(
-      resolvedReconnectDelayMs,
-      'reconnectDelayMs',
+    reconnectDelayMs: validatedReconnectDelayMs,
+    maxReconnectDelayMs: validatedMaxReconnectDelayMs,
+    reconnectBackoffMultiplier: assertFiniteMinimumUnitless(
+      resolvedReconnectBackoffMultiplier,
+      'reconnectBackoffMultiplier',
+      1,
+    ),
+    reconnectJitterMs: assertFiniteNonNegativeDuration(
+      resolvedReconnectJitterMs,
+      'reconnectJitterMs',
+    ),
+    circuitBreakerTimeoutMs: assertFinitePositiveDuration(
+      resolvedCircuitBreakerTimeoutMs,
+      'circuitBreakerTimeoutMs',
     ),
     trace: config.trace,
     intentBoundary:

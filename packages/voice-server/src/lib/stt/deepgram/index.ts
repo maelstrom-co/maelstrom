@@ -1,3 +1,4 @@
+import { classifySTTError, createSTTError } from '../../provider-errors.js';
 import type {
   AudioChunk,
   STTError,
@@ -5,7 +6,6 @@ import type {
   STTProvider,
   TranscriptionResult,
 } from '../../types.js';
-import { classifySTTError, createSTTError } from '../../provider-errors.js';
 import { createWebSocket } from '../../websocket.js';
 
 /**
@@ -91,7 +91,7 @@ function readRequiredBoolean(
 }
 
 function isKnownRecoverableIdleClose(event: CloseEvent): boolean {
-  if (event.code !== 1011) {
+  if (event.code !== 1011 && event.code !== 1000) {
     return false;
   }
 
@@ -317,23 +317,34 @@ export function createDeepgramSTT(
           },
         });
 
+        let settled = false;
+        let hasOpened = false;
         const timeout = setTimeout(() => {
+          if (settled) {
+            return;
+          }
+
           if (ws && ws.readyState !== WebSocket.OPEN) {
-            ws.close();
-            reject(
-              createSTTError(
-                'deepgram',
-                'transport',
-                'Deepgram WebSocket connection timeout',
-              ),
+            settled = true;
+            const error = createSTTError(
+              'deepgram',
+              'transport',
+              'Deepgram WebSocket connection timeout',
             );
+            ws.close();
+            reject(error);
           }
         }, connectionTimeoutInSeconds * 1000);
 
         ws.onopen = () => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          hasOpened = true;
           clearTimeout(timeout);
           isConnectedFlag = true;
-          emit({ type: 'connected' });
           resolve();
         };
 
@@ -342,6 +353,23 @@ export function createDeepgramSTT(
         };
 
         ws.onerror = () => {
+          if (hasOpened) {
+            emit({
+              type: 'error',
+              error: createSTTError(
+                'deepgram',
+                'transport',
+                'Deepgram WebSocket error',
+              ),
+            });
+            return;
+          }
+
+          if (settled) {
+            return;
+          }
+
+          settled = true;
           clearTimeout(timeout);
           const error = createSTTError(
             'deepgram',
@@ -354,13 +382,33 @@ export function createDeepgramSTT(
 
         ws.onclose = (event) => {
           clearTimeout(timeout);
+
+          if (!settled) {
+            settled = true;
+            isConnectedFlag = false;
+            const reasonSuffix = event.reason ? `: ${event.reason}` : '';
+            const error = createSTTError(
+              'deepgram',
+              'transport',
+              `Deepgram WebSocket closed before ready (${event.code})${reasonSuffix}`,
+            );
+            emit({ type: 'error', error });
+            reject(error);
+            return;
+          }
+
+          if (!hasOpened) {
+            isConnectedFlag = false;
+            return;
+          }
+
           isConnectedFlag = false;
+          const reasonSuffix = event.reason ? `: ${event.reason}` : '';
 
           if (event.code !== 1000 && !isKnownRecoverableIdleClose(event)) {
             // WHY: Deepgram can proactively close idle streams with provider-specific 1011 reasons even
             // though the runtime may legitimately pause between turns. Those closes should drive normal
             // reconnect behavior, not surface as hard provider errors.
-            const reasonSuffix = event.reason ? `: ${event.reason}` : '';
             emit({
               type: 'error',
               error: createSTTError(
@@ -371,7 +419,24 @@ export function createDeepgramSTT(
             });
           }
 
-          emit({ type: 'disconnected' });
+          const recoverableIdleClose = isKnownRecoverableIdleClose(event);
+
+          const disconnectedEvent = {
+            type: 'disconnected',
+            clean: event.code === 1000 || recoverableIdleClose,
+            reason: recoverableIdleClose
+              ? 'idle_timeout'
+              : event.code === 1000
+                ? 'clean_shutdown'
+                : 'transport_lost',
+            message: recoverableIdleClose
+              ? `Deepgram WebSocket closed after idle timeout (${event.code})${reasonSuffix}`
+              : event.code === 1000
+                ? 'Deepgram WebSocket closed cleanly'
+                : `Deepgram WebSocket closed unexpectedly (${event.code})${reasonSuffix}`,
+          } as STTEvent;
+
+          emit(disconnectedEvent);
         };
       });
     },

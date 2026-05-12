@@ -5,6 +5,7 @@ import { createDeepgramSTT } from './index.js';
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
+  static autoOpen = true;
   readyState = 0;
   static CONNECTING = 0;
   static OPEN = 1;
@@ -21,10 +22,12 @@ class MockWebSocket {
     public options?: { headers?: Record<string, string> },
   ) {
     MockWebSocket.instances.push(this);
-    setTimeout(() => {
-      this.readyState = 1;
-      this.onopen?.(new Event('open'));
-    }, 0);
+    if (MockWebSocket.autoOpen) {
+      setTimeout(() => {
+        this.readyState = 1;
+        this.onopen?.(new Event('open'));
+      }, 0);
+    }
   }
 
   send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
@@ -52,12 +55,28 @@ class MockWebSocket {
 
 const OriginalWebSocket = globalThis.WebSocket;
 
+function createDisconnectedEvent(
+  clean: boolean,
+  message: string,
+  reason: 'clean_shutdown' | 'idle_timeout' | 'transport_lost' = clean
+    ? 'clean_shutdown'
+    : 'transport_lost',
+): STTEvent {
+  return {
+    type: 'disconnected',
+    clean,
+    reason,
+    message,
+  } as STTEvent;
+}
+
 describe('createDeepgramSTT', () => {
   const mockApiKey = 'test-api-key';
 
   beforeEach(() => {
     process.env.DEEPGRAM_API_KEY = mockApiKey;
     MockWebSocket.instances = [];
+    MockWebSocket.autoOpen = true;
     globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
   });
 
@@ -85,7 +104,7 @@ describe('createDeepgramSTT', () => {
 
     const mockWs = MockWebSocket.instances.at(-1);
     expect(provider.isConnected()).toBe(true);
-    expect(events).toContainEqual({ type: 'connected' });
+    expect(events).toEqual([]);
     expect(mockWs?.url).toContain('language=es');
     expect(mockWs?.url).toContain('interim_results=false');
     expect(mockWs?.options?.headers).toEqual({
@@ -304,6 +323,24 @@ describe('createDeepgramSTT', () => {
     }
   });
 
+  test('timeout before open rejects without emitting a phantom disconnected event', async () => {
+    MockWebSocket.autoOpen = false;
+    const provider = createDeepgramSTT({
+      apiKey: mockApiKey,
+      connectionTimeoutInSeconds: 0.001,
+    });
+    const events: STTEvent[] = [];
+    provider.onEvent((event) => events.push(event));
+
+    await expect(provider.connect()).rejects.toMatchObject({
+      kind: 'transport',
+      message: 'Deepgram WebSocket connection timeout',
+      provider: 'deepgram',
+    });
+
+    expect(events).toEqual([]);
+  });
+
   test('emits provider error messages from non-Results websocket frames', async () => {
     const provider = createDeepgramSTT({ apiKey: mockApiKey });
     const events: STTEvent[] = [];
@@ -329,7 +366,7 @@ describe('createDeepgramSTT', () => {
     }
   });
 
-  test('treats the known idle-timeout close reason as a recoverable disconnect', async () => {
+  test('treats the known idle close reason as a recoverable disconnect', async () => {
     const provider = createDeepgramSTT({ apiKey: mockApiKey });
     const events: STTEvent[] = [];
     provider.onEvent((event) => events.push(event));
@@ -339,7 +376,32 @@ describe('createDeepgramSTT', () => {
     const mockWs = MockWebSocket.instances.at(-1);
     mockWs?.simulateClose(1011, 'NET-0000');
 
-    expect(events).toEqual([{ type: 'connected' }, { type: 'disconnected' }]);
+    expect(events).toEqual([
+      createDisconnectedEvent(
+        true,
+        'Deepgram WebSocket closed after idle timeout (1011): NET-0000',
+        'idle_timeout',
+      ),
+    ]);
+  });
+
+  test('treats clean inactivity timeout reasons as recoverable idle disconnects', async () => {
+    const provider = createDeepgramSTT({ apiKey: mockApiKey });
+    const events: STTEvent[] = [];
+    provider.onEvent((event) => events.push(event));
+
+    await provider.connect();
+
+    const mockWs = MockWebSocket.instances.at(-1);
+    mockWs?.simulateClose(1000, 'inactivity timeout');
+
+    expect(events).toEqual([
+      createDisconnectedEvent(
+        true,
+        'Deepgram WebSocket closed after idle timeout (1000): inactivity timeout',
+        'idle_timeout',
+      ),
+    ]);
   });
 
   test('emits non-idle abnormal close reasons as provider errors before disconnecting', async () => {
@@ -360,7 +422,12 @@ describe('createDeepgramSTT', () => {
         'Deepgram WebSocket closed unexpectedly (1011): upstream failure',
       );
     }
-    expect(events.at(-1)).toEqual({ type: 'disconnected' });
+    expect(events.at(-1)).toEqual(
+      createDisconnectedEvent(
+        false,
+        'Deepgram WebSocket closed unexpectedly (1011): upstream failure',
+      ),
+    );
   });
 
   test('can reconnect after disconnect', async () => {

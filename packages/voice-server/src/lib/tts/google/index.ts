@@ -1,10 +1,11 @@
 import { protos, TextToSpeechClient } from '@google-cloud/text-to-speech';
 
 import { parseGoogleCredentialsJSON } from '../../google/credentials.js';
-import { classifyTTSError } from '../../provider-errors.js';
+import { classifyTTSError, createTTSError } from '../../provider-errors.js';
 import type {
   SpeechChunk,
   SpeechOptions,
+  SpeechSynthesisHandle,
   TTSEvent,
   TTSProvider,
 } from '../../types.js';
@@ -99,12 +100,34 @@ export function createGoogleTTS(options: GoogleTTSOptions = {}): TTSProvider {
   let isConnectedFlag = false;
   /** Monotonic turn token used to invalidate stale synthesis results after stop/replace. */
   let activeRequestId = 0;
+  let activeRequest: {
+    id: number;
+    resolveCompletion: (reason: 'completed' | 'stopped') => void;
+    completionSettled: boolean;
+  } | null = null;
   const listeners = new Set<(event: TTSEvent) => void>();
 
   function emit(event: TTSEvent) {
     listeners.forEach((cb) => {
       cb(event);
     });
+  }
+
+  function settleActiveRequest(
+    reason: 'completed' | 'stopped',
+    requestId?: number,
+  ) {
+    if (!activeRequest || activeRequest.completionSettled) {
+      return;
+    }
+
+    if (requestId !== undefined && activeRequest.id !== requestId) {
+      return;
+    }
+
+    activeRequest.completionSettled = true;
+    activeRequest.resolveCompletion(reason);
+    activeRequest = null;
   }
 
   async function getClient(): Promise<TextToSpeechClient> {
@@ -131,29 +154,44 @@ export function createGoogleTTS(options: GoogleTTSOptions = {}): TTSProvider {
     async connect(): Promise<void> {
       await getClient();
       isConnectedFlag = true;
-      emit({ type: 'connected' });
     },
     async disconnect(): Promise<void> {
       activeRequestId += 1;
+      settleActiveRequest('stopped');
       isConnectedFlag = false;
       if (client) {
         await client.close();
       }
       client = null;
-      emit({ type: 'disconnected' });
+      emit({
+        type: 'disconnected',
+        clean: true,
+        reason: 'clean_shutdown',
+        message: 'Google TTS disconnected cleanly',
+      } as TTSEvent);
     },
-    speak(text: string, speakOptions?: SpeechOptions): void {
+    speak(text: string, speakOptions?: SpeechOptions): SpeechSynthesisHandle {
+      if (!isConnectedFlag) {
+        throw createTTSError(
+          'google',
+          'transport',
+          'Google TTS is not connected',
+        );
+      }
+
       const resolvedSampleRate = speakOptions?.sampleRate || sampleRate;
       const requestId = activeRequestId + 1;
       activeRequestId = requestId;
-      emit({
-        type: 'started',
-        speech: {
-          text,
-          format: 'pcm_f32le',
-          sampleRate: resolvedSampleRate,
-        },
+      settleActiveRequest('stopped');
+      let resolveCompletion!: (reason: 'completed' | 'stopped') => void;
+      const completion = new Promise<'completed' | 'stopped'>((resolve) => {
+        resolveCompletion = resolve;
       });
+      activeRequest = {
+        id: requestId,
+        resolveCompletion,
+        completionSettled: false,
+      };
 
       void (async () => {
         try {
@@ -183,7 +221,7 @@ export function createGoogleTTS(options: GoogleTTSOptions = {}): TTSProvider {
           const pcmAudio = linear16ToPcmF32le(stripWavHeader(audioBytes));
 
           if (pcmAudio.length === 0) {
-            emit({ type: 'completed' });
+            settleActiveRequest('completed', requestId);
             return;
           }
 
@@ -205,22 +243,32 @@ export function createGoogleTTS(options: GoogleTTSOptions = {}): TTSProvider {
             emit({ type: 'chunk', chunk });
           }
 
-          emit({ type: 'completed' });
+          settleActiveRequest('completed', requestId);
         } catch (error) {
           if (activeRequestId !== requestId) {
             return;
           }
 
+          settleActiveRequest('stopped', requestId);
           emit({
             type: 'error',
             error: classifyTTSError(error, 'google'),
           });
         }
       })();
+
+      return {
+        speech: {
+          text,
+          format: 'pcm_f32le',
+          sampleRate: resolvedSampleRate,
+        },
+        completion,
+      };
     },
     stop(): void {
       activeRequestId += 1;
-      emit({ type: 'stopped' });
+      settleActiveRequest('stopped');
     },
     onEvent(callback: (event: TTSEvent) => void): () => void {
       listeners.add(callback);

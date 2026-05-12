@@ -50,6 +50,11 @@ type GoogleStreamingRecognizeRequest =
 type GoogleStreamingRecognizeResponse =
   protos.google.cloud.speech.v2.IStreamingRecognizeResponse;
 
+interface ActiveGoogleStream {
+  id: number;
+  stream: GoogleStreamingRecognizeStream;
+}
+
 function chunkAudioData(data: Uint8Array): Uint8Array[] {
   const chunks: Uint8Array[] = [];
   // WHY: Google's streaming RPC rejects oversized messages. Chunking here keeps the shared runtime
@@ -123,6 +128,8 @@ export function createGoogleSTT(options: GoogleSTTOptions): STTProvider {
 
   let client: v2.SpeechClient | null = null;
   let stream: GoogleStreamingRecognizeStream | null = null;
+  let activeStream: ActiveGoogleStream | null = null;
+  let nextStreamId = 0;
   /** True once the bidirectional stream is configured and ready for audio writes. */
   let isConnectedFlag = false;
   let hasEmittedDisconnected = false;
@@ -134,13 +141,18 @@ export function createGoogleSTT(options: GoogleSTTOptions): STTProvider {
     });
   }
 
-  function emitDisconnected() {
+  function emitDisconnected(clean: boolean, message: string) {
     if (hasEmittedDisconnected) {
       return;
     }
 
     hasEmittedDisconnected = true;
-    emit({ type: 'disconnected' });
+    emit({
+      type: 'disconnected',
+      clean,
+      reason: clean ? 'clean_shutdown' : 'transport_lost',
+      message,
+    } as STTEvent);
   }
 
   async function getClient(): Promise<v2.SpeechClient> {
@@ -166,8 +178,14 @@ export function createGoogleSTT(options: GoogleSTTOptions): STTProvider {
    * provider-neutral state machine. Translating those callbacks here keeps runtime logic stable even
    * if provider SDK details change.
    */
-  function attachStream(streamInstance: GoogleStreamingRecognizeStream) {
+  function attachStream(active: ActiveGoogleStream) {
+    const { id, stream: streamInstance } = active;
+
     streamInstance.on('data', (response: GoogleStreamingRecognizeResponse) => {
+      if (activeStream?.id !== id) {
+        return;
+      }
+
       const results = response.results ?? [];
       for (const result of results) {
         const alternative = result.alternatives?.[0];
@@ -193,13 +211,22 @@ export function createGoogleSTT(options: GoogleSTTOptions): STTProvider {
     });
 
     streamInstance.on('error', (error: Error) => {
+      if (activeStream?.id !== id) {
+        return;
+      }
+
       emit({ type: 'error', error: classifySTTError(error, 'google') });
     });
 
     streamInstance.on('close', () => {
+      if (activeStream?.id !== id) {
+        return;
+      }
+
+      activeStream = null;
       stream = null;
       isConnectedFlag = false;
-      emitDisconnected();
+      emitDisconnected(false, 'Google STT stream closed unexpectedly');
     });
   }
 
@@ -253,7 +280,13 @@ export function createGoogleSTT(options: GoogleSTTOptions): STTProvider {
 
       const speechClient = await getClient();
       const nextStream = speechClient.streamingRecognize();
-      attachStream(nextStream);
+      const streamState = {
+        id: ++nextStreamId,
+        stream: nextStream,
+      };
+
+      attachStream(streamState);
+      activeStream = streamState;
       stream = nextStream;
 
       // WHY: The first write establishes recognizer behavior for the lifetime of the stream. Audio
@@ -261,13 +294,13 @@ export function createGoogleSTT(options: GoogleSTTOptions): STTProvider {
       nextStream.write(await buildStreamingConfig(config?.language));
       isConnectedFlag = true;
       hasEmittedDisconnected = false;
-      emit({ type: 'connected' });
     },
     async disconnect(): Promise<void> {
+      activeStream = null;
       stream?.end();
       stream = null;
       isConnectedFlag = false;
-      emitDisconnected();
+      emitDisconnected(true, 'Google STT stream disconnected cleanly');
       if (client) {
         await client.close();
       }

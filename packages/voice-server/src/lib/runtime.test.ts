@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import {
   type ChartRequest,
   type MaelstromResponse,
@@ -6,13 +6,18 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
-import { createVoiceSession, defaultAudioDropDebounceMs } from './runtime.js';
+import {
+  createSttDisconnectSuppressionController,
+  createVoiceSession,
+  defaultAudioDropDebounceMs,
+} from './runtime.js';
 import { sttProviderFactories } from './stt/registry.js';
 import { ttsProviderFactories } from './tts/registry.js';
 import type {
   AudioChunk,
   ProcessIntent,
   SpeechOptions,
+  SpeechSynthesisHandle,
   STTError,
   STTEvent,
   STTProvider,
@@ -26,6 +31,24 @@ import type {
 } from './types.js';
 
 type ProcessIntentResponse = Awaited<ReturnType<ProcessIntent['process']>>;
+
+function createDisconnectedSTTEvent(clean: boolean, message: string): STTEvent {
+  return {
+    type: 'disconnected',
+    clean,
+    reason: clean ? 'clean_shutdown' : 'transport_lost',
+    message,
+  } as STTEvent;
+}
+
+function createDisconnectedTTSEvent(clean: boolean, message: string): TTSEvent {
+  return {
+    type: 'disconnected',
+    clean,
+    reason: clean ? 'clean_shutdown' : 'transport_lost',
+    message,
+  } as TTSEvent;
+}
 
 function createMockSTTError(kind: STTError['kind'], message: string): STTError {
   return Object.assign(new Error(message), {
@@ -57,12 +80,33 @@ class MockSTTProvider implements STTProvider {
   async connect(): Promise<void> {
     this.connectCalls += 1;
     this.connected = true;
-    this.emit({ type: 'connected' });
   }
 
   async disconnect(): Promise<void> {
     this.connected = false;
-    this.emit({ type: 'disconnected' });
+    this.emit(
+      createDisconnectedSTTEvent(true, 'Mock STT disconnected cleanly'),
+    );
+  }
+
+  simulateUnexpectedDisconnect(
+    message = 'Mock STT disconnected unexpectedly',
+  ): void {
+    this.connected = false;
+    this.emit(createDisconnectedSTTEvent(false, message));
+  }
+
+  simulateCleanDisconnect(message = 'Mock STT disconnected cleanly'): void {
+    this.connected = false;
+    this.emit(createDisconnectedSTTEvent(true, message));
+  }
+
+  simulateTransportErrorOnly(message = 'Mock STT transport error'): void {
+    this.connected = false;
+    this.emit({
+      type: 'error',
+      error: createMockSTTError('transport', message),
+    });
   }
 
   sendAudio(_chunk: AudioChunk): void {
@@ -150,7 +194,9 @@ class DisconnectOnNthSendSTTProvider extends MockSTTProvider {
 
     if (this.disconnectOnSendCounts.includes(this.sentAudioChunks.length)) {
       this.connected = false;
-      this.emit({ type: 'disconnected' });
+      this.emit(
+        createDisconnectedSTTEvent(false, 'Mock STT disconnected unexpectedly'),
+      );
     }
   }
 }
@@ -204,7 +250,9 @@ class ThrowAndDisconnectThenThrowOnceOnReplaySTTProvider extends MockSTTProvider
     if (!this.liveSendFailed) {
       this.liveSendFailed = true;
       this.connected = false;
-      this.emit({ type: 'disconnected' });
+      this.emit(
+        createDisconnectedSTTEvent(false, 'Mock STT disconnected unexpectedly'),
+      );
       throw new Error(this.liveFailureMessage);
     }
 
@@ -225,24 +273,59 @@ class MockTTSProvider implements TTSProvider {
   private listeners = new Set<(event: TTSEvent) => void>();
   readonly spokenTexts: string[] = [];
   stopCalls = 0;
+  protected activeSpeak: {
+    resolveCompletion: (reason: 'completed' | 'stopped') => void;
+    completionSettled: boolean;
+  } | null = null;
+
+  settleActiveSpeak(reason: 'completed' | 'stopped'): void {
+    if (!this.activeSpeak || this.activeSpeak.completionSettled) {
+      return;
+    }
+
+    this.activeSpeak.completionSettled = true;
+    this.activeSpeak.resolveCompletion(reason);
+    this.activeSpeak = null;
+  }
 
   async connect(): Promise<void> {
     this.connected = true;
-    this.emit({ type: 'connected' });
   }
 
   async disconnect(): Promise<void> {
     this.connected = false;
-    this.emit({ type: 'disconnected' });
+    this.settleActiveSpeak('stopped');
+    this.emit(
+      createDisconnectedTTSEvent(true, 'Mock TTS disconnected cleanly'),
+    );
   }
 
-  speak(text: string, _options?: SpeechOptions): void {
+  speak(text: string, options?: SpeechOptions): SpeechSynthesisHandle {
     this.spokenTexts.push(text);
+
+    let resolveCompletion!: (reason: 'completed' | 'stopped') => void;
+    const completion = new Promise<'completed' | 'stopped'>((resolve) => {
+      resolveCompletion = resolve;
+    });
+
+    this.activeSpeak = {
+      resolveCompletion,
+      completionSettled: false,
+    };
+
+    return {
+      speech: {
+        text,
+        format: 'pcm_f32le',
+        sampleRate: options?.sampleRate ?? 16000,
+      },
+      completion,
+    };
   }
 
   stop(): void {
     this.stopCalls += 1;
-    this.emit({ type: 'stopped' });
+    this.settleActiveSpeak('stopped');
   }
 
   onEvent(callback: (event: TTSEvent) => void): () => void {
@@ -261,32 +344,38 @@ class MockTTSProvider implements TTSProvider {
   }
 }
 
-class AutoEventTTSProvider extends MockTTSProvider {
-  override speak(text: string, options?: SpeechOptions): void {
+class FailOnConnectTTSProvider extends MockTTSProvider {
+  constructor(private readonly failureMessage = 'mock tts connect failure') {
+    super();
+  }
+
+  override async connect(): Promise<void> {
+    throw new Error(this.failureMessage);
+  }
+}
+
+class FailOnSpeakTTSProvider extends MockTTSProvider {
+  constructor(private readonly failureMessage = 'mock tts speak failure') {
+    super();
+  }
+
+  override speak(text: string, options?: SpeechOptions): SpeechSynthesisHandle {
     super.speak(text, options);
-    this.emit({
-      type: 'started',
-      speech: {
-        text,
-        format: 'pcm_f32le',
-        sampleRate: options?.sampleRate ?? 16000,
-      },
-    });
+    throw new Error(this.failureMessage);
+  }
+}
+
+class AutoEventTTSProvider extends MockTTSProvider {
+  override speak(text: string, options?: SpeechOptions): SpeechSynthesisHandle {
+    return super.speak(text, options);
   }
 }
 
 class EventOnlyTTSProvider extends MockTTSProvider {
-  override speak(text: string, options?: SpeechOptions): void {
-    super.speak(text, options);
-    this.emit({
-      type: 'started',
-      speech: {
-        text,
-        format: 'pcm_f32le',
-        sampleRate: options?.sampleRate ?? 16000,
-      },
-    });
-    this.emit({ type: 'completed' });
+  override speak(text: string, options?: SpeechOptions): SpeechSynthesisHandle {
+    const handle = super.speak(text, options);
+    this.settleActiveSpeak('completed');
+    return handle;
   }
 }
 
@@ -505,6 +594,20 @@ function createRuntime(
   return withPatchedProviderFactories(providers, () =>
     createVoiceSession(config, callbacks),
   );
+}
+
+function createReconnectTraceRecorder() {
+  const events: Array<{
+    event: string;
+    details?: Record<string, unknown>;
+  }> = [];
+
+  return {
+    events,
+    trace(event: string, details?: Record<string, unknown>) {
+      events.push({ event, details });
+    },
+  };
 }
 
 describe('createVoiceSession runtime finalization', () => {
@@ -977,10 +1080,7 @@ describe('createVoiceSession runtime finalization', () => {
 
   test('reports the first retryable reconnect failure before stopping after max retries', async () => {
     const reportedErrors: Error[] = [];
-    const traceEvents: Array<{
-      event: string;
-      details?: Record<string, unknown>;
-    }> = [];
+    const trace = createReconnectTraceRecorder();
     const stt = new FailOnNthConnectSTTProvider([2, 3]);
     const tts = new MockTTSProvider();
 
@@ -991,10 +1091,9 @@ describe('createVoiceSession runtime finalization', () => {
           tts: createTTSTestConfig(),
           sessionId: SessionId('session-test'),
           reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
           maxReconnectAttempts: 2,
-          trace(event, details) {
-            traceEvents.push({ event, details });
-          },
+          trace: trace.trace,
           buildChartRequest: defaultBuildChartRequest,
           processIntent: defaultProcessIntent,
         },
@@ -1006,16 +1105,16 @@ describe('createVoiceSession runtime finalization', () => {
       );
 
       await runtime.startListening();
-      await stt.disconnect();
+      stt.simulateUnexpectedDisconnect();
       await advance(10);
 
       expect(
-        traceEvents
+        trace.events
           .filter((entry) => entry.event === 'stt.reconnect.failed')
           .map((entry) => entry.details?.attempt),
       ).toEqual([1, 2]);
       expect(
-        traceEvents
+        trace.events
           .filter((entry) => entry.event === 'stt.reconnect.failed')
           .map((entry) => entry.details?.message),
       ).toEqual(['mock stt connect failure', 'mock stt connect failure']);
@@ -1031,148 +1130,231 @@ describe('createVoiceSession runtime finalization', () => {
       ).toEqual(['mock stt connect failure', 'mock stt connect failure']);
       expect(stt.connectCalls).toBe(1);
       expect(runtime.getVoiceState()).toBe('idle');
+      expect(runtime.getSttCircuitStatus()).toBe('open');
     });
   });
 
-  for (const testCase of [
-    {
-      kind: 'auth' as const,
-      message: 'mock stt auth reconnect failure',
-    },
-    {
-      kind: 'quota' as const,
-      message: 'mock stt quota reconnect failure',
-    },
-  ]) {
-    test(`short-circuits ${testCase.kind} reconnect failures on the first failed attempt`, async () => {
-      const reportedErrors: Error[] = [];
-      const traceEvents: Array<{
-        event: string;
-        details?: Record<string, unknown>;
-      }> = [];
-      const audioDropped = createAudioDroppedRecorder();
-      const stt = new FailOnNthConnectWithSTTErrorProvider({
-        2: createMockSTTError(testCase.kind, testCase.message),
-      });
-      const tts = new MockTTSProvider();
-
-      await withPatchedProviderFactories({ stt, tts }, async () => {
-        const runtime = createVoiceSession(
-          {
-            stt: createSTTTestConfig(),
-            tts: createTTSTestConfig(),
-            sessionId: SessionId('session-test'),
-            reconnectDelayMs: 1,
-            audioBufferMaxMs: 5,
-            maxReconnectAttempts: 3,
-            trace(event, details) {
-              traceEvents.push({ event, details });
-            },
-            buildChartRequest: defaultBuildChartRequest,
-            processIntent: defaultProcessIntent,
-          },
-          {
-            ...audioDropped.callbacks,
-            onError(error) {
-              reportedErrors.push(error);
-            },
-          },
-        );
-
-        audioDropped.attach(runtime);
-
-        await runtime.startListening();
-        await stt.disconnect();
-
-        runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
-        runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
-
-        expect(audioDropped.events).toEqual([]);
-
-        await advance(10);
-
-        expect(reportedErrors.map((error) => error.message)).toEqual([
-          'Dropped 4ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs',
-          testCase.message,
-        ]);
-        expect((reportedErrors.at(-1) as STTError | undefined)?.kind).toBe(
-          testCase.kind,
-        );
-        expect(runtime.getVoiceState()).toBe('idle');
-        expect(audioDropped.events).toEqual([
-          {
-            type: 'audio_dropped',
-            reason: 'reconnect_buffer_full',
-            droppedDurationMs: 4,
-          },
-        ]);
-        expect(stt.connectCalls).toBe(1);
-        expect(
-          traceEvents.filter((entry) => entry.event === 'stt.reconnect.failed'),
-        ).toHaveLength(1);
-        expect(
-          traceEvents.filter(
-            (entry) => entry.event === 'stt.reconnect.exhausted',
-          ),
-        ).toHaveLength(0);
-
-        await runtime.startListening();
-
-        expect(stt.sentAudioChunks).toEqual([]);
-      });
-    });
-  }
-
-  test('surfaces non-transport STT provider errors through onError and returns to idle', async () => {
-    const cases = [
+  test.each([
+    [
+      'auth',
       {
         kind: 'auth' as const,
-        message: 'mock stt auth error: invalid api key',
+        message: 'mock stt auth reconnect failure',
+        expectedErrors: [
+          'Dropped 4ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs',
+          'mock stt auth reconnect failure',
+        ],
+        expectedFailureCount: 1,
+        expectedExhaustedCount: 0,
+        expectedCircuitStatus: 'closed',
       },
+    ],
+    [
+      'quota',
       {
         kind: 'quota' as const,
-        message: 'mock stt quota error: subscription overage limit reached',
+        message: 'mock stt quota reconnect failure',
+        expectedErrors: [
+          'Dropped 4ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs',
+          'mock stt quota reconnect failure',
+        ],
+        expectedFailureCount: 1,
+        expectedExhaustedCount: 0,
+        expectedCircuitStatus: 'closed',
       },
-      {
-        kind: 'parse' as const,
-        message: 'mock stt parse error: malformed provider payload',
-      },
-      {
-        kind: 'server' as const,
-        message: 'mock stt server error: upstream exploded',
-      },
+    ],
+    [
+      'unknown',
       {
         kind: 'unknown' as const,
-        message: 'mock stt unknown error: unexpected runtime condition',
+        message: 'mock stt unknown reconnect failure',
+        expectedErrors: [
+          'Dropped 4ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs',
+          'mock stt unknown reconnect failure',
+          'STT connection lost after max retries',
+        ],
+        expectedFailureCount: 3,
+        expectedExhaustedCount: 1,
+        expectedCircuitStatus: 'open',
       },
-    ];
+    ],
+    [
+      'server',
+      {
+        kind: 'server' as const,
+        message: 'mock stt server reconnect failure',
+        expectedErrors: [
+          'Dropped 4ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs',
+          'mock stt server reconnect failure',
+          'STT connection lost after max retries',
+        ],
+        expectedFailureCount: 1,
+        expectedExhaustedCount: 1,
+        expectedCircuitStatus: 'open',
+      },
+    ],
+    [
+      'parse',
+      {
+        kind: 'parse' as const,
+        message: 'mock stt parse reconnect failure',
+        expectedErrors: [
+          'Dropped 4ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs',
+          'mock stt parse reconnect failure',
+          'STT connection lost after max retries',
+        ],
+        expectedFailureCount: 3,
+        expectedExhaustedCount: 1,
+        expectedCircuitStatus: 'open',
+      },
+    ],
+  ] as const)('applies %s reconnect policy by error class', async (_label, {
+    kind,
+    message,
+    expectedErrors,
+    expectedFailureCount,
+    expectedExhaustedCount,
+    expectedCircuitStatus,
+  }) => {
+    const reportedErrors: Error[] = [];
+    const trace = createReconnectTraceRecorder();
+    const audioDropped = createAudioDroppedRecorder();
+    const failures: Record<number, STTError> = {
+      2: createMockSTTError(kind, message),
+    };
 
-    for (const testCase of cases) {
-      const reportedErrors: Error[] = [];
-      const { config, stt, tts } = createConfig();
-      const runtime = createRuntime(
-        config,
-        { stt, tts },
+    if (kind === 'parse' || kind === 'unknown') {
+      failures[3] = createMockSTTError(kind, message);
+      failures[4] = createMockSTTError(kind, message);
+    }
+
+    const stt = new FailOnNthConnectWithSTTErrorProvider(failures);
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
         {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
+          audioBufferMaxMs: 5,
+          maxReconnectAttempts: 3,
+          trace: trace.trace,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          ...audioDropped.callbacks,
           onError(error) {
             reportedErrors.push(error);
           },
         },
       );
 
-      await runtime.startListening();
-      stt.emit({
-        type: 'error',
-        error: createMockSTTError(testCase.kind, testCase.message),
-      });
+      audioDropped.attach(runtime);
 
-      expect(reportedErrors).toHaveLength(1);
-      expect(reportedErrors[0]?.message).toBe(testCase.message);
-      expect((reportedErrors[0] as STTError).kind).toBe(testCase.kind);
-      expect((reportedErrors[0] as STTError).source).toBe('stt');
-      expect((reportedErrors[0] as STTError).provider).toBe('mock-stt');
+      await runtime.startListening();
+      stt.simulateUnexpectedDisconnect();
+
+      runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
+      runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
+
+      expect(audioDropped.events).toEqual([]);
+
+      await advance(30);
+
+      expect(reportedErrors.map((error) => error.message)).toEqual([
+        ...expectedErrors,
+      ]);
+      expect((reportedErrors[1] as STTError | undefined)?.kind).toBe(kind);
       expect(runtime.getVoiceState()).toBe('idle');
-    }
+      expect(runtime.getSttCircuitStatus()).toBe(expectedCircuitStatus);
+      expect(audioDropped.events).toEqual([
+        {
+          type: 'audio_dropped',
+          reason: 'reconnect_buffer_full',
+          droppedDurationMs: 4,
+        },
+      ]);
+      expect(stt.connectCalls).toBe(1);
+      expect(
+        trace.events.filter((entry) => entry.event === 'stt.reconnect.failed'),
+      ).toHaveLength(expectedFailureCount);
+      expect(
+        trace.events.filter(
+          (entry) => entry.event === 'stt.reconnect.exhausted',
+        ),
+      ).toHaveLength(expectedExhaustedCount);
+
+      if (expectedCircuitStatus === 'open') {
+        await expect(runtime.startListening()).rejects.toThrow(
+          'Cannot start listening while the STT circuit is open',
+        );
+      } else {
+        await runtime.startListening();
+      }
+
+      expect(stt.sentAudioChunks).toEqual([]);
+    });
+  });
+
+  test.each([
+    {
+      kind: 'auth' as const,
+      message: 'mock stt auth error: invalid api key',
+      expectedState: 'idle',
+    },
+    {
+      kind: 'quota' as const,
+      message: 'mock stt quota error: subscription overage limit reached',
+      expectedState: 'idle',
+    },
+    {
+      kind: 'parse' as const,
+      message: 'mock stt parse error: malformed provider payload',
+      expectedState: 'listening',
+    },
+    {
+      kind: 'server' as const,
+      message: 'mock stt server error: upstream exploded',
+      expectedState: 'listening',
+    },
+    {
+      kind: 'unknown' as const,
+      message: 'mock stt unknown error: unexpected runtime condition',
+      expectedState: 'listening',
+    },
+  ])('surfaces %s STT provider errors and applies the correct runtime state', async ({
+    kind,
+    message,
+    expectedState,
+  }) => {
+    const reportedErrors: Error[] = [];
+    const { config, stt, tts } = createConfig();
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error);
+        },
+      },
+    );
+
+    await runtime.startListening();
+    stt.emit({
+      type: 'error',
+      error: createMockSTTError(kind, message),
+    });
+
+    expect(reportedErrors).toHaveLength(1);
+    expect(reportedErrors[0]?.message).toBe(message);
+    expect((reportedErrors[0] as STTError).kind).toBe(kind);
+    expect((reportedErrors[0] as STTError).source).toBe('stt');
+    expect((reportedErrors[0] as STTError).provider).toBe('mock-stt');
+    expect(runtime.getVoiceState()).toBe(expectedState);
   });
 
   test('keeps reconnect eligible after a transport STT error until disconnect triggers recovery', async () => {
@@ -1193,7 +1375,7 @@ describe('createVoiceSession runtime finalization', () => {
       type: 'error',
       error: createMockSTTError('transport', 'mock stt transport error'),
     });
-    await stt.disconnect();
+    stt.simulateUnexpectedDisconnect();
     await advance(10);
 
     expect(reportedErrors).toHaveLength(1);
@@ -1201,6 +1383,33 @@ describe('createVoiceSession runtime finalization', () => {
     expect((reportedErrors[0] as STTError).kind).toBe('transport');
     expect(runtime.getVoiceState()).toBe('listening');
     expect(stt.connectCalls).toBe(2);
+  });
+
+  test('reconnects immediately when a transport STT error is the only failure signal', async () => {
+    const reportedErrors: Error[] = [];
+    const { config, stt, tts } = createConfig({
+      reconnectDelayMs: 1,
+      reconnectJitterMs: 0,
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error);
+        },
+      },
+    );
+
+    await runtime.startListening();
+    stt.simulateTransportErrorOnly('mock transport error only');
+    await advance(10);
+
+    expect(reportedErrors.map((error) => error.message)).toEqual([
+      'mock transport error only',
+    ]);
+    expect(stt.connectCalls).toBe(2);
+    expect(runtime.getVoiceState()).toBe('listening');
   });
 
   test('reuses one reconnect attempt when duplicate disconnect events arrive before reconnect succeeds', async () => {
@@ -1217,6 +1426,7 @@ describe('createVoiceSession runtime finalization', () => {
         tts: createTTSTestConfig(),
         sessionId: SessionId('session-test'),
         reconnectDelayMs: 1,
+        reconnectJitterMs: 0,
         trace(event, details) {
           traceEvents.push({ event, details });
         },
@@ -1225,9 +1435,13 @@ describe('createVoiceSession runtime finalization', () => {
       });
 
       await runtime.startListening();
-      await stt.disconnect();
-      stt.emit({ type: 'disconnected' });
-      stt.emit({ type: 'disconnected' });
+      stt.simulateUnexpectedDisconnect();
+      stt.emit(
+        createDisconnectedSTTEvent(false, 'Mock STT disconnected unexpectedly'),
+      );
+      stt.emit(
+        createDisconnectedSTTEvent(false, 'Mock STT disconnected unexpectedly'),
+      );
       await advance(10);
 
       expect(stt.connectCalls).toBe(2);
@@ -1241,6 +1455,169 @@ describe('createVoiceSession runtime finalization', () => {
       ).toHaveLength(1);
       expect(runtime.getVoiceState()).toBe('listening');
     });
+  });
+
+  test('resets the reconnect attempt budget for a fresh disconnect before the stability window expires', async () => {
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const reportedErrors: Error[] = [];
+    const stt = new FailOnNthConnectSTTProvider(
+      [3],
+      'second cycle first retry fails',
+    );
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
+          maxReconnectAttempts: 2,
+          trace(event, details) {
+            traceEvents.push({ event, details });
+          },
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onError(error) {
+            reportedErrors.push(error);
+          },
+        },
+      );
+
+      await runtime.startListening();
+
+      stt.simulateUnexpectedDisconnect();
+      await advance(10);
+
+      stt.simulateUnexpectedDisconnect();
+      await advance(20);
+
+      expect(
+        traceEvents
+          .filter((entry) => entry.event === 'stt.reconnect.attempt')
+          .map((entry) => entry.details?.attempt),
+      ).toEqual([1, 1, 2]);
+      expect(
+        traceEvents
+          .filter((entry) => entry.event === 'stt.reconnect.failed')
+          .map((entry) => entry.details?.attempt),
+      ).toEqual([1]);
+      expect(reportedErrors.map((error) => error.message)).toEqual([
+        'second cycle first retry fails',
+      ]);
+      expect(stt.connectCalls).toBe(3);
+      expect(runtime.getVoiceState()).toBe('listening');
+      expect(runtime.getSttCircuitStatus()).toBe('closed');
+    });
+  });
+
+  test('jitter uses mocked randomness while staying bounded by remaining reconnect headroom', async () => {
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const randomSpy = spyOn(Math, 'random').mockReturnValue(0.5);
+    const stt = new MockSTTProvider();
+    const tts = new MockTTSProvider();
+
+    try {
+      await withPatchedProviderFactories({ stt, tts }, async () => {
+        const runtime = createVoiceSession({
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 10,
+          reconnectBackoffMultiplier: 2,
+          reconnectJitterMs: 6,
+          maxReconnectDelayMs: 20,
+          trace(event, details) {
+            traceEvents.push({ event, details });
+          },
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        });
+
+        await runtime.startListening();
+        stt.simulateUnexpectedDisconnect();
+        await advance(20);
+
+        const reconnectAttempt = traceEvents.find(
+          (entry) => entry.event === 'stt.reconnect.attempt',
+        );
+
+        expect(reconnectAttempt?.details?.attempt).toBe(1);
+        expect(reconnectAttempt?.details?.delayMs).toBe(13);
+        expect(stt.connectCalls).toBe(2);
+        expect(runtime.getVoiceState()).toBe('listening');
+      });
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  test('clamp keeps later reconnect attempts at maxReconnectDelayMs when bounded randomness leaves no headroom', async () => {
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const randomSpy = spyOn(Math, 'random').mockReturnValue(0.75);
+    const reportedErrors: Error[] = [];
+    const stt = new FailOnNthConnectSTTProvider(
+      [2, 3],
+      'clamp reconnect failure',
+    );
+    const tts = new MockTTSProvider();
+
+    try {
+      await withPatchedProviderFactories({ stt, tts }, async () => {
+        const runtime = createVoiceSession(
+          {
+            stt: createSTTTestConfig(),
+            tts: createTTSTestConfig(),
+            sessionId: SessionId('session-test'),
+            reconnectDelayMs: 10,
+            reconnectBackoffMultiplier: 2,
+            reconnectJitterMs: 6,
+            maxReconnectDelayMs: 20,
+            maxReconnectAttempts: 2,
+            trace(event, details) {
+              traceEvents.push({ event, details });
+            },
+            buildChartRequest: defaultBuildChartRequest,
+            processIntent: defaultProcessIntent,
+          },
+          {
+            onError(error) {
+              reportedErrors.push(error);
+            },
+          },
+        );
+
+        await runtime.startListening();
+        stt.simulateUnexpectedDisconnect();
+        await advance(50);
+
+        expect(
+          traceEvents
+            .filter((entry) => entry.event === 'stt.reconnect.attempt')
+            .map((entry) => entry.details?.delayMs),
+        ).toEqual([14.5, 20]);
+        expect(reportedErrors.map((error) => error.message)).toEqual([
+          'clamp reconnect failure',
+          'STT connection lost after max retries',
+        ]);
+        expect(runtime.getVoiceState()).toBe('idle');
+      });
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   test('reuses the active reconnect lifecycle when disconnect fires repeatedly', async () => {
@@ -1259,6 +1636,7 @@ describe('createVoiceSession runtime finalization', () => {
           tts: createTTSTestConfig(),
           sessionId: SessionId('session-test'),
           reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
           maxReconnectAttempts: 1,
           trace(event, details) {
             traceEvents.push({ event, details });
@@ -1274,8 +1652,10 @@ describe('createVoiceSession runtime finalization', () => {
       );
 
       await runtime.startListening();
-      await stt.disconnect();
-      stt.emit({ type: 'disconnected' });
+      stt.simulateUnexpectedDisconnect();
+      stt.emit(
+        createDisconnectedSTTEvent(false, 'Mock STT disconnected unexpectedly'),
+      );
       await advance(10);
 
       expect(
@@ -1304,6 +1684,7 @@ describe('createVoiceSession runtime finalization', () => {
           tts: createTTSTestConfig(),
           sessionId: SessionId('session-test'),
           reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
           maxReconnectAttempts: 1,
           buildChartRequest: defaultBuildChartRequest,
           processIntent: defaultProcessIntent,
@@ -1316,7 +1697,7 @@ describe('createVoiceSession runtime finalization', () => {
       );
 
       await runtime.startListening();
-      await stt.disconnect();
+      stt.simulateUnexpectedDisconnect();
       await advance(10);
 
       expect(reportedErrors).toHaveLength(2);
@@ -1334,6 +1715,318 @@ describe('createVoiceSession runtime finalization', () => {
       expect((reportedErrors[1]?.cause as Error | undefined)?.message).toBe(
         'root reconnect failure',
       );
+    });
+  });
+
+  test('does not retry on clean STT disconnects', async () => {
+    const trace = createReconnectTraceRecorder();
+    const { config, stt, tts } = createConfig({
+      reconnectDelayMs: 1,
+      reconnectJitterMs: 0,
+      trace: trace.trace,
+    });
+    const runtime = createRuntime(config, { stt, tts });
+
+    await runtime.startListening();
+    await stt.disconnect();
+    await advance(10);
+
+    expect(stt.connectCalls).toBe(1);
+    expect(runtime.getVoiceState()).toBe('listening');
+    expect(runtime.getSttCircuitStatus()).toBe('closed');
+    expect(
+      trace.events.filter((entry) => entry.event === 'stt.reconnect.attempt'),
+    ).toHaveLength(0);
+  });
+
+  test('reconnects on clean idle-timeout STT disconnects', async () => {
+    const trace = createReconnectTraceRecorder();
+    const { config, stt, tts } = createConfig({
+      reconnectDelayMs: 1,
+      reconnectJitterMs: 0,
+      trace: trace.trace,
+    });
+    const runtime = createRuntime(config, { stt, tts });
+
+    await runtime.startListening();
+    stt.simulateCleanDisconnect('Mock STT closed after idle timeout');
+    await advance(10);
+
+    expect(stt.connectCalls).toBe(2);
+    expect(runtime.getVoiceState()).toBe('listening');
+    expect(
+      trace.events.filter((entry) => entry.event === 'stt.reconnect.attempt'),
+    ).toHaveLength(1);
+  });
+
+  test('replays the current circuit status synchronously on subscription before later transitions', async () => {
+    const statuses: string[] = [];
+    const stt = new FailOnNthConnectSTTProvider(
+      [2],
+      'probe exhaustion failure',
+    );
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
+          maxReconnectAttempts: 1,
+          circuitBreakerTimeoutMs: 20,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {},
+      );
+
+      runtime.onSttCircuitStatusChange((status) => {
+        statuses.push(status);
+      });
+
+      expect(statuses).toEqual(['closed']);
+
+      await runtime.startListening();
+      expect(statuses).toEqual(['closed']);
+
+      stt.simulateUnexpectedDisconnect();
+      expect(statuses).toEqual(['closed']);
+
+      await advance(10);
+      expect(runtime.getSttCircuitStatus()).toBe('open');
+      expect(statuses).toEqual(['closed', 'open']);
+
+      await advance(20);
+      expect(runtime.getSttCircuitStatus()).toBe('half_open');
+      expect(statuses).toEqual(['closed', 'open', 'half_open']);
+
+      await runtime.startListening();
+
+      expect(runtime.getSttCircuitStatus()).toBe('closed');
+      expect(statuses).toEqual(['closed', 'open', 'half_open', 'closed']);
+    });
+  });
+
+  test('circuit status transitions from open to half_open to closed after a successful probe', async () => {
+    const statuses: string[] = [];
+    const stt = new FailOnNthConnectSTTProvider(
+      [2],
+      'probe exhaustion failure',
+    );
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
+          maxReconnectAttempts: 1,
+          circuitBreakerTimeoutMs: 20,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {},
+      );
+
+      runtime.onSttCircuitStatusChange((status) => {
+        statuses.push(status);
+      });
+
+      expect(statuses).toEqual(['closed']);
+
+      await runtime.startListening();
+      stt.simulateUnexpectedDisconnect();
+      await advance(10);
+
+      expect(runtime.getSttCircuitStatus()).toBe('open');
+
+      await advance(20);
+
+      expect(runtime.getSttCircuitStatus()).toBe('half_open');
+
+      await runtime.startListening();
+
+      expect(runtime.getSttCircuitStatus()).toBe('closed');
+      expect(statuses).toEqual(['closed', 'open', 'half_open', 'closed']);
+    });
+  });
+
+  test('startListening rejects when the STT circuit is open instead of silently succeeding', async () => {
+    const trace = createReconnectTraceRecorder();
+    const reportedErrors: string[] = [];
+    const stt = new FailOnNthConnectSTTProvider(
+      [2],
+      'probe exhaustion failure',
+    );
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
+          maxReconnectAttempts: 1,
+          circuitBreakerTimeoutMs: 20,
+          trace: trace.trace,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onError(error) {
+            reportedErrors.push(error.message);
+          },
+        },
+      );
+
+      await runtime.startListening();
+      stt.simulateUnexpectedDisconnect();
+      await advance(10);
+
+      expect(runtime.getSttCircuitStatus()).toBe('open');
+
+      await expect(runtime.startListening()).rejects.toThrow(
+        'Cannot start listening while the STT circuit is open',
+      );
+
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(stt.connectCalls).toBe(1);
+      expect(reportedErrors).toEqual([
+        'probe exhaustion failure',
+        'STT connection lost after max retries',
+      ]);
+      expect(trace.events).toContainEqual(
+        expect.objectContaining({
+          event: 'stt.connect.skipped',
+          details: expect.objectContaining({
+            operation: 'start_listening',
+            reason: 'circuit_open',
+          }),
+        }),
+      );
+    });
+  });
+
+  test('warmup rejects when the STT circuit is open instead of appearing successful', async () => {
+    const trace = createReconnectTraceRecorder();
+    const reportedErrors: string[] = [];
+    const stt = new FailOnNthConnectSTTProvider(
+      [2],
+      'probe exhaustion failure',
+    );
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
+          maxReconnectAttempts: 1,
+          circuitBreakerTimeoutMs: 20,
+          trace: trace.trace,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onError(error) {
+            reportedErrors.push(error.message);
+          },
+        },
+      );
+
+      await runtime.startListening();
+      stt.simulateUnexpectedDisconnect();
+      await advance(10);
+
+      expect(runtime.getSttCircuitStatus()).toBe('open');
+
+      await expect(runtime.warmup()).rejects.toThrow(
+        'Cannot warm up while the STT circuit is open',
+      );
+
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(stt.connectCalls).toBe(1);
+      expect(tts.isConnected()).toBe(true);
+      expect(reportedErrors).toEqual([
+        'probe exhaustion failure',
+        'STT connection lost after max retries',
+      ]);
+      expect(trace.events).toContainEqual(
+        expect.objectContaining({
+          event: 'stt.connect.skipped',
+          details: expect.objectContaining({
+            operation: 'warmup',
+            reason: 'circuit_open',
+          }),
+        }),
+      );
+    });
+  });
+
+  test('circuit status re-opens when the half_open probe fails', async () => {
+    const statuses: string[] = [];
+    const reportedErrors: string[] = [];
+    const stt = new FailOnNthConnectWithSTTErrorProvider({
+      2: createMockSTTError('parse', 'initial parse failure'),
+      3: createMockSTTError('parse', 'half-open parse failure'),
+    });
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
+          maxReconnectAttempts: 1,
+          circuitBreakerTimeoutMs: 20,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onError(error) {
+            reportedErrors.push(error.message);
+          },
+        },
+      );
+
+      runtime.onSttCircuitStatusChange((status) => {
+        statuses.push(status);
+      });
+
+      expect(statuses).toEqual(['closed']);
+
+      await runtime.startListening();
+      stt.simulateUnexpectedDisconnect();
+      await advance(10);
+
+      expect(runtime.getSttCircuitStatus()).toBe('open');
+
+      await advance(20);
+      expect(runtime.getSttCircuitStatus()).toBe('half_open');
+
+      await expect(runtime.startListening()).rejects.toThrow(
+        'half-open parse failure',
+      );
+      expect(runtime.getSttCircuitStatus()).toBe('open');
+      expect(statuses).toEqual(['closed', 'open', 'half_open', 'open']);
+      expect(reportedErrors).toEqual([
+        'initial parse failure',
+        'STT connection lost after max retries',
+      ]);
     });
   });
 
@@ -1434,8 +2127,8 @@ describe('createVoiceSession runtime finalization', () => {
 
       expect(runtime.getVoiceState()).toBe('speaking');
 
-      await stt.disconnect();
-      tts.emit({ type: 'completed' });
+      stt.simulateUnexpectedDisconnect();
+      tts.settleActiveSpeak('completed');
       await advance(550);
 
       expect(reportedErrors).toContain('mock stt connect failure');
@@ -1523,6 +2216,7 @@ describe('createVoiceSession runtime finalization', () => {
         tts: createTTSTestConfig(),
         sessionId: SessionId('session-test'),
         reconnectDelayMs: 1,
+        reconnectJitterMs: 0,
         trace(event, details) {
           traceEvents.push({ event, details });
         },
@@ -1531,7 +2225,7 @@ describe('createVoiceSession runtime finalization', () => {
       });
 
       await runtime.startListening();
-      await stt.disconnect();
+      stt.simulateUnexpectedDisconnect();
 
       runtime.sendAudioChunk({
         data: Uint8Array.from([1]),
@@ -1582,6 +2276,7 @@ describe('createVoiceSession runtime finalization', () => {
         tts: createTTSTestConfig(),
         sessionId: SessionId('session-test'),
         reconnectDelayMs: 1,
+        reconnectJitterMs: 0,
         trace(event, details) {
           traceEvents.push({ event, details });
         },
@@ -1590,7 +2285,7 @@ describe('createVoiceSession runtime finalization', () => {
       });
 
       await runtime.startListening();
-      await stt.disconnect();
+      stt.simulateUnexpectedDisconnect();
 
       runtime.sendAudioChunk({
         data: Uint8Array.from([1]),
@@ -1628,7 +2323,12 @@ describe('createVoiceSession runtime finalization', () => {
         }),
       );
 
-      stt.emit({ type: 'disconnected' });
+      stt.emit({
+        type: 'disconnected',
+        clean: false,
+        reason: 'transport_lost',
+        message: 'Mock STT disconnected unexpectedly',
+      });
       await advance(10);
 
       expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([
@@ -1646,6 +2346,7 @@ describe('createVoiceSession runtime finalization', () => {
     const audioDropped = createAudioDroppedRecorder();
     const { config, stt, tts } = createConfig({
       reconnectDelayMs: 1000,
+      reconnectJitterMs: 0,
       audioBufferMaxMs: 5,
     });
     const runtime = createRuntime(config, { stt, tts }, audioDropped.callbacks);
@@ -1653,7 +2354,7 @@ describe('createVoiceSession runtime finalization', () => {
     audioDropped.attach(runtime);
 
     await runtime.startListening();
-    await stt.disconnect();
+    stt.simulateUnexpectedDisconnect();
 
     runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
     runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
@@ -1702,6 +2403,7 @@ describe('createVoiceSession runtime finalization', () => {
     const { config, stt, tts } = createConfig({
       audioBufferMaxMs: 5,
       reconnectDelayMs: 1000,
+      reconnectJitterMs: 0,
     });
     const runtime = createRuntime(config, { stt, tts }, audioDropped.callbacks);
 
@@ -1714,7 +2416,7 @@ describe('createVoiceSession runtime finalization', () => {
     expect(audioDropped.events).toEqual([]);
 
     await runtime.startListening();
-    await stt.disconnect();
+    stt.simulateUnexpectedDisconnect();
     runtime.sendAudioChunk(makeLinear16Chunk(4, 3));
     runtime.sendAudioChunk(makeLinear16Chunk(4, 4));
 
@@ -1745,6 +2447,7 @@ describe('createVoiceSession runtime finalization', () => {
     const audioDropped = createAudioDroppedRecorder();
     const { config, stt, tts } = createConfig({
       reconnectDelayMs: 1000,
+      reconnectJitterMs: 0,
       audioBufferMaxMs: 5,
     });
     const runtime = createRuntime(config, { stt, tts }, audioDropped.callbacks);
@@ -1752,7 +2455,7 @@ describe('createVoiceSession runtime finalization', () => {
     audioDropped.attach(runtime);
 
     await runtime.startListening();
-    await stt.disconnect();
+    stt.simulateUnexpectedDisconnect();
 
     runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
     runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
@@ -1764,6 +2467,54 @@ describe('createVoiceSession runtime finalization', () => {
     expect(audioDropped.events).toEqual([]);
   });
 
+  test('isolates trace callback failures so onError still receives the original runtime failure', async () => {
+    const reportedErrors: Error[] = [];
+    const stt = new FailOnNthConnectSTTProvider(
+      [1],
+      'mock stt connect failure',
+    );
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          trace() {
+            throw new Error('trace exploded');
+          },
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent: defaultProcessIntent,
+        },
+        {
+          onError(error) {
+            reportedErrors.push(error);
+          },
+        },
+      );
+
+      await expect(runtime.startListening()).rejects.toThrow(
+        'mock stt connect failure',
+      );
+
+      expect(reportedErrors).toHaveLength(2);
+      expect(reportedErrors[0]?.message).toBe(
+        'Voice session trace callback failed for "stt.start_listening.requested"',
+      );
+      expect((reportedErrors[0]?.cause as Error | undefined)?.message).toBe(
+        'trace exploded',
+      );
+      expect(reportedErrors[1]?.message).toBe(
+        'Voice session trace callback failed for "stt.connecting"',
+      );
+      expect((reportedErrors[1]?.cause as Error | undefined)?.message).toBe(
+        'trace exploded',
+      );
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
+  });
+
   test('flushes pending reconnect audio_dropped telemetry on stopListening', async () => {
     const audioDropped = createAudioDroppedRecorder();
     const traceEvents: Array<{
@@ -1772,6 +2523,7 @@ describe('createVoiceSession runtime finalization', () => {
     }> = [];
     const { config, stt, tts } = createConfig({
       reconnectDelayMs: 1000,
+      reconnectJitterMs: 0,
       audioBufferMaxMs: 5,
       trace(event: string, details?: Record<string, unknown>) {
         traceEvents.push({ event, details });
@@ -1782,7 +2534,7 @@ describe('createVoiceSession runtime finalization', () => {
     audioDropped.attach(runtime);
 
     await runtime.startListening();
-    await stt.disconnect();
+    stt.simulateUnexpectedDisconnect();
 
     runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
     runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
@@ -1822,6 +2574,7 @@ describe('createVoiceSession runtime finalization', () => {
           tts: createTTSTestConfig(),
           sessionId: SessionId('session-test'),
           reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
           maxReconnectAttempts: 1,
           audioBufferMaxMs: 5,
           buildChartRequest: defaultBuildChartRequest,
@@ -1838,7 +2591,7 @@ describe('createVoiceSession runtime finalization', () => {
       audioDropped.attach(runtime);
 
       await runtime.startListening();
-      await stt.disconnect();
+      stt.simulateUnexpectedDisconnect();
 
       runtime.sendAudioChunk(makeLinear16Chunk(4, 1));
       runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
@@ -1867,7 +2620,9 @@ describe('createVoiceSession runtime finalization', () => {
         'mock stt connect failure',
       );
 
-      await runtime.startListening();
+      await expect(runtime.startListening()).rejects.toThrow(
+        'Cannot start listening while the STT circuit is open',
+      );
       await advance(audioDropDebounceMs + 1);
 
       expect(stt.sentAudioChunks).toEqual([]);
@@ -1881,7 +2636,7 @@ describe('createVoiceSession runtime finalization', () => {
     });
   });
 
-  test('flushes pending reconnect audio_dropped notifications before unhandled reconnect failure reset', async () => {
+  test('trace callback failures during reconnect handling do not flush pending audio_dropped notifications early', async () => {
     const audioDropped = createAudioDroppedRecorder();
     const reportedErrors: Error[] = [];
     const traceEvents: Array<{
@@ -1903,6 +2658,7 @@ describe('createVoiceSession runtime finalization', () => {
           tts: createTTSTestConfig(),
           sessionId: SessionId('session-test'),
           reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
           audioBufferMaxMs: 5,
           trace(event, details) {
             traceEvents.push({ event, details });
@@ -1939,20 +2695,14 @@ describe('createVoiceSession runtime finalization', () => {
       runtime.sendAudioChunk(makeLinear16Chunk(4, 2));
       await advance(50);
 
-      await stt.disconnect();
+      stt.simulateUnexpectedDisconnect();
       await advance(10);
 
-      expect(audioDropped.events).toEqual([
-        {
-          type: 'audio_dropped',
-          reason: 'state_not_listening',
-          droppedDurationMs: 8,
-        },
-      ]);
+      expect(audioDropped.events).toEqual([]);
       expect(reportedErrors.map((error) => error.message)).toContain(
-        'mock reconnect failed trace failure',
+        'Voice session trace callback failed for "stt.reconnect.failed"',
       );
-      expect(runtime.getVoiceState()).toBe('idle');
+      expect(runtime.getVoiceState()).toBe('processing');
 
       await advance(audioDropDebounceMs + 1);
 
@@ -1963,14 +2713,9 @@ describe('createVoiceSession runtime finalization', () => {
           droppedDurationMs: 8,
         },
       ]);
-      expect(traceEvents).toContainEqual(
+      expect(traceEvents).not.toContainEqual(
         expect.objectContaining({
           event: 'stt.reconnect.unhandled_failure',
-          details: expect.objectContaining({
-            message: 'mock reconnect failed trace failure',
-            pendingBufferedAudioMs: 0,
-            state: 'processing',
-          }),
         }),
       );
     });
@@ -2051,6 +2796,7 @@ describe('createVoiceSession runtime finalization', () => {
     const audioDropped = createAudioDroppedRecorder();
     const { config, stt, tts } = createConfig({
       reconnectDelayMs: 1,
+      reconnectJitterMs: 0,
       audioBufferMaxMs: 5,
     });
     const runtime = createRuntime(config, { stt, tts }, audioDropped.callbacks);
@@ -2058,7 +2804,7 @@ describe('createVoiceSession runtime finalization', () => {
     audioDropped.attach(runtime);
 
     await runtime.startListening();
-    await stt.disconnect();
+    stt.simulateUnexpectedDisconnect();
 
     runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
     runtime.sendAudioChunk(makeLinear16Chunk(8, 2));
@@ -2191,6 +2937,7 @@ describe('createVoiceSession runtime finalization', () => {
     const { config, stt, tts } = createConfig({
       audioBufferMaxMs: 5,
       reconnectDelayMs: 1000,
+      reconnectJitterMs: 0,
     });
     const runtime = createRuntime(config, { stt, tts }, audioDropped.callbacks);
 
@@ -2202,7 +2949,7 @@ describe('createVoiceSession runtime finalization', () => {
     await advance(50);
 
     await runtime.startListening();
-    await stt.disconnect();
+    stt.simulateUnexpectedDisconnect();
     runtime.sendAudioChunk(makeLinear16Chunk(8, 3));
 
     expect(audioDropped.events).toEqual([
@@ -2245,6 +2992,7 @@ describe('createVoiceSession runtime finalization', () => {
           tts: createTTSTestConfig(),
           sessionId: SessionId('session-test'),
           reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
           trace(event, details) {
             traceEvents.push({ event, details });
           },
@@ -2262,7 +3010,7 @@ describe('createVoiceSession runtime finalization', () => {
       audioDropped.attach(runtime);
 
       await runtime.startListening();
-      await stt.disconnect();
+      stt.simulateUnexpectedDisconnect();
 
       runtime.sendAudioChunk({
         data: Uint8Array.from([1]),
@@ -2318,6 +3066,7 @@ describe('createVoiceSession runtime finalization', () => {
           tts: createTTSTestConfig(),
           sessionId: SessionId('session-test'),
           reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
           buildChartRequest: defaultBuildChartRequest,
           processIntent: defaultProcessIntent,
         },
@@ -2332,7 +3081,7 @@ describe('createVoiceSession runtime finalization', () => {
       audioDropped.attach(runtime);
 
       await runtime.startListening();
-      await stt.disconnect();
+      stt.simulateUnexpectedDisconnect();
 
       runtime.sendAudioChunk(makeLinear16Chunk(3, 1));
       runtime.sendAudioChunk(makeLinear16Chunk(3, 2));
@@ -2508,6 +3257,7 @@ describe('createVoiceSession runtime finalization', () => {
           tts: createTTSTestConfig(),
           sessionId: SessionId('session-test'),
           reconnectDelayMs: 1,
+          reconnectJitterMs: 0,
           buildChartRequest: defaultBuildChartRequest,
           processIntent: defaultProcessIntent,
         },
@@ -2686,7 +3436,7 @@ describe('createVoiceSession runtime finalization', () => {
     expect(runtime.getVoiceState()).toBe('idle');
   });
 
-  test('returns to idle and reports an error when TTS disconnects mid-speech', async () => {
+  test('returns to idle and reports an error when TTS disconnects uncleanly mid-speech', async () => {
     const reportedErrors: Error[] = [];
     const { config, stt, tts } = createConfig();
     const runtime = createRuntime(
@@ -2700,13 +3450,107 @@ describe('createVoiceSession runtime finalization', () => {
     );
 
     await runtime.speak('hello world');
-    tts.emit({ type: 'disconnected' });
+    tts.emit({
+      type: 'disconnected',
+      clean: false,
+      reason: 'transport_lost',
+      message: 'Mock TTS disconnected unexpectedly',
+    });
 
     expect(runtime.getVoiceState()).toBe('idle');
     expect(reportedErrors).toHaveLength(1);
-    expect(reportedErrors[0]?.message).toBe('TTS disconnected while speaking');
+    expect(reportedErrors[0]?.message).toBe(
+      'Mock TTS disconnected unexpectedly',
+    );
     expect((reportedErrors[0] as TTSError).kind).toBe('transport');
     expect((reportedErrors[0] as TTSError).provider).toBe('mock-tts');
+    expect((reportedErrors[0]?.cause as TTSEvent | undefined)?.type).toBe(
+      'disconnected',
+    );
+    expect(reportedErrors[0]?.cause as TTSEvent | undefined).toEqual({
+      type: 'disconnected',
+      clean: false,
+      reason: 'transport_lost',
+      message: 'Mock TTS disconnected unexpectedly',
+    });
+  });
+
+  test('returns to idle without reporting an error when TTS disconnects cleanly mid-speech', async () => {
+    const reportedErrors: Error[] = [];
+    const speechStops: boolean[] = [];
+    const { config, stt, tts } = createConfig();
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error);
+        },
+        onSpeechStopped(completed) {
+          speechStops.push(completed);
+        },
+      },
+    );
+
+    await runtime.speak('hello world');
+    tts.emit({
+      type: 'disconnected',
+      clean: true,
+      reason: 'clean_shutdown',
+      message: 'Mock TTS disconnected cleanly',
+    });
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(speechStops).toEqual([false]);
+    expect(reportedErrors).toEqual([]);
+  });
+
+  test('stays out of speaking when TTS connect fails before speech starts', async () => {
+    const reportedErrors: Error[] = [];
+    const tts = new FailOnConnectTTSProvider();
+    const { config, stt } = createConfig({}, { tts });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error);
+        },
+      },
+    );
+
+    await expect(runtime.speak('hello world')).rejects.toThrow(
+      'mock tts connect failure',
+    );
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(runtime.shouldAutoRestart()).toBe(true);
+    expect(tts.spokenTexts).toEqual([]);
+    expect(reportedErrors).toEqual([]);
+  });
+
+  test('stays out of speaking when provider speak throws before a handle starts', async () => {
+    const reportedErrors: Error[] = [];
+    const tts = new FailOnSpeakTTSProvider();
+    const { config, stt } = createConfig({}, { tts });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error);
+        },
+      },
+    );
+
+    await expect(runtime.speak('hello world')).rejects.toThrow(
+      'mock tts speak failure',
+    );
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(runtime.shouldAutoRestart()).toBe(true);
+    expect(tts.spokenTexts).toEqual(['hello world']);
+    expect(reportedErrors).toEqual([]);
   });
 
   test('auto-restarts listening after speech completes naturally', async () => {
@@ -2734,7 +3578,7 @@ describe('createVoiceSession runtime finalization', () => {
     expect(speechStarts).toEqual(['hello world']);
 
     const initialConnectCalls = stt.connectCalls;
-    tts.emit({ type: 'completed' });
+    tts.settleActiveSpeak('completed');
     await advance(550);
 
     expect(speechStops).toEqual([true]);
@@ -2769,5 +3613,25 @@ describe('createVoiceSession runtime finalization', () => {
     expect(runtime.getVoiceState()).toBe('idle');
     expect(runtime.shouldAutoRestart()).toBe(true);
     expect(stt.connectCalls).toBe(0);
+  });
+});
+
+describe('createSttDisconnectSuppressionController', () => {
+  test('keeps suppression active until the last overlapping force reconnect releases it', () => {
+    const suppression = createSttDisconnectSuppressionController();
+
+    const releaseFirst = suppression.suppress();
+    const releaseSecond = suppression.suppress();
+
+    expect(suppression.isSuppressed()).toBe(true);
+
+    releaseFirst();
+    expect(suppression.isSuppressed()).toBe(true);
+
+    releaseFirst();
+    expect(suppression.isSuppressed()).toBe(true);
+
+    releaseSecond();
+    expect(suppression.isSuppressed()).toBe(false);
   });
 });
