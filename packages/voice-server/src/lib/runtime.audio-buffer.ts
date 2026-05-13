@@ -122,6 +122,7 @@ export function flushBufferedAudio(
     }
 
     try {
+      state.hasSentAudioForTurn = true;
       trace(traceEvent, {
         bytes: entry.chunk.data.length,
         sampleRate: entry.chunk.sampleRate,

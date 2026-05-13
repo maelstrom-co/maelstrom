@@ -69,6 +69,18 @@ export function handleSTTEvent(
       });
       if (!transcriptText) break;
 
+      if (state.state === 'idle' || state.hasEmittedFinal) {
+        trace('stt.transcript.ignored_after_turn_closed', {
+          textLength: transcriptText.length,
+          preview: transcriptText.slice(0, 80),
+          isFinal: event.result.isFinal,
+          state: state.state,
+          pendingFinalFromVAD: state.pendingFinalFromVAD,
+          hasEmittedFinal: state.hasEmittedFinal,
+        });
+        break;
+      }
+
       updateTranscriptState({
         ...event.result,
         text: transcriptText,

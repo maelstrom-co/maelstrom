@@ -49,6 +49,7 @@ import type {
 } from './types.js';
 
 const defaultVadFinalDebounceMs = 500;
+const defaultTranscriptGraceMs = 1500;
 const defaultAudioBufferMaxMs = 1000;
 // WHY: Five attempts gives the runtime enough room to ride out short network churn while still
 // surfacing a real outage quickly. A much lower default opens the circuit too aggressively, and a
@@ -60,8 +61,57 @@ const defaultReconnectBackoffMultiplier = 2;
 const defaultReconnectJitterMs = 0;
 const defaultCircuitBreakerTimeoutMs = 60000;
 const autoRestartDelayMs = 500;
+// WHY: Three consecutive grace expiries with no transcript finalization is the point where the
+// runtime stops treating the condition as ordinary STT/VAD latency variance and starts surfacing a
+// degraded STT-pipeline signal. Any successful finalization resets the streak. Tune alongside
+// `transcriptGraceMs` because a longer grace window naturally tolerates more provider flush lag.
+const repeatedGraceExpiryErrorThreshold = 3;
 
 export { defaultAudioDropDebounceMs } from './runtime.audio-drop.js';
+
+export function handleTranscriptGraceExpiryTerminalBranches(
+  runtimeState: Pick<
+    ReturnType<typeof createInitialVoiceRuntimeState>,
+    'currentTranscript' | 'accumulatedTranscript' | 'hasEmittedFinal'
+  >,
+  trace: (event: string, details?: Record<string, unknown>) => void,
+  clearPendingFinalizationForGracePath: () => void,
+  finalizeTranscript: (text: string) => {
+    emitted: boolean;
+    startedProcessing: boolean;
+  },
+): boolean {
+  // WHY: Grace expiry has three terminal outcomes: another path already finalized the turn,
+  // late STT text arrived during the grace window and can now finalize, or there is still no text
+  // and the caller must continue with the empty-expiry fallback. The `already_finalized` branch
+  // matters because `hasEmittedFinal` suppresses redundant grace cleanup once a competing path wins.
+  if (runtimeState.hasEmittedFinal) {
+    trace('stt.transcript_grace.already_finalized', {
+      currentTranscriptLength: runtimeState.currentTranscript.length,
+      accumulatedTranscriptLength: runtimeState.accumulatedTranscript.length,
+    });
+
+    return true;
+  }
+
+  const transcriptToFinalize =
+    runtimeState.currentTranscript || runtimeState.accumulatedTranscript;
+
+  if (!transcriptToFinalize) {
+    return false;
+  }
+
+  clearPendingFinalizationForGracePath();
+  trace('stt.transcript_grace.completed_with_late_transcript', {
+    textLength: transcriptToFinalize.length,
+    usedAccumulatedTranscriptFallback:
+      !runtimeState.currentTranscript &&
+      Boolean(runtimeState.accumulatedTranscript),
+  });
+  finalizeTranscript(transcriptToFinalize);
+
+  return true;
+}
 
 export interface SttDisconnectSuppressionController {
   isSuppressed(): boolean;
@@ -120,6 +170,7 @@ export function createVoiceSession(
     interimResults,
     autoRestartListening,
     vadFinalDebounceMs,
+    transcriptGraceMs,
     audioBufferMaxMs,
     maxReconnectAttempts,
     reconnectDelayMs,
@@ -131,6 +182,7 @@ export function createVoiceSession(
     intentBoundary,
   } = resolveVoiceSessionConfig(config, {
     vadFinalDebounceMs: defaultVadFinalDebounceMs,
+    transcriptGraceMs: defaultTranscriptGraceMs,
     audioBufferMaxMs: defaultAudioBufferMaxMs,
     maxReconnectAttempts: defaultMaxReconnectAttempts,
     reconnectDelayMs: defaultReconnectDelayMs,
@@ -142,6 +194,7 @@ export function createVoiceSession(
 
   const runtimeState = createInitialVoiceRuntimeState();
   const listeners = createVoiceRuntimeListeners();
+  let isInRepeatedGraceExpiryDegradedMode = false;
   const sttDisconnectSuppression = createSttDisconnectSuppressionController();
 
   function reportTraceCallbackFailure(event: string, error: unknown) {
@@ -544,8 +597,23 @@ export function createVoiceSession(
     return true;
   }
 
+  function shouldReportRepeatedGraceExpiryDegradedMode(): boolean {
+    if (isInRepeatedGraceExpiryDegradedMode) {
+      return false;
+    }
+
+    if (
+      runtimeState.consecutiveGraceExpiries < repeatedGraceExpiryErrorThreshold
+    ) {
+      return false;
+    }
+
+    isInRepeatedGraceExpiryDegradedMode = true;
+    return true;
+  }
+
   function finalizeTranscript(text: string) {
-    return finalizeTranscriptHelper(
+    const outcome = finalizeTranscriptHelper(
       runtimeState,
       listeners,
       callbacks,
@@ -554,16 +622,92 @@ export function createVoiceSession(
       processTranscript,
       text,
     );
+
+    if (outcome.emitted) {
+      // WHY: The repeated-grace threshold only tracks consecutive expiries that failed to produce
+      // any final transcript. A successful finalization resets both the counter and degraded-mode
+      // flag so later turns start from a clean baseline instead of inheriting prior grace failures.
+      runtimeState.consecutiveGraceExpiries = 0;
+      isInRepeatedGraceExpiryDegradedMode = false;
+    }
+
+    return outcome;
+  }
+
+  function clearPendingFinalizationForEmitFinalTranscript(
+    _runtimeState: typeof runtimeState,
+  ) {
+    runtimeState.pendingFinalFromVAD = false;
+    if (runtimeState.vadFinalDebounceTimeout) {
+      clearTimeout(runtimeState.vadFinalDebounceTimeout);
+      runtimeState.vadFinalDebounceTimeout = null;
+    }
+  }
+
+  function startTranscriptGrace() {
+    if (runtimeState.hasEmittedFinal) {
+      return;
+    }
+
+    if (runtimeState.transcriptGraceTimeout) {
+      clearTimeout(runtimeState.transcriptGraceTimeout);
+      runtimeState.transcriptGraceTimeout = null;
+    }
+
+    trace('stt.transcript_grace.started', {
+      transcriptGraceMs,
+      pendingFinalFromVAD: runtimeState.pendingFinalFromVAD,
+      currentTranscriptLength: runtimeState.currentTranscript.length,
+      accumulatedTranscriptLength: runtimeState.accumulatedTranscript.length,
+    });
+
+    runtimeState.transcriptGraceTimeout = setTimeout(() => {
+      runtimeState.transcriptGraceTimeout = null;
+
+      if (runtimeState.destroyed) {
+        return;
+      }
+
+      if (
+        handleTranscriptGraceExpiryTerminalBranches(
+          runtimeState,
+          trace,
+          () => clearPendingFinalization(runtimeState),
+          finalizeTranscript,
+        )
+      ) {
+        return;
+      }
+
+      trace('stt.transcript_grace.expired', {
+        transcriptGraceMs,
+        pendingFinalFromVAD: runtimeState.pendingFinalFromVAD,
+      });
+
+      clearPendingFinalization(runtimeState);
+
+      if (runtimeState.state === 'listening') {
+        runtimeState.consecutiveGraceExpiries += 1;
+
+        if (shouldReportRepeatedGraceExpiryDegradedMode()) {
+          reportError(
+            new Error(
+              `Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=${runtimeState.consecutiveGraceExpiries}, threshold=${repeatedGraceExpiryErrorThreshold}, transcriptGraceMs=${transcriptGraceMs})`,
+            ),
+          );
+        }
+
+        setVoiceState('idle');
+      }
+    }, transcriptGraceMs);
   }
 
   function emitFinalTranscript() {
-    emitFinalTranscriptHelper(
-      runtimeState,
-      clearPendingFinalization,
+    emitFinalTranscriptHelper(runtimeState, {
+      clearPendingFinalization: clearPendingFinalizationForEmitFinalTranscript,
       finalizeTranscript,
-      reportError,
-      setVoiceState,
-    );
+      startTranscriptGrace,
+    });
   }
 
   function forwardFinalOrInterimTranscript(result: TranscriptionResult) {
@@ -761,6 +905,7 @@ export function createVoiceSession(
         abortActiveProcessing();
       }
 
+      runtimeState.suppressIncomingAudio = false;
       runtimeState.isInitializing = true;
       await connectForegroundSTT('start_listening');
 
@@ -793,39 +938,52 @@ export function createVoiceSession(
       pendingBufferedAudioMs: runtimeState.pendingAudioDurationMs,
     });
 
-    // Reuse the existing pending-finalization path so providers that synchronously flush a final
-    // transcript from endStream() finalize that turn exactly once before the manual fallback runs.
     runtimeState.pendingFinalFromVAD = true;
+    runtimeState.suppressIncomingAudio = true;
     stt.endStream();
-    const transcriptToFinalize =
-      runtimeState.currentTranscript || runtimeState.accumulatedTranscript;
     flushPendingAudioDropEvent(runtimeState, emitPendingAudioDropEvent);
     clearBufferedAudio();
-    clearPendingFinalization(runtimeState);
+    const transcriptToFinalize =
+      runtimeState.currentTranscript || runtimeState.accumulatedTranscript;
+    const hasAnyTranscript = Boolean(transcriptToFinalize);
 
-    const { emitted, startedProcessing } =
-      finalizeTranscript(transcriptToFinalize);
-
-    if (emitted) {
-      trace('stt.manual_final_transcript.forwarded', {
-        textLength: transcriptToFinalize.length,
-        preview: transcriptToFinalize.slice(0, 80),
-      });
-    }
-
-    if (!runtimeState.hasReceivedSpeech) {
+    if (
+      !hasAnyTranscript &&
+      (!runtimeState.hasSentAudioForTurn || !stt.isConnected()) &&
+      !runtimeState.hasReceivedSpeech
+    ) {
+      clearPendingFinalization(runtimeState);
       setVoiceState('idle');
       return;
     }
 
-    if (!startedProcessing && runtimeState.state === 'listening') {
-      setVoiceState('idle');
+    if (transcriptToFinalize) {
+      clearPendingFinalization(runtimeState);
+
+      const { emitted, startedProcessing } =
+        finalizeTranscript(transcriptToFinalize);
+
+      if (emitted) {
+        trace('stt.manual_final_transcript.forwarded', {
+          textLength: transcriptToFinalize.length,
+          preview: transcriptToFinalize.slice(0, 80),
+        });
+      }
+
+      if (!startedProcessing && runtimeState.state === 'listening') {
+        setVoiceState('idle');
+      }
+
+      return;
     }
+
+    startTranscriptGrace();
   }
 
   function interrupt(): void {
     if (runtimeState.destroyed) return;
     clearAutoRestartTimeout();
+    clearPendingFinalization(runtimeState);
     abortActiveProcessing();
 
     if (runtimeState.state === 'speaking') {
@@ -1034,6 +1192,16 @@ export function createVoiceSession(
       if (runtimeState.destroyed) {
         return;
       }
+      if (runtimeState.suppressIncomingAudio) {
+        trace('stt.audio.ignored_after_manual_stop', {
+          bytes: chunk.data.length,
+          sampleRate: chunk.sampleRate,
+          encoding: chunk.encoding,
+          state: runtimeState.state,
+        });
+        return;
+      }
+      runtimeState.hasSentAudioForTurn = true;
       if (runtimeState.isInitializing || runtimeState.state === 'idle') {
         bufferAudioChunk(
           audioBufferContext,

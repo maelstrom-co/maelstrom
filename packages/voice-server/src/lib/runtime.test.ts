@@ -10,6 +10,7 @@ import {
   createSttDisconnectSuppressionController,
   createVoiceSession,
   defaultAudioDropDebounceMs,
+  handleTranscriptGraceExpiryTerminalBranches,
 } from './runtime.js';
 import { sttProviderFactories } from './stt/registry.js';
 import { ttsProviderFactories } from './tts/registry.js';
@@ -181,6 +182,38 @@ class SyncFinalOnEndStreamSTTProvider extends MockSTTProvider {
       result: { text: this.finalText, isFinal: true },
     });
     super.endStream();
+  }
+}
+
+class AsyncFinalOnEndStreamSTTProvider extends MockSTTProvider {
+  constructor(
+    private readonly finalText: string,
+    private readonly delayMs: number,
+  ) {
+    super();
+  }
+
+  override endStream(): void {
+    setTimeout(() => {
+      this.emit({
+        type: 'transcript',
+        result: { text: this.finalText, isFinal: true },
+      });
+    }, this.delayMs);
+    super.endStream();
+  }
+}
+
+class DelayedConnectSTTProvider extends MockSTTProvider {
+  constructor(private readonly delayMs: number) {
+    super();
+  }
+
+  override async connect(): Promise<void> {
+    await new Promise((resolve) => {
+      setTimeout(resolve, this.delayMs);
+    });
+    await super.connect();
   }
 }
 
@@ -778,7 +811,10 @@ describe('createVoiceSession runtime finalization', () => {
     };
 
     const seenTranscripts: Array<{ text: string; isFinal: boolean }> = [];
-    const { config, stt, tts } = createConfig({ processIntent });
+    const { config, stt, tts } = createConfig({
+      processIntent,
+      transcriptGraceMs: 20,
+    });
     const runtime = createRuntime(config, { stt, tts });
 
     runtime.onTranscript((result) => {
@@ -792,6 +828,7 @@ describe('createVoiceSession runtime finalization', () => {
     });
 
     await runtime.stopListening();
+    await advance(25);
     await advance(0);
 
     expect(processCalls).toEqual(['hello world']);
@@ -799,6 +836,190 @@ describe('createVoiceSession runtime finalization', () => {
       { text: 'hello world', isFinal: false },
       { text: 'hello world', isFinal: true },
     ]);
+  });
+
+  test('waits for an asynchronous endStream final before finalizing manual stop', async () => {
+    const processCalls: string[] = [];
+    const reportedErrors: Error[] = [];
+    const seenTranscripts: Array<{ text: string; isFinal: boolean }> = [];
+    const processIntent: ProcessIntent = {
+      async process(request) {
+        const updateReason = request.context.updateReasons[0];
+        if (updateReason?.type === 'user_intent') {
+          processCalls.push(updateReason.intent);
+        }
+
+        return createProcessResponse(request);
+      },
+    };
+
+    const stt = new AsyncFinalOnEndStreamSTTProvider('hello world', 5);
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('session-test'),
+          transcriptGraceMs: 20,
+          buildChartRequest: defaultBuildChartRequest,
+          processIntent,
+        },
+        {
+          onError(error) {
+            reportedErrors.push(
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          },
+          onTranscript(result) {
+            seenTranscripts.push({
+              text: result.text,
+              isFinal: result.isFinal,
+            });
+          },
+        },
+      );
+
+      await runtime.startListening();
+      runtime.sendAudioChunk({
+        data: new Uint8Array(16384),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 0,
+      });
+      await runtime.stopListening();
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('listening');
+      expect(processCalls).toEqual([]);
+      expect(seenTranscripts).toEqual([]);
+
+      runtime.sendAudioChunk({
+        data: new Uint8Array(16384),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 1,
+      });
+      await advance(0);
+
+      expect(reportedErrors).toEqual([]);
+      expect(stt.sentAudioChunks).toHaveLength(1);
+
+      await advance(5);
+      await advance(0);
+
+      expect(processCalls).toEqual(['hello world']);
+      expect(seenTranscripts).toEqual([{ text: 'hello world', isFinal: true }]);
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(reportedErrors).toEqual([]);
+    });
+  });
+
+  test('buffers restart audio during startListening connect after a manual stop', async () => {
+    const stt = new DelayedConnectSTTProvider(5);
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession({
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('session-test'),
+        buildChartRequest: defaultBuildChartRequest,
+        processIntent: defaultProcessIntent,
+      });
+
+      await runtime.startListening();
+      stt.emit({
+        type: 'transcript',
+        result: { text: 'hello world', isFinal: false },
+      });
+
+      await runtime.stopListening();
+      expect(runtime.getVoiceState()).toBe('processing');
+
+      const restartPromise = runtime.startListening();
+      runtime.sendAudioChunk({
+        data: new Uint8Array(16384),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 2,
+        sequence: 2,
+      });
+
+      expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([]);
+
+      await advance(5);
+      await restartPromise;
+
+      expect(runtime.getVoiceState()).toBe('listening');
+      expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([2]);
+    });
+  });
+
+  test('manual stop enters transcript grace when the turn only sent startup-buffered audio', async () => {
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const stt = new DelayedConnectSTTProvider(5);
+    const tts = new MockTTSProvider();
+
+    await withPatchedProviderFactories({ stt, tts }, async () => {
+      const runtime = createVoiceSession({
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('session-test'),
+        transcriptGraceMs: 10,
+        trace(event, details) {
+          traceEvents.push({ event, details });
+        },
+        buildChartRequest: defaultBuildChartRequest,
+        processIntent: defaultProcessIntent,
+      });
+
+      const restartPromise = runtime.startListening();
+      runtime.sendAudioChunk({
+        data: new Uint8Array(16384),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        timestamp: 2,
+        sequence: 2,
+      });
+
+      await advance(5);
+      await restartPromise;
+
+      expect(runtime.getVoiceState()).toBe('listening');
+      expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([2]);
+
+      await runtime.stopListening();
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('listening');
+      expect(traceEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'stt.transcript_grace.started',
+          details: expect.objectContaining({
+            transcriptGraceMs: 10,
+          }),
+        }),
+      );
+
+      await advance(10);
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(traceEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'stt.transcript_grace.expired',
+          details: expect.objectContaining({
+            transcriptGraceMs: 10,
+            pendingFinalFromVAD: true,
+          }),
+        }),
+      );
+    });
   });
 
   test('finalizes a synchronous endStream transcript only once on manual stop', async () => {
@@ -851,6 +1072,18 @@ describe('createVoiceSession runtime finalization', () => {
       await advance(0);
 
       expect(runtime.getVoiceState()).toBe('processing');
+      expect(processCalls).toEqual(['hello world']);
+      expect(seenTranscripts).toEqual([
+        { text: 'hello world', isFinal: false },
+        { text: 'hello world', isFinal: true },
+      ]);
+
+      stt.emit({
+        type: 'transcript',
+        result: { text: 'late duplicate', isFinal: true },
+      });
+      await advance(0);
+
       expect(processCalls).toEqual(['hello world']);
       expect(seenTranscripts).toEqual([
         { text: 'hello world', isFinal: false },
@@ -1048,6 +1281,697 @@ describe('createVoiceSession runtime finalization', () => {
     await advance(25);
     await advance(0);
     expect(processCalls).toEqual(['fast finalize']);
+  });
+
+  test('suppresses the old user-facing error and waits through transcript grace when VAD ends before any transcript arrives', async () => {
+    const reportedErrors: string[] = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const processCalls: string[] = [];
+    const processIntent: ProcessIntent = {
+      async process(request) {
+        const updateReason = request.context.updateReasons[0];
+        if (updateReason?.type === 'user_intent') {
+          processCalls.push(updateReason.intent);
+        }
+
+        return createProcessResponse(request);
+      },
+    };
+
+    const { config, stt, tts } = createConfig({
+      processIntent,
+      transcriptGraceMs: 20,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    await runtime.startListening();
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+
+    await advance(sharedVadFinalDebounceMs);
+    await advance(10);
+
+    expect(runtime.getVoiceState()).toBe('listening');
+    expect(reportedErrors).toEqual([]);
+    expect(processCalls).toEqual([]);
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'stt.transcript_grace.started',
+        details: expect.objectContaining({ transcriptGraceMs: 20 }),
+      }),
+    );
+
+    await advance(15);
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(reportedErrors).toEqual([]);
+    expect(processCalls).toEqual([]);
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'stt.transcript_grace.expired',
+        details: expect.objectContaining({ transcriptGraceMs: 20 }),
+      }),
+    );
+  });
+
+  test('second speech_end during transcript grace resets the grace window', async () => {
+    const reportedErrors: string[] = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const { config, stt, tts } = createConfig({
+      vadFinalDebounceMs: 5,
+      transcriptGraceMs: 20,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    await runtime.startListening();
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+
+    await advance(5);
+    await advance(10);
+
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+
+    await advance(5);
+
+    await advance(15);
+
+    expect(runtime.getVoiceState()).toBe('listening');
+    expect(reportedErrors).toEqual([]);
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.started',
+      ),
+    ).toHaveLength(2);
+    expect(
+      traceEvents.some(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toBe(false);
+
+    await advance(10);
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(reportedErrors).toEqual([]);
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toHaveLength(1);
+  });
+
+  test('speech_start cancels active grace without incrementing grace-expiry telemetry', async () => {
+    const reportedErrors: string[] = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const { config, stt, tts } = createConfig({
+      vadFinalDebounceMs: 5,
+      transcriptGraceMs: 20,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    await runtime.startListening();
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+
+    await advance(5);
+    await advance(10);
+
+    expect(runtime.getVoiceState()).toBe('listening');
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.started',
+      ),
+    ).toHaveLength(1);
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toHaveLength(0);
+
+    runtime.handleVADEvent({ type: 'speech_start', timestamp: Date.now() });
+
+    await advance(25);
+    await advance(0);
+
+    expect(runtime.getVoiceState()).toBe('listening');
+    expect(reportedErrors).toEqual([]);
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.started',
+      ),
+    ).toHaveLength(1);
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('finalizes normally when a transcript arrives during transcript grace', async () => {
+    const processCalls: string[] = [];
+    const reportedErrors: string[] = [];
+    const seenTranscripts: Array<{ text: string; isFinal: boolean }> = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const processIntent: ProcessIntent = {
+      async process(request) {
+        const updateReason = request.context.updateReasons[0];
+        if (updateReason?.type === 'user_intent') {
+          processCalls.push(updateReason.intent);
+        }
+
+        return createProcessResponse(request);
+      },
+    };
+
+    const { config, stt, tts } = createConfig({
+      processIntent,
+      transcriptGraceMs: 20,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    runtime.onTranscript((result) => {
+      seenTranscripts.push({ text: result.text, isFinal: result.isFinal });
+    });
+
+    await runtime.startListening();
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+
+    await advance(sharedVadFinalDebounceMs);
+    await advance(5);
+
+    stt.emit({
+      type: 'transcript',
+      result: { text: 'late arrival', isFinal: true },
+    });
+    await advance(0);
+
+    expect(processCalls).toEqual(['late arrival']);
+    expect(seenTranscripts).toEqual([{ text: 'late arrival', isFinal: true }]);
+    expect(reportedErrors).toEqual([]);
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(
+      traceEvents.some(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toBe(false);
+
+    await advance(25);
+    expect(processCalls).toEqual(['late arrival']);
+  });
+
+  test('transcriptGraceMs 0 returns to idle on the next timer turn and drops a later provider-final transcript', async () => {
+    const processCalls: string[] = [];
+    const seenTranscripts: Array<{ text: string; isFinal: boolean }> = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const processIntent: ProcessIntent = {
+      async process(request) {
+        const updateReason = request.context.updateReasons[0];
+        if (updateReason?.type === 'user_intent') {
+          processCalls.push(updateReason.intent);
+        }
+
+        return createProcessResponse(request);
+      },
+    };
+
+    const { config, stt, tts } = createConfig({
+      processIntent,
+      transcriptGraceMs: 0,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(config, { stt, tts });
+
+    runtime.onTranscript((result) => {
+      seenTranscripts.push({ text: result.text, isFinal: result.isFinal });
+    });
+
+    await runtime.startListening();
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+
+    await advance(sharedVadFinalDebounceMs);
+
+    expect(runtime.getVoiceState()).toBe('listening');
+    expect(processCalls).toEqual([]);
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.started',
+      ),
+    ).toHaveLength(1);
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toHaveLength(0);
+
+    await advance(1);
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(processCalls).toEqual([]);
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toHaveLength(1);
+
+    stt.emit({
+      type: 'transcript',
+      result: { text: 'too late', isFinal: true },
+    });
+    await advance(0);
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(processCalls).toEqual([]);
+    expect(seenTranscripts).toEqual([]);
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'stt.transcript.ignored_after_turn_closed',
+        details: expect.objectContaining({
+          preview: 'too late',
+          isFinal: true,
+        }),
+      }),
+    );
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toHaveLength(1);
+  });
+
+  test('finalizes a late interim transcript when transcript grace expires', async () => {
+    const processCalls: string[] = [];
+    const reportedErrors: string[] = [];
+    const seenTranscripts: Array<{ text: string; isFinal: boolean }> = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const processIntent: ProcessIntent = {
+      async process(request) {
+        const updateReason = request.context.updateReasons[0];
+        if (updateReason?.type === 'user_intent') {
+          processCalls.push(updateReason.intent);
+        }
+
+        return createProcessResponse(request);
+      },
+    };
+
+    const { config, stt, tts } = createConfig({
+      processIntent,
+      transcriptGraceMs: 20,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    runtime.onTranscript((result) => {
+      seenTranscripts.push({ text: result.text, isFinal: result.isFinal });
+    });
+
+    await runtime.startListening();
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+
+    await advance(sharedVadFinalDebounceMs);
+    await advance(5);
+
+    stt.emit({
+      type: 'transcript',
+      result: { text: 'late interim', isFinal: false },
+    });
+    await advance(0);
+
+    expect(processCalls).toEqual(['late interim']);
+    expect(seenTranscripts).toEqual([{ text: 'late interim', isFinal: true }]);
+    expect(runtime.getVoiceState()).toBe('idle');
+
+    await advance(20);
+    await advance(0);
+
+    expect(processCalls).toEqual(['late interim']);
+    expect(seenTranscripts).toEqual([{ text: 'late interim', isFinal: true }]);
+    expect(reportedErrors).toEqual([]);
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(
+      traceEvents.some(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toBe(false);
+  });
+
+  test('finalizes accumulated transcript on grace expiry', async () => {
+    const finalizedTexts: string[] = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const clearedPendingFinalization: boolean[] = [];
+
+    const handled = handleTranscriptGraceExpiryTerminalBranches(
+      {
+        currentTranscript: '',
+        accumulatedTranscript: 'late arrival',
+        hasEmittedFinal: false,
+      },
+      (event, details) => {
+        traceEvents.push({ event, details });
+      },
+      () => {
+        clearedPendingFinalization.push(true);
+      },
+      (text) => {
+        finalizedTexts.push(text);
+        return { emitted: true, startedProcessing: true };
+      },
+    );
+
+    expect(handled).toBe(true);
+    expect(clearedPendingFinalization).toEqual([true]);
+    expect(finalizedTexts).toEqual(['late arrival']);
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'stt.transcript_grace.completed_with_late_transcript',
+        details: expect.objectContaining({
+          textLength: 'late arrival'.length,
+          usedAccumulatedTranscriptFallback: true,
+        }),
+      }),
+    );
+  });
+
+  test('grace callback already finalized', async () => {
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const finalizedTexts: string[] = [];
+    const clearedPendingFinalization: boolean[] = [];
+
+    const handled = handleTranscriptGraceExpiryTerminalBranches(
+      {
+        currentTranscript: 'provider final',
+        accumulatedTranscript: 'provider final',
+        hasEmittedFinal: true,
+      },
+      (event, details) => {
+        traceEvents.push({ event, details });
+      },
+      () => {
+        clearedPendingFinalization.push(true);
+      },
+      (text) => {
+        finalizedTexts.push(text);
+        return { emitted: true, startedProcessing: true };
+      },
+    );
+
+    expect(handled).toBe(true);
+    expect(finalizedTexts).toEqual([]);
+    expect(clearedPendingFinalization).toEqual([]);
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'stt.transcript_grace.already_finalized',
+        details: expect.objectContaining({
+          currentTranscriptLength: 'provider final'.length,
+          accumulatedTranscriptLength: 'provider final'.length,
+        }),
+      }),
+    );
+    expect(
+      traceEvents.some(
+        (entry) =>
+          entry.event ===
+            'stt.transcript_grace.completed_with_late_transcript' &&
+          entry.details?.textLength === 0,
+      ),
+    ).toBe(false);
+    expect(
+      traceEvents.some(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toBe(false);
+  });
+
+  test('returns to idle on transcript grace expiry without surfacing the old VAD/transcript race error', async () => {
+    const reportedErrors: string[] = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const { config, stt, tts } = createConfig({
+      transcriptGraceMs: 10,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    await runtime.startListening();
+    runtime.handleVADEvent({ type: 'utterance_end', timestamp: Date.now() });
+
+    await advance(sharedVadFinalDebounceMs + 15);
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(reportedErrors).toEqual([]);
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'stt.transcript_grace.expired',
+        details: expect.objectContaining({
+          transcriptGraceMs: 10,
+          pendingFinalFromVAD: true,
+        }),
+      }),
+    );
+  });
+
+  test('repeated grace expiry emits once', async () => {
+    const reportedErrors: string[] = [];
+    const processCalls: string[] = [];
+    const processIntent: ProcessIntent = {
+      async process(request) {
+        const updateReason = request.context.updateReasons[0];
+        if (updateReason?.type === 'user_intent') {
+          processCalls.push(updateReason.intent);
+        }
+
+        return createProcessResponse(request);
+      },
+    };
+
+    const { config, stt, tts } = createConfig({
+      transcriptGraceMs: 10,
+      processIntent,
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    async function expireTranscriptGraceWithoutTranscript() {
+      await runtime.startListening();
+      runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+      await advance(sharedVadFinalDebounceMs + 15);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+    }
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([]);
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([]);
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([
+      'Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=3, threshold=3, transcriptGraceMs=10)',
+    ]);
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([
+      'Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=3, threshold=3, transcriptGraceMs=10)',
+    ]);
+    expect(processCalls).toEqual([]);
+  });
+
+  test('grace callback resets repeated expiry', async () => {
+    const reportedErrors: string[] = [];
+    const processCalls: string[] = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const processIntent: ProcessIntent = {
+      async process(request) {
+        const updateReason = request.context.updateReasons[0];
+        if (updateReason?.type === 'user_intent') {
+          processCalls.push(updateReason.intent);
+        }
+
+        return createProcessResponse(request);
+      },
+    };
+
+    const { config, stt, tts } = createConfig({
+      transcriptGraceMs: 10,
+      processIntent,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    async function expireTranscriptGraceWithoutTranscript() {
+      await runtime.startListening();
+      runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+      await advance(sharedVadFinalDebounceMs + 15);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+    }
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([]);
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([]);
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([
+      'Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=3, threshold=3, transcriptGraceMs=10)',
+    ]);
+
+    await runtime.startListening();
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+    await advance(sharedVadFinalDebounceMs);
+    await advance(5);
+
+    stt.emit({
+      type: 'transcript',
+      result: { text: 'reset from grace window', isFinal: false },
+    });
+    await advance(0);
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(processCalls).toEqual(['reset from grace window']);
+    expect(reportedErrors).toEqual([
+      'Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=3, threshold=3, transcriptGraceMs=10)',
+    ]);
+
+    await advance(10);
+    await advance(0);
+
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'stt.transcript_grace.already_finalized',
+        details: expect.objectContaining({
+          currentTranscriptLength: 'reset from grace window'.length,
+          accumulatedTranscriptLength: 'reset from grace window'.length,
+        }),
+      }),
+    );
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([
+      'Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=3, threshold=3, transcriptGraceMs=10)',
+    ]);
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([
+      'Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=3, threshold=3, transcriptGraceMs=10)',
+    ]);
+
+    await expireTranscriptGraceWithoutTranscript();
+    expect(reportedErrors).toEqual([
+      'Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=3, threshold=3, transcriptGraceMs=10)',
+      'Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=3, threshold=3, transcriptGraceMs=10)',
+    ]);
   });
 
   test('isolates transcript listeners so one throwing observer does not break the others', async () => {
@@ -2467,6 +3391,45 @@ describe('createVoiceSession runtime finalization', () => {
     expect(audioDropped.events).toEqual([]);
   });
 
+  test('destroy during active grace prevents later onError calls or state-change events after teardown', async () => {
+    const reportedErrors: string[] = [];
+    const voiceStates: string[] = [];
+    const { config, stt, tts } = createConfig({
+      vadFinalDebounceMs: 5,
+      transcriptGraceMs: 20,
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    runtime.onVoiceStateChange((state) => {
+      voiceStates.push(state);
+    });
+
+    await runtime.startListening();
+    expect(voiceStates).toEqual(['listening']);
+
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+    await advance(5);
+
+    runtime.destroy();
+
+    expect(reportedErrors).toEqual([]);
+    expect(voiceStates).toEqual(['listening']);
+
+    await advance(20);
+    await advance(0);
+
+    expect(reportedErrors).toEqual([]);
+    expect(voiceStates).toEqual(['listening']);
+  });
+
   test('isolates trace callback failures so onError still receives the original runtime failure', async () => {
     const reportedErrors: Error[] = [];
     const stt = new FailOnNthConnectSTTProvider(
@@ -3293,11 +4256,21 @@ describe('createVoiceSession runtime finalization', () => {
     });
   });
 
-  test('reports VAD end without transcript and returns to idle', async () => {
+  test('suppresses the old VAD/no-transcript error and returns to idle after transcript grace expires', async () => {
     const reportedErrors: string[] = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
     const { config, stt, tts } = createConfig();
     const runtime = createRuntime(
-      config,
+      {
+        ...config,
+        transcriptGraceMs: 10,
+        trace(event, details) {
+          traceEvents.push({ event, details });
+        },
+      },
       { stt, tts },
       {
         onError(error) {
@@ -3308,12 +4281,15 @@ describe('createVoiceSession runtime finalization', () => {
 
     await runtime.startListening();
     runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
-    await advance(sharedVadFinalDebounceMs);
+    await advance(sharedVadFinalDebounceMs + 15);
 
-    expect(reportedErrors).toContain(
-      'VAD ended the utterance before a transcript was available',
-    );
+    expect(reportedErrors).toEqual([]);
     expect(runtime.getVoiceState()).toBe('idle');
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'stt.transcript_grace.expired',
+      }),
+    );
   });
 
   test('processRequest reuses the runtime-owned intent boundary and can skip speaking', async () => {
@@ -3613,6 +4589,64 @@ describe('createVoiceSession runtime finalization', () => {
     expect(runtime.getVoiceState()).toBe('idle');
     expect(runtime.shouldAutoRestart()).toBe(true);
     expect(stt.connectCalls).toBe(0);
+  });
+
+  test('interrupt clears pending finalization after speech_end', async () => {
+    const reportedErrors: string[] = [];
+    const traceEvents: Array<{
+      event: string;
+      details?: Record<string, unknown>;
+    }> = [];
+    const voiceStates: string[] = [];
+    const { config, stt, tts } = createConfig({
+      vadFinalDebounceMs: 5,
+      transcriptGraceMs: 20,
+      trace(event, details) {
+        traceEvents.push({ event, details });
+      },
+    });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onError(error) {
+          reportedErrors.push(error.message);
+        },
+      },
+    );
+
+    runtime.onVoiceStateChange((state) => {
+      voiceStates.push(state);
+    });
+
+    await runtime.startListening();
+    expect(voiceStates).toEqual(['listening']);
+
+    runtime.handleVADEvent({ type: 'speech_end', timestamp: Date.now() });
+    await advance(5);
+
+    runtime.interrupt();
+
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(voiceStates).toEqual(['listening', 'idle']);
+    expect(reportedErrors).toEqual([]);
+
+    await advance(20);
+    await advance(0);
+
+    expect(reportedErrors).toEqual([]);
+    expect(voiceStates).toEqual(['listening', 'idle']);
+    expect(runtime.getVoiceState()).toBe('idle');
+    expect(
+      traceEvents.filter(
+        (entry) => entry.event === 'stt.transcript_grace.started',
+      ),
+    ).toHaveLength(1);
+    expect(
+      traceEvents.some(
+        (entry) => entry.event === 'stt.transcript_grace.expired',
+      ),
+    ).toBe(false);
   });
 });
 

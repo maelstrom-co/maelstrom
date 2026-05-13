@@ -72,6 +72,7 @@ class MockTTSProvider implements TTSProvider {
 
 const defaultResolveConfig = {
   vadFinalDebounceMs: 250,
+  transcriptGraceMs: 1500,
   audioBufferMaxMs: 12,
   maxReconnectAttempts: 4,
   reconnectDelayMs: 1500,
@@ -174,6 +175,7 @@ describe('resolveVoiceSessionConfig', () => {
     );
 
     expect(resolved.vadFinalDebounceMs).toBe(250);
+    expect(resolved.transcriptGraceMs).toBe(1500);
     expect(resolved.audioBufferMaxMs).toBe(12);
     expect(resolved.maxReconnectAttempts).toBe(4);
     expect(resolved.reconnectDelayMs).toBe(1500);
@@ -359,6 +361,71 @@ describe('resolveVoiceSessionConfig', () => {
       ),
     ).toThrow(
       'Voice session vadFinalDebounceMs must be a finite number greater than or equal to 0, received Infinity',
+    );
+  });
+
+  test('resolves transcriptGraceMs defaults and overrides', () => {
+    const resolvedWithDefault = resolveVoiceSessionConfig(
+      {
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('resolve-session'),
+      },
+      defaultResolveConfig,
+    );
+
+    const resolvedWithOverride = resolveVoiceSessionConfig(
+      {
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('resolve-session'),
+        transcriptGraceMs: 42,
+      },
+      defaultResolveConfig,
+    );
+
+    const resolvedWithZero = resolveVoiceSessionConfig(
+      {
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('resolve-session'),
+        transcriptGraceMs: 0,
+      },
+      defaultResolveConfig,
+    );
+
+    expect(resolvedWithDefault.transcriptGraceMs).toBe(1500);
+    expect(resolvedWithOverride.transcriptGraceMs).toBe(42);
+    expect(resolvedWithZero.transcriptGraceMs).toBe(0);
+  });
+
+  test('rejects invalid transcriptGraceMs values', () => {
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          transcriptGraceMs: -1,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session transcriptGraceMs must be a finite number greater than or equal to 0, received -1',
+    );
+
+    expect(() =>
+      resolveVoiceSessionConfig(
+        {
+          stt: createSTTTestConfig(),
+          tts: createTTSTestConfig(),
+          sessionId: SessionId('resolve-session'),
+          transcriptGraceMs: Number.POSITIVE_INFINITY,
+        },
+        defaultResolveConfig,
+      ),
+    ).toThrow(
+      'Voice session transcriptGraceMs must be a finite number greater than or equal to 0, received Infinity',
     );
   });
 

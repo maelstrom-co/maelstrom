@@ -468,15 +468,15 @@ describe('ChartRequestSchema cross-validation', () => {
     });
 
     test('accepts layoutMode=grid with layout.type=grid', () => {
-      expect(
-        ChartRequestSchema.safeParse(gridChartRequest({})).success,
-      ).toBe(true);
+      expect(ChartRequestSchema.safeParse(gridChartRequest({})).success).toBe(
+        true,
+      );
     });
 
     test('accepts layoutMode=tiling with layout.type=tiling', () => {
-      expect(
-        ChartRequestSchema.safeParse(tilingChartRequest({})).success,
-      ).toBe(true);
+      expect(ChartRequestSchema.safeParse(tilingChartRequest({})).success).toBe(
+        true,
+      );
     });
   });
 

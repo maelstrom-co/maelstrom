@@ -3,9 +3,9 @@ import type {
   SpeechChunk,
   SttCircuitStatus,
   TranscriptionResult,
-  VoiceSessionAudioDropReason,
-  VoiceSessionAudioDroppedEvent,
   VADEvent,
+  VoiceSessionAudioDroppedEvent,
+  VoiceSessionAudioDropReason,
   VoiceSessionState,
 } from './types.js';
 
@@ -26,6 +26,7 @@ export interface VoiceRuntimeState {
   state: VoiceSessionState;
   destroyed: boolean;
   currentTranscript: string;
+  hasSentAudioForTurn: boolean;
   hasReceivedSpeech: boolean;
   sttUnsubscribe: (() => void) | null;
   ttsUnsubscribe: (() => void) | null;
@@ -38,7 +39,10 @@ export interface VoiceRuntimeState {
   pendingAudioDropDebounceTimeout: ReturnType<typeof setTimeout> | null;
   accumulatedTranscript: string;
   pendingFinalFromVAD: boolean;
+  suppressIncomingAudio: boolean;
   vadFinalDebounceTimeout: ReturnType<typeof setTimeout> | null;
+  transcriptGraceTimeout: ReturnType<typeof setTimeout> | null;
+  consecutiveGraceExpiries: number;
   hasEmittedFinal: boolean;
   activeProcessAbortController: AbortController | null;
   suppressNextAutoRestart: boolean;
@@ -70,6 +74,7 @@ export function createInitialVoiceRuntimeState(): VoiceRuntimeState {
     state: 'idle',
     destroyed: false,
     currentTranscript: '',
+    hasSentAudioForTurn: false,
     hasReceivedSpeech: false,
     sttUnsubscribe: null,
     ttsUnsubscribe: null,
@@ -82,7 +87,10 @@ export function createInitialVoiceRuntimeState(): VoiceRuntimeState {
     pendingAudioDropDebounceTimeout: null,
     accumulatedTranscript: '',
     pendingFinalFromVAD: false,
+    suppressIncomingAudio: false,
     vadFinalDebounceTimeout: null,
+    transcriptGraceTimeout: null,
+    consecutiveGraceExpiries: 0,
     hasEmittedFinal: false,
     activeProcessAbortController: null,
     suppressNextAutoRestart: false,

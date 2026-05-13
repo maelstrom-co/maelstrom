@@ -619,6 +619,14 @@ interface VoiceSessionBaseConfig {
   /** Delay, in milliseconds, before a VAD end signal is treated as the final turn boundary. */
   vadFinalDebounceMs?: number;
   /**
+   * Delay, in milliseconds, to wait for a transcript after VAD ends with no text before returning the runtime to idle.
+   *
+   * Defaults to `1500` and must be a finite non-negative number. `0` still uses the grace-expiry
+   * path on the next tick, so late STT text can win that race without turning the VAD-end path into
+   * a synchronous bypass.
+   */
+  transcriptGraceMs?: number;
+  /**
    * Maximum client-audio duration, in milliseconds, to buffer while the STT transport is not ready.
    *
    * WHY: The runtime keeps a FIFO reconnect/startup buffer so short STT outages do not immediately
@@ -720,6 +728,8 @@ export interface ResolvedVoiceSessionConfig {
   autoRestartListening: boolean;
   /** Debounce window used before a VAD end signal becomes a hard finalization boundary. */
   vadFinalDebounceMs: number;
+  /** Grace window used to wait for a transcript after VAD ends with no text before the runtime returns to idle, including `0` as a next-tick fallback rather than a synchronous bypass. */
+  transcriptGraceMs: number;
   /** Maximum client-audio duration, in milliseconds, that may queue while STT is not ready. */
   audioBufferMaxMs: number;
   /** Maximum consecutive STT reconnect attempts before the runtime gives up. */

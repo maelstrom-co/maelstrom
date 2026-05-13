@@ -133,7 +133,11 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
         props: {},
         minSize: { width: 4, height: 4 },
         actions: [
-          { name: showWeek, description: 'Switch to week', transitionsTo: week },
+          {
+            name: showWeek,
+            description: 'Switch to week',
+            transitionsTo: week,
+          },
           { name: showDay, description: 'Switch to day', transitionsTo: day },
         ],
       },
@@ -142,7 +146,11 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
         props: {},
         minSize: { width: 4, height: 4 },
         actions: [
-          { name: showMonth, description: 'Switch to month', transitionsTo: month },
+          {
+            name: showMonth,
+            description: 'Switch to month',
+            transitionsTo: month,
+          },
           { name: showDay, description: 'Switch to day', transitionsTo: day },
         ],
       },
@@ -151,8 +159,16 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
         props: {},
         minSize: { width: 4, height: 4 },
         actions: [
-          { name: showMonth, description: 'Switch to month', transitionsTo: month },
-          { name: showWeek, description: 'Switch to week', transitionsTo: week },
+          {
+            name: showMonth,
+            description: 'Switch to month',
+            transitionsTo: month,
+          },
+          {
+            name: showWeek,
+            description: 'Switch to week',
+            transitionsTo: week,
+          },
         ],
       },
     },
@@ -224,23 +240,39 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
           props: {},
           minSize: { width: 4, height: 4 },
           actions: [
-            { name: showWeek, description: 'Switch to week', transitionsTo: week },
+            {
+              name: showWeek,
+              description: 'Switch to week',
+              transitionsTo: week,
+            },
           ],
         },
         [week]: {
           props: {},
           minSize: { width: 4, height: 4 },
           actions: [
-            { name: showMonth, description: 'Switch to month', transitionsTo: month },
+            {
+              name: showMonth,
+              description: 'Switch to month',
+              transitionsTo: month,
+            },
           ],
         },
         [day]: {
           props: {},
           minSize: { width: 4, height: 4 },
           actions: [
-            { name: showMonth, description: 'Switch to month', transitionsTo: month },
+            {
+              name: showMonth,
+              description: 'Switch to month',
+              transitionsTo: month,
+            },
             // Same name as month's showWeek but different target — disambiguator.
-            { name: showWeek, description: 'Restart week elsewhere', transitionsTo: month },
+            {
+              name: showWeek,
+              description: 'Restart week elsewhere',
+              transitionsTo: month,
+            },
           ],
         },
       },
@@ -286,7 +318,11 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
           props: {},
           minSize: { width: 4, height: 4 },
           actions: [
-            { name: showWeek, description: 'Switch to week', transitionsTo: week },
+            {
+              name: showWeek,
+              description: 'Switch to week',
+              transitionsTo: week,
+            },
             { name: showDay, description: 'Switch to day', transitionsTo: day },
           ],
         },
@@ -295,7 +331,11 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
           props: {},
           minSize: { width: 4, height: 4 },
           actions: [
-            { name: showMonth, description: 'Switch to month', transitionsTo: month },
+            {
+              name: showMonth,
+              description: 'Switch to month',
+              transitionsTo: month,
+            },
             { name: showDay, description: 'Switch to day', transitionsTo: day },
           ],
         },
@@ -304,7 +344,11 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
           props: {},
           minSize: { width: 4, height: 4 },
           actions: [
-            { name: showMonth, description: 'Switch to month', transitionsTo: month },
+            {
+              name: showMonth,
+              description: 'Switch to month',
+              transitionsTo: month,
+            },
           ],
         },
       },

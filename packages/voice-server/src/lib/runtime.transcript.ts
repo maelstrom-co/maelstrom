@@ -2,11 +2,7 @@ import type {
   VoiceRuntimeListeners,
   VoiceRuntimeState,
 } from './runtime.state.js';
-import type {
-  TranscriptionResult,
-  VoiceSessionCallbacks,
-  VoiceSessionState,
-} from './types.js';
+import type { TranscriptionResult, VoiceSessionCallbacks } from './types.js';
 
 type NotifyListenersSafely = <T>(
   listeners: Set<(value: T) => void>,
@@ -20,6 +16,15 @@ type NotifyCallbackSafely = <T extends unknown[]>(
   ...args: T
 ) => void;
 
+type EmitFinalTranscriptDeps = {
+  clearPendingFinalization: (state: VoiceRuntimeState) => void;
+  finalizeTranscript: (text: string) => {
+    emitted: boolean;
+    startedProcessing: boolean;
+  };
+  startTranscriptGrace: () => void;
+};
+
 export function clearPendingFinalization(state: VoiceRuntimeState) {
   // WHY: Every new speech_start, manual stop, or completed finalization must cancel the old debounce
   // timer so stale VAD boundaries cannot finalize a newer turn.
@@ -28,11 +33,17 @@ export function clearPendingFinalization(state: VoiceRuntimeState) {
     clearTimeout(state.vadFinalDebounceTimeout);
     state.vadFinalDebounceTimeout = null;
   }
+  if (state.transcriptGraceTimeout) {
+    clearTimeout(state.transcriptGraceTimeout);
+    state.transcriptGraceTimeout = null;
+  }
 }
 
 export function resetTurnTracking(state: VoiceRuntimeState) {
   // WHY: Turn assembly state must reset as one unit before listening resumes, otherwise stale text
   // from a previous utterance could leak into the next provider-final or VAD-final result.
+  state.suppressIncomingAudio = false;
+  state.hasSentAudioForTurn = false;
   state.hasReceivedSpeech = false;
   state.hasEmittedFinal = false;
   state.currentTranscript = '';
@@ -124,8 +135,11 @@ export function finalizeTranscript(
   emitted: boolean;
   startedProcessing: boolean;
 } {
-  // WHY: A single utterance can reach finalization from both provider-final and VAD-end paths.
-  // Once one path wins, the other must become a no-op so transcript callbacks and intent work run once.
+  // WHY: The normal late-transcript path is `handleSTTEvent` -> `updateTranscriptState`/
+  // `emitFinalTranscript` -> `startTranscriptGrace` -> grace-expiry finalization, but manual-stop
+  // and direct VAD-finalization can also race for the same utterance. `hasEmittedFinal` is
+  // load-bearing: once one path wins, every later path becomes a no-op so callbacks, grace
+  // handling, and intent processing still run exactly once.
   if (!text || state.hasEmittedFinal) {
     return { emitted: false, startedProcessing: false };
   }
@@ -158,26 +172,23 @@ export function finalizeTranscript(
 
 export function emitFinalTranscript(
   state: VoiceRuntimeState,
-  clearPendingFinalizationFn: (state: VoiceRuntimeState) => void,
-  finalizeTranscriptFn: (text: string) => {
-    emitted: boolean;
-    startedProcessing: boolean;
-  },
-  reportError: (error: unknown) => void,
-  setVoiceState: (state: VoiceSessionState) => void,
+  deps: EmitFinalTranscriptDeps,
 ) {
-  if (!state.currentTranscript && !state.hasEmittedFinal) {
-    // WHY: A VAD end without any transcript is almost always a broken upstream contract, either from
-    // an over-eager client VAD or a provider that never flushed text. Surfacing it helps diagnose
-    // silent-turn bugs instead of pretending an empty utterance was valid.
-    clearPendingFinalizationFn(state);
-    reportError(
-      new Error('VAD ended the utterance before a transcript was available'),
-    );
-    setVoiceState('idle');
+  const { clearPendingFinalization, finalizeTranscript, startTranscriptGrace } =
+    deps;
+  const transcriptToFinalize = state.currentTranscript;
+
+  if (!transcriptToFinalize && !state.hasEmittedFinal) {
+    // WHY: Short utterances can hit VAD end before the STT provider flushes its final transcript.
+    // The grace window absorbs that race so the normal late-arriving transcript can still finalize
+    // on the delayed path instead of forcing an immediate idle fallback. The
+    // `!state.hasEmittedFinal` conjunct is load-bearing: a provider-final can race the VAD debounce
+    // and close the turn just before this point, and without that guard we would arm a redundant
+    // grace timer on an already-finalized turn.
+    startTranscriptGrace();
     return;
   }
 
-  clearPendingFinalizationFn(state);
-  finalizeTranscriptFn(state.currentTranscript);
+  clearPendingFinalization(state);
+  finalizeTranscript(transcriptToFinalize);
 }

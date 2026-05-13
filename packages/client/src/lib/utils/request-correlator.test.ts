@@ -29,7 +29,10 @@ describe('RequestCorrelator', () => {
 
     it('should resolve when response arrives', async () => {
       const correlator = new RequestCorrelator();
-      const expectedResponse = createMockEmptyResponse(MessageId('req-1'), 'test');
+      const expectedResponse = createMockEmptyResponse(
+        MessageId('req-1'),
+        'test',
+      );
 
       let resolved = false;
       let result: MaelstromResponse | undefined;

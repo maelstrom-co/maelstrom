@@ -25,7 +25,14 @@ const skip = (reason: SkippedAction['reason']): SkippedAction => {
     case 'variant_not_on_vessel':
       return { reason, instanceId, action, vesselId, variant };
     case 'action_not_valid':
-      return { reason, instanceId, action, vesselId, variant, validActions: [] };
+      return {
+        reason,
+        instanceId,
+        action,
+        vesselId,
+        variant,
+        validActions: [],
+      };
     case 'params_parse_failed':
       return { reason, instanceId, action, paramsJson: '{x' };
     case 'state_drift':

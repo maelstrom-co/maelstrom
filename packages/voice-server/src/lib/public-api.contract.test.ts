@@ -40,6 +40,7 @@ import {
 test('public API contract is locked', () => {
   const sessionId = SessionId('contract-session');
   const explicitAudioBufferMaxMs = 1_000;
+  const explicitTranscriptGraceMs = 1_500;
   const stt: VoiceSessionConfig['stt'] = {
     type: 'deepgram',
     options: { apiKey: 'deepgram-key' },
@@ -61,6 +62,7 @@ test('public API contract is locked', () => {
     stt,
     tts,
     sessionId,
+    transcriptGraceMs: explicitTranscriptGraceMs,
     audioBufferMaxMs: explicitAudioBufferMaxMs,
   };
 
@@ -134,8 +136,11 @@ test('public API contract is locked', () => {
   const narrowedGenericTag = narrowVoiceSessionProviderTag(
     new Error('generic runtime'),
   );
-  const resolverDefaults = {
+  const resolverDefaults: Parameters<
+    typeof voiceServer.resolveVoiceSessionConfig
+  >[1] = {
     vadFinalDebounceMs: 150,
+    transcriptGraceMs: 1_500,
     audioBufferMaxMs: 1_500,
     maxReconnectAttempts: 2,
     reconnectDelayMs: 250,
@@ -173,6 +178,21 @@ test('public API contract is locked', () => {
   void narrowedProviderTag;
   void narrowedGenericTag;
   void legacyVoiceSessionConfig;
+
+  type PublicConfigIncludesTranscriptGraceMs =
+    'transcriptGraceMs' extends keyof VoiceSessionConfig ? true : false;
+  type ResolvedConfigIncludesTranscriptGraceMs =
+    'transcriptGraceMs' extends keyof ReturnType<
+      typeof voiceServer.resolveVoiceSessionConfig
+    >
+      ? true
+      : false;
+
+  const publicConfigIncludesTranscriptGraceMs: PublicConfigIncludesTranscriptGraceMs = true;
+  const resolvedConfigIncludesTranscriptGraceMs: ResolvedConfigIncludesTranscriptGraceMs = true;
+
+  void publicConfigIncludesTranscriptGraceMs;
+  void resolvedConfigIncludesTranscriptGraceMs;
 
   onSttCircuitStatusChange((status) => {
     replayedCircuitStatuses.push(status);
@@ -392,6 +412,9 @@ test('public API contract is locked', () => {
       providerDrivenInterimResults,
     );
     expect(resolvedSessionConfig.intentBoundary).toBeNull();
+    expect(resolvedSessionConfig.transcriptGraceMs).toBe(
+      explicitTranscriptGraceMs,
+    );
     expect(resolvedSessionConfig.audioBufferMaxMs).toBe(
       explicitAudioBufferMaxMs,
     );
@@ -400,6 +423,9 @@ test('public API contract is locked', () => {
     );
     expect(resolvedProvisionConfig.intentBoundary).toBe(
       resolvedSessionConfig.intentBoundary,
+    );
+    expect(resolvedProvisionConfig.transcriptGraceMs).toBe(
+      resolvedSessionConfig.transcriptGraceMs,
     );
     expect(resolvedProvisionConfig.audioBufferMaxMs).toBe(
       resolvedSessionConfig.audioBufferMaxMs,

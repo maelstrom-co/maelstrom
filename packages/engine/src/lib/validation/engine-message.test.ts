@@ -3,7 +3,10 @@ import { describe, expect, test } from 'bun:test';
 import { isErr, isOk, type LayoutMode } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../logger.js';
-import { logValidationFailure, validateEngineMessage } from './engine-message.js';
+import {
+  logValidationFailure,
+  validateEngineMessage,
+} from './engine-message.js';
 
 // `layoutMode` is widened to `LayoutMode` (and the layout/instances/vessels
 // typed as `unknown`) so cross-rule tests can mutate either field without
@@ -287,11 +290,7 @@ describe('validateEngineMessage — cross-validation rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('payload');
-      expect(result.error.path).toEqual([
-        'request',
-        'context',
-        'layoutMode',
-      ]);
+      expect(result.error.path).toEqual(['request', 'context', 'layoutMode']);
     }
   });
 
@@ -345,20 +344,12 @@ describe('validateEngineMessage — cross-validation rejections', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.layer).toBe('payload');
-      expect(result.error.path).toEqual([
-        'request',
-        'context',
-        'layoutMode',
-      ]);
+      expect(result.error.path).toEqual(['request', 'context', 'layoutMode']);
       // Headline `path` is rule 1's; the structured issue list still carries
       // every rule that fired, scoped to `request.*` (the validator runs from
       // the outer envelope schema).
       const issuePaths = result.error.issues.map((i) => i.path);
-      expect(issuePaths).toContainEqual([
-        'request',
-        'context',
-        'layoutMode',
-      ]);
+      expect(issuePaths).toContainEqual(['request', 'context', 'layoutMode']);
       expect(issuePaths).toContainEqual([
         'request',
         'layout',

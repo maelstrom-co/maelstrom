@@ -309,13 +309,21 @@ describe('requestValidationError', () => {
       [makeIssue({ code: 'invalid_value', path: ['type'], message: 'x' })],
       // Mixed: envelope must win regardless of position.
       [
-        makeIssue({ code: 'invalid_value', path: ['request', 'context'], message: 'x' }),
+        makeIssue({
+          code: 'invalid_value',
+          path: ['request', 'context'],
+          message: 'x',
+        }),
         makeIssue({ code: 'too_small', path: ['sessionId'], message: 'y' }),
       ],
       // Root + payload simultaneously: root wins, layer === envelope.
       [
         makeIssue({ code: 'invalid_type', path: [], message: 'root' }),
-        makeIssue({ code: 'invalid_value', path: ['request', 'context'], message: 'x' }),
+        makeIssue({
+          code: 'invalid_value',
+          path: ['request', 'context'],
+          message: 'x',
+        }),
       ],
       [],
     ];
@@ -323,7 +331,8 @@ describe('requestValidationError', () => {
       const e = requestValidationError(issues);
       if (e.layer === 'envelope') {
         const root = e.path.length === 0;
-        const headed = typeof e.path[0] === 'string' && ENVELOPE_FIELDS.includes(e.path[0]);
+        const headed =
+          typeof e.path[0] === 'string' && ENVELOPE_FIELDS.includes(e.path[0]);
         expect(root || headed).toBe(true);
       }
     }

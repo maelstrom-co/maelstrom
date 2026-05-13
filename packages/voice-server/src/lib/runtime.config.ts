@@ -7,13 +7,15 @@ import type {
   VoiceSessionConfig,
 } from './types.js';
 
+type NumericConfigFieldName = {
+  [K in keyof ResolvedVoiceSessionConfig]: ResolvedVoiceSessionConfig[K] extends number
+    ? K
+    : never;
+}[keyof ResolvedVoiceSessionConfig];
+
 function assertFiniteNonNegativeDuration(
   value: number,
-  fieldName:
-    | 'vadFinalDebounceMs'
-    | 'audioBufferMaxMs'
-    | 'reconnectDelayMs'
-    | 'reconnectJitterMs',
+  fieldName: NumericConfigFieldName,
 ): number {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(
@@ -26,7 +28,7 @@ function assertFiniteNonNegativeDuration(
 
 function assertFinitePositiveDuration(
   value: number,
-  fieldName: string,
+  fieldName: NumericConfigFieldName,
 ): number {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(
@@ -51,7 +53,10 @@ function assertFiniteMinimumUnitless(
   return value;
 }
 
-function assertNonNegativeInteger(value: number, fieldName: string): number {
+function assertNonNegativeInteger(
+  value: number,
+  fieldName: NumericConfigFieldName,
+): number {
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(
       `Voice session ${fieldName} must be a non-negative integer, received ${value}`,
@@ -73,6 +78,7 @@ export function resolveVoiceSessionConfig(
   config: VoiceSessionConfig,
   defaults: {
     vadFinalDebounceMs: number;
+    transcriptGraceMs: number;
     audioBufferMaxMs: number;
     maxReconnectAttempts: number;
     reconnectDelayMs: number;
@@ -84,6 +90,8 @@ export function resolveVoiceSessionConfig(
 ): ResolvedVoiceSessionConfig {
   const resolvedVadFinalDebounceMs =
     config.vadFinalDebounceMs ?? defaults.vadFinalDebounceMs;
+  const resolvedTranscriptGraceMs =
+    config.transcriptGraceMs ?? defaults.transcriptGraceMs;
   const resolvedAudioBufferMaxMs =
     config.audioBufferMaxMs ?? defaults.audioBufferMaxMs;
   const resolvedMaxReconnectAttempts =
@@ -142,6 +150,10 @@ export function resolveVoiceSessionConfig(
     vadFinalDebounceMs: assertFiniteNonNegativeDuration(
       resolvedVadFinalDebounceMs,
       'vadFinalDebounceMs',
+    ),
+    transcriptGraceMs: assertFiniteNonNegativeDuration(
+      resolvedTranscriptGraceMs,
+      'transcriptGraceMs',
     ),
     audioBufferMaxMs: assertFinitePositiveDuration(
       resolvedAudioBufferMaxMs,

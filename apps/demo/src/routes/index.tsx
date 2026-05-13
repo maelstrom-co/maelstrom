@@ -22,6 +22,10 @@ function DemoApp() {
   const voice = m.useVoice({
     autoAcquireMic: true,
     allowBargeIn: true,
+    vadOptions: {
+      minSpeechDurationSeconds: 0.032,
+      preSpeechPaddingSeconds: 0.45,
+    },
     greeting:
       "Hello! I'm the Maelstrom demo assistant. I can help you manage your calendar, weather, journal, and tasks. Try asking me to rearrange your dashboard or perform actions like adding tasks or writing journal entries.",
   });
