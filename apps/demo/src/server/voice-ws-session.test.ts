@@ -71,6 +71,7 @@ function createVoiceSessionStub(
     handleVADEvent: mock(() => {}),
     sendAudioChunk: mock(() => {}),
     speak: mock(async () => {}),
+    enqueueSpeak: mock(() => {}),
     destroy: mock(() => {
       state = 'idle';
     }),
@@ -225,8 +226,32 @@ describe('createDemoVoiceWsSessionController', () => {
     expect(forwardedAudio.sampleRate).toBe(16000);
     expect(forwardedAudio.encoding).toBe('linear16');
     expect(voiceSession.stopListening).toHaveBeenCalledTimes(1);
+    expect(voiceSession.enqueueSpeak).not.toHaveBeenCalled();
     expect(voiceSession.speak).toHaveBeenCalledWith('hello world');
     expect(sendEngineError).not.toHaveBeenCalled();
+  });
+
+  test('routes client.voice.speak to speak() and never enqueueSpeak()', async () => {
+    const voiceSession = createVoiceSessionStub();
+
+    const controller = createDemoVoiceWsSessionController({
+      sessionId: SessionId('session-123'),
+      voiceSession,
+      engine: createEngineStub(),
+      transport: {
+        sendMessage: mock(() => {}),
+        sendEngineError: createSendEngineErrorMock(),
+      },
+      forwardBinaryAudioInput: mock(async () => {}),
+    });
+
+    await controller.onMessage(
+      JSON.stringify({ type: 'client.voice.speak', text: 'hello world' }),
+    );
+
+    expect(voiceSession.speak).toHaveBeenCalledTimes(1);
+    expect(voiceSession.speak).toHaveBeenCalledWith('hello world');
+    expect(voiceSession.enqueueSpeak).not.toHaveBeenCalled();
   });
 
   test('does not announce ready when warmup fails and surfaces the error to the client', async () => {
@@ -301,7 +326,7 @@ describe('createDemoVoiceWsSessionController', () => {
     const speakController = createDemoVoiceWsSessionController({
       sessionId: SessionId('session-speak'),
       voiceSession: createVoiceSessionStub('idle', {
-        speak: mock(async () => {
+        speak: mock(() => {
           throw new Error('speak failed');
         }),
       }),
@@ -377,7 +402,7 @@ describe('createDemoVoiceWsSessionController', () => {
             }),
           }
         : {
-            speak: mock(async () => {
+            speak: mock(() => {
               throw providerError;
             }),
           },

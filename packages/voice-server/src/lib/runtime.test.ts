@@ -30,6 +30,7 @@ import type {
   VoiceSessionConfig,
   VoiceSessionIntentRequestBuilder,
 } from './types.js';
+import { isVoiceSessionQueuedTurnsDroppedError } from './types.js';
 
 type ProcessIntentResponse = Awaited<ReturnType<ProcessIntent['process']>>;
 
@@ -387,6 +388,26 @@ class FailOnConnectTTSProvider extends MockTTSProvider {
   }
 }
 
+class FailOnNthConnectTTSProvider extends MockTTSProvider {
+  constructor(
+    private readonly failingAttempts: number[],
+    private readonly failureMessage = 'mock tts connect failure',
+  ) {
+    super();
+  }
+
+  private connectAttempts = 0;
+
+  override async connect(): Promise<void> {
+    this.connectAttempts += 1;
+    if (this.failingAttempts.includes(this.connectAttempts)) {
+      throw new Error(this.failureMessage);
+    }
+
+    await super.connect();
+  }
+}
+
 class FailOnSpeakTTSProvider extends MockTTSProvider {
   constructor(private readonly failureMessage = 'mock tts speak failure') {
     super();
@@ -401,6 +422,52 @@ class FailOnSpeakTTSProvider extends MockTTSProvider {
 class AutoEventTTSProvider extends MockTTSProvider {
   override speak(text: string, options?: SpeechOptions): SpeechSynthesisHandle {
     return super.speak(text, options);
+  }
+}
+
+class DeferredConnectTTSProvider extends MockTTSProvider {
+  private deferNextConnection = false;
+  private releaseDeferredConnection: (() => void) | null = null;
+
+  holdNextConnect(): void {
+    this.deferNextConnection = true;
+  }
+
+  releaseConnect(): void {
+    const release = this.releaseDeferredConnection;
+    this.releaseDeferredConnection = null;
+    this.deferNextConnection = false;
+    release?.();
+  }
+
+  override isConnected(): boolean {
+    if (this.deferNextConnection) {
+      return false;
+    }
+
+    return super.isConnected();
+  }
+
+  override async connect(): Promise<void> {
+    if (this.deferNextConnection) {
+      await new Promise<void>((resolve) => {
+        this.releaseDeferredConnection = resolve;
+      });
+      this.releaseDeferredConnection = null;
+      this.deferNextConnection = false;
+    }
+
+    await super.connect();
+  }
+}
+
+class ThrowOnDisconnectedStopTTSProvider extends DeferredConnectTTSProvider {
+  override stop(): void {
+    if (!this.isConnected()) {
+      throw new Error('mock tts stop while disconnected');
+    }
+
+    super.stop();
   }
 }
 
@@ -4394,6 +4461,130 @@ describe('createVoiceSession runtime finalization', () => {
     expect(runtime.getVoiceState()).toBe('idle');
   });
 
+  test('processRequest preempts active speech without bouncing through idle before the spoken response starts', async () => {
+    const voiceStates: string[] = [];
+    let resolveProcess!: (response: ProcessIntentResponse) => void;
+    const processIntent: ProcessIntent = {
+      async process() {
+        return new Promise<ProcessIntentResponse>((resolve) => {
+          resolveProcess = resolve;
+        });
+      },
+    };
+
+    const { config, stt, tts } = createConfig({ processIntent });
+    const runtime = createRuntime(config, { stt, tts });
+    const request = createRequest('typed request');
+
+    runtime.onVoiceStateChange((state) => {
+      voiceStates.push(state);
+    });
+
+    await runtime.speak('hello world');
+
+    const responsePromise = runtime.processRequest(request);
+    await advance(0);
+
+    expect(tts.stopCalls).toBe(1);
+    expect(runtime.getVoiceState()).toBe('processing');
+
+    resolveProcess(
+      createProcessResponse(request, {
+        userMessage: 'spoken reply',
+      }),
+    );
+    await responsePromise;
+    await advance(0);
+
+    expect(tts.spokenTexts).toEqual(['hello world', 'spoken reply']);
+    expect(voiceStates).toEqual(['speaking', 'processing', 'speaking']);
+    expect(voiceStates).not.toContain('idle');
+    expect(runtime.getVoiceState()).toBe('speaking');
+  });
+
+  test('processRequest emits onSpeechStopped(false) exactly once for the preempted turn', async () => {
+    const speechStops: boolean[] = [];
+    let resolveProcess!: (response: ProcessIntentResponse) => void;
+    const processIntent: ProcessIntent = {
+      async process() {
+        return new Promise<ProcessIntentResponse>((resolve) => {
+          resolveProcess = resolve;
+        });
+      },
+    };
+
+    const { config, stt, tts } = createConfig({ processIntent });
+    const runtime = createRuntime(
+      config,
+      { stt, tts },
+      {
+        onSpeechStopped(completed) {
+          speechStops.push(completed);
+        },
+      },
+    );
+    const request = createRequest('typed request');
+
+    await runtime.speak('hello world');
+
+    const responsePromise = runtime.processRequest(request);
+    await advance(0);
+
+    expect(speechStops).toEqual([false]);
+
+    resolveProcess(
+      createProcessResponse(request, {
+        userMessage: 'spoken reply',
+      }),
+    );
+    await responsePromise;
+    await advance(0);
+
+    expect(tts.spokenTexts).toEqual(['hello world', 'spoken reply']);
+    expect(speechStops).toEqual([false]);
+  });
+
+  test('processRequest preemption does not spuriously auto-restart listening during the processing window', async () => {
+    let resolveProcess!: (response: ProcessIntentResponse) => void;
+    const processIntent: ProcessIntent = {
+      async process() {
+        return new Promise<ProcessIntentResponse>((resolve) => {
+          resolveProcess = resolve;
+        });
+      },
+    };
+
+    const voiceStates: string[] = [];
+    const { config, stt, tts } = createConfig({
+      autoRestartListening: true,
+      processIntent,
+    });
+    const runtime = createRuntime(config, { stt, tts });
+    const request = createRequest('typed request');
+
+    runtime.onVoiceStateChange((state) => {
+      voiceStates.push(state);
+    });
+
+    await runtime.speak('hello world');
+
+    const responsePromise = runtime.processRequest(request, {
+      speakResponse: false,
+    });
+    await advance(0);
+    await advance(550);
+
+    expect(runtime.getVoiceState()).toBe('processing');
+    expect(stt.connectCalls).toBe(0);
+    expect(voiceStates).toEqual(['speaking', 'processing']);
+
+    resolveProcess(createProcessResponse(request));
+    await responsePromise;
+    await advance(0);
+
+    expect(runtime.getVoiceState()).toBe('idle');
+  });
+
   test('runtime voice state stays authoritative without provider speaking accessors', async () => {
     const voiceStates: string[] = [];
     const { config, stt, tts } = createConfig(
@@ -4647,6 +4838,575 @@ describe('createVoiceSession runtime finalization', () => {
         (entry) => entry.event === 'stt.transcript_grace.expired',
       ),
     ).toBe(false);
+  });
+
+  describe('enqueueSpeak queue semantics', () => {
+    test('dispatches immediately when the session is idle', async () => {
+      const speechStarts: string[] = [];
+      const { config, stt, tts } = createConfig();
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onSpeechStarted(speech) {
+            speechStarts.push(speech.text);
+          },
+        },
+      );
+
+      runtime.enqueueSpeak('queued hello');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['queued hello']);
+      expect(speechStarts).toEqual(['queued hello']);
+      expect(runtime.getVoiceState()).toBe('speaking');
+    });
+
+    test('enqueueSpeak ignores blank input without clearing the active turn or queued speech', async () => {
+      const { config, stt, tts } = createConfig();
+      const runtime = createRuntime(config, { stt, tts });
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      runtime.enqueueSpeak('');
+      await advance(0);
+
+      expect(tts.stopCalls).toBe(0);
+      expect(tts.spokenTexts).toEqual(['A']);
+      expect(runtime.getVoiceState()).toBe('speaking');
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A', 'B']);
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
+
+    test('enqueueSpeak ignores whitespace-only input without clearing the active turn or queued speech', async () => {
+      const { config, stt, tts } = createConfig();
+      const runtime = createRuntime(config, { stt, tts });
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      runtime.enqueueSpeak('  ');
+      await advance(0);
+
+      expect(tts.stopCalls).toBe(0);
+      expect(tts.spokenTexts).toEqual(['A']);
+      expect(runtime.getVoiceState()).toBe('speaking');
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A', 'B']);
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
+
+    test('drains an enqueued successor after the active turn completes without overlapping provider speaks', async () => {
+      const speechStarts: string[] = [];
+      const { config, stt, tts } = createConfig();
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onSpeechStarted(speech) {
+            speechStarts.push(speech.text);
+          },
+        },
+      );
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A']);
+      expect(speechStarts).toEqual(['A']);
+      expect(runtime.getVoiceState()).toBe('speaking');
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A', 'B']);
+      expect(speechStarts).toEqual(['A', 'B']);
+      expect(runtime.getVoiceState()).toBe('speaking');
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
+
+    test('speak replaces the active turn and clears older queued turns', async () => {
+      const speechStarts: string[] = [];
+      const { config, stt, tts } = createConfig();
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onSpeechStarted(speech) {
+            speechStarts.push(speech.text);
+          },
+        },
+      );
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      await runtime.speak('C');
+      await advance(0);
+
+      expect(tts.stopCalls).toBe(1);
+      expect(tts.spokenTexts).toEqual(['A', 'C']);
+      expect(speechStarts).toEqual(['A', 'C']);
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A', 'C']);
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
+
+    test('speak ignores blank input without clearing the active turn or queued speech', async () => {
+      const { config, stt, tts } = createConfig();
+      const runtime = createRuntime(config, { stt, tts });
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      await runtime.speak('');
+      await advance(0);
+
+      expect(tts.stopCalls).toBe(0);
+      expect(tts.spokenTexts).toEqual(['A']);
+      expect(runtime.getVoiceState()).toBe('speaking');
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A', 'B']);
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
+
+    test('speak ignores whitespace-only input without clearing the active turn or queued speech', async () => {
+      const { config, stt, tts } = createConfig();
+      const runtime = createRuntime(config, { stt, tts });
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      await runtime.speak('  ');
+      await advance(0);
+
+      expect(tts.stopCalls).toBe(0);
+      expect(tts.spokenTexts).toEqual(['A']);
+      expect(runtime.getVoiceState()).toBe('speaking');
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A', 'B']);
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
+
+    test('interrupt clears both active speech and queued turns atomically', async () => {
+      const speechStops: boolean[] = [];
+      const { config, stt, tts } = createConfig();
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onSpeechStopped(completed) {
+            speechStops.push(completed);
+          },
+        },
+      );
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      runtime.interrupt();
+      await advance(0);
+
+      expect(tts.stopCalls).toBe(1);
+      expect(tts.spokenTexts).toEqual(['A']);
+      expect(speechStops).toEqual([false]);
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
+
+    test('processRequest during a queued-turn reconnect gap does not stop disconnected TTS', async () => {
+      const errors: string[] = [];
+      const tts = new ThrowOnDisconnectedStopTTSProvider();
+      const { config, stt } = createConfig({}, { tts });
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onError(error) {
+            errors.push(error.message);
+          },
+        },
+      );
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      tts.holdNextConnect();
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('speaking');
+      expect(tts.isConnected()).toBe(false);
+
+      await expect(
+        runtime.processRequest(createRequest('manual request'), {
+          speakResponse: false,
+        }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          userMessage: '',
+        }),
+      );
+
+      expect(tts.stopCalls).toBe(0);
+      expect(errors).toEqual(['mock tts stop while disconnected']);
+      expect(runtime.getVoiceState()).toBe('idle');
+
+      tts.releaseConnect();
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(tts.spokenTexts).toEqual(['A']);
+    });
+
+    test('interrupt during a queued-turn reconnect gap returns the runtime to idle instead of wedging in speaking', async () => {
+      const interrupts: Array<'user' | 'system'> = [];
+      const speechStops: boolean[] = [];
+      const tts = new DeferredConnectTTSProvider();
+      const { config, stt } = createConfig({}, { tts });
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onInterrupt(source) {
+            interrupts.push(source);
+          },
+          onSpeechStopped(completed) {
+            speechStops.push(completed);
+          },
+        },
+      );
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      tts.holdNextConnect();
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('speaking');
+      expect(tts.spokenTexts).toEqual(['A']);
+      expect(speechStops).toEqual([true]);
+
+      runtime.interrupt();
+
+      expect(interrupts).toEqual(['user']);
+      expect(runtime.getVoiceState()).toBe('idle');
+
+      tts.releaseConnect();
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(tts.spokenTexts).toEqual(['A']);
+      expect(tts.stopCalls).toBe(1);
+    });
+
+    test('interrupt during a queued-turn reconnect gap does not stop disconnected TTS', async () => {
+      const interrupts: Array<'user' | 'system'> = [];
+      const errors: string[] = [];
+      const speechStops: boolean[] = [];
+      const tts = new ThrowOnDisconnectedStopTTSProvider();
+      const { config, stt } = createConfig({}, { tts });
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onInterrupt(source) {
+            interrupts.push(source);
+          },
+          onError(error) {
+            errors.push(error.message);
+          },
+          onSpeechStopped(completed) {
+            speechStops.push(completed);
+          },
+        },
+      );
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      tts.holdNextConnect();
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('speaking');
+      expect(tts.isConnected()).toBe(false);
+      expect(speechStops).toEqual([true]);
+
+      expect(() => runtime.interrupt()).not.toThrow();
+
+      expect(interrupts).toEqual(['user']);
+      expect(tts.stopCalls).toBe(0);
+      expect(errors).toEqual(['mock tts stop while disconnected']);
+      expect(runtime.getVoiceState()).toBe('idle');
+
+      tts.releaseConnect();
+      await advance(0);
+
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(tts.spokenTexts).toEqual(['A']);
+    });
+
+    test('traces dropped queued-turn count when queued reconnect fails with remaining queued turns', async () => {
+      const droppedQueueCounts: number[] = [];
+      const traceEvents: Array<{
+        event: string;
+        details?: Record<string, unknown>;
+      }> = [];
+      const tts = new FailOnNthConnectTTSProvider([2]);
+      const { config, stt } = createConfig(
+        {
+          trace(event, details) {
+            traceEvents.push({ event, details });
+          },
+        },
+        { tts },
+      );
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onError(error) {
+            if (isVoiceSessionQueuedTurnsDroppedError(error)) {
+              droppedQueueCounts.push(error.droppedQueueCount);
+            }
+          },
+        },
+      );
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      runtime.enqueueSpeak('C');
+      await advance(0);
+
+      await tts.disconnect();
+      await advance(0);
+
+      expect(traceEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'tts.queued_turns.dropped',
+          details: expect.objectContaining({
+            droppedQueueCount: 1,
+          }),
+        }),
+      );
+      expect(traceEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'tts.queued_speak.failed',
+          details: expect.objectContaining({
+            droppedQueueCount: 1,
+          }),
+        }),
+      );
+      expect(droppedQueueCounts).toEqual([1]);
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(tts.spokenTexts).toEqual(['A']);
+    });
+
+    test('does not trace dropped queued turns when queued reconnect fails without remaining queued turns', async () => {
+      const traceEvents: Array<{
+        event: string;
+        details?: Record<string, unknown>;
+      }> = [];
+      const tts = new FailOnNthConnectTTSProvider([2]);
+      const { config, stt } = createConfig(
+        {
+          trace(event, details) {
+            traceEvents.push({ event, details });
+          },
+        },
+        { tts },
+      );
+      const runtime = createRuntime(config, { stt, tts });
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      await tts.disconnect();
+      await advance(0);
+
+      expect(
+        traceEvents.filter(
+          (entry) => entry.event === 'tts.queued_turns.dropped',
+        ),
+      ).toHaveLength(0);
+      expect(traceEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'tts.queued_speak.failed',
+          details: expect.objectContaining({
+            droppedQueueCount: 0,
+          }),
+        }),
+      );
+      expect(runtime.getVoiceState()).toBe('idle');
+      expect(tts.spokenTexts).toEqual(['A']);
+    });
+
+    test('destroy prevents queued successors from dispatching after teardown', async () => {
+      const { config, stt, tts } = createConfig();
+      const runtime = createRuntime(config, { stt, tts });
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      runtime.destroy();
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A']);
+    });
+
+    test('advances to the next queued turn when a queued item settles stopped so the queue does not deadlock', async () => {
+      const traceEvents: Array<{
+        event: string;
+        details?: Record<string, unknown>;
+      }> = [];
+      const speechStarts: string[] = [];
+      const speechStops: boolean[] = [];
+      const { config, stt, tts } = createConfig({
+        trace(event, details) {
+          traceEvents.push({ event, details });
+        },
+      });
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onSpeechStarted(speech) {
+            speechStarts.push(speech.text);
+          },
+          onSpeechStopped(completed) {
+            speechStops.push(completed);
+          },
+        },
+      );
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      runtime.enqueueSpeak('C');
+      await advance(0);
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A', 'B']);
+      expect(speechStarts).toEqual(['A', 'B']);
+
+      tts.settleActiveSpeak('stopped');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A', 'B', 'C']);
+      expect(speechStarts).toEqual(['A', 'B', 'C']);
+      expect(speechStops).toEqual([true, false]);
+      expect(traceEvents).toContainEqual(
+        expect.objectContaining({
+          event: 'tts.queue.advanced_after_unclean_stop',
+          details: expect.objectContaining({
+            generation: 2,
+            nextTextLength: 1,
+            nextPreview: 'C',
+            remainingQueuedTurns: 0,
+          }),
+        }),
+      );
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(speechStops).toEqual([true, false, true]);
+      expect(runtime.getVoiceState()).toBe('idle');
+    });
+
+    test('autoRestartListening waits until the final queued turn completes before reconnecting STT', async () => {
+      const speechStarts: string[] = [];
+      const speechStops: boolean[] = [];
+      const tts = new AutoEventTTSProvider();
+      const { config, stt } = createConfig(
+        { autoRestartListening: true },
+        { tts },
+      );
+      const runtime = createRuntime(
+        config,
+        { stt, tts },
+        {
+          onSpeechStarted(speech) {
+            speechStarts.push(speech.text);
+          },
+          onSpeechStopped(completed) {
+            speechStops.push(completed);
+          },
+        },
+      );
+
+      await runtime.speak('A');
+      runtime.enqueueSpeak('B');
+      await advance(0);
+
+      const initialConnectCalls = stt.connectCalls;
+
+      tts.settleActiveSpeak('completed');
+      await advance(0);
+
+      expect(tts.spokenTexts).toEqual(['A', 'B']);
+      expect(speechStarts).toEqual(['A', 'B']);
+      expect(speechStops).toEqual([true]);
+      expect(stt.connectCalls).toBe(initialConnectCalls);
+      expect(runtime.getVoiceState()).toBe('speaking');
+
+      tts.settleActiveSpeak('completed');
+      await advance(550);
+
+      expect(speechStops).toEqual([true, true]);
+      expect(stt.connectCalls).toBe(initialConnectCalls + 1);
+      expect(runtime.getVoiceState()).toBe('listening');
+      expect(runtime.shouldAutoRestart()).toBe(false);
+    });
   });
 });
 

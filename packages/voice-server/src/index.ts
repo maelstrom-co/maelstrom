@@ -72,5 +72,7 @@ export type {
   VoiceSessionError,
   VoiceSessionIntentRequestBuilder,
   VoiceSessionIntentRequestOptions,
+  VoiceSessionQueuedTurnsDroppedError,
   VoiceSessionState,
 } from './lib/types.js';
+export { isVoiceSessionQueuedTurnsDroppedError } from './lib/types.js';

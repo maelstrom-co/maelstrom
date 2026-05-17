@@ -105,21 +105,46 @@ class MockAudioBuffer {
 }
 
 class MockAudioBufferSourceNode {
+  static nextId = 0;
+  static stopCallCount = 0;
+  static lifecycle: string[] = [];
+  static activeSourceIds = new Set<number>();
+  static maxConcurrentSources = 0;
+
+  static resetTracking(): void {
+    MockAudioBufferSourceNode.nextId = 0;
+    MockAudioBufferSourceNode.stopCallCount = 0;
+    MockAudioBufferSourceNode.lifecycle = [];
+    MockAudioBufferSourceNode.activeSourceIds.clear();
+    MockAudioBufferSourceNode.maxConcurrentSources = 0;
+  }
+
   buffer: MockAudioBuffer | null = null;
   onended: (() => void) | null = null;
   private ended = false;
+  readonly id: number;
 
-  constructor(private ctx: MockAudioContext) {}
+  constructor(private ctx: MockAudioContext) {
+    this.id = ++MockAudioBufferSourceNode.nextId;
+  }
 
   connect(): void {}
 
   start(when = 0): void {
     if (this.ended) return;
+    MockAudioBufferSourceNode.activeSourceIds.add(this.id);
+    MockAudioBufferSourceNode.maxConcurrentSources = Math.max(
+      MockAudioBufferSourceNode.maxConcurrentSources,
+      MockAudioBufferSourceNode.activeSourceIds.size,
+    );
+    MockAudioBufferSourceNode.lifecycle.push(`start:${this.id}`);
     const duration = this.buffer?.duration ?? 0;
     this.ctx.currentTime = when + duration + 0.02;
     setTimeout(() => {
       if (this.ended) return;
       this.ended = true;
+      MockAudioBufferSourceNode.activeSourceIds.delete(this.id);
+      MockAudioBufferSourceNode.lifecycle.push(`ended:${this.id}`);
       this.onended?.();
     }, 50);
   }
@@ -127,6 +152,9 @@ class MockAudioBufferSourceNode {
   stop(): void {
     if (this.ended) return;
     this.ended = true;
+    MockAudioBufferSourceNode.stopCallCount += 1;
+    MockAudioBufferSourceNode.activeSourceIds.delete(this.id);
+    MockAudioBufferSourceNode.lifecycle.push(`stop:${this.id}`);
     this.onended?.();
   }
 }
@@ -326,6 +354,7 @@ describe('VoiceSession', () => {
   beforeEach(() => {
     mockConnector = createMockVoiceConnector();
     lastWorkletNode = null;
+    MockAudioBufferSourceNode.resetTracking();
 
     MockSileroVAD.probability = 0.1;
     MockSileroVAD.shouldThrow = false;
@@ -1376,7 +1405,9 @@ describe('VoiceSession', () => {
 
       expect(session.isAudioReady).toBe(false);
       expect(session.needsUserGesture).toBe(true);
-      expect(events).toEqual([{ type: 'needsUserGesture', needsGesture: true }]);
+      expect(events).toEqual([
+        { type: 'needsUserGesture', needsGesture: true },
+      ]);
       const speakMessage = mockConnector.sentMessages.find(
         (m) => (m as { type: string }).type === 'client.voice.speak',
       );
@@ -1469,7 +1500,9 @@ describe('VoiceSession', () => {
       // Sticky on failure — dialog should stay up so the user can retry.
       expect(session.needsUserGesture).toBe(true);
       // No `false` event was emitted between the initial `true` and now.
-      expect(events).toEqual([{ type: 'needsUserGesture', needsGesture: true }]);
+      expect(events).toEqual([
+        { type: 'needsUserGesture', needsGesture: true },
+      ]);
       const speakBeforeRetry = mockConnector.sentMessages.find(
         (m) => (m as { type: string }).type === 'client.voice.speak',
       );
@@ -1893,6 +1926,242 @@ describe('VoiceSession', () => {
 
       session.interrupt();
       session.interrupt();
+
+      session.destroy();
+    });
+  });
+
+  describe('chained engine.tts.sent turns', () => {
+    it('interrupts playback once for each new server-announced turn boundary', async () => {
+      const session = new VoiceSession({
+        sessionId: SessionId('test'),
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+      });
+
+      await session.startListening();
+
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.1, -0.1, 0.2, -0.2]), {
+        cancellable: true,
+      });
+      await flush();
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.tts.sent',
+        sessionId: SessionId('test'),
+        text: 'Turn two',
+        timestamp: Date.now(),
+        data: new Uint8Array(0),
+        format: 'pcm',
+        sampleRate: 24000,
+        sequence: 1,
+        isFinal: false,
+      });
+      await flush();
+
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.3, -0.3, 0.4, -0.4]), {
+        cancellable: true,
+      });
+      await flush();
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.tts.sent',
+        sessionId: SessionId('test'),
+        text: 'Turn three',
+        timestamp: Date.now(),
+        data: new Uint8Array(0),
+        format: 'pcm',
+        sampleRate: 24000,
+        sequence: 2,
+        isFinal: false,
+      });
+      await flush();
+
+      expect(MockAudioBufferSourceNode.stopCallCount).toBe(2);
+      expect(MockAudioBufferSourceNode.lifecycle).toEqual([
+        'start:1',
+        'stop:1',
+        'start:2',
+        'stop:2',
+      ]);
+
+      session.destroy();
+    });
+
+    it('interrupts the first turn before a second turn begins playing', async () => {
+      const session = new VoiceSession({
+        sessionId: SessionId('test'),
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+      });
+
+      await session.startListening();
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.tts.sent',
+        sessionId: SessionId('test'),
+        text: 'Turn one',
+        timestamp: Date.now(),
+        data: new Uint8Array(0),
+        format: 'pcm',
+        sampleRate: 24000,
+        sequence: 0,
+        isFinal: false,
+      });
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.1, -0.1, 0.2, -0.2]), {
+        cancellable: true,
+      });
+      await flush();
+      expect(session.isSpeaking).toBe(true);
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.tts.sent',
+        sessionId: SessionId('test'),
+        text: 'Turn two',
+        timestamp: Date.now(),
+        data: new Uint8Array(0),
+        format: 'pcm',
+        sampleRate: 24000,
+        sequence: 1,
+        isFinal: false,
+      });
+      await flush();
+
+      expect(session.isSpeaking).toBe(false);
+      expect(MockAudioBufferSourceNode.lifecycle).toEqual([
+        'start:1',
+        'stop:1',
+      ]);
+
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.3, -0.3, 0.4, -0.4]), {
+        cancellable: true,
+      });
+      await flush();
+
+      expect(session.isSpeaking).toBe(true);
+      expect(MockAudioBufferSourceNode.lifecycle).toEqual([
+        'start:1',
+        'stop:1',
+        'start:2',
+      ]);
+      expect(MockAudioBufferSourceNode.maxConcurrentSources).toBe(1);
+
+      session.destroy();
+    });
+
+    it('does not leave lingering first-turn playback after a rapid second turn completes', async () => {
+      const session = new VoiceSession({
+        sessionId: SessionId('test'),
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+      });
+
+      await session.startListening();
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.tts.sent',
+        sessionId: SessionId('test'),
+        text: 'Turn one',
+        timestamp: Date.now(),
+        data: new Uint8Array(0),
+        format: 'pcm',
+        sampleRate: 24000,
+        sequence: 0,
+        isFinal: false,
+      });
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.1, -0.1, 0.2, -0.2]), {
+        cancellable: true,
+      });
+      await flush();
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.tts.sent',
+        sessionId: SessionId('test'),
+        text: 'Turn two',
+        timestamp: Date.now(),
+        data: new Uint8Array(0),
+        format: 'pcm',
+        sampleRate: 24000,
+        sequence: 1,
+        isFinal: false,
+      });
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.3, -0.3, 0.4, -0.4]), {
+        cancellable: true,
+      });
+      await flush();
+
+      await new Promise((resolve) => setTimeout(resolve, 70));
+      await flush();
+
+      expect(session.isSpeaking).toBe(false);
+      expect(MockAudioBufferSourceNode.activeSourceIds.size).toBe(0);
+      expect(MockAudioBufferSourceNode.lifecycle).toEqual([
+        'start:1',
+        'stop:1',
+        'start:2',
+        'ended:2',
+      ]);
+
+      session.destroy();
+    });
+
+    it('does not interrupt playback when engine.tts.sent has queued: true', async () => {
+      const session = new VoiceSession({
+        sessionId: SessionId('test'),
+        connector: mockConnector,
+        autoAcquireMic: true,
+        vadOptions: { activationThreshold: 0.8 },
+      });
+
+      await session.startListening();
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.tts.sent',
+        sessionId: SessionId('test'),
+        text: 'Turn one',
+        timestamp: Date.now(),
+        data: new Uint8Array(0),
+        format: 'pcm',
+        sampleRate: 24000,
+        sequence: 0,
+        isFinal: false,
+      });
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.1, -0.1, 0.2, -0.2]), {
+        cancellable: true,
+      });
+      await flush();
+      expect(session.isSpeaking).toBe(true);
+
+      const stopCountBefore = MockAudioBufferSourceNode.stopCallCount;
+
+      mockConnector.simulateVoiceMessage({
+        type: 'engine.tts.sent',
+        sessionId: SessionId('test'),
+        text: 'Queued turn',
+        timestamp: Date.now(),
+        data: new Uint8Array(0),
+        format: 'pcm',
+        sampleRate: 24000,
+        sequence: 1,
+        isFinal: false,
+        queued: true,
+      });
+      await flush();
+
+      expect(MockAudioBufferSourceNode.stopCallCount).toBe(stopCountBefore);
+      expect(session.isSpeaking).toBe(true);
+
+      // Simulate audio chunks arriving for the queued turn — should NOT start a new source node
+      const playbackErrors: unknown[] = [];
+      session.on('error', (err) => playbackErrors.push(err));
+      mockConnector.simulateBinaryAudio(toPcmF32le([0.3, -0.3]), { cancellable: false });
+      await flush();
+      // Queued audio should buffer without creating/starting a new source while first turn is active
+      expect(MockAudioBufferSourceNode.lifecycle.some((e) => e.startsWith('stop'))).toBe(false);
+      expect(session.isSpeaking).toBe(true);
 
       session.destroy();
     });

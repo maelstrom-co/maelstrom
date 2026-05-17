@@ -120,6 +120,11 @@ export interface AudioOutputMessage extends TimeEvent {
   isFinal: boolean;
   /** Some messages cannot be cancelled (e.g., legal disclaimers). */
   cancellable?: boolean;
+  /**
+   * When `true`, this turn came from the queued-successor path rather than a replacement turn.
+   * The client should NOT interrupt playback on receipt.
+   */
+  queued?: boolean;
 }
 
 /**

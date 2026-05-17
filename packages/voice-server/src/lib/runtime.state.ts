@@ -1,5 +1,6 @@
 import type {
   AudioChunk,
+  SpeakParams,
   SpeechChunk,
   SttCircuitStatus,
   TranscriptionResult,
@@ -25,6 +26,14 @@ export interface BufferedAudioChunk {
 export interface VoiceRuntimeState {
   state: VoiceSessionState;
   destroyed: boolean;
+  /**
+   * FIFO queue of speech turns waiting to start after the current active turn completes.
+   *
+   * Cleared on `interrupt()`, replacement `speak()`, `destroy()`, and when a new
+   * intent-processing request preempts active or pending speech through `executeIntentRequest()`.
+   * Also drained when `dispatchSpeak()`'s `ensureTTSConnected()` rejects on the cold path.
+   */
+  speakQueue: Array<SpeakParams>;
   currentTranscript: string;
   hasSentAudioForTurn: boolean;
   hasReceivedSpeech: boolean;
@@ -73,6 +82,7 @@ export function createInitialVoiceRuntimeState(): VoiceRuntimeState {
   return {
     state: 'idle',
     destroyed: false,
+    speakQueue: [],
     currentTranscript: '',
     hasSentAudioForTurn: false,
     hasReceivedSpeech: false,

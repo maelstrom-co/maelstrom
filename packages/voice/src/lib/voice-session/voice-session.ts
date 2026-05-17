@@ -595,7 +595,12 @@ export class VoiceSession {
             this.#handleVoiceState(message);
             break;
           case 'engine.tts.sent':
-            this.#state.playback.interrupt();
+            // WHY: queued successors arrive as separate wire messages, but they are part of the
+            // same continuous assistant playback chain. Only replacement turns should interrupt the
+            // current audio source before the next chunks arrive.
+            if (!message.queued) {
+              this.#state.playback.interrupt();
+            }
             this.#allowIncomingAssistantAudio(
               'server announced a new TTS turn',
             );

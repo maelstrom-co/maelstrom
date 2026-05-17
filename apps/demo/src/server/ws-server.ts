@@ -18,12 +18,11 @@
 
 import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
 import {
-  SessionId,
   type MessageId,
+  SessionId,
   type TranscriptMessage,
   type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
-import { geminiText } from '@tanstack/ai-gemini';
 import {
   type AudioChunk,
   createVoiceSession,
@@ -34,6 +33,7 @@ import {
   type VoiceSessionError,
   type VoiceSessionState,
 } from '@maelstrom-co/voice-server';
+import { geminiText } from '@tanstack/ai-gemini';
 import { Hono } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { cors } from 'hono/cors';
@@ -228,6 +228,10 @@ app.get(
           sendBinaryAudio(chunk.data);
         }
       },
+      // Fires once per actual turn start — including queued successors.
+      // The internal speak queue is never exposed on the wire; `queued` only
+      // tells the client that this turn continues the existing playback chain
+      // and should not interrupt audio already in flight.
       onSpeechStarted: (speech) => {
         sendMessage({
           type: 'engine.tts.sent',
@@ -239,6 +243,7 @@ app.get(
           sampleRate: speech.sampleRate,
           sequence: 0,
           isFinal: false,
+          queued: speech.queued ?? false,
         });
       },
       onSpeechStopped: () => {},

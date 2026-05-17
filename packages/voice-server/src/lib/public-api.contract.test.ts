@@ -12,6 +12,7 @@ import {
   type BaseTTSOptions,
   createSTT,
   createTTS,
+  isVoiceSessionQueuedTurnsDroppedError,
   type SpeechStart,
   type SpeechStopReason,
   type SpeechSynthesisHandle,
@@ -35,7 +36,21 @@ import {
   type VoiceSessionCallbacks,
   type VoiceSessionConfig,
   type VoiceSessionError,
+  type VoiceSessionQueuedTurnsDroppedError,
 } from '@maelstrom-co/voice-server';
+
+type Equal<Left, Right> = ((<Value>() => Value extends Left ? 1 : 2) extends <
+  Value,
+>() => Value extends Right ? 1 : 2
+  ? true
+  : false) &
+  ((<Value>() => Value extends Right ? 1 : 2) extends <
+    Value,
+  >() => Value extends Left ? 1 : 2
+    ? true
+    : false);
+
+type Expect<Value extends true> = Value;
 
 test('public API contract is locked', () => {
   const sessionId = SessionId('contract-session');
@@ -187,17 +202,40 @@ test('public API contract is locked', () => {
     >
       ? true
       : false;
+  type _AssertEnqueueSpeak = Expect<
+    Equal<VoiceSession['enqueueSpeak'], (text: string, voice?: string) => void>
+  >;
+  type _AssertQueuedTurnsDroppedTypeGuard = Expect<
+    Equal<
+      typeof isVoiceSessionQueuedTurnsDroppedError,
+      (error: unknown) => error is VoiceSessionQueuedTurnsDroppedError
+    >
+  >;
 
   const publicConfigIncludesTranscriptGraceMs: PublicConfigIncludesTranscriptGraceMs = true;
   const resolvedConfigIncludesTranscriptGraceMs: ResolvedConfigIncludesTranscriptGraceMs = true;
+  const queuedTurnsDroppedError = Object.assign(
+    new Error('dropped queued turns'),
+    {
+      droppedQueueCount: 2,
+    },
+  ) as VoiceSessionQueuedTurnsDroppedError;
 
   void publicConfigIncludesTranscriptGraceMs;
   void resolvedConfigIncludesTranscriptGraceMs;
+  void (0 as unknown as _AssertEnqueueSpeak);
+  void (0 as unknown as _AssertQueuedTurnsDroppedTypeGuard);
 
   onSttCircuitStatusChange((status) => {
     replayedCircuitStatuses.push(status);
   });
   expect(replayedCircuitStatuses).toEqual(['half_open']);
+  expect(isVoiceSessionQueuedTurnsDroppedError(queuedTurnsDroppedError)).toBe(
+    true,
+  );
+  expect(
+    isVoiceSessionQueuedTurnsDroppedError(new Error('generic runtime')),
+  ).toBe(false);
 
   function assertRegistryContracts(): void {
     const sttType: STTProviderType = 'google';

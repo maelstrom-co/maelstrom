@@ -72,3 +72,6 @@ logs.txt
 
 # local plans symlink → ~/projects/plans (nwt worktree helper)
 plans.local
+
+# tts2 e2e testing
+.tts2mic-cache

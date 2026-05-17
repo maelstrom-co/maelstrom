@@ -33,6 +33,7 @@ import { handleTTSEvent as handleTTSEventHelper } from './runtime.tts-handler.js
 import { handleVADEvent as handleVADEventHelper } from './runtime.vad-handler.js';
 import type {
   AudioChunk,
+  SpeakParams,
   SpeechChunk,
   STTEvent,
   SttCircuitStatus,
@@ -45,8 +46,10 @@ import type {
   VoiceSessionConfig,
   VoiceSessionIntentRequestBuilder,
   VoiceSessionIntentRequestOptions,
+  VoiceSessionQueuedTurnsDroppedError,
   VoiceSessionState,
 } from './types.js';
+import { isVoiceSessionQueuedTurnsDroppedError } from './types.js';
 
 const defaultVadFinalDebounceMs = 500;
 const defaultTranscriptGraceMs = 1500;
@@ -253,6 +256,21 @@ export function createVoiceSession(
     reportError(error);
   }
 
+  function stopTTS(
+    context: 'dispatch_speak' | 'interrupt' | 'process_request',
+  ) {
+    try {
+      tts.stop();
+    } catch (error) {
+      reportAsyncFailure('tts.stop.failed', error, {
+        context,
+        provider: tts.name,
+        providerConnected: tts.isConnected(),
+        state: runtimeState.state,
+      });
+    }
+  }
+
   function notifyListenersSafely<T>(
     activeListeners: Set<(value: T) => void>,
     value: T,
@@ -414,6 +432,15 @@ export function createVoiceSession(
     generation: 0,
     finished: true,
   };
+  // WHY: incremented whenever a pending dispatch should be invalidated (interrupt, processRequest,
+  // or any cancellation that clears the speak queue). dispatchSpeak captures the counter value
+  // before the async ensureTTSConnected() gap; if the counter has changed by the time the
+  // connect resolves, the dispatch is stale and must not call tts.speak().
+  let pendingDispatchGeneration = 0;
+  // WHY: counter (not boolean) so that a stale dispatch's finally does not clear the flag for
+  // a newer dispatch still awaiting ensureTTSConnected(). Each dispatchSpeak increments on
+  // entry and decrements in finally, giving an accurate in-flight count.
+  let pendingDispatchCount = 0;
 
   function completeActiveSpeech(
     generation: number,
@@ -429,12 +456,65 @@ export function createVoiceSession(
     }
 
     activeSpeech.finished = true;
-    setVoiceState(nextState);
+
+    // Queue drain is intentional regardless of the `completed` flag. Once the
+    // active speech generation is marked finished—whether the TTS provider
+    // signalled a clean end or an unexpected stop—we advance to the next queued
+    // turn. NOTE: if a future TTS provider emits spurious 'stopped' events, this
+    // will silently chain into the next queued turn. Validate your provider's stop
+    // semantics if that becomes a concern.
+    const nextQueuedSpeech: SpeakParams | undefined =
+      runtimeState.speakQueue.shift();
+    if (nextQueuedSpeech) {
+      if (!completed) {
+        trace('tts.queue.advanced_after_unclean_stop', {
+          generation,
+          nextTextLength: nextQueuedSpeech.text.length,
+          nextPreview: nextQueuedSpeech.text.slice(0, 80),
+          remainingQueuedTurns: runtimeState.speakQueue.length,
+        });
+      }
+      notifyCallbackSafely(
+        callbacks.onSpeechStopped,
+        'callback.onSpeechStopped.failed',
+        completed,
+      );
+      void dispatchSpeak(nextQueuedSpeech.text, nextQueuedSpeech.voice, {
+        clearQueue: false,
+        stopActiveSpeech: false,
+        queued: true,
+      }).catch((error) => {
+        const droppedQueueCount = isVoiceSessionQueuedTurnsDroppedError(error)
+          ? error.droppedQueueCount
+          : 0;
+        reportAsyncFailure('tts.queued_speak.failed', error, {
+          textLength: nextQueuedSpeech.text.length,
+          preview: nextQueuedSpeech.text.slice(0, 80),
+          requestedVoice: nextQueuedSpeech.voice ?? null,
+          generation,
+          droppedQueueCount,
+        });
+        setVoiceStateAfterSpeechCompletion(nextState);
+      });
+      return;
+    }
+
+    setVoiceStateAfterSpeechCompletion(nextState);
     notifyCallbackSafely(
       callbacks.onSpeechStopped,
       'callback.onSpeechStopped.failed',
       completed,
     );
+  }
+
+  function setVoiceStateAfterSpeechCompletion(nextState: VoiceSessionState) {
+    // WHY: `processRequest()` deliberately takes ownership of the public state transition once it
+    // preempts speech and moves the runtime into `processing`. Completion cleanup must not bounce
+    // listeners through `idle` in that branch, or the replacement-turn path would briefly publish
+    // a spurious `processing -> idle -> speaking` sequence.
+    if (runtimeState.state !== 'processing') {
+      setVoiceState(nextState);
+    }
   }
 
   function interruptActiveSpeech() {
@@ -504,10 +584,11 @@ export function createVoiceSession(
 
     clearAutoRestartTimeout();
 
-    if (runtimeState.state === 'speaking') {
-      tts.stop();
+    if (runtimeState.state === 'speaking' || pendingDispatchCount > 0) {
+      runtimeState.speakQueue = [];
+      pendingDispatchGeneration++;
+      stopTTS('process_request');
     }
-
     setVoiceState('processing');
     const abortController = new AbortController();
     const previousAbortController = runtimeState.activeProcessAbortController;
@@ -985,11 +1066,17 @@ export function createVoiceSession(
     clearAutoRestartTimeout();
     clearPendingFinalization(runtimeState);
     abortActiveProcessing();
+    runtimeState.speakQueue = [];
+    pendingDispatchGeneration++;
 
-    if (runtimeState.state === 'speaking') {
+    if (runtimeState.state === 'speaking' || pendingDispatchCount > 0) {
       runtimeState.suppressNextAutoRestart = true;
-      tts.stop();
-      interruptActiveSpeech();
+      stopTTS('interrupt');
+      if (activeSpeech.finished) {
+        setVoiceState('idle');
+      } else {
+        interruptActiveSpeech();
+      }
       notifyCallbackSafely(
         callbacks.onInterrupt,
         'callback.onInterrupt.failed',
@@ -1019,7 +1106,28 @@ export function createVoiceSession(
     }
   }
 
-  async function speak(text: string, voice?: string): Promise<void> {
+  /**
+   * Internal TTS dispatch. Callers must use `speak()` or `enqueueSpeak()` on the public surface.
+   *
+   * @param options.clearQueue - When true (default), empties `speakQueue` before starting the new
+   *   turn. Pass false when advancing the queue from `completeActiveSpeech`.
+   * @param options.stopActiveSpeech - When true (default), stops the current TTS turn before
+   *   dispatching. Pass false when the caller has already stopped it or when advancing the queue
+   *   (previous turn already finished).
+   */
+  async function dispatchSpeak(
+    text: string,
+    voice?: string,
+    options: {
+      clearQueue: boolean;
+      stopActiveSpeech: boolean;
+      queued: boolean;
+    } = {
+      clearQueue: true,
+      stopActiveSpeech: true,
+      queued: false,
+    },
+  ): Promise<void> {
     if (runtimeState.destroyed) {
       throw new Error('Cannot speak after destroy()');
     }
@@ -1032,16 +1140,40 @@ export function createVoiceSession(
       state: runtimeState.state,
     });
 
-    if (runtimeState.state === 'speaking') {
-      tts.stop();
+    if (options.clearQueue) {
+      runtimeState.speakQueue = [];
     }
 
-    if (!tts.isConnected()) {
-      await ensureTTSConnected();
+    if (options.stopActiveSpeech && runtimeState.state === 'speaking') {
+      stopTTS('dispatch_speak');
     }
 
-    if (runtimeState.destroyed) {
-      return;
+    pendingDispatchCount++;
+    const dispatchGeneration = ++pendingDispatchGeneration;
+    try {
+      if (!tts.isConnected()) {
+        await ensureTTSConnected();
+      }
+      if (
+        runtimeState.destroyed ||
+        dispatchGeneration !== pendingDispatchGeneration
+      ) {
+        return;
+      }
+    } catch (err) {
+      // TTS connection failed: drain orphaned queue items so they don't leak
+      const droppedQueueCount = runtimeState.speakQueue.length;
+      if (droppedQueueCount > 0) {
+        trace('tts.queued_turns.dropped', { droppedQueueCount });
+      }
+      runtimeState.speakQueue = [];
+      const normalizedError = normalizeError(
+        err,
+      ) as VoiceSessionQueuedTurnsDroppedError;
+      normalizedError.droppedQueueCount = droppedQueueCount;
+      throw normalizedError;
+    } finally {
+      pendingDispatchCount--;
     }
 
     const speakOptions: { voice?: string } = {};
@@ -1065,7 +1197,7 @@ export function createVoiceSession(
     notifyCallbackSafely(
       callbacks.onSpeechStarted,
       'callback.onSpeechStarted.failed',
-      handle.speech,
+      { ...handle.speech, queued: options.queued },
     );
 
     // WHY: `SpeechSynthesisHandle.completion` is a non-rejecting public contract. This runtime
@@ -1090,6 +1222,36 @@ export function createVoiceSession(
       });
   }
 
+  async function speak(text: string, voice?: string): Promise<void> {
+    if (text.trim().length === 0) {
+      return;
+    }
+    await dispatchSpeak(text, voice);
+  }
+
+  function enqueueSpeak(text: string, voice?: string): void {
+    if (runtimeState.destroyed) {
+      return;
+    }
+
+    if (text.trim().length === 0) {
+      return;
+    }
+
+    if (runtimeState.state === 'speaking' || pendingDispatchCount > 0) {
+      runtimeState.speakQueue.push({ text, voice });
+      return;
+    }
+
+    void speak(text, voice).catch((error) => {
+      reportAsyncFailure('tts.enqueue_speak.failed', error, {
+        textLength: text.length,
+        preview: text.slice(0, 80),
+        requestedVoice: voice ?? null,
+      });
+    });
+  }
+
   function handleVADEvent(event: VADEvent): void {
     handleVADEventHelper(
       runtimeState,
@@ -1107,6 +1269,8 @@ export function createVoiceSession(
 
   function destroy(): void {
     runtimeState.destroyed = true;
+    runtimeState.speakQueue = [];
+    pendingDispatchGeneration++;
     clearAutoRestartTimeout();
     clearReconnectResetTimeout();
     clearSttCircuitCooldownTimeout();
@@ -1134,6 +1298,7 @@ export function createVoiceSession(
     startListening,
     stopListening,
     interrupt,
+    enqueueSpeak,
     processRequest(
       request,
       options: VoiceSessionIntentRequestOptions = {},

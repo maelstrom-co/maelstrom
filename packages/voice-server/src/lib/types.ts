@@ -226,6 +226,33 @@ export type TTSError = {
 export type VoiceSessionError = Error | STTError | TTSError;
 
 /**
+ * Runtime error raised when queued speech turns are dropped after a failed queued dispatch.
+ *
+ * WHY: `onError` primarily surfaces generic `Error` objects, but queued-turn loss carries one
+ * extra structured datum (`droppedQueueCount`) that adapters may want to branch on without using
+ * structural casts.
+ */
+export interface VoiceSessionQueuedTurnsDroppedError extends Error {
+  droppedQueueCount: number;
+}
+
+/**
+ * Narrow an `onError` payload to a queued-turn-drop error.
+ *
+ * WHY: This keeps the public callback contract discoverable for adapters that want to surface or
+ * aggregate queued-turn loss without assuming every runtime error carries `droppedQueueCount`.
+ */
+export function isVoiceSessionQueuedTurnsDroppedError(
+  error: unknown,
+): error is VoiceSessionQueuedTurnsDroppedError {
+  return (
+    error instanceof Error &&
+    typeof (error as { droppedQueueCount?: unknown }).droppedQueueCount ===
+      'number'
+  );
+}
+
+/**
  * Stable disconnect reasons surfaced by provider transport events.
  *
  * WHY: `clean` is kept for compatibility with existing callers, but a boolean alone does not make
@@ -348,6 +375,17 @@ export interface SpeechOptions {
 }
 
 /**
+ * Parameters for a single speech turn.
+ *
+ * Shared by `speak()`, `enqueueSpeak()`, and the internal queued-turn path so turn payload
+ * changes stay aligned across the public API and the runtime queue.
+ */
+export interface SpeakParams {
+  text: string;
+  voice?: string;
+}
+
+/**
  * Metadata emitted when a spoken turn starts.
  *
  * WHY: Consumers usually need to react before the first audio chunk lands, for example by preparing
@@ -361,6 +399,8 @@ export interface SpeechStart {
   format: SpeechChunk['format'];
   /** Sample rate that downstream playback should expect for the turn. */
   sampleRate: number;
+  /** `true` when this turn was dequeued from `speakQueue` rather than replacing active speech. */
+  queued?: boolean;
 }
 
 /**
@@ -529,6 +569,9 @@ export interface VoiceSessionCallbacks {
   onSpeechStarted?: (speech: SpeechStart) => void;
   /**
    * Called when the active spoken turn stops.
+   *
+   * Fires once per spoken turn, including turns reached through the queued successor chain. Use
+   * `getVoiceState() === 'idle'` as the reliable signal that the full speech chain has ended.
    *
    * @param completed - `true` for a natural completion, `false` when the turn was interrupted or the
    * transport stopped unexpectedly.
@@ -882,11 +925,45 @@ export interface VoiceSession {
    * that must not accept new user audio.
    */
   sendAudioChunk(chunk: AudioChunk): void;
+
   /**
-   * Synthesize and speak a text reply immediately.
+   * Synthesize and speak `text`, queuing it behind any currently active speech turn.
+   *
+   * - If the runtime is currently `speaking`, or a queued successor is still waiting on the async
+   *   TTS-connect gap before it can start, appends to the internal FIFO queue.
+   * - Otherwise dispatches immediately (equivalent to calling `speak()`), including while the
+   *   runtime is `idle`, `listening`, or `processing`.
+   * - Unlike `speak()`, does **not** interrupt active speech or clear pending queued turns.
+   * - Silent no-op when the session is destroyed or `text` is blank after trimming.
+   *   Blank/whitespace-only input does not clear active speech or pending queued turns.
+   * - Unlike `speak()`, calling `enqueueSpeak()` after `destroy()` does not throw.
+   * - When called while the runtime is `processing`, dispatch is immediate rather than waiting for
+   *   the intent-processing pipeline to finish.
+   * - Queued turns are still cancelled by replacement `speak()`, `interrupt()`, `destroy()`, and
+   *   intent-processing preemption.
+   *
+   * WHY: Prefer this over `speak()` when the caller wants to chain successive turns without
+   * interrupting the current one — for example, multi-sentence responses from a streaming source.
+   * Callers that need a strict "only after the current intent-processing pipeline finishes"
+   * contract should gate on `getVoiceState()` rather than assuming `enqueueSpeak()` waits for the
+   * `processing` state to complete.
+   */
+  enqueueSpeak(text: string, voice?: string): void;
+
+  /**
+   * Synthesize and speak a text reply immediately, replacing any active or queued speech.
+   *
+   * - Stops any currently active speech turn.
+   * - Clears all pending queued turns added via `enqueueSpeak()`.
+   * - Dispatches the new turn immediately.
+   * - Silent no-op when `text` is blank after trimming (active speech and queued turns are
+   *   *not* cleared in that case, including blank/whitespace-only input).
+   * - Throws `Error('Cannot speak after destroy()')` if called after `destroy()`.
+   *   Use `enqueueSpeak()` instead if the caller needs destroyed-session calls to be ignored.
    *
    * WHY: This bypasses intent processing and is useful for adapters that need transport-level voice
-   * prompts such as greetings, errors, or explicit confirmations.
+   * prompts such as greetings, errors, or explicit confirmations where replacement semantics are
+   * correct (the new turn supersedes whatever was in progress).
    */
   speak(text: string, voice?: string): Promise<void>;
   /** Feed a client-owned VAD event into the runtime turn-boundary logic. */
