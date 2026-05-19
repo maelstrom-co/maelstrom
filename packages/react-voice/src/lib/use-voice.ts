@@ -4,24 +4,46 @@ import type { MaelstromExtensionContext } from '@maelstrom-co/react';
 import { warnOnce } from '@maelstrom-co/react';
 import type { VoiceSession, VoiceSessionConfig } from '@maelstrom-co/voice';
 
+import {
+  VOICE_PEER_LOAD_FAILED_MSG,
+  VOICE_PEER_NOT_INSTALLED_MSG,
+  VOICE_SESSION_EXPORT_MISSING_MSG,
+  VoiceDependencyError,
+} from './errors.js';
 import type {
   UseVoiceOptions,
   UseVoiceReturn,
   VoiceSessionState,
 } from './use-voice-types.js';
+import { isMissingModuleError, type VoiceProbeResult } from './voice-probe.js';
 
 /**
- * Factory that creates the m.useVoice() hook bound to a specific Maelstrom context.
+ * Requires a pre-resolved `voiceModulePromise` (no internal fallback
+ * `import()`) so the probe runs in exactly one place — keeping the SSR
+ * guard and cause-preservation invariants from being bypassed by callers
+ * that skip the public factory.
  */
-export function createUseVoice(contextPair: MaelstromExtensionContext) {
+export function createUseVoice(
+  contextPair: MaelstromExtensionContext,
+  voiceModulePromise: Promise<VoiceProbeResult>,
+) {
   const { useMaelstromContext } = contextPair;
 
   const store = createVoiceSessionStore();
   let ownerOptionsRef: { current: UseVoiceOptions | undefined } | null = null;
 
   function handleVoiceError(err: unknown) {
-    if (ownerOptionsRef?.current?.onError) {
-      ownerOptionsRef.current.onError(err);
+    const onError = ownerOptionsRef?.current?.onError;
+    if (onError) {
+      try {
+        onError(err);
+      } catch (callbackErr) {
+        // `react-error-boundary`'s `showBoundary` throws by design; without
+        // this try/catch the throw escapes as an unhandled rejection and
+        // the surrounding state flip is bypassed.
+        console.error('[Maelstrom] onError callback threw:', callbackErr);
+        console.error('[Maelstrom] Original voice error:', err);
+      }
     } else {
       console.error('[Maelstrom] Voice session error:', err);
     }
@@ -92,83 +114,103 @@ export function createUseVoice(contextPair: MaelstromExtensionContext) {
 
       let cancelled = false;
 
-      import('@maelstrom-co/voice')
-        .catch(() => {
-          if (!cancelled) {
-            warnOnce(
-              'voice-missing',
-              '[Maelstrom] @maelstrom-co/voice is not installed. Voice features are disabled. Install it as a peer dependency to enable voice.',
-            );
-            store.setIsVoiceSupported(false);
-          }
-          return null;
-        })
-        .then((voiceModule) => {
-          if (!voiceModule || cancelled || store.getOwnerId() !== myId) return;
+      voiceModulePromise.then((result) => {
+        if (cancelled || store.getOwnerId() !== myId) return;
 
-          const VoiceSessionCtor = (voiceModule as { VoiceSession?: typeof VoiceSession })
-            .VoiceSession;
-          if (!VoiceSessionCtor) {
+        if (result.status === 'skipped') {
+          // useEffect only runs client-side, so reaching `skipped` here means
+          // the probe was constructed for a non-browser host but the hook is
+          // executing in one anyway — a misconfigured probe.
+          if (process.env.NODE_ENV !== 'production') {
             warnOnce(
-              'voice-missing-export',
-              '[Maelstrom] @maelstrom-co/voice loaded but did not export VoiceSession.',
+              'voice-skipped-in-browser',
+              '[Maelstrom] voiceModulePromise resolved to "skipped" inside useEffect. This status is for non-browser probe contexts; reaching it client-side suggests a misconfigured probe.',
             );
-            store.setIsVoiceSupported(false);
-            return;
           }
+          return;
+        }
 
-          const opts = hookOptionsRef.current;
-          if (!opts) return;
-          // `connector` is EngineConnector; VoiceSessionConfig.connector is
-          // VoiceConnector (extends EngineConnector). When voiceSupported is
-          // true the connector implements the full VoiceConnector surface.
-          const baseConfig = {
-            connector: connector as VoiceSessionConfig['connector'],
-            sessionId: SessionId('default'),
-            ...(opts.language && { language: opts.language }),
-            useVadToFinalizeInterims: opts.useVadToFinalizeInterims ?? true,
-            allowBargeIn: opts.allowBargeIn ?? true,
-            vadOptions: {
-              activationThreshold: 0.5,
-              ...opts.vadOptions,
-            },
-            debugMode: config.debug,
-          };
-          const session = new VoiceSessionCtor(
-            opts.autoAcquireMic
-              ? {
-                  ...baseConfig,
-                  autoAcquireMic: true,
-                  ...(opts.greeting && { greeting: opts.greeting }),
-                }
-              : { ...baseConfig, autoAcquireMic: false },
+        if (result.status === 'failed') {
+          // State flip before the callback: an `onError` that throws (and
+          // even an `onError` that triggers a synchronous snapshot read via
+          // a hook) must observe `isVoiceSupported: false`, not the stale
+          // pre-probe default.
+          store.setIsVoiceSupported(false);
+          const isMissing = isMissingModuleError(result.error);
+          handleVoiceError(
+            new VoiceDependencyError(
+              isMissing ? 'DEPENDENCY_MISSING' : 'DEPENDENCY_BROKEN',
+              isMissing ? VOICE_PEER_NOT_INSTALLED_MSG : VOICE_PEER_LOAD_FAILED_MSG,
+              result.error,
+            ),
           );
+          return;
+        }
 
-          const unsubs = [
-            session.on('transcript', (text, isFinal) => {
-              ownerOptionsRef?.current?.onTranscript?.(text, isFinal);
-            }),
-            session.on('stateChange', (s) => {
-              store.setState(s);
-              ownerOptionsRef?.current?.onStateChange?.(s);
-            }),
-            session.on('response', (r) => {
-              ownerOptionsRef?.current?.onResponse?.(r);
-            }),
-            session.on('speechStarted', (t) => {
-              ownerOptionsRef?.current?.onSpeechStarted?.(t);
-            }),
-            session.on('error', handleVoiceError),
-            session.on('audioLevel', (level) => {
-              ownerOptionsRef?.current?.onAudioLevel?.(level);
-            }),
-            session.on('needsUserGesture', (needsGesture) => {
-              store.setNeedsUserGesture(needsGesture);
-            }),
-          ];
+        const VoiceSessionCtor = result.module.VoiceSession;
+        if (!VoiceSessionCtor) {
+          store.setIsVoiceSupported(false);
+          handleVoiceError(
+            new VoiceDependencyError(
+              'DEPENDENCY_BROKEN',
+              VOICE_SESSION_EXPORT_MISSING_MSG,
+            ),
+          );
+          return;
+        }
 
-          store.claimSession(session, unsubs);
-        });
+        const opts = hookOptionsRef.current;
+        if (!opts) return;
+        // `connector` is EngineConnector; VoiceSessionConfig.connector is
+        // VoiceConnector (extends EngineConnector). When voiceSupported is
+        // true the connector implements the full VoiceConnector surface.
+        const baseConfig = {
+          connector: connector as VoiceSessionConfig['connector'],
+          sessionId: SessionId('default'),
+          ...(opts.language && { language: opts.language }),
+          useVadToFinalizeInterims: opts.useVadToFinalizeInterims ?? true,
+          allowBargeIn: opts.allowBargeIn ?? true,
+          vadOptions: {
+            activationThreshold: 0.5,
+            ...opts.vadOptions,
+          },
+          debugMode: config.debug,
+        };
+        const session = new VoiceSessionCtor(
+          opts.autoAcquireMic
+            ? {
+                ...baseConfig,
+                autoAcquireMic: true,
+                ...(opts.greeting && { greeting: opts.greeting }),
+              }
+            : { ...baseConfig, autoAcquireMic: false },
+        );
+
+        const unsubs = [
+          session.on('transcript', (text, isFinal) => {
+            ownerOptionsRef?.current?.onTranscript?.(text, isFinal);
+          }),
+          session.on('stateChange', (s) => {
+            store.setState(s);
+            ownerOptionsRef?.current?.onStateChange?.(s);
+          }),
+          session.on('response', (r) => {
+            ownerOptionsRef?.current?.onResponse?.(r);
+          }),
+          session.on('speechStarted', (t) => {
+            ownerOptionsRef?.current?.onSpeechStarted?.(t);
+          }),
+          session.on('error', handleVoiceError),
+          session.on('audioLevel', (level) => {
+            ownerOptionsRef?.current?.onAudioLevel?.(level);
+          }),
+          session.on('needsUserGesture', (needsGesture) => {
+            store.setNeedsUserGesture(needsGesture);
+          }),
+        ];
+
+        store.claimSession(session, unsubs);
+      });
 
       return () => {
         cancelled = true;

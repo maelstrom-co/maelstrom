@@ -78,6 +78,8 @@ export type {
   EngineOutput,
   EngineOutputBase,
 } from './lib/engine-output.js';
+export { MaelstromError, VoiceError } from './lib/errors/index.js';
+export type { VoiceErrorCode } from './lib/errors/index.js';
 export type { SessionHistoryEntry } from './lib/session-history-entry.js';
 export {
   SessionHistoryEntryArraySchema,

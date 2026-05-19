@@ -29,7 +29,7 @@ import {
   type SessionId,
   type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
-import { VoiceError } from '@maelstrom-co/protocol-old';
+import { VoiceError } from '@maelstrom-co/protocol';
 
 import { AudioCapture } from '../audio-capture/index.js';
 import { AudioPlayback } from '../audio-playback/index.js';

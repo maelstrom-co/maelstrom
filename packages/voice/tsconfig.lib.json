@@ -12,9 +12,12 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
-    { "path": "../protocol-old/tsconfig.lib.json" },
-    { "path": "../protocol/tsconfig.lib.json" },
-    { "path": "../client/tsconfig.lib.json" }
+    {
+      "path": "../protocol/tsconfig.lib.json"
+    },
+    {
+      "path": "../client/tsconfig.lib.json"
+    }
   ],
   "exclude": [
     "vite.config.ts",

@@ -33,14 +33,11 @@
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
-  "peerDependenciesMeta": {
-    "@maelstrom-co/voice": {
-      "optional": true
-    }
+  "dependencies": {
+    "@maelstrom-co/protocol": "0.0.11-prealpha.0"
   },
   "devDependencies": {
     "@maelstrom-co/client": "0.0.11-prealpha.0",
-    "@maelstrom-co/protocol": "0.0.11-prealpha.0",
     "@maelstrom-co/react": "0.0.11-prealpha.0",
     "@maelstrom-co/voice": "0.0.11-prealpha.0",
     "@testing-library/react": "catalog:",
@@ -49,9 +46,15 @@
   "nx": {
     "targets": {
       "test": {
-        "command": "bun test",
+        "executor": "nx:run-commands",
         "options": {
-          "cwd": "{projectRoot}"
+          "cwd": "{projectRoot}",
+          "parallel": false,
+          "commands": [
+            "bun test",
+            "bun test ./src/lib/use-voice-import-failure.test.isolated.tsx",
+            "bun test ./src/lib/use-voice-missing-export.test.isolated.tsx"
+          ]
         }
       }
     }

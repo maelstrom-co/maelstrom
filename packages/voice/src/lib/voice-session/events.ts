@@ -1,4 +1,4 @@
-import type { VoiceError } from '@maelstrom-co/protocol-old';
+import type { VoiceError } from '@maelstrom-co/protocol';
 import type { VoiceSessionState } from './voice-session.js';
 
 /** Typed event map for selective subscription */

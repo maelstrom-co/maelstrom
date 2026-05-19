@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "@maelstrom-co/source",
@@ -206,9 +207,11 @@
     "packages/react-voice": {
       "name": "@maelstrom-co/react-voice",
       "version": "0.0.11-prealpha.0",
+      "dependencies": {
+        "@maelstrom-co/protocol": "0.0.11-prealpha.0",
+      },
       "devDependencies": {
         "@maelstrom-co/client": "0.0.11-prealpha.0",
-        "@maelstrom-co/protocol": "0.0.11-prealpha.0",
         "@maelstrom-co/react": "0.0.11-prealpha.0",
         "@maelstrom-co/voice": "0.0.11-prealpha.0",
         "@testing-library/react": "catalog:",
@@ -220,9 +223,6 @@
         "react": ">=18.0.0",
         "react-dom": ">=18.0.0",
       },
-      "optionalPeers": [
-        "@maelstrom-co/voice",
-      ],
     },
     "packages/voice": {
       "name": "@maelstrom-co/voice",
@@ -230,7 +230,6 @@
       "dependencies": {
         "@maelstrom-co/client": "0.0.11-prealpha.0",
         "@maelstrom-co/protocol": "0.0.11-prealpha.0",
-        "@maelstrom-co/protocol-old": "0.0.11-prealpha.0",
         "onnxruntime-web": "catalog:",
       },
     },

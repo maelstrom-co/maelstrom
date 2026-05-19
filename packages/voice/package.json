@@ -29,7 +29,6 @@
   "dependencies": {
     "@maelstrom-co/client": "0.0.11-prealpha.0",
     "@maelstrom-co/protocol": "0.0.11-prealpha.0",
-    "@maelstrom-co/protocol-old": "0.0.11-prealpha.0",
     "onnxruntime-web": "catalog:"
   },
   "nx": {

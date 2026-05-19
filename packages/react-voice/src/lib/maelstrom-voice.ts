@@ -5,6 +5,7 @@ import { createUseVoice } from './use-voice.js';
 import { createVoiceOrb } from './voice-orb.js';
 import type { UseVoiceOptions, UseVoiceReturn } from './use-voice-types.js';
 import type { VoiceOrbProps } from './voice-orb.js';
+import type { VoiceProbeResult } from './voice-probe.js';
 
 /**
  * Shape merged onto a `MaelstromInstance` by `maelstromVoice()`. Consumers
@@ -44,8 +45,28 @@ export interface VoiceExtension {
  * extended instance. The extension binds to the same React context tree as
  * the rest of the instance, so observers and owners share session state.
  *
- * Requires `@maelstrom-co/voice` to be available at runtime — it is loaded
- * via dynamic import the first time `useVoice()` is called with options.
+ * Requires `@maelstrom-co/voice` to be available at runtime. The factory
+ * eagerly probes the dynamic import the moment `.with(maelstromVoice())` is
+ * evaluated in the browser, so a missing peer is detected before any
+ * component renders rather than the first time `useVoice()` runs. On
+ * non-browser hosts (SSR, edge runtimes, workers) the probe is skipped to
+ * avoid pulling `onnxruntime-web` during server-side module evaluation —
+ * the hook's `useEffect` never fires on the server, so the skipped probe
+ * is harmless. The cached promise is passed into the hook so subsequent
+ * reads do not re-trigger the import.
+ *
+ * **Error contract on missing peer.** When `@maelstrom-co/voice` is not
+ * installed, the first owner call to `useVoice({ ... })` invokes the
+ * caller's `onError` with a typed
+ * `VoiceDependencyError { code: 'DEPENDENCY_MISSING' }` and flips
+ * `isVoiceSupported` to `false`. When the package is installed but
+ * unusable (eval-time failure or no `VoiceSession` export), the code is
+ * `DEPENDENCY_BROKEN` and the original rejection is preserved on `cause`.
+ * Wire an `onError` handler to surface either failure in your UI. The
+ * failure is reported from an async `.then(...)` chain, so React error
+ * boundaries do not catch it directly — store the error in component
+ * state from `onError` and re-throw during render if you want a boundary
+ * to handle it.
  *
  * **Apply at most once per instance.** Each `maelstromVoice()` call
  * returns a fresh extension with its own session store, so chaining
@@ -61,13 +82,24 @@ export interface VoiceExtension {
  * const m = createMaelstrom({ vessels }).with(maelstromVoice());
  *
  * function App() {
- *   m.useVoice({ autoAcquireMic: true, greeting: 'Hello!' });
+ *   m.useVoice({
+ *     autoAcquireMic: true,
+ *     greeting: 'Hello!',
+ *     onError: (err) => console.error('voice failed', err),
+ *   });
  *   return <m.VoiceOrb size={48} />;
  * }
  */
 export function maelstromVoice(): MaelstromExtension<VoiceExtension> {
+  const voiceModulePromise: Promise<VoiceProbeResult> =
+    typeof window === 'undefined'
+      ? Promise.resolve({ status: 'skipped' as const })
+      : import('@maelstrom-co/voice').then(
+          (module) => ({ status: 'ready' as const, module }),
+          (error) => ({ status: 'failed' as const, error }),
+        );
   return (ctx) => {
-    const useVoice = createUseVoice(ctx);
+    const useVoice = createUseVoice(ctx, voiceModulePromise);
     return { useVoice, VoiceOrb: createVoiceOrb(useVoice) };
   };
 }

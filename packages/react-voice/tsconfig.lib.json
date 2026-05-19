@@ -38,13 +38,13 @@
   ],
   "references": [
     {
-      "path": "../voice/tsconfig.lib.json"
-    },
-    {
       "path": "../protocol/tsconfig.lib.json"
     },
     {
       "path": "../client/tsconfig.lib.json"
+    },
+    {
+      "path": "../voice/tsconfig.lib.json"
     },
     {
       "path": "../react/tsconfig.lib.json"
