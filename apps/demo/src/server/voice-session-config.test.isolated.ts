@@ -28,6 +28,10 @@ type DemoWsRoute = (context: {
 };
 
 function invokeWsRoute(): ReturnType<DemoWsRoute> {
+  capturedRoutes.clear();
+  createDemoWsApp();
+  const registeredWsRoute = capturedRoutes.get('/ws');
+
   expect(typeof registeredWsRoute).toBe('function');
 
   return (registeredWsRoute as DemoWsRoute)({
@@ -162,9 +166,7 @@ mock.module('hono/cors', () => ({
   cors: mock(() => 'cors-middleware'),
 }));
 
-await import('./ws-server.js');
-
-const registeredWsRoute = capturedRoutes.get('/ws');
+const { createDemoWsApp } = await import('./ws-server.js');
 
 describe('ws-server voice session config', () => {
   beforeEach(() => {
@@ -284,6 +286,40 @@ describe('ws-server voice session config', () => {
       kind: 'quota',
       source: 'stt',
       provider: 'deepgram',
+    });
+  });
+
+  test('preserves queued speech-start metadata on engine.tts.sent messages', async () => {
+    process.env.DEEPGRAM_API_KEY = testDeepgramApiKey;
+    process.env.CARTESIA_API_KEY = testCartesiaApiKey;
+
+    const handlers = invokeWsRoute();
+
+    await openWsRoute(handlers);
+
+    const callbacks = capturedVoiceSessionCallbacks;
+    if (typeof callbacks?.onSpeechStarted !== 'function') {
+      throw new Error(
+        'Expected voice session onSpeechStarted callback to be registered',
+      );
+    }
+
+    callbacks.onSpeechStarted({
+      text: 'queued hello',
+      format: 'pcm_f32le',
+      sampleRate: 44100,
+      queued: true,
+    });
+
+    expect(JSON.parse(sentMessages.at(-1) as string)).toMatchObject({
+      type: 'engine.tts.sent',
+      sessionId: testSessionId,
+      text: 'queued hello',
+      format: 'pcm_f32le',
+      sampleRate: 44100,
+      sequence: 0,
+      isFinal: false,
+      queued: true,
     });
   });
 

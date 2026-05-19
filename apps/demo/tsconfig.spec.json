@@ -29,6 +29,7 @@
     "src/**/*.spec.jsx",
     "src/**/*.test.isolated.ts",
     "src/**/*.test.isolated.tsx",
+    "src/**/__test-utils__/**/*.ts",
     "src/**/__tests__/*.ts",
     "src/**/__tests__/*.tsx",
     "src/**/*.d.ts"
