@@ -7,11 +7,8 @@ import type { MaelstromContextPair, MaelstromContextValue } from './context.js';
 import type { DynamicVesselHandle } from './dynamic-vessel-types.js';
 import { createUseVesselCore } from './use-vessel-core.js';
 import { warnOnce } from './warn-once.js';
-import type {
-  AnyVesselEntry,
-  LazyVesselEntry,
-  TypedVesselProps,
-} from './vessel-entry-types.js';
+import type { AnyVesselEntry, TypedVesselProps } from './vessel-entry-types.js';
+import { isLazyEntry } from './vessel-entry-types.js';
 
 /**
  * Factory that creates m.registerVessel() bound to a specific Maelstrom context.
@@ -30,8 +27,9 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
     const ctx = getContext(contextRef);
     const vesselId = entry.vessel.id as VesselId;
 
-    if (ctx.config.debug && ctx.componentRegistry.has(vesselId)) {
-      console.warn(
+    if (ctx.componentRegistry.has(vesselId)) {
+      warnOnce(
+        `registerVessel:overwrite:${vesselId}`,
         `[Maelstrom] registerVessel: vessel "${vesselId}" is already registered. Overwriting.`,
       );
     }
@@ -87,10 +85,18 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
 
       unregister() {
         const currentCtx = getContext(contextRef);
-        // Clean up registries first (infallible Map/Set operations)
+        // Clean up registries first (infallible Map/Set operations).
+        //
+        // Limitation: if this handle's registration shadowed a factory-provided
+        // (static) entry for the same vesselId, that original entry is not
+        // restored — the static entry was already overwritten at registration
+        // time and is not snapshotted anywhere. Restoration would require a
+        // separate staticEntries map populated by buildRegistries; tracked as
+        // a follow-up alongside MAE-215 (unregister ordering).
         currentCtx.componentRegistry.delete(vesselId);
         currentCtx.loadingRegistry.delete(vesselId);
         currentCtx.lazyVesselIds.delete(vesselId);
+        currentCtx.lazyLoaderRegistry.delete(vesselId);
         // Then unregister from vesselManager (can throw if disposed)
         currentCtx.orchestrator.vesselManager.unregisterVessel(vesselId);
       },
@@ -119,6 +125,7 @@ function addToRegistries(ctx: MaelstromContextValue, entry: AnyVesselEntry) {
     );
     ctx.loadingRegistry.set(vesselId, entry.loadingComponent);
     ctx.lazyVesselIds.add(vesselId);
+    ctx.lazyLoaderRegistry.set(vesselId, entry.component);
   } else {
     ctx.componentRegistry.set(
       vesselId,
@@ -126,9 +133,6 @@ function addToRegistries(ctx: MaelstromContextValue, entry: AnyVesselEntry) {
     );
     ctx.loadingRegistry.delete(vesselId);
     ctx.lazyVesselIds.delete(vesselId);
+    ctx.lazyLoaderRegistry.delete(vesselId);
   }
-}
-
-function isLazyEntry(entry: AnyVesselEntry): entry is LazyVesselEntry<any> {
-  return 'loadingComponent' in entry;
 }

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { describe, it, expect, afterEach, beforeAll, spyOn } from 'bun:test';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
 import type {
@@ -404,6 +405,69 @@ describe('m.Chart — lazy vessel retry', () => {
     // Second load attempt should succeed
     expect(loadAttempt).toBe(2);
     expect(container!.innerHTML).toContain('loaded');
+    expect(container!.innerHTML).not.toContain('data-vessel-error');
+  });
+
+  // Regression: dynamic-register × retry is where the original bug hid — lazy
+  // lookup routed through vesselEntries, which dynamic registration never
+  // touched, so a registerVessel'd lazy vessel failed silently. After the
+  // fix, retry also works on dynamic entries.
+  it('retries a failed lazy import on a dynamically-registered lazy vessel', async () => {
+    let loadAttempt = 0;
+    const loader = () => {
+      loadAttempt++;
+      if (loadAttempt === 1) {
+        return Promise.reject(new Error('network error'));
+      }
+      return Promise.resolve({
+        default: () => <div data-testid="lazy-content">dynamic loaded</div>,
+      });
+    };
+
+    const dynamicLazyEntry = vessel(
+      testVessel,
+      loader as any,
+      () => <div>loading...</div>,
+    );
+
+    // Note: createMaelstrom is called with an empty vessel list — the entry
+    // is added dynamically via registerVessel after mount.
+    const m = createMaelstrom({ vessels: [] });
+    const connector = connectorWithTilingLayout('inst-1', 'orders', 'list');
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function App() {
+      processIntent = m.useMaelstrom().processIntent;
+      useEffect(() => {
+        m.registerVessel(dynamicLazyEntry);
+      }, []);
+      return null;
+    }
+
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <App />
+        </m.Provider>,
+      ));
+    });
+
+    await act(async () => { triggerResize(800, 600); });
+    await act(async () => { await processIntent!('show orders'); });
+
+    // First load attempt failed — error UI should appear (proves the dynamic
+    // entry was actually wired into lazyLoaderRegistry; otherwise the chart
+    // would render null with no error boundary trigger).
+    expect(container!.innerHTML).toContain('data-vessel-error="orders"');
+    expect(loadAttempt).toBe(1);
+
+    const retryButton = container!.getElementsByTagName('button')[0]!;
+    await act(async () => { fireEvent.click(retryButton); });
+
+    expect(loadAttempt).toBe(2);
+    expect(container!.innerHTML).toContain('dynamic loaded');
     expect(container!.innerHTML).not.toContain('data-vessel-error');
   });
 });

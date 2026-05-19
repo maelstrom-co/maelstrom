@@ -9,7 +9,12 @@ import type { ResolvedMaelstromConfig } from './config-types.js';
 import { resolveConfig } from './config-types.js';
 import { useLatestRef } from './use-latest-ref.js';
 import type { MaelstromContextPair, MaelstromContextValue } from './context.js';
-import type { AnyVesselEntry, LazyVesselEntry, TypedVesselProps } from './vessel-entry-types.js';
+import type {
+  AnyVesselEntry,
+  LazyVesselComponentLoader,
+  TypedVesselProps,
+} from './vessel-entry-types.js';
+import { isLazyEntry } from './vessel-entry-types.js';
 
 /** Props for the Maelstrom Provider component. */
 export interface MaelstromProviderProps {
@@ -54,7 +59,7 @@ export function createProvider(
     );
 
     // Build registries once from static entries
-    const { componentRegistry, loadingRegistry, lazyVesselIds } = useMemo(
+    const { componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry } = useMemo(
       () => buildRegistries(vesselEntries),
       [], // vesselEntries is stable (from factory closure)
     );
@@ -139,10 +144,10 @@ export function createProvider(
         componentRegistry,
         loadingRegistry,
         lazyVesselIds,
-        vesselEntries,
+        lazyLoaderRegistry,
         chartMountedRef,
       };
-    }, [orchestrator, connector, config, componentRegistry, loadingRegistry, lazyVesselIds]);
+    }, [orchestrator, connector, config, componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry]);
 
     // Keep contextRef in sync for non-hook access (registerVessel).
     // Set synchronously during render so registerVessel works inside useMemo.
@@ -165,10 +170,6 @@ export function createProvider(
   };
 }
 
-function isLazyEntry(entry: AnyVesselEntry): entry is LazyVesselEntry<any> {
-  return 'loadingComponent' in entry;
-}
-
 /**
  * Build component + loading registries from static vessel entries.
  *
@@ -180,6 +181,7 @@ function buildRegistries(entries: readonly AnyVesselEntry[]) {
   const componentRegistry = new Map<VesselId, ComponentType<TypedVesselProps<any>>>();
   const loadingRegistry = new Map<VesselId, ComponentType<{ vesselId: string }>>();
   const lazyVesselIds = new Set<VesselId>();
+  const lazyLoaderRegistry = new Map<VesselId, LazyVesselComponentLoader<any>>();
 
   for (const entry of entries) {
     const id = entry.vessel.id;
@@ -187,10 +189,11 @@ function buildRegistries(entries: readonly AnyVesselEntry[]) {
       componentRegistry.set(id, lazy(entry.component));
       loadingRegistry.set(id, entry.loadingComponent);
       lazyVesselIds.add(id);
+      lazyLoaderRegistry.set(id, entry.component);
     } else {
       componentRegistry.set(id, entry.component);
     }
   }
 
-  return { componentRegistry, loadingRegistry, lazyVesselIds };
+  return { componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry };
 }

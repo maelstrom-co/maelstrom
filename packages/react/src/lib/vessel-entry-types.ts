@@ -61,6 +61,12 @@ export interface LazyVesselEntry<V extends VesselDefinition> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyVesselEntry<T extends VesselDefinition = any> = VesselEntry<T> | LazyVesselEntry<T>;
 
+/** Discriminant: lazy entries carry a loadingComponent, eager ones don't. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isLazyEntry(entry: AnyVesselEntry): entry is LazyVesselEntry<any> {
+  return 'loadingComponent' in entry;
+}
+
 /** Extract vessel IDs from a tuple of vessel entries */
 export type VesselIds<TVessels extends readonly AnyVesselEntry[]> =
   TVessels[number]['vessel']['id'];

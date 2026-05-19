@@ -19,7 +19,7 @@ import {
 } from 'react';
 
 import type { MaelstromContextPair } from '../context.js';
-import type { LazyVesselEntry } from '../vessel-entry-types.js';
+import { warnOnce } from '../warn-once.js';
 import { ErrorBoundary } from './error-boundary.js';
 import { VesselLoadError, VesselLoadingSkeleton } from './loading.js';
 
@@ -45,7 +45,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
   }
 
   const VesselRenderer = memo(function VesselRenderer({ instance, style }: VesselRendererProps) {
-    const { orchestrator, componentRegistry, loadingRegistry, lazyVesselIds, vesselEntries, config, onErrorRef } =
+    const { orchestrator, componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry, config, onErrorRef } =
       useMaelstromContext();
 
     const vessel = useStore(
@@ -79,9 +79,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     // For lazy vessels, create React.lazy() locally so retry can bust the cache
     // by incrementing lazyRetryKey, producing a fresh lazy() instance.
     const [lazyRetryKey, setLazyRetryKey] = useState(0);
-    const lazyLoader = isLazy
-      ? (vesselEntries.find((e) => e.vessel.id === instance.vesselId) as LazyVesselEntry<any>)?.component
-      : undefined;
+    const lazyLoader = isLazy ? lazyLoaderRegistry.get(instance.vesselId) : undefined;
     const LazyComponent = useMemo(
       () => (lazyLoader ? lazy(lazyLoader) : null),
       // lazyRetryKey is intentionally in deps: incrementing it produces a fresh
@@ -92,11 +90,17 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
     const Component = isLazy ? LazyComponent : componentRegistry.get(instance.vesselId);
     if (!Component) {
-      if (config.debug) console.warn(`[Maelstrom] No component registered for vessel "${instance.vesselId}"`);
+      warnOnce(
+        `chart:no-component:${instance.vesselId}`,
+        `[Maelstrom] No component registered for vessel "${instance.vesselId}"`,
+      );
       return null;
     }
     if (!vessel) {
-      if (config.debug) console.warn(`[Maelstrom] No vessel definition found for "${instance.vesselId}"`);
+      warnOnce(
+        `chart:no-vessel-def:${instance.vesselId}`,
+        `[Maelstrom] No vessel definition found for "${instance.vesselId}"`,
+      );
       return null;
     }
 

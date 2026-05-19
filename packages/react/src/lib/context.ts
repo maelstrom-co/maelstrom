@@ -4,7 +4,7 @@ import type { ComponentType, MutableRefObject } from 'react';
 import { createContext, useContext } from 'react';
 
 import type { ResolvedMaelstromConfig } from './config-types.js';
-import type { AnyVesselEntry, TypedVesselProps } from './vessel-entry-types.js';
+import type { LazyVesselComponentLoader, TypedVesselProps } from './vessel-entry-types.js';
 
 /** Internal context value — not part of public API */
 export interface MaelstromContextValue {
@@ -19,8 +19,12 @@ export interface MaelstromContextValue {
   loadingRegistry: Map<VesselId, ComponentType<{ vesselId: string }>>;
   /** Set of vessel IDs that are lazy-loaded */
   lazyVesselIds: Set<VesselId>;
-  /** The static vessel entries from createMaelstrom config */
-  vesselEntries: readonly AnyVesselEntry[];
+  /**
+   * Raw lazy loader per vessel id. Chart wraps with React.lazy() locally on
+   * each render keyed by a retry counter, so the retry path can bust the
+   * cached rejected Promise. Mirrors lazyVesselIds — invariant: ids match.
+   */
+  lazyLoaderRegistry: Map<VesselId, LazyVesselComponentLoader<any>>;
   /** Guard: only one Chart may be mounted per Provider */
   chartMountedRef: MutableRefObject<boolean>;
 }

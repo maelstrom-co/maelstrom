@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { StrictMode, useEffect, useState, useMemo } from 'react';
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { ActionRunner } from '@maelstrom-co/client';
 import type {
+  ChartRequestMessage,
   MaelstromResponse,
   VariantName,
   Vessel,
@@ -14,6 +15,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
+import { resetWarnings } from './warn-once.js';
 
 // Static vessel for baseline
 const orderVessel = defineVessel({
@@ -409,5 +411,323 @@ describe('m.registerVessel()', () => {
         </m.Provider>,
       ),
     ).toThrow(/registerVessel.*failed validation/);
+  });
+});
+
+// These tests exercise the Chart, so they need a ResizeObserver mock. They
+// share the bug-fix surface that registerVessel/unregister must keep
+// lazyLoaderRegistry in sync with componentRegistry on the dynamic path.
+
+type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;
+let capturedObservers: Array<{ callback: ResizeObserverCallback; element: Element }> = [];
+
+beforeAll(() => {
+  // @ts-expect-error
+  globalThis.ResizeObserver = class MockResizeObserver {
+    #callback: ResizeObserverCallback;
+    constructor(callback: ResizeObserverCallback) {
+      this.#callback = callback;
+    }
+    observe(element: Element) {
+      capturedObservers.push({ callback: this.#callback, element });
+    }
+    disconnect() {
+      capturedObservers = capturedObservers.filter((o) => o.callback !== this.#callback);
+    }
+    unobserve() {}
+  };
+});
+
+afterEach(() => {
+  capturedObservers = [];
+});
+
+function triggerResize(width: number, height: number) {
+  const entry = {
+    contentRect: { width, height, x: 0, y: 0, top: 0, left: 0, bottom: height, right: width },
+  } as ResizeObserverEntry;
+  for (const observer of capturedObservers) {
+    observer.callback([entry]);
+  }
+}
+
+/**
+ * Build a connector that issues a tiling layout containing the given
+ * vesselId/variant on every request — handy for forcing the chart to
+ * try to render a freshly-registered dynamic vessel.
+ */
+function connectorWithTilingInstance(
+  instanceId: string,
+  vesselId: string,
+  variant: string,
+) {
+  const brandedId = InstanceId(instanceId);
+  return createMockConnector({
+    process: async (msg: ChartRequestMessage): Promise<MaelstromResponse> => ({
+      type: 'maelstrom_response',
+      requestId: msg.id,
+      userMessage: '',
+      rationale: '',
+      executionPlan: [],
+      layout: {
+        type: 'tiling',
+        tree: [brandedId],
+        instances: [{ instanceId: brandedId, vesselId, variant }],
+      },
+    }),
+  });
+}
+
+describe('m.registerVessel() — lazy loader registry', () => {
+  let warnSpy: ReturnType<typeof spyOn>;
+
+  // Spy at the describe scope and restore in afterAll — inline restoration
+  // would be skipped on assertion failure and the mocked impl would leak.
+  beforeAll(() => {
+    warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockClear();
+    resetWarnings();
+  });
+
+  afterAll(() => {
+    warnSpy.mockRestore();
+  });
+
+  it('chart renders a dynamically-registered lazy vessel without "No component registered" warning', async () => {
+    const lazyEntry = vessel(
+      widgetVessel,
+      async () => ({
+        default: () => <div data-testid="dyn-lazy">dynamic lazy content</div>,
+      }),
+      () => <div>loading…</div>,
+    );
+
+    const m = createMaelstrom({ vessels: [orderEntry], debug: true });
+    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function App() {
+      processIntent = m.useMaelstrom().processIntent;
+      useEffect(() => {
+        m.registerVessel(lazyEntry);
+      }, []);
+      return null;
+    }
+
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <App />
+        </m.Provider>,
+      ));
+    });
+
+    await act(async () => { triggerResize(800, 600); });
+    await act(async () => { await processIntent!('show widget'); });
+
+    expect(container!.innerHTML).toContain('dynamic lazy content');
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('No component registered for vessel "widget"'),
+    );
+  });
+
+  it('unregister clears lazyLoaderRegistry and the no-component warning fires for genuinely-absent vessels', async () => {
+    const lazyEntry = vessel(
+      widgetVessel,
+      async () => ({
+        default: () => <div data-testid="dyn-lazy">dynamic lazy content</div>,
+      }),
+      () => <div>loading…</div>,
+    );
+
+    const m = createMaelstrom({ vessels: [orderEntry], debug: true });
+    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    let handle: { unregister: () => void } | undefined;
+    function App() {
+      processIntent = m.useMaelstrom().processIntent;
+      handle = useMemo(() => m.registerVessel(lazyEntry), []);
+      return null;
+    }
+
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <App />
+        </m.Provider>,
+      ));
+    });
+
+    await act(async () => { triggerResize(800, 600); });
+    await act(async () => { await processIntent!('show widget'); });
+
+    // Sanity: lazy vessel rendered first time round.
+    expect(container!.innerHTML).toContain('dynamic lazy content');
+    warnSpy.mockClear();
+
+    // Unregister, then trigger a re-render via another processIntent.
+    await act(async () => { handle!.unregister(); });
+    await act(async () => { await processIntent!('show widget again'); });
+
+    // After unregister: nothing renders for that vessel id, and the negative
+    // warning fires — confirms lazyLoaderRegistry.delete cleared the entry
+    // (and that the existing diagnostic still works for genuinely-absent vessels).
+    expect(container!.innerHTML).not.toContain('dynamic lazy content');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('No component registered for vessel "widget"'),
+    );
+  });
+
+  it('re-registering with a different loader: second loader wins in lazyLoaderRegistry', async () => {
+    const firstEntry = vessel(
+      widgetVessel,
+      async () => ({
+        default: () => <div data-testid="first">first content</div>,
+      }),
+      () => <div>loading…</div>,
+    );
+    const secondEntry = vessel(
+      widgetVessel,
+      async () => ({
+        default: () => <div data-testid="second">second content</div>,
+      }),
+      () => <div>loading…</div>,
+    );
+
+    const m = createMaelstrom({ vessels: [orderEntry], debug: true });
+    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function App() {
+      processIntent = m.useMaelstrom().processIntent;
+      useEffect(() => {
+        m.registerVessel(firstEntry);
+        m.registerVessel(secondEntry);
+      }, []);
+      return null;
+    }
+
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <App />
+        </m.Provider>,
+      ));
+    });
+
+    await act(async () => { triggerResize(800, 600); });
+    await act(async () => { await processIntent!('show widget'); });
+
+    // Second loader wins — chart shows its content, not the first one's.
+    expect(container!.innerHTML).toContain('second content');
+    expect(container!.innerHTML).not.toContain('first content');
+  });
+
+  it('dynamic eager register: chart renders eagerly with no Suspense fallback, even if the id was previously lazy', async () => {
+    // Loader that never resolves — if the chart still routes through the lazy
+    // path after the eager re-register, the loading skeleton would stick
+    // forever and the eager content would never appear.
+    const neverResolves: () => Promise<{ default: any }> = () => new Promise(() => {});
+    const stuckLazyEntry = vessel(
+      widgetVessel,
+      neverResolves,
+      () => <div data-testid="stuck-loading">stuck loading</div>,
+    );
+    const eagerEntry = vessel(widgetVessel, () => (
+      <div data-testid="dyn-eager">eager dynamic content</div>
+    ));
+
+    const m = createMaelstrom({ vessels: [orderEntry], debug: true });
+    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function App() {
+      processIntent = m.useMaelstrom().processIntent;
+      useEffect(() => {
+        // Register lazy first, then swap to eager — the eager path must clear
+        // lazyVesselIds + lazyLoaderRegistry so the chart no longer routes
+        // through Suspense/lazy lookup.
+        m.registerVessel(stuckLazyEntry);
+        m.registerVessel(eagerEntry);
+      }, []);
+      return null;
+    }
+
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <App />
+        </m.Provider>,
+      ));
+    });
+
+    await act(async () => { triggerResize(800, 600); });
+    await act(async () => { await processIntent!('show widget'); });
+
+    // Eager component renders directly — proves lazyVesselIds was cleared.
+    expect(container!.innerHTML).toContain('eager dynamic content');
+    // Loading skeleton from the previous lazy entry must not appear —
+    // proves the chart did not route through the stale lazy loader.
+    expect(container!.innerHTML).not.toContain('stuck loading');
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('No component registered for vessel "widget"'),
+    );
+  });
+
+  it('StrictMode double-invocation: second register overwrites benignly and chart still renders', async () => {
+    // StrictMode double-fires useEffect, so registerVessel runs twice and the
+    // second call hits the "already registered. Overwriting." warn path. The
+    // chart must still render — the second-load wins, no error thrown.
+    const lazyEntry = vessel(
+      widgetVessel,
+      async () => ({
+        default: () => <div data-testid="dyn-lazy">dynamic lazy content</div>,
+      }),
+      () => <div>loading…</div>,
+    );
+
+    const m = createMaelstrom({ vessels: [orderEntry], debug: true });
+    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function App() {
+      processIntent = m.useMaelstrom().processIntent;
+      useEffect(() => {
+        m.registerVessel(lazyEntry);
+      }, []);
+      return null;
+    }
+
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <StrictMode>
+          <m.Provider connector={connector}>
+            <m.Chart />
+            <App />
+          </m.Provider>
+        </StrictMode>,
+      ));
+    });
+
+    await act(async () => { triggerResize(800, 600); });
+    await act(async () => { await processIntent!('show widget'); });
+
+    expect(container!.innerHTML).toContain('dynamic lazy content');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('vessel "widget" is already registered. Overwriting.'),
+    );
   });
 });
