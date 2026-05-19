@@ -87,6 +87,7 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
   #handlers = new Set<(event: ConnectorEvent) => void>();
 
   #voiceMessageListeners = new Set<(message: VoiceServerMessage) => void>();
+  #lastSttReady: VoiceServerMessage | null = null;
   #binaryAudioListeners = new Set<
     (data: Uint8Array, meta: AudioFrameMeta) => void
   >();
@@ -106,6 +107,7 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
    * so that the WS session and engine request history share the same namespace.
    */
   async connect(sessionId: SessionId): Promise<void> {
+    this.#lastSttReady = null;
     this.#sessionId = sessionId;
     return new Promise((resolve, reject) => {
       try {
@@ -163,6 +165,7 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
    * Closes the WebSocket connection and rejects all pending requests.
    */
   async disconnect(): Promise<void> {
+    this.#lastSttReady = null;
     const disconnected = new Error('Disconnected');
     this.#correlator.rejectAll(disconnected);
     this.#historyCorrelator.rejectAll(disconnected);
@@ -278,9 +281,40 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
 
   /**
    * Subscribe to voice messages from server.
+   *
+   * @remarks
+   * If `engine.stt.ready` was received before this call, the callback is
+   * invoked asynchronously (via `queueMicrotask`) with the stored message
+   * — the late-subscriber replay. The replay fires after this method
+   * returns but before any subsequent macro task, so the listener observes
+   * the replay before the next WebSocket message under normal async flow.
+   *
+   * Implications:
+   *
+   * - The returned `Unsubscribe` is bound before the replay fires; a
+   *   callback that throws does not prevent the unsubscribe from being
+   *   returned (no listener leak), and patterns like
+   *   `const off = c.onVoiceMessage(m => off())` are safe.
+   * - A caller may unsubscribe (or `disconnect()` may clear the sticky)
+   *   between scheduling and draining the microtask; in that case the
+   *   replay is dropped — the connector checks listener-set membership
+   *   before dispatching.
+   * - Replayed messages are indistinguishable from live ones; handlers
+   *   for `engine.stt.ready` must be idempotent.
+   * - The stored message is cleared on `connect()`, `disconnect()`, and
+   *   on socket close (`onclose`), so a late subscriber never receives
+   *   a replay from a dead session.
    */
   onVoiceMessage(callback: (message: VoiceServerMessage) => void): Unsubscribe {
     this.#voiceMessageListeners.add(callback);
+    const ready = this.#lastSttReady;
+    if (ready !== null) {
+      queueMicrotask(() => {
+        if (this.#voiceMessageListeners.has(callback)) {
+          callback(ready);
+        }
+      });
+    }
     return () => this.#voiceMessageListeners.delete(callback);
   }
 
@@ -390,6 +424,7 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
     };
 
     this.#ws.onclose = (event) => {
+      this.#lastSttReady = null;
       const closed = new Error('WebSocket closed');
       this.#correlator.rejectAll(closed);
       this.#historyCorrelator.rejectAll(closed);
@@ -521,6 +556,25 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
         }
       } else {
         // All other messages are voice messages
+        if ((data as VoiceServerMessage).type === 'engine.stt.ready') {
+          // Guard the replay cache at the wire boundary: a malformed
+          // engine.stt.ready (missing sessionId) would otherwise persist in
+          // the slot and re-broadcast to every late subscriber for the
+          // lifetime of the connection. Matches the safeParse precedent
+          // used for engine.history.response above.
+          if (typeof (data as { sessionId?: unknown }).sessionId === 'string') {
+            this.#lastSttReady = data as VoiceServerMessage;
+          } else {
+            // Always-on warn: wire-contract violation, not a debug breadcrumb.
+            // Matches the policy of every other console.warn in #handleMessage
+            // (parse failures, uncorrelated frames) — only console.log calls
+            // are gated behind #debug.
+            console.warn(
+              '[VoiceConnector] engine.stt.ready with malformed sessionId; not caching for replay',
+              data,
+            );
+          }
+        }
         this.#voiceMessageListeners.forEach((listener) => {
           listener(data as VoiceServerMessage);
         });

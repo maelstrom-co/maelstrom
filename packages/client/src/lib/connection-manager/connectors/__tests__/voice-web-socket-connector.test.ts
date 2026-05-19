@@ -355,6 +355,193 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
   });
 });
 
+describe('engine.stt.ready sticky replay', () => {
+  test('early subscriber receives event normally (no regression)', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    const received: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => received.push(msg));
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+
+    expect(received).toHaveLength(1);
+    expect(received[0].type).toBe('engine.stt.ready');
+    await connector.disconnect();
+  });
+
+  test('late subscriber gets replay on next microtask', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+
+    const received: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => received.push(msg));
+
+    // replay is deferred via queueMicrotask, so it has not fired yet
+    expect(received).toHaveLength(0);
+    await null;
+    expect(received).toHaveLength(1);
+    expect((received[0] as { sessionId: string }).sessionId).toBe('session-1');
+    await connector.disconnect();
+  });
+
+  test('late subscriber gets replay exactly once and still receives subsequent live events', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+
+    const received: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => received.push(msg));
+
+    await null; // drain microtask — replay fires
+    expect(received).toHaveLength(1);
+    expect((received[0] as { sessionId: string }).sessionId).toBe('session-1');
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-2' });
+
+    expect(received).toHaveLength(2);
+    expect((received[1] as { sessionId: string }).sessionId).toBe('session-2');
+    await connector.disconnect();
+  });
+
+  test('late subscriber does not get stale event after disconnect then reconnect', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    let ws = await connectAndOpen(connector);
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A' });
+    await connector.disconnect();
+
+    // reconnect without emitting engine.stt.ready again
+    ws = await connectAndOpen(connector);
+
+    const received: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => received.push(msg));
+
+    await null;
+    expect(received).toHaveLength(0);
+    await connector.disconnect();
+  });
+
+  test('sticky clears on reconnect and new event replays correctly', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    let ws = await connectAndOpen(connector);
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A' });
+    await connector.disconnect();
+
+    ws = await connectAndOpen(connector);
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-B' });
+
+    const received: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => received.push(msg));
+
+    await null;
+    expect(received).toHaveLength(1);
+    expect((received[0] as { type: string; sessionId: string }).sessionId).toBe(
+      'session-B',
+    );
+    await connector.disconnect();
+  });
+
+  test('late subscriber does not get stale replay after unclean ws close', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A' });
+    ws.emitClose(1006);
+
+    const received: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => received.push(msg));
+
+    await null;
+    expect(received).toHaveLength(0);
+  });
+
+  test('engine.stt.ready with malformed sessionId is not cached for replay', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+    ws.emitJson({ type: 'engine.stt.ready' });
+
+    const received: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => received.push(msg));
+
+    await null;
+    expect(received).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+    await connector.disconnect();
+  });
+
+  test('multiple late subscribers each receive an independent replay', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+
+    const a: VoiceServerMessage[] = [];
+    const b: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => a.push(msg));
+    connector.onVoiceMessage((msg) => b.push(msg));
+
+    await null;
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(1);
+    expect((a[0] as { sessionId: string }).sessionId).toBe('session-1');
+    expect((b[0] as { sessionId: string }).sessionId).toBe('session-1');
+    await connector.disconnect();
+  });
+
+  test('subscribe before connect: replay fires after ready arrives', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+
+    const received: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => received.push(msg));
+
+    const ws = await connectAndOpen(connector);
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+
+    expect(received).toHaveLength(1);
+    expect((received[0] as { sessionId: string }).sessionId).toBe('session-1');
+    await connector.disconnect();
+  });
+
+  test('last-write-wins on back-to-back ready events', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-B' });
+
+    const received: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((msg) => received.push(msg));
+
+    await null;
+    expect(received).toHaveLength(1);
+    expect((received[0] as { sessionId: string }).sessionId).toBe('session-B');
+    await connector.disconnect();
+  });
+
+  test('unsubscribe before microtask drain cancels the replay', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+
+    const received: VoiceServerMessage[] = [];
+    const off = connector.onVoiceMessage((msg) => received.push(msg));
+    off();
+
+    await null;
+    expect(received).toHaveLength(0);
+    await connector.disconnect();
+  });
+});
+
 describe('VoiceWebSocketConnector getHistory', () => {
   test('sends client.history.get with the supplied sessionId and a generated request id', async () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
