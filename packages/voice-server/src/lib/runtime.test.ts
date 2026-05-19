@@ -6,13 +6,10 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
-import {
-  createSttDisconnectSuppressionController,
-  createVoiceSession,
-  defaultAudioDropDebounceMs,
-  handleTranscriptGraceExpiryTerminalBranches,
-} from './runtime.js';
+import { defaultAudioDropDebounceMs } from './audio-buffer-queue.js';
+import { createVoiceSession } from './runtime.js';
 import { sttProviderFactories } from './stt/registry.js';
+import { handleTranscriptGraceExpiryTerminalBranches } from './transcript-grace.js';
 import { ttsProviderFactories } from './tts/registry.js';
 import type {
   AudioChunk,
@@ -4754,6 +4751,44 @@ describe('createVoiceSession runtime finalization', () => {
     expect(stt.connectCalls).toBe(initialConnectCalls + 1);
   });
 
+  test('preempting active speech for intent processing does not emit a transient idle state before the next reply starts', async () => {
+    const voiceStates: string[] = [];
+    let resolveProcess!: (value: ProcessIntentResponse) => void;
+    const processIntent: ProcessIntent = {
+      process() {
+        return new Promise<ProcessIntentResponse>((resolve) => {
+          resolveProcess = resolve;
+        });
+      },
+    };
+    const tts = new AutoEventTTSProvider();
+    const { config, stt } = createConfig({ processIntent }, { tts });
+    const runtime = createRuntime(config, { stt, tts });
+
+    runtime.onVoiceStateChange((state) => {
+      voiceStates.push(state);
+    });
+
+    await runtime.speak('hello world');
+    const processPromise = runtime.processRequest(createRequest('second turn'));
+    await advance(0);
+
+    expect(runtime.getVoiceState()).toBe('processing');
+    expect(voiceStates).toEqual(['speaking', 'processing']);
+
+    resolveProcess(
+      createProcessResponse(createRequest('second turn'), {
+        userMessage: 'second reply',
+      }),
+    );
+    await processPromise;
+    await advance(0);
+
+    expect(runtime.getVoiceState()).toBe('speaking');
+    expect(voiceStates).toEqual(['speaking', 'processing', 'speaking']);
+    expect(tts.spokenTexts).toEqual(['hello world', 'second reply']);
+  });
+
   test('interrupting active speech stops playback, reports user interrupt, and does not auto-restart listening', async () => {
     const interrupts: Array<'user' | 'system'> = [];
     const speechStops: boolean[] = [];
@@ -5407,25 +5442,5 @@ describe('createVoiceSession runtime finalization', () => {
       expect(runtime.getVoiceState()).toBe('listening');
       expect(runtime.shouldAutoRestart()).toBe(false);
     });
-  });
-});
-
-describe('createSttDisconnectSuppressionController', () => {
-  test('keeps suppression active until the last overlapping force reconnect releases it', () => {
-    const suppression = createSttDisconnectSuppressionController();
-
-    const releaseFirst = suppression.suppress();
-    const releaseSecond = suppression.suppress();
-
-    expect(suppression.isSuppressed()).toBe(true);
-
-    releaseFirst();
-    expect(suppression.isSuppressed()).toBe(true);
-
-    releaseFirst();
-    expect(suppression.isSuppressed()).toBe(true);
-
-    releaseSecond();
-    expect(suppression.isSuppressed()).toBe(false);
   });
 });

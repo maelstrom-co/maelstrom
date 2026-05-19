@@ -1,13 +1,10 @@
-import { afterEach, describe, expect, spyOn, test, type Mock } from 'bun:test';
+import { afterEach, describe, expect, type Mock, spyOn, test } from 'bun:test';
+
 import {
-  addPendingDroppedDuration,
-  discardPendingAudioDropEvent,
-  flushPendingAudioDropEvent,
-  handleNonListeningAudioChunkDrop,
-  schedulePendingAudioDropNotification,
-} from './runtime.audio-drop.js';
-import { measureAudioChunkDurationMs } from './runtime.audio-buffer.js';
-import { createInitialVoiceRuntimeState } from './runtime.state.js';
+  createAudioBufferQueue,
+  defaultAudioDropDebounceMs,
+  measureAudioChunkDurationMs,
+} from './audio-buffer-queue.js';
 import type { AudioChunk, VoiceSessionAudioDroppedEvent } from './types.js';
 
 interface TimerStub {
@@ -79,7 +76,45 @@ function makeOpusChunkWithoutBytesPerSample(sequence: number): AudioChunk {
   };
 }
 
-describe('runtime.audio-drop helpers', () => {
+function createDropQueueTestContext() {
+  const emittedEvents: VoiceSessionAudioDroppedEvent[] = [];
+  const reportedErrors: Error[] = [];
+  const traceEvents: Array<{
+    event: string;
+    details?: Record<string, unknown>;
+  }> = [];
+  let destroyed = false;
+
+  const queue = createAudioBufferQueue({
+    audioBufferMaxMs: 5,
+    trace(event, details) {
+      traceEvents.push({ event, details });
+    },
+    reportError(error) {
+      reportedErrors.push(
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    },
+    emitAudioDropped(event) {
+      emittedEvents.push(event);
+    },
+    isDestroyed() {
+      return destroyed;
+    },
+  });
+
+  return {
+    queue,
+    emittedEvents,
+    reportedErrors,
+    traceEvents,
+    setDestroyed(value: boolean) {
+      destroyed = value;
+    },
+  };
+}
+
+describe('audio-buffer-queue dropped-audio accounting', () => {
   afterEach(() => {
     setTimeoutSpy?.mockRestore();
     clearTimeoutSpy?.mockRestore();
@@ -87,23 +122,21 @@ describe('runtime.audio-drop helpers', () => {
     clearTimeoutSpy = undefined;
   });
 
+  test('uses the shared drop debounce window', () => {
+    expect(defaultAudioDropDebounceMs).toBe(100);
+  });
+
   test('returns without replacing the bucket when the same reason is added', () => {
-    const state = createInitialVoiceRuntimeState();
+    const { queue } = createDropQueueTestContext();
 
-    state.pendingAudioDropEvent = {
-      type: 'audio_dropped',
-      reason: 'pre_connection_buffer_full',
-      droppedDurationMs: 3,
-    };
-
-    const replacedEvent = addPendingDroppedDuration(
-      state,
+    queue.addDroppedDuration('pre_connection_buffer_full', 3);
+    const replacedEvent = queue.addDroppedDuration(
       'pre_connection_buffer_full',
       4,
     );
 
     expect(replacedEvent).toBeNull();
-    expect(state.pendingAudioDropEvent).toEqual({
+    expect(queue.getDropEvent()).toEqual({
       type: 'audio_dropped',
       reason: 'pre_connection_buffer_full',
       droppedDurationMs: 7,
@@ -111,74 +144,48 @@ describe('runtime.audio-drop helpers', () => {
   });
 
   test('replaces the bucket when the reason changes', () => {
-    const state = createInitialVoiceRuntimeState();
+    const { queue } = createDropQueueTestContext();
 
-    state.pendingAudioDropEvent = {
-      type: 'audio_dropped',
-      reason: 'pre_connection_buffer_full',
-      droppedDurationMs: 3,
-    };
+    queue.addDroppedDuration('pre_connection_buffer_full', 3);
 
-    const replacedEvent = addPendingDroppedDuration(
-      state,
-      'reconnect_buffer_full',
-      4,
-    );
+    const replacedEvent = queue.addDroppedDuration('reconnect_buffer_full', 4);
 
     expect(replacedEvent).toEqual({
       type: 'audio_dropped',
       reason: 'pre_connection_buffer_full',
       droppedDurationMs: 3,
     });
-    expect(state.pendingAudioDropEvent).toEqual({
+    expect(queue.getDropEvent()).toEqual({
       type: 'audio_dropped',
       reason: 'reconnect_buffer_full',
       droppedDurationMs: 4,
     });
-    expect(state.pendingAudioDropDebounceTimeout).toBeNull();
   });
 
   test('clears and replaces the debounce timeout when the reason changes', () => {
-    const state = createInitialVoiceRuntimeState();
-    const emittedEvents: VoiceSessionAudioDroppedEvent[] = [];
-    const emitAudioDropped = (event: VoiceSessionAudioDroppedEvent) => {
-      emittedEvents.push(event);
-    };
+    const { queue, emittedEvents } = createDropQueueTestContext();
     const timerHarness = installTimerHarness();
 
-    state.pendingAudioDropEvent = {
-      type: 'audio_dropped',
-      reason: 'pre_connection_buffer_full',
-      droppedDurationMs: 3,
-    };
-
-    schedulePendingAudioDropNotification(state, emitAudioDropped);
-    const firstTimeout = state.pendingAudioDropDebounceTimeout;
+    queue.addDroppedDuration('pre_connection_buffer_full', 3);
+    queue.scheduleDropDebounce();
 
     expect(timerHarness.setTimeoutSpy).toHaveBeenCalledTimes(1);
     expect(timerHarness.scheduledTimers).toEqual([
       expect.objectContaining({ id: 1, delay: 100 }),
     ]);
 
-    const replacedEvent = addPendingDroppedDuration(
-      state,
-      'reconnect_buffer_full',
-      4,
-    );
+    const replacedEvent = queue.addDroppedDuration('reconnect_buffer_full', 4);
 
     expect(replacedEvent).toEqual({
       type: 'audio_dropped',
       reason: 'pre_connection_buffer_full',
       droppedDurationMs: 3,
     });
-    expect(state.pendingAudioDropDebounceTimeout).toBeNull();
     expect(timerHarness.clearTimeoutSpy).toHaveBeenCalledTimes(1);
     expect(timerHarness.clearedTimers).toEqual([1]);
 
-    schedulePendingAudioDropNotification(state, emitAudioDropped);
+    queue.scheduleDropDebounce();
 
-    expect(state.pendingAudioDropDebounceTimeout).not.toBeNull();
-    expect(state.pendingAudioDropDebounceTimeout).not.toBe(firstTimeout);
     expect(timerHarness.setTimeoutSpy).toHaveBeenCalledTimes(2);
     expect(timerHarness.scheduledTimers).toEqual([
       expect.objectContaining({ id: 1, delay: 100 }),
@@ -188,7 +195,7 @@ describe('runtime.audio-drop helpers', () => {
     timerHarness.fireTimer(1);
 
     expect(emittedEvents).toEqual([]);
-    expect(state.pendingAudioDropEvent).toEqual({
+    expect(queue.getDropEvent()).toEqual({
       type: 'audio_dropped',
       reason: 'reconnect_buffer_full',
       droppedDurationMs: 4,
@@ -196,7 +203,7 @@ describe('runtime.audio-drop helpers', () => {
 
     timerHarness.fireTimer(2);
 
-    expect(state.pendingAudioDropDebounceTimeout).toBeNull();
+    expect(queue.getDropEvent()).toBeNull();
     expect(emittedEvents).toEqual([
       {
         type: 'audio_dropped',
@@ -207,33 +214,21 @@ describe('runtime.audio-drop helpers', () => {
   });
 
   test('does not schedule a second timeout when one already exists', () => {
-    const state = createInitialVoiceRuntimeState();
-    const emittedEvents: VoiceSessionAudioDroppedEvent[] = [];
-    const emitAudioDropped = (event: VoiceSessionAudioDroppedEvent) => {
-      emittedEvents.push(event);
-    };
+    const { queue, emittedEvents } = createDropQueueTestContext();
     const timerHarness = installTimerHarness();
 
-    state.pendingAudioDropEvent = {
-      type: 'audio_dropped',
-      reason: 'pre_connection_buffer_full',
-      droppedDurationMs: 3,
-    };
-
-    schedulePendingAudioDropNotification(state, emitAudioDropped);
-    const firstTimeout = state.pendingAudioDropDebounceTimeout;
-
-    schedulePendingAudioDropNotification(state, emitAudioDropped);
+    queue.addDroppedDuration('pre_connection_buffer_full', 3);
+    queue.scheduleDropDebounce();
+    queue.scheduleDropDebounce();
 
     expect(timerHarness.setTimeoutSpy).toHaveBeenCalledTimes(1);
     expect(timerHarness.scheduledTimers).toEqual([
       expect.objectContaining({ id: 1, delay: 100 }),
     ]);
-    expect(state.pendingAudioDropDebounceTimeout).toBe(firstTimeout);
 
     timerHarness.fireTimer(1);
 
-    expect(state.pendingAudioDropDebounceTimeout).toBeNull();
+    expect(queue.getDropEvent()).toBeNull();
     expect(emittedEvents).toEqual([
       {
         type: 'audio_dropped',
@@ -244,87 +239,53 @@ describe('runtime.audio-drop helpers', () => {
   });
 
   test('treats a null pending event as a scheduling no-op', () => {
-    const state = createInitialVoiceRuntimeState();
-    const emittedEvents: VoiceSessionAudioDroppedEvent[] = [];
-    const emitAudioDropped = (event: VoiceSessionAudioDroppedEvent) => {
-      emittedEvents.push(event);
-    };
+    const { queue, emittedEvents } = createDropQueueTestContext();
 
-    schedulePendingAudioDropNotification(state, emitAudioDropped);
+    queue.scheduleDropDebounce();
 
-    expect(state.pendingAudioDropDebounceTimeout).toBeNull();
+    expect(queue.getDropEvent()).toBeNull();
     expect(emittedEvents).toHaveLength(0);
   });
 
   test('clears timeout and pending event when discarding the bucket', () => {
-    const state = createInitialVoiceRuntimeState();
+    const { queue } = createDropQueueTestContext();
+    const timerHarness = installTimerHarness();
 
-    state.pendingAudioDropEvent = {
-      type: 'audio_dropped',
-      reason: 'pre_connection_buffer_full',
-      droppedDurationMs: 3,
-    };
-    state.pendingAudioDropDebounceTimeout = setTimeout(() => {}, 100);
+    queue.addDroppedDuration('pre_connection_buffer_full', 3);
+    queue.scheduleDropDebounce();
+    queue.discardDropEvent();
 
-    discardPendingAudioDropEvent(state);
-
-    expect(state.pendingAudioDropEvent).toBeNull();
-    expect(state.pendingAudioDropDebounceTimeout).toBeNull();
+    expect(queue.getDropEvent()).toBeNull();
+    expect(timerHarness.clearTimeoutSpy).toHaveBeenCalledTimes(1);
   });
 
   test('flushes destroyed-state buckets silently', () => {
-    const state = createInitialVoiceRuntimeState();
-    const emittedEvents: VoiceSessionAudioDroppedEvent[] = [];
-    const emitAudioDropped = (event: VoiceSessionAudioDroppedEvent) => {
-      emittedEvents.push(event);
-    };
+    const { queue, emittedEvents, setDestroyed } = createDropQueueTestContext();
 
-    state.destroyed = true;
-    state.pendingAudioDropEvent = {
-      type: 'audio_dropped',
-      reason: 'reconnect_buffer_full',
-      droppedDurationMs: 4,
-    };
+    queue.addDroppedDuration('reconnect_buffer_full', 4);
+    setDestroyed(true);
+    queue.flushDropEvent();
 
-    flushPendingAudioDropEvent(state, emitAudioDropped);
-
-    expect(state.pendingAudioDropEvent).toBeNull();
-    expect(state.pendingAudioDropDebounceTimeout).toBeNull();
+    expect(queue.getDropEvent()).toBeNull();
     expect(emittedEvents).toHaveLength(0);
   });
 
   test('preserves the original state-not-listening runtime error while attaching a duration-unavailable cause', () => {
-    const state = createInitialVoiceRuntimeState();
-    const reportedErrors: Error[] = [];
-    const traceEvents: Array<{
-      event: string;
-      details?: Record<string, unknown>;
-    }> = [];
-    const emittedEvents: VoiceSessionAudioDroppedEvent[] = [];
+    const { queue, emittedEvents, reportedErrors, traceEvents } =
+      createDropQueueTestContext();
 
-    handleNonListeningAudioChunkDrop({
-      state,
+    queue.dropNonListeningChunk({
       voiceState: 'speaking',
       chunk: makeOpusChunkWithoutBytesPerSample(1),
-      measureAudioChunkDurationMs,
       normalizeError(error) {
         return error instanceof Error
           ? error
           : new Error(String(error), { cause: error });
       },
-      trace(event, details) {
-        traceEvents.push({ event, details });
-      },
-      emitPendingAudioDropEvent(event) {
-        emittedEvents.push(event);
-      },
-      reportError(error) {
-        reportedErrors.push(error);
-      },
     });
 
     expect(emittedEvents).toEqual([]);
-    expect(state.pendingAudioDropEvent).toBeNull();
+    expect(queue.getDropEvent()).toBeNull();
     expect(reportedErrors).toHaveLength(1);
     expect(reportedErrors[0]?.message).toBe(
       'Cannot accept audio chunk while voice session is speaking',
@@ -358,5 +319,63 @@ describe('runtime.audio-drop helpers', () => {
         message: 'Cannot accept audio chunk while voice session is speaking',
       }),
     });
+  });
+
+  test('measures and buckets dropped audio when a non-listening chunk has a valid duration', () => {
+    const { queue, emittedEvents, reportedErrors } =
+      createDropQueueTestContext();
+    const timerHarness = installTimerHarness();
+
+    queue.dropNonListeningChunk({
+      voiceState: 'processing',
+      chunk: {
+        data: new Uint8Array(32),
+        sampleRate: 16000,
+        encoding: 'linear16',
+        bytesPerSample: 2,
+        channels: 1,
+        timestamp: 1,
+        sequence: 1,
+      },
+      normalizeError(error) {
+        return error instanceof Error
+          ? error
+          : new Error(String(error), { cause: error });
+      },
+    });
+
+    expect(queue.getDropEvent()).toEqual({
+      type: 'audio_dropped',
+      reason: 'state_not_listening',
+      droppedDurationMs: 1,
+    });
+    expect(reportedErrors[0]?.message).toBe(
+      'Cannot accept audio chunk while voice session is processing',
+    );
+
+    timerHarness.fireTimer(1);
+
+    expect(queue.getDropEvent()).toBeNull();
+    expect(emittedEvents).toEqual([
+      {
+        type: 'audio_dropped',
+        reason: 'state_not_listening',
+        droppedDurationMs: 1,
+      },
+    ]);
+  });
+
+  test('keeps measureAudioChunkDurationMs shared with the drop path', () => {
+    const durationMs = measureAudioChunkDurationMs({
+      data: new Uint8Array(32),
+      sampleRate: 16000,
+      encoding: 'linear16',
+      bytesPerSample: 2,
+      channels: 1,
+      timestamp: 1,
+      sequence: 1,
+    });
+
+    expect(durationMs).toBe(1);
   });
 });

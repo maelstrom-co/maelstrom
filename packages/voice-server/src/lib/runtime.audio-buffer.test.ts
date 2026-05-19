@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+
 import {
-  bufferAudioChunk,
-  flushBufferedAudio,
+  createAudioBufferQueue,
   measureAudioChunkDurationMs,
-  type VoiceRuntimeAudioBufferContext,
-} from './runtime.audio-buffer.js';
-import { createInitialVoiceRuntimeState } from './runtime.state.js';
+} from './audio-buffer-queue.js';
 import type {
   AudioChunk,
   STTEvent,
   STTProvider,
   VoiceSessionAudioDroppedEvent,
+  VoiceSessionState,
 } from './types.js';
 
 class MockSTTProvider implements STTProvider {
@@ -78,16 +78,16 @@ function makeLinear16Chunk(ms: number, sequence: number): AudioChunk {
   };
 }
 
-function createBufferTestContext(audioBufferMaxMs = 5) {
-  const state = createInitialVoiceRuntimeState();
+function createBufferQueueTestContext(audioBufferMaxMs = 5) {
   const traces: Array<{ event: string; details?: Record<string, unknown> }> =
     [];
   const reportedErrors: Error[] = [];
   const emittedDropEvents: VoiceSessionAudioDroppedEvent[] = [];
-  let scheduledNotifications = 0;
+  let destroyed = false;
+  let voiceState: VoiceSessionState = 'listening';
+  let replayMarkedSentCount = 0;
 
-  const context: VoiceRuntimeAudioBufferContext = {
-    state,
+  const queue = createAudioBufferQueue({
     audioBufferMaxMs,
     trace(event, details) {
       traces.push({ event, details });
@@ -97,42 +97,75 @@ function createBufferTestContext(audioBufferMaxMs = 5) {
         error instanceof Error ? error : new Error(String(error)),
       );
     },
-    emitPendingAudioDropEvent(event) {
+    emitAudioDropped(event) {
       emittedDropEvents.push(event);
     },
-    schedulePendingAudioDropNotification() {
-      scheduledNotifications += 1;
+    isDestroyed() {
+      return destroyed;
     },
-  };
+  });
 
   return {
-    context,
-    state,
+    queue,
     traces,
     reportedErrors,
     emittedDropEvents,
-    getScheduledNotifications() {
-      return scheduledNotifications;
+    setDestroyed(value: boolean) {
+      destroyed = value;
+    },
+    setVoiceState(value: VoiceSessionState) {
+      voiceState = value;
+    },
+    replay(stt: STTProvider, traceEvent: string) {
+      queue.replay({
+        stt,
+        traceEvent,
+        getVoiceState: () => voiceState,
+        markHasSentAudioForTurn: () => {
+          replayMarkedSentCount += 1;
+        },
+      });
+    },
+    getReplayMarkedSentCount() {
+      return replayMarkedSentCount;
     },
   };
 }
 
 function seedBufferedAudio(
-  context: VoiceRuntimeAudioBufferContext,
+  queue: ReturnType<typeof createAudioBufferQueue>,
   entries: Array<{
     chunk: AudioChunk;
-    durationMs: number;
     bufferingReason: 'pre_connection_buffer_full' | 'reconnect_buffer_full';
   }>,
 ) {
-  context.state.pendingAudioChunks.push(...entries);
-  context.state.pendingAudioDurationMs = entries.reduce(
-    (total, entry) => total + entry.durationMs,
-    0,
-  );
+  for (const entry of entries) {
+    const buffered = queue.push(entry.chunk, entry.bufferingReason, 'seed', {
+      source: 'seed',
+    });
+
+    expect(buffered).toBe(true);
+  }
 }
 
-describe('runtime.audio-buffer helpers', () => {
+describe('audio-buffer-queue buffering and replay', () => {
+  test('exports the dedicated audio buffer queue kernel factory', async () => {
+    const module = await import('./audio-buffer-queue.js').catch(() => null);
+
+    expect(module).not.toBeNull();
+    expect(typeof module?.createAudioBufferQueue).toBe('function');
+  });
+
+  test('runtime delegates buffering through the queue kernel instead of helper modules', () => {
+    const runtimeSource = readFileSync(
+      new URL('./runtime.ts', import.meta.url),
+      'utf8',
+    );
+
+    expect(runtimeSource).not.toContain("'./runtime.audio-buffer.js'");
+    expect(runtimeSource).not.toContain("'./runtime.audio-drop.js'");
+  });
+
   test('measures linear16 chunk duration with default bytes per sample', () => {
     expect(measureAudioChunkDurationMs(makeLinear16Chunk(3, 1))).toBe(3);
   });
@@ -152,11 +185,10 @@ describe('runtime.audio-buffer helpers', () => {
   });
 
   test('rejects buffering when chunk duration is invalid', () => {
-    const { context, state, traces, reportedErrors, emittedDropEvents } =
-      createBufferTestContext();
+    const { queue, traces, reportedErrors, emittedDropEvents } =
+      createBufferQueueTestContext();
 
-    const buffered = bufferAudioChunk(
-      context,
+    const buffered = queue.push(
       {
         data: new Uint8Array(0),
         sampleRate: 16000,
@@ -172,8 +204,8 @@ describe('runtime.audio-buffer helpers', () => {
     );
 
     expect(buffered).toBe(false);
-    expect(state.pendingAudioChunks).toEqual([]);
-    expect(state.pendingAudioDurationMs).toBe(0);
+    expect(queue.isEmpty()).toBe(true);
+    expect(queue.getBufferedDurationMs()).toBe(0);
     expect(emittedDropEvents).toEqual([]);
     expect(reportedErrors.map((error) => error.message)).toEqual([
       'STT audio chunk duration must be positive, received 0ms',
@@ -191,31 +223,18 @@ describe('runtime.audio-buffer helpers', () => {
   });
 
   test('flushes a previous drop event when an oversized chunk changes overflow reason', () => {
-    const {
-      context,
-      state,
-      traces,
-      reportedErrors,
-      emittedDropEvents,
-      getScheduledNotifications,
-    } = createBufferTestContext();
+    const { queue, traces, reportedErrors, emittedDropEvents } =
+      createBufferQueueTestContext();
 
-    state.pendingAudioDropEvent = {
-      type: 'audio_dropped',
-      reason: 'pre_connection_buffer_full',
-      droppedDurationMs: 3,
-    };
-
-    seedBufferedAudio(context, [
+    queue.addDroppedDuration('pre_connection_buffer_full', 3);
+    seedBufferedAudio(queue, [
       {
         chunk: makeLinear16Chunk(3, 1),
-        durationMs: 3,
         bufferingReason: 'pre_connection_buffer_full',
       },
     ]);
 
-    const buffered = bufferAudioChunk(
-      context,
+    const buffered = queue.push(
       makeLinear16Chunk(8, 2),
       'reconnect_buffer_full',
       'stt.audio.buffered',
@@ -223,9 +242,9 @@ describe('runtime.audio-buffer helpers', () => {
     );
 
     expect(buffered).toBe(false);
-    expect(state.pendingAudioChunks).toEqual([]);
-    expect(state.pendingAudioDurationMs).toBe(0);
-    expect(state.pendingAudioDropEvent).toEqual({
+    expect(queue.isEmpty()).toBe(true);
+    expect(queue.getBufferedDurationMs()).toBe(0);
+    expect(queue.getDropEvent()).toEqual({
       type: 'audio_dropped',
       reason: 'reconnect_buffer_full',
       droppedDurationMs: 11,
@@ -237,7 +256,6 @@ describe('runtime.audio-buffer helpers', () => {
         droppedDurationMs: 3,
       },
     ]);
-    expect(getScheduledNotifications()).toBe(1);
     expect(reportedErrors.map((error) => error.message)).toEqual([
       'Dropped 11ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs',
     ]);
@@ -254,36 +272,32 @@ describe('runtime.audio-buffer helpers', () => {
   });
 
   test('replays buffered audio in FIFO order and drains buffered duration', () => {
-    const { context, state, traces, reportedErrors, emittedDropEvents } =
-      createBufferTestContext();
+    const { queue, traces, reportedErrors, emittedDropEvents, replay } =
+      createBufferQueueTestContext(10);
     const stt = new MockSTTProvider();
 
-    state.state = 'listening';
-    seedBufferedAudio(context, [
+    seedBufferedAudio(queue, [
       {
         chunk: makeLinear16Chunk(1, 1),
-        durationMs: 1,
         bufferingReason: 'pre_connection_buffer_full',
       },
       {
         chunk: makeLinear16Chunk(2, 2),
-        durationMs: 2,
         bufferingReason: 'pre_connection_buffer_full',
       },
       {
         chunk: makeLinear16Chunk(3, 3),
-        durationMs: 3,
         bufferingReason: 'pre_connection_buffer_full',
       },
     ]);
 
-    flushBufferedAudio(context, stt, 'stt.buffered_audio.replayed');
+    replay(stt, 'stt.buffered_audio.replayed');
 
     expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([
       1, 2, 3,
     ]);
-    expect(state.pendingAudioChunks).toEqual([]);
-    expect(state.pendingAudioDurationMs).toBe(0);
+    expect(queue.isEmpty()).toBe(true);
+    expect(queue.getBufferedDurationMs()).toBe(0);
     expect(reportedErrors).toEqual([]);
     expect(emittedDropEvents).toEqual([]);
     expect(
@@ -295,40 +309,37 @@ describe('runtime.audio-buffer helpers', () => {
 
   test('drops a failed replay chunk, schedules notification, and continues with later chunks while connected', () => {
     const {
-      context,
-      state,
+      queue,
       traces,
       reportedErrors,
       emittedDropEvents,
-      getScheduledNotifications,
-    } = createBufferTestContext();
+      replay,
+      getReplayMarkedSentCount,
+    } = createBufferQueueTestContext(10);
     const stt = new MockSTTProvider({ throwOnSendCounts: [1] });
 
-    state.state = 'listening';
-    seedBufferedAudio(context, [
+    seedBufferedAudio(queue, [
       {
         chunk: makeLinear16Chunk(1, 1),
-        durationMs: 1,
         bufferingReason: 'reconnect_buffer_full',
       },
       {
         chunk: makeLinear16Chunk(2, 2),
-        durationMs: 2,
         bufferingReason: 'reconnect_buffer_full',
       },
     ]);
 
-    flushBufferedAudio(context, stt, 'stt.buffered_audio.replayed');
+    replay(stt, 'stt.buffered_audio.replayed');
 
     expect(stt.sentAudioChunks.map((chunk) => chunk.sequence)).toEqual([2]);
-    expect(state.pendingAudioChunks).toEqual([]);
-    expect(state.pendingAudioDurationMs).toBe(0);
-    expect(state.pendingAudioDropEvent).toEqual({
+    expect(queue.isEmpty()).toBe(true);
+    expect(queue.getBufferedDurationMs()).toBe(0);
+    expect(queue.getDropEvent()).toEqual({
       type: 'audio_dropped',
       reason: 'reconnect_buffer_full',
       droppedDurationMs: 1,
     });
-    expect(getScheduledNotifications()).toBe(1);
+    expect(getReplayMarkedSentCount()).toBe(2);
     expect(emittedDropEvents).toEqual([]);
     expect(reportedErrors.map((error) => error.message)).toEqual([
       'Failed to replay buffered STT audio chunk',
@@ -356,24 +367,17 @@ describe('runtime.audio-buffer helpers', () => {
   });
 
   test('schedules notification when overflow drops buffered audio but still buffers the new chunk', () => {
-    const {
-      context,
-      state,
-      reportedErrors,
-      emittedDropEvents,
-      getScheduledNotifications,
-    } = createBufferTestContext();
+    const { queue, reportedErrors, emittedDropEvents } =
+      createBufferQueueTestContext();
 
-    seedBufferedAudio(context, [
+    seedBufferedAudio(queue, [
       {
         chunk: makeLinear16Chunk(4, 1),
-        durationMs: 4,
         bufferingReason: 'pre_connection_buffer_full',
       },
     ]);
 
-    const buffered = bufferAudioChunk(
-      context,
+    const buffered = queue.push(
       makeLinear16Chunk(4, 2),
       'pre_connection_buffer_full',
       'stt.audio.buffered',
@@ -381,19 +385,43 @@ describe('runtime.audio-buffer helpers', () => {
     );
 
     expect(buffered).toBe(true);
-    expect(
-      state.pendingAudioChunks.map((entry) => entry.chunk.sequence),
-    ).toEqual([2]);
-    expect(state.pendingAudioDurationMs).toBe(4);
-    expect(state.pendingAudioDropEvent).toEqual({
+    expect(queue.isEmpty()).toBe(false);
+    expect(queue.getBufferedDurationMs()).toBe(4);
+    expect(queue.getDropEvent()).toEqual({
       type: 'audio_dropped',
       reason: 'pre_connection_buffer_full',
       droppedDurationMs: 4,
     });
     expect(emittedDropEvents).toEqual([]);
-    expect(getScheduledNotifications()).toBe(1);
     expect(reportedErrors.map((error) => error.message)).toEqual([
       'Dropped 4ms of buffered STT audio because the audio buffer exceeded audioBufferMaxMs',
     ]);
+  });
+
+  test('replay stops cleanly when the runtime is no longer listening', () => {
+    const { queue, traces, replay, setVoiceState } =
+      createBufferQueueTestContext(10);
+    const stt = new MockSTTProvider();
+
+    seedBufferedAudio(queue, [
+      {
+        chunk: makeLinear16Chunk(1, 1),
+        bufferingReason: 'pre_connection_buffer_full',
+      },
+    ]);
+    setVoiceState('processing');
+
+    replay(stt, 'stt.buffered_audio.replayed');
+
+    expect(stt.sentAudioChunks).toEqual([]);
+    expect(queue.getBufferedDurationMs()).toBe(1);
+    expect(traces).toContainEqual({
+      event: 'stt.buffered_audio.flush_stopped',
+      details: expect.objectContaining({
+        reason: 'state_changed',
+        state: 'processing',
+        pendingBufferedAudioMs: 1,
+      }),
+    });
   });
 });

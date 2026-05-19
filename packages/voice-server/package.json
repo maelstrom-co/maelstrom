@@ -39,7 +39,7 @@
     "name": "@maelstrom-co/voice-server",
     "targets": {
       "test": {
-        "command": "bun test",
+        "command": "bun run ./scripts/run-bun-test.ts",
         "options": {
           "cwd": "{projectRoot}"
         }

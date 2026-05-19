@@ -1,55 +1,18 @@
-import {
-  bufferAudioChunk,
-  flushBufferedAudio,
-  measureAudioChunkDurationMs,
-  type VoiceRuntimeAudioBufferContext,
-} from './runtime.audio-buffer.js';
-import {
-  discardPendingAudioDropEvent,
-  flushPendingAudioDropEvent,
-  handleNonListeningAudioChunkDrop,
-  schedulePendingAudioDropNotification,
-} from './runtime.audio-drop.js';
+import { createAudioBufferQueue } from './audio-buffer-queue.js';
 import { resolveVoiceSessionConfig } from './runtime.config.js';
-import {
-  reconnectSTT as reconnectSTTHelper,
-  type STTReconnectTrigger,
-} from './runtime.reconnect.js';
-import {
-  createInitialVoiceRuntimeState,
-  createVoiceRuntimeListeners,
-} from './runtime.state.js';
-import { handleSTTEvent as handleSTTEventHelper } from './runtime.stt-handler.js';
-import {
-  clearPendingFinalization,
-  createForwardedTranscriptResult,
-  emitFinalTranscript as emitFinalTranscriptHelper,
-  finalizeTranscript as finalizeTranscriptHelper,
-  forwardTranscriptResult,
-  resetTurnTracking,
-  updateTranscriptState,
-} from './runtime.transcript.js';
-import { handleTTSEvent as handleTTSEventHelper } from './runtime.tts-handler.js';
-import { handleVADEvent as handleVADEventHelper } from './runtime.vad-handler.js';
+import { createSTTSessionManager } from './stt-session-manager.js';
+import { createTTSSessionManager } from './tts-session-manager.js';
+import { createTurnCoordinator } from './turn-coordinator.js';
 import type {
   AudioChunk,
-  SpeakParams,
-  SpeechChunk,
-  STTEvent,
   SttCircuitStatus,
-  TranscriptionResult,
-  TTSEvent,
   VADEvent,
   VoiceSession,
-  VoiceSessionAudioDroppedEvent,
   VoiceSessionCallbacks,
   VoiceSessionConfig,
-  VoiceSessionIntentRequestBuilder,
-  VoiceSessionIntentRequestOptions,
-  VoiceSessionQueuedTurnsDroppedError,
-  VoiceSessionState,
 } from './types.js';
-import { isVoiceSessionQueuedTurnsDroppedError } from './types.js';
+import { createVADCoordinator } from './vad-coordinator.js';
+import { createVoiceSessionEvents } from './voice-session-events.js';
 
 const defaultVadFinalDebounceMs = 500;
 const defaultTranscriptGraceMs = 1500;
@@ -63,86 +26,8 @@ const defaultMaxReconnectDelayMs = 30000;
 const defaultReconnectBackoffMultiplier = 2;
 const defaultReconnectJitterMs = 0;
 const defaultCircuitBreakerTimeoutMs = 60000;
-const autoRestartDelayMs = 500;
-// WHY: Three consecutive grace expiries with no transcript finalization is the point where the
-// runtime stops treating the condition as ordinary STT/VAD latency variance and starts surfacing a
-// degraded STT-pipeline signal. Any successful finalization resets the streak. Tune alongside
-// `transcriptGraceMs` because a longer grace window naturally tolerates more provider flush lag.
-const repeatedGraceExpiryErrorThreshold = 3;
 
-export { defaultAudioDropDebounceMs } from './runtime.audio-drop.js';
-
-export function handleTranscriptGraceExpiryTerminalBranches(
-  runtimeState: Pick<
-    ReturnType<typeof createInitialVoiceRuntimeState>,
-    'currentTranscript' | 'accumulatedTranscript' | 'hasEmittedFinal'
-  >,
-  trace: (event: string, details?: Record<string, unknown>) => void,
-  clearPendingFinalizationForGracePath: () => void,
-  finalizeTranscript: (text: string) => {
-    emitted: boolean;
-    startedProcessing: boolean;
-  },
-): boolean {
-  // WHY: Grace expiry has three terminal outcomes: another path already finalized the turn,
-  // late STT text arrived during the grace window and can now finalize, or there is still no text
-  // and the caller must continue with the empty-expiry fallback. The `already_finalized` branch
-  // matters because `hasEmittedFinal` suppresses redundant grace cleanup once a competing path wins.
-  if (runtimeState.hasEmittedFinal) {
-    trace('stt.transcript_grace.already_finalized', {
-      currentTranscriptLength: runtimeState.currentTranscript.length,
-      accumulatedTranscriptLength: runtimeState.accumulatedTranscript.length,
-    });
-
-    return true;
-  }
-
-  const transcriptToFinalize =
-    runtimeState.currentTranscript || runtimeState.accumulatedTranscript;
-
-  if (!transcriptToFinalize) {
-    return false;
-  }
-
-  clearPendingFinalizationForGracePath();
-  trace('stt.transcript_grace.completed_with_late_transcript', {
-    textLength: transcriptToFinalize.length,
-    usedAccumulatedTranscriptFallback:
-      !runtimeState.currentTranscript &&
-      Boolean(runtimeState.accumulatedTranscript),
-  });
-  finalizeTranscript(transcriptToFinalize);
-
-  return true;
-}
-
-export interface SttDisconnectSuppressionController {
-  isSuppressed(): boolean;
-  suppress(): () => void;
-}
-
-export function createSttDisconnectSuppressionController(): SttDisconnectSuppressionController {
-  let activeSuppressions = 0;
-
-  return {
-    isSuppressed() {
-      return activeSuppressions > 0;
-    },
-    suppress() {
-      activeSuppressions += 1;
-      let released = false;
-
-      return () => {
-        if (released) {
-          return;
-        }
-
-        released = true;
-        activeSuppressions = Math.max(0, activeSuppressions - 1);
-      };
-    },
-  };
-}
+export { defaultAudioDropDebounceMs } from './audio-buffer-queue.js';
 
 /**
  * Creates the runtime that turns injected STT, TTS, and client VAD signals into a single
@@ -195,1258 +80,176 @@ export function createVoiceSession(
     circuitBreakerTimeoutMs: defaultCircuitBreakerTimeoutMs,
   });
 
-  const runtimeState = createInitialVoiceRuntimeState();
-  const listeners = createVoiceRuntimeListeners();
-  let isInRepeatedGraceExpiryDegradedMode = false;
-  const sttDisconnectSuppression = createSttDisconnectSuppressionController();
-
-  function reportTraceCallbackFailure(event: string, error: unknown) {
-    const traceError = new Error(
-      `Voice session trace callback failed for "${event}"`,
-      {
-        cause: normalizeError(error),
-      },
-    );
-
-    try {
-      callbacks.onError?.(traceError);
-    } catch {}
-  }
-
-  function trace(event: string, details?: Record<string, unknown>) {
-    if (!traceCallback) {
-      return;
-    }
-
-    try {
-      traceCallback(event, details);
-    } catch (error) {
-      reportTraceCallbackFailure(event, error);
-    }
-  }
-
-  function normalizeError(error: unknown): Error {
-    return error instanceof Error
-      ? error
-      : new Error(String(error), { cause: error });
-  }
-
-  function reportError(error: unknown) {
-    const normalizedError = normalizeError(error);
-
-    try {
-      callbacks.onError?.(normalizedError);
-    } catch (callbackError) {
-      trace('callback.onError.failed', {
-        message: normalizedError.message,
-        callbackError: normalizeError(callbackError).message,
-      });
-    }
-  }
-
-  function reportAsyncFailure(
-    traceEvent: string,
-    error: unknown,
-    details?: Record<string, unknown>,
-  ) {
-    trace(traceEvent, {
-      ...details,
-      message: normalizeError(error).message,
-    });
-    reportError(error);
-  }
-
-  function stopTTS(
-    context: 'dispatch_speak' | 'interrupt' | 'process_request',
-  ) {
-    try {
-      tts.stop();
-    } catch (error) {
-      reportAsyncFailure('tts.stop.failed', error, {
-        context,
-        provider: tts.name,
-        providerConnected: tts.isConnected(),
-        state: runtimeState.state,
-      });
-    }
-  }
-
-  function notifyListenersSafely<T>(
-    activeListeners: Set<(value: T) => void>,
-    value: T,
-    traceEvent: string,
-  ) {
-    activeListeners.forEach((listener) => {
-      try {
-        listener(value);
-      } catch (error) {
-        trace(traceEvent, {
-          message: normalizeError(error).message,
-        });
-        reportError(error);
-      }
-    });
-  }
-
-  function notifyCallbackSafely<T extends unknown[]>(
-    callback: ((...args: T) => void) | undefined,
-    traceEvent: string,
-    ...args: T
-  ) {
-    if (!callback) {
-      return;
-    }
-
-    try {
-      callback(...args);
-    } catch (error) {
-      trace(traceEvent, {
-        message: normalizeError(error).message,
-      });
-      reportError(error);
-    }
-  }
-
-  function clearAutoRestartTimeout() {
-    if (runtimeState.autoRestartTimeout) {
-      clearTimeout(runtimeState.autoRestartTimeout);
-      runtimeState.autoRestartTimeout = null;
-    }
-  }
-
-  function clearBufferedAudio() {
-    runtimeState.pendingAudioChunks.length = 0;
-    runtimeState.pendingAudioDurationMs = 0;
-  }
+  const sessionEvents = createVoiceSessionEvents(callbacks, traceCallback);
 
   function resetBufferedAudioState() {
     // WHY: Manual stop/destroy are explicit teardown boundaries. We intentionally discard any
     // pending debounced drop bucket here so stale loss telemetry does not leak into the next turn.
-    clearBufferedAudio();
-    discardPendingAudioDropEvent(runtimeState);
+    audioBufferQueue.reset();
   }
 
-  function emitAudioDropped(event: VoiceSessionAudioDroppedEvent) {
-    notifyListenersSafely(
-      listeners.audioDropped,
-      event,
-      'callback.onAudioDroppedListener.failed',
-    );
-    notifyCallbackSafely(
-      callbacks.onAudioDropped,
-      'callback.onAudioDropped.failed',
-      event,
-    );
-  }
-
-  function emitPendingAudioDropEvent(event: VoiceSessionAudioDroppedEvent) {
-    if (runtimeState.destroyed) {
-      return;
-    }
-
-    emitAudioDropped(event);
-  }
-
-  const audioBufferContext: VoiceRuntimeAudioBufferContext = {
-    state: runtimeState,
+  const audioBufferQueue = createAudioBufferQueue({
     audioBufferMaxMs,
-    trace,
-    reportError,
-    emitPendingAudioDropEvent,
-    schedulePendingAudioDropNotification: () =>
-      schedulePendingAudioDropNotification(
-        runtimeState,
-        emitPendingAudioDropEvent,
-      ),
-  };
+    trace: sessionEvents.trace,
+    reportError: sessionEvents.reportError,
+    emitAudioDropped: sessionEvents.emitAudioDropped,
+    isDestroyed: sessionEvents.isDestroyed,
+  });
 
-  function abortActiveProcessing() {
-    runtimeState.activeProcessAbortController?.abort();
-    runtimeState.activeProcessAbortController = null;
-  }
+  // WHY: These `let` declarations allow turnCoordinator to be created before the managers via
+  // closure-based lazy refs, breaking the circular dependency without introducing a separate
+  // indirection layer. Each getter is only invoked at call time, by which point all managers
+  // have been assigned below.
+  let ttsSessionManager: ReturnType<typeof createTTSSessionManager>;
+  let sttSessionManager: ReturnType<typeof createSTTSessionManager>;
+  let vadCoordinator: ReturnType<typeof createVADCoordinator>;
 
-  function clearReconnectResetTimeout() {
-    if (runtimeState.reconnectResetTimeout) {
-      clearTimeout(runtimeState.reconnectResetTimeout);
-      runtimeState.reconnectResetTimeout = null;
-    }
-  }
-
-  function clearSttCircuitCooldownTimeout() {
-    if (runtimeState.sttCircuitCooldownTimeout) {
-      clearTimeout(runtimeState.sttCircuitCooldownTimeout);
-      runtimeState.sttCircuitCooldownTimeout = null;
-    }
-  }
-
-  function setSttCircuitStatus(status: SttCircuitStatus) {
-    if (runtimeState.destroyed || runtimeState.sttCircuitStatus === status) {
-      return;
-    }
-
-    trace('stt.circuit.status_changed', {
-      previousStatus: runtimeState.sttCircuitStatus,
-      nextStatus: status,
-      reconnectDelayMs,
-      maxReconnectDelayMs,
-      reconnectBackoffMultiplier,
-      reconnectJitterMs,
-      circuitBreakerTimeoutMs,
-    });
-
-    runtimeState.sttCircuitStatus = status;
-    notifyListenersSafely(
-      listeners.sttCircuitStatusChange,
-      status,
-      'callback.onSttCircuitStatusChangeListener.failed',
-    );
-  }
-
-  function closeSttCircuit() {
-    runtimeState.sttCircuitOpenedAt = null;
-    clearSttCircuitCooldownTimeout();
-    setSttCircuitStatus('closed');
-  }
-
-  function openSttCircuit() {
-    runtimeState.sttCircuitOpenedAt = Date.now();
-    clearSttCircuitCooldownTimeout();
-    setSttCircuitStatus('open');
-
-    runtimeState.sttCircuitCooldownTimeout = setTimeout(() => {
-      runtimeState.sttCircuitCooldownTimeout = null;
-
-      if (runtimeState.destroyed || runtimeState.sttCircuitStatus !== 'open') {
-        return;
-      }
-
-      setSttCircuitStatus('half_open');
-    }, circuitBreakerTimeoutMs);
-  }
-
-  // WHY: Provider callbacks can settle out of order. The generation token lets the runtime ignore
-  // stale stop/completion signals from an older utterance, and the finished flag makes the winning
-  // utterance complete exactly once.
-  let activeSpeechGeneration = 0;
-  let activeSpeech = {
-    generation: 0,
-    finished: true,
-  };
-  // WHY: incremented whenever a pending dispatch should be invalidated (interrupt, processRequest,
-  // or any cancellation that clears the speak queue). dispatchSpeak captures the counter value
-  // before the async ensureTTSConnected() gap; if the counter has changed by the time the
-  // connect resolves, the dispatch is stale and must not call tts.speak().
-  let pendingDispatchGeneration = 0;
-  // WHY: counter (not boolean) so that a stale dispatch's finally does not clear the flag for
-  // a newer dispatch still awaiting ensureTTSConnected(). Each dispatchSpeak increments on
-  // entry and decrements in finally, giving an accurate in-flight count.
-  let pendingDispatchCount = 0;
-
-  function completeActiveSpeech(
-    generation: number,
-    completed: boolean,
-    nextState: VoiceSessionState = 'idle',
-  ) {
-    if (
-      runtimeState.destroyed ||
-      activeSpeech.generation !== generation ||
-      activeSpeech.finished
-    ) {
-      return;
-    }
-
-    activeSpeech.finished = true;
-
-    // Queue drain is intentional regardless of the `completed` flag. Once the
-    // active speech generation is marked finished—whether the TTS provider
-    // signalled a clean end or an unexpected stop—we advance to the next queued
-    // turn. NOTE: if a future TTS provider emits spurious 'stopped' events, this
-    // will silently chain into the next queued turn. Validate your provider's stop
-    // semantics if that becomes a concern.
-    const nextQueuedSpeech: SpeakParams | undefined =
-      runtimeState.speakQueue.shift();
-    if (nextQueuedSpeech) {
-      if (!completed) {
-        trace('tts.queue.advanced_after_unclean_stop', {
-          generation,
-          nextTextLength: nextQueuedSpeech.text.length,
-          nextPreview: nextQueuedSpeech.text.slice(0, 80),
-          remainingQueuedTurns: runtimeState.speakQueue.length,
-        });
-      }
-      notifyCallbackSafely(
-        callbacks.onSpeechStopped,
-        'callback.onSpeechStopped.failed',
-        completed,
-      );
-      void dispatchSpeak(nextQueuedSpeech.text, nextQueuedSpeech.voice, {
-        clearQueue: false,
-        stopActiveSpeech: false,
-        queued: true,
-      }).catch((error) => {
-        const droppedQueueCount = isVoiceSessionQueuedTurnsDroppedError(error)
-          ? error.droppedQueueCount
-          : 0;
-        reportAsyncFailure('tts.queued_speak.failed', error, {
-          textLength: nextQueuedSpeech.text.length,
-          preview: nextQueuedSpeech.text.slice(0, 80),
-          requestedVoice: nextQueuedSpeech.voice ?? null,
-          generation,
-          droppedQueueCount,
-        });
-        setVoiceStateAfterSpeechCompletion(nextState);
-      });
-      return;
-    }
-
-    setVoiceStateAfterSpeechCompletion(nextState);
-    notifyCallbackSafely(
-      callbacks.onSpeechStopped,
-      'callback.onSpeechStopped.failed',
-      completed,
-    );
-  }
-
-  function setVoiceStateAfterSpeechCompletion(nextState: VoiceSessionState) {
-    // WHY: `processRequest()` deliberately takes ownership of the public state transition once it
-    // preempts speech and moves the runtime into `processing`. Completion cleanup must not bounce
-    // listeners through `idle` in that branch, or the replacement-turn path would briefly publish
-    // a spurious `processing -> idle -> speaking` sequence.
-    if (runtimeState.state !== 'processing') {
-      setVoiceState(nextState);
-    }
-  }
-
-  function interruptActiveSpeech() {
-    completeActiveSpeech(activeSpeech.generation, false);
-  }
-
-  function setVoiceState(newState: VoiceSessionState) {
-    if (runtimeState.destroyed) return;
-    if (runtimeState.state === newState) return;
-
-    const previousState = runtimeState.state;
-    trace('voice.state_change', {
-      previousState,
-      nextState: newState,
-    });
-    runtimeState.state = newState;
-    notifyListenersSafely(
-      listeners.stateChange,
-      newState,
-      'callback.onVoiceStateChangeListener.failed',
-    );
-    notifyCallbackSafely(
-      callbacks.onVoiceStateChange,
-      'callback.onVoiceStateChange.failed',
-      newState,
-    );
-
-    if (
-      newState === 'idle' &&
-      autoRestartListening &&
-      previousState === 'speaking'
-    ) {
-      if (runtimeState.suppressNextAutoRestart) {
-        runtimeState.suppressNextAutoRestart = false;
-        return;
-      }
-
-      runtimeState.autoRestartTimeout = setTimeout(() => {
-        if (!runtimeState.destroyed && runtimeState.state === 'idle') {
-          void startListening().catch((error) => {
-            reportAsyncFailure('stt.auto_restart.failed', error);
-          });
-        }
-      }, autoRestartDelayMs);
-    }
-  }
-
-  async function executeIntentRequest(
-    createRequest: () => Promise<
-      Awaited<ReturnType<VoiceSessionIntentRequestBuilder>>
-    >,
-    options: {
-      speakResponse?: boolean;
-      traceDetails?: Record<string, unknown>;
-    } = {},
-  ): Promise<
-    | Awaited<
-        ReturnType<
-          NonNullable<typeof intentBoundary>['processIntent']['process']
-        >
-      >
-    | undefined
-  > {
-    if (!intentBoundary || runtimeState.destroyed) {
-      return undefined;
-    }
-
-    clearAutoRestartTimeout();
-
-    if (runtimeState.state === 'speaking' || pendingDispatchCount > 0) {
-      runtimeState.speakQueue = [];
-      pendingDispatchGeneration++;
-      stopTTS('process_request');
-    }
-    setVoiceState('processing');
-    const abortController = new AbortController();
-    const previousAbortController = runtimeState.activeProcessAbortController;
-    runtimeState.activeProcessAbortController = abortController;
-    previousAbortController?.abort();
-
-    trace('intent.processing.started', {
-      ...options.traceDetails,
-    });
-
-    try {
-      const request = await createRequest();
-
-      // WHY: Request building and intent execution can overlap with a newer turn. The identity check
-      // ensures only the latest generation is allowed to emit results or mutate runtime state.
-      if (
-        runtimeState.destroyed ||
-        abortController.signal.aborted ||
-        runtimeState.activeProcessAbortController !== abortController
-      ) {
-        return undefined;
-      }
-
-      const response = await Promise.resolve().then(() =>
-        intentBoundary.processIntent.process(request, abortController.signal),
-      );
-
-      if (
-        runtimeState.destroyed ||
-        runtimeState.activeProcessAbortController !== abortController
-      ) {
-        return undefined;
-      }
-
-      trace('intent.processing.completed', {
-        requestId: response.requestId,
-        replyLength: response.userMessage.length,
-      });
-
-      if (response.userMessage && options.speakResponse !== false) {
-        await speak(response.userMessage);
-      } else if (runtimeState.state === 'processing') {
-        setVoiceState('idle');
-      }
-
-      return response;
-    } catch (error: unknown) {
-      if (abortController.signal.aborted) {
-        trace('intent.processing.aborted');
-        return undefined;
-      }
-
-      reportError(error);
-      if (
-        runtimeState.activeProcessAbortController === abortController &&
-        runtimeState.state === 'processing'
-      ) {
-        setVoiceState('idle');
-      }
-      return undefined;
-    } finally {
-      if (runtimeState.activeProcessAbortController === abortController) {
-        runtimeState.activeProcessAbortController = null;
-      }
-    }
-  }
-
-  function processTranscript(text: string): boolean {
-    if (!intentBoundary) {
-      return false;
-    }
-
-    const buildIntentRequest: VoiceSessionIntentRequestBuilder =
-      intentBoundary.buildChartRequest;
-
-    void executeIntentRequest(
+  const turnCoordinator = createTurnCoordinator({
+    sessionId,
+    intentBoundary: intentBoundary ?? undefined,
+    autoRestartListening,
+    transcriptGraceMs,
+    interimResults,
+    isDestroyed: sessionEvents.isDestroyed,
+    trace: sessionEvents.trace,
+    reportError: sessionEvents.reportError,
+    reportAsyncFailure: sessionEvents.reportAsyncFailure,
+    notifyCallbackSafely: sessionEvents.notifyCallbackSafely,
+    eventSink: sessionEvents,
+    callbacks,
+    getSttStartListening: () => sttSessionManager.startListening,
+    getTTSStop:
       () =>
-        Promise.resolve(buildIntentRequest({ transcript: text, sessionId })),
-      {
-        traceDetails: {
-          textLength: text.length,
-          preview: text.slice(0, 80),
-        },
-      },
-    );
+      (nextState = 'idle') =>
+        ttsSessionManager.stop(nextState),
+    getTTSSpeak: () => (text, opts) => speak(text, opts.voice),
+    getSttEndStream: () => sttSessionManager.endStream,
+    getVADClearPendingFinalization: () => () =>
+      vadCoordinator.clearPendingFinalization(),
+    getVADIsPendingFinalFromVAD: () => () =>
+      vadCoordinator.isPendingFinalFromVAD(),
+  });
 
-    return true;
-  }
+  ttsSessionManager = createTTSSessionManager(tts, {
+    isDestroyed: sessionEvents.isDestroyed,
+    getVoiceState: turnCoordinator.getVoiceState,
+    setVoiceState: turnCoordinator.setVoiceState,
+    trace: sessionEvents.trace,
+    reportError: sessionEvents.reportError,
+    reportAsyncFailure: sessionEvents.reportAsyncFailure,
+    notifyCallbackSafely: sessionEvents.notifyCallbackSafely,
+    emitAudioOutput: sessionEvents.emitAudioOutput,
+    onSpeechStarted: callbacks.onSpeechStarted,
+    onSpeechStopped: callbacks.onSpeechStopped,
+  });
 
-  function shouldReportRepeatedGraceExpiryDegradedMode(): boolean {
-    if (isInRepeatedGraceExpiryDegradedMode) {
-      return false;
-    }
+  vadCoordinator = createVADCoordinator({
+    vadFinalDebounceMs,
+    trace: sessionEvents.trace,
+    emitVADEvent: sessionEvents.emitVADEvent,
+    clearPendingFinalization: turnCoordinator.clearPendingFinalization,
+    emitFinalTranscript: turnCoordinator.emitFinalTranscript,
+  });
 
-    if (
-      runtimeState.consecutiveGraceExpiries < repeatedGraceExpiryErrorThreshold
-    ) {
-      return false;
-    }
-
-    isInRepeatedGraceExpiryDegradedMode = true;
-    return true;
-  }
-
-  function finalizeTranscript(text: string) {
-    const outcome = finalizeTranscriptHelper(
-      runtimeState,
-      listeners,
-      callbacks,
-      notifyListenersSafely,
-      notifyCallbackSafely,
-      processTranscript,
-      text,
-    );
-
-    if (outcome.emitted) {
-      // WHY: The repeated-grace threshold only tracks consecutive expiries that failed to produce
-      // any final transcript. A successful finalization resets both the counter and degraded-mode
-      // flag so later turns start from a clean baseline instead of inheriting prior grace failures.
-      runtimeState.consecutiveGraceExpiries = 0;
-      isInRepeatedGraceExpiryDegradedMode = false;
-    }
-
-    return outcome;
-  }
-
-  function clearPendingFinalizationForEmitFinalTranscript(
-    _runtimeState: typeof runtimeState,
-  ) {
-    runtimeState.pendingFinalFromVAD = false;
-    if (runtimeState.vadFinalDebounceTimeout) {
-      clearTimeout(runtimeState.vadFinalDebounceTimeout);
-      runtimeState.vadFinalDebounceTimeout = null;
-    }
-  }
-
-  function startTranscriptGrace() {
-    if (runtimeState.hasEmittedFinal) {
-      return;
-    }
-
-    if (runtimeState.transcriptGraceTimeout) {
-      clearTimeout(runtimeState.transcriptGraceTimeout);
-      runtimeState.transcriptGraceTimeout = null;
-    }
-
-    trace('stt.transcript_grace.started', {
-      transcriptGraceMs,
-      pendingFinalFromVAD: runtimeState.pendingFinalFromVAD,
-      currentTranscriptLength: runtimeState.currentTranscript.length,
-      accumulatedTranscriptLength: runtimeState.accumulatedTranscript.length,
-    });
-
-    runtimeState.transcriptGraceTimeout = setTimeout(() => {
-      runtimeState.transcriptGraceTimeout = null;
-
-      if (runtimeState.destroyed) {
-        return;
-      }
-
-      if (
-        handleTranscriptGraceExpiryTerminalBranches(
-          runtimeState,
-          trace,
-          () => clearPendingFinalization(runtimeState),
-          finalizeTranscript,
-        )
-      ) {
-        return;
-      }
-
-      trace('stt.transcript_grace.expired', {
-        transcriptGraceMs,
-        pendingFinalFromVAD: runtimeState.pendingFinalFromVAD,
-      });
-
-      clearPendingFinalization(runtimeState);
-
-      if (runtimeState.state === 'listening') {
-        runtimeState.consecutiveGraceExpiries += 1;
-
-        if (shouldReportRepeatedGraceExpiryDegradedMode()) {
-          reportError(
-            new Error(
-              `Repeated transcript grace expiries reached degraded mode without any transcript finalization (count=${runtimeState.consecutiveGraceExpiries}, threshold=${repeatedGraceExpiryErrorThreshold}, transcriptGraceMs=${transcriptGraceMs})`,
-            ),
-          );
-        }
-
-        setVoiceState('idle');
-      }
-    }, transcriptGraceMs);
-  }
-
-  function emitFinalTranscript() {
-    emitFinalTranscriptHelper(runtimeState, {
-      clearPendingFinalization: clearPendingFinalizationForEmitFinalTranscript,
-      finalizeTranscript,
-      startTranscriptGrace,
-    });
-  }
-
-  function forwardFinalOrInterimTranscript(result: TranscriptionResult) {
-    forwardTranscriptResult(
-      listeners,
-      callbacks,
-      notifyListenersSafely,
-      notifyCallbackSafely,
-      trace,
-      interimResults,
-      result,
-    );
-  }
-
-  function handleSTTEvent(event: STTEvent) {
-    if (
-      event.type === 'disconnected' &&
-      sttDisconnectSuppression.isSuppressed()
-    ) {
-      return;
-    }
-
-    handleSTTEventHelper(
-      runtimeState,
-      stt.name,
-      trace,
-      (result) => updateTranscriptState(runtimeState, result),
-      emitFinalTranscript,
-      (result) => createForwardedTranscriptResult(runtimeState, result),
-      forwardFinalOrInterimTranscript,
-      reportError,
-      reconnectSTT,
-      setVoiceState,
-      event,
-    );
-  }
-
-  async function ensureSTTConnected() {
-    if (runtimeState.destroyed) return;
-    if (stt.isConnected()) return;
-
-    const connectConfig: { language?: string } = {};
-    if (language) {
-      connectConfig.language = language;
-    }
-
-    trace('stt.connecting', {
-      provider: stt.name,
-      language: connectConfig.language ?? null,
-      circuitStatus: runtimeState.sttCircuitStatus,
-    });
-    await stt.connect(connectConfig);
-    if (!runtimeState.sttUnsubscribe) {
-      runtimeState.sttUnsubscribe = stt.onEvent(handleSTTEvent);
-    }
-  }
-
-  async function connectForegroundSTT(
-    operation: 'start_listening' | 'warmup',
-  ): Promise<void> {
-    if (runtimeState.sttCircuitStatus === 'open') {
-      trace('stt.connect.skipped', {
-        operation,
-        reason: 'circuit_open',
-      });
-
-      throw new Error(
-        operation === 'warmup'
-          ? 'Cannot warm up while the STT circuit is open'
-          : 'Cannot start listening while the STT circuit is open',
-      );
-    }
-
-    try {
-      await ensureSTTConnected();
-    } catch (error) {
-      if (runtimeState.sttCircuitStatus === 'half_open') {
-        openSttCircuit();
-      }
-
-      throw error;
-    }
-
-    if (runtimeState.sttCircuitStatus === 'half_open') {
-      closeSttCircuit();
-    }
-  }
-
-  async function connectSTT(forceReconnect = false) {
-    if (forceReconnect && stt.isConnected()) {
-      const releaseDisconnectSuppression = sttDisconnectSuppression.suppress();
-
-      try {
-        // WHY: Forced reconnect tears down the old STT transport on purpose. Suppressing that
-        // expected disconnect keeps it from being misread as a fresh outage that should schedule a
-        // second reconnect loop.
-        await stt.disconnect();
-      } finally {
-        releaseDisconnectSuppression();
-      }
-    }
-
-    await ensureSTTConnected();
-  }
-
-  async function reconnectSTT(trigger: STTReconnectTrigger): Promise<void> {
-    return reconnectSTTHelper({
-      state: runtimeState,
-      trigger,
-      maxReconnectAttempts,
-      reconnectDelayMs,
-      maxReconnectDelayMs,
-      reconnectBackoffMultiplier,
-      reconnectJitterMs,
-      trace,
-      reportError,
-      connectSTT,
-      flushBufferedAudio: (traceEvent) =>
-        flushBufferedAudio(audioBufferContext, stt, traceEvent),
-      flushPendingAudioDropEvent: () =>
-        flushPendingAudioDropEvent(runtimeState, emitPendingAudioDropEvent),
-      resetBufferedAudioState,
-      setVoiceState,
-      openSttCircuit,
-      closeSttCircuit,
-    });
-  }
-
-  function handleTTSEvent(event: TTSEvent) {
-    handleTTSEventHelper(
-      runtimeState,
-      listeners,
-      callbacks,
-      tts.name,
-      trace,
-      notifyListenersSafely,
-      notifyCallbackSafely,
-      reportError,
-      interruptActiveSpeech,
-      event,
-    );
-  }
-
-  async function ensureTTSConnected() {
-    if (tts.isConnected()) return;
-
-    trace('tts.connecting', {
-      provider: tts.name,
-    });
-    await tts.connect();
-    if (!runtimeState.ttsUnsubscribe) {
-      runtimeState.ttsUnsubscribe = tts.onEvent(handleTTSEvent);
-    }
-  }
+  sttSessionManager = createSTTSessionManager(stt, audioBufferQueue, {
+    language,
+    maxReconnectAttempts,
+    reconnectDelayMs,
+    maxReconnectDelayMs,
+    reconnectBackoffMultiplier,
+    reconnectJitterMs,
+    circuitBreakerTimeoutMs,
+    isDestroyed: sessionEvents.isDestroyed,
+    getVoiceState: turnCoordinator.getVoiceState,
+    setVoiceState: turnCoordinator.setVoiceState,
+    trace: sessionEvents.trace,
+    reportError: sessionEvents.reportError,
+    clearAutoRestartTimeout: turnCoordinator.clearAutoRestartTimeout,
+    abortActiveProcessing: turnCoordinator.abortActiveProcessing,
+    resetTurnTracking: turnCoordinator.resetTurnTracking,
+    getTurnState: turnCoordinator.getTurnState,
+    setPendingFinalFromVAD(value) {
+      vadCoordinator.setPendingFinalFromVAD(value);
+    },
+    setSuppressIncomingAudio: turnCoordinator.setSuppressIncomingAudio,
+    markHasSentAudioForTurn: turnCoordinator.markHasSentAudioForTurn,
+    clearPendingFinalization: turnCoordinator.clearPendingFinalization,
+    startTranscriptGrace: turnCoordinator.startTranscriptGrace,
+    finalizeTranscript: turnCoordinator.finalizeTranscript,
+    updateTranscriptState: turnCoordinator.updateTranscriptState,
+    emitFinalTranscript: turnCoordinator.emitFinalTranscript,
+    createForwardedTranscriptResult:
+      turnCoordinator.createForwardedTranscriptResult,
+    forwardTranscriptResult: turnCoordinator.forwardTranscriptResult,
+    eventBus: {
+      emitSttCircuitStatusChange: sessionEvents.emitSttCircuitStatusChange,
+    },
+  });
 
   function cleanupProviders() {
-    runtimeState.sttUnsubscribe?.();
-    runtimeState.sttUnsubscribe = null;
-    runtimeState.ttsUnsubscribe?.();
-    runtimeState.ttsUnsubscribe = null;
-    void stt.disconnect().catch((error) => {
-      reportAsyncFailure('stt.disconnect.failed', error);
+    void sttSessionManager.disconnect().catch((error) => {
+      sessionEvents.reportAsyncFailure('stt.disconnect.failed', error);
     });
-    void tts.disconnect().catch((error) => {
-      reportAsyncFailure('tts.disconnect.failed', error);
+    void ttsSessionManager.disconnect().catch((error) => {
+      sessionEvents.reportAsyncFailure('tts.disconnect.failed', error);
     });
-  }
-
-  async function startListening(): Promise<void> {
-    if (runtimeState.destroyed) {
-      throw new Error('Cannot start listening after destroy()');
-    }
-    if (runtimeState.state === 'listening') return;
-    if (runtimeState.startListeningPromise)
-      return runtimeState.startListeningPromise;
-
-    if (
-      runtimeState.state !== 'idle' &&
-      runtimeState.state !== 'speaking' &&
-      runtimeState.state !== 'processing'
-    ) {
-      throw new Error(`Cannot start listening in state: ${runtimeState.state}`);
-    }
-
-    runtimeState.startListeningPromise = (async () => {
-      trace('stt.start_listening.requested', {
-        state: runtimeState.state,
-        pendingBufferedAudioMs: runtimeState.pendingAudioDurationMs,
-        isInitializing: runtimeState.isInitializing,
-      });
-
-      clearAutoRestartTimeout();
-
-      if (runtimeState.state === 'processing') {
-        abortActiveProcessing();
-      }
-
-      runtimeState.suppressIncomingAudio = false;
-      runtimeState.isInitializing = true;
-      await connectForegroundSTT('start_listening');
-
-      if (runtimeState.destroyed) {
-        return;
-      }
-      resetTurnTracking(runtimeState);
-      setVoiceState('listening');
-
-      flushBufferedAudio(audioBufferContext, stt, 'stt.buffered_audio.sent');
-    })();
-
-    try {
-      await runtimeState.startListeningPromise;
-    } finally {
-      runtimeState.isInitializing = false;
-      runtimeState.startListeningPromise = null;
-    }
-  }
-
-  async function stopListening(): Promise<void> {
-    if (runtimeState.destroyed) return;
-    if (runtimeState.state !== 'listening') return;
-
-    trace('stt.stop_listening.requested', {
-      accumulatedTranscriptLength: runtimeState.accumulatedTranscript.length,
-      currentTranscriptLength: runtimeState.currentTranscript.length,
-      hasEmittedFinal: runtimeState.hasEmittedFinal,
-      hasReceivedSpeech: runtimeState.hasReceivedSpeech,
-      pendingBufferedAudioMs: runtimeState.pendingAudioDurationMs,
-    });
-
-    runtimeState.pendingFinalFromVAD = true;
-    runtimeState.suppressIncomingAudio = true;
-    stt.endStream();
-    flushPendingAudioDropEvent(runtimeState, emitPendingAudioDropEvent);
-    clearBufferedAudio();
-    const transcriptToFinalize =
-      runtimeState.currentTranscript || runtimeState.accumulatedTranscript;
-    const hasAnyTranscript = Boolean(transcriptToFinalize);
-
-    if (
-      !hasAnyTranscript &&
-      (!runtimeState.hasSentAudioForTurn || !stt.isConnected()) &&
-      !runtimeState.hasReceivedSpeech
-    ) {
-      clearPendingFinalization(runtimeState);
-      setVoiceState('idle');
-      return;
-    }
-
-    if (transcriptToFinalize) {
-      clearPendingFinalization(runtimeState);
-
-      const { emitted, startedProcessing } =
-        finalizeTranscript(transcriptToFinalize);
-
-      if (emitted) {
-        trace('stt.manual_final_transcript.forwarded', {
-          textLength: transcriptToFinalize.length,
-          preview: transcriptToFinalize.slice(0, 80),
-        });
-      }
-
-      if (!startedProcessing && runtimeState.state === 'listening') {
-        setVoiceState('idle');
-      }
-
-      return;
-    }
-
-    startTranscriptGrace();
-  }
-
-  function interrupt(): void {
-    if (runtimeState.destroyed) return;
-    clearAutoRestartTimeout();
-    clearPendingFinalization(runtimeState);
-    abortActiveProcessing();
-    runtimeState.speakQueue = [];
-    pendingDispatchGeneration++;
-
-    if (runtimeState.state === 'speaking' || pendingDispatchCount > 0) {
-      runtimeState.suppressNextAutoRestart = true;
-      stopTTS('interrupt');
-      if (activeSpeech.finished) {
-        setVoiceState('idle');
-      } else {
-        interruptActiveSpeech();
-      }
-      notifyCallbackSafely(
-        callbacks.onInterrupt,
-        'callback.onInterrupt.failed',
-        'user',
-      );
-      return;
-    }
-
-    if (runtimeState.state === 'processing') {
-      setVoiceState('idle');
-      notifyCallbackSafely(
-        callbacks.onInterrupt,
-        'callback.onInterrupt.failed',
-        'user',
-      );
-      return;
-    }
-
-    if (runtimeState.state === 'listening') {
-      stt.endStream();
-      setVoiceState('idle');
-      notifyCallbackSafely(
-        callbacks.onInterrupt,
-        'callback.onInterrupt.failed',
-        'user',
-      );
-    }
-  }
-
-  /**
-   * Internal TTS dispatch. Callers must use `speak()` or `enqueueSpeak()` on the public surface.
-   *
-   * @param options.clearQueue - When true (default), empties `speakQueue` before starting the new
-   *   turn. Pass false when advancing the queue from `completeActiveSpeech`.
-   * @param options.stopActiveSpeech - When true (default), stops the current TTS turn before
-   *   dispatching. Pass false when the caller has already stopped it or when advancing the queue
-   *   (previous turn already finished).
-   */
-  async function dispatchSpeak(
-    text: string,
-    voice?: string,
-    options: {
-      clearQueue: boolean;
-      stopActiveSpeech: boolean;
-      queued: boolean;
-    } = {
-      clearQueue: true,
-      stopActiveSpeech: true,
-      queued: false,
-    },
-  ): Promise<void> {
-    if (runtimeState.destroyed) {
-      throw new Error('Cannot speak after destroy()');
-    }
-    trace('tts.speak.requested', {
-      textLength: text.length,
-      preview: text.slice(0, 80),
-      requestedVoice: voice ?? null,
-      provider: tts.name,
-      providerConnected: tts.isConnected(),
-      state: runtimeState.state,
-    });
-
-    if (options.clearQueue) {
-      runtimeState.speakQueue = [];
-    }
-
-    if (options.stopActiveSpeech && runtimeState.state === 'speaking') {
-      stopTTS('dispatch_speak');
-    }
-
-    pendingDispatchCount++;
-    const dispatchGeneration = ++pendingDispatchGeneration;
-    try {
-      if (!tts.isConnected()) {
-        await ensureTTSConnected();
-      }
-      if (
-        runtimeState.destroyed ||
-        dispatchGeneration !== pendingDispatchGeneration
-      ) {
-        return;
-      }
-    } catch (err) {
-      // TTS connection failed: drain orphaned queue items so they don't leak
-      const droppedQueueCount = runtimeState.speakQueue.length;
-      if (droppedQueueCount > 0) {
-        trace('tts.queued_turns.dropped', { droppedQueueCount });
-      }
-      runtimeState.speakQueue = [];
-      const normalizedError = normalizeError(
-        err,
-      ) as VoiceSessionQueuedTurnsDroppedError;
-      normalizedError.droppedQueueCount = droppedQueueCount;
-      throw normalizedError;
-    } finally {
-      pendingDispatchCount--;
-    }
-
-    const speakOptions: { voice?: string } = {};
-    if (voice) {
-      speakOptions.voice = voice;
-    }
-    const generation = activeSpeechGeneration + 1;
-    const handle = tts.speak(text, speakOptions);
-
-    activeSpeechGeneration = generation;
-    activeSpeech = {
-      generation,
-      finished: false,
-    };
-    setVoiceState('speaking');
-    trace('tts.speak.dispatched', {
-      provider: tts.name,
-      requestedVoice: speakOptions.voice ?? null,
-      generation,
-    });
-    notifyCallbackSafely(
-      callbacks.onSpeechStarted,
-      'callback.onSpeechStarted.failed',
-      { ...handle.speech, queued: options.queued },
-    );
-
-    // WHY: `SpeechSynthesisHandle.completion` is a non-rejecting public contract. This runtime
-    // catch is only an invariant guard for provider-contract violations so an unexpected rejection
-    // is surfaced through normal error reporting instead of leaving the active speech generation
-    // hanging forever.
-    void handle.completion
-      .then((reason) => {
-        if (reason === 'completed') {
-          completeActiveSpeech(generation, true);
-          return;
-        }
-
-        completeActiveSpeech(generation, false);
-      })
-      .catch((error) => {
-        reportAsyncFailure('tts.completion.failed', error, {
-          provider: tts.name,
-          generation,
-        });
-        completeActiveSpeech(generation, false);
-      });
   }
 
   async function speak(text: string, voice?: string): Promise<void> {
-    if (text.trim().length === 0) {
-      return;
-    }
-    await dispatchSpeak(text, voice);
-  }
-
-  function enqueueSpeak(text: string, voice?: string): void {
-    if (runtimeState.destroyed) {
-      return;
+    if (sessionEvents.isDestroyed()) {
+      throw new Error('Cannot speak after destroy()');
     }
 
-    if (text.trim().length === 0) {
-      return;
-    }
-
-    if (runtimeState.state === 'speaking' || pendingDispatchCount > 0) {
-      runtimeState.speakQueue.push({ text, voice });
-      return;
-    }
-
-    void speak(text, voice).catch((error) => {
-      reportAsyncFailure('tts.enqueue_speak.failed', error, {
-        textLength: text.length,
-        preview: text.slice(0, 80),
-        requestedVoice: voice ?? null,
-      });
-    });
+    await ttsSessionManager.speakNow(text, voice);
   }
 
   function handleVADEvent(event: VADEvent): void {
-    handleVADEventHelper(
-      runtimeState,
-      listeners,
-      callbacks,
-      vadFinalDebounceMs,
-      trace,
-      notifyListenersSafely,
-      notifyCallbackSafely,
-      () => clearPendingFinalization(runtimeState),
-      emitFinalTranscript,
-      event,
-    );
+    vadCoordinator.handleVADEvent(event);
   }
 
   function destroy(): void {
-    runtimeState.destroyed = true;
-    runtimeState.speakQueue = [];
-    pendingDispatchGeneration++;
-    clearAutoRestartTimeout();
-    clearReconnectResetTimeout();
-    clearSttCircuitCooldownTimeout();
-    clearPendingFinalization(runtimeState);
-    abortActiveProcessing();
+    sessionEvents.destroy();
+    ttsSessionManager.destroy();
+    turnCoordinator.destroy();
+    vadCoordinator.destroy();
     resetBufferedAudioState();
     cleanupProviders();
-    listeners.stateChange.clear();
-    listeners.sttCircuitStatusChange.clear();
-    listeners.transcript.clear();
-    listeners.vad.clear();
-    listeners.audioOutput.clear();
-    listeners.audioDropped.clear();
   }
 
   return {
-    getVoiceState: () => runtimeState.state,
-    getSttCircuitStatus: () => runtimeState.sttCircuitStatus,
+    getVoiceState: turnCoordinator.getVoiceState,
+    getSttCircuitStatus: () => sttSessionManager.getCircuitStatus(),
     warmup(): Promise<void> {
       return Promise.all([
-        connectForegroundSTT('warmup'),
-        ensureTTSConnected(),
+        sttSessionManager.connect('warmup'),
+        ttsSessionManager.connect(),
       ]).then(() => undefined);
     },
-    startListening,
-    stopListening,
-    interrupt,
-    enqueueSpeak,
-    processRequest(
-      request,
-      options: VoiceSessionIntentRequestOptions = {},
-    ): Promise<
-      | Awaited<
-          ReturnType<
-            NonNullable<typeof intentBoundary>['processIntent']['process']
-          >
-        >
-      | undefined
-    > {
-      return executeIntentRequest(() => Promise.resolve(request), {
-        speakResponse: options.speakResponse,
-        traceDetails: {
-          explicitRequest: true,
-        },
-      });
+    startListening: () => sttSessionManager.startListening(),
+    stopListening: () => sttSessionManager.stopListening(),
+    interrupt: turnCoordinator.interrupt,
+    enqueueSpeak(text: string, voice?: string): void {
+      ttsSessionManager.enqueueSpeak(text, voice);
     },
-    onVoiceStateChange(
-      callback: (nextState: VoiceSessionState) => void,
-    ): () => void {
-      listeners.stateChange.add(callback);
-      return () => listeners.stateChange.delete(callback);
+    processRequest(request, options = {}) {
+      return turnCoordinator.processRequest(request, options);
     },
-    onSttCircuitStatusChange(
-      callback: (status: SttCircuitStatus) => void,
-    ): () => void {
-      listeners.sttCircuitStatusChange.add(callback);
-      notifyCallbackSafely(
+    onVoiceStateChange: sessionEvents.onVoiceStateChange,
+    onSttCircuitStatusChange(callback: (status: SttCircuitStatus) => void) {
+      return sessionEvents.onSttCircuitStatusChange(
         callback,
-        'callback.onSttCircuitStatusChange.failed',
-        runtimeState.sttCircuitStatus,
+        sttSessionManager.getCircuitStatus,
       );
-      return () => listeners.sttCircuitStatusChange.delete(callback);
     },
-    onTranscript(callback: (result: TranscriptionResult) => void): () => void {
-      listeners.transcript.add(callback);
-      return () => listeners.transcript.delete(callback);
-    },
-    onVADEvent(callback: (event: VADEvent) => void): () => void {
-      listeners.vad.add(callback);
-      return () => listeners.vad.delete(callback);
-    },
-    onAudioOutput(callback: (chunk: SpeechChunk) => void): () => void {
-      listeners.audioOutput.add(callback);
-      return () => listeners.audioOutput.delete(callback);
-    },
-    onAudioDropped(callback): () => void {
-      listeners.audioDropped.add(callback);
-      return () => listeners.audioDropped.delete(callback);
-    },
+    onTranscript: sessionEvents.onTranscript,
+    onVADEvent: sessionEvents.onVADEvent,
+    onAudioOutput: sessionEvents.onAudioOutput,
+    onAudioDropped: sessionEvents.onAudioDropped,
     shouldAutoRestart(): boolean {
-      return autoRestartListening && runtimeState.state === 'idle';
+      return autoRestartListening && turnCoordinator.getVoiceState() === 'idle';
     },
     sendAudioChunk(chunk: AudioChunk): void {
-      if (runtimeState.destroyed) {
-        return;
-      }
-      if (runtimeState.suppressIncomingAudio) {
-        trace('stt.audio.ignored_after_manual_stop', {
-          bytes: chunk.data.length,
-          sampleRate: chunk.sampleRate,
-          encoding: chunk.encoding,
-          state: runtimeState.state,
-        });
-        return;
-      }
-      runtimeState.hasSentAudioForTurn = true;
-      if (runtimeState.isInitializing || runtimeState.state === 'idle') {
-        bufferAudioChunk(
-          audioBufferContext,
-          chunk,
-          'pre_connection_buffer_full',
-          'stt.audio.buffered',
-          {
-            bytes: chunk.data.length,
-            sampleRate: chunk.sampleRate,
-            encoding: chunk.encoding,
-            state: runtimeState.state,
-            isInitializing: runtimeState.isInitializing,
-          },
-        );
-        return;
-      }
-
-      if (runtimeState.state !== 'listening') {
-        handleNonListeningAudioChunkDrop({
-          state: runtimeState,
-          voiceState: runtimeState.state,
-          chunk,
-          measureAudioChunkDurationMs,
-          normalizeError,
-          trace,
-          emitPendingAudioDropEvent,
-          reportError,
-        });
-        return;
-      }
-
-      if (stt.isConnected()) {
-        try {
-          trace('stt.audio.sent', {
-            bytes: chunk.data.length,
-            sampleRate: chunk.sampleRate,
-            encoding: chunk.encoding,
-          });
-          stt.sendAudio(chunk);
-        } catch (error) {
-          const normalizedError = normalizeError(error);
-          trace('stt.audio.send_failed', {
-            bytes: chunk.data.length,
-            sampleRate: chunk.sampleRate,
-            encoding: chunk.encoding,
-            message: normalizedError.message,
-          });
-          reportError(
-            new Error('Failed to send STT audio chunk while listening', {
-              cause: normalizedError,
-            }),
-          );
-
-          bufferAudioChunk(
-            audioBufferContext,
-            chunk,
-            'stt_send_failed',
-            'stt.audio.buffered.after_send_failure',
-            {
-              bytes: chunk.data.length,
-              sampleRate: chunk.sampleRate,
-              encoding: chunk.encoding,
-              state: runtimeState.state,
-            },
-          );
-        }
-        return;
-      }
-
-      bufferAudioChunk(
-        audioBufferContext,
-        chunk,
-        'reconnect_buffer_full',
-        'stt.audio.buffered.waiting_for_connection',
-        {
-          bytes: chunk.data.length,
-          sampleRate: chunk.sampleRate,
-          encoding: chunk.encoding,
-        },
-      );
+      sttSessionManager.sendAudio(chunk);
     },
     speak,
     handleVADEvent,
