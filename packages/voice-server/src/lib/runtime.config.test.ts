@@ -54,6 +54,7 @@ class MockTTSProvider implements TTSProvider {
         text: 'mock speech',
         format: 'mp3',
         sampleRate: 24000,
+        queued: false,
       },
       completion: Promise.resolve('completed'),
     };

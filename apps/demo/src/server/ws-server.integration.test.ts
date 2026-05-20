@@ -20,6 +20,8 @@ interface TestContext {
   client: TestWsClient;
 }
 
+const INTEGRATION_TIMEOUT_MS = 5000;
+
 describe('ws-server integration', () => {
   describe('scenario 1: connect receives engine.stt.ready', () => {
     let ctx: TestContext;
@@ -118,7 +120,7 @@ describe('ws-server integration', () => {
 
       await waitForCondition(
         () => mockVoice.calls.sendAudioChunk.mock.calls.length === 3,
-        2000,
+        INTEGRATION_TIMEOUT_MS,
       );
 
       expect(mockVoice.calls.sendAudioChunk).toHaveBeenCalledTimes(3);
@@ -172,6 +174,7 @@ describe('ws-server integration', () => {
         text: 'Showing weather',
         format: 'pcm_f32le',
         sampleRate: 16000,
+        queued: false,
       });
       await waitForMessage(ctx.client.received, 'engine.tts.sent');
 
@@ -196,6 +199,92 @@ describe('ws-server integration', () => {
       if (stateMsg.type === 'engine.voice.state') {
         expect(stateMsg.state).toBe('idle');
       }
+    });
+
+    test('paragraph speak forwards queued metadata for chained turns over the websocket boundary', async () => {
+      await waitForMessage(ctx.client.received, 'engine.stt.ready');
+      const voice = mockVoice.getBound();
+
+      send(ctx.client.ws, {
+        type: 'client.voice.speak',
+        text: 'First sentence. Second sentence. Third sentence.',
+      });
+
+      await waitForCondition(
+        () => mockVoice.calls.enqueueSpeak.mock.calls.length === 3,
+        INTEGRATION_TIMEOUT_MS,
+      );
+
+      expect(mockVoice.calls.enqueueSpeak).toHaveBeenNthCalledWith(
+        1,
+        'First sentence',
+      );
+      expect(mockVoice.calls.enqueueSpeak).toHaveBeenNthCalledWith(
+        2,
+        'Second sentence',
+      );
+      expect(mockVoice.calls.enqueueSpeak).toHaveBeenNthCalledWith(
+        3,
+        'Third sentence',
+      );
+
+      const firstTurnCount = ctx.client.received.length;
+      voice.triggerSpeechStarted({
+        text: 'First sentence',
+        format: 'pcm_f32le',
+        sampleRate: 16000,
+        queued: false,
+      });
+      await waitForCondition(
+        () => ctx.client.received.length > firstTurnCount,
+        INTEGRATION_TIMEOUT_MS,
+      );
+      const firstTurn = ctx.client.received.at(-1);
+      expect(firstTurn?.type).toBe('engine.tts.sent');
+      if (firstTurn?.type !== 'engine.tts.sent') {
+        throw new Error('Expected first queued-turn message');
+      }
+
+      const secondTurnCount = ctx.client.received.length;
+      voice.triggerSpeechStarted({
+        text: 'Second sentence',
+        format: 'pcm_f32le',
+        sampleRate: 16000,
+        queued: true,
+      });
+      await waitForCondition(
+        () => ctx.client.received.length > secondTurnCount,
+        INTEGRATION_TIMEOUT_MS,
+      );
+      const secondTurn = ctx.client.received.at(-1);
+      expect(secondTurn?.type).toBe('engine.tts.sent');
+      if (secondTurn?.type !== 'engine.tts.sent') {
+        throw new Error('Expected second queued-turn message');
+      }
+
+      const thirdTurnCount = ctx.client.received.length;
+      voice.triggerSpeechStarted({
+        text: 'Third sentence',
+        format: 'pcm_f32le',
+        sampleRate: 16000,
+        queued: true,
+      });
+      await waitForCondition(
+        () => ctx.client.received.length > thirdTurnCount,
+        INTEGRATION_TIMEOUT_MS,
+      );
+      const thirdTurn = ctx.client.received.at(-1);
+      expect(thirdTurn?.type).toBe('engine.tts.sent');
+      if (thirdTurn?.type !== 'engine.tts.sent') {
+        throw new Error('Expected third queued-turn message');
+      }
+
+      expect(firstTurn.text).toBe('First sentence');
+      expect(firstTurn.queued).toBe(false);
+      expect(secondTurn.text).toBe('Second sentence');
+      expect(secondTurn.queued).toBe(true);
+      expect(thirdTurn.text).toBe('Third sentence');
+      expect(thirdTurn.queued).toBe(true);
     });
   });
 
@@ -231,7 +320,7 @@ describe('ws-server integration', () => {
 
       await waitForCondition(
         () => mockVoice.calls.destroy.mock.calls.length === 1,
-        2000,
+        INTEGRATION_TIMEOUT_MS,
       );
 
       expect(mockVoice.calls.destroy).toHaveBeenCalledTimes(1);
@@ -356,7 +445,7 @@ describe('ws-server integration', () => {
 
       await waitForCondition(
         () => mockVoice.calls.interrupt.mock.calls.length === 1,
-        2000,
+        INTEGRATION_TIMEOUT_MS,
       );
 
       expect(mockVoice.calls.interrupt).toHaveBeenCalledTimes(1);
@@ -404,7 +493,7 @@ describe('ws-server integration', () => {
 
       await waitForCondition(
         () => mockVoice.calls.stopListening.mock.calls.length === 1,
-        2000,
+        INTEGRATION_TIMEOUT_MS,
       );
 
       expect(mockVoice.calls.stopListening).toHaveBeenCalledTimes(1);

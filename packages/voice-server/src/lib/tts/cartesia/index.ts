@@ -510,6 +510,7 @@ export function createCartesiaTTS(
           text,
           format: 'pcm_f32le',
           sampleRate,
+          queued: false,
         },
         completion,
       };

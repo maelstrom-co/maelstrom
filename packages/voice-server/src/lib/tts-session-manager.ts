@@ -33,9 +33,15 @@ type TTSSessionManagerCallbacks = {
   onSpeechStopped: VoiceSessionCallbacks['onSpeechStopped'];
 };
 
-type DispatchSpeakOptions = {
-  clearQueue?: boolean;
+type SpeakConfig = {
   queued?: boolean;
+  voice?: string;
+  shouldDispatch?: () => boolean;
+  replaceActiveSpeech?: boolean;
+};
+
+type DispatchSpeakOptions = Pick<SpeakConfig, 'queued' | 'voice'> & {
+  clearQueue?: boolean;
   stopActiveSpeech?: boolean;
 };
 
@@ -89,13 +95,13 @@ export function createTTSSessionManager(
 
   async function dispatchSpeak(
     text: string,
-    voice?: string,
     options: DispatchSpeakOptions = {},
   ): Promise<void> {
     const {
       clearQueue: shouldClearQueue = false,
       queued = false,
       stopActiveSpeech = false,
+      voice,
     } = options;
 
     if (text.trim().length === 0) {
@@ -123,6 +129,7 @@ export function createTTSSessionManager(
     try {
       await speak(text, {
         voice,
+        queued,
         replaceActiveSpeech: false,
         shouldDispatch: () =>
           !callbacks.isDestroyed() &&
@@ -168,7 +175,8 @@ export function createTTSSessionManager(
       });
     }
 
-    void dispatchSpeak(nextQueuedSpeech.text, nextQueuedSpeech.voice, {
+    void dispatchSpeak(nextQueuedSpeech.text, {
+      voice: nextQueuedSpeech.voice,
       queued: true,
     }).catch((error) => {
       callbacks.reportAsyncFailure('tts.queued_speak.failed', error, {
@@ -324,14 +332,7 @@ export function createTTSSessionManager(
     }
   }
 
-  async function speak(
-    text: string,
-    config: {
-      voice?: string;
-      shouldDispatch?: () => boolean;
-      replaceActiveSpeech?: boolean;
-    } = {},
-  ) {
+  async function speak(text: string, config: SpeakConfig = {}) {
     callbacks.trace('tts.speak.requested', {
       textLength: text.length,
       preview: text.slice(0, 80),
@@ -373,10 +374,15 @@ export function createTTSSessionManager(
       requestedVoice: speakOptions.voice ?? null,
       generation,
     });
+    const speechStart = {
+      ...handle.speech,
+      queued: config.queued ?? false,
+    };
+
     callbacks.notifyCallbackSafely(
       callbacks.onSpeechStarted,
       'callback.onSpeechStarted.failed',
-      handle.speech,
+      speechStart,
     );
 
     void handle.completion
@@ -410,7 +416,7 @@ export function createTTSSessionManager(
       return;
     }
 
-    void dispatchSpeak(text, voice).catch((error) => {
+    void dispatchSpeak(text, { voice }).catch((error) => {
       callbacks.reportAsyncFailure('tts.enqueue_speak.failed', error, {
         textLength: text.length,
         preview: text.slice(0, 80),
@@ -424,7 +430,8 @@ export function createTTSSessionManager(
       return;
     }
 
-    await dispatchSpeak(text, voice, {
+    await dispatchSpeak(text, {
+      voice,
       clearQueue: true,
       stopActiveSpeech: true,
     });

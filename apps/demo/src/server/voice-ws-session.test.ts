@@ -226,12 +226,13 @@ describe('createDemoVoiceWsSessionController', () => {
     expect(forwardedAudio.sampleRate).toBe(16000);
     expect(forwardedAudio.encoding).toBe('linear16');
     expect(voiceSession.stopListening).toHaveBeenCalledTimes(1);
-    expect(voiceSession.enqueueSpeak).not.toHaveBeenCalled();
-    expect(voiceSession.speak).toHaveBeenCalledWith('hello world');
+    expect(voiceSession.enqueueSpeak).toHaveBeenCalledTimes(1);
+    expect(voiceSession.enqueueSpeak).toHaveBeenCalledWith('hello world');
+    expect(voiceSession.speak).not.toHaveBeenCalled();
     expect(sendEngineError).not.toHaveBeenCalled();
   });
 
-  test('routes client.voice.speak to speak() and never enqueueSpeak()', async () => {
+  test('routes client.voice.speak through enqueueSpeak sentence splitting', async () => {
     const voiceSession = createVoiceSessionStub();
 
     const controller = createDemoVoiceWsSessionController({
@@ -246,12 +247,13 @@ describe('createDemoVoiceWsSessionController', () => {
     });
 
     await controller.onMessage(
-      JSON.stringify({ type: 'client.voice.speak', text: 'hello world' }),
+      JSON.stringify({ type: 'client.voice.speak', text: 'first. second.' }),
     );
 
-    expect(voiceSession.speak).toHaveBeenCalledTimes(1);
-    expect(voiceSession.speak).toHaveBeenCalledWith('hello world');
-    expect(voiceSession.enqueueSpeak).not.toHaveBeenCalled();
+    expect(voiceSession.speak).not.toHaveBeenCalled();
+    expect(voiceSession.enqueueSpeak).toHaveBeenCalledTimes(2);
+    expect(voiceSession.enqueueSpeak).toHaveBeenNthCalledWith(1, 'first');
+    expect(voiceSession.enqueueSpeak).toHaveBeenNthCalledWith(2, 'second');
   });
 
   test('does not announce ready when warmup fails and surfaces the error to the client', async () => {
@@ -326,7 +328,7 @@ describe('createDemoVoiceWsSessionController', () => {
     const speakController = createDemoVoiceWsSessionController({
       sessionId: SessionId('session-speak'),
       voiceSession: createVoiceSessionStub('idle', {
-        speak: mock(() => {
+        enqueueSpeak: mock(() => {
           throw new Error('speak failed');
         }),
       }),
@@ -402,7 +404,7 @@ describe('createDemoVoiceWsSessionController', () => {
             }),
           }
         : {
-            speak: mock(() => {
+            enqueueSpeak: mock(() => {
               throw providerError;
             }),
           },

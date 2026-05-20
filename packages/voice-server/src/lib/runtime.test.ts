@@ -349,6 +349,7 @@ class MockTTSProvider implements TTSProvider {
         text,
         format: 'pcm_f32le',
         sampleRate: options?.sampleRate ?? 16000,
+        queued: false,
       },
       completion,
     };

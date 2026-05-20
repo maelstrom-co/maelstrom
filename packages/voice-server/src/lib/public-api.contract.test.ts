@@ -130,6 +130,7 @@ test('public API contract is locked', () => {
     text: 'hello world',
     format: 'mp3',
     sampleRate: 24_000,
+    queued: false,
   };
   const speechStopReason: SpeechStopReason = 'completed';
   const speechHandle: SpeechSynthesisHandle = {

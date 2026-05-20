@@ -252,10 +252,16 @@ export function createDemoVoiceWsSessionController(
       return;
     }
 
-    console.log(`[Demo WS] Speaking: "${text.substring(0, 50)}..."`);
-
     try {
-      await voiceSession.speak(text);
+      console.log(`[Demo WS] Speaking: "${text.substring(0, 50)}..."`);
+      const lines = text
+        .split('.')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+      for (const line of lines) {
+        voiceSession.enqueueSpeak(line);
+      }
     } catch (err: unknown) {
       reportEngineError('[Demo WS] Speak error', err);
     }

@@ -305,7 +305,7 @@ export function createDemoWsApp(deps?: DemoWsAppDeps): {
             sampleRate: speech.sampleRate,
             sequence: 0,
             isFinal: false,
-            queued: speech.queued ?? false,
+            queued: speech.queued,
           });
         },
         onSpeechStopped: () => {},

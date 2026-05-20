@@ -262,6 +262,7 @@ export function createGoogleTTS(options: GoogleTTSOptions = {}): TTSProvider {
           text,
           format: 'pcm_f32le',
           sampleRate: resolvedSampleRate,
+          queued: false,
         },
         completion,
       };

@@ -63,6 +63,8 @@ export interface ControllableMockVoiceSession {
    */
   calls: {
     destroy: VoiceSession['destroy'] & MockCallTracker<[]>;
+    enqueueSpeak: VoiceSession['enqueueSpeak'] &
+      MockCallTracker<[string, (string | undefined)?]>;
     interrupt: VoiceSession['interrupt'] & MockCallTracker<[]>;
     sendAudioChunk: VoiceSession['sendAudioChunk'] &
       MockCallTracker<[AudioChunk]>;
@@ -123,6 +125,7 @@ export function createControllableMockVoiceSession(): ControllableMockVoiceSessi
   let warmupImpl: () => Promise<void> = async () => {};
   const destroyFn = mock(() => {});
   const interruptFn = mock(() => {});
+  const enqueueSpeakFn = mock((_text: string, _voice?: string) => {});
   const sendAudioChunkFn = mock((_: AudioChunk) => {});
   const stopListeningFn = mock(async () => {});
 
@@ -145,7 +148,7 @@ export function createControllableMockVoiceSession(): ControllableMockVoiceSessi
     shouldAutoRestart: mock(() => false),
     sendAudioChunk: sendAudioChunkFn,
     speak: mock(async () => {}),
-    enqueueSpeak: mock((_text: string, _voice?: string) => {}),
+    enqueueSpeak: enqueueSpeakFn,
     handleVADEvent: mock((_: VADEvent) => {}),
     destroy: destroyFn,
   };
@@ -188,6 +191,7 @@ export function createControllableMockVoiceSession(): ControllableMockVoiceSessi
     },
     calls: {
       destroy: destroyFn,
+      enqueueSpeak: enqueueSpeakFn,
       interrupt: interruptFn,
       sendAudioChunk: sendAudioChunkFn,
       stopListening: stopListeningFn,

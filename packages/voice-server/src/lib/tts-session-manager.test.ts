@@ -3,11 +3,13 @@ import { describe, expect, test } from 'bun:test';
 import { createTTSSessionManager } from './tts-session-manager.js';
 import type {
   SpeechOptions,
+  SpeechStart,
   SpeechSynthesisHandle,
   TTSEvent,
   TTSProvider,
   VoiceSessionState,
 } from './types.js';
+import { isVoiceSessionQueuedTurnsDroppedError } from './types.js';
 
 async function flushMicrotasks() {
   await Promise.resolve();
@@ -24,6 +26,7 @@ class MockTTSProvider implements TTSProvider {
   stopCalls = 0;
   throwOnConnect = false;
   throwOnStop = false;
+  private nextSpeakError: Error | null = null;
   private activeSpeak: {
     completionSettled: boolean;
     resolveCompletion: (reason: 'completed' | 'stopped') => void;
@@ -56,6 +59,12 @@ class MockTTSProvider implements TTSProvider {
   }
 
   speak(text: string, options?: SpeechOptions): SpeechSynthesisHandle {
+    if (this.nextSpeakError) {
+      const error = this.nextSpeakError;
+      this.nextSpeakError = null;
+      throw error;
+    }
+
     this.spokenTexts.push(text);
 
     let resolveCompletion!: (reason: 'completed' | 'stopped') => void;
@@ -78,6 +87,7 @@ class MockTTSProvider implements TTSProvider {
         text,
         format: 'pcm_f32le',
         sampleRate: options?.sampleRate ?? 16000,
+        queued: false,
       },
       completion,
     };
@@ -112,12 +122,26 @@ class MockTTSProvider implements TTSProvider {
     this.activeSpeak.rejectCompletion(error);
     this.activeSpeak = null;
   }
+
+  failNextSpeak(error = new Error('speak failed')): void {
+    this.nextSpeakError = error;
+  }
 }
 
 function createManager() {
   const tts = new MockTTSProvider();
+  const asyncFailures: Array<{
+    event: string;
+    error: unknown;
+    details?: Record<string, unknown>;
+  }> = [];
   const voiceStates: VoiceSessionState[] = [];
+  const traceEvents: Array<{
+    event: string;
+    details?: Record<string, unknown>;
+  }> = [];
   const speechStarts: string[] = [];
+  const speechStartEvents: SpeechStart[] = [];
   const speechStops: boolean[] = [];
   let destroyed = false;
   let currentState: VoiceSessionState = 'idle';
@@ -129,9 +153,13 @@ function createManager() {
       currentState = state;
       voiceStates.push(state);
     },
-    trace() {},
+    trace(event, details) {
+      traceEvents.push({ event, details });
+    },
     reportError() {},
-    reportAsyncFailure() {},
+    reportAsyncFailure(event, error, details) {
+      asyncFailures.push({ event, error, details });
+    },
     notifyCallbackSafely(callback, _traceEvent, ...args) {
       callback?.(...args);
     },
@@ -140,6 +168,7 @@ function createManager() {
     },
     onSpeechStarted(speech) {
       speechStarts.push(speech.text);
+      speechStartEvents.push(speech);
     },
     onSpeechStopped(completed) {
       speechStops.push(completed);
@@ -148,13 +177,16 @@ function createManager() {
 
   return {
     manager,
+    asyncFailures,
     markDestroyed() {
       destroyed = true;
       manager.destroy();
     },
     speechStarts,
+    speechStartEvents,
     speechStops,
     tts,
+    traceEvents,
     voiceStates,
   };
 }
@@ -183,6 +215,64 @@ describe('tts-session-manager', () => {
 
     expect(speechStops).toEqual([true, true]);
     expect(voiceStates.at(-1)).toBe('idle');
+  });
+
+  test('marks every queued successor in a multi-turn chain', async () => {
+    const { manager, speechStartEvents, tts } = createManager();
+
+    await manager.speakNow('A');
+    manager.enqueueSpeak('B');
+    manager.enqueueSpeak('C');
+
+    tts.settleActiveSpeak('completed');
+    await flushMicrotasks();
+
+    tts.settleActiveSpeak('completed');
+    await flushMicrotasks();
+
+    expect(
+      speechStartEvents.map((speech) => ({
+        text: speech.text,
+        queued: speech.queued,
+      })),
+    ).toEqual([
+      { text: 'A', queued: false },
+      { text: 'B', queued: true },
+      { text: 'C', queued: true },
+    ]);
+  });
+
+  test('reports queued-turn drops when a queued successor fails mid-chain', async () => {
+    const { asyncFailures, manager, traceEvents, tts } = createManager();
+
+    await manager.speakNow('A');
+    manager.enqueueSpeak('B');
+    manager.enqueueSpeak('C');
+    tts.failNextSpeak(new Error('provider down'));
+
+    tts.settleActiveSpeak('completed');
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(traceEvents).toContainEqual(
+      expect.objectContaining({
+        event: 'tts.queued_turns.dropped',
+        details: expect.objectContaining({ droppedQueueCount: 1 }),
+      }),
+    );
+    expect(asyncFailures).toHaveLength(1);
+    expect(asyncFailures[0]?.event).toBe('tts.queued_speak.failed');
+    expect(asyncFailures[0]?.details).toEqual(
+      expect.objectContaining({ droppedQueueCount: 1 }),
+    );
+    expect(isVoiceSessionQueuedTurnsDroppedError(asyncFailures[0]?.error)).toBe(
+      true,
+    );
+    if (!isVoiceSessionQueuedTurnsDroppedError(asyncFailures[0]?.error)) {
+      throw new Error('Expected queued-turn drop error');
+    }
+    expect(asyncFailures[0].error.droppedQueueCount).toBe(1);
+    expect(tts.spokenTexts).toEqual(['A']);
   });
 
   test('destroy clears queued successors before the active turn completes', async () => {

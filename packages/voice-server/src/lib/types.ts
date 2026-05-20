@@ -399,8 +399,8 @@ export interface SpeechStart {
   format: SpeechChunk['format'];
   /** Sample rate that downstream playback should expect for the turn. */
   sampleRate: number;
-  /** `true` when this turn was dequeued from `speakQueue` rather than replacing active speech. */
-  queued?: boolean;
+  /** `true` when this turn was dequeued from `speakQueue`; `false` for directly dispatched turns. */
+  queued: boolean;
 }
 
 /**

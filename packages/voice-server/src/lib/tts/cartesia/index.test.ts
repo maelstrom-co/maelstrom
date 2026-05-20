@@ -150,6 +150,7 @@ describe('createCartesiaTTS', () => {
       text: 'Hello',
       format: 'pcm_f32le',
       sampleRate: 44100,
+      queued: false,
     });
     expect(events[0]?.type).toBe('chunk');
     expect(events[1]?.type).toBe('chunk');
@@ -219,6 +220,7 @@ describe('createCartesiaTTS', () => {
       text: 'Second',
       format: 'pcm_f32le',
       sampleRate: 44100,
+      queued: false,
     });
     expect(lastRequest).toBeDefined();
     expect(JSON.parse(String(lastRequest))).toMatchObject({
@@ -270,6 +272,7 @@ describe('createCartesiaTTS', () => {
       text: 'Second',
       format: 'pcm_f32le',
       sampleRate: 44100,
+      queued: false,
     });
     expect(events).toHaveLength(1);
   });

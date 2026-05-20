@@ -134,6 +134,7 @@ describe('createGoogleTTS', () => {
       text: 'Hello world',
       format: 'pcm_f32le',
       sampleRate: 16000,
+      queued: false,
     });
     expect(events[0]?.type).toBe('chunk');
     if (events[0]?.type === 'chunk') {
