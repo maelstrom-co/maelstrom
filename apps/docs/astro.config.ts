@@ -4,6 +4,24 @@ import starlight from '@astrojs/starlight';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, fontProviders } from 'astro/config';
 import starlightLlmsTxt from 'starlight-llms-txt';
+import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
+
+const [reactTypeDoc, reactTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [clientTypeDoc, clientTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [engineTypeDoc, engineTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+
+// TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
+// the workspace root on every plugin call, so {path} carries the full
+// repo-relative path (e.g. `packages/engine/src/lib/engine.ts`). One template
+// for all packages keeps the URL space coherent.
+const repoRoot = '../../';
+const sourceLinkTemplate =
+  'https://github.com/maelstrom-co/maelstrom/blob/main/{path}#L{line}';
 
 export default defineConfig({
   site: 'https://docs.maelstrom-ai.co',
@@ -89,6 +107,54 @@ export default defineConfig({
           promote: ['getting-started/introduction', 'getting-started/quick-start', 'getting-started/core-concepts'],
           demote: ['community/changelog'],
         }),
+        reactTypeDoc({
+          entryPoints: ['../../packages/react/src/index.ts'],
+          tsconfig: '../../packages/react/tsconfig.lib.json',
+          output: 'reference/react',
+          sidebar: { label: '@maelstrom-co/react', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        clientTypeDoc({
+          entryPoints: ['../../packages/client/src/index.ts'],
+          tsconfig: '../../packages/client/tsconfig.lib.json',
+          output: 'reference/client',
+          sidebar: { label: '@maelstrom-co/client', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        protocolTypeDoc({
+          entryPoints: ['../../packages/protocol/src/index.ts'],
+          tsconfig: '../../packages/protocol/tsconfig.lib.json',
+          output: 'reference/protocol',
+          sidebar: { label: '@maelstrom-co/protocol', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        engineTypeDoc({
+          entryPoints: ['../../packages/engine/src/index.ts'],
+          tsconfig: '../../packages/engine/tsconfig.lib.json',
+          output: 'reference/engine',
+          sidebar: { label: '@maelstrom-co/engine', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
       ],
       customCss: ['./src/styles/custom.css'],
       expressiveCode: false,
@@ -157,22 +223,10 @@ export default defineConfig({
         {
           label: 'API Reference',
           items: [
-            {
-              label: '@maelstrom-co/react',
-              autogenerate: { directory: 'reference/react' },
-            },
-            {
-              label: '@maelstrom-co/client',
-              autogenerate: { directory: 'reference/client' },
-            },
-            {
-              label: '@maelstrom-co/protocol',
-              autogenerate: { directory: 'reference/protocol' },
-            },
-            {
-              label: '@maelstrom-co/engine',
-              autogenerate: { directory: 'reference/engine' },
-            },
+            reactTypeDocSidebarGroup,
+            clientTypeDocSidebarGroup,
+            protocolTypeDocSidebarGroup,
+            engineTypeDocSidebarGroup,
           ],
         },
         {
@@ -191,6 +245,7 @@ export default defineConfig({
           label: 'Community',
           items: [
             { slug: 'community/contributing' },
+            { slug: 'community/jsdoc-contract' },
             { slug: 'community/changelog' },
           ],
         },

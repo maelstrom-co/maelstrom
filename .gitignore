@@ -57,6 +57,9 @@ vitest.config.*.timestamp*
 .astro/
 .wrangler/
 
+# Generated API reference (starlight-typedoc emits these on docs build)
+apps/docs/src/content/docs/reference/
+
 # AI generated plans
 docs/superpowers/
 .superpowers/
