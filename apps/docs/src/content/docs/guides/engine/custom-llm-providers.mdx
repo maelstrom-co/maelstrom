@@ -1,6 +1,195 @@
 ---
-title: Custom LLM Providers
-description: How to implement a custom LLM provider for the Engine.
+title: Use a custom LLM provider
+description: How to swap the Engine's LLM adapter — Gemini, OpenAI, Anthropic, or your own.
 ---
 
-*Content coming soon.*
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The reference engine talks to the model through a [TanStack AI](https://tanstack.com/ai)
+text adapter. Swapping providers is a single field on `EngineConfig.adapter`
+— the prompt builder, response parser, heal layer, and retry policy are all
+provider-agnostic.
+
+## Before you start
+
+- An installed `@maelstrom-co/engine` package.
+- An API key for the provider you want to use, exposed as the environment
+  variable the adapter expects.
+
+## Steps
+
+<Steps>
+1.  **Install the adapter package** for the provider you want.
+
+    <Tabs syncKey="llm-provider">
+      <TabItem label="Gemini">
+        ```bash
+        bun add @tanstack/ai-gemini
+        ```
+      </TabItem>
+      <TabItem label="OpenAI">
+        ```bash
+        bun add @tanstack/ai-openai
+        ```
+      </TabItem>
+      <TabItem label="Anthropic">
+        ```bash
+        bun add @tanstack/ai-anthropic
+        ```
+      </TabItem>
+    </Tabs>
+
+2.  **Expose the provider's API key.** Each TanStack AI adapter looks up its
+    key from an env var owned by the adapter package itself, not by
+    `@maelstrom-co/engine` — check the provider package's README if a name
+    changes.
+
+    <Tabs syncKey="llm-provider">
+      <TabItem label="Gemini">
+        ```bash title=".env"
+        GOOGLE_API_KEY=...
+        # Or GEMINI_API_KEY — the adapter tries both.
+        ```
+      </TabItem>
+      <TabItem label="OpenAI">
+        ```bash title=".env"
+        OPENAI_API_KEY=...
+        ```
+      </TabItem>
+      <TabItem label="Anthropic">
+        ```bash title=".env"
+        ANTHROPIC_API_KEY=...
+        ```
+      </TabItem>
+    </Tabs>
+
+3.  **Pass the adapter to `createEngine`.** The adapter factory takes a model
+    id; the engine carries the adapter through every `chart_request`.
+
+    <Tabs syncKey="llm-provider">
+      <TabItem label="Gemini">
+        ```ts title="src/server/engine.ts"
+        import { createEngine } from '@maelstrom-co/engine';
+        import { geminiText } from '@tanstack/ai-gemini';
+
+        export const engine = createEngine({
+          adapter: geminiText('gemini-2.0-flash'),
+        });
+        ```
+      </TabItem>
+      <TabItem label="OpenAI">
+        ```ts title="src/server/engine.ts"
+        import { createEngine } from '@maelstrom-co/engine';
+        import { openaiText } from '@tanstack/ai-openai';
+
+        export const engine = createEngine({
+          adapter: openaiText('gpt-4o'),
+        });
+        ```
+      </TabItem>
+      <TabItem label="Anthropic">
+        ```ts title="src/server/engine.ts"
+        import { createEngine } from '@maelstrom-co/engine';
+        import { anthropicText } from '@tanstack/ai-anthropic';
+
+        export const engine = createEngine({
+          adapter: anthropicText('claude-sonnet-4-5'),
+        });
+        ```
+      </TabItem>
+    </Tabs>
+</Steps>
+
+That's the entire swap. Send a `chart_request` and the engine will route
+through the new provider.
+
+## Choosing a model
+
+Provider catalogues change faster than these docs do — the model ids above
+are illustrative. Pick from the provider's own catalogue, then weight along
+three axes:
+
+- **Structured output quality.** The engine asks for JSON validated against
+  the protocol schema. Stronger models heal less often, which trims retries
+  and latency. The bundled retry policy (default `maxRetries: 1`) papers over
+  most slips but is not free.
+- **Latency.** The LLM call is the dominant cost of a turn. "Flash" / "mini"
+  tier models trade some accuracy for first-token latency that the heal
+  layer can usually absorb.
+- **Cost.** Maelstrom prompts include the vessel/variant catalogue, so input
+  tokens scale with how many vessels you register, not how chatty the user
+  is.
+
+<Aside type="note" title="Streaming">
+  The engine consumes the **complete** structured response from the adapter,
+  not a token stream. Adapter-side streaming is opaque to the engine — the
+  response is parsed and validated as a single JSON object. UI streaming on
+  top of the engine is a transport-layer concern, not an adapter concern.
+</Aside>
+
+## Variations
+
+### Per-request adapter override
+
+The adapter is set at `createEngine` time and is the same for every turn. If
+you need per-request routing (A/B test, role-based model selection, fallback
+on quota errors), stand up multiple engines:
+
+```ts title="src/server/route.ts"
+import { createEngine } from '@maelstrom-co/engine';
+import { geminiText } from '@tanstack/ai-gemini';
+import { openaiText } from '@tanstack/ai-openai';
+
+const flashEngine = createEngine({ adapter: geminiText('<flash-model-id>') });
+const proEngine   = createEngine({ adapter: openaiText('<pro-model-id>') });
+
+function pickEngine(userTier: 'free' | 'pro') {
+  return userTier === 'pro' ? proEngine : flashEngine;
+}
+```
+
+Each engine carries its own history manager and concurrency state. Don't share
+a single `HistoryStore` between engines that target different model families
+unless your `deriveLLMContext` projection accounts for the mix.
+
+### Roll your own adapter
+
+`EngineConfig.adapter` is typed as `AnyTextAdapter` from `@tanstack/ai`. Any
+object satisfying that contract — including your own — is accepted.
+
+Implementing a custom adapter is out of scope for this guide. See the
+[TanStack AI docs](https://tanstack.com/ai) for the `AnyTextAdapter`
+contract; the engine does not extend it.
+
+Use this when you need to call a model the TanStack AI catalogue does not
+cover yet (an internal endpoint, a fine-tuned deployment, a gateway), or
+when you want to wrap an existing adapter to add logging, request signing,
+or fallback chains.
+
+## Verify
+
+Send a `chart_request` through the engine and inspect the result. If the
+adapter errors, the engine emits a `LLM call failed` log line with the
+structured `EngineError` attached and returns `Err(ProviderError)`:
+
+```ts
+import { isOk } from '@maelstrom-co/protocol';
+
+const result = await engine.handle(chartRequestMessage);
+
+if (!isOk(result) && result.error._tag === 'ProviderError') {
+  console.error('Adapter error:', result.error.message);
+}
+```
+
+If the result is `Ok` with a `chart_response` whose `response.userMessage`
+is non-empty, the new adapter is live.
+
+## Next steps
+
+- [System prompt customization](/guides/engine/system-prompt) — keep the
+  default identity / triggers prompts but layer in your own rules.
+- [Conversation history](/guides/engine/conversation-history) — give the
+  model the prior turns so it can reason across the session.
+- [The Engine](/understanding/engine) — what the engine does with the
+  response after the adapter returns.

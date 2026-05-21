@@ -800,6 +800,43 @@ describe('HistoryManager.getLLMContext', () => {
     const ctx = await mgr.getLLMContext(s);
     expect(ctx).toEqual([{ role: 'assistant', content: '[redacted]' }]);
   });
+
+  test('passes a defaults() callback for compose-with-default projection', async () => {
+    interface TurnMeta {
+      readonly redacted: boolean;
+    }
+    const mgr = createHistoryManager<TurnMeta>({
+      store: createInMemoryStore<TurnMeta>(),
+      maxEntries: 10,
+      maxChars: 1_000,
+      transformEntry: (entry) =>
+        entry.kind === 'turn'
+          ? {
+              ...entry,
+              metadata: { redacted: entry.input.id === MessageId('redact-me') },
+            }
+          : entry,
+      deriveLLMContext: (entry, defaults) =>
+        entry.kind === 'turn' && entry.metadata?.redacted
+          ? [{ role: 'assistant', content: '[redacted]' }]
+          : defaults(),
+    });
+    const s = SessionId('s');
+    await mgr.recordTurn(
+      buildInput(s, MessageId('keep'), 'hello world'),
+      buildOutput(s, MessageId('keep'), 'response 1'),
+    );
+    await mgr.recordTurn(
+      buildInput(s, MessageId('redact-me'), 'secret intent'),
+      buildOutput(s, MessageId('redact-me'), 'secret response'),
+    );
+    const ctx = await mgr.getLLMContext(s);
+    expect(ctx).toEqual([
+      { role: 'user', content: 'hello world' },
+      { role: 'assistant', content: 'response 1' },
+      { role: 'assistant', content: '[redacted]' },
+    ]);
+  });
 });
 
 describe('HistoryManager.clear', () => {

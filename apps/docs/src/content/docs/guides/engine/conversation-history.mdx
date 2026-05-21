@@ -1,6 +1,249 @@
 ---
-title: Conversation History
-description: How to configure conversation history and session management.
+title: Enable conversation history
+description: How to configure a HistoryStore, tune truncation, and project entries to the LLM.
 ---
 
-*Content coming soon.*
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+History is opt-in. When omitted, every `chart_request` runs in isolation —
+the LLM sees the current chart state but nothing from prior turns.
+Configuring `history` flips the engine into stateful mode: prior turns and
+developer-supplied assistant messages are fed into each new prompt, and
+completed turns are persisted on the way out.
+
+This page covers wiring a store, tuning truncation, and using the two hooks
+that let you enrich what is persisted and what the LLM sees.
+
+## Before you start
+
+- A wired engine (see [Use a custom LLM provider](/guides/engine/custom-llm-providers)).
+- A decision about persistence: in-memory for local dev/tests, or your own
+  backend (Redis, Postgres, SQLite, …) for anything that needs to survive a
+  process restart.
+
+## Steps
+
+<Steps>
+1.  **Pick a store.** The engine ships an in-memory store for local dev and
+    tests only. The `store` field on `HistoryConfig` is **required** — the
+    engine never silently defaults, so a configured `history` block can't
+    accidentally ship with an in-memory store in production.
+
+    ```ts title="src/server/engine.ts"
+    import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
+    import { geminiText } from '@tanstack/ai-gemini';
+
+    const store = createInMemoryStore();
+
+    export const engine = createEngine({
+      adapter: geminiText('<your-model-id>'),
+      history: {
+        store,
+      },
+    });
+    ```
+
+2.  **Add a truncation budget.** Without bounds, sessions grow unbounded and
+    every prompt gets longer (and more expensive) over time.
+
+    ```ts
+    history: {
+      store,
+      maxEntries: 50,   // hard cap on retained entries
+      maxChars: 40_000, // char budget — proxy for tokens
+    }
+    ```
+
+    Both bounds are optional and independent. See
+    [How truncation actually runs](#how-truncation-actually-runs) for the
+    full policy.
+</Steps>
+
+That's the minimum viable wiring. Send `chart_request` messages on the same
+`sessionId` and the engine will read prior turns into each new prompt, then
+record the completed turn after the response returns.
+
+## Variations
+
+### Persist beyond the process
+
+Local dev uses the in-memory store. Production needs a `HistoryStore`
+implementation backed by something durable and atomic. Implement the
+interface against a backend that supports atomic check-and-insert:
+
+```ts title="src/server/my-store.ts"
+import type { HistoryStore } from '@maelstrom-co/engine';
+
+export function createPostgresStore(): HistoryStore {
+  return {
+    async append(sessionId, entry) { /* INSERT ... ON CONFLICT DO NOTHING */ },
+    async get(sessionId) { /* SELECT ... ORDER BY inserted_at */ },
+    async replace(sessionId, entries) { /* transaction */ },
+    async clear(sessionId) { /* DELETE */ },
+    async getResponseById(sessionId, messageId) { /* point lookup */ },
+  };
+}
+```
+
+The full contract — including the atomicity requirement on `append` — is in
+the
+[engine README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#history).
+
+<Aside type="caution" title="Multi-instance deployments">
+  The engine's per-session mutex is in-process. If two engine instances
+  serve the same `sessionId`, their mutexes do not coordinate. Production
+  deployments need session affinity at the load balancer, a distributed
+  lock, or a partitioned per-session queue — see the engine README's
+  [Concurrency section](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#concurrency).
+</Aside>
+
+### Attach typed metadata to every entry
+
+Use the `transformEntry` hook to enrich entries before they hit the store.
+This is the cleanest way to ride tenant ids, experiment arms, token counts,
+or audit fields along every entry without forking the entry shape.
+
+```ts title="src/server/engine.ts"
+import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
+
+const tenantId = 'acme-corp';
+
+export const engine = createEngine({
+  adapter: /* ... */,
+  history: {
+    store: createInMemoryStore(),
+    maxEntries: 50,
+    maxChars: 40_000,
+    transformEntry: (entry) =>
+      entry.kind === 'turn'
+        ? { ...entry, metadata: { tenantId, tokensUsed: 0 } }
+        : entry,
+  },
+});
+```
+
+`HistoryEntry<TMeta>` carries an optional `metadata` slot reserved for this
+use.
+
+The hook runs for **every** entry — both `turn` and `injection`. It can
+rewrite or strip the kind-specific payload (`metadata` and `output` on a
+`turn`; `metadata` on an `injection`), but the engine re-imposes the
+entry's identity fields (`kind`, `input.id`, `input.sessionId`,
+`input.timestamp`) after the hook returns. Hooks that try to rewrite
+those fields will see them silently restored.
+
+### Project entries to the LLM differently
+
+`deriveLLMContext` is the read-time hook. The engine calls it once per
+retained entry whenever it builds the next prompt's prior-context block. It
+also fires once per entry on every write as part of truncation's char-budget
+estimation, so keep the projection cheap and side-effect-free.
+
+The hook receives a `defaults` callback that returns the engine's default
+projection for the same entry — call it from any branch that should fall
+through to default behavior; ignore it for a full replacement. Use the hook
+to redact stored content, expose extra metadata to the model, or merge
+multiple entries into one synthetic message.
+
+```ts
+history: {
+  store,
+  deriveLLMContext: (entry, defaults) => {
+    if (entry.kind === 'turn' && /* sensitive content */) {
+      return [{ role: 'assistant', content: '[redacted prior turn]' }];
+    }
+    // Fall through to the engine's default projection for everything else.
+    return defaults();
+  },
+}
+```
+
+For reference, the default projection (`defaults()`, also what runs when
+the hook is omitted) is: a `turn` projects to a user message (from
+`user_intent` reasons) plus an assistant message (from the response's
+`userMessage`); an `injection` projects to a single assistant message.
+
+### Seed assistant context without invoking the LLM
+
+The `assistant_message` message variant writes a developer-supplied
+assistant turn directly into history. Subsequent `chart_request`s on the
+same `sessionId` see it as prior context — as long as you `await` the
+injection's result before issuing the next request. The append is lock-free,
+so the `await` is the ordering primitive that guarantees visibility; the
+LLM is not invoked for the injection itself.
+
+```ts
+import { AssistantInjectionMessage, SessionId, isOk } from '@maelstrom-co/protocol';
+
+const result = await engine.handle(
+  AssistantInjectionMessage({
+    sessionId: SessionId('user-42'),
+    content: 'FYI: this user prefers compact summaries.',
+  }),
+);
+
+if (
+  isOk(result) &&
+  result.value.type === 'assistant_message_result' &&
+  result.value.outcome === 'inserted'
+) {
+  // First write.
+} else if (
+  isOk(result) &&
+  result.value.type === 'assistant_message_result'
+) {
+  // 'deduped' — an entry with the same MessageId already existed.
+}
+```
+
+`assistant_message` requires `history` to be configured. If it isn't, the
+engine returns a `ValidationError`.
+
+When `maxChars` is configured, oversized injections are rejected at the
+engine boundary (`ValidationError('content')`) — a single 10MB injection
+would otherwise dominate every subsequent prompt under the
+newest-entry-always-wins rule (see below).
+
+## How truncation actually runs
+
+Worth knowing if you set either bound:
+
+- **Newest-first.** Entries are evaluated newest to oldest; the engine
+  keeps as many as fit and drops the rest.
+- **Hybrid.** When both `maxEntries` and `maxChars` are set, both are
+  enforced on every write. An entry is dropped as soon as either bound is
+  hit.
+- **Newest is sticky.** The most recent entry is retained even when it
+  exceeds `maxChars` on its own. Losing the user's latest turn is more
+  visibly broken than exceeding the cap.
+- **Truncation runs on write.** `recordTurn` and the truncation step inside
+  `addAssistantMessage` serialize through a per-session mutex. Reads
+  (`getLLMContext`) are lock-free.
+
+## Verify
+
+The fastest check is to send two `chart_request`s on the same `sessionId`
+and confirm the second prompt sees the first as prior context. Inspect the
+store directly between calls:
+
+```ts
+import { SessionId } from '@maelstrom-co/protocol';
+
+const entries = await store.get(SessionId('user-42'));
+console.log('history depth:', entries.length);
+```
+
+If `entries.length` grows after a successful `chart_request`, history is
+wired.
+
+## Next steps
+
+- [Use a custom LLM provider](/guides/engine/custom-llm-providers) — pair
+  history with the right model tier.
+- [Customize the system prompt](/guides/engine/system-prompt) — system
+  prompts and history are independent customizations; combine freely.
+- [The Engine](/understanding/engine) — concurrency, retries, and where
+  history sits in the pipeline.
+- [Engine package README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#history)
+  — full `HistoryStore` contract, atomicity requirements, and operational
+  caveats.

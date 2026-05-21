@@ -47,16 +47,23 @@ export interface HistoryConfig<TMeta = unknown> {
   /**
    * Optional projection from a stored entry to the LLM-context messages it
    * contributes. Called once per retained entry during `getLLMContext` and
-   * once per entry during truncation cost estimation. When omitted, the
-   * engine uses its default projection: turns produce a user message (from
-   * user_intent reasons) + an assistant message (from the response's
-   * userMessage); injections produce a single assistant message.
+   * once per entry during truncation cost estimation, so keep the projection
+   * cheap and side-effect-free. When omitted, the engine uses its default
+   * projection: turns produce a user message (from user_intent reasons) +
+   * an assistant message (from the response's userMessage); injections
+   * produce a single assistant message.
+   *
+   * The `defaults` callback returns the engine's default projection for the
+   * same entry, enabling compose-with-default overrides without reimplementing
+   * the full projection. Call it from any branch that should fall through to
+   * default behavior; ignore it entirely for a full replacement.
    *
    * Override to expose richer stored `metadata` to the LLM, rewrite roles,
    * or merge multiple entries into a single context message.
    */
   readonly deriveLLMContext?: (
     entry: HistoryEntry<TMeta>,
+    defaults: () => readonly LLMContextMessage[],
   ) => readonly LLMContextMessage[];
   /**
    * Backing store. Required — the engine never silently defaults to an
@@ -139,7 +146,16 @@ export function createHistoryManager<TMeta = unknown>(
   config: HistoryConfig<TMeta>,
 ): HistoryManager<TMeta> {
   const store = config.store;
-  const deriveLLMContext = config.deriveLLMContext ?? defaultDeriveLLMContext;
+  const customDerive = config.deriveLLMContext;
+  // Wrap the user hook so each invocation receives a `defaults` thunk that
+  // computes the engine's default projection for the same entry on demand.
+  // Branches that don't need defaults skip the work; branches that do compose
+  // with the default without having to reimplement it.
+  const projectEntry: (
+    entry: HistoryEntry<TMeta>,
+  ) => readonly LLMContextMessage[] = customDerive
+    ? (entry) => customDerive(entry, () => defaultDeriveLLMContext(entry))
+    : defaultDeriveLLMContext;
   // TODO(multi-instance): per-session mutex is process-local.
   // Failure mode: two instances racing on the same session can interleave
   // the read-truncate-replace sequence inside `recordTurn`. The
@@ -168,7 +184,7 @@ export function createHistoryManager<TMeta = unknown>(
 
   const estimateEntryChars = (entry: HistoryEntry<TMeta>): number => {
     let total = 0;
-    for (const m of deriveLLMContext(entry)) total += m.content.length;
+    for (const m of projectEntry(entry)) total += m.content.length;
     return total;
   };
 
@@ -246,7 +262,7 @@ export function createHistoryManager<TMeta = unknown>(
 
     async getLLMContext(sessionId) {
       const entries = byTimestamp(await store.get(sessionId));
-      return entries.flatMap((entry) => [...deriveLLMContext(entry)]);
+      return entries.flatMap((entry) => [...projectEntry(entry)]);
     },
 
     async clear(sessionId) {
