@@ -11,7 +11,7 @@
   display: flex;
   align-items: center;
   padding: 0.5rem 1rem;
-  font-family: var(--font-code, 'IBM Plex Mono'), monospace;
+  font-family: var(--font-code, 'JetBrains Mono'), monospace;
   font-size: 0.75rem;
   font-weight: 500;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -71,9 +71,9 @@
 }
 
 .code-copy-btn:hover {
-  color: #00f0ff;
-  background: rgba(0, 240, 255, 0.1);
-  border-color: rgba(0, 240, 255, 0.2);
+  color: var(--color-accent-500);
+  background: color-mix(in srgb, var(--color-accent-500) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 20%, transparent);
 }
 
 /* If there's a header, push copy button below it */
@@ -87,16 +87,16 @@
 }
 
 :root[data-theme='light'] .code-copy-btn:hover {
-  color: #0066ff;
-  background: rgba(0, 102, 255, 0.08);
-  border-color: rgba(0, 102, 255, 0.2);
+  color: var(--color-accent-500);
+  background: color-mix(in srgb, var(--color-accent-500) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 20%, transparent);
 }
 
 /* Base code block styling */
 .astro-code {
   padding: 1rem 1.25rem;
   border-radius: 0.5rem;
-  font-family: var(--font-code, 'IBM Plex Mono'), monospace;
+  font-family: var(--font-code, 'JetBrains Mono'), monospace;
   font-size: 0.875rem;
   line-height: 1.7;
   overflow-x: auto;

@@ -5,6 +5,7 @@ import SocialIcons from 'virtual:starlight/components/SocialIcons';
 import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
 import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.astro';
 import SidebarSublist from '@astrojs/starlight/components/SidebarSublist.astro';
+import MaelstromLogo from './MaelstromLogo.astro';
 import { icons } from './icons';
 
 const { sidebar } = Astro.locals.starlightRoute;
@@ -22,8 +23,7 @@ const frameworks = [
 {/* ── Top chrome (desktop only) ──────────────────────────────────── */}
 <div class="sidebar-chrome">
   <a href="https://maelstrom-ai.co" class="sidebar-logo">
-    <Fragment set:html={icons.maelstrom} />
-    <span>Maelstrom</span>
+    <MaelstromLogo height={20} />
   </a>
 
   {shouldRenderSearch && (
@@ -88,18 +88,15 @@ const frameworks = [
   .sidebar-logo {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    color: var(--sl-color-white);
     text-decoration: none;
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1rem;
-    white-space: nowrap;
   }
 
-  .sidebar-logo :global(svg) {
-    color: #00f0ff;
-    flex-shrink: 0;
+  :global(:root[data-theme='dark']) .sidebar-logo {
+    color: white;
+  }
+
+  :global(:root[data-theme='light']) .sidebar-logo {
+    color: #202020;
   }
 
   .sidebar-logo:hover {
@@ -215,8 +212,8 @@ const frameworks = [
   }
 
   .framework-menu li[aria-selected='true'] {
-    color: #00f0ff;
-    background: rgba(0, 240, 255, 0.06);
+    color: var(--color-accent-500);
+    background: color-mix(in srgb, var(--color-accent-500) 6%, transparent);
   }
 
   /* Fix icon alignment in options */
@@ -237,9 +234,9 @@ const frameworks = [
     flex: 1;
   }
 
-  /* Fix vanilla icon visibility when selected (stroke icon on cyan) */
+  /* Fix vanilla icon visibility when selected (stroke icon on brand blue) */
   .framework-menu li[aria-selected='true'] .fw-option-icon {
-    color: #00f0ff;
+    color: var(--color-accent-500);
   }
 
   .framework-menu li.coming-soon {
@@ -285,8 +282,8 @@ const frameworks = [
   }
 
   :global([data-theme='light']) .framework-menu li[aria-selected='true'] {
-    color: #0066ff;
-    background: rgba(0, 102, 255, 0.06);
+    color: var(--color-accent-500);
+    background: color-mix(in srgb, var(--color-accent-500) 6%, transparent);
   }
 
   /* ── Bottom bar ──────────────────────────────────────────────── */

@@ -38,13 +38,13 @@
 
 /* Mobile ToC bar */
 :root[data-theme='dark'] starlight-toc mobile-starlight-toc {
-  background-color: #050a14;
+  background-color: #07090F;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 /* Content area background — descending gradient */
 :root[data-theme='dark'] .main-frame {
-  background: linear-gradient(180deg, #0a1e35 0%, #050810 40%);
+  background: linear-gradient(180deg, #0B0E16 0%, #04060B 40%);
 }
 
 /* ── View Transitions ────────────────────────────────────────────── */

@@ -91,9 +91,9 @@
   }
 
   .theme-toggle:hover {
-    color: #00f0ff;
-    background: rgba(0, 240, 255, 0.06);
-    border-color: rgba(0, 240, 255, 0.15);
+    color: var(--color-accent-500);
+    background: color-mix(in srgb, var(--color-accent-500) 6%, transparent);
+    border-color: color-mix(in srgb, var(--color-accent-500) 15%, transparent);
   }
 
   /* Show sun in dark mode, moon in light mode */
@@ -112,8 +112,8 @@
   }
 
   :global([data-theme='light']) .theme-toggle:hover {
-    color: #0066ff;
-    background: rgba(0, 102, 255, 0.06);
-    border-color: rgba(0, 102, 255, 0.2);
+    color: var(--color-accent-500);
+    background: color-mix(in srgb, var(--color-accent-500) 6%, transparent);
+    border-color: color-mix(in srgb, var(--color-accent-500) 20%, transparent);
   }
 </style>

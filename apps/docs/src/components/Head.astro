@@ -1,4 +1,5 @@
 ---
+import { Font } from 'astro:assets';
 import { ClientRouter } from 'astro:transitions';
 import PostHog from './PostHog.astro';
 
@@ -6,6 +7,8 @@ const { head } = Astro.locals.starlightRoute;
 ---
 
 {head.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+<Font cssVariable="--font-heading" preload />
+<Font cssVariable="--font-code" />
 <ClientRouter />
 <PostHog />
 <script>

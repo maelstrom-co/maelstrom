@@ -263,22 +263,15 @@ export default defineConfig({
   outDir: './dist',
   fonts: [
     {
-      provider: fontProviders.fontshare(),
-      name: 'Clash Display',
+      provider: fontProviders.google(),
+      name: 'Inter',
       cssVariable: '--font-heading',
-      weights: [500, 600, 700],
-      fallbacks: ['system-ui', 'sans-serif'],
-    },
-    {
-      provider: fontProviders.fontshare(),
-      name: 'General Sans',
-      cssVariable: '--font-body',
-      weights: [400, 500, 600],
+      weights: [400, 500, 600, 700],
       fallbacks: ['system-ui', 'sans-serif'],
     },
     {
       provider: fontProviders.google(),
-      name: 'IBM Plex Mono',
+      name: 'JetBrains Mono',
       cssVariable: '--font-code',
       weights: [400, 500],
       fallbacks: ['monospace'],

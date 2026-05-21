@@ -18,11 +18,11 @@ starlight-toc a[aria-current='true'] {
 }
 
 :root[data-theme='dark'] starlight-toc a.toc-active {
-  color: #00f0ff !important;
+  color: var(--color-accent-500) !important;
 }
 
 :root[data-theme='light'] starlight-toc a.toc-active {
-  color: #0066ff !important;
+  color: var(--color-accent-500) !important;
 }
 
 /* Wrapper for SVG path (created by toc-path.ts) */
@@ -46,10 +46,10 @@ starlight-toc a[aria-current='true'] {
 
 .toc-path-active {
   fill: none;
-  stroke: #00f0ff;
+  stroke: var(--color-accent-500);
   stroke-width: 1.5;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 3px rgba(0, 240, 255, 0.4));
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--color-accent-500) 40%, transparent));
   transition: clip-path 0.25s ease;
 }
 
@@ -58,6 +58,6 @@ starlight-toc a[aria-current='true'] {
 }
 
 :root[data-theme='light'] .toc-path-active {
-  stroke: #0066ff;
-  filter: drop-shadow(0 0 3px rgba(0, 102, 255, 0.25));
+  stroke: var(--color-accent-500);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--color-accent-500) 25%, transparent));
 }

@@ -8,15 +8,17 @@
 }
 
 :root[data-theme='dark'] .sl-markdown-content :not(pre) > code {
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.12);
-  color: #7dd3fc;
+  background: color-mix(in srgb, var(--color-accent-500) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent-500) 12%, transparent);
+  /* Bespoke light tint (brighter than accent-500) for legibility on the dark bg */
+  color: #62C7FF;
 }
 
 :root[data-theme='light'] .sl-markdown-content :not(pre) > code {
-  background: rgba(0, 102, 255, 0.06);
-  border: 1px solid rgba(0, 102, 255, 0.1);
-  color: #1d4ed8;
+  background: color-mix(in srgb, var(--color-accent-500) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent-500) 10%, transparent);
+  /* Darker brand shade: accent-500 fails AA contrast on the light bg */
+  color: var(--color-accent-700);
 }
 
 /* Glass cards (Starlight Card components) — unlayered CSS overrides
@@ -33,11 +35,11 @@
 }
 
 :root[data-theme='dark'] .card:hover {
-  border-color: rgba(0, 240, 255, 0.15);
+  border-color: color-mix(in srgb, var(--color-accent-500) 15%, transparent);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 4px 24px rgba(0, 0, 0, 0.2),
-    0 0 20px rgba(0, 240, 255, 0.06);
+    0 0 20px color-mix(in srgb, var(--color-accent-500) 6%, transparent);
 }
 
 :root[data-theme='light'] .card {
@@ -51,11 +53,11 @@
 }
 
 :root[data-theme='light'] .card:hover {
-  border-color: rgba(0, 102, 255, 0.15);
+  border-color: color-mix(in srgb, var(--color-accent-500) 15%, transparent);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
     0 4px 24px rgba(0, 0, 0, 0.06),
-    0 0 20px rgba(0, 102, 255, 0.06);
+    0 0 20px color-mix(in srgb, var(--color-accent-500) 6%, transparent);
 }
 
 /* Link glow on hover */
@@ -64,11 +66,11 @@
 }
 
 :root[data-theme='dark'] .sl-markdown-content a:not([class]):hover {
-  text-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--color-accent-500) 30%, transparent);
 }
 
 :root[data-theme='light'] .sl-markdown-content a:not([class]):hover {
-  text-shadow: 0 0 12px rgba(0, 102, 255, 0.15);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--color-accent-500) 15%, transparent);
 }
 
 /* Asides/Callouts: glass-card treatment */
@@ -179,15 +181,15 @@ site-search dialog[open]::backdrop {
 }
 
 .feedback-btn:hover {
-  border-color: rgba(0, 240, 255, 0.2);
-  background: rgba(0, 240, 255, 0.06);
-  color: #00f0ff;
+  border-color: color-mix(in srgb, var(--color-accent-500) 20%, transparent);
+  background: color-mix(in srgb, var(--color-accent-500) 6%, transparent);
+  color: var(--color-accent-500);
 }
 
 .feedback-btn[data-selected='true'] {
-  border-color: rgba(0, 240, 255, 0.3);
-  background: rgba(0, 240, 255, 0.1);
-  color: #00f0ff;
+  border-color: color-mix(in srgb, var(--color-accent-500) 30%, transparent);
+  background: color-mix(in srgb, var(--color-accent-500) 10%, transparent);
+  color: var(--color-accent-500);
 }
 
 :root[data-theme='light'] .feedback-btn {
@@ -196,27 +198,27 @@ site-search dialog[open]::backdrop {
 }
 
 :root[data-theme='light'] .feedback-btn:hover {
-  border-color: rgba(0, 102, 255, 0.2);
-  background: rgba(0, 102, 255, 0.06);
-  color: #0066ff;
+  border-color: color-mix(in srgb, var(--color-accent-500) 20%, transparent);
+  background: color-mix(in srgb, var(--color-accent-500) 6%, transparent);
+  color: var(--color-accent-500);
 }
 
 :root[data-theme='light'] .feedback-btn[data-selected='true'] {
-  border-color: rgba(0, 102, 255, 0.3);
-  background: rgba(0, 102, 255, 0.08);
-  color: #0066ff;
+  border-color: color-mix(in srgb, var(--color-accent-500) 30%, transparent);
+  background: color-mix(in srgb, var(--color-accent-500) 8%, transparent);
+  color: var(--color-accent-500);
 }
 
 /* ── Focus indicators (keyboard accessibility) ──────────────────── */
 
 :focus-visible {
-  outline: 2px solid #00f0ff;
+  outline: 2px solid var(--color-accent-500);
   outline-offset: 2px;
   border-radius: 0.25rem;
 }
 
 :root[data-theme='light'] :focus-visible {
-  outline-color: #0066ff;
+  outline-color: var(--color-accent-500);
 }
 
 /* ── Reduced motion ─────────────────────────────────────────────── */

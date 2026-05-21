@@ -16,40 +16,48 @@
   --breakpoint-desktop: 50rem;
 
   /* ── Typography (matching apps/www) ──────────────────────────────── */
-  --font-sans: var(--font-body, 'General Sans'), system-ui, sans-serif;
-  --font-mono: var(--font-code, 'IBM Plex Mono'), monospace;
-  --font-display: var(--font-heading, 'Clash Display'), system-ui, sans-serif;
+  /* Body shares the heading face (Inter); aliased here so Astro registers Inter once */
+  --font-body: var(--font-heading);
+  --font-sans: var(--font-body, 'Inter'), "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: var(--font-code, 'JetBrains Mono'), "SF Mono", "Geist Mono", ui-monospace, Menlo, monospace;
+  --font-display: var(--font-heading, 'Inter'), "SF Pro Display", -apple-system, system-ui, sans-serif;
 
-  /* ── Accent: Cyan from the ocean palette ─────────────────────────── */
-  --color-accent-50: #e6feff;
-  --color-accent-100: #b3fcff;
-  --color-accent-200: #80faff;
-  --color-accent-300: #4df7ff;
-  --color-accent-400: #1af5ff;
-  --color-accent-500: #00f0ff;
-  --color-accent-600: #00c0cc;
-  --color-accent-700: #009099;
-  --color-accent-800: #006066;
-  --color-accent-900: #003033;
-  --color-accent-950: #001a1a;
+  /* ── Accent: Brand blue from www ─────────────────────────────────── */
+  --color-accent-50:  #e6f3ff;
+  --color-accent-100: #b3d9ff;
+  --color-accent-200: #80bfff;
+  --color-accent-300: #4da6ff;
+  --color-accent-400: #1a8cff;
+  --color-accent-500: #0091FF;
+  --color-accent-600: #0074cc;
+  --color-accent-700: #005799;
+  --color-accent-800: #003a66;
+  --color-accent-900: #001d33;
+  --color-accent-950: #000f1a;
 
-  /* ── Gray: Ocean-tinted navy scale ───────────────────────────────── */
-  --color-gray-50: #e8f0f8;
+  /* ── Gray: Ocean-tinted navy scale (anchored to www text hierarchy) */
+  --color-gray-50: #E7ECF3;
   --color-gray-100: #c4d4e4;
-  --color-gray-200: #9ab4cc;
-  --color-gray-300: #7a9ab5;
-  --color-gray-400: #5a7a95;
-  --color-gray-500: #3a5a75;
+  --color-gray-200: #a8bbd0;
+  --color-gray-300: #9AA3B2;
+  --color-gray-400: #7a8a9c;
+  --color-gray-500: #5E6675;
   --color-gray-600: #1a3a55;
   --color-gray-700: #0f2b4a;
-  --color-gray-800: #0a1e35;
-  --color-gray-900: #050a14;
-  --color-gray-950: #030508;
+  --color-gray-800: #0B0E16;
+  --color-gray-900: #07090F;
+  --color-gray-950: #04060B;
+
+  /* ── Border radius tokens (matching www) ───────────────────────── */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 28px;
 }
 
 /* ── Base content styling ──────────────────────────────────────────── */
 
-/* Headings use Clash Display (matching landing page) */
+/* Headings use Inter (matching www) */
 .sl-markdown-content :is(h1, h2, h3, h4, h5, h6),
 starlight-toc h2 {
   font-family: var(--font-display);
@@ -65,6 +73,9 @@ starlight-toc h2 {
 html {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-idle) transparent;
+  font-feature-settings: "ss01", "ss02", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 html:hover {
@@ -91,10 +102,10 @@ html:hover {
 /* h2 gradient bottom border */
 .sl-markdown-content h2 {
   border-bottom: 1px solid transparent;
-  border-image: linear-gradient(90deg, rgba(0, 240, 255, 0.3), rgba(0, 102, 255, 0.15), transparent) 1;
+  border-image: linear-gradient(90deg, color-mix(in srgb, var(--color-accent-500) 30%, transparent), rgba(110, 91, 255, 0.15), transparent) 1;
   padding-bottom: 0.5rem;
 }
 
 :root[data-theme='light'] .sl-markdown-content h2 {
-  border-image: linear-gradient(90deg, rgba(0, 102, 255, 0.2), rgba(0, 102, 255, 0.08), transparent) 1;
+  border-image: linear-gradient(90deg, color-mix(in srgb, var(--color-accent-500) 20%, transparent), rgba(110, 91, 255, 0.08), transparent) 1;
 }

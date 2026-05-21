@@ -1,11 +1,10 @@
 ---
-import { icons } from './icons';
+import MaelstromLogo from './MaelstromLogo.astro';
 ---
 
 <div class="header">
   <a href="/" class="site-logo">
-    <Fragment set:html={icons.maelstrom} />
-    <span>Maelstrom</span>
+    <MaelstromLogo height={18} />
   </a>
 </div>
 
@@ -21,18 +20,15 @@ import { icons } from './icons';
   .site-logo {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    color: var(--sl-color-white);
     text-decoration: none;
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1rem;
-    white-space: nowrap;
   }
 
-  .site-logo :global(svg) {
-    color: #00f0ff;
-    flex-shrink: 0;
+  :global(:root[data-theme='dark']) .site-logo {
+    color: white;
+  }
+
+  :global(:root[data-theme='light']) .site-logo {
+    color: #202020;
   }
 
   .site-logo:hover {
