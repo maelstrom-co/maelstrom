@@ -16,9 +16,6 @@ import type {
   BatchExecutionResult,
 } from './action-runner.types.js';
 
-// Branded instance IDs for the new public API. The legacy ActionExecution
-// shape (protocol-old) still accepts raw strings, so we only need to brand
-// at the runner-management seam (registerRunner / hasRunner / etc.).
 const i1 = InstanceId('instance-1');
 const i2 = InstanceId('instance-2');
 
@@ -60,18 +57,6 @@ describe('ActionManager', () => {
 
       expect(manager.hasRunner(i1)).toBe(true);
       expect(manager.getRegisteredInstances()).toContain(i1);
-    });
-
-    it('should unregister a runner', () => {
-      const runner: ActionRunner<MockVessel> = {
-        testAction: async () => ok(undefined),
-      };
-      manager.registerRunner<MockVessel>(i1, runner);
-
-      manager.unregisterRunner(i1);
-
-      expect(manager.hasRunner(i1)).toBe(false);
-      expect(manager.getRegisteredInstances()).not.toContain(i1);
     });
 
     it('should overwrite existing runner when registering same instance', async () => {

@@ -433,20 +433,13 @@ test('public API contract is locked', () => {
   function assertRootResolverExports(): void {
     const sessionResolver: typeof voiceServer.resolveVoiceSessionConfig =
       voiceServer.resolveVoiceSessionConfig;
-    const provisionResolver: typeof voiceServer.resolveVoiceProvisionConfig =
-      voiceServer.resolveVoiceProvisionConfig;
     const providerDrivenInterimResults = createSTT(publicVoiceSessionConfig.stt)
       .capabilities.interimTranscripts;
     const resolvedSessionConfig = sessionResolver(
       publicVoiceSessionConfig,
       resolverDefaults,
     );
-    const resolvedProvisionConfig = provisionResolver(
-      publicVoiceSessionConfig,
-      resolverDefaults,
-    );
 
-    expect(sessionResolver).toBe(provisionResolver);
     expect(resolvedSessionConfig.interimResults).toBe(
       providerDrivenInterimResults,
     );
@@ -456,24 +449,6 @@ test('public API contract is locked', () => {
     );
     expect(resolvedSessionConfig.audioBufferMaxMs).toBe(
       explicitAudioBufferMaxMs,
-    );
-    expect(resolvedProvisionConfig.interimResults).toBe(
-      resolvedSessionConfig.interimResults,
-    );
-    expect(resolvedProvisionConfig.intentBoundary).toBe(
-      resolvedSessionConfig.intentBoundary,
-    );
-    expect(resolvedProvisionConfig.transcriptGraceMs).toBe(
-      resolvedSessionConfig.transcriptGraceMs,
-    );
-    expect(resolvedProvisionConfig.audioBufferMaxMs).toBe(
-      resolvedSessionConfig.audioBufferMaxMs,
-    );
-    expect(resolvedProvisionConfig.maxReconnectAttempts).toBe(
-      resolvedSessionConfig.maxReconnectAttempts,
-    );
-    expect(resolvedProvisionConfig.reconnectDelayMs).toBe(
-      resolvedSessionConfig.reconnectDelayMs,
     );
   }
 

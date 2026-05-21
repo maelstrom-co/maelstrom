@@ -189,10 +189,3 @@ export function resolveVoiceSessionConfig(
   };
 }
 
-/**
- * @deprecated Use `resolveVoiceSessionConfig` instead.
- *
- * This value alias exists so older imports keep compiling while consumers move to the
- * `VoiceSession*` API names.
- */
-export const resolveVoiceProvisionConfig = resolveVoiceSessionConfig;

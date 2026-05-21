@@ -598,7 +598,7 @@ export interface VoiceSessionCallbacks {
  *
  * WHY: This is the ENGINEERING BOUNDARY between voice-server and
  * whatever handles intent. It could be:
- * - A local engine (engine-old, engine)
+ * - A local engine (via @maelstrom-co/engine)
  * - A remote cloud API
  * - A mock for testing
  *
@@ -972,35 +972,3 @@ export interface VoiceSession {
   destroy(): void;
 }
 
-/**
- * @deprecated Use `VoiceSessionState` instead.
- *
- * This alias remains only for package migration compatibility. New code should adopt the
- * `VoiceSession*` naming so the public API uses one consistent session vocabulary.
- */
-export type VoiceProvisionState = VoiceSessionState;
-
-/**
- * @deprecated Use `VoiceSessionCallbacks` instead.
- *
- * The package now treats "session" as the public concept. `VoiceProvisionCallbacks` will remain as
- * a source-compatible alias until downstream callers migrate.
- */
-export type VoiceProvisionCallbacks = VoiceSessionCallbacks;
-
-/** @deprecated Use `VoiceSessionIntentRequestOptions` instead. */
-export type VoiceProvisionIntentRequestOptions =
-  VoiceSessionIntentRequestOptions;
-
-/** @deprecated Use `VoiceSessionIntentRequestBuilder` instead. */
-export type VoiceProvisionIntentRequestBuilder =
-  VoiceSessionIntentRequestBuilder;
-
-/** @deprecated Use `VoiceSessionConfig` instead. */
-export type VoiceProvisionConfig = VoiceSessionConfig;
-
-/** @deprecated Use `ResolvedVoiceSessionConfig` instead. */
-export type ResolvedVoiceProvisionConfig = ResolvedVoiceSessionConfig;
-
-/** @deprecated Use `VoiceSession` instead. */
-export type VoiceProvision = VoiceSession;

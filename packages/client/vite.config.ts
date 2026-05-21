@@ -35,7 +35,7 @@ export default defineConfig(() => ({
     },
     rollupOptions: {
       // External packages that should not be bundled into your library.
-      external: ['@maelstrom-co/protocol-old', '@tanstack/store'],
+      external: ['@tanstack/store'],
     },
   },
 }));

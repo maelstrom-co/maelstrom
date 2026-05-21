@@ -29,12 +29,6 @@
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
   "references": [
     {
-      "path": "../../packages/protocol-old/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/engine-old/tsconfig.lib.json"
-    },
-    {
       "path": "../../packages/voice-server/tsconfig.lib.json"
     },
     {

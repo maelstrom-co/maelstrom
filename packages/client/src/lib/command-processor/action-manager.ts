@@ -115,18 +115,6 @@ export class ActionManager {
   }
 
   /**
-   * Unregister a runner for an instance.
-   *
-   * @deprecated Use the disposer returned by {@link registerRunner} instead —
-   * it identity-checks before removal, preventing cross-unmount bugs.
-   * Remove after react-old migration (MAE-80).
-   */
-  unregisterRunner(instanceId: InstanceId): void {
-    this.#runners.delete(instanceId);
-    this.#logger.info(`Unregistered runner for instance "${instanceId}"`);
-  }
-
-  /**
    * Check if a runner is registered for an instance.
    *
    * @param instanceId - The branded instance ID to check

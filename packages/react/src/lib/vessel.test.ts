@@ -4,11 +4,6 @@ import type { VesselDefinition } from '@maelstrom-co/protocol';
 import { vessel } from './vessel.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
 
-// Local literal-preserving variants of protocol-old's `VariantNames` /
-// `ActionNames`. Constraint relaxed to `VesselDefinition` so the literal
-// types from `defineVessel` flow through; behaviorally identical to the
-// protocol-old helpers, kept local so this file stays decoupled from the
-// unmigrated protocol-old constraint.
 type VariantNamesLocal<V extends VesselDefinition> =
   keyof V['variants'] & string;
 type ActionNamesLocal<V extends VesselDefinition> =

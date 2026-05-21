@@ -12,7 +12,7 @@ export interface ActionExecution {
 }
 
 // ---------------------------------------------------------------------------
-// Layout types (structural — no dependency on protocol-old)
+// Layout types
 // ---------------------------------------------------------------------------
 
 export interface GridPosition {

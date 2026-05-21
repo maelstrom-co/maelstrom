@@ -1,13 +1,15 @@
 import { describe, expect, mock, test } from 'bun:test';
 
-import type { Engine } from '@maelstrom-co/engine-old';
+import { type Engine, historyError } from '@maelstrom-co/engine';
 import {
   ChartRequestMessage,
+  type ChartResponseOutput,
+  err,
   MessageId,
   type MaelstromResponse as ProtocolMaelstromResponse,
+  ok,
   SessionId,
 } from '@maelstrom-co/protocol';
-import type { MaelstromResponse as LegacyMaelstromResponse } from '@maelstrom-co/protocol-old';
 import type {
   AudioChunk,
   VoiceProviderErrorKind,
@@ -82,20 +84,6 @@ function createVoiceSessionStub(
 function createEngineResponse(
   userMessage: string,
   requestId = 'response-id',
-): LegacyMaelstromResponse {
-  return {
-    type: 'maelstrom_response',
-    requestId,
-    userMessage,
-    rationale: '',
-    executionPlan: [],
-    layout: { type: 'tiling', tree: [], instances: [] },
-  };
-}
-
-function createVoiceSessionResponse(
-  userMessage: string,
-  requestId = 'response-id',
 ): ProtocolMaelstromResponse {
   return {
     type: 'maelstrom_response',
@@ -107,14 +95,19 @@ function createVoiceSessionResponse(
   };
 }
 
-function createEngineStub(
-  overrides: Partial<Pick<Engine, 'process' | 'addAssistantMessage'>> = {},
-): Pick<Engine, 'process' | 'addAssistantMessage'> {
+function createEngineStub(overrides: Partial<Engine> = {}): Engine {
   return {
-    process: mock(async () => createEngineResponse('hello back')),
-    addAssistantMessage: mock(async () => {}),
+    handle: mock(async () =>
+      ok({
+        type: 'chart_response',
+        sessionId: SessionId('test-session'),
+        id: MessageId('response-id'),
+        response: createEngineResponse('hello back'),
+      } as ChartResponseOutput),
+    ),
+    getHistory: mock(async () => ok([])),
     ...overrides,
-  };
+  } as unknown as Engine;
 }
 
 function createClassifiedProviderCase(
@@ -268,9 +261,7 @@ describe('createDemoVoiceWsSessionController', () => {
     const controller = createDemoVoiceWsSessionController({
       sessionId: SessionId('session-123'),
       voiceSession,
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage, sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });
@@ -294,9 +285,7 @@ describe('createDemoVoiceWsSessionController', () => {
           throw new Error('start failed');
         }),
       }),
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput,
     });
@@ -313,9 +302,7 @@ describe('createDemoVoiceWsSessionController', () => {
           throw new Error('stop failed');
         }),
       }),
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput,
     });
@@ -332,9 +319,7 @@ describe('createDemoVoiceWsSessionController', () => {
           throw new Error('speak failed');
         }),
       }),
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput,
     });
@@ -347,10 +332,9 @@ describe('createDemoVoiceWsSessionController', () => {
       sessionId: SessionId('session-history'),
       voiceSession: createVoiceSessionStub(),
       engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-        addAssistantMessage: mock(async () => {
-          throw new Error('history failed');
-        }),
+        handle: mock(async () =>
+          err(historyError.addAssistantMessage('history failed', undefined)),
+        ),
       }),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput,
@@ -413,9 +397,7 @@ describe('createDemoVoiceWsSessionController', () => {
     const controller = createDemoVoiceWsSessionController({
       sessionId: SessionId(`session-${source}-${kind}`),
       voiceSession,
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });
@@ -459,9 +441,7 @@ describe('createDemoVoiceWsSessionController', () => {
           throw wrappedError;
         }),
       }),
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });
@@ -491,9 +471,7 @@ describe('createDemoVoiceWsSessionController', () => {
           throw new Error('generic startup failure');
         }),
       }),
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });
@@ -519,9 +497,7 @@ describe('createDemoVoiceWsSessionController', () => {
           throw wrappedGenericError;
         }),
       }),
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });
@@ -550,9 +526,7 @@ describe('createDemoVoiceWsSessionController', () => {
       mirroredRequestDuringProcessing = controller.getLatestChartRequest();
       return undefined;
     });
-    const engine = createEngineStub({
-      process: mock(async () => createEngineResponse('should not be used')),
-    });
+    const engine = createEngineStub();
 
     const controller = createDemoVoiceWsSessionController({
       sessionId: SessionId('session-voice'),
@@ -591,7 +565,7 @@ describe('createDemoVoiceWsSessionController', () => {
       mirroredRequest,
       expect.objectContaining({ speakResponse: true }),
     );
-    expect(engine.process).not.toHaveBeenCalled();
+    expect(engine.handle).not.toHaveBeenCalled();
     expect(sendEngineError).not.toHaveBeenCalled();
     // processRequest returns undefined → no correlation response sent
     expect(sendMessage).not.toHaveBeenCalledWith(
@@ -602,19 +576,14 @@ describe('createDemoVoiceWsSessionController', () => {
   test('sends engine.maelstrom.response with envelope id after voiceSession.processRequest resolves', async () => {
     const sendMessage = mock(() => {});
     const sendEngineError = createSendEngineErrorMock();
-    const voiceResponse = createVoiceSessionResponse(
-      'chart updated',
-      'voice-generated-uuid',
-    );
+    const voiceResponse = createEngineResponse('chart updated', 'voice-generated-uuid');
     const voiceSession = createVoiceSessionStub();
     voiceSession.processRequest = mock(async () => voiceResponse);
 
     const controller = createDemoVoiceWsSessionController({
       sessionId: SessionId('session-voice-corr'),
       voiceSession,
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('should not be used')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage, sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });
@@ -640,12 +609,19 @@ describe('createDemoVoiceWsSessionController', () => {
     expect(sendEngineError).not.toHaveBeenCalled();
   });
 
-  test('unwraps ChartRequestMessage envelope and uses envelope id for engine correlation', async () => {
+  test('unwraps ChartRequestMessage envelope and uses engine output id for response correlation', async () => {
     const sendMessage = mock(() => {});
     const sendEngineError = createSendEngineErrorMock();
     const engineResponse = createEngineResponse('done', 'engine-resp-1');
     const engine = createEngineStub({
-      process: mock(async () => engineResponse),
+      handle: mock(async () =>
+        ok({
+          type: 'chart_response',
+          sessionId: SessionId('session-engine'),
+          id: MessageId('engine-output-id-99'),
+          response: engineResponse,
+        } as ChartResponseOutput),
+      ),
     });
 
     const controller = createDemoVoiceWsSessionController({
@@ -667,7 +643,7 @@ describe('createDemoVoiceWsSessionController', () => {
       }),
     );
 
-    expect(engine.process).toHaveBeenCalledTimes(1);
+    expect(engine.handle).toHaveBeenCalledTimes(1);
     const latestRequest = controller.getLatestChartRequest();
     expect(latestRequest?.context.updateReasons).toEqual([
       { type: 'user_intent', intent: 'bar chart' },
@@ -675,7 +651,7 @@ describe('createDemoVoiceWsSessionController', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'engine.maelstrom.response',
-        requestId: 'envelope-id-42',
+        requestId: 'engine-output-id-99',
         response: engineResponse,
       }),
     );
@@ -688,9 +664,7 @@ describe('createDemoVoiceWsSessionController', () => {
     const controller = createDemoVoiceWsSessionController({
       sessionId: SessionId('session-audio'),
       voiceSession,
-      engine: createEngineStub({
-        process: mock(async () => createEngineResponse('')),
-      }),
+      engine: createEngineStub(),
       transport: { sendMessage: mock(() => {}), sendEngineError },
       forwardBinaryAudioInput: mock(async () => {}),
     });

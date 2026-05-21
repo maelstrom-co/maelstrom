@@ -25,4 +25,27 @@ describe('flattenErrorChain', () => {
 
     expect(flattenErrorChain(cyclicError)).toBe('cyclic failure');
   });
+
+  test('extracts message from plain error-like objects (EngineError discriminated union)', () => {
+    const historyError = {
+      _tag: 'HistoryError',
+      message: 'history failed',
+      operation: 'add_assistant_message',
+      cause: undefined,
+    };
+
+    expect(flattenErrorChain(historyError)).toBe('history failed');
+  });
+
+  test('walks cause chains across mixed Error and plain error-like objects', () => {
+    const providerError = {
+      _tag: 'ProviderError',
+      message: 'provider exploded',
+      cause: new Error('socket closed'),
+    };
+
+    expect(flattenErrorChain(providerError)).toBe(
+      'provider exploded: socket closed',
+    );
+  });
 });

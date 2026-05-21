@@ -13,12 +13,6 @@
       "path": "./tools/biome-plugin"
     },
     {
-      "path": "./packages/protocol-old"
-    },
-    {
-      "path": "./packages/engine-old"
-    },
-    {
       "path": "./packages/react"
     },
     {

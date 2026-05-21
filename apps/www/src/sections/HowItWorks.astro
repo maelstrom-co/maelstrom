@@ -114,7 +114,7 @@ function Dashboard() {
     dotClass: 'bg-cyan shadow-[0_0_12px_rgba(0,240,255,0.5)]',
     filename: 'App.tsx',
     lang: 'tsx' as const,
-    code: `import { Success } from '@maelstrom-co/protocol-old';
+    code: `import { ok } from '@maelstrom-co/protocol';
 import { m } from './maelstrom';
 
 function OrdersVessel({ instanceId }) {
@@ -122,10 +122,10 @@ function OrdersVessel({ instanceId }) {
   m.useActions('orders', instanceId, {
     selectOrder: async ({ orderId }) => {
       loadOrder(orderId);
-      return Success();
+      return ok(undefined);
     },
     close: async () => {
-      return Success();
+      return ok(undefined);
     },
   });
 

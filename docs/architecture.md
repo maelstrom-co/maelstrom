@@ -26,13 +26,13 @@ Maelstrom is designed as a layered architecture with clear separation of concern
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Protocol                                     │
-│  @maelstrom-co/protocol-old - Message definitions (transport-agnostic) │
+│  @maelstrom-co/protocol - Message definitions (transport-agnostic)      │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │ (Any transport: WS, HTTP, etc.)
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Maelstrom Engine                            │
-│  @maelstrom-co/engine-old - LLM decision logic                         │
+│  @maelstrom-co/engine - LLM decision logic                             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -376,11 +376,11 @@ These enable:
 ## Package Dependencies
 
 ```
-@maelstrom-co/protocol-old     (foundation: types + messages)
+@maelstrom-co/protocol     (foundation: types + messages)
          │
     ┌────┴────┐
     ▼         ▼
-@maelstrom-co/client   @maelstrom-co/engine-old
+@maelstrom-co/client   @maelstrom-co/engine
          │
     ┌────┴───────────────┐
     ▼                    ▼

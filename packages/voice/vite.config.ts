@@ -28,7 +28,6 @@ export default defineConfig(() => ({
       external: [
         '@maelstrom-co/client',
         '@maelstrom-co/protocol',
-        '@maelstrom-co/protocol-old',
         'onnxruntime-web',
       ],
     },

@@ -5,7 +5,6 @@ import {
   type ChartRequestMessage,
   ChartRequestMessageSchema,
   type GridLayout,
-  type MaelstromResponse,
   isErr,
   MessageId,
   type SessionId,
@@ -18,18 +17,6 @@ import type { AudioChunk, VoiceSession } from '@maelstrom-co/voice-server';
 import { getProviderErrorMetadata } from './provider-error-metadata.js';
 import type { ProviderErrorMetadata as VoiceErrorMetadata } from './provider-error-metadata.js';
 import { flattenErrorChain } from './voice-error-format.js';
-
-type LegacyAssistantEngine = {
-  addAssistantMessage: (message: {
-    id: string;
-    sessionId: string;
-    message: string;
-  }) => Promise<void>;
-};
-
-type LegacyProcessEngine = {
-  process: (request: ChartRequest) => Promise<unknown>;
-};
 
 type WsTransport = {
   sendMessage: (message: VoiceServerMessage) => void;
@@ -45,7 +32,7 @@ type BinaryAudioSender = (data: ArrayBuffer | Blob) => Promise<void>;
 interface DemoVoiceWsSessionControllerOptions {
   sessionId: SessionId;
   voiceSession: VoiceSession | null;
-  engine: Engine | LegacyAssistantEngine | LegacyProcessEngine;
+  engine: Engine;
   transport: WsTransport;
   forwardBinaryAudioInput: BinaryAudioSender;
 }
@@ -121,27 +108,6 @@ function extractRequestIdHint(raw: unknown): MessageId | undefined {
 
   const id = (raw as { id?: unknown }).id;
   return typeof id === 'string' && id.length > 0 ? MessageId(id) : undefined;
-}
-
-function hasHandleEngine(
-  engine: Engine | LegacyAssistantEngine | LegacyProcessEngine,
-): engine is Engine {
-  return 'handle' in engine && typeof engine.handle === 'function';
-}
-
-function hasLegacyAssistantEngine(
-  engine: Engine | LegacyAssistantEngine | LegacyProcessEngine,
-): engine is LegacyAssistantEngine {
-  return (
-    'addAssistantMessage' in engine &&
-    typeof engine.addAssistantMessage === 'function'
-  );
-}
-
-function hasLegacyProcessEngine(
-  engine: Engine | LegacyAssistantEngine | LegacyProcessEngine,
-): engine is LegacyProcessEngine {
-  return 'process' in engine && typeof engine.process === 'function';
 }
 
 export function createDemoVoiceWsSessionController(
@@ -276,44 +242,17 @@ export function createDemoVoiceWsSessionController(
     );
 
     const messageId = MessageId(message.id);
-    if (hasHandleEngine(engine)) {
-      const envelope = AssistantInjectionMessage({
-        sessionId,
-        id: messageId,
-        content: message.message,
-      });
-      const result = await engine.handle(envelope);
+    const envelope = AssistantInjectionMessage({
+      sessionId,
+      id: messageId,
+      content: message.message,
+    });
+    const result = await engine.handle(envelope);
 
-      if (isErr(result)) {
-        reportCorrelatedEngineError(
-          '[Demo WS] Add assistant message error',
-          result.error,
-          messageId,
-        );
-      }
-
-      return;
-    }
-
-    if (!hasLegacyAssistantEngine(engine)) {
+    if (isErr(result)) {
       reportCorrelatedEngineError(
         '[Demo WS] Add assistant message error',
-        new Error('Engine does not support assistant message injection'),
-        messageId,
-      );
-      return;
-    }
-
-    try {
-      await engine.addAssistantMessage({
-        id: message.id,
-        sessionId,
-        message: message.message,
-      });
-    } catch (error) {
-      reportCorrelatedEngineError(
-        '[Demo WS] Add assistant message error',
-        error,
+        result.error,
         messageId,
       );
     }
@@ -381,61 +320,31 @@ export function createDemoVoiceWsSessionController(
       return;
     }
 
-    if (hasHandleEngine(engine)) {
-      const result = await engine.handle(envelope);
-      if (isErr(result)) {
-        reportCorrelatedEngineError(
-          '[Demo WS] engine.handle error',
-          result.error,
-          envelope.id,
-        );
-        return;
-      }
-
-      if (result.value.type !== 'chart_response') {
-        reportCorrelatedEngineError(
-          '[Demo WS] Unexpected engine output for chart_request',
-          new Error(`got ${result.value.type}, expected chart_response`),
-          envelope.id,
-        );
-        return;
-      }
-
-      sendMessage({
-        type: 'engine.maelstrom.response',
-        sessionId,
-        requestId: result.value.id,
-        response: result.value.response,
-      });
-      return;
-    }
-
-    if (!hasLegacyProcessEngine(engine)) {
+    const result = await engine.handle(envelope);
+    if (isErr(result)) {
       reportCorrelatedEngineError(
         '[Demo WS] engine.handle error',
-        new Error('Engine does not support chart_request handling'),
+        result.error,
         envelope.id,
       );
       return;
     }
 
-    try {
-      const response = (await engine.process(
-        chartRequest,
-      )) as MaelstromResponse;
-      sendMessage({
-        type: 'engine.maelstrom.response',
-        sessionId,
-        requestId: envelope.id,
-        response,
-      });
-    } catch (error) {
+    if (result.value.type !== 'chart_response') {
       reportCorrelatedEngineError(
-        '[Demo WS] engine.handle error',
-        error,
+        '[Demo WS] Unexpected engine output for chart_request',
+        new Error(`got ${result.value.type}, expected chart_response`),
         envelope.id,
       );
+      return;
     }
+
+    sendMessage({
+      type: 'engine.maelstrom.response',
+      sessionId,
+      requestId: result.value.id,
+      response: result.value.response,
+    });
   };
 
   return {

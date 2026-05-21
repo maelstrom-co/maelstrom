@@ -118,20 +118,20 @@ The protocol defines the message contract. Transport (WebSocket, HTTP, etc.) is 
 
 | Package                                    | Description                     | Documentation                         |
 | ------------------------------------------ | ------------------------------- | ------------------------------------- |
-| [`@maelstrom-co/protocol-old`](./shared/protocol) | Core types and message contract | [README](./shared/protocol/README.md) |
+| [`@maelstrom-co/protocol`](./packages/protocol) | Core types and message contract | [README](./packages/protocol/README.md) |
 
 ### Client
 
 | Package                              | Description                       | Documentation                      |
 | ------------------------------------ | --------------------------------- | ---------------------------------- |
-| [`@maelstrom-co/client`](./client/core) | Framework-agnostic client library | [README](./client/core/README.md)  |
+| [`@maelstrom-co/client`](./packages/client) | Framework-agnostic client library | [README](./packages/client/README.md)  |
 | [`@maelstrom-co/react`](./packages/react) | React bindings and components     | [README](./packages/react/README.md) |
 
 ### Server
 
 | Package                                | Description         | Documentation                       |
 | -------------------------------------- | ------------------- | ----------------------------------- |
-| [`@maelstrom-co/engine-old`](./server/engine) | LLM decision engine | [README](./server/engine/README.md) |
+| [`@maelstrom-co/engine`](./packages/engine) | LLM decision engine | [README](./packages/engine/README.md) |
 
 ---
 

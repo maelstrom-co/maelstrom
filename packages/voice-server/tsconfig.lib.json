@@ -27,9 +27,6 @@
   ],
   "references": [
     {
-      "path": "../protocol-old/tsconfig.lib.json"
-    },
-    {
       "path": "../protocol/tsconfig.lib.json"
     }
   ]

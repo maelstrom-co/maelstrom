@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { SessionId } from '@maelstrom-co/protocol';
-import {
-  resolveVoiceProvisionConfig,
-  resolveVoiceSessionConfig,
-} from './runtime.config.js';
+import { resolveVoiceSessionConfig } from './runtime.config.js';
 import { sttProviderFactories } from './stt/registry.js';
 import { ttsProviderFactories } from './tts/registry.js';
 import type {
@@ -209,10 +206,6 @@ describe('resolveVoiceSessionConfig', () => {
     expect(resolved.reconnectBackoffMultiplier).toBe(2.5);
     expect(resolved.reconnectJitterMs).toBe(350);
     expect(resolved.circuitBreakerTimeoutMs).toBe(120000);
-  });
-
-  test('resolveVoiceProvisionConfig remains an alias of resolveVoiceSessionConfig', () => {
-    expect(resolveVoiceProvisionConfig).toBe(resolveVoiceSessionConfig);
   });
 
   test('wraps provider construction failures with voice-session context', () => {

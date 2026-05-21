@@ -1,7 +1,4 @@
-export {
-  resolveVoiceProvisionConfig,
-  resolveVoiceSessionConfig,
-} from './lib/runtime.config.js';
+export { resolveVoiceSessionConfig } from './lib/runtime.config.js';
 export { createVoiceSession } from './lib/runtime.js';
 export {
   createDeepgramSTT,
@@ -36,7 +33,6 @@ export type {
   AudioChunk,
   AudioEncoding,
   ProcessIntent,
-  ResolvedVoiceProvisionConfig,
   SpeechChunk,
   SpeechFormat,
   SpeechOptions,
@@ -58,12 +54,6 @@ export type {
   VoiceDisconnectReason,
   VoiceProviderErrorBase,
   VoiceProviderErrorKind,
-  VoiceProvision,
-  VoiceProvisionCallbacks,
-  VoiceProvisionConfig,
-  VoiceProvisionIntentRequestBuilder,
-  VoiceProvisionIntentRequestOptions,
-  VoiceProvisionState,
   VoiceSession,
   VoiceSessionAudioDroppedEvent,
   VoiceSessionAudioDropReason,

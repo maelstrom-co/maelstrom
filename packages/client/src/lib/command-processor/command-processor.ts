@@ -108,14 +108,6 @@ export class CommandProcessor {
   }
 
   /**
-   * @deprecated Use the disposer returned by {@link registerRunner} instead.
-   * Remove after react-old migration (MAE-80).
-   */
-  unregisterRunner(instanceId: InstanceId): void {
-    this.#actionManager.unregisterRunner(instanceId);
-  }
-
-  /**
    * Returns a promise that resolves when the processor is idle
    * and the command queue is empty.
    *

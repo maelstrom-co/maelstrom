@@ -43,12 +43,12 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 ## Architecture
 
 ```
-@maelstrom-co/protocol-old  (foundation: shared types, zod schemas, message contract)
+@maelstrom-co/protocol  (foundation: shared types, zod schemas, message contract)
          │
     ┌────┴────┐
     ▼         ▼
-@maelstrom-co/client   @maelstrom-co/engine-old
-(framework-agnostic) (LLM decision core: @tanstack/ai + Effect)
+@maelstrom-co/client   @maelstrom-co/engine
+(framework-agnostic) (LLM decision core: @tanstack/ai)
     │
     ├────────────┐
     ▼            ▼
@@ -65,9 +65,9 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 
 | Package | Path | Purpose |
 |---------|------|---------|
-| `@maelstrom-co/protocol-old` | `packages/protocol/` | Core types, zod schemas, and message definitions (transport-agnostic) |
+| `@maelstrom-co/protocol` | `packages/protocol/` | Core types, zod schemas, and message definitions (transport-agnostic) |
 | `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Message Processor, Orchestrator |
-| `@maelstrom-co/engine-old` | `packages/engine/` | LLM decision engine using @tanstack/ai + Effect, voice providers (Deepgram STT, Cartesia TTS) |
+| `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
 | `@maelstrom-co/voice` | `packages/voice/` | Client-side audio: capture, playback, VAD (Silero via onnxruntime-web), voice sessions |
 | `@maelstrom-co/react-voice` | `packages/react-voice/` | Optional React voice extension: `maelstromVoice()` factory adding `useVoice` and `VoiceOrb` to a Maelstrom instance via `.with()` |
