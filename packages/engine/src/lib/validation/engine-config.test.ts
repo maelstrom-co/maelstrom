@@ -394,7 +394,7 @@ describe('validateEngineConfig', () => {
         validateEngineConfig({
           adapter: dummyAdapter,
           history: {
-            store: incompleteStore as never,
+            store: invalid<never>(incompleteStore),
           },
         }),
       ).toThrow(/history\.store\.(replace|clear)/);

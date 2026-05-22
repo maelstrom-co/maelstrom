@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
-import { InstanceId, MessageId, SessionId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  MessageId,
+  SessionId,
+  type SessionHistoryEntry,
+} from '@maelstrom-co/protocol';
 
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
@@ -333,11 +338,11 @@ describe('WebSocketConnector getHistory', () => {
     const promise = connector.getHistory(SessionId('s-1'));
     const payload = JSON.parse(ws.sent[0] as string) as { id: string };
 
-    const fakeEntries = [
+    const fakeEntries: SessionHistoryEntry[] = [
       {
         kind: 'injection',
-        id: 'i-1',
-        sessionId: 's-1',
+        id: MessageId('i-1'),
+        sessionId: SessionId('s-1'),
         timestamp: 1,
         content: 'seeded',
       },
@@ -349,7 +354,7 @@ describe('WebSocketConnector getHistory', () => {
     });
 
     const result = await promise;
-    expect(result).toEqual(fakeEntries as never);
+    expect(result).toEqual(fakeEntries);
     await connector.disconnect();
   });
 

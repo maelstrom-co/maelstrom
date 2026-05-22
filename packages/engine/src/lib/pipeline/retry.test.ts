@@ -1,12 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import type {
+import type { Result } from '@maelstrom-co/protocol';
+import {
   ActionName,
-  Result,
+  InstanceId,
   VariantName,
   VesselId,
-} from '@maelstrom-co/protocol';
-import {
-  InstanceId,
   err,
   isErr,
   isOk,
@@ -93,16 +91,16 @@ const paramsParseFailed = (
 ): SkippedAction => ({
   reason: 'params_parse_failed',
   instanceId: InstanceId(id),
-  action: action as ActionName,
+  action: ActionName(action),
   paramsJson,
 });
 
 const stateDrift = (id: string, action: string): SkippedAction => ({
   reason: 'state_drift',
   instanceId: InstanceId(id),
-  action: action as ActionName,
-  vesselId: 'v' as VesselId,
-  targetVariant: 'gone' as VariantName,
+  action: ActionName(action),
+  vesselId: VesselId('v'),
+  targetVariant: VariantName('gone'),
 });
 
 function recordingRunOnce(
@@ -798,7 +796,7 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'unknown_vessel' as const,
         instanceId: InstanceId('orphan'),
-        vesselId: 'no-such' as VesselId,
+        vesselId: VesselId('no-such'),
       },
       'instance "orphan" referenced unknown vessel "no-such"',
     ],
@@ -806,7 +804,7 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'unknown_variant' as const,
         instanceId: InstanceId('wgt'),
-        variant: 'gone' as VariantName,
+        variant: VariantName('gone'),
       },
       'instance "wgt" referenced unknown variant "gone"',
     ],
@@ -863,7 +861,7 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'unknown_instance' as const,
         instanceId: InstanceId('ghost'),
-        action: 'tap' as ActionName,
+        action: ActionName('tap'),
       },
       'Action "tap" referenced unknown instance "ghost"',
     ],
@@ -871,8 +869,8 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'unknown_vessel' as const,
         instanceId: InstanceId('a'),
-        action: 'tap' as ActionName,
-        vesselId: 'no-such' as VesselId,
+        action: ActionName('tap'),
+        vesselId: VesselId('no-such'),
       },
       'Action "tap" on instance "a" referenced unknown vessel "no-such"',
     ],
@@ -880,7 +878,7 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'no_simulated_variant' as const,
         instanceId: InstanceId('a'),
-        action: 'tap' as ActionName,
+        action: ActionName('tap'),
       },
       'Action "tap" on instance "a" — no current variant to act on',
     ],
@@ -888,9 +886,9 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'variant_not_on_vessel' as const,
         instanceId: InstanceId('a'),
-        action: 'tap' as ActionName,
-        vesselId: 'v' as VesselId,
-        variant: 'phantom' as VariantName,
+        action: ActionName('tap'),
+        vesselId: VesselId('v'),
+        variant: VariantName('phantom'),
       },
       'variant "phantom" is not defined on vessel "v"',
     ],
@@ -898,10 +896,10 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'action_not_valid' as const,
         instanceId: InstanceId('a'),
-        action: 'badAction' as ActionName,
-        vesselId: 'v' as VesselId,
-        variant: 'default' as VariantName,
-        validActions: ['x', 'y'] as ActionName[],
+        action: ActionName('badAction'),
+        vesselId: VesselId('v'),
+        variant: VariantName('default'),
+        validActions: [ActionName('x'), ActionName('y')],
       },
       'Action "badAction" is not valid on instance "a" in variant "default" — valid actions: x, y',
     ],
@@ -909,9 +907,9 @@ describe('buildRetryPrompt', () => {
       {
         reason: 'self_transition_noop' as const,
         instanceId: InstanceId('cal-main'),
-        action: 'showWeek' as ActionName,
-        vesselId: 'calendar' as VesselId,
-        currentVariant: 'week' as VariantName,
+        action: ActionName('showWeek'),
+        vesselId: VesselId('calendar'),
+        currentVariant: VariantName('week'),
       },
       'Action "showWeek" on instance "cal-main" is already a no-op — instance "cal-main" is already in variant "week". Omit this specific (instance, action) pair from your next response. Other instances may still legitimately call "showWeek".',
     ],
@@ -933,9 +931,9 @@ describe('buildRetryPrompt', () => {
         {
           reason: 'action_not_valid',
           instanceId: InstanceId('a'),
-          action: 'go' as ActionName,
-          vesselId: 'v' as VesselId,
-          variant: 'default' as VariantName,
+          action: ActionName('go'),
+          vesselId: VesselId('v'),
+          variant: VariantName('default'),
           validActions: [],
         },
       ],

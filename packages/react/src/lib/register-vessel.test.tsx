@@ -5,11 +5,15 @@ import type { ActionRunner } from '@maelstrom-co/client';
 import type {
   ChartRequestMessage,
   MaelstromResponse,
-  VariantName,
   Vessel,
-  VesselId,
 } from '@maelstrom-co/protocol';
-import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  MessageId,
+  VariantName,
+  VesselId,
+  defineVessel,
+} from '@maelstrom-co/protocol';
 import { ok } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { createMockConnector } from './__tests__/mock-connector.js';
@@ -92,8 +96,8 @@ describe('m.registerVessel()', () => {
         makeResponse([
           {
             instanceId: InstanceId('widget-1'),
-            vesselId: 'widget' as VesselId,
-            variant: 'default' as VariantName,
+            vesselId: VesselId('widget'),
+            variant: VariantName('default'),
             position: { column: 0, row: 0 },
             size: { width: 1, height: 1 },
           },
@@ -142,8 +146,8 @@ describe('m.registerVessel()', () => {
         makeResponse([
           {
             instanceId: InstanceId('widget-1'),
-            vesselId: 'widget' as VesselId,
-            variant: 'default' as VariantName,
+            vesselId: VesselId('widget'),
+            variant: VariantName('default'),
             position: { column: 0, row: 0 },
             size: { width: 1, height: 1 },
           },
@@ -203,8 +207,8 @@ describe('m.registerVessel()', () => {
         return makeResponse([
           {
             instanceId: InstanceId('widget-1'),
-            vesselId: 'widget' as VesselId,
-            variant: 'default' as VariantName,
+            vesselId: VesselId('widget'),
+            variant: VariantName('default'),
             position: { column: 0, row: 0 },
             size: { width: 1, height: 1 },
           },
@@ -238,7 +242,7 @@ describe('m.registerVessel()', () => {
 
     // Instance should be visible through useInstance (vessel is registered)
     expect(instanceProps).not.toBeNull();
-    expect(instanceProps?.vesselId).toBe('widget' as VesselId);
+    expect(instanceProps?.vesselId).toBe(VesselId('widget'));
 
     // Unregister the vessel
     await act(async () => {
@@ -260,15 +264,15 @@ describe('m.registerVessel()', () => {
         makeResponse([
           {
             instanceId: InstanceId('inst-1'),
-            vesselId: 'orders' as VesselId,
-            variant: 'list' as VariantName,
+            vesselId: VesselId('orders'),
+            variant: VariantName('list'),
             position: { column: 0, row: 0 },
             size: { width: 2, height: 2 },
           },
           {
             instanceId: InstanceId('widget-1'),
-            vesselId: 'widget' as VesselId,
-            variant: 'default' as VariantName,
+            vesselId: VesselId('widget'),
+            variant: VariantName('default'),
             position: { column: 3, row: 0 },
             size: { width: 1, height: 1 },
           },
@@ -299,8 +303,8 @@ describe('m.registerVessel()', () => {
       await state?.processIntent('show all');
     });
 
-    expect(orderInstanceProps?.vesselId).toBe('orders' as VesselId);
-    expect(widgetInstanceProps?.vesselId).toBe('widget' as VesselId);
+    expect(orderInstanceProps?.vesselId).toBe(VesselId('orders'));
+    expect(widgetInstanceProps?.vesselId).toBe(VesselId('widget'));
   });
 
   it('handle.useActions disposer does not remove another component\'s runner', async () => {
@@ -309,8 +313,8 @@ describe('m.registerVessel()', () => {
 
     const widgetInstance: VesselInstance = {
       instanceId: InstanceId('widget-1'),
-      vesselId: 'widget' as VesselId,
-      variant: 'default' as VariantName,
+      vesselId: VesselId('widget'),
+      variant: VariantName('default'),
       position: { column: 0, row: 0 },
       size: { width: 1, height: 1 },
     };
@@ -387,6 +391,9 @@ describe('m.registerVessel()', () => {
 
   it('registerVessel throws on invalid vessel', async () => {
     const m = createMaelstrom({ vessels: [orderEntry] });
+    // Deliberately malformed: empty ids/variants must reach registerVessel so
+    // it can reject them. Smart constructors can't build this — they'd throw on
+    // the empty strings before the test exercises registerVessel's validation.
     const invalidVessel = {
       id: '',
       name: '',

@@ -17,36 +17,11 @@ import type { HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
 import type { Logger } from './logger.js';
 import {
+  buildGridResponse,
   dummyAdapter,
   makeGridRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
-
-// ---------------------------------------------------------------------------
-// Permissive author-facing shape for the LLM response fixture. The mock LLM
-// returns unbranded protocol shapes (the engine brands them as it processes
-// the response), so the fixture types here intentionally don't match the
-// branded protocol types.
-// ---------------------------------------------------------------------------
-type AuthorActionExecution = {
-  readonly instanceId: string;
-  readonly action: string;
-  readonly params?: Record<string, unknown>;
-  readonly paramsJson?: string;
-};
-type AuthorGridLayout = {
-  readonly positions: ReadonlyArray<{
-    readonly instanceId: string;
-    readonly position: { readonly row: number; readonly column: number };
-    readonly size: { readonly width: number; readonly height: number };
-  }>;
-};
-type GridResponse = {
-  readonly userMessage: string;
-  readonly rationale: string;
-  readonly executionPlan: ReadonlyArray<AuthorActionExecution>;
-  readonly layout: AuthorGridLayout;
-};
 
 // ---------------------------------------------------------------------------
 // Mock TanStack AI chat()
@@ -58,20 +33,7 @@ mock.module('@tanstack/ai', () => ({
   chat: (...args: unknown[]) => mockChat(...args),
 }));
 
-const gridLLMResponse: GridResponse = {
-  userMessage: 'Here is your calendar!',
-  rationale: 'User asked for calendar',
-  executionPlan: [],
-  layout: {
-    positions: [
-      {
-        instanceId: 'calendar-main',
-        position: { row: 0, column: 0 },
-        size: { width: 6, height: 4 },
-      },
-    ],
-  },
-};
+const gridLLMResponse = buildGridResponse();
 
 const DEFAULT_SESSION_ID = SessionId('session-1');
 const DEFAULT_MESSAGE_ID = MessageId('req-1');

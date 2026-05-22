@@ -80,7 +80,7 @@ describe('ActionManager', () => {
           instanceId: i1,
           action: 'testAction',
           params: {},
-        } as unknown as ActionExecution,
+        },
       ]);
 
       expect(result.actions).toHaveLength(1);
@@ -454,7 +454,7 @@ describe('ActionManager', () => {
         {
           instanceId: i1,
           action: 'testActionWithParams',
-          params: { testParam: 'value' } as never,
+          params: { testParam: 'value' },
         },
       ];
       await manager.executeActions(executionPlan);

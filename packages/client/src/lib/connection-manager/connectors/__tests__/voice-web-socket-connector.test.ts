@@ -3,6 +3,7 @@ import {
   MessageId,
   SessionId,
   type MaelstromResponse,
+  type SessionHistoryEntry,
   type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
 
@@ -576,11 +577,11 @@ describe('VoiceWebSocketConnector getHistory', () => {
     const promise = connector.getHistory(SessionId('s-1'));
     const payload = JSON.parse(ws.sent[0] as string) as { id: string };
 
-    const fakeEntries = [
+    const fakeEntries: SessionHistoryEntry[] = [
       {
         kind: 'injection',
-        id: 'i-1',
-        sessionId: 's-1',
+        id: MessageId('i-1'),
+        sessionId: SessionId('s-1'),
         timestamp: 1,
         content: 'seeded',
       },
@@ -592,7 +593,7 @@ describe('VoiceWebSocketConnector getHistory', () => {
     });
 
     const result = await promise;
-    expect(result).toEqual(fakeEntries as never);
+    expect(result).toEqual(fakeEntries);
     await connector.disconnect();
   });
 

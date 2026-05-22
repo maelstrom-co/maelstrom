@@ -10,9 +10,9 @@ import type { SkippedAction } from '../../response/execution-plan/index.js';
 import { deriveRetryHint } from './retry-hint.js';
 
 const instanceId = InstanceId('inst-1');
-const vesselId = 'v' as VesselId;
-const variant = 'a' as VariantName;
-const action = 'doIt' as ActionName;
+const vesselId = VesselId('v');
+const variant = VariantName('a');
+const action = ActionName('doIt');
 
 const skip = (reason: SkippedAction['reason']): SkippedAction => {
   switch (reason) {
