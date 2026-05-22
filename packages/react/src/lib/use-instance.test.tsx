@@ -115,7 +115,7 @@ describe('m.useInstance()', () => {
     expect(props).not.toBeNull();
     expect(props!.instanceId).toBe(InstanceId('inst-1'));
     expect(props!.vesselId).toBe(VesselId('orders'));
-    expect(props!.variantProps.variant).toBe('list');
+    expect(props!.variantProps.variant).toBe(VariantName('list'));
     expect(typeof props!.executeAction).toBe('function');
   });
 
@@ -209,7 +209,7 @@ describe('m.useInstance()', () => {
       props!.executeAction(ActionName('viewDetail'));
     });
 
-    expect(props!.variantProps.variant).toBe('detail');
+    expect(props!.variantProps.variant).toBe(VariantName('detail'));
   });
 
   it('returns null when instance is removed', async () => {

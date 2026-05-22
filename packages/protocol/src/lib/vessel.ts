@@ -22,7 +22,11 @@ export const VesselActionSchema = z.object({
   name: z.string().min(1, 'Action name is required').transform(ActionName),
   description: z.string().min(1, 'Action description is required'),
   parameters: z.array(ActionParameterSchema).optional(),
-  transitionsTo: z.string().min(1).transform(VariantName).optional(),
+  transitionsTo: z
+    .string()
+    .min(1, 'transitionsTo must be non-empty')
+    .transform(VariantName)
+    .optional(),
 });
 
 export const VesselVariantSchema = z.object({
@@ -42,7 +46,7 @@ export const VesselSchema = z
       .min(1, 'defaultVariant is required')
       .transform(VariantName),
     variants: z.record(
-      z.string().min(1).transform(VariantName),
+      z.string().min(1, 'Variant name must be non-empty').transform(VariantName),
       VesselVariantSchema,
     ),
   })
@@ -158,7 +162,7 @@ export interface VesselDefinition {
   readonly variants: Readonly<Record<string, VesselVariantDefinition>>;
 }
 
-/** Author-facing shape for a {@link VesselVariant}. */
+/** Author-facing shape for a {@link VesselVariant}. See {@link VesselDefinition}. */
 export interface VesselVariantDefinition {
   readonly description?: string;
   readonly props: Readonly<Record<string, unknown>>;
@@ -166,7 +170,7 @@ export interface VesselVariantDefinition {
   readonly actions: ReadonlyArray<VesselActionDefinition>;
 }
 
-/** Author-facing shape for a {@link VesselAction}. */
+/** Author-facing shape for a {@link VesselAction}. See {@link VesselDefinition}. */
 export interface VesselActionDefinition {
   readonly name: string;
   readonly description: string;

@@ -103,6 +103,23 @@ describe('m.useVessel() — basic', () => {
     expect(result.current).toBeNull();
   });
 
+  it('returns null (does not throw during render) for an empty instanceId', async () => {
+    // Empty/whitespace ids must degrade to the hook's not-found path, not a
+    // render-time throw — branding the id at the seam must not crash the tree.
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = createMockConnector();
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <m.Provider connector={connector}>{children}</m.Provider>
+    );
+
+    const { result } = renderHook(() => m.useVessel('orders', ''), { wrapper });
+
+    await act(async () => {});
+
+    expect(result.current).toBeNull();
+  });
+
   it('returns null when instance vesselId does not match requested vesselId', async () => {
     const weatherVessel = defineVessel({
       id: 'weather',
@@ -758,8 +775,8 @@ describe('m.useVessel() — optimistic transitions', () => {
           instances: [
             {
               instanceId: InstanceId('inst-1'),
-              vesselId: 'toggle-panel',
-              variant: 'expanded',
+              vesselId: VesselId('toggle-panel'),
+              variant: VariantName('expanded'),
             },
           ],
         },

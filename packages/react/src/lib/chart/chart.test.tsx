@@ -5,7 +5,7 @@ import type {
   ChartRequestMessage,
   MaelstromResponse,
 } from '@maelstrom-co/protocol';
-import { InstanceId } from '@maelstrom-co/protocol';
+import { InstanceId, VesselId, VariantName } from '@maelstrom-co/protocol';
 
 import { createMaelstrom } from '../create-maelstrom.js';
 import { vessel } from '../vessel.js';
@@ -70,7 +70,7 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
           layout: {
             type: 'tiling',
             tree: [brandedId],
-            instances: [{ instanceId: brandedId, vesselId, variant }],
+            instances: [{ instanceId: brandedId, vesselId: VesselId(vesselId), variant: VariantName(variant) }],
           },
         };
       }
@@ -104,7 +104,7 @@ function connectorWithTilingLayout(instanceId: string, vesselId: string, variant
       layout: {
         type: 'tiling',
         tree: [brandedId],
-        instances: [{ instanceId: brandedId, vesselId, variant }],
+        instances: [{ instanceId: brandedId, vesselId: VesselId(vesselId), variant: VariantName(variant) }],
       },
     }),
   });

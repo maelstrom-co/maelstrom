@@ -179,7 +179,7 @@ export function createProvider(
  */
 function buildRegistries(entries: readonly AnyVesselEntry[]) {
   const componentRegistry = new Map<VesselId, ComponentType<TypedVesselProps<any>>>();
-  const loadingRegistry = new Map<VesselId, ComponentType<{ vesselId: string }>>();
+  const loadingRegistry = new Map<VesselId, ComponentType<{ vesselId: VesselId }>>();
   const lazyVesselIds = new Set<VesselId>();
   const lazyLoaderRegistry = new Map<VesselId, LazyVesselComponentLoader<any>>();
 

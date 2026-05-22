@@ -19,7 +19,7 @@ describe('parseTilingTree', () => {
 
   it('parses a single leaf node', () => {
     const result = parseTilingTree([InstanceId('inst-1')]);
-    expect(result).toEqual({ type: 'leaf', instanceId: 'inst-1' });
+    expect(result).toEqual({ type: 'leaf', instanceId: InstanceId('inst-1') });
   });
 
   it('parses a null leaf node', () => {
@@ -36,8 +36,8 @@ describe('parseTilingTree', () => {
     expect(result).toEqual({
       type: 'split',
       direction: 'H',
-      left: { type: 'leaf', instanceId: 'inst-1' },
-      right: { type: 'leaf', instanceId: 'inst-2' },
+      left: { type: 'leaf', instanceId: InstanceId('inst-1') },
+      right: { type: 'leaf', instanceId: InstanceId('inst-2') },
     });
   });
 
@@ -50,8 +50,8 @@ describe('parseTilingTree', () => {
     expect(result).toEqual({
       type: 'split',
       direction: 'V',
-      left: { type: 'leaf', instanceId: 'inst-1' },
-      right: { type: 'leaf', instanceId: 'inst-2' },
+      left: { type: 'leaf', instanceId: InstanceId('inst-1') },
+      right: { type: 'leaf', instanceId: InstanceId('inst-2') },
     });
   });
 
@@ -67,12 +67,12 @@ describe('parseTilingTree', () => {
     expect(result).toEqual({
       type: 'split',
       direction: 'H',
-      left: { type: 'leaf', instanceId: 'inst-1' },
+      left: { type: 'leaf', instanceId: InstanceId('inst-1') },
       right: {
         type: 'split',
         direction: 'V',
-        left: { type: 'leaf', instanceId: 'inst-2' },
-        right: { type: 'leaf', instanceId: 'inst-3' },
+        left: { type: 'leaf', instanceId: InstanceId('inst-2') },
+        right: { type: 'leaf', instanceId: InstanceId('inst-3') },
       },
     });
   });
@@ -99,7 +99,7 @@ describe('computeTilingLayout', () => {
     const tree = parseTilingTree([InstanceId('inst-1')])!;
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(1);
-    expect(tiles[0].instanceId).toBe('inst-1');
+    expect(tiles[0].instanceId).toBe(InstanceId('inst-1'));
     expect(tiles[0].rect).toEqual({ x: 0, y: 0, width: 800, height: 600 });
   });
 
@@ -154,7 +154,7 @@ describe('computeTilingLayout', () => {
     ])!;
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(1);
-    expect(tiles[0].instanceId).toBe('inst-1');
+    expect(tiles[0].instanceId).toBe(InstanceId('inst-1'));
     // Bounding box should span the full container
     expect(tiles[0].rect).toEqual({ x: 0, y: 0, width: 800, height: 600 });
   });

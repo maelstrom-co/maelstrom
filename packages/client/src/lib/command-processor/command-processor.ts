@@ -1,5 +1,6 @@
 import type {
   ActionExecution,
+  ActionName,
   GridLayout,
   InstanceId,
   TilingLayout,
@@ -39,7 +40,7 @@ export type CommandProcessorEvents = {
   /** Fired when one or more actions in a batch fail or are skipped. */
   action_error: {
     instanceId: InstanceId;
-    action: string;
+    action: ActionName;
     error: Error | undefined;
     timestamp: number;
   };

@@ -1,8 +1,6 @@
 import type { ComputedTile, Rect, VesselInstance } from '@maelstrom-co/client';
 import { computeTilingLayout, parseTilingTree } from '@maelstrom-co/client';
-import { InstanceId,
-  toError
-} from '@maelstrom-co/protocol';
+import { ActionName, toError } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 import {
   type CSSProperties,
@@ -62,7 +60,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
           orchestrator.commandProcessor.executeActions([
             {
               instanceId: instance.instanceId,
-              action: name,
+              action: ActionName(name),
               ...(params && { paramsJson: JSON.stringify(params) }),
             },
           ]);
@@ -385,7 +383,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
       const tilesToRender = computedTiles
         .map((tile) => {
-          const instance = instances.get(tile.instanceId as InstanceId);
+          const instance = instances.get(tile.instanceId);
           if (!instance && config.debug) {
             console.warn(`[Maelstrom] Tiling layout references unknown instance "${tile.instanceId}"`);
           }

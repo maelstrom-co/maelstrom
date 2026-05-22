@@ -1,7 +1,7 @@
-import type {
-  ActionExecution,
+import {
+  ActionName,
   InstanceId,
-  VariantName,
+  type VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
@@ -13,8 +13,8 @@ import { useOptimisticVariant } from './use-optimistic-variant.js';
 import { warnOnce } from './warn-once.js';
 
 export interface VesselCoreResult {
-  instanceId: string;
-  vesselId: string;
+  instanceId: InstanceId;
+  vesselId: VesselId;
   currentVariant: VariantName;
   variantProps: Record<string, unknown>;
   executeAction: (name: string, params?: Record<string, unknown>) => void;
@@ -35,12 +35,17 @@ export function createUseVesselCore(contextPair: MaelstromContextPair) {
   ): VesselCoreResult | null {
     const { orchestrator, config } = useMaelstromContext();
 
+    // Brand at the React seam, but only after validating non-emptiness: an
+    // empty/whitespace id degrades to the not-found path below instead of
+    // throwing during render. Real constructors (not casts) on valid input.
+    const brandedInstanceId = instanceId.trim() ? InstanceId(instanceId) : null;
+
     const instance = useStore(orchestrator.commandProcessor.store, (s) =>
-      s.instances.get(instanceId as InstanceId),
+      brandedInstanceId ? s.instances.get(brandedInstanceId) : undefined,
     );
 
     const vessel = useStore(orchestrator.vesselManager.store, (s) =>
-      vesselId ? s.vessels.get(vesselId as VesselId) : undefined,
+      vesselId?.trim() ? s.vessels.get(VesselId(vesselId)) : undefined,
     );
 
     // Narrow the orchestrator's event bus into a stable subscribe function for useOptimisticVariant
@@ -80,15 +85,17 @@ export function createUseVesselCore(contextPair: MaelstromContextPair) {
           }
         }
 
-        orchestrator.commandProcessor.executeActions([
-          {
-            instanceId,
-            action: name,
-            ...(params && { params }),
-          } as ActionExecution,
-        ]);
+        if (brandedInstanceId) {
+          orchestrator.commandProcessor.executeActions([
+            {
+              instanceId: brandedInstanceId,
+              action: ActionName(name),
+              ...(params && { params }),
+            },
+          ]);
+        }
       },
-      [orchestrator, instanceId, optimistic.applyTransition, vessel, config.debug, vesselId, optimisticCurrentRef, instanceRef],
+      [orchestrator, brandedInstanceId, optimistic.applyTransition, vessel, config.debug, vesselId, optimisticCurrentRef, instanceRef],
     );
 
     if (!instance) return null;
@@ -113,7 +120,7 @@ export function createUseVesselCore(contextPair: MaelstromContextPair) {
     }
 
     return {
-      instanceId,
+      instanceId: instance.instanceId,
       vesselId: instance.vesselId,
       currentVariant,
       variantProps: variantDef.props,

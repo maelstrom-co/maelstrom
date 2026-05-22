@@ -8,6 +8,7 @@ import type {
   Vessel,
 } from '@maelstrom-co/protocol';
 import {
+  ActionName,
   InstanceId,
   MessageId,
   VariantName,
@@ -72,7 +73,7 @@ function makeResponse(
     rationale: '',
     executionPlan: executionPlan.map((e) => ({
       instanceId: InstanceId(e.instanceId),
-      action: e.action,
+      action: ActionName(e.action),
     })),
     layout: {
       type: 'tiling',
@@ -479,7 +480,7 @@ function connectorWithTilingInstance(
       layout: {
         type: 'tiling',
         tree: [brandedId],
-        instances: [{ instanceId: brandedId, vesselId, variant }],
+        instances: [{ instanceId: brandedId, vesselId: VesselId(vesselId), variant: VariantName(variant) }],
       },
     }),
   });

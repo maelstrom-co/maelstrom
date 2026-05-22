@@ -14,6 +14,12 @@ export type VesselId = Brand<string, 'VesselId'>;
  *
  * No auto-gen path — VesselIds always originate from a vessel definition
  * (developer-authored) or from LLM output that references one.
+ *
+ * @example
+ * ```ts
+ * const id = VesselId('calendar');
+ * const registry = new Map<VesselId, Vessel>();
+ * ```
  */
 export const VesselId = (value: string): VesselId => {
   requireNonEmptyBrand(value, 'VesselId');

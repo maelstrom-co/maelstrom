@@ -1,5 +1,9 @@
 import type { ComponentType } from 'react';
-import type { InstanceId, VesselDefinition } from '@maelstrom-co/protocol';
+import type {
+  InstanceId,
+  VesselDefinition,
+  VesselId,
+} from '@maelstrom-co/protocol';
 
 import type {
   ActionNames,
@@ -55,7 +59,7 @@ export type LazyVesselComponentLoader<V extends VesselDefinition> = () => Promis
 export interface LazyVesselEntry<V extends VesselDefinition> {
   vessel: V;
   component: LazyVesselComponentLoader<V>;
-  loadingComponent: ComponentType<{ vesselId: string }>;
+  loadingComponent: ComponentType<{ vesselId: VesselId }>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

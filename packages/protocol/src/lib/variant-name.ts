@@ -14,6 +14,11 @@ export type VariantName = Brand<string, 'VariantName'>;
  *
  * Originates from `Vessel.variants` keys, `VesselAction.transitionsTo`, and
  * LLM output that references a variant.
+ *
+ * @example
+ * ```ts
+ * const variant = VariantName('detail');
+ * ```
  */
 export const VariantName = (value: string): VariantName => {
   requireNonEmptyBrand(value, 'VariantName');

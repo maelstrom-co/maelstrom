@@ -1,8 +1,11 @@
 import {
+  ActionName,
   InstanceId,
   type MaelstromResponse,
   type MessageId,
   type TilingLayout,
+  VariantName,
+  VesselId,
 } from '@maelstrom-co/protocol';
 
 export const createMockResponse = (
@@ -14,7 +17,7 @@ export const createMockResponse = (
   requestId,
   userMessage: 'ok',
   rationale: 'test',
-  executionPlan: [{ instanceId: InstanceId(instanceId), action }],
+  executionPlan: [{ instanceId: InstanceId(instanceId), action: ActionName(action) }],
   layout: createMockLayout(instanceId),
 });
 
@@ -24,8 +27,8 @@ export const createMockLayout = (instanceId: string): TilingLayout => ({
   instances: [
     {
       instanceId: InstanceId(instanceId),
-      vesselId: 'vessel-1',
-      variant: 'default',
+      vesselId: VesselId('vessel-1'),
+      variant: VariantName('default'),
     },
   ],
 });

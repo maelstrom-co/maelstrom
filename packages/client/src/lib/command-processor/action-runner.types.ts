@@ -10,6 +10,7 @@
 
 import type {
   ActionExecution,
+  ActionName,
   ActionParameter,
   InstanceId,
   VesselDefinition,
@@ -174,7 +175,7 @@ export interface ExecutableAction {
  */
 export interface ActionRecord {
   instanceId: InstanceId;
-  action: string;
+  action: ActionName;
   result: ActionResult;
   duration: number;
   skipped?: boolean;

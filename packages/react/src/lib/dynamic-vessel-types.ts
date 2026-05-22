@@ -2,6 +2,7 @@ import type { ActionRunner } from '@maelstrom-co/client';
 import type {
   ActionName,
   InstanceId,
+  VariantName,
   VesselDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -12,7 +13,7 @@ import type { TypedVesselProps } from './vessel-entry-types.js';
 export interface UntypedVesselProps {
   instanceId: InstanceId;
   vesselId: VesselId;
-  variantProps: { variant: string } & Record<string, unknown>;
+  variantProps: { variant: VariantName } & Record<string, unknown>;
   executeAction: (name: ActionName, params?: Record<string, unknown>) => void;
 }
 
