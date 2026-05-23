@@ -1,45 +1,75 @@
 ---
-import SectionWrapper from '../components/SectionWrapper.astro';
 import WaitlistForm from '../islands/WaitlistForm.tsx';
-import { cloudFeatures } from '../data/content';
+
+const CLOUD = [
+  {
+    title: 'Managed Voice',
+    body: 'Zero-config voice with STT, TTS, edge delivery, and low-latency voice activity detection.',
+  },
+  {
+    title: 'Pro Engine',
+    body: 'Multi-model routing, response caching, and global edge deployment for production orchestration.',
+  },
+  {
+    title: 'Analytics',
+    body: 'Insight into intent patterns, layout performance, vessel usage, and session behavior.',
+  },
+];
 ---
 
-<SectionWrapper id="cloud" class="py-20 md:py-44 px-6 relative">
-  <div class="absolute inset-0 pointer-events-none" aria-hidden="true">
-    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[400px] bg-cyan/[0.02] rounded-full blur-[120px]" />
-    <div class="absolute top-1/3 left-1/4 w-[300px] h-[300px] bg-violet/[0.015] rounded-full blur-[100px]" />
-  </div>
+<section class="cloud" id="waitlist">
+  <div class="container">
+    <div class="how-head">
+      <span class="eyebrow">Maelstrom cloud</span>
+      <h2 class="section-h2">Managed Orchestration</h2>
+      <p class="section-sub">
+        Deploy AI-driven interfaces without managing infrastructure. Scaling your
+        generative UI layer has never been easier.
+      </p>
+    </div>
 
-  <div class="relative max-w-3xl mx-auto text-center">
-    <p class="section-kicker mb-5">Coming Soon</p>
-    <h2 class="font-display text-4xl md:text-5xl lg:text-6xl font-bold text-text mb-6">
-      Maelstrom Cloud
-    </h2>
-    <p class="text-lg md:text-xl text-text-muted leading-relaxed mb-14 max-w-2xl mx-auto">
-      Managed orchestration engine. Deploy AI-driven interfaces without managing infrastructure.
-    </p>
-
-    <!-- Feature teasers -->
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-14" data-scroll-reveal>
-      {cloudFeatures.map((f) => (
-        <div
-          class="px-5 py-5 rounded-xl text-center"
-          style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05);"
-        >
-          <div
-            class="w-9 h-9 rounded-lg mx-auto mb-3 flex items-center justify-center"
-            style="background: rgba(0, 240, 255, 0.06); border: 1px solid rgba(0, 240, 255, 0.1);"
-          >
-            <svg class="w-4 h-4 text-cyan/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d={f.icon} />
-            </svg>
+    <div class="cloud-grid">
+      {CLOUD.map((c, i) => (
+        <div class="cloud-card">
+          <div class="cloud-icon">
+            {i === 0 && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="9" y="2" width="6" height="13" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0" />
+                <line x1="12" y1="18" x2="12" y2="22" />
+              </svg>
+            )}
+            {i === 1 && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
+              </svg>
+            )}
+            {i === 2 && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <line x1="4" y1="20" x2="4" y2="10" />
+                <line x1="10" y1="20" x2="10" y2="4" />
+                <line x1="16" y1="20" x2="16" y2="14" />
+                <line x1="22" y1="20" x2="2" y2="20" />
+              </svg>
+            )}
           </div>
-          <div class="text-sm text-text/80 font-medium mb-1">{f.title}</div>
-          <div class="text-xs text-text-muted/60 leading-relaxed">{f.desc}</div>
+          <h3 class="cloud-title">{c.title}</h3>
+          <p class="cloud-body">{c.body}</p>
+          <div class="cloud-meta mono">0{i + 1} / 03</div>
         </div>
       ))}
     </div>
 
-    <WaitlistForm client:visible />
+    <div class="waitlist-card">
+      <div class="waitlist-inner">
+        <div>
+          <h3 class="waitlist-title">Get early access</h3>
+          <p class="waitlist-sub">
+            Join engineers building with Maelstrom Cloud.
+          </p>
+        </div>
+        <WaitlistForm client:visible />
+      </div>
+    </div>
   </div>
-</SectionWrapper>
+</section>

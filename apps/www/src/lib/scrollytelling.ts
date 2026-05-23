@@ -28,7 +28,10 @@ export function computeHeaderOpacity(progress: number): number {
 /**
  * Find the index of the step whose center is closest to the target Y position.
  */
-export function findClosestStep(stepCenters: number[], targetY: number): number {
+export function findClosestStep(
+  stepCenters: number[],
+  targetY: number,
+): number {
   if (stepCenters.length === 0) return -1;
   let closestIndex = 0;
   let closestDist = Infinity;

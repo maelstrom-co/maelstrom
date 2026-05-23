@@ -1,0 +1,219 @@
+---
+---
+<canvas id="mae-shader" aria-hidden="true"></canvas>
+<script>
+  const VS = `
+    attribute vec2 a;
+    void main(){ gl_Position = vec4(a, 0.0, 1.0); }
+  `;
+  const FS = `
+    precision highp float;
+    uniform vec2 uRes;
+    uniform float uTime;
+    uniform vec2 uMouse;
+    uniform vec3 uHue;
+    uniform float uIntensity;
+
+    float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+    float noise(vec2 p){
+      vec2 i = floor(p), f = fract(p);
+      float a = hash(i), b = hash(i+vec2(1.,0.)), c = hash(i+vec2(0.,1.)), d = hash(i+vec2(1.,1.));
+      vec2 u = f*f*(3.-2.*f);
+      return mix(a,b,u.x) + (c-a)*u.y*(1.-u.x) + (d-b)*u.x*u.y;
+    }
+    float fbm(vec2 p){
+      float v=0.0, a=0.5;
+      for(int i=0;i<5;i++){ v += a*noise(p); p *= 2.02; a *= 0.5; }
+      return v;
+    }
+
+    void main(){
+      vec2 uv = (gl_FragCoord.xy - 0.5*uRes) / min(uRes.x, uRes.y);
+      vec2 m = (uMouse - 0.5*uRes) / min(uRes.x, uRes.y);
+      float t = uTime * 0.045;
+      float r = length(uv);
+      float ang = atan(uv.y, uv.x);
+      ang += 0.6 / (r + 0.25) + t*0.3;
+      vec2 sw = vec2(cos(ang), sin(ang)) * r;
+      vec2 p = sw * 1.4 + vec2(t*0.2, -t*0.15);
+      float n1 = fbm(p + fbm(p + t));
+      float n2 = fbm(p*1.7 - n1 + t*0.6);
+      float n  = mix(n1, n2, 0.55);
+      float md = length(uv - m*0.4);
+      float pulse = exp(-md*4.5) * 0.18 * uIntensity;
+      vec3 bg = vec3(0.016, 0.022, 0.035);
+      vec3 c1 = vec3(0.0, 0.57, 1.0);
+      vec3 c2 = vec3(0.43, 0.36, 1.0);
+      vec3 c3 = vec3(0.0, 0.85, 1.0);
+      float radial = smoothstep(1.4, 0.0, r);
+      float field = smoothstep(0.35, 0.95, n) * radial;
+      vec3 col = bg;
+      col = mix(col, c1, field * 0.55 * uIntensity);
+      col = mix(col, c2, smoothstep(0.55, 0.95, n2) * 0.20 * radial * uIntensity);
+      col += c3 * pulse;
+      float fila = smoothstep(0.78, 0.82, n) - smoothstep(0.82, 0.86, n);
+      col += vec3(0.4, 0.75, 1.0) * fila * 0.35 * uIntensity;
+      float vig = smoothstep(1.4, 0.4, r);
+      col *= mix(0.55, 1.0, vig);
+      float g = (hash(gl_FragCoord.xy + uTime) - 0.5) * 0.025;
+      col += g;
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `;
+
+  // Surface every WebGL bailout (instead of failing to a black canvas) and flag
+  // the document so global.css can swap in a static gradient fallback.
+  function fail(message: string) {
+    console.warn(`[ShaderBackground] ${message}`);
+    document.documentElement.classList.add("no-webgl");
+  }
+
+  function compile(gl: WebGLRenderingContext, type: number, src: string) {
+    const s = gl.createShader(type);
+    if (!s) return null;
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.warn(`[ShaderBackground] shader compile failed: ${gl.getShaderInfoLog(s)}`);
+      return null;
+    }
+    return s;
+  }
+
+  function initShader() {
+    const canvas = document.getElementById("mae-shader") as HTMLCanvasElement | null;
+    if (!canvas) {
+      fail("canvas #mae-shader not found");
+      return;
+    }
+    const gl = canvas.getContext("webgl", {
+      antialias: false,
+      alpha: false,
+      premultipliedAlpha: false,
+    });
+    if (!gl) {
+      fail("WebGL unavailable — using static gradient fallback");
+      return;
+    }
+    const vs = compile(gl, gl.VERTEX_SHADER, VS);
+    const fs = compile(gl, gl.FRAGMENT_SHADER, FS);
+    if (!vs || !fs) {
+      fail("shader compilation failed — using static gradient fallback");
+      return;
+    }
+    const prog = gl.createProgram();
+    if (!prog) {
+      fail("could not create WebGL program — using static gradient fallback");
+      return;
+    }
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      fail(`program link failed: ${gl.getProgramInfoLog(prog)}`);
+      return;
+    }
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+      gl.STATIC_DRAW
+    );
+    const aLoc = gl.getAttribLocation(prog, "a");
+    gl.enableVertexAttribArray(aLoc);
+    gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const uRes = gl.getUniformLocation(prog, "uRes");
+    const uTime = gl.getUniformLocation(prog, "uTime");
+    const uMouse = gl.getUniformLocation(prog, "uMouse");
+    const uHue = gl.getUniformLocation(prog, "uHue");
+    const uIntensity = gl.getUniformLocation(prog, "uIntensity");
+
+    const mouse: [number, number] = [0, 0];
+    const target: [number, number] = [0, 0];
+
+    // Cap DPR so the full-screen fragment shader's cost stays bounded on hi-DPI
+    // displays — uncapped, a 3x-DPR phone renders several times more pixels and
+    // tanks the GPU.
+    const dpr = () => Math.min(window.devicePixelRatio || 1, 1.6);
+
+    const resize = () => {
+      const d = dpr();
+      canvas.width = window.innerWidth * d;
+      canvas.height = window.innerHeight * d;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const onPointer = (e: PointerEvent) => {
+      const d = dpr();
+      target[0] = e.clientX * d;
+      target[1] = (window.innerHeight - e.clientY) * d;
+    };
+    window.addEventListener("pointermove", onPointer, { passive: true });
+
+    const draw = (now: number) => {
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform1f(uTime, now / 1000);
+      gl.uniform2f(uMouse, mouse[0], mouse[1]);
+      gl.uniform3f(uHue, 0.0, 0.57, 1.0);
+      gl.uniform1f(uIntensity, 1.0);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    };
+
+    let rafId = 0;
+    let contextLost = false;
+    let last = performance.now();
+    const loop = (now: number) => {
+      // Bail if the canvas was removed (e.g. an Astro view transition) so we
+      // don't leak an orphaned animation loop drawing into a dead context.
+      if (!canvas.isConnected) {
+        rafId = 0;
+        return;
+      }
+      const dt = Math.min(33, now - last) / 1000;
+      last = now;
+      mouse[0] += (target[0] - mouse[0]) * Math.min(1, dt * 3);
+      mouse[1] += (target[1] - mouse[1]) * Math.min(1, dt * 3);
+      draw(now);
+      rafId = requestAnimationFrame(loop);
+    };
+    const start = () => {
+      if (rafId || contextLost) return;
+      last = performance.now();
+      rafId = requestAnimationFrame(loop);
+    };
+    const stop = () => {
+      if (!rafId) return;
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    };
+
+    start();
+
+    // A runtime context loss (driver reset, too many live contexts, mobile
+    // backgrounding) would otherwise leave the loop spinning on a dead context.
+    // We don't attempt restoration, so stop and show the static gradient.
+    canvas.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      contextLost = true;
+      stop();
+      fail("WebGL context lost — using static gradient fallback");
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) stop();
+      else start();
+    });
+    window.addEventListener("pagehide", () => {
+      stop();
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("pointermove", onPointer);
+    });
+  }
+
+  initShader();
+</script>

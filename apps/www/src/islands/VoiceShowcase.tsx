@@ -15,9 +15,17 @@ interface UIState {
 const commandScript: TranscriptLine[] = [
   { speaker: 'user', text: '"Show me pending orders"', delay: 0 },
   { speaker: 'system', text: 'Filtering orders by status...', delay: 1200 },
-  { speaker: 'system', text: 'Expanding orders panel to full view.', delay: 2200 },
+  {
+    speaker: 'system',
+    text: 'Expanding orders panel to full view.',
+    delay: 2200,
+  },
   { speaker: 'user', text: '"Open the first one"', delay: 5000 },
-  { speaker: 'system', text: 'Selecting order #1847. Showing details.', delay: 6200 },
+  {
+    speaker: 'system',
+    text: 'Selecting order #1847. Showing details.',
+    delay: 6200,
+  },
 ];
 
 const commandUIStates: { at: number; state: UIState }[] = [
@@ -56,12 +64,32 @@ const commandUIStates: { at: number; state: UIState }[] = [
 ];
 
 const ambientScript: TranscriptLine[] = [
-  { speaker: 'ambient', text: 'Dr. Reyes: "How long have you had the chest pain?"', delay: 0 },
-  { speaker: 'ambient', text: 'Patient: "About two weeks, mostly at night."', delay: 2000 },
-  { speaker: 'system', text: 'Showing cardiac history + recent labs.', delay: 3200 },
-  { speaker: 'ambient', text: 'Dr. Reyes: "Any family history of heart disease?"', delay: 5500 },
+  {
+    speaker: 'ambient',
+    text: 'Dr. Reyes: "How long have you had the chest pain?"',
+    delay: 0,
+  },
+  {
+    speaker: 'ambient',
+    text: 'Patient: "About two weeks, mostly at night."',
+    delay: 2000,
+  },
+  {
+    speaker: 'system',
+    text: 'Showing cardiac history + recent labs.',
+    delay: 3200,
+  },
+  {
+    speaker: 'ambient',
+    text: 'Dr. Reyes: "Any family history of heart disease?"',
+    delay: 5500,
+  },
   { speaker: 'system', text: 'Pulling family medical history.', delay: 6700 },
-  { speaker: 'ambient', text: 'Patient: "My father had a bypass at 55."', delay: 8500 },
+  {
+    speaker: 'ambient',
+    text: 'Patient: "My father had a bypass at 55."',
+    delay: 8500,
+  },
   { speaker: 'system', text: 'Flagging hereditary risk factors.', delay: 9700 },
 ];
 
@@ -179,10 +207,21 @@ function VoiceDemo({
         </div>
       </div>
 
-      <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(10, 30, 53, 0.4)', border: '1px solid rgba(255, 255, 255, 0.06)', boxShadow: '0 8px 40px rgba(0, 0, 0, 0.25), 0 0 40px rgba(0, 240, 255, 0.02)' }}>
+      <div
+        className="rounded-2xl overflow-hidden"
+        style={{
+          background: 'rgba(10, 30, 53, 0.4)',
+          border: '1px solid rgba(255, 255, 255, 0.06)',
+          boxShadow:
+            '0 8px 40px rgba(0, 0, 0, 0.25), 0 0 40px rgba(0, 240, 255, 0.02)',
+        }}
+      >
         {/* Mini UI preview */}
         <div className="p-4 border-b border-white/[0.04]">
-          <div className="text-[10px] font-mono text-text-muted/50 mb-3 tracking-wider uppercase" style={{ minHeight: '15px' }}>
+          <div
+            className="text-[10px] font-mono text-text-muted/50 mb-3 tracking-wider uppercase"
+            style={{ minHeight: '15px' }}
+          >
             {currentUI.label}
           </div>
           <div className="grid grid-cols-4 gap-2" style={{ height: '68px' }}>
@@ -209,41 +248,42 @@ function VoiceDemo({
 
         {/* Transcript — fixed height to prevent layout shifts */}
         <ScrollArea className="h-[200px]">
-        <div className="p-4 space-y-2.5" aria-live="polite" aria-atomic="false">
-          {script.slice(0, visibleLines).map((line, i) => (
-            <div
-              key={i}
-              className="flex gap-2.5 items-start animate-fade-in"
-            >
-              <div
-                className={`text-[10px] font-mono mt-0.5 shrink-0 ${
-                  line.speaker === 'system'
-                    ? 'text-cyan/60'
+          <div
+            className="p-4 space-y-2.5"
+            aria-live="polite"
+            aria-atomic="false"
+          >
+            {script.slice(0, visibleLines).map((line, i) => (
+              <div key={i} className="flex gap-2.5 items-start animate-fade-in">
+                <div
+                  className={`text-[10px] font-mono mt-0.5 shrink-0 ${
+                    line.speaker === 'system'
+                      ? 'text-cyan/60'
+                      : line.speaker === 'ambient'
+                        ? 'text-violet/60'
+                        : 'text-text-muted/40'
+                  }`}
+                >
+                  {line.speaker === 'system'
+                    ? 'AI'
                     : line.speaker === 'ambient'
-                      ? 'text-violet/60'
-                      : 'text-text-muted/40'
-                }`}
-              >
-                {line.speaker === 'system'
-                  ? 'AI'
-                  : line.speaker === 'ambient'
-                    ? '🎙'
-                    : '→'}
+                      ? '🎙'
+                      : '→'}
+                </div>
+                <p
+                  className={`text-xs leading-relaxed ${
+                    line.speaker === 'system'
+                      ? 'text-cyan/80 font-mono'
+                      : line.speaker === 'ambient'
+                        ? 'text-text-muted/70 italic'
+                        : 'text-text/80'
+                  }`}
+                >
+                  {line.text}
+                </p>
               </div>
-              <p
-                className={`text-xs leading-relaxed ${
-                  line.speaker === 'system'
-                    ? 'text-cyan/80 font-mono'
-                    : line.speaker === 'ambient'
-                      ? 'text-text-muted/70 italic'
-                      : 'text-text/80'
-                }`}
-              >
-                {line.text}
-              </p>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
         </ScrollArea>
       </div>
     </div>
@@ -259,7 +299,17 @@ export default function VoiceShowcase() {
         script={commandScript}
         uiStates={commandUIStates}
         icon={
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
             <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
           </svg>
@@ -271,7 +321,17 @@ export default function VoiceShowcase() {
         script={ambientScript}
         uiStates={ambientUIStates}
         icon={
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
             <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
             <circle cx="12" cy="12" r="3" />
           </svg>

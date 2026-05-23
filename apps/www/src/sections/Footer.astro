@@ -1,95 +1,50 @@
 ---
-import { navLinks, socialLinks, GITHUB_REPO_URL, INSTALL_COMMAND } from '../data/navigation';
+import MaelstromLogo from '../components/MaelstromLogo.astro';
+import { navLinks, socialLinks } from '../data/navigation';
+
+const productLinks = [
+  { label: 'How it works', href: '#how' },
+  { label: 'Demo', href: '#demo' },
+  { label: 'Cloud', href: '#waitlist' },
+];
+
+const resourceLinks = navLinks.filter((link) => link.href.startsWith('http'));
 ---
 
-<footer class="py-10 md:py-20 px-6 relative">
-  <!-- Top border gradient -->
-  <div class="absolute top-0 inset-x-0 h-px" style="background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.08), transparent);"></div>
-
-  <div class="max-w-4xl mx-auto">
-    <!-- Top row: logo + nav + socials -->
-    <div class="flex flex-col md:flex-row items-center justify-between gap-8 mb-12">
-      <!-- Logo -->
-      <div class="flex items-center gap-2.5">
-        <svg width="28" height="28" viewBox="0 0 48 48" class="footer-logo" aria-label="Maelstrom logo">
-          <defs>
-            <linearGradient id="footer-logo-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#00f0ff" />
-              <stop offset="100%" stop-color="#0066ff" />
-            </linearGradient>
-          </defs>
-          <path
-            d="M24 24 C24 20, 28 18, 30 20 C32 22, 30 27, 26 28 C22 29, 17 26, 17 22 C17 17, 22 13, 27 13 C33 13, 37 18, 37 24 C37 31, 31 36, 24 36 C16 36, 11 30, 11 23 C11 15, 17 9, 25 9"
-            fill="none"
-            stroke="url(#footer-logo-grad)"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            opacity="0.6"
-          />
-          <circle cx="24" cy="24" r="1.5" fill="#00f0ff" opacity="0.7" />
-        </svg>
-        <span class="text-text/80 font-display font-semibold text-sm">Maelstrom</span>
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <MaelstromLogo height={30} color="white" style="margin-bottom: 20px;" />
+      <p class="footer-tag">Orchestration layer for AI-native interfaces.</p>
+      <div class="footer-meta mono">public alpha</div>
+    </div>
+    <div class="footer-cols">
+      <div>
+        <div class="footer-col-h">Product</div>
+        {productLinks.map((link) => (
+          <a href={link.href}>{link.label}</a>
+        ))}
       </div>
-
-      <!-- Nav links -->
-      <nav class="flex items-center gap-8" aria-label="Footer navigation">
-        {navLinks.map((link) => (
-          <a
-            href={link.href}
-            class="text-text-muted/50 hover:text-text/80 transition-colors duration-300 text-sm"
-          >
+      <div>
+        <div class="footer-col-h">Resources</div>
+        {resourceLinks.map((link) => (
+          <a href={link.href} target="_blank" rel="noopener noreferrer">
             {link.label}
           </a>
         ))}
-      </nav>
-
-      <!-- Social icons -->
-      <div class="flex items-center gap-4">
+      </div>
+      <div>
+        <div class="footer-col-h">Community</div>
         {socialLinks.map((link) => (
-          <a
-            href={link.href}
-            class="text-text-muted/30 hover:text-cyan/70 transition-colors duration-300"
-            aria-label={link.label}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <svg class="w-4.5 h-4.5" viewBox="0 0 24 24" fill="currentColor">
-              <path d={link.icon} />
-            </svg>
+          <a href={link.href} target="_blank" rel="noopener noreferrer">
+            {link.label}
           </a>
         ))}
       </div>
     </div>
-
-    <!-- Install snippet + star nudge -->
-    <div class="flex flex-col items-center gap-4 pt-8 mb-8" style="border-top: 1px solid rgba(255, 255, 255, 0.04);">
-      <code class="text-xs text-text-muted/50 font-mono px-4 py-2 rounded-md" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05);">
-        {INSTALL_COMMAND}
-      </code>
-      <a
-        href={GITHUB_REPO_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="inline-flex items-center gap-1.5 text-xs text-text-muted/40 hover:text-cyan/70 transition-colors duration-300"
-      >
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-        </svg>
-        Star us on GitHub
-      </a>
-    </div>
-
-    <!-- Copyright -->
-    <div class="text-center">
-      <p class="text-text-muted/20 text-xs">
-        &copy; {new Date().getFullYear()} Maelstrom, Co. All rights reserved.
-      </p>
-    </div>
+  </div>
+  <div class="container footer-bottom">
+    <span>© {new Date().getFullYear()} Maelstrom, Co. All rights reserved.</span>
+    <span class="mono">{`{ orchestrating: true }`}</span>
   </div>
 </footer>
-
-<style>
-  .footer-logo {
-    filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.3));
-  }
-</style>

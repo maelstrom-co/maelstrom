@@ -10,14 +10,22 @@ export const calendarVessel = defineVessel({
       props: {},
       minSize: { width: 3, height: 3 },
       actions: [
-        { name: 'showWeek', description: 'Switch to week view', transitionsTo: 'week' },
+        {
+          name: 'showWeek',
+          description: 'Switch to week view',
+          transitionsTo: 'week',
+        },
       ],
     },
     week: {
       props: {},
       minSize: { width: 3, height: 2 },
       actions: [
-        { name: 'showMonth', description: 'Switch to month view', transitionsTo: 'month' },
+        {
+          name: 'showMonth',
+          description: 'Switch to month view',
+          transitionsTo: 'month',
+        },
       ],
     },
   },

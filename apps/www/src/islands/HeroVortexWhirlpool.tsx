@@ -24,11 +24,7 @@ export default function HeroVortexWhirlpool() {
   const animationRef = useRef<number>(0);
 
   const draw = useCallback(
-    (
-      ctx: CanvasRenderingContext2D,
-      vessels: VesselShape[],
-      time: number,
-    ) => {
+    (ctx: CanvasRenderingContext2D, vessels: VesselShape[], time: number) => {
       const w = ctx.canvas.clientWidth;
       const h = ctx.canvas.clientHeight;
       const cx = w * (0.5 + (mouseRef.current.x - 0.5) * 0.03);
@@ -44,7 +40,14 @@ export default function HeroVortexWhirlpool() {
       ctx.scale(dpr, dpr);
 
       // --- Core glow ---
-      const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxRadius * 0.7);
+      const coreGrad = ctx.createRadialGradient(
+        cx,
+        cy,
+        0,
+        cx,
+        cy,
+        maxRadius * 0.7,
+      );
       coreGrad.addColorStop(0, 'rgba(0, 240, 255, 0.25)');
       coreGrad.addColorStop(0.2, 'rgba(0, 200, 255, 0.12)');
       coreGrad.addColorStop(0.5, 'rgba(0, 102, 255, 0.06)');
@@ -64,7 +67,8 @@ export default function HeroVortexWhirlpool() {
           const frac = i / 200;
           const r = 12 + frac * maxRadius;
           const spiralTightness = 3.5;
-          const angle = armOffset + frac * Math.PI * 2 * spiralTightness + t * 0.15;
+          const angle =
+            armOffset + frac * Math.PI * 2 * spiralTightness + t * 0.15;
           const x = cx + Math.cos(angle) * r;
           const y = cy + Math.sin(angle) * r;
           if (i === 0) ctx.moveTo(x, y);
@@ -97,7 +101,8 @@ export default function HeroVortexWhirlpool() {
         const progress = ((t * progressSpeed + seed) % 5) / 5;
         const r = 15 + progress * maxRadius;
         const spiralTightness = 3.5;
-        const angle = armAngleOffset + progress * Math.PI * 2 * spiralTightness + t * 0.15;
+        const angle =
+          armAngleOffset + progress * Math.PI * 2 * spiralTightness + t * 0.15;
         const x = cx + Math.cos(angle) * r;
         const y = cy + Math.sin(angle) * r;
 
@@ -107,7 +112,12 @@ export default function HeroVortexWhirlpool() {
         ctx.beginPath();
         ctx.arc(x, y, size, 0, Math.PI * 2);
         const colorIndex = i % 4;
-        const colors = ['0, 240, 255', '0, 102, 255', '107, 0, 255', '0, 255, 163'];
+        const colors = [
+          '0, 240, 255',
+          '0, 102, 255',
+          '107, 0, 255',
+          '0, 255, 163',
+        ];
         ctx.fillStyle = `rgba(${colors[colorIndex]}, ${alpha})`;
         ctx.fill();
       }

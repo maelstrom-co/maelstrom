@@ -36,7 +36,9 @@ function makeRequest(): ChartRequestMessage {
   });
 }
 
-async function processWithTick(connector: DemoConnector): Promise<ReturnType<DemoConnector['process']>> {
+async function processWithTick(
+  connector: DemoConnector,
+): Promise<ReturnType<DemoConnector['process']>> {
   const promise = connector.process(makeRequest());
   await clock.tickAsync(1200);
   return promise;
@@ -55,6 +57,20 @@ describe('DemoConnector', () => {
     const second = await processWithTick(connector);
     expect(second.layout).toEqual(DEMO_STEPS[1].layout);
     expect(second.rationale).toBe(DEMO_STEPS[1].rationale);
+  });
+
+  it('delays non-initial responses by the simulated engine latency', async () => {
+    const connector = new DemoConnector();
+    await connector.process(makeRequest()); // initial request resolves immediately
+    let resolved = false;
+    const pending = connector.process(makeRequest()).then(() => {
+      resolved = true;
+    });
+    await clock.tickAsync(1199);
+    expect(resolved).toBe(false);
+    await clock.tickAsync(1);
+    await pending;
+    expect(resolved).toBe(true);
   });
 
   it('clamps to last step when requests exceed steps', async () => {

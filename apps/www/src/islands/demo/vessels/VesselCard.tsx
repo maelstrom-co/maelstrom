@@ -7,7 +7,12 @@ interface VesselCardProps {
   children: ReactNode;
 }
 
-export default function VesselCard({ accent, label, meta, children }: VesselCardProps) {
+export default function VesselCard({
+  accent,
+  label,
+  meta,
+  children,
+}: VesselCardProps) {
   return (
     <div
       className="h-full overflow-hidden relative"
@@ -19,7 +24,9 @@ export default function VesselCard({ accent, label, meta, children }: VesselCard
     >
       <div
         className="absolute top-0 inset-x-0 h-px"
-        style={{ background: `linear-gradient(90deg, transparent, ${accent}26, transparent)` }}
+        style={{
+          background: `linear-gradient(90deg, transparent, ${accent}26, transparent)`,
+        }}
       />
       <div className="p-4 h-full flex flex-col">
         <div className="flex items-center justify-between mb-3">
@@ -30,7 +37,9 @@ export default function VesselCard({ accent, label, meta, children }: VesselCard
             {label}
           </div>
           {meta && (
-            <div className="text-[9px] text-text-muted/40 font-mono">{meta}</div>
+            <div className="text-[9px] text-text-muted/40 font-mono">
+              {meta}
+            </div>
           )}
         </div>
         {children}

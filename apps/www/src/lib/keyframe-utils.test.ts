@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'bun:test';
-import { getCurrentKeyframe, getCurrentKeyframeIndex, lerp } from './keyframe-utils';
+import {
+  getCurrentKeyframe,
+  getCurrentKeyframeIndex,
+  lerp,
+} from './keyframe-utils';
 
 describe('lerp', () => {
   it('returns start value at t=0', () => {
@@ -27,16 +31,28 @@ describe('getCurrentKeyframe', () => {
     expect(getCurrentKeyframe(keyframes, 0)).toEqual({ at: 0, state: 'idle' });
   });
   it('returns first keyframe before any threshold', () => {
-    expect(getCurrentKeyframe(keyframes, 0.1)).toEqual({ at: 0, state: 'idle' });
+    expect(getCurrentKeyframe(keyframes, 0.1)).toEqual({
+      at: 0,
+      state: 'idle',
+    });
   });
   it('returns matching keyframe at exact threshold', () => {
-    expect(getCurrentKeyframe(keyframes, 0.3)).toEqual({ at: 0.3, state: 'active' });
+    expect(getCurrentKeyframe(keyframes, 0.3)).toEqual({
+      at: 0.3,
+      state: 'active',
+    });
   });
   it('returns last passed keyframe between thresholds', () => {
-    expect(getCurrentKeyframe(keyframes, 0.5)).toEqual({ at: 0.3, state: 'active' });
+    expect(getCurrentKeyframe(keyframes, 0.5)).toEqual({
+      at: 0.3,
+      state: 'active',
+    });
   });
   it('returns last keyframe past all thresholds', () => {
-    expect(getCurrentKeyframe(keyframes, 1.0)).toEqual({ at: 0.7, state: 'done' });
+    expect(getCurrentKeyframe(keyframes, 1.0)).toEqual({
+      at: 0.7,
+      state: 'done',
+    });
   });
 });
 

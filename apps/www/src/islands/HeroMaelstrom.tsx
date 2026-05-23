@@ -26,11 +26,11 @@ interface CurrentLine {
 // ── Constants ───────────────────────────────────────────────────────────
 
 const COLORS = [
-  '0, 240, 255',   // cyan
-  '0, 102, 255',   // blue
-  '107, 0, 255',   // violet
-  '0, 255, 163',   // seafoam
-  '0, 200, 255',   // light blue
+  '0, 240, 255', // cyan
+  '0, 102, 255', // blue
+  '107, 0, 255', // violet
+  '0, 255, 163', // seafoam
+  '0, 200, 255', // light blue
 ];
 
 function rand(min: number, max: number) {
@@ -78,21 +78,23 @@ export default function HeroMaelstrom() {
       };
     }
 
-    const particles: Particle[] = Array.from(
-      { length: particleCount },
-      () => spawnParticle(true),
+    const particles: Particle[] = Array.from({ length: particleCount }, () =>
+      spawnParticle(true),
     );
 
     // Current lines — visible spiral arms of the whirlpool
     const armCount = isMobile ? 4 : 7;
-    const currentLines: CurrentLine[] = Array.from({ length: armCount }, (_, i) => ({
-      startAngle: (i / armCount) * Math.PI * 2,
-      startRadius: rand(250, 450),
-      angularSpeed: rand(0.0004, 0.001),
-      opacity: rand(0.02, 0.045),
-      width: rand(0.8, 1.8),
-      length: rand(2.5, 4), // spiral revolutions
-    }));
+    const currentLines: CurrentLine[] = Array.from(
+      { length: armCount },
+      (_, i) => ({
+        startAngle: (i / armCount) * Math.PI * 2,
+        startRadius: rand(250, 450),
+        angularSpeed: rand(0.0004, 0.001),
+        opacity: rand(0.02, 0.045),
+        width: rand(0.8, 1.8),
+        length: rand(2.5, 4), // spiral revolutions
+      }),
+    );
 
     // ── Draw loop ─────────────────────────────────────────────
 
@@ -107,8 +109,12 @@ export default function HeroMaelstrom() {
       // Lerp mouse toward target for smooth, delayed follow
       const lerp = 0.03;
       mouseRef.current = {
-        x: mouseRef.current.x + (mouseTargetRef.current.x - mouseRef.current.x) * lerp,
-        y: mouseRef.current.y + (mouseTargetRef.current.y - mouseRef.current.y) * lerp,
+        x:
+          mouseRef.current.x +
+          (mouseTargetRef.current.x - mouseRef.current.x) * lerp,
+        y:
+          mouseRef.current.y +
+          (mouseTargetRef.current.y - mouseRef.current.y) * lerp,
       };
 
       // Vortex center — slightly right of center, mouse-influenced
@@ -245,7 +251,13 @@ export default function HeroMaelstrom() {
 
         // Counter arc
         ctx!.beginPath();
-        ctx!.arc(cx, cy, ringR + wobble, arcStart + Math.PI * 0.8, arcStart + Math.PI * 0.8 + arcLen * 0.5);
+        ctx!.arc(
+          cx,
+          cy,
+          ringR + wobble,
+          arcStart + Math.PI * 0.8,
+          arcStart + Math.PI * 0.8 + arcLen * 0.5,
+        );
         ctx!.strokeStyle = `rgba(0, 102, 255, ${alpha * 0.6})`;
         ctx!.lineWidth = 0.6;
         ctx!.stroke();
@@ -266,10 +278,23 @@ export default function HeroMaelstrom() {
       ctx!.fill();
 
       // Rim glow — energy at the edge of the void
-      const rimGlow = ctx!.createRadialGradient(cx, cy, voidR * 0.5, cx, cy, voidR * 3);
+      const rimGlow = ctx!.createRadialGradient(
+        cx,
+        cy,
+        voidR * 0.5,
+        cx,
+        cy,
+        voidR * 3,
+      );
       rimGlow.addColorStop(0, 'transparent');
-      rimGlow.addColorStop(0.3, `rgba(0, 240, 255, ${0.05 + Math.sin(t * 1.2) * 0.02})`);
-      rimGlow.addColorStop(0.6, `rgba(0, 102, 255, ${0.025 + Math.sin(t * 1) * 0.01})`);
+      rimGlow.addColorStop(
+        0.3,
+        `rgba(0, 240, 255, ${0.05 + Math.sin(t * 1.2) * 0.02})`,
+      );
+      rimGlow.addColorStop(
+        0.6,
+        `rgba(0, 102, 255, ${0.025 + Math.sin(t * 1) * 0.01})`,
+      );
       rimGlow.addColorStop(1, 'transparent');
       ctx!.beginPath();
       ctx!.arc(cx, cy, voidR * 3, 0, Math.PI * 2);
@@ -292,7 +317,14 @@ export default function HeroMaelstrom() {
       }
 
       // ── Layer 5: Outer glow / atmosphere ────────────────────
-      const outerGlow = ctx!.createRadialGradient(cx, cy, maxR * 0.1, cx, cy, maxR);
+      const outerGlow = ctx!.createRadialGradient(
+        cx,
+        cy,
+        maxR * 0.1,
+        cx,
+        cy,
+        maxR,
+      );
       outerGlow.addColorStop(0, 'rgba(0, 240, 255, 0.035)');
       outerGlow.addColorStop(0.3, 'rgba(0, 102, 255, 0.018)');
       outerGlow.addColorStop(0.6, 'rgba(107, 0, 255, 0.008)');
@@ -344,7 +376,11 @@ export default function HeroMaelstrom() {
     <canvas
       ref={canvasRef}
       className="absolute inset-0 w-full h-full"
-      style={{ willChange: 'transform', background: 'radial-gradient(ellipse at 60% 50%, rgba(0,102,255,0.08), transparent 70%)' }}
+      style={{
+        willChange: 'transform',
+        background:
+          'radial-gradient(ellipse at 60% 50%, rgba(0,102,255,0.08), transparent 70%)',
+      }}
       aria-hidden="true"
     />
   );

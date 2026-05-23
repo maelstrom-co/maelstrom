@@ -142,7 +142,11 @@ export default function HeroVortexParticles() {
         ctx.stroke();
 
         const innerGlow = ctx.createRadialGradient(
-          0, 0, 0, 0, 0,
+          0,
+          0,
+          0,
+          0,
+          0,
           Math.max(v.width, v.height) / 2,
         );
         innerGlow.addColorStop(0, `rgba(0, 240, 255, ${v.opacity * 0.2})`);
@@ -219,7 +223,8 @@ export default function HeroVortexParticles() {
           willChange: 'transform',
           transform: 'rotateX(35deg) scale(1.3)',
           transformOrigin: 'center 40%',
-          background: 'radial-gradient(ellipse at 50% 50%, rgba(0,102,255,0.06), transparent 70%)',
+          background:
+            'radial-gradient(ellipse at 50% 50%, rgba(0,102,255,0.06), transparent 70%)',
         }}
         aria-hidden="true"
       />
