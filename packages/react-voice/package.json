@@ -1,6 +1,7 @@
 {
   "name": "@maelstrom-co/react-voice",
   "version": "0.0.0",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
