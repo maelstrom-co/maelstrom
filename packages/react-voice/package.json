@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/react-voice",
-  "version": "0.0.11-prealpha.0",
+  "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -25,21 +25,21 @@
     "directory": "packages/react-voice"
   },
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "peerDependencies": {
-    "@maelstrom-co/react": "0.0.11-prealpha.0",
-    "@maelstrom-co/voice": "0.0.11-prealpha.0",
+    "@maelstrom-co/react": "0.0.0",
+    "@maelstrom-co/voice": "0.0.0",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.0.11-prealpha.0"
+    "@maelstrom-co/protocol": "0.0.0"
   },
   "devDependencies": {
-    "@maelstrom-co/client": "0.0.11-prealpha.0",
-    "@maelstrom-co/react": "0.0.11-prealpha.0",
-    "@maelstrom-co/voice": "0.0.11-prealpha.0",
+    "@maelstrom-co/client": "0.0.0",
+    "@maelstrom-co/react": "0.0.0",
+    "@maelstrom-co/voice": "0.0.0",
     "@testing-library/react": "catalog:",
     "happy-dom": "catalog:"
   },

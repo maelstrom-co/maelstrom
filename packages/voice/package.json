@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/voice",
-  "version": "0.0.11-prealpha.0",
+  "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -24,11 +24,11 @@
     "directory": "packages/voice"
   },
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.0.11-prealpha.0",
-    "@maelstrom-co/protocol": "0.0.11-prealpha.0",
+    "@maelstrom-co/client": "0.0.0",
+    "@maelstrom-co/protocol": "0.0.0",
     "onnxruntime-web": "catalog:"
   },
   "nx": {
