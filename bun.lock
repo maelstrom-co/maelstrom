@@ -216,7 +216,7 @@
       "dependencies": {
         "@google-cloud/speech": "catalog:",
         "@google-cloud/text-to-speech": "catalog:",
-        "@maelstrom-co/protocol": "workspace:*",
+        "@maelstrom-co/protocol": "0.0.0",
       },
     },
     "tools/astro-plugin": {
