@@ -235,47 +235,49 @@ export default defineConfig({
             engineTypeDocSidebarGroup,
             {
               label: '@maelstrom-co/react',
-              autogenerate: { directory: 'reference/react' },
+              items: [{ autogenerate: { directory: 'reference/react' } }],
             },
             {
               label: '@maelstrom-co/client',
-              autogenerate: { directory: 'reference/client' },
+              items: [{ autogenerate: { directory: 'reference/client' } }],
             },
             {
               label: '@maelstrom-co/protocol',
-              autogenerate: { directory: 'reference/protocol' },
+              items: [{ autogenerate: { directory: 'reference/protocol' } }],
             },
             {
               label: '@maelstrom-co/engine',
-              autogenerate: { directory: 'reference/engine' },
+              items: [{ autogenerate: { directory: 'reference/engine' } }],
             },
             {
               label: '@maelstrom-co/react',
-              autogenerate: { directory: 'reference/react' },
+              items: [{ autogenerate: { directory: 'reference/react' } }],
             },
             {
               label: '@maelstrom-co/react-voice',
-              autogenerate: { directory: 'reference/react-voice' },
+              items: [
+                { autogenerate: { directory: 'reference/react-voice' } },
+              ],
             },
             {
               label: '@maelstrom-co/client',
-              autogenerate: { directory: 'reference/client' },
+              items: [{ autogenerate: { directory: 'reference/client' } }],
             },
             {
               label: '@maelstrom-co/protocol',
-              autogenerate: { directory: 'reference/protocol' },
+              items: [{ autogenerate: { directory: 'reference/protocol' } }],
             },
             {
               label: '@maelstrom-co/engine',
-              autogenerate: { directory: 'reference/engine' },
+              items: [{ autogenerate: { directory: 'reference/engine' } }],
             },
             {
               label: '@maelstrom-co/voice',
-              autogenerate: { directory: 'reference/voice' },
+              items: [{ autogenerate: { directory: 'reference/voice' } }],
             },
             {
               label: '@maelstrom-co/voice-server',
-              autogenerate: { directory: 'reference/voice-server' },
+              items: [{ autogenerate: { directory: 'reference/voice-server' } }],
             },
           ],
         },
