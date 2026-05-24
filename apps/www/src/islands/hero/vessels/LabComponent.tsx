@@ -1,5 +1,5 @@
-import { useId } from 'react';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { useId } from 'react';
 import type { labVessel } from './lab.vessel';
 
 function prand(n: number) {
@@ -24,7 +24,8 @@ function Sparkline({
   const pts: [number, number][] = [];
   let v = 0.5;
   for (let i = 0; i <= 24; i++) {
-    v += (Math.sin(i * 0.5 + seed) + (prand(i + seed * 100) - 0.5) * 0.3) * 0.04;
+    v +=
+      (Math.sin(i * 0.5 + seed) + (prand(i + seed * 100) - 0.5) * 0.3) * 0.04;
     v = Math.max(0.1, Math.min(0.9, v));
     pts.push([i / 24, 1 - v]);
   }
@@ -42,6 +43,7 @@ function Sparkline({
       viewBox={`0 0 ${w} ${h}`}
       preserveAspectRatio="none"
       style={{ width: '100%', height: `${h}px` }}
+      aria-hidden="true"
     >
       <defs>
         <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">

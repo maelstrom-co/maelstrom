@@ -127,7 +127,9 @@ const buildSteps = (layouts: TilingLayout[]): ScriptedStep[] => {
 
 /** Build a demo connector whose layouts match the breakpoint. */
 export const createDemoConnector = (isMobile = false): ScriptedConnector =>
-  new ScriptedConnector(buildSteps(isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS));
+  new ScriptedConnector(
+    buildSteps(isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS),
+  );
 
 /** Desktop steps — exposed for the script driver's prompts/rationales and tests. */
 export const DEMO_STEPS: ScriptedStep[] = buildSteps(DESKTOP_LAYOUTS);

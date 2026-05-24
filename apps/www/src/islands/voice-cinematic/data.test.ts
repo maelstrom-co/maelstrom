@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import {
-  transcript,
   allPanels,
-  panelMap,
   dashboardKeyframes,
   orbKeyframes,
+  panelMap,
+  transcript,
 } from './data';
 
 describe('voice cinematic data', () => {

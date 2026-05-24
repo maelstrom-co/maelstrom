@@ -1,17 +1,17 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentType,
-  type ReactNode,
-} from 'react';
 import type {
   ChartProps,
   MaelstromProviderProps,
   MaelstromState,
 } from '@maelstrom-co/react';
+import {
+  type ComponentType,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 /**
  * The slice of a Maelstrom instance the demo engine drives. Every site instance

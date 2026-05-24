@@ -1,20 +1,20 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getCurrentKeyframe,
   getCurrentKeyframeIndex,
   lerp,
 } from '../lib/keyframe-utils';
 import type {
-  OrbState,
   DashboardKeyframe,
   LayoutSlot,
+  OrbState,
   TranscriptLine,
 } from './voice-cinematic/data';
 import {
-  transcript,
-  panelMap,
   dashboardKeyframes,
   orbKeyframes,
+  panelMap,
+  transcript,
 } from './voice-cinematic/data';
 
 // ── Canvas Orb ──────────────────────────────────────────────────────────
@@ -41,8 +41,11 @@ function useCanvasOrb(
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const rawCtx = canvas.getContext('2d');
+    if (!rawCtx) return;
+    // Bind to an explicitly non-null type so the draw() closure below sees a
+    // non-null ctx (control-flow narrowing isn't carried into nested functions).
+    const ctx: CanvasRenderingContext2D = rawCtx;
 
     const isMobile = window.innerWidth < 768;
 
@@ -89,7 +92,7 @@ function useCanvasOrb(
       const p = progressRef.current;
 
       time += 0.016;
-      ctx!.clearRect(0, 0, size, size);
+      ctx.clearRect(0, 0, size, size);
 
       const isActive = s === 'listening' || s === 'responding';
       const isResponding = s === 'responding';
@@ -137,19 +140,19 @@ function useCanvasOrb(
 
       for (const ring of ringConfigs) {
         const rot = time * ring.speed + p * Math.PI * 2;
-        ctx!.beginPath();
+        ctx.beginPath();
         const arcLen = Math.PI * (1.2 + Math.sin(time * 0.5) * 0.3);
-        ctx!.arc(cx, cy, ring.r, rot, rot + arcLen);
-        ctx!.strokeStyle = `rgba(0, 240, 255, ${ring.alpha})`;
-        ctx!.lineWidth = ring.width;
-        ctx!.stroke();
+        ctx.arc(cx, cy, ring.r, rot, rot + arcLen);
+        ctx.strokeStyle = `rgba(0, 240, 255, ${ring.alpha})`;
+        ctx.lineWidth = ring.width;
+        ctx.stroke();
 
         if (!isMobile) {
-          ctx!.beginPath();
-          ctx!.arc(cx, cy, ring.r, rot + Math.PI, rot + Math.PI + arcLen * 0.7);
-          ctx!.strokeStyle = `rgba(0, 102, 255, ${ring.alpha * 0.7})`;
-          ctx!.lineWidth = ring.width * 0.8;
-          ctx!.stroke();
+          ctx.beginPath();
+          ctx.arc(cx, cy, ring.r, rot + Math.PI, rot + Math.PI + arcLen * 0.7);
+          ctx.strokeStyle = `rgba(0, 102, 255, ${ring.alpha * 0.7})`;
+          ctx.lineWidth = ring.width * 0.8;
+          ctx.stroke();
         }
       }
 
@@ -160,11 +163,11 @@ function useCanvasOrb(
           const ripplePhase = ((time * 0.8 + i * 0.8) % 2.5) / 2.5;
           const rippleR = 25 + ripplePhase * 80;
           const rippleAlpha = (1 - ripplePhase) * (isResponding ? 0.2 : 0.12);
-          ctx!.beginPath();
-          ctx!.arc(cx, cy, rippleR, 0, Math.PI * 2);
-          ctx!.strokeStyle = `rgba(0, 240, 255, ${rippleAlpha})`;
-          ctx!.lineWidth = 1;
-          ctx!.stroke();
+          ctx.beginPath();
+          ctx.arc(cx, cy, rippleR, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(0, 240, 255, ${rippleAlpha})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
         }
       }
 
@@ -183,13 +186,13 @@ function useCanvasOrb(
         const alpha =
           particle.brightness * (isResponding ? 0.9 : isActive ? 0.6 : 0.3);
 
-        ctx!.beginPath();
-        ctx!.arc(px, py, particle.size, 0, Math.PI * 2);
-        ctx!.fillStyle = `rgba(0, 240, 255, ${alpha})`;
-        ctx!.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, particle.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 240, 255, ${alpha})`;
+        ctx.fill();
 
         if (!isMobile && alpha > 0.3) {
-          const glow = ctx!.createRadialGradient(
+          const glow = ctx.createRadialGradient(
             px,
             py,
             0,
@@ -199,15 +202,15 @@ function useCanvasOrb(
           );
           glow.addColorStop(0, `rgba(0, 240, 255, ${alpha * 0.3})`);
           glow.addColorStop(1, 'transparent');
-          ctx!.beginPath();
-          ctx!.arc(px, py, particle.size * 4, 0, Math.PI * 2);
-          ctx!.fillStyle = glow;
-          ctx!.fill();
+          ctx.beginPath();
+          ctx.arc(px, py, particle.size * 4, 0, Math.PI * 2);
+          ctx.fillStyle = glow;
+          ctx.fill();
         }
       }
 
       // ── Core blob — fewer points on mobile ────────────
-      ctx!.beginPath();
+      ctx.beginPath();
       for (let i = 0; i <= blobPoints; i++) {
         const a = (i / blobPoints) * Math.PI * 2;
         const deform =
@@ -217,12 +220,12 @@ function useCanvasOrb(
         const r = coreRadius + deform;
         const x = cx + Math.cos(a) * r;
         const y = cy + Math.sin(a) * r;
-        if (i === 0) ctx!.moveTo(x, y);
-        else ctx!.lineTo(x, y);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       }
-      ctx!.closePath();
+      ctx.closePath();
 
-      const coreGrad = ctx!.createRadialGradient(
+      const coreGrad = ctx.createRadialGradient(
         cx - 5,
         cy - 5,
         0,
@@ -233,12 +236,12 @@ function useCanvasOrb(
       coreGrad.addColorStop(0, `rgba(0, 240, 255, ${coreAlpha})`);
       coreGrad.addColorStop(0.5, `rgba(0, 102, 255, ${coreAlpha * 0.7})`);
       coreGrad.addColorStop(1, `rgba(0, 102, 255, 0)`);
-      ctx!.fillStyle = coreGrad;
-      ctx!.fill();
+      ctx.fillStyle = coreGrad;
+      ctx.fill();
 
       // Core inner highlight — skip on mobile
       if (!isMobile) {
-        const highlight = ctx!.createRadialGradient(
+        const highlight = ctx.createRadialGradient(
           cx - 8,
           cy - 8,
           0,
@@ -248,14 +251,14 @@ function useCanvasOrb(
         );
         highlight.addColorStop(0, `rgba(255, 255, 255, ${coreAlpha * 0.4})`);
         highlight.addColorStop(1, 'transparent');
-        ctx!.beginPath();
-        ctx!.arc(cx, cy, coreRadius * 0.6, 0, Math.PI * 2);
-        ctx!.fillStyle = highlight;
-        ctx!.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy, coreRadius * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = highlight;
+        ctx.fill();
       }
 
       // ── Outer glow ──────────────────────────────────────
-      const outerGlow = ctx!.createRadialGradient(
+      const outerGlow = ctx.createRadialGradient(
         cx,
         cy,
         coreRadius,
@@ -266,10 +269,10 @@ function useCanvasOrb(
       outerGlow.addColorStop(0, `rgba(0, 240, 255, ${coreAlpha * 0.15})`);
       outerGlow.addColorStop(0.5, `rgba(0, 102, 255, ${coreAlpha * 0.05})`);
       outerGlow.addColorStop(1, 'transparent');
-      ctx!.beginPath();
-      ctx!.arc(cx, cy, glowRadius, 0, Math.PI * 2);
-      ctx!.fillStyle = outerGlow;
-      ctx!.fill();
+      ctx.beginPath();
+      ctx.arc(cx, cy, glowRadius, 0, Math.PI * 2);
+      ctx.fillStyle = outerGlow;
+      ctx.fill();
 
       animFrameRef.current = requestAnimationFrame(draw);
     }

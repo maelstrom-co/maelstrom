@@ -1,14 +1,13 @@
-import { MaelstromDemo, type DemoRenderState } from '../shared/MaelstromDemo';
+import { type DemoRenderState, MaelstromDemo } from '../shared/MaelstromDemo';
 import { useIsMobile } from '../shared/useIsMobile';
 import { createDemoConnector, DEMO_STEPS } from './connector';
 import { m } from './maelstrom';
 
 // Prompts + rationales replayed by the demo, aligned with the demo connector's
 // step order (step 0 is the initial 'show dashboard' layout).
-const SCRIPT = [
-  { prompt: DEMO_STEPS[1].prompt!, rationale: DEMO_STEPS[1].rationale },
-  { prompt: DEMO_STEPS[2].prompt!, rationale: DEMO_STEPS[2].rationale },
-];
+const SCRIPT = DEMO_STEPS.flatMap((step) =>
+  step.prompt ? [{ prompt: step.prompt, rationale: step.rationale }] : [],
+);
 
 // ── Chrome (presentational; playback state comes from MaelstromDemo) ──
 
@@ -225,7 +224,8 @@ function DemoChrome({
         className="mt-4 text-center transition-all duration-300"
         style={{
           opacity: phase === 'rearranged' ? 1 : 0,
-          transform: phase === 'rearranged' ? 'translateY(0)' : 'translateY(4px)',
+          transform:
+            phase === 'rearranged' ? 'translateY(0)' : 'translateY(4px)',
           visibility:
             phase === 'rearranged' ? ('visible' as const) : ('hidden' as const),
         }}

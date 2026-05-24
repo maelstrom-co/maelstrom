@@ -4,11 +4,11 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+import type { DemoScriptStep } from '../shared/MaelstromDemo';
 import {
   ScriptedConnector,
   type ScriptedStep,
 } from '../shared/ScriptedConnector';
-import type { DemoScriptStep } from '../shared/MaelstromDemo';
 
 const LAB = InstanceId('hero-lab');
 const VITALS = InstanceId('hero-vitals');
@@ -130,10 +130,11 @@ const buildSteps = (layouts: TilingLayout[]): ScriptedStep[] => {
 };
 
 export const createHeroConnector = (isMobile = false) =>
-  new ScriptedConnector(buildSteps(isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS));
+  new ScriptedConnector(
+    buildSteps(isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS),
+  );
 
-/** Prompts + rationales for MaelstromDemo, aligned with STEP_META[1..]. */
-export const HERO_SCRIPT: DemoScriptStep[] = STEP_META.slice(1).map((meta) => ({
-  prompt: meta.prompt!,
-  rationale: meta.rationale,
-}));
+/** Prompts + rationales for MaelstromDemo — every step that carries a prompt. */
+export const HERO_SCRIPT: DemoScriptStep[] = STEP_META.flatMap((meta) =>
+  meta.prompt ? [{ prompt: meta.prompt, rationale: meta.rationale }] : [],
+);

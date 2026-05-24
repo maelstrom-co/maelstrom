@@ -1,13 +1,13 @@
-import { afterEach, beforeEach, describe, it, expect } from 'bun:test';
-import FakeTimers from '@sinonjs/fake-timers';
-import { DEMO_STEPS, createDemoConnector } from './connector';
-import { ScriptedConnector } from '../shared/ScriptedConnector';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { ChartRequestMessage, TilingLayout } from '@maelstrom-co/protocol';
 import {
-  ChartRequestMessage as makeChartRequestMessage,
   MessageId,
+  ChartRequestMessage as makeChartRequestMessage,
   SessionId,
 } from '@maelstrom-co/protocol';
+import FakeTimers from '@sinonjs/fake-timers';
+import { ScriptedConnector } from '../shared/ScriptedConnector';
+import { createDemoConnector, DEMO_STEPS } from './connector';
 
 let clock: FakeTimers.InstalledClock;
 

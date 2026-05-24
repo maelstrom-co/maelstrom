@@ -1,4 +1,4 @@
-import { MaelstromDemo, type DemoRenderState } from '../shared/MaelstromDemo';
+import { type DemoRenderState, MaelstromDemo } from '../shared/MaelstromDemo';
 import { useIsMobile } from '../shared/useIsMobile';
 import { createHeroConnector, HERO_SCRIPT } from './connector';
 import { mHero } from './maelstrom';

@@ -1,7 +1,7 @@
 export const prerender = false;
 
-import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
+import type { APIRoute } from 'astro';
 import { Resend } from 'resend';
 import { validateWaitlistEmail } from '../../lib/waitlist';
 

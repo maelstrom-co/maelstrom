@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import type { ReactNode } from 'react';
 import type { vitalsVessel } from './vitals.vessel';
 
 type Metric = { label: string; value: ReactNode };

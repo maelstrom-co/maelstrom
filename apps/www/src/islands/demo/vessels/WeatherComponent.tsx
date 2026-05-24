@@ -1,7 +1,6 @@
 import type { TypedVesselProps } from '@maelstrom-co/react';
-
-import type { weatherVessel } from './weather.vessel';
 import VesselCard from './VesselCard';
+import type { weatherVessel } from './weather.vessel';
 
 const DAYS = ['Thu', 'Fri', 'Sat', 'Sun', 'Mon'];
 const TEMPS = [68, 71, 75, 72, 69];
