@@ -1,9 +1,7 @@
-import { useEffect, useState } from 'react';
 import { MaelstromDemo, type DemoRenderState } from '../shared/MaelstromDemo';
+import { useIsMobile } from '../shared/useIsMobile';
 import { createHeroConnector, HERO_SCRIPT } from './connector';
 import { mHero } from './maelstrom';
-
-const MOBILE_QUERY = '(max-width: 980px)';
 
 // Fixed chart height on every breakpoint — a real app gives the engine a bounded
 // space and lets it fit vessels in; it doesn't grow the page to fit them. Each
@@ -11,21 +9,6 @@ const MOBILE_QUERY = '(max-width: 980px)';
 // tiles in 2D, mobile shows ≤2 stacked cards).
 const CHART_PX = 520;
 const CHART_PAD_PX = 14;
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(
-    () =>
-      typeof window !== 'undefined' &&
-      window.matchMedia(MOBILE_QUERY).matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(MOBILE_QUERY);
-    const onChange = () => setIsMobile(mq.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-  return isMobile;
-}
 
 // Browser-framed hero chrome (reuses the .hero-dash styles); playback state
 // comes from MaelstromDemo and the real mHero.Chart renders the layout.

@@ -1,5 +1,6 @@
 import { MaelstromDemo, type DemoRenderState } from '../shared/MaelstromDemo';
-import { DemoConnector, DEMO_STEPS } from './connector';
+import { useIsMobile } from '../shared/useIsMobile';
+import { createDemoConnector, DEMO_STEPS } from './connector';
 import { m } from './maelstrom';
 
 // Prompts + rationales replayed by the demo, aligned with DemoConnector's step
@@ -147,7 +148,7 @@ function DemoChrome({
         </div>
 
         {/* Dashboard area */}
-        <div className="relative px-4 pb-4" style={{ aspectRatio: '3 / 2' }}>
+        <div className="relative px-4 pb-4 h-[440px] min-[980px]:h-auto min-[980px]:aspect-[3/2]">
           {isProcessing && (
             <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
               {[0, 1, 2].map((i) => (
@@ -244,10 +245,14 @@ function DemoChrome({
 // ── Entry Point (Astro island) ──────────────────────────────────────
 
 export default function LiveDemo() {
+  const isMobile = useIsMobile();
   return (
     <MaelstromDemo
+      // Remount when crossing the breakpoint so the connector emits the matching
+      // (2D vs single-column) layouts immediately.
+      key={isMobile ? 'mobile' : 'desktop'}
       m={m}
-      createConnector={() => new DemoConnector()}
+      createConnector={() => createDemoConnector(isMobile)}
       initialIntent="show dashboard"
       script={SCRIPT}
     >

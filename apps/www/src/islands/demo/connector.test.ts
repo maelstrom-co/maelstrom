@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
-import { DemoConnector, DEMO_STEPS } from './connector';
-import type { ChartRequestMessage } from '@maelstrom-co/protocol';
+import { DemoConnector, DEMO_STEPS, createDemoConnector } from './connector';
+import type { ChartRequestMessage, TilingLayout } from '@maelstrom-co/protocol';
 import {
   ChartRequestMessage as makeChartRequestMessage,
   MessageId,
@@ -136,5 +136,28 @@ describe('DEMO_STEPS', () => {
     for (let i = 1; i < DEMO_STEPS.length; i++) {
       expect(DEMO_STEPS[i].prompt).toBeDefined();
     }
+  });
+});
+
+describe('createDemoConnector', () => {
+  const instanceCount = (layout: unknown) =>
+    (layout as TilingLayout).instances.length;
+
+  it('shows at most two vessels per step on mobile so cards stay readable', async () => {
+    const connector = createDemoConnector(true);
+    const initial = await connector.process(makeRequest());
+    expect(instanceCount(initial.layout)).toBeLessThanOrEqual(2);
+    for (let i = 1; i < DEMO_STEPS.length; i++) {
+      const pending = connector.process(makeRequest());
+      await clock.tickAsync(1200);
+      const response = await pending;
+      expect(instanceCount(response.layout)).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('keeps the full four-vessel overview on desktop', async () => {
+    const connector = createDemoConnector(false);
+    const initial = await connector.process(makeRequest());
+    expect(instanceCount(initial.layout)).toBe(4);
   });
 });
