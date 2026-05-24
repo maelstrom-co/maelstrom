@@ -140,6 +140,13 @@ tag, push, GitHub release, and npm publish.
 
 ### Flags and gotchas
 
+- **Git state is pushed before the npm publish.** `scripts/release.ts` runs
+  version → changelog → commit → tag → push → GitHub release **before** it
+  publishes to npm. If the publish fails midway, the commit, tag, and GitHub
+  release already exist on the remote while npm has no matching version —
+  recovery is manual: fix the cause and re-publish that same version (do **not**
+  re-run the full release, which would bump the version again). Always
+  `--dry-run` first to reduce the risk.
 - **`RELEASE_REGISTRY` is mandatory for public npm.** It defaults to GitHub
   Packages (`npm.pkg.github.com`) — the registry the root `.npmrc` maps the
   `@maelstrom-co` scope to, and what per-PR previews use. Set it to
