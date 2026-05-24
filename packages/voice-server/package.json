@@ -1,6 +1,7 @@
 {
   "name": "@maelstrom-co/voice-server",
-  "version": "0.0.11-prealpha.0",
+  "version": "0.0.0",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -27,12 +28,12 @@
     "directory": "packages/voice-server"
   },
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "dependencies": {
     "@google-cloud/speech": "catalog:",
     "@google-cloud/text-to-speech": "catalog:",
-    "@maelstrom-co/protocol": "workspace:*"
+    "@maelstrom-co/protocol": "0.0.0"
   },
   "nx": {
     "name": "@maelstrom-co/voice-server",
