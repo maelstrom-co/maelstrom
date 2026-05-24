@@ -91,12 +91,14 @@ export default defineConfig({
             {
               label: 'Getting Started',
               paths: ['getting-started/**'],
-              description: 'Introduction, quick start, core concepts, and installation',
+              description:
+                'Introduction, quick start, core concepts, and installation',
             },
             {
               label: 'Guides',
               paths: ['guides/**'],
-              description: 'Task-oriented how-tos for React, Engine, Client, and Voice',
+              description:
+                'Task-oriented how-tos for React, Engine, Client, and Voice',
             },
             {
               label: 'API Reference',
@@ -104,7 +106,11 @@ export default defineConfig({
               description: 'Complete API documentation for all packages',
             },
           ],
-          promote: ['getting-started/introduction', 'getting-started/quick-start', 'getting-started/core-concepts'],
+          promote: [
+            'getting-started/introduction',
+            'getting-started/quick-start',
+            'getting-started/core-concepts',
+          ],
           demote: ['community/changelog'],
         }),
         reactTypeDoc({
@@ -227,6 +233,50 @@ export default defineConfig({
             clientTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
+            {
+              label: '@maelstrom-co/react',
+              autogenerate: { directory: 'reference/react' },
+            },
+            {
+              label: '@maelstrom-co/client',
+              autogenerate: { directory: 'reference/client' },
+            },
+            {
+              label: '@maelstrom-co/protocol',
+              autogenerate: { directory: 'reference/protocol' },
+            },
+            {
+              label: '@maelstrom-co/engine',
+              autogenerate: { directory: 'reference/engine' },
+            },
+            {
+              label: '@maelstrom-co/react',
+              autogenerate: { directory: 'reference/react' },
+            },
+            {
+              label: '@maelstrom-co/react-voice',
+              autogenerate: { directory: 'reference/react-voice' },
+            },
+            {
+              label: '@maelstrom-co/client',
+              autogenerate: { directory: 'reference/client' },
+            },
+            {
+              label: '@maelstrom-co/protocol',
+              autogenerate: { directory: 'reference/protocol' },
+            },
+            {
+              label: '@maelstrom-co/engine',
+              autogenerate: { directory: 'reference/engine' },
+            },
+            {
+              label: '@maelstrom-co/voice',
+              autogenerate: { directory: 'reference/voice' },
+            },
+            {
+              label: '@maelstrom-co/voice-server',
+              autogenerate: { directory: 'reference/voice-server' },
+            },
           ],
         },
         {
@@ -234,6 +284,7 @@ export default defineConfig({
           items: [
             { slug: 'understanding/why-maelstrom' },
             { slug: 'understanding/architecture' },
+            { slug: 'understanding/voice-architecture' },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },

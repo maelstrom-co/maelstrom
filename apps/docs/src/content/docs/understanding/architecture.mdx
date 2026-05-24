@@ -43,6 +43,8 @@ Each manager owns a TanStack Store for reactive state and extends TypedEmitter f
 
 ## Data flow
 
+**Voice Integration**: Maelstrom also ships an optional full-stack voice layer. See [Voice Architecture](/understanding/voice-architecture/) for how the browser audio pipeline, client VAD, and server runtime connect.
+
 1. User expresses intent (text or voice)
 2. Client packages intent + context into a `ChartRequest`
 3. `ChartRequest` is sent to the Engine via a connector

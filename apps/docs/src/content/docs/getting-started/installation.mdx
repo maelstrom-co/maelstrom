@@ -83,3 +83,15 @@ npm install @maelstrom-co/voice
 <Aside type="caution">
   The voice package includes `onnxruntime-web` (~5MB Wasm), which is why it's a separate optional package.
 </Aside>
+
+## Voice Integration
+
+Full end-to-end voice integration needs both the browser-side packages and the backend runtime package. Install `@maelstrom-co/react-voice` and `@maelstrom-co/voice` in the app that captures microphone input and plays speech, then install `@maelstrom-co/voice-server` in the backend that runs the STT, engine, and TTS pipeline.
+
+| Package | Role | Install |
+|---------|------|---------|
+| `@maelstrom-co/react-voice` | React extension that adds `useVoice()` and `VoiceOrb` to a Maelstrom instance | `bun add @maelstrom-co/react-voice` |
+| `@maelstrom-co/voice` | Browser voice runtime for audio capture, playback, and VAD | `bun add @maelstrom-co/voice` |
+| `@maelstrom-co/voice-server` | Server runtime that orchestrates STT, engine processing, and TTS output | `bun add @maelstrom-co/voice-server` |
+
+If you only install the browser packages, you can build the client-side voice controls, but you still need `@maelstrom-co/voice-server` or an equivalent backend runtime to complete the full browser-to-server voice flow.
