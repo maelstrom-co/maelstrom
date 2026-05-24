@@ -14,6 +14,10 @@ const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [voiceTypeDoc, voiceTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [voiceServerTypeDoc, voiceServerTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 
 // TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
 // the workspace root on every plugin call, so {path} carries the full
@@ -161,6 +165,30 @@ export default defineConfig({
             sourceLinkTemplate,
           },
         }),
+        voiceTypeDoc({
+          entryPoints: ['../../packages/voice/src/index.ts'],
+          tsconfig: '../../packages/voice/tsconfig.lib.json',
+          output: 'reference/voice',
+          sidebar: { label: '@maelstrom-co/voice', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        voiceServerTypeDoc({
+          entryPoints: ['../../packages/voice-server/src/index.ts'],
+          tsconfig: '../../packages/voice-server/tsconfig.lib.json',
+          output: 'reference/voice-server',
+          sidebar: { label: '@maelstrom-co/voice-server', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
       ],
       customCss: ['./src/styles/custom.css'],
       expressiveCode: false,
@@ -233,52 +261,8 @@ export default defineConfig({
             clientTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
-            {
-              label: '@maelstrom-co/react',
-              items: [{ autogenerate: { directory: 'reference/react' } }],
-            },
-            {
-              label: '@maelstrom-co/client',
-              items: [{ autogenerate: { directory: 'reference/client' } }],
-            },
-            {
-              label: '@maelstrom-co/protocol',
-              items: [{ autogenerate: { directory: 'reference/protocol' } }],
-            },
-            {
-              label: '@maelstrom-co/engine',
-              items: [{ autogenerate: { directory: 'reference/engine' } }],
-            },
-            {
-              label: '@maelstrom-co/react',
-              items: [{ autogenerate: { directory: 'reference/react' } }],
-            },
-            {
-              label: '@maelstrom-co/react-voice',
-              items: [
-                { autogenerate: { directory: 'reference/react-voice' } },
-              ],
-            },
-            {
-              label: '@maelstrom-co/client',
-              items: [{ autogenerate: { directory: 'reference/client' } }],
-            },
-            {
-              label: '@maelstrom-co/protocol',
-              items: [{ autogenerate: { directory: 'reference/protocol' } }],
-            },
-            {
-              label: '@maelstrom-co/engine',
-              items: [{ autogenerate: { directory: 'reference/engine' } }],
-            },
-            {
-              label: '@maelstrom-co/voice',
-              items: [{ autogenerate: { directory: 'reference/voice' } }],
-            },
-            {
-              label: '@maelstrom-co/voice-server',
-              items: [{ autogenerate: { directory: 'reference/voice-server' } }],
-            },
+            voiceTypeDocSidebarGroup,
+            voiceServerTypeDocSidebarGroup,
           ],
         },
         {
