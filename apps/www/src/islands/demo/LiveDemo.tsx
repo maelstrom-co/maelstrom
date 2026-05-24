@@ -3,8 +3,8 @@ import { useIsMobile } from '../shared/useIsMobile';
 import { createDemoConnector, DEMO_STEPS } from './connector';
 import { m } from './maelstrom';
 
-// Prompts + rationales replayed by the demo, aligned with DemoConnector's step
-// order (step 0 is the initial 'show dashboard' layout).
+// Prompts + rationales replayed by the demo, aligned with the demo connector's
+// step order (step 0 is the initial 'show dashboard' layout).
 const SCRIPT = [
   { prompt: DEMO_STEPS[1].prompt!, rationale: DEMO_STEPS[1].rationale },
   { prompt: DEMO_STEPS[2].prompt!, rationale: DEMO_STEPS[2].rationale },

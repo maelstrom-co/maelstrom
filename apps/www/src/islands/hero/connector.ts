@@ -1,8 +1,4 @@
-import {
-  InstanceId,
-  type TilingLayout,
-  type TilingNode,
-} from '@maelstrom-co/protocol';
+import { InstanceId, type TilingLayout } from '@maelstrom-co/protocol';
 import {
   ScriptedConnector,
   type ScriptedStep,
@@ -69,18 +65,14 @@ const DESKTOP_LAYOUTS: TilingLayout[] = [
   },
 ];
 
-// Mobile: single column (all top/bottom splits), focused vessel first. Splits
-// are always 50/50, so the tree must be *balanced* — a right-leaning chain
-// would halve geometrically (50/25/12.5/…) and squash the lower vessels.
-// Recursively bisecting the list keeps every vessel's share within one split
-// level of the others (equal for powers of two) while preserving order.
-function stacked(order: Inst[]): TilingLayout {
-  const build = (slice: Inst[]): TilingNode[] => {
-    if (slice.length === 1) return [slice[0].instanceId];
-    const mid = Math.ceil(slice.length / 2);
-    return ['H', ...build(slice.slice(0, mid)), ...build(slice.slice(mid))];
+// Stacks two cards as 50/50 top/bottom tiles (focused vessel on top). A flat
+// pair, no nesting — so neither card gets geometrically squashed.
+function stacked(top: Inst, bottom: Inst): TilingLayout {
+  return {
+    type: 'tiling',
+    tree: ['H', top.instanceId, bottom.instanceId],
+    instances: [top, bottom],
   };
-  return { type: 'tiling', tree: build(order), instances: order };
 }
 
 // At a fixed height a single column only fits ~2 cards, so each mobile step
@@ -88,10 +80,10 @@ function stacked(order: Inst[]): TilingLayout {
 // than squashing all four. 'default' appointments (not the desktop 'big'
 // variant) so the card fits a stacked row.
 const MOBILE_LAYOUTS: TilingLayout[] = [
-  stacked([labFull, apptsDefault]), // overview: glucose trend + what's coming up
-  stacked([labFull, vitalsWide]), // labs + vitals
-  stacked([vitalsWide, labFull]), // vitals + labs
-  stacked([apptsDefault, medsDefault]), // appointments + medications
+  stacked(labFull, apptsDefault), // overview: glucose trend + what's coming up
+  stacked(labFull, vitalsWide), // labs + vitals
+  stacked(vitalsWide, labFull), // vitals + labs
+  stacked(apptsDefault, medsDefault), // appointments + medications
 ];
 
 type StepMeta = { prompt?: string; userMessage: string; rationale: string };
@@ -115,8 +107,18 @@ const STEP_META: StepMeta[] = [
   },
 ];
 
-const buildSteps = (layouts: TilingLayout[]): ScriptedStep[] =>
-  STEP_META.map((meta, i) => ({ ...meta, executionPlan: [], layout: layouts[i] }));
+const buildSteps = (layouts: TilingLayout[]): ScriptedStep[] => {
+  if (layouts.length !== STEP_META.length) {
+    throw new Error(
+      `buildSteps: expected ${STEP_META.length} layouts, got ${layouts.length}`,
+    );
+  }
+  return STEP_META.map((meta, i) => ({
+    ...meta,
+    executionPlan: [],
+    layout: layouts[i],
+  }));
+};
 
 export const createHeroConnector = (isMobile = false) =>
   new ScriptedConnector(buildSteps(isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS));

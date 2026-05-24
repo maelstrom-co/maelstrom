@@ -110,18 +110,18 @@ const STEP_META: StepMeta[] = [
   },
 ];
 
-const buildSteps = (layouts: TilingLayout[]): ScriptedStep[] =>
-  STEP_META.map((meta, i) => ({ ...meta, layout: layouts[i] }));
+const buildSteps = (layouts: TilingLayout[]): ScriptedStep[] => {
+  if (layouts.length !== STEP_META.length) {
+    throw new Error(
+      `buildSteps: expected ${STEP_META.length} layouts, got ${layouts.length}`,
+    );
+  }
+  return STEP_META.map((meta, i) => ({ ...meta, layout: layouts[i] }));
+};
 
 /** Build a demo connector whose layouts match the breakpoint. */
 export const createDemoConnector = (isMobile = false): ScriptedConnector =>
   new ScriptedConnector(buildSteps(isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS));
 
-/** Desktop steps — exposed for the script driver's prompts/rationales. */
+/** Desktop steps — exposed for the script driver's prompts/rationales and tests. */
 export const DEMO_STEPS: ScriptedStep[] = buildSteps(DESKTOP_LAYOUTS);
-
-export class DemoConnector extends ScriptedConnector {
-  constructor() {
-    super(DEMO_STEPS);
-  }
-}

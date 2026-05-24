@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
-import { DemoConnector, DEMO_STEPS, createDemoConnector } from './connector';
+import { DEMO_STEPS, createDemoConnector } from './connector';
+import { ScriptedConnector } from '../shared/ScriptedConnector';
 import type { ChartRequestMessage, TilingLayout } from '@maelstrom-co/protocol';
 import {
   ChartRequestMessage as makeChartRequestMessage,
@@ -37,22 +38,22 @@ function makeRequest(): ChartRequestMessage {
 }
 
 async function processWithTick(
-  connector: DemoConnector,
-): Promise<ReturnType<DemoConnector['process']>> {
+  connector: ScriptedConnector,
+): Promise<ReturnType<ScriptedConnector['process']>> {
   const promise = connector.process(makeRequest());
   await clock.tickAsync(1200);
   return promise;
 }
 
-describe('DemoConnector', () => {
+describe('ScriptedConnector (DEMO_STEPS)', () => {
   it('returns initial layout on first request', async () => {
-    const connector = new DemoConnector();
+    const connector = new ScriptedConnector(DEMO_STEPS);
     const response = await connector.process(makeRequest());
     expect(response.layout).toEqual(DEMO_STEPS[0].layout);
   });
 
   it('returns sequential steps for consecutive requests', async () => {
-    const connector = new DemoConnector();
+    const connector = new ScriptedConnector(DEMO_STEPS);
     await connector.process(makeRequest());
     const second = await processWithTick(connector);
     expect(second.layout).toEqual(DEMO_STEPS[1].layout);
@@ -60,7 +61,7 @@ describe('DemoConnector', () => {
   });
 
   it('delays non-initial responses by the simulated engine latency', async () => {
-    const connector = new DemoConnector();
+    const connector = new ScriptedConnector(DEMO_STEPS);
     await connector.process(makeRequest()); // initial request resolves immediately
     let resolved = false;
     const pending = connector.process(makeRequest()).then(() => {
@@ -74,7 +75,7 @@ describe('DemoConnector', () => {
   });
 
   it('clamps to last step when requests exceed steps', async () => {
-    const connector = new DemoConnector();
+    const connector = new ScriptedConnector(DEMO_STEPS);
     await connector.process(makeRequest());
     for (let i = 1; i < DEMO_STEPS.length + 2; i++) {
       await processWithTick(connector);
@@ -84,7 +85,7 @@ describe('DemoConnector', () => {
   });
 
   it('resets request count', async () => {
-    const connector = new DemoConnector();
+    const connector = new ScriptedConnector(DEMO_STEPS);
     await connector.process(makeRequest());
     await processWithTick(connector);
     connector.reset();
@@ -93,7 +94,7 @@ describe('DemoConnector', () => {
   });
 
   it('includes execution plan from step', async () => {
-    const connector = new DemoConnector();
+    const connector = new ScriptedConnector(DEMO_STEPS);
     await connector.process(makeRequest());
     await processWithTick(connector);
     const response = await processWithTick(connector);
@@ -102,13 +103,13 @@ describe('DemoConnector', () => {
   });
 
   it('subscribe returns unsubscribe function', () => {
-    const connector = new DemoConnector();
+    const connector = new ScriptedConnector(DEMO_STEPS);
     const unsub = connector.subscribe(() => {});
     expect(typeof unsub).toBe('function');
   });
 
   it('reports correct capabilities', () => {
-    const connector = new DemoConnector();
+    const connector = new ScriptedConnector(DEMO_STEPS);
     expect(connector.capabilities).toEqual({
       voice: false,
       streaming: false,
@@ -140,24 +141,34 @@ describe('DEMO_STEPS', () => {
 });
 
 describe('createDemoConnector', () => {
-  const instanceCount = (layout: unknown) =>
-    (layout as TilingLayout).instances.length;
+  const asTiling = (layout: unknown) => layout as TilingLayout;
+  // Instance IDs referenced as leaves in the tiling tree (drop split markers).
+  const treeLeaves = (layout: TilingLayout) =>
+    layout.tree.filter((n) => n !== 'H' && n !== 'V' && n !== null);
 
-  it('shows at most two vessels per step on mobile so cards stay readable', async () => {
+  it('shows exactly two vessels per mobile step, with no tree/instance drift', async () => {
     const connector = createDemoConnector(true);
-    const initial = await connector.process(makeRequest());
-    expect(instanceCount(initial.layout)).toBeLessThanOrEqual(2);
+    // Exactly two cards (a dropped vessel would slip past a `<= 2` bound), and
+    // every declared instance must appear as a tree leaf and vice versa — a
+    // mismatch renders a broken/empty tile.
+    const assertStep = (layout: TilingLayout) => {
+      expect(layout.instances).toHaveLength(2);
+      expect(new Set(treeLeaves(layout))).toEqual(
+        new Set(layout.instances.map((inst) => inst.instanceId)),
+      );
+    };
+
+    assertStep(asTiling((await connector.process(makeRequest())).layout));
     for (let i = 1; i < DEMO_STEPS.length; i++) {
       const pending = connector.process(makeRequest());
       await clock.tickAsync(1200);
-      const response = await pending;
-      expect(instanceCount(response.layout)).toBeLessThanOrEqual(2);
+      assertStep(asTiling((await pending).layout));
     }
   });
 
   it('keeps the full four-vessel overview on desktop', async () => {
     const connector = createDemoConnector(false);
     const initial = await connector.process(makeRequest());
-    expect(instanceCount(initial.layout)).toBe(4);
+    expect(asTiling(initial.layout).instances).toHaveLength(4);
   });
 });
