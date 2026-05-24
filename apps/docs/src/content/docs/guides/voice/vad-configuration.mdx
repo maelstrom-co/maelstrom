@@ -1,6 +1,226 @@
 ---
 title: VAD Configuration
-description: How to configure Voice Activity Detection (Silero VAD).
+description: Tune browser-side Voice Activity Detection in Maelstrom, with real defaults, tradeoffs, and architecture rationale.
 ---
 
-*Content coming soon.*
+Maelstrom keeps Voice Activity Detection, VAD, on the client. That is a deliberate product choice, not an incidental implementation detail.
+
+The browser session decides when speech started, when it probably ended, and how much leading audio to preserve before the backend STT provider gets the final say. That gives the product a more stable turn boundary across providers, but it also means you are shipping a browser-side ONNX model and a Wasm runtime. This guide covers both sides of that tradeoff.
+
+If you only need the API surface, read [`VADConfig`](/reference/voice/vad-types/). This page focuses on how to tune the shipped behavior in a real app.
+
+## Where VAD fits in the voice stack
+
+Maelstrom's voice system has two separate timing layers:
+
+- **Browser VAD**, configured through `vadOptions`, decides local speech boundaries and barge-in behavior.
+- **Server runtime timing**, configured through fields such as `vadFinalDebounceMs` and `transcriptGraceMs`, decides how cautiously the backend treats the trailing edge of a turn after the browser already marked it as complete.
+
+That distinction matters. `vadFinalDebounceMs` and `transcriptGraceMs` are not browser `vadOptions` fields. They live in the backend `@maelstrom-co/voice-server` runtime and should be tuned as server handoff controls, not as client VAD thresholds.
+
+For the deeper split between browser and server responsibilities, see [Voice Architecture](/understanding/voice-architecture/) and the [`createVoiceSession()` runtime reference](/reference/voice-server/create-voice-session/).
+
+## The shipped browser VAD fields
+
+The user-facing type is `VADConfig`, which is an alias for the browser runtime's `VADStreamOptions`.
+
+These are the actual fields exposed by the current implementation:
+
+| Field | Default | What it controls |
+| --- | --- | --- |
+| `minSpeechDurationSeconds` | `0.05` | Minimum continuous speech before the browser emits `speech_start`. |
+| `minSilenceDurationSeconds` | `0.8` | Minimum continuous silence before the browser emits `speech_end`. |
+| `activationThreshold` | `0.7` | Normal listening speech probability threshold. |
+| `preSpeechPaddingSeconds` | `0.3` | Buffered audio preserved before detected speech start. |
+| `maxUserTalkingDurationSeconds` | no low-level VAD default, `VoiceSession` falls back to `60` seconds | Upper bound for one continuous user turn before the session forces a boundary. |
+
+## Default browser behavior
+
+The low-level `VADProcessor` ships with these defaults:
+
+```ts
+vadOptions: {
+  minSpeechDurationSeconds: 0.05,
+  minSilenceDurationSeconds: 0.8,
+  activationThreshold: 0.7,
+  preSpeechPaddingSeconds: 0.3,
+}
+```
+
+`maxUserTalkingDurationSeconds` is slightly different. It is part of `vadOptions`, but the enforcement lives in `VoiceSession`, not inside the low-level VAD processor. When omitted, the session falls back to a `60` second cap.
+
+That split is worth knowing because it explains why one field behaves more like a session safety rail than a pure model threshold.
+
+## Field-by-field tuning guidance
+
+### `minSpeechDurationSeconds`
+
+Default: `0.05`
+
+This is the minimum continuous speech window before the browser publicly commits to `speech_start`.
+
+- Lower it when you want faster pickup for short interjections like “stop”, “wait”, or “yes”.
+- Raise it when noisy environments are causing false starts.
+
+The cost of pushing it too low is that tiny noise bursts can look like speech. The cost of pushing it too high is sluggish turn pickup and weaker barge-in.
+
+### `minSilenceDurationSeconds`
+
+Default: `0.8`
+
+This controls how much continuous silence the browser needs before it emits `speech_end`.
+
+- Lower it when the app feels slow to hand the turn to STT and the engine.
+- Raise it when speech is being split too aggressively between phrases.
+
+This is one of the most sensitive knobs in the system. If it is too short, users get clipped endings and fragmented turns. If it is too long, the whole voice loop feels sluggish even when STT and TTS are fast.
+
+### `activationThreshold`
+
+Default: `0.7`
+
+This is the normal listening probability threshold for deciding whether a 32 ms chunk is speech.
+
+- Raise it when background noise, room echo, or keyboard sounds are creating false positives.
+- Lower it when users speak quietly or with weak microphone gain.
+
+Higher thresholds are safer in noisy rooms. Lower thresholds are kinder to soft voices. There is no universally correct value because microphone quality and room acoustics dominate this choice.
+
+### `preSpeechPaddingSeconds`
+
+Default: `0.3`
+
+The browser keeps a ring buffer of recent audio so that when speech starts, it can prepend some pre-roll audio instead of starting exactly at the first accepted frame.
+
+- Raise it when the first syllable of an utterance is getting clipped.
+- Lower it when you want tighter leading edges and smaller buffered payloads.
+
+This field often matters more than people expect. Speech start detection is threshold-based, so without padding the captured utterance can feel a little late even when the detection logic itself is correct.
+
+### `maxUserTalkingDurationSeconds`
+
+Default: session fallback of `60` seconds when omitted
+
+This is a session-level guardrail for one continuous user turn. If someone talks for too long without a usable silence boundary, the session can still force progress instead of waiting forever.
+
+- Lower it when your product needs short, command-like turns.
+- Raise it when your users dictate longer thoughts and you would rather tolerate a very long turn than force segmentation.
+
+Treat this as a safety cap, not as your primary segmentation tool. The primary boundary logic should still come from speech and silence thresholds.
+
+## Demo calibration example
+
+The demo intentionally overrides only two values:
+
+```ts
+vadOptions: {
+  minSpeechDurationSeconds: 0.032,
+  preSpeechPaddingSeconds: 0.45,
+}
+```
+
+Everything else falls back to the browser defaults.
+
+That is a useful calibration example because it shows a narrow, intentional tweak instead of a full config rewrite:
+
+- `minSpeechDurationSeconds: 0.032` makes short utterances and barge-in feel more immediate.
+- `preSpeechPaddingSeconds: 0.45` gives the browser more leading context so the beginning of speech survives the faster trigger.
+
+This is a good pattern to copy. Start with the defaults, change one or two things for a clear reason, then test with real microphones and real rooms.
+
+## AEC and playback behavior
+
+There is an important browser caveat here.
+
+While assistant TTS is playing, the browser VAD raises its live activation threshold to `0.8`. That is higher than the normal default of `0.7`.
+
+The reason is acoustic echo cancellation, AEC. If the browser leaks assistant playback back into the microphone path, the VAD can mistake TTS output for fresh user speech. Raising the threshold during playback reduces false positives and keeps barge-in usable.
+
+That is a mitigation, not a guarantee.
+
+- If browser AEC is working well, the playback threshold change helps a lot.
+- If browser AEC is weak, missing, or defeated by the local audio setup, you can still get false speech detection during assistant playback.
+
+So the honest rule is this: Maelstrom adjusts the threshold during playback because the browser acoustic environment changes under you. It does not make echo leakage impossible.
+
+## Why Maelstrom keeps VAD on the client
+
+### Client-owned VAD with ONNX Runtime Web, Wasm, and Silero
+
+Maelstrom runs VAD in the browser using the Silero model through ONNX Runtime Web with the Wasm execution provider.
+
+At a lower level, the shipped Silero wrapper processes 16 kHz audio in `512` sample windows, about `32` ms each, while also carrying recurrent state and a short `64` sample context window between inferences.
+
+That means utterance boundaries are decided locally, before STT-provider finalization quirks dominate the UX.
+
+This matters for a few practical reasons:
+
+- The product keeps cross-provider control over the shape of a turn.
+- The browser can start barge-in immediately, without waiting for the server-side recognizer to decide whether it agrees that speech happened.
+- Slow voices and long pauses are less likely to produce provider-specific turn weirdness.
+
+Some STT providers can be touchy about silence threshold tuning. Some need aggressive silence threshold changes to feel responsive. Some can hallucinate extra utterances on slow voices or awkward pauses. Client-owned VAD does not eliminate those provider issues, but it prevents the product from being fully owned by them.
+
+That is the real advantage: more control, more consistency, and less dependence on one provider's silence threshold behavior.
+
+### Benefits
+
+- **Consistent turn ownership**: the browser decides speech boundaries before provider-specific heuristics take over.
+- **Better barge-in behavior**: interruption starts from local speech detection, not from the latency of a provider finalization path.
+- **Cross-provider stability**: swapping STT backends does not force a full rethink of utterance boundary behavior.
+- **Fewer hallucination-driven UX surprises**: slow-voice and long-pause edge cases are easier to keep stable when the client owns the first boundary decision.
+
+### Drawbacks
+
+- **ONNX Runtime dependency**: the browser needs Wasm support and the ONNX Runtime Web loader.
+- **Model download cost**: the Silero model has to be fetched before the VAD is ready, so cold start is real.
+- **Extra browser work**: you are doing inference on the client, not just shipping raw audio upstream.
+- **Still not a magic fix**: provider behavior still matters after the client ends the turn, especially around late transcript refinement and backend handoff.
+
+That last point is worth underlining. Client-owned VAD is a control strategy. It is not a claim that STT providers stop having quirks.
+
+## Browser VAD versus server runtime knobs
+
+It is easy to conflate browser VAD settings with backend turn-boundary timers, especially because both affect perceived latency.
+
+They solve different problems.
+
+### Browser `vadOptions`
+
+These shape the local microphone-side decision:
+
+- when speech starts
+- when speech ends
+- how much leading audio to preserve
+- how long one uninterrupted user turn may run
+
+### Server runtime knobs
+
+The backend runtime uses fields like these instead:
+
+- `vadFinalDebounceMs`, which smooths tiny silence gaps before treating a client VAD end event as final
+- `transcriptGraceMs`, which briefly waits for a better final transcript after VAD ended
+
+Those server fields are useful because the backend still has to deal with late STT refinement and transport timing. They are not replacements for client VAD settings, and they should not be documented as if they live in `vadOptions`.
+
+If you need those controls, see the [`@maelstrom-co/voice-server` runtime reference](/reference/voice-server/create-voice-session/).
+
+## Practical tuning workflow
+
+If you are starting from scratch, this sequence works well:
+
+1. Keep the defaults.
+2. Test in a quiet room, then in a noisy room.
+3. Lower `minSpeechDurationSeconds` only if pickup feels late.
+4. Raise `preSpeechPaddingSeconds` if leading syllables are clipped.
+5. Adjust `activationThreshold` only after checking whether the problem is really room noise or poor microphone setup.
+6. Adjust `minSilenceDurationSeconds` last, because it has the strongest effect on perceived latency and turn fragmentation.
+
+That order is boring, but it is practical. Most VAD tuning mistakes come from changing too many fields at once and then not knowing which one actually improved or broke the experience.
+
+## Related pages
+
+- [`VADConfig` reference](/reference/voice/vad-types/)
+- [Voice Architecture](/understanding/voice-architecture/)
+- [Voice Integration](/guides/voice/voice-integration/)
+- [`createVoiceSession()` runtime reference](/reference/voice-server/create-voice-session/)

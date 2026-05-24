@@ -9,6 +9,258 @@ import { Aside } from '@astrojs/starlight/components';
   Voice requires the optional `@maelstrom-co/voice` package. See [Installation](/getting-started/installation) for setup.
 </Aside>
 
-In this tutorial, you'll add voice control to an existing Maelstrom app, enabling users to speak commands that the LLM processes to orchestrate the UI.
+Voice control in Maelstrom has two halves that work together.
 
-*Content coming soon.*
+- In the browser, `@maelstrom-co/react-voice` and `@maelstrom-co/voice` handle microphone capture, local VAD, playback, and shared React state.
+- On the backend runtime, `@maelstrom-co/voice-server` handles STT, the handoff into the engine, TTS, and queued assistant speech.
+
+This tutorial assumes you already have a working Maelstrom app and want to add the same mainstream voice shape the demo uses.
+
+## 1. Prerequisites
+
+Start with an app that already renders a working Maelstrom instance through `m.Provider`.
+
+If you still need the base app setup, follow the [Installation guide](/getting-started/installation/) first.
+
+## 2. Install voice packages
+
+Add the browser voice packages to the app that hosts your Maelstrom UI.
+
+```bash
+bun add @maelstrom-co/react-voice @maelstrom-co/voice
+```
+
+For full end-to-end voice, you also need `@maelstrom-co/voice-server` on the server side. The browser packages do not replace the backend runtime.
+
+See [Voice Integration](/guides/voice/voice-integration/) for the end-to-end setup.
+
+## 3. Extend the instance with `maelstromVoice()`
+
+Apply the voice extension once when you create your typed Maelstrom instance.
+
+```tsx
+import { createMaelstrom } from '@maelstrom-co/react';
+import { maelstromVoice } from '@maelstrom-co/react-voice';
+import { calendarEntry } from '../vessels/calendar.vessel';
+import { journalEntry } from '../vessels/journal.vessel';
+import { tasksEntry } from '../vessels/tasks.vessel';
+import { weatherEntry } from '../vessels/weather.vessel';
+
+export const m = createMaelstrom({
+  vessels: [calendarEntry, weatherEntry, journalEntry, tasksEntry],
+}).with(maelstromVoice());
+```
+
+`maelstromVoice()` adds two browser-facing members to the same instance:
+
+- `m.useVoice()`, the shared voice hook
+- `m.VoiceOrb`, the built-in voice status component
+
+That keeps the voice API on the same typed `m` object as the rest of your Maelstrom app.
+
+## 4. Add the browser voice UI
+
+Keep one component near the shell as the voice owner. That component calls `m.useVoice({ ... })`, creates the session, and chooses options like greeting, VAD tuning, and barge-in behavior.
+
+```tsx
+function DemoApp() {
+  const voice = m.useVoice({
+    autoAcquireMic: true,
+    allowBargeIn: true,
+    greeting:
+      "Hello! I'm the Maelstrom demo assistant. I can help you manage your calendar, weather, journal, and tasks.",
+  });
+
+  return (
+    <div className="h-screen flex flex-col">
+      <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-white">Maelstrom Demo</h1>
+            <p className="text-sm text-gray-400">Voice-enabled dashboard</p>
+          </div>
+
+          <m.VoiceOrb size={40} />
+        </div>
+      </header>
+
+      <main className="flex-1 relative">
+        <m.Chart />
+      </main>
+
+      {voice.needsUserGesture && (
+        <EnableVoiceDialog
+          onEnable={() => {
+            void voice.start();
+          }}
+          voiceState={voice.state}
+        />
+      )}
+    </div>
+  );
+}
+```
+
+This owner pattern matters.
+
+- One component owns the session and passes options
+- Other components should observe with `m.useVoice()` and no options
+
+If multiple components try to own the same session, configuration gets muddy fast. Maelstrom avoids that by making one owner the clear source of truth.
+
+<Aside type="note">
+  `VoiceOrb` is a shared state view, not a second voice session. It reflects the same state that `m.useVoice()` owns.
+</Aside>
+
+## 5. Handle the gesture gate
+
+Browser media policy usually blocks microphone access and audio playback until the user clicks something first. In Maelstrom, that shows up as `needsUserGesture`.
+
+The demo handles that with an explicit dialog:
+
+```tsx
+{voice.needsUserGesture && (
+  <EnableVoiceDialog
+    onEnable={() => {
+      void voice.start();
+    }}
+    voiceState={voice.state}
+  />
+)}
+```
+
+And the dialog makes the reason clear:
+
+```tsx
+export function EnableVoiceDialog({
+  onEnable,
+  voiceState,
+}: EnableVoiceDialogProps) {
+  const showError = voiceState === 'error';
+
+  return (
+    <div role="dialog" aria-modal="true">
+      <h2>Enable voice</h2>
+      <p>
+        Your browser requires a click before the demo can use the microphone
+        and play assistant audio. Tap below to enable voice.
+      </p>
+      {showError && (
+        <p role="alert">
+          Voice didn't start. Check microphone permission and try again.
+        </p>
+      )}
+      <button type="button" onClick={onEnable}>
+        {showError ? 'Retry' : 'Enable voice'}
+      </button>
+    </div>
+  );
+}
+```
+
+That user click is not optional polish. It is how you satisfy browser policy.
+
+If your UI wants to unlock playback early without starting capture yet, call `voice.prepareAudio()` from a user action. If you want the same click to unlock audio and begin listening, call `voice.start()` like the demo does.
+
+## 6. Connect to the backend runtime
+
+The browser hook does not speak to STT and TTS providers by itself. It connects to a backend runtime, typically over WebSocket, and that backend runtime should be powered by `@maelstrom-co/voice-server`.
+
+That runtime is responsible for the rest of the loop:
+
+1. receive browser audio and VAD events
+2. transcribe speech with STT
+3. hand the finalized transcript to the Maelstrom engine
+4. synthesize the assistant reply with TTS
+5. stream audio back to the browser
+
+Read the backend API reference for the server half:
+
+- [`createVoiceSession()`](/reference/voice-server/create-voice-session/)
+- [Voice Integration](/guides/voice/voice-integration/)
+
+<Aside type="note">
+  The browser packages are the client half. `@maelstrom-co/voice-server` is the backend runtime that completes the voice path.
+</Aside>
+
+## 7. Add speak-tool capability
+
+After the basic setup works, you can add tool-driven TTS on the server.
+
+This is an additive step, not the starting point.
+
+`enqueueSpeak()` is useful when a tool or server action wants to queue spoken lines without interrupting audio that is already playing.
+
+- `enqueueSpeak()` is output-only
+- it does not require mic ownership
+- it queues speech instead of cutting off the active utterance
+
+The demo server uses it like this:
+
+```ts
+const lines = text
+  .split('.')
+  .map((line) => line.trim())
+  .filter((line) => line.length > 0);
+
+for (const line of lines) {
+  voiceSession.enqueueSpeak(line);
+}
+```
+
+A tool handler can use the same pattern:
+
+```ts
+async function handleToolSpeech(lines: string[], voiceSession: VoiceSession) {
+  for (const line of lines) {
+    voiceSession.enqueueSpeak(line);
+  }
+}
+```
+
+Use this when you want paced sequential playback. Because it is output-only, it does not take mic ownership away from the browser session.
+
+See [Speech Controls](/reference/voice-server/speech-controls/) for the full `speak()` and `enqueueSpeak()` behavior.
+
+## 8. Advanced, architecture comparison
+
+There are two broad ways to think about Maelstrom voice right now.
+
+### Chained STT -> engine -> TTS, the default
+
+This is the mainstream Maelstrom path today.
+
+- STT and TTS providers are specialized and chosen independently
+- the engine remains the direct author of the user-facing reply
+- turn boundaries are easier to control because each phase is explicit
+
+That control is real, but so is the cost.
+
+- you pay multi-hop latency
+- you maintain three integrations instead of one, browser transport, STT, and TTS
+- debugging means checking several boundaries instead of one model stream
+
+If you care more about stable control than absolute latency, this path is the better fit.
+
+### Experimental OpenAI Realtime path
+
+An OpenAI Realtime style path can reduce perceived latency because one realtime model handles the speech loop more directly.
+
+That sounds attractive, but it comes with trade-offs:
+
+- it is experimental here
+- it needs a different control-plane shape than the default stack
+- it trades provider specialization for lower latency
+- it is not the default
+- it is not stable
+- it is not a drop-in replacement for the chained STT -> engine -> TTS runtime
+
+This path may feel faster, but it gives up some of the clean seams the default architecture relies on. Be honest about that choice before you adopt it.
+
+## Where to go next
+
+- [Voice Integration](/guides/voice/voice-integration/)
+- [maelstromVoice()](/reference/react-voice/maelstrom-voice/)
+- [useVoice()](/reference/react-voice/use-voice/)
+- [createVoiceSession()](/reference/voice-server/create-voice-session/)
+- [Speech Controls](/reference/voice-server/speech-controls/)
