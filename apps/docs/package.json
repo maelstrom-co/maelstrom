@@ -32,7 +32,9 @@
       "@maelstrom-co/protocol",
       "@maelstrom-co/engine",
       "@maelstrom-co/client",
-      "@maelstrom-co/react"
+      "@maelstrom-co/react",
+      "@maelstrom-co/voice-server",
+      "@maelstrom-co/voice"
     ],
     "targets": {
       "test": {
