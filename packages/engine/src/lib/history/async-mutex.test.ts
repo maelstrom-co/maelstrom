@@ -1,16 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { createAsyncMutex } from './async-mutex.js';
-
-const defer = <T>() => {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-};
+import { defer } from '../__test-helpers__/defer.js';
 
 describe('createAsyncMutex', () => {
   test('returns the value produced by the critical section', async () => {

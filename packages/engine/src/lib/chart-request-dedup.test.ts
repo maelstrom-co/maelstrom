@@ -22,6 +22,7 @@ import {
   makeGridRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
+import { defer } from './__test-helpers__/defer.js';
 
 // ---------------------------------------------------------------------------
 // Mock TanStack AI chat()
@@ -51,19 +52,6 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
-
-// Resolve/reject-from-outside primitive used to gate mock LLM and store
-// implementations. Lets each test wait on an observable event (LLM was
-// invoked, store.append was entered) instead of guessing microtask counts.
-const defer = <T>() => {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-};
 
 // History sized large enough that truncation never interferes with what
 // each test pins. Tests that need truncation override `maxEntries` directly.
