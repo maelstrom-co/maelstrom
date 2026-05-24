@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
+  ActionName,
   type ActionExecution,
   defineVessel,
   InstanceId,
@@ -245,8 +246,8 @@ describe('ActionManager waitForReady', () => {
       };
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
-        { instanceId: i1, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
+        { instanceId: i1, action: ActionName('testAction') },
       ];
       let result: BatchExecutionResult | null = null;
       let executionCompleted = false;
@@ -290,7 +291,7 @@ describe('ActionManager waitForReady', () => {
 
     it('should skip actions if runner times out', async () => {
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
       ];
       let result: BatchExecutionResult | null = null;
       manager.executeActions(executionPlan).then((_result) => {
@@ -325,7 +326,7 @@ describe('ActionManager waitForReady', () => {
       manager.registerRunner<MockVessel>(i1, runner);
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
       ];
       let executionCompleted = false;
       let result: BatchExecutionResult | null = null;
@@ -362,8 +363,8 @@ describe('ActionManager waitForReady', () => {
       manager.registerRunner<MockVessel>(i1, registeredRunner);
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
-        { instanceId: i2, action: 'testAction' }, // No runner
+        { instanceId: i1, action: ActionName('testAction') },
+        { instanceId: i2, action: ActionName('testAction') }, // No runner
       ];
       let executionCompleted = false;
       let result: BatchExecutionResult | null = null;
@@ -397,8 +398,8 @@ describe('ActionManager waitForReady', () => {
 
       // Start executing actions for two instances
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
-        { instanceId: i2, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
+        { instanceId: i2, action: ActionName('testAction') },
       ];
       let executionCompleted = false;
       let result: BatchExecutionResult | null = null;

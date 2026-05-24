@@ -12,13 +12,13 @@ describe('applyLayout', () => {
       instances: [
         {
           instanceId: InstanceId('vessel-1-abc'),
-          vesselId: 'vessel-1',
-          variant: 'default',
+          vesselId: VesselId('vessel-1'),
+          variant: VariantName('default'),
         },
         {
           instanceId: InstanceId('vessel-2-def'),
-          vesselId: 'vessel-2',
-          variant: 'compact',
+          vesselId: VesselId('vessel-2'),
+          variant: VariantName('compact'),
         },
       ],
     };
@@ -43,8 +43,8 @@ describe('applyLayout', () => {
       instances: [
         {
           instanceId: InstanceId('vessel-1-abc'),
-          vesselId: 'vessel-1',
-          variant: 'default',
+          vesselId: VesselId('vessel-1'),
+          variant: VariantName('default'),
         },
       ],
     };

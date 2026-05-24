@@ -1,4 +1,10 @@
-import { InstanceId, type TilingLayout } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  InstanceId,
+  type TilingLayout,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import type { Command } from '../src/lib/command-processor/command.types.js';
 
 export function createSetLayoutCommand(instanceId: string): Command {
@@ -14,7 +20,7 @@ export function createExecuteActionsCommand(
 ): Command {
   return {
     kind: 'execute_actions',
-    executionPlan: [{ instanceId: InstanceId(instanceId), action }],
+    executionPlan: [{ instanceId: InstanceId(instanceId), action: ActionName(action) }],
   };
 }
 
@@ -25,8 +31,8 @@ export function createMockLayout(instanceId: string): TilingLayout {
     instances: [
       {
         instanceId: InstanceId(instanceId),
-        vesselId: 'vessel-1',
-        variant: 'default',
+        vesselId: VesselId('vessel-1'),
+        variant: VariantName('default'),
       },
     ],
   };

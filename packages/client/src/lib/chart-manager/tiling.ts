@@ -1,4 +1,5 @@
 import {
+  type InstanceId,
   isTilingSplit,
   type TilingNode,
   type TilingSplit,
@@ -22,11 +23,11 @@ export interface TilingSplitNode {
 
 export interface TilingLeafNode {
   type: 'leaf';
-  instanceId: string | null;
+  instanceId: InstanceId | null;
 }
 
 export interface ComputedTile {
-  instanceId: string;
+  instanceId: InstanceId;
   rect: Rect;
 }
 
@@ -156,7 +157,7 @@ export function computeTilingLayout(
 }
 
 function mergeDuplicateTiles(tiles: ComputedTile[]): ComputedTile[] {
-  const instanceMap = new Map<string, ComputedTile[]>();
+  const instanceMap = new Map<InstanceId, ComputedTile[]>();
 
   for (const tile of tiles) {
     const existing = instanceMap.get(tile.instanceId);

@@ -2,8 +2,6 @@ import type {
   GridLayout,
   InstanceId,
   TilingLayout,
-  VariantName,
-  VesselId,
 } from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';
@@ -35,13 +33,8 @@ function applyTilingLayout(
       snapshot.instanceId,
       {
         instanceId: snapshot.instanceId,
-        // The TilingInstance interface declares vesselId/variant as plain
-        // strings, but at runtime they're already branded by the schema's
-        // .transform() step (see TilingLayoutSchema). Brand at the seam to
-        // keep the runtime store typed without a protocol-wide interface
-        // change that would ripple into out-of-tree consumers.
-        vesselId: snapshot.vesselId as VesselId,
-        variant: snapshot.variant as VariantName,
+        vesselId: snapshot.vesselId,
+        variant: snapshot.variant,
         position: { column: 0, row: 0 },
         size: { width: 1, height: 1 },
       },

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import {
+  ActionName,
   type ActionExecution,
   defineVessel,
   err,
@@ -78,7 +79,7 @@ describe('ActionManager', () => {
       const result = await manager.executeActions([
         {
           instanceId: i1,
-          action: 'testAction',
+          action: ActionName('testAction'),
           params: {},
         },
       ]);
@@ -185,7 +186,7 @@ describe('ActionManager', () => {
       manager.registerRunner<MockVessel>(i1, runner);
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
       ];
       const result = await manager.executeActions(executionPlan);
 
@@ -194,7 +195,7 @@ describe('ActionManager', () => {
       expect(result.successCount).toBe(1);
       expect(result.allSucceeded).toBe(true);
       expect(result.actions[0].instanceId).toBe(i1);
-      expect(result.actions[0].action).toBe('testAction');
+      expect(result.actions[0].action).toBe(ActionName('testAction'));
       expect(result.actions[0].result.ok).toBe(true);
     });
 
@@ -205,7 +206,7 @@ describe('ActionManager', () => {
       manager.registerRunner<MockVessel>(i1, runner);
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
       ];
       const result = await manager.executeActions(executionPlan);
 
@@ -232,9 +233,9 @@ describe('ActionManager', () => {
       manager.registerRunner<MockVessel>(i1, runner);
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
-        { instanceId: i1, action: 'testAction' },
-        { instanceId: i1, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
+        { instanceId: i1, action: ActionName('testAction') },
+        { instanceId: i1, action: ActionName('testAction') },
       ];
       await manager.executeActions(executionPlan);
 
@@ -274,8 +275,8 @@ describe('ActionManager', () => {
       manager.registerRunner<MockVessel>(i2, runner2);
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
-        { instanceId: i2, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
+        { instanceId: i2, action: ActionName('testAction') },
       ];
       await manager.executeActions(executionPlan);
 
@@ -288,7 +289,7 @@ describe('ActionManager', () => {
   describe('no runner registered', () => {
     it('should skip actions when no runner is registered for instance', async () => {
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
       ];
       const result = await manager.executeActions(executionPlan);
 
@@ -311,8 +312,8 @@ describe('ActionManager', () => {
       });
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
-        { instanceId: i2, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
+        { instanceId: i2, action: ActionName('testAction') },
       ];
       const result = await manager.executeActions(executionPlan);
 
@@ -330,7 +331,7 @@ describe('ActionManager', () => {
       manager.registerRunner<MockVessel>(i1, runner);
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
       ];
       const result = await manager.executeActions(executionPlan);
 
@@ -358,8 +359,8 @@ describe('ActionManager', () => {
       });
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
-        { instanceId: i2, action: 'testAction' },
+        { instanceId: i1, action: ActionName('testAction') },
+        { instanceId: i2, action: ActionName('testAction') },
       ];
       const result = await manager.executeActions(executionPlan);
 
@@ -374,8 +375,8 @@ describe('ActionManager', () => {
       });
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'testAction' },
-        { instanceId: i2, action: 'testAction' }, // No runner
+        { instanceId: i1, action: ActionName('testAction') },
+        { instanceId: i2, action: ActionName('testAction') }, // No runner
       ];
       const result = await manager.executeActions(executionPlan);
 
@@ -398,7 +399,7 @@ describe('ActionManager', () => {
       });
 
       const executionPlan: ActionExecution[] = [
-        { instanceId: i1, action: 'nonExistentAction' },
+        { instanceId: i1, action: ActionName('nonExistentAction') },
       ];
       const result = await manager.executeActions(executionPlan);
 
@@ -453,7 +454,7 @@ describe('ActionManager', () => {
       const executionPlan: ActionExecution[] = [
         {
           instanceId: i1,
-          action: 'testActionWithParams',
+          action: ActionName('testActionWithParams'),
           params: { testParam: 'value' },
         },
       ];
@@ -486,7 +487,7 @@ describe('ActionManager', () => {
 
       let result: BatchExecutionResult | null = null;
       timeoutManager
-        .executeActions([{ instanceId: i1, action: 'testAction' }])
+        .executeActions([{ instanceId: i1, action: ActionName('testAction') }])
         .then((_result) => {
           result = _result;
         });
@@ -515,7 +516,7 @@ describe('ActionManager', () => {
 
       let result: BatchExecutionResult | null = null;
       timeoutManager
-        .executeActions([{ instanceId: i1, action: 'testAction' }])
+        .executeActions([{ instanceId: i1, action: ActionName('testAction') }])
         .then((_result) => {
           result = _result;
         });
@@ -542,7 +543,7 @@ describe('ActionManager', () => {
 
       let result: BatchExecutionResult | null = null;
       timeoutManager
-        .executeActions([{ instanceId: i1, action: 'testAction' }])
+        .executeActions([{ instanceId: i1, action: ActionName('testAction') }])
         .then((_result) => {
           result = _result;
         });
@@ -570,7 +571,7 @@ describe('ActionManager', () => {
         { length: 100 },
         (_, _i) => ({
           instanceId: i1,
-          action: 'testAction',
+          action: ActionName('testAction'),
         }),
       );
       const result = await manager.executeActions(executionPlan);
@@ -597,7 +598,7 @@ describe('ActionManager', () => {
         { length: 50 },
         (_, i) => ({
           instanceId: InstanceId(`instance-${i}`),
-          action: 'testAction',
+          action: ActionName('testAction'),
         }),
       );
       const result = await manager.executeActions(executionPlan);
@@ -624,7 +625,7 @@ describe('ActionManager', () => {
         { length: 20 },
         (_, i) => ({
           instanceId: InstanceId(`instance-${i}`),
-          action: 'testAction',
+          action: ActionName('testAction'),
         }),
       );
       const result = await manager.executeActions(executionPlan);

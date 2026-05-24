@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { ChartRequest } from '@maelstrom-co/protocol';
-import { InstanceId, isErr, isOk, MessageId } from '@maelstrom-co/protocol';
+import { ActionName, InstanceId, isErr, isOk, MessageId } from '@maelstrom-co/protocol';
 import {
   brandGridResponse,
   brandTilingResponse,
@@ -202,7 +202,7 @@ describe('processResponse', () => {
       expect(result.value.executionPlan).toHaveLength(1);
       expect(result.value.executionPlan[0]).toEqual({
         instanceId: InstanceId('calendar-main'),
-        action: 'showWeek',
+        action: ActionName('showWeek'),
       });
     });
 
@@ -281,7 +281,7 @@ describe('processResponse', () => {
       expect(result.value.executionPlan).toHaveLength(1);
       expect(result.value.executionPlan[0]).toEqual({
         instanceId: InstanceId('journal-retro'),
-        action: 'createEntry',
+        action: ActionName('createEntry'),
         params: { title: 'Today' },
       });
       expect(result.value.diagnostics.skippedActions).toHaveLength(0);
@@ -508,7 +508,7 @@ describe('processResponse', () => {
       expect(result.value.executionPlan).toHaveLength(1);
       const action = result.value.executionPlan[0];
       expect(action.instanceId).toBe(InstanceId('orders-main'));
-      expect(action.action).toBe('selectOrder');
+      expect(action.action).toBe(ActionName('selectOrder'));
       expect(action.params).toEqual({ orderId: 'abc-123' });
     });
 
@@ -531,7 +531,7 @@ describe('processResponse', () => {
 
       expect(result.value.executionPlan[0]).toEqual({
         instanceId: InstanceId('calendar-main'),
-        action: 'showWeek',
+        action: ActionName('showWeek'),
       });
     });
 
@@ -707,7 +707,7 @@ describe('processResponse', () => {
       if (!isOk(result)) return;
 
       expect(result.value.executionPlan).toHaveLength(1);
-      expect(result.value.executionPlan[0].action).toBe('showWeek');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('showWeek'));
     });
 
     test('includes valid actions from list, warns about invalid actions from the same list', () => {
@@ -737,7 +737,7 @@ describe('processResponse', () => {
       if (!isOk(result)) return;
 
       expect(result.value.executionPlan).toHaveLength(1);
-      expect(result.value.executionPlan[0].action).toBe('showWeek');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('showWeek'));
       expect(warnings).toHaveLength(1);
       expect(warnings[0]).toContain('bogusAction');
     });
@@ -1084,8 +1084,8 @@ describe('processResponse', () => {
 
       // Both actions should be accepted
       expect(result.value.executionPlan).toHaveLength(2);
-      expect(result.value.executionPlan[0].action).toBe('expand');
-      expect(result.value.executionPlan[1].action).toBe('collapse');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('expand'));
+      expect(result.value.executionPlan[1].action).toBe(ActionName('collapse'));
     });
 
     test('accepts three-step sequential transitions', () => {
@@ -1111,9 +1111,9 @@ describe('processResponse', () => {
       if (!isOk(result)) return;
 
       expect(result.value.executionPlan).toHaveLength(3);
-      expect(result.value.executionPlan[0].action).toBe('expand');
-      expect(result.value.executionPlan[1].action).toBe('maximize');
-      expect(result.value.executionPlan[2].action).toBe('restore');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('expand'));
+      expect(result.value.executionPlan[1].action).toBe(ActionName('maximize'));
+      expect(result.value.executionPlan[2].action).toBe(ActionName('restore'));
     });
 
     test('skips action whose target equals the simulated variant (self-transition no-op)', () => {
@@ -1146,7 +1146,7 @@ describe('processResponse', () => {
 
       // Only first expand should be accepted
       expect(result.value.executionPlan).toHaveLength(1);
-      expect(result.value.executionPlan[0].action).toBe('expand');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('expand'));
 
       // Single per-action warning (no aggregate noise)
       expect(warnings).toHaveLength(1);
@@ -1196,8 +1196,8 @@ describe('processResponse', () => {
       if (!isOk(result)) return;
 
       expect(result.value.executionPlan).toHaveLength(2);
-      expect(result.value.executionPlan[0].action).toBe('expand');
-      expect(result.value.executionPlan[1].action).toBe('maximize');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('expand'));
+      expect(result.value.executionPlan[1].action).toBe(ActionName('maximize'));
       expect(result.value.diagnostics.skippedActions).toHaveLength(1);
       expect(result.value.diagnostics.skippedActions[0]).toMatchObject({
         reason: 'action_not_valid',
@@ -1251,19 +1251,19 @@ describe('processResponse', () => {
       expect(result.value.executionPlan).toHaveLength(4);
       expect(result.value.executionPlan[0]).toEqual({
         instanceId: InstanceId('widget-a'),
-        action: 'expand',
+        action: ActionName('expand'),
       });
       expect(result.value.executionPlan[1]).toEqual({
         instanceId: InstanceId('widget-b'),
-        action: 'expand',
+        action: ActionName('expand'),
       });
       expect(result.value.executionPlan[2]).toEqual({
         instanceId: InstanceId('widget-a'),
-        action: 'collapse',
+        action: ActionName('collapse'),
       });
       expect(result.value.executionPlan[3]).toEqual({
         instanceId: InstanceId('widget-b'),
-        action: 'maximize',
+        action: ActionName('maximize'),
       });
     });
 
@@ -1314,15 +1314,15 @@ describe('processResponse', () => {
 
       // Should have 3 valid actions (expand, expand, collapse)
       expect(result.value.executionPlan).toHaveLength(3);
-      expect(result.value.executionPlan[0].action).toBe('expand');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('expand'));
       expect(result.value.executionPlan[0].instanceId).toBe(
         InstanceId('widget-a'),
       );
-      expect(result.value.executionPlan[1].action).toBe('expand');
+      expect(result.value.executionPlan[1].action).toBe(ActionName('expand'));
       expect(result.value.executionPlan[1].instanceId).toBe(
         InstanceId('widget-b'),
       );
-      expect(result.value.executionPlan[2].action).toBe('collapse');
+      expect(result.value.executionPlan[2].action).toBe(ActionName('collapse'));
       expect(result.value.executionPlan[2].instanceId).toBe(
         InstanceId('widget-a'),
       );
@@ -1482,8 +1482,8 @@ describe('processResponse', () => {
       if (!isOk(result)) return;
 
       expect(result.value.executionPlan).toHaveLength(2);
-      expect(result.value.executionPlan[0].action).toBe('expand');
-      expect(result.value.executionPlan[1].action).toBe('maximize');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('expand'));
+      expect(result.value.executionPlan[1].action).toBe(ActionName('maximize'));
       expect(result.value.layout.type).toBe('tiling');
     });
 
@@ -1675,7 +1675,7 @@ describe('processResponse', () => {
       // Only goodAction survives — badTransition is dropped pre-emptively
       // rather than handed to the runtime to crash on.
       expect(result.value.executionPlan).toHaveLength(1);
-      expect(result.value.executionPlan[0].action).toBe('goodAction');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('goodAction'));
 
       // state_drift diagnostic captures the dropped action with structured fields
       const skipped = result.value.diagnostics.skippedActions;
@@ -1760,7 +1760,7 @@ describe('processResponse', () => {
       // onA dropped (vesselA lost to vesselB on the duplicate key),
       // onB accepted (vesselB is the winner).
       expect(result.value.executionPlan).toHaveLength(1);
-      expect(result.value.executionPlan[0].action).toBe('onB');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('onB'));
       expect(result.value.diagnostics.skippedActions).toHaveLength(1);
       expect(result.value.diagnostics.skippedActions[0].reason).toBe(
         'action_not_valid',
@@ -1832,8 +1832,8 @@ describe('processResponse', () => {
       // Both actions accepted — ping did not advance the sim variant, so
       // advance (which is valid in 'start') still resolves.
       expect(result.value.executionPlan).toHaveLength(2);
-      expect(result.value.executionPlan[0].action).toBe('ping');
-      expect(result.value.executionPlan[1].action).toBe('advance');
+      expect(result.value.executionPlan[0].action).toBe(ActionName('ping'));
+      expect(result.value.executionPlan[1].action).toBe(ActionName('advance'));
       expect(result.value.diagnostics.skippedActions).toEqual([]);
     });
 
@@ -1918,7 +1918,7 @@ describe('processResponse', () => {
       expect(result.value.executionPlan).toHaveLength(1);
       expect(result.value.executionPlan[0]).toEqual({
         instanceId: InstanceId('pw-1'),
-        action: 'expand',
+        action: ActionName('expand'),
       });
     });
   });

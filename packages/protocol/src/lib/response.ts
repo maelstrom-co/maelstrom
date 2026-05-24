@@ -1,5 +1,8 @@
+import type { ActionName } from './action-name.js';
 import type { InstanceId } from './instance.js';
 import type { MessageId } from './message.js';
+import type { VariantName } from './variant-name.js';
+import type { VesselId } from './vessel-id.js';
 
 // ---------------------------------------------------------------------------
 // Action execution — parsed form (params as object, not JSON string)
@@ -7,7 +10,7 @@ import type { MessageId } from './message.js';
 
 export interface ActionExecution {
   readonly instanceId: InstanceId;
-  readonly action: string;
+  readonly action: ActionName;
   readonly params?: Record<string, unknown>;
 }
 
@@ -28,8 +31,8 @@ export interface GridLayout {
 
 export interface TilingInstance {
   readonly instanceId: InstanceId;
-  readonly vesselId: string;
-  readonly variant: string;
+  readonly vesselId: VesselId;
+  readonly variant: VariantName;
 }
 
 /** Binary split operator in the tiling tree: `H` (horizontal) or `V` (vertical). */

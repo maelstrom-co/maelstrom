@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { VesselDefinition } from '@maelstrom-co/protocol';
+import type { VesselDefinition, VesselId } from '@maelstrom-co/protocol';
 
 import type {
   LazyVesselComponentLoader,
@@ -18,7 +18,7 @@ export function vessel<const V extends VesselDefinition>(
 export function vessel<const V extends VesselDefinition>(
   definition: V,
   loader: LazyVesselComponentLoader<V>,
-  loadingComponent: ComponentType<{ vesselId: string }>,
+  loadingComponent: ComponentType<{ vesselId: VesselId }>,
 ): LazyVesselEntry<V>;
 
 /** Implementation */
@@ -27,7 +27,7 @@ export function vessel<const V extends VesselDefinition>(
   componentOrLoader:
     | ComponentType<TypedVesselProps<V>>
     | LazyVesselComponentLoader<V>,
-  loadingComponent?: ComponentType<{ vesselId: string }>,
+  loadingComponent?: ComponentType<{ vesselId: VesselId }>,
 ): VesselEntry<V> | LazyVesselEntry<V> {
   if (loadingComponent) {
     return {

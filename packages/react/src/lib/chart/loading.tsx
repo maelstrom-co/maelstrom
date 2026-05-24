@@ -1,7 +1,8 @@
+import type { VesselId } from '@maelstrom-co/protocol';
 import type { CSSProperties } from 'react';
 
 export interface VesselLoadingSkeletonProps {
-  vesselId: string;
+  vesselId: VesselId;
   vesselName?: string | undefined;
 }
 
@@ -52,7 +53,7 @@ export function VesselLoadingSkeleton({ vesselId, vesselName }: VesselLoadingSke
 }
 
 export interface VesselLoadErrorProps {
-  vesselId: string;
+  vesselId: VesselId;
   error: Error;
   debug?: boolean | undefined;
   retry?: (() => void) | undefined;

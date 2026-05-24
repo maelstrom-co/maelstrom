@@ -1,5 +1,6 @@
 import {
   type ActionExecution,
+  type ActionName,
   type InstanceId,
   type VesselDefinition,
   err,
@@ -424,7 +425,7 @@ export class ActionManager {
   async #withExecutionTimeout<T>(
     promise: Promise<T>,
     instanceId: InstanceId,
-    action: string,
+    action: ActionName,
   ): Promise<T> {
     if (this.#executionTimeoutMs <= 0) return promise;
 

@@ -16,7 +16,7 @@ export interface MaelstromContextValue {
   /** Maps vessel ID → React component */
   componentRegistry: Map<VesselId, ComponentType<TypedVesselProps<any>>>;
   /** Maps vessel ID → loading skeleton (for lazy vessels) */
-  loadingRegistry: Map<VesselId, ComponentType<{ vesselId: string }>>;
+  loadingRegistry: Map<VesselId, ComponentType<{ vesselId: VesselId }>>;
   /** Set of vessel IDs that are lazy-loaded */
   lazyVesselIds: Set<VesselId>;
   /**

@@ -19,6 +19,12 @@ export type SessionId = Brand<string, 'SessionId'>;
  *   its value. Use this when the developer brings their own ID (DB row ID,
  *   user ID, persisted localStorage value, etc.) or when rehydrating from
  *   serialized data.
+ *
+ * @example
+ * ```ts
+ * const fresh = SessionId();               // 'session-<uuid>'
+ * const fromDb = SessionId(row.sessionId); // brands an existing id
+ * ```
  */
 export const SessionId = (value?: string): SessionId => {
   if (value !== undefined) {

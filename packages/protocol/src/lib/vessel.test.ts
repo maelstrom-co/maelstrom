@@ -63,6 +63,14 @@ describe('validateVessel', () => {
     // Type-level: each `.transform(<Brand>)` on the schema must surface as
     // the branded type on the inferred output. Removing any transform flips
     // the matching `Equals` to `false`, which fails the typecheck.
+    type _IdBranded = Equals<Vessel['id'], VesselId>;
+    const _idBranded: _IdBranded = true;
+    void _idBranded;
+
+    type _DefaultVariantBranded = Equals<Vessel['defaultVariant'], VariantName>;
+    const _defaultVariantBranded: _DefaultVariantBranded = true;
+    void _defaultVariantBranded;
+
     type Variants = Vessel['variants'];
     type _VariantKeyBranded = Equals<keyof Variants, VariantName>;
     const _variantKeyBranded: _VariantKeyBranded = true;

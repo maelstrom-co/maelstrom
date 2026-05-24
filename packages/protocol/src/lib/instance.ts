@@ -15,6 +15,12 @@ export type InstanceId = Brand<string, 'InstanceId'>;
  * plan, persisted layout, wire frame) where the ID is already chosen.
  * Generating one client-side would mean inventing an identity for an entity
  * Maelstrom didn't create, which is never what callers want.
+ *
+ * @example
+ * ```ts
+ * const id = InstanceId('calendar-main');
+ * const byId = new Map<InstanceId, Vessel>();
+ * ```
  */
 export const InstanceId = (value: string): InstanceId => {
   requireNonEmptyBrand(value, 'InstanceId');

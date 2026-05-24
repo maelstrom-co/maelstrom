@@ -13,7 +13,12 @@ import type {
   SessionId,
   TilingLayout,
 } from '@maelstrom-co/protocol';
-import { InstanceId } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  InstanceId,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 
 const WEATHER_ID = InstanceId('weather-1');
 const CALENDAR_ID = InstanceId('calendar-1');
@@ -33,10 +38,10 @@ const INITIAL_LAYOUT: TilingLayout = {
   type: 'tiling',
   tree: ['H', 'V', WEATHER_ID, NOTES_ID, 'V', CALENDAR_ID, TASKS_ID],
   instances: [
-    { instanceId: WEATHER_ID, vesselId: 'weather', variant: 'compact' },
-    { instanceId: CALENDAR_ID, vesselId: 'calendar', variant: 'month' },
-    { instanceId: NOTES_ID, vesselId: 'notes', variant: 'default' },
-    { instanceId: TASKS_ID, vesselId: 'tasks', variant: 'list' },
+    { instanceId: WEATHER_ID, vesselId: VesselId('weather'), variant: VariantName('compact') },
+    { instanceId: CALENDAR_ID, vesselId: VesselId('calendar'), variant: VariantName('month') },
+    { instanceId: NOTES_ID, vesselId: VesselId('notes'), variant: VariantName('default') },
+    { instanceId: TASKS_ID, vesselId: VesselId('tasks'), variant: VariantName('list') },
   ],
 };
 
@@ -44,17 +49,17 @@ const REARRANGED_LAYOUT: TilingLayout = {
   type: 'tiling',
   tree: ['H', WEATHER_ID, 'V', CALENDAR_ID, 'H', NOTES_ID, TASKS_ID],
   instances: [
-    { instanceId: WEATHER_ID, vesselId: 'weather', variant: 'full' },
-    { instanceId: CALENDAR_ID, vesselId: 'calendar', variant: 'week' },
-    { instanceId: NOTES_ID, vesselId: 'notes', variant: 'default' },
-    { instanceId: TASKS_ID, vesselId: 'tasks', variant: 'list' },
+    { instanceId: WEATHER_ID, vesselId: VesselId('weather'), variant: VariantName('full') },
+    { instanceId: CALENDAR_ID, vesselId: VesselId('calendar'), variant: VariantName('week') },
+    { instanceId: NOTES_ID, vesselId: VesselId('notes'), variant: VariantName('default') },
+    { instanceId: TASKS_ID, vesselId: VesselId('tasks'), variant: VariantName('list') },
   ],
 };
 
 const TASKS_FOCUSED_LAYOUT: TilingLayout = {
   type: 'tiling',
   tree: [TASKS_ID],
-  instances: [{ instanceId: TASKS_ID, vesselId: 'tasks', variant: 'list' }],
+  instances: [{ instanceId: TASKS_ID, vesselId: VesselId('tasks'), variant: VariantName('list') }],
 };
 
 export const DEMO_STEPS: DemoStep[] = [
@@ -80,7 +85,7 @@ export const DEMO_STEPS: DemoStep[] = [
     executionPlan: [
       {
         instanceId: TASKS_ID,
-        action: 'addTask',
+        action: ActionName('addTask'),
         params: { title: 'Review PR #42' },
       },
     ],

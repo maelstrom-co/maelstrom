@@ -1,4 +1,3 @@
-import type { VesselId } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 
@@ -46,7 +45,7 @@ export function createUseInstance(contextPair: MaelstromContextPair) {
 
     return {
       instanceId: brandedInstanceId,
-      vesselId: core.vesselId as VesselId,
+      vesselId: core.vesselId,
       variantProps: { variant: core.currentVariant, ...core.variantProps },
       executeAction: core.executeAction,
     };

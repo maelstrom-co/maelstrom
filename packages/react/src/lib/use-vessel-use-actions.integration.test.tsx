@@ -11,6 +11,7 @@
 import { describe, it, expect, afterEach, mock } from 'bun:test';
 import { render, cleanup, act } from '@testing-library/react';
 import {
+  ActionName,
   InstanceId,
   MessageId,
   VariantName,
@@ -66,7 +67,7 @@ function makeResponse(
     rationale: '',
     executionPlan: executionPlan.map((e) => ({
       instanceId: InstanceId(e.instanceId),
-      action: e.action,
+      action: ActionName(e.action),
       ...(e.params && { params: e.params }),
     })),
     layout: {

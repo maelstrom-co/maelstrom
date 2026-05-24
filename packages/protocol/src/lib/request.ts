@@ -104,7 +104,12 @@ export const UpdateReasonSchema = z.discriminatedUnion('type', [
 // Request types
 // ---------------------------------------------------------------------------
 
-/** Snapshot of a Vessel instance's state (for wire transfer) */
+/**
+ * Snapshot of a Vessel instance's state (for wire transfer).
+ *
+ * Hand-written rather than `z.infer<typeof VesselInstanceSnapshotSchema>` so
+ * the `readonly` modifiers survive — `z.infer` does not synthesize them.
+ */
 export interface VesselInstanceSnapshot {
   readonly instanceId: InstanceId;
   readonly vesselId: VesselId;
@@ -250,7 +255,7 @@ export const ChartRequestSchema = z
 
     // First-wins on duplicates: last-write-overwrite would mask the
     // structural break and silently let downstream membership checks pass.
-    const vesselsById = new Map<string, Vessel>();
+    const vesselsById = new Map<VesselId, Vessel>();
     req.vessels.forEach((vessel, i) => {
       if (vesselsById.has(vessel.id)) {
         ctx.addIssue({
@@ -263,7 +268,7 @@ export const ChartRequestSchema = z
       vesselsById.set(vessel.id, vessel);
     });
 
-    const inputInstanceIds = new Set<string>();
+    const inputInstanceIds = new Set<InstanceId>();
     req.instances.forEach((inst, i) => {
       if (inputInstanceIds.has(inst.instanceId)) {
         ctx.addIssue({
@@ -280,7 +285,7 @@ export const ChartRequestSchema = z
     // semantic frame without it, and a second issue per orphan is noise.
     // Shared by both ref-bearing loops below.
     const checkVesselVariantRef = (
-      ref: { instanceId: string; vesselId: string; variant: string },
+      ref: { instanceId: InstanceId; vesselId: VesselId; variant: VariantName },
       basePath: ReadonlyArray<string | number>,
       label: 'Instance' | 'Layout instance',
     ): void => {
@@ -313,7 +318,7 @@ export const ChartRequestSchema = z
     if (req.layout.type === 'grid') {
       // Duplicate positions are rejected because the renderer cannot place
       // one instance at two coordinates.
-      const seenPositionInstanceIds = new Set<string>();
+      const seenPositionInstanceIds = new Set<InstanceId>();
       req.layout.positions.forEach((pos, i) => {
         if (seenPositionInstanceIds.has(pos.instanceId)) {
           ctx.addIssue({
@@ -333,7 +338,7 @@ export const ChartRequestSchema = z
         }
       });
     } else {
-      const layoutInstanceIds = new Set<string>();
+      const layoutInstanceIds = new Set<InstanceId>();
       req.layout.instances.forEach((li, i) => {
         if (layoutInstanceIds.has(li.instanceId)) {
           ctx.addIssue({
@@ -388,21 +393,14 @@ export const ChartRequestSchema = z
 
 type _InferredChartRequest = z.infer<typeof ChartRequestSchema>;
 
-// The `layout` field is carved out. Inside `TilingLayout`, the hand-written
-// `TilingInstance` interface still types `vesselId` and `variant` as plain
-// `string`, while `TilingLayoutSchema.instances` parses through
-// `VesselInstanceSnapshotSchema` whose `.transform(...)` calls brand those
-// fields as `VesselId` / `VariantName`. The interface and the inferred shape
-// disagree at exactly that depth, so the backward direction
-// (`Mutable<TilingInstance>` extends the inferred branded shape) fails
-// because `string extends VesselId` is false. Runtime round-trip behaviour
-// for `TilingLayoutSchema` is exercised in `request.test.ts`.
-type _ChartReqWithoutLayout = Omit<ChartRequest, 'layout'>;
-type _InferredChartReqWithoutLayout = Omit<_InferredChartRequest, 'layout'>;
-const _chartReqFwd: _InferredChartReqWithoutLayout extends Mutable<_ChartReqWithoutLayout>
+// Full-shape check including `layout`: `TilingInstance.{vesselId, variant}`
+// are branded `VesselId` / `VariantName`, matching the `.transform(...)` output
+// of `VesselInstanceSnapshotSchema`, so the interface and the inferred shape
+// agree end-to-end.
+const _chartReqFwd: _InferredChartRequest extends Mutable<ChartRequest>
   ? true
   : false = true;
-const _chartReqBwd: Mutable<_ChartReqWithoutLayout> extends _InferredChartReqWithoutLayout
+const _chartReqBwd: Mutable<ChartRequest> extends _InferredChartRequest
   ? true
   : false = true;
 
