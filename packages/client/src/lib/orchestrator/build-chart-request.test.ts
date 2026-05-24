@@ -2,31 +2,40 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   InstanceId,
-  defineVessel,
+  VariantName,
+  VesselId,
+  validateVessel,
   type LayoutMode,
-  type VariantName,
   type Vessel,
-  type VesselId,
 } from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';
 import { buildChartRequest } from './build-chart-request.js';
 
-// Cast `defineVessel` output to `Vessel` at the seam — `buildChartRequest`
-// runs against post-validation vessels, but tests build them inline.
-const testVessel = defineVessel({
-  id: 'test',
-  name: 'Test',
-  description: 'Test vessel',
-  defaultVariant: 'default',
-  variants: {
-    default: {
-      props: {},
-      minSize: { width: 1, height: 1 },
-      actions: [{ name: 'testAction', description: 'Test action' }],
+// `buildChartRequest` runs against post-validation vessels, so the fixture is
+// branded through the real validation seam rather than cast — a malformed
+// fixture fails here instead of slipping through an erased cast.
+function makeTestVessel(): Vessel {
+  const result = validateVessel({
+    id: 'test',
+    name: 'Test',
+    description: 'Test vessel',
+    defaultVariant: 'default',
+    variants: {
+      default: {
+        props: {},
+        minSize: { width: 1, height: 1 },
+        actions: [{ name: 'testAction', description: 'Test action' }],
+      },
     },
-  },
-}) as unknown as Vessel;
+  });
+  if (!result.valid) {
+    throw new Error('makeTestVessel: fixture failed validation');
+  }
+  return result.vessel;
+}
+
+const testVessel = makeTestVessel();
 
 function buildParams(overrides: Record<string, unknown> = {}) {
   return {
@@ -70,8 +79,8 @@ describe('buildChartRequest', () => {
     const instances = new Map<InstanceId, VesselInstance>();
     instances.set(InstanceId('i-1'), {
       instanceId: InstanceId('i-1'),
-      vesselId: 'v-1' as VesselId,
-      variant: 'default' as VariantName,
+      vesselId: VesselId('v-1'),
+      variant: VariantName('default'),
       position: { column: 0, row: 0 },
       size: { width: 2, height: 2 },
     });
@@ -81,8 +90,8 @@ describe('buildChartRequest', () => {
     expect(request.instances).toEqual([
       {
         instanceId: InstanceId('i-1'),
-        vesselId: 'v-1' as VesselId,
-        variant: 'default' as VariantName,
+        vesselId: VesselId('v-1'),
+        variant: VariantName('default'),
       },
     ]);
   });

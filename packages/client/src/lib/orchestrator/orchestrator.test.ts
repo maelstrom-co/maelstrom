@@ -11,11 +11,11 @@ import {
   InstanceId,
   MessageId,
   SessionId,
+  VariantName,
+  VesselId,
   type ChartRequestMessage,
   type MaelstromResponse,
   type SessionHistoryEntry,
-  type VariantName,
-  type VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
@@ -286,8 +286,8 @@ describe('Orchestrator', () => {
             InstanceId('i-1'),
             {
               instanceId: InstanceId('i-1'),
-              vesselId: 'v-1' as VesselId,
-              variant: 'default' as VariantName,
+              vesselId: VesselId('v-1'),
+              variant: VariantName('default'),
               position: { column: 0, row: 0 },
               size: { width: 1, height: 1 },
             },
@@ -303,8 +303,8 @@ describe('Orchestrator', () => {
       expect(request.instances).toEqual([
         {
           instanceId: InstanceId('i-1'),
-          vesselId: 'v-1' as VesselId,
-          variant: 'default' as VariantName,
+          vesselId: VesselId('v-1'),
+          variant: VariantName('default'),
         },
       ]);
       expect(request.context.chartDimensions).toEqual({

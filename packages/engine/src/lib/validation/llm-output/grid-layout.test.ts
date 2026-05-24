@@ -1,38 +1,22 @@
 import { describe, expect, test } from 'bun:test';
-import type {
-  GridResponse,
-  VariantName,
-  VesselId,
-} from '@maelstrom-co/protocol';
-import { InstanceId } from '@maelstrom-co/protocol';
+import type { GridResponse } from '@maelstrom-co/protocol';
+import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
 
-import { makeGridRequest } from '../../__test-helpers__/fixtures.js';
+import {
+  brandGridResponse,
+  makeGridRequest,
+  type GridResponseAuthor,
+} from '../../__test-helpers__/fixtures.js';
 import { healGridLayout } from './grid-layout.js';
 
-/**
- * Author-shape overrides for `GridResponse` test fixtures. Accepts raw
- * strings for branded slots — brands erase at runtime, so the cast at the
- * boundary is sound for trusted fixture inputs.
- */
-type GridResponseAuthor = {
-  readonly userMessage?: string;
-  readonly rationale?: string;
-  readonly executionPlan?: GridResponse['executionPlan'];
-  readonly layout?: {
-    readonly positions: ReadonlyArray<{
-      readonly instanceId: string;
-      readonly position: { readonly row: number; readonly column: number };
-      readonly size: { readonly width: number; readonly height: number };
-    }>;
-  };
-};
-
-function makeGridResponse(overrides: GridResponseAuthor = {}): GridResponse {
-  const base: GridResponseAuthor = {
-    userMessage: 'ok',
-    rationale: 'placing calendar',
-    executionPlan: [],
-    layout: {
+function makeGridResponse(
+  overrides: Partial<GridResponseAuthor> = {},
+): GridResponse {
+  return brandGridResponse({
+    userMessage: overrides.userMessage ?? 'ok',
+    rationale: overrides.rationale ?? 'placing calendar',
+    executionPlan: overrides.executionPlan ?? [],
+    layout: overrides.layout ?? {
       positions: [
         {
           instanceId: 'calendar-main',
@@ -41,8 +25,7 @@ function makeGridResponse(overrides: GridResponseAuthor = {}): GridResponse {
         },
       ],
     },
-  };
-  return { ...base, ...overrides } as GridResponse;
+  });
 }
 
 describe('healGridLayout', () => {
@@ -175,7 +158,7 @@ describe('healGridLayout', () => {
       {
         reason: 'unknown_vessel',
         instanceId: InstanceId('calendar-main'),
-        vesselId: 'ghost-vessel' as VesselId,
+        vesselId: VesselId('ghost-vessel'),
       },
     ]);
   });
@@ -197,7 +180,7 @@ describe('healGridLayout', () => {
       {
         reason: 'unknown_variant',
         instanceId: InstanceId('calendar-main'),
-        variant: 'nonexistent' as VariantName,
+        variant: VariantName('nonexistent'),
       },
     ]);
   });

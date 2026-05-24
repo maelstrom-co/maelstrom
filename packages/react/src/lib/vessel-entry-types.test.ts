@@ -1,5 +1,5 @@
 import { describe, it } from 'bun:test';
-import { defineVessel, type InstanceId } from '@maelstrom-co/protocol';
+import { InstanceId, defineVessel } from '@maelstrom-co/protocol';
 
 import type { ActionParams } from '@maelstrom-co/client';
 
@@ -15,7 +15,7 @@ import { testVessel, type TestVessel } from './__tests__/test-vessel.fixture';
 describe('TypedVesselProps', () => {
   it('accepts valid action names and params', () => {
     const _props: TypedVesselProps<TestVessel> = {
-      instanceId: 'inst-1' as InstanceId,
+      instanceId: InstanceId('inst-1'),
       variantProps: { variant: 'list', view: 'list', pageSize: 10 },
       executeAction: (...args) => {
         void args;
@@ -29,7 +29,7 @@ describe('TypedVesselProps', () => {
 
   it('rejects unknown params for a parameterized action', () => {
     const props: TypedVesselProps<TestVessel> = {
-      instanceId: 'inst-1' as InstanceId,
+      instanceId: InstanceId('inst-1'),
       variantProps: { variant: 'list', view: 'list', pageSize: 10 },
       executeAction: () => {},
     };
@@ -83,7 +83,7 @@ describe('TypedVesselProps', () => {
 
   it('rejects parameterized actions called without params', () => {
     const props: TypedVesselProps<TestVessel> = {
-      instanceId: 'inst-1' as InstanceId,
+      instanceId: InstanceId('inst-1'),
       variantProps: { variant: 'list', view: 'list', pageSize: 10 },
       executeAction: () => {},
     };
@@ -94,7 +94,7 @@ describe('TypedVesselProps', () => {
 
   it('rejects spurious params on parameterless actions', () => {
     const props: TypedVesselProps<TestVessel> = {
-      instanceId: 'inst-1' as InstanceId,
+      instanceId: InstanceId('inst-1'),
       variantProps: { variant: 'list', view: 'list', pageSize: 10 },
       executeAction: () => {},
     };

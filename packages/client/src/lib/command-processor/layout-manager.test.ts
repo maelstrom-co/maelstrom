@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import {
-  InstanceId,
-  type VariantName,
-  type VesselId,
-} from '@maelstrom-co/protocol';
+import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
 
 import { applyLayout } from './layout-manager.js';
 
@@ -33,10 +29,10 @@ describe('applyLayout', () => {
     expect(instances.has(InstanceId('vessel-1-abc'))).toBe(true);
     expect(instances.has(InstanceId('vessel-2-def'))).toBe(true);
     expect(instances.get(InstanceId('vessel-1-abc'))?.vesselId).toBe(
-      'vessel-1' as VesselId,
+      VesselId('vessel-1'),
     );
     expect(instances.get(InstanceId('vessel-1-abc'))?.variant).toBe(
-      'default' as VariantName,
+      VariantName('default'),
     );
   });
 
@@ -66,8 +62,8 @@ describe('applyLayout', () => {
         InstanceId('grid-1'),
         {
           instanceId: InstanceId('grid-1'),
-          vesselId: 'orders' as VesselId,
-          variant: 'default' as VariantName,
+          vesselId: VesselId('orders'),
+          variant: VariantName('default'),
           position: { column: 0, row: 0 },
           size: { width: 1, height: 1 },
         },
@@ -76,8 +72,8 @@ describe('applyLayout', () => {
         InstanceId('grid-2'),
         {
           instanceId: InstanceId('grid-2'),
-          vesselId: 'inventory' as VesselId,
-          variant: 'default' as VariantName,
+          vesselId: VesselId('inventory'),
+          variant: VariantName('default'),
           position: { column: 0, row: 0 },
           size: { width: 1, height: 1 },
         },
@@ -119,8 +115,8 @@ describe('applyLayout', () => {
         InstanceId('grid-1'),
         {
           instanceId: InstanceId('grid-1'),
-          vesselId: 'orders' as VesselId,
-          variant: 'compact' as VariantName,
+          vesselId: VesselId('orders'),
+          variant: VariantName('compact'),
           position: { column: 0, row: 0 },
           size: { width: 1, height: 1 },
         },
@@ -141,8 +137,8 @@ describe('applyLayout', () => {
     const instances = applyLayout(layout, existing);
 
     const instance = instances.get(InstanceId('grid-1'));
-    expect(instance?.vesselId).toBe('orders' as VesselId);
-    expect(instance?.variant).toBe('compact' as VariantName);
+    expect(instance?.vesselId).toBe(VesselId('orders'));
+    expect(instance?.variant).toBe(VariantName('compact'));
     expect(instance?.position).toEqual({ column: 3, row: 2 });
     expect(instance?.size).toEqual({ width: 4, height: 3 });
   });
@@ -198,8 +194,8 @@ describe('applyLayout', () => {
         InstanceId('known'),
         {
           instanceId: InstanceId('known'),
-          vesselId: 'orders' as VesselId,
-          variant: 'compact' as VariantName,
+          vesselId: VesselId('orders'),
+          variant: VariantName('compact'),
           position: { column: 0, row: 0 },
           size: { width: 1, height: 1 },
         },
@@ -228,8 +224,8 @@ describe('applyLayout', () => {
     expect(instances.has(InstanceId('known'))).toBe(true);
     expect(instances.has(InstanceId('phantom'))).toBe(false);
     const kept = instances.get(InstanceId('known'));
-    expect(kept?.vesselId).toBe('orders' as VesselId);
-    expect(kept?.variant).toBe('compact' as VariantName);
+    expect(kept?.vesselId).toBe(VesselId('orders'));
+    expect(kept?.variant).toBe(VariantName('compact'));
     expect(kept?.position).toEqual({ column: 1, row: 1 });
     expect(kept?.size).toEqual({ width: 2, height: 2 });
   });

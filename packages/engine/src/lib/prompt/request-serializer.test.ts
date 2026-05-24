@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type {
-  ActionName,
-  ChartRequest,
-  VariantName,
-  VesselId,
-} from '@maelstrom-co/protocol';
+import type { ChartRequest } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 import {
   buildGridChartState,
@@ -250,37 +245,24 @@ describe('buildTilingChartState', () => {
   });
 
   test('shows hidden instances separately from visible', () => {
-    const request: ChartRequest = {
-      ...makeTilingRequest(),
+    const request = makeTilingRequest({
       instances: [
-        {
-          instanceId: InstanceId('calendar-main'),
-          vesselId: 'calendar' as VesselId,
-          variant: 'month' as VariantName,
-        },
-        {
-          instanceId: InstanceId('tasks-main'),
-          vesselId: 'calendar' as VesselId,
-          variant: 'month' as VariantName,
-        },
+        { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
+        { instanceId: 'tasks-main', vesselId: 'calendar', variant: 'month' },
       ],
       layout: {
         type: 'tiling',
-        tree: [InstanceId('calendar-main')],
+        tree: ['calendar-main'],
         instances: [
           {
-            instanceId: InstanceId('calendar-main'),
-            vesselId: 'calendar' as VesselId,
-            variant: 'month' as VariantName,
+            instanceId: 'calendar-main',
+            vesselId: 'calendar',
+            variant: 'month',
           },
-          {
-            instanceId: InstanceId('tasks-main'),
-            vesselId: 'calendar' as VesselId,
-            variant: 'month' as VariantName,
-          },
+          { instanceId: 'tasks-main', vesselId: 'calendar', variant: 'month' },
         ],
       },
-    };
+    });
     const output = buildTilingChartState(request);
     expect(output).toContain('Currently Visible:');
     expect(output).toContain('Available (hidden):');
@@ -288,37 +270,20 @@ describe('buildTilingChartState', () => {
   });
 
   test('handles tree with null, H, and V nodes', () => {
-    const request: ChartRequest = {
-      ...makeTilingRequest(),
+    const request = makeTilingRequest({
       instances: [
-        {
-          instanceId: InstanceId('a'),
-          vesselId: 'calendar' as VesselId,
-          variant: 'month' as VariantName,
-        },
-        {
-          instanceId: InstanceId('b'),
-          vesselId: 'calendar' as VesselId,
-          variant: 'month' as VariantName,
-        },
+        { instanceId: 'a', vesselId: 'calendar', variant: 'month' },
+        { instanceId: 'b', vesselId: 'calendar', variant: 'month' },
       ],
       layout: {
         type: 'tiling',
-        tree: ['V', InstanceId('a'), 'H', InstanceId('b'), null],
+        tree: ['V', 'a', 'H', 'b', null],
         instances: [
-          {
-            instanceId: InstanceId('a'),
-            vesselId: 'calendar' as VesselId,
-            variant: 'month' as VariantName,
-          },
-          {
-            instanceId: InstanceId('b'),
-            vesselId: 'calendar' as VesselId,
-            variant: 'month' as VariantName,
-          },
+          { instanceId: 'a', vesselId: 'calendar', variant: 'month' },
+          { instanceId: 'b', vesselId: 'calendar', variant: 'month' },
         ],
       },
-    };
+    });
     const output = buildTilingChartState(request);
     expect(output).toContain('Currently Visible:');
     expect(output).toContain('- a (calendar)');
@@ -337,54 +302,47 @@ describe('buildTilingChartState', () => {
   });
 
   test('serializes actions for tiling instances', () => {
-    const baseRequest = makeTilingRequest();
-    const request = {
-      ...baseRequest,
+    const request = makeTilingRequest({
       vessels: [
         {
-          ...baseRequest.vessels[0],
+          id: 'calendar',
+          name: 'Calendar',
+          description: 'Displays events',
+          defaultVariant: 'month',
           variants: {
-            ['month' as VariantName]: {
-              ...baseRequest.vessels[0]?.variants['month' as VariantName],
+            month: {
+              props: {},
+              minSize: { width: 4, height: 4 },
               actions: [
                 {
-                  name: 'showWeek' as ActionName,
+                  name: 'showWeek',
                   description: 'Switch to week',
-                  transitionsTo: 'week' as VariantName,
+                  transitionsTo: 'week',
                 },
               ],
             },
           },
         },
       ],
-    };
+    });
     const output = buildTilingChartState(request);
     expect(output).toContain('Available: showWeek');
   });
 
   test('warns and omits Available when instance references unknown vessel', () => {
     const { logger, warns } = createSpyLogger();
-    const request: ChartRequest = {
-      ...makeTilingRequest(),
+    const request = makeTilingRequest({
       instances: [
-        {
-          instanceId: InstanceId('orphan'),
-          vesselId: 'missing-vessel' as VesselId,
-          variant: 'month' as VariantName,
-        },
+        { instanceId: 'orphan', vesselId: 'missing-vessel', variant: 'month' },
       ],
       layout: {
         type: 'tiling',
-        tree: [InstanceId('orphan')],
+        tree: ['orphan'],
         instances: [
-          {
-            instanceId: InstanceId('orphan'),
-            vesselId: 'missing-vessel' as VesselId,
-            variant: 'month' as VariantName,
-          },
+          { instanceId: 'orphan', vesselId: 'missing-vessel', variant: 'month' },
         ],
       },
-    };
+    });
     const output = buildTilingChartState(request, logger);
     expect(output).toContain('- orphan (missing-vessel), variant: month');
     expect(output).not.toContain('Available:');
@@ -395,27 +353,26 @@ describe('buildTilingChartState', () => {
 
   test('warns and omits Available when instance references unknown variant', () => {
     const { logger, warns } = createSpyLogger();
-    const request: ChartRequest = {
-      ...makeTilingRequest(),
+    const request = makeTilingRequest({
       instances: [
         {
-          instanceId: InstanceId('calendar-main'),
-          vesselId: 'calendar' as VesselId,
-          variant: 'stale-variant' as VariantName,
+          instanceId: 'calendar-main',
+          vesselId: 'calendar',
+          variant: 'stale-variant',
         },
       ],
       layout: {
         type: 'tiling',
-        tree: [InstanceId('calendar-main')],
+        tree: ['calendar-main'],
         instances: [
           {
-            instanceId: InstanceId('calendar-main'),
-            vesselId: 'calendar' as VesselId,
-            variant: 'stale-variant' as VariantName,
+            instanceId: 'calendar-main',
+            vesselId: 'calendar',
+            variant: 'stale-variant',
           },
         ],
       },
-    };
+    });
     const output = buildTilingChartState(request, logger);
     expect(output).toContain(
       '- calendar-main (calendar), variant: stale-variant',

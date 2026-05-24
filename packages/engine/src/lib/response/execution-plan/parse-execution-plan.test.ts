@@ -17,11 +17,11 @@ import type { RawActionExecution } from './types.js';
 // reordered, batched, or otherwise lost the writer→reader hand-off across
 // iterations, the second action would be skipped as `action_not_valid`.
 describe('parseExecutionPlan — sequential simulation hand-off', () => {
-  const panelVesselId = 'panel' as VesselId;
-  const collapsed = 'collapsed' as VariantName;
-  const expanded = 'expanded' as VariantName;
-  const goExpanded = 'goExpanded' as ActionName;
-  const expandAction = 'expand' as ActionName;
+  const panelVesselId = VesselId('panel');
+  const collapsed = VariantName('collapsed');
+  const expanded = VariantName('expanded');
+  const goExpanded = ActionName('goExpanded');
+  const expandAction = ActionName('expand');
   const instanceId = InstanceId('panel-1');
 
   const panelVessel = makeVessel({
@@ -113,13 +113,13 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
 });
 
 describe('parseExecutionPlan — self-transition no-op classification', () => {
-  const calendarVesselId = 'calendar' as VesselId;
-  const month = 'month' as VariantName;
-  const week = 'week' as VariantName;
-  const day = 'day' as VariantName;
-  const showMonth = 'showMonth' as ActionName;
-  const showWeek = 'showWeek' as ActionName;
-  const showDay = 'showDay' as ActionName;
+  const calendarVesselId = VesselId('calendar');
+  const month = VariantName('month');
+  const week = VariantName('week');
+  const day = VariantName('day');
+  const showMonth = ActionName('showMonth');
+  const showWeek = ActionName('showWeek');
+  const showDay = ActionName('showDay');
   const calendarInstanceId = InstanceId('calendar-main');
 
   const calendarVessel = makeVessel({
@@ -207,7 +207,7 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
     // Typo / absent-from-vessel must remain re-promptable; the no-op
     // classification only fires when same-named definitions exist.
     const plan: RawActionExecution[] = [
-      { instanceId: calendarInstanceId, action: 'showQuarter' as ActionName },
+      { instanceId: calendarInstanceId, action: ActionName('showQuarter') },
     ];
 
     const { plan: result, skippedActions } = parseExecutionPlan(

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import type { VariantName, VesselId } from '@maelstrom-co/protocol';
-import { InstanceId } from '@maelstrom-co/protocol';
+import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
 
+import { invalid } from '../../__test-helpers__/fixtures.js';
 import type { DroppedLayoutEntry } from './healed-layout.js';
 import { formatDroppedEntry, isTreeDrop } from './healed-layout.js';
 
@@ -21,7 +21,7 @@ describe('formatDroppedEntry', () => {
       {
         reason: 'unknown_vessel',
         instanceId: InstanceId('orphan'),
-        vesselId: 'no-such' as VesselId,
+        vesselId: VesselId('no-such'),
       },
       'instance "orphan" referenced unknown vessel "no-such"',
     ],
@@ -29,7 +29,7 @@ describe('formatDroppedEntry', () => {
       {
         reason: 'unknown_variant',
         instanceId: InstanceId('wgt'),
-        variant: 'gone' as VariantName,
+        variant: VariantName('gone'),
       },
       'instance "wgt" referenced unknown variant "gone"',
     ],
@@ -85,10 +85,10 @@ describe('formatDroppedEntry', () => {
     // The whole point of the assertNever default is to fail loudly when
     // someone bypasses the discriminator at runtime. This test simulates
     // that breach via an unsafe cast and asserts the throw fires.
-    const rogue = {
+    const rogue = invalid<DroppedLayoutEntry>({
       reason: 'this_arm_does_not_exist',
       instanceId: 'x',
-    } as unknown as DroppedLayoutEntry;
+    });
     expect(() => formatDroppedEntry(rogue)).toThrow();
   });
 });
@@ -114,7 +114,7 @@ describe('isTreeDrop', () => {
       {
         reason: 'unknown_vessel',
         instanceId: InstanceId('a'),
-        vesselId: 'v' as VesselId,
+        vesselId: VesselId('v'),
       },
       false,
     ],
@@ -122,7 +122,7 @@ describe('isTreeDrop', () => {
       {
         reason: 'unknown_variant',
         instanceId: InstanceId('a'),
-        variant: 'v' as VariantName,
+        variant: VariantName('v'),
       },
       false,
     ],

@@ -1,15 +1,17 @@
 import { describe, it, expect, afterEach, mock } from 'bun:test';
 import { useState } from 'react';
 import { render, cleanup, act } from '@testing-library/react';
-import { InstanceId, MessageId, defineVessel } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  MessageId,
+  VariantName,
+  VesselId,
+  defineVessel,
+} from '@maelstrom-co/protocol';
 import { ok } from '@maelstrom-co/protocol';
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { ActionRunner } from '@maelstrom-co/client';
-import type {
-  MaelstromResponse,
-  VariantName,
-  VesselId,
-} from '@maelstrom-co/protocol';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
@@ -48,8 +50,8 @@ afterEach(() => cleanup());
 function makeInstance(override?: Partial<VesselInstance>): VesselInstance {
   return {
     instanceId: InstanceId('inst-1'),
-    vesselId: 'orders' as VesselId,
-    variant: 'list' as VariantName,
+    vesselId: VesselId('orders'),
+    variant: VariantName('list'),
     position: { column: 0, row: 0 },
     size: { width: 2, height: 2 },
     ...override,

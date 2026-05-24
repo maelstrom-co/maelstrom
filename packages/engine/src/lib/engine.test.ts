@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 
-import type {
-  ChartRequest as BrandedChartRequest,
-  EngineMessage,
-} from '@maelstrom-co/protocol';
+import type { ChartRequest, EngineMessage } from '@maelstrom-co/protocol';
 import {
   AssistantInjectionMessage,
   ChartRequestMessage,
@@ -15,103 +12,18 @@ import {
 } from '@maelstrom-co/protocol';
 import type { EngineConfig } from './config.js';
 import { createEngine } from './engine.js';
-import type { HistoryStore } from './history/history-store.js';
+import type { HistoryEntry, HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
 import {
+  brandTilingResponse,
+  buildGridResponse,
   dummyAdapter,
   getLastUserMessage,
   invalid,
-  makeGridRequest as makeGridRequestBranded,
-  makeTilingRequest as makeTilingRequestBranded,
+  makeGridRequest,
+  makeTilingRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
-
-// ---------------------------------------------------------------------------
-// Permissive author-facing shapes for fixture literals. Brands erase at
-// runtime; tests build the structural shape and cast at the boundary.
-// ---------------------------------------------------------------------------
-
-type AuthorActionExecution = {
-  readonly instanceId: string;
-  readonly action: string;
-  readonly params?: Record<string, unknown>;
-  readonly paramsJson?: string;
-};
-type AuthorGridLayout = {
-  readonly positions: ReadonlyArray<{
-    readonly instanceId: string;
-    readonly position: { readonly row: number; readonly column: number };
-    readonly size: { readonly width: number; readonly height: number };
-  }>;
-};
-type AuthorTilingLayout = {
-  readonly tree: ReadonlyArray<'H' | 'V' | string | null>;
-  readonly instances: ReadonlyArray<{
-    readonly instanceId: string;
-    readonly vesselId: string;
-    readonly variant: string;
-  }>;
-};
-type GridResponse = {
-  readonly userMessage: string;
-  readonly rationale: string;
-  readonly executionPlan: ReadonlyArray<AuthorActionExecution>;
-  readonly layout: AuthorGridLayout;
-};
-type TilingResponse = {
-  readonly userMessage: string;
-  readonly rationale: string;
-  readonly executionPlan: ReadonlyArray<AuthorActionExecution>;
-  readonly layout: AuthorTilingLayout;
-};
-type Vessel = {
-  readonly id: string;
-  readonly name: string;
-  readonly description: string;
-  readonly defaultVariant: string;
-  readonly variants: Readonly<
-    Record<
-      string,
-      {
-        readonly description?: string;
-        readonly props: Readonly<Record<string, unknown>>;
-        readonly minSize: { readonly width: number; readonly height: number };
-        readonly actions: ReadonlyArray<{
-          readonly name: string;
-          readonly description: string;
-          readonly transitionsTo?: string;
-        }>;
-      }
-    >
-  >;
-};
-type ChartRequest = {
-  readonly type: 'chart_request';
-  readonly context: BrandedChartRequest['context'];
-  readonly instances: ReadonlyArray<{
-    readonly instanceId: string;
-    readonly vesselId: string;
-    readonly variant: string;
-  }>;
-  readonly vessels: ReadonlyArray<Vessel>;
-  readonly layout:
-    | {
-        readonly type: 'grid';
-        readonly positions: AuthorGridLayout['positions'];
-      }
-    | {
-        readonly type: 'tiling';
-        readonly tree: AuthorTilingLayout['tree'];
-        readonly instances: AuthorTilingLayout['instances'];
-      };
-};
-
-const makeGridRequest = makeGridRequestBranded as unknown as (
-  overrides?: Partial<ChartRequest>,
-) => ChartRequest;
-const makeTilingRequest = makeTilingRequestBranded as unknown as (
-  overrides?: Partial<ChartRequest>,
-) => ChartRequest;
 
 // ---------------------------------------------------------------------------
 // Mock TanStack AI chat()
@@ -123,20 +35,7 @@ mock.module('@tanstack/ai', () => ({
   chat: (...args: unknown[]) => mockChat(...args),
 }));
 
-const gridLLMResponse: GridResponse = {
-  userMessage: 'Here is your calendar!',
-  rationale: 'User asked for calendar',
-  executionPlan: [],
-  layout: {
-    positions: [
-      {
-        instanceId: 'calendar-main',
-        position: { row: 0, column: 0 },
-        size: { width: 6, height: 4 },
-      },
-    ],
-  },
-};
+const gridLLMResponse = buildGridResponse();
 
 const DEFAULT_SESSION_ID = SessionId('session-1');
 const DEFAULT_MESSAGE_ID = MessageId('req-1');
@@ -147,11 +46,7 @@ const toChartRequestMessage = (
   sessionId: SessionId = DEFAULT_SESSION_ID,
   id: MessageId = DEFAULT_MESSAGE_ID,
 ): ChartRequestMessage =>
-  ChartRequestMessage({
-    sessionId,
-    id,
-    request: request as unknown as BrandedChartRequest,
-  });
+  ChartRequestMessage({ sessionId, id, request });
 
 afterEach(() => {
   mockChat.mockReset();
@@ -274,7 +169,7 @@ describe('createEngine — system prompt memoization', () => {
     // One customizer call per mode at factory time (grid + tiling).
     expect(customizerCalls).toBe(2);
 
-    const tilingLLMResponse: TilingResponse = {
+    const tilingLLMResponse = brandTilingResponse({
       userMessage: 'Tiling ready',
       rationale: 'User asked for tiling',
       executionPlan: [],
@@ -288,7 +183,7 @@ describe('createEngine — system prompt memoization', () => {
           },
         ],
       },
-    };
+    });
     mockChat.mockResolvedValueOnce(gridLLMResponse);
     mockChat.mockResolvedValueOnce(tilingLLMResponse);
     mockChat.mockResolvedValueOnce(gridLLMResponse);
@@ -657,8 +552,7 @@ describe('engine.handle — chart_request', () => {
   });
 
   test('parses the execution plan from the LLM response', async () => {
-    const responseWithActions: GridResponse = {
-      ...gridLLMResponse,
+    const responseWithActions = buildGridResponse({
       executionPlan: [
         {
           instanceId: 'calendar-main',
@@ -666,7 +560,7 @@ describe('engine.handle — chart_request', () => {
           paramsJson: '{"weekStart":"2026-04-06"}',
         },
       ],
-    };
+    });
     mockChat.mockResolvedValueOnce(responseWithActions);
 
     const engine = createEngine({
@@ -674,31 +568,34 @@ describe('engine.handle — chart_request', () => {
       logger: silentLogger,
     });
     const result = await engine.handle(
-      toChartRequestMessage({
-        ...makeGridRequest(),
-        instances: [
-          {
-            instanceId: InstanceId('calendar-main'),
-            vesselId: 'calendar',
-            variant: 'month',
-          },
-        ],
-        vessels: [
-          {
-            id: 'calendar',
-            name: 'Calendar',
-            description: 'Calendar widget',
-            defaultVariant: 'month',
-            variants: {
-              month: {
-                props: {},
-                minSize: { width: 4, height: 4 },
-                actions: [{ name: 'showWeek', description: 'Show week view' }],
+      toChartRequestMessage(
+        makeGridRequest({
+          instances: [
+            {
+              instanceId: 'calendar-main',
+              vesselId: 'calendar',
+              variant: 'month',
+            },
+          ],
+          vessels: [
+            {
+              id: 'calendar',
+              name: 'Calendar',
+              description: 'Calendar widget',
+              defaultVariant: 'month',
+              variants: {
+                month: {
+                  props: {},
+                  minSize: { width: 4, height: 4 },
+                  actions: [
+                    { name: 'showWeek', description: 'Show week view' },
+                  ],
+                },
               },
             },
-          },
-        ],
-      }),
+          ],
+        }),
+      ),
     );
 
     expect(isOk(result)).toBe(true);
@@ -710,7 +607,7 @@ describe('engine.handle — chart_request', () => {
   });
 
   test('processes a tiling-mode request end-to-end', async () => {
-    const tilingResponse: TilingResponse = {
+    const tilingResponse = brandTilingResponse({
       userMessage: 'Split view ready',
       rationale: 'User wants side by side',
       executionPlan: [],
@@ -725,11 +622,10 @@ describe('engine.handle — chart_request', () => {
           { instanceId: 'tasks-main', vesselId: 'tasks', variant: 'list' },
         ],
       },
-    };
+    });
     mockChat.mockResolvedValueOnce(tilingResponse);
 
-    const tilingRequest: ChartRequest = {
-      type: 'chart_request',
+    const tilingRequest = makeTilingRequest({
       context: {
         updateReasons: [
           { type: 'user_intent', intent: 'Show tasks next to calendar' },
@@ -739,7 +635,7 @@ describe('engine.handle — chart_request', () => {
       },
       instances: [
         {
-          instanceId: InstanceId('calendar-main'),
+          instanceId: 'calendar-main',
           vesselId: 'calendar',
           variant: 'month',
         },
@@ -766,16 +662,16 @@ describe('engine.handle — chart_request', () => {
       ],
       layout: {
         type: 'tiling',
-        tree: [InstanceId('calendar-main')],
+        tree: ['calendar-main'],
         instances: [
           {
-            instanceId: InstanceId('calendar-main'),
+            instanceId: 'calendar-main',
             vesselId: 'calendar',
             variant: 'month',
           },
         ],
       },
-    };
+    });
 
     const engine = createEngine({
       adapter: dummyAdapter,
@@ -804,8 +700,7 @@ describe('engine.handle — chart_request', () => {
     // → routes to info. To exercise warn-level routing, drive a partial
     // healed-but-renderable case: one position overflows (drop) but the
     // request lists multiple instances so the layout is still non-empty.
-    const partiallyHealed: GridResponse = {
-      ...gridLLMResponse,
+    const partiallyHealed = buildGridResponse({
       layout: {
         positions: [
           {
@@ -820,7 +715,7 @@ describe('engine.handle — chart_request', () => {
           },
         ],
       },
-    };
+    });
     mockChat.mockResolvedValueOnce(partiallyHealed);
 
     const logEntries: Array<{ level: string; msg: string; ctx?: unknown }> = [];
@@ -869,8 +764,7 @@ describe('engine.handle — chart_request', () => {
   test('"Response healed" routes to error level for unrecoverable severity', async () => {
     // Single-instance request + overflowing position → healed layout empty
     // → severity='unrecoverable' → error-level routing on first attempt.
-    const layoutEmptyingResponse: GridResponse = {
-      ...gridLLMResponse,
+    const layoutEmptyingResponse = buildGridResponse({
       layout: {
         positions: [
           {
@@ -880,7 +774,7 @@ describe('engine.handle — chart_request', () => {
           },
         ],
       },
-    };
+    });
     // mockResolvedValue (not Once) so retry attempts also resolve cleanly —
     // the test's invariant is "Response healed fires at error level on the
     // final attempt", not "the mock is consumed once".
@@ -922,8 +816,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
   // The request lists 1 instance, so a single overflowing position empties
   // the healed layout → `retryHint.recommend === true` (severity:
   // 'unrecoverable') — the canonical retry trigger.
-  const layoutEmptyingResponse: GridResponse = {
-    ...gridLLMResponse,
+  const layoutEmptyingResponse = buildGridResponse({
     layout: {
       positions: [
         {
@@ -933,7 +826,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
         },
       ],
     },
-  };
+  });
 
   test('retries when retryHint recommends and succeeds on the second attempt', async () => {
     mockChat.mockResolvedValueOnce(layoutEmptyingResponse);
@@ -1015,8 +908,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     // === 0 && anySkipFixable`, deriveRetryHint flips recommend=true at
     // severity 'medium'. Pins the integration path for the action-empty
     // retry trigger that the layout-empty path doesn't exercise.
-    const actionEmptyResponse: GridResponse = {
-      ...gridLLMResponse,
+    const actionEmptyResponse = buildGridResponse({
       executionPlan: [
         {
           instanceId: 'calendar-main',
@@ -1024,7 +916,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
           paramsJson: '{not valid json',
         },
       ],
-    };
+    });
     // First attempt: action skipped → recommend retry. Second: clean.
     mockChat.mockResolvedValueOnce(actionEmptyResponse);
     mockChat.mockResolvedValueOnce(gridLLMResponse);
@@ -1716,7 +1608,7 @@ describe('engine.getHistory', () => {
         sessionId,
         id: MessageId('req-1'),
         timestamp: 2,
-        request: makeGridRequest() as unknown as BrandedChartRequest,
+        request: makeGridRequest(),
       }),
     );
 
@@ -1846,16 +1738,16 @@ describe('engine.getHistory', () => {
     const malformed: HistoryStore = {
       ...inner,
       get: async () =>
-        [
+        invalid<readonly HistoryEntry[]>([
           {
-            kind: 'unknown_variant' as never,
+            kind: 'unknown_variant',
             input: {
               id: MessageId('m-1'),
               sessionId: SessionId('s-1'),
               timestamp: 1,
             },
-          } as never,
-        ] as never,
+          },
+        ]),
     };
     const engine = createEngine({
       adapter: dummyAdapter,

@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
-import type {
-  MaelstromResponse,
-  VesselId,
-} from '@maelstrom-co/protocol';
+import type { MaelstromResponse, Vessel } from '@maelstrom-co/protocol';
 import {
   ActionName,
   InstanceId,
   MessageId,
   VariantName,
+  VesselId,
   defineVessel,
 } from '@maelstrom-co/protocol';
 import { err, ok } from '@maelstrom-co/protocol';
@@ -54,8 +52,8 @@ afterEach(() => cleanup());
 function makeInstance(override?: Partial<VesselInstance>): VesselInstance {
   return {
     instanceId: InstanceId('inst-1'),
-    vesselId: 'orders' as VesselId,
-    variant: 'list' as VariantName,
+    vesselId: VesselId('orders'),
+    variant: VariantName('list'),
     position: { column: 0, row: 0 },
     size: { width: 2, height: 2 },
     ...override,
@@ -180,7 +178,7 @@ describe('m.useVessel() — basic', () => {
     });
 
     expect(props).not.toBeNull();
-    expect(props!.instanceId).toBe('inst-1' as InstanceId);
+    expect(props!.instanceId).toBe(InstanceId('inst-1'));
     expect(props!.variantProps.variant).toBe('list');
     expect(
       (props!.variantProps as { variant: 'list'; view: string }).view,
@@ -314,7 +312,7 @@ describe('m.useVessel() — optimistic transitions', () => {
       process: async () => {
         callCount++;
         // First: 'list' instance; second: engine confirms 'detail'
-        const variant = (callCount === 1 ? 'list' : 'detail') as VariantName;
+        const variant = VariantName(callCount === 1 ? 'list' : 'detail');
         return makeResponse([makeInstance({ variant })]);
       },
     });
@@ -457,7 +455,7 @@ describe('m.useVessel() — optimistic transitions', () => {
       process: async () => {
         callCount++;
         // Both responses return variant: 'list' — engine rejects the optimistic 'detail'
-        return makeResponse([makeInstance({ variant: 'list' as VariantName })]);
+        return makeResponse([makeInstance({ variant: VariantName('list') })]);
       },
     });
 
@@ -513,7 +511,7 @@ describe('m.useVessel() — optimistic transitions', () => {
       const m = createMaelstrom({ vessels: [entry] });
       const connector = createMockConnector({
         process: async () =>
-          makeResponse([makeInstance({ variant: 'list' as VariantName })]),
+          makeResponse([makeInstance({ variant: VariantName('list') })]),
       });
 
       let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -571,7 +569,7 @@ describe('m.useVessel() — optimistic transitions', () => {
   it('optimistic variant is rolled back when action runner returns Failure', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
-      process: async () => makeResponse([makeInstance({ variant: 'list' as VariantName })]),
+      process: async () => makeResponse([makeInstance({ variant: VariantName('list') })]),
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -616,7 +614,7 @@ describe('m.useVessel() — optimistic transitions', () => {
   it('optimistic variant is rolled back when action runner throws', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
-      process: async () => makeResponse([makeInstance({ variant: 'list' as VariantName })]),
+      process: async () => makeResponse([makeInstance({ variant: VariantName('list') })]),
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -666,26 +664,28 @@ describe('m.useVessel() — optimistic transitions', () => {
     // the input post-registration no longer propagates). Drop down to the
     // defensive branch in useOptimisticVariant directly: pass a hand-built
     // vessel whose action references a variant the vessel doesn't carry.
-    const driftedVessel = {
-      id: 'drifted' as VesselId,
+    const driftedVessel: Vessel = {
+      id: VesselId('drifted'),
       name: 'Drifted',
       description: 'Vessel whose stored shape has drifted at runtime',
-      defaultVariant: 'main' as VariantName,
+      defaultVariant: VariantName('main'),
       variants: {
-        ['main' as VariantName]: {
+        [VariantName('main')]: {
           description: 'main',
           props: {},
           minSize: { width: 1, height: 1 },
           actions: [
             {
-              name: 'goToGhost' as ActionName,
+              name: ActionName('goToGhost'),
               description: 'Transitions to a missing variant',
-              transitionsTo: 'ghost-variant' as VariantName,
+              // Branded but intentionally absent from `variants` — this is the
+              // runtime drift the defensive branch must handle.
+              transitionsTo: VariantName('ghost-variant'),
             },
           ],
         },
       },
-    } as unknown as import('@maelstrom-co/protocol').Vessel;
+    };
 
     const { result } = renderHook(() =>
       useOptimisticVariant(

@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { Vessel } from '@maelstrom-co/protocol';
-import { defineVessel, VariantName } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  VariantName,
+  VesselId,
+  VesselSchema,
+  defineVessel,
+} from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { useOptimisticVariant } from './use-optimistic-variant.js';
@@ -10,33 +16,37 @@ const vExpanded = VariantName('expanded');
 
 afterEach(() => cleanup());
 
-const vessel = defineVessel({
-  id: 'panel',
-  name: 'Panel',
-  description: 'Test panel',
-  defaultVariant: 'collapsed',
-  variants: {
-    collapsed: {
-      props: { mode: 'collapsed' as const },
-      minSize: { width: 1, height: 1 },
-      actions: [
-        { name: 'expand', description: 'Expand', transitionsTo: 'expanded' },
-        { name: 'refresh', description: 'Refresh' },
-      ],
+// Parsed through VesselSchema so the fixture is a fully branded `Vessel`
+// (smart-constructed ids/variant/action names) instead of an erased cast.
+const vessel: Vessel = VesselSchema.parse(
+  defineVessel({
+    id: 'panel',
+    name: 'Panel',
+    description: 'Test panel',
+    defaultVariant: 'collapsed',
+    variants: {
+      collapsed: {
+        props: { mode: 'collapsed' as const },
+        minSize: { width: 1, height: 1 },
+        actions: [
+          { name: 'expand', description: 'Expand', transitionsTo: 'expanded' },
+          { name: 'refresh', description: 'Refresh' },
+        ],
+      },
+      expanded: {
+        props: { mode: 'expanded' as const },
+        minSize: { width: 2, height: 2 },
+        actions: [
+          {
+            name: 'collapse',
+            description: 'Collapse',
+            transitionsTo: 'collapsed',
+          },
+        ],
+      },
     },
-    expanded: {
-      props: { mode: 'expanded' as const },
-      minSize: { width: 2, height: 2 },
-      actions: [
-        {
-          name: 'collapse',
-          description: 'Collapse',
-          transitionsTo: 'collapsed',
-        },
-      ],
-    },
-  },
-});
+  }),
+);
 
 const noop = () => () => {};
 
@@ -51,7 +61,7 @@ interface RenderOptimisticProps {
 function renderOptimistic(overrides?: Partial<RenderOptimisticProps>) {
   const props: RenderOptimisticProps = {
     instance: { variant: vCollapsed },
-    vessel: vessel as unknown as Vessel,
+    vessel,
     onActionError: noop,
     ...overrides,
   };
@@ -124,21 +134,29 @@ describe('useOptimisticVariant', () => {
   });
 
   it('applyTransition returns false when transitionsTo target does not exist', () => {
-    const badVessel = defineVessel({
-      id: 'bad',
+    // Hand-built so the action can point at a non-existent variant — VesselSchema
+    // rejects that drift, so this fixture is branded by hand instead of parsed.
+    const badVessel: Vessel = {
+      id: VesselId('bad'),
       name: 'Bad',
       description: 'Bad',
-      defaultVariant: 'main',
+      defaultVariant: VariantName('main'),
       variants: {
-        main: {
+        [VariantName('main')]: {
           props: {},
           minSize: { width: 1, height: 1 },
-          actions: [{ name: 'go', description: 'Go', transitionsTo: 'ghost' }],
+          actions: [
+            {
+              name: ActionName('go'),
+              description: 'Go',
+              transitionsTo: VariantName('ghost'),
+            },
+          ],
         },
       },
-    });
+    };
 
-    const { result } = renderOptimistic({ vessel: badVessel as unknown as Vessel });
+    const { result } = renderOptimistic({ vessel: badVessel });
 
     let applied = undefined as boolean | undefined;
     act(() => {
@@ -158,7 +176,7 @@ describe('useOptimisticVariant', () => {
     // Simulate engine responding — new instance object
     rerender({
       instance: { variant: vExpanded },
-      vessel: vessel as unknown as Vessel,
+      vessel,
       onActionError: noop,
       timeoutMs: undefined,
     });
@@ -218,7 +236,7 @@ describe('useOptimisticVariant', () => {
 
     rerender({
       instance: { variant: vCollapsed },
-      vessel: vessel as unknown as Vessel,
+      vessel,
       onActionError: noop,
       timeoutMs: undefined,
     });
@@ -256,7 +274,7 @@ describe('useOptimisticVariant', () => {
       // Store update clears optimistic before timeout
       rerender({
         instance: { variant: vExpanded },
-        vessel: vessel as unknown as Vessel,
+        vessel,
         onActionError: noop,
         timeoutMs: 200,
       });

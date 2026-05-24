@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
-import type {
-  MaelstromResponse,
-  VariantName,
-  VesselId,
-} from '@maelstrom-co/protocol';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
   ActionName,
   InstanceId,
   MessageId,
+  VariantName,
+  VesselId,
   defineVessel,
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
@@ -45,8 +43,8 @@ afterEach(() => cleanup());
 function makeInstance(override?: Partial<VesselInstance>): VesselInstance {
   return {
     instanceId: InstanceId('inst-1'),
-    vesselId: 'orders' as VesselId,
-    variant: 'list' as VariantName,
+    vesselId: VesselId('orders'),
+    variant: VariantName('list'),
     position: { column: 0, row: 0 },
     size: { width: 2, height: 2 },
     ...override,
@@ -115,8 +113,8 @@ describe('m.useInstance()', () => {
     });
 
     expect(props).not.toBeNull();
-    expect(props!.instanceId).toBe('inst-1' as InstanceId);
-    expect(props!.vesselId).toBe('orders' as VesselId);
+    expect(props!.instanceId).toBe(InstanceId('inst-1'));
+    expect(props!.vesselId).toBe(VesselId('orders'));
     expect(props!.variantProps.variant).toBe('list');
     expect(typeof props!.executeAction).toBe('function');
   });
@@ -144,8 +142,8 @@ describe('m.useInstance()', () => {
           makeInstance(),
           {
             instanceId: InstanceId('weather-1'),
-            vesselId: 'weather' as VesselId,
-            variant: 'compact' as VariantName,
+            vesselId: VesselId('weather'),
+            variant: VariantName('compact'),
             position: { column: 3, row: 0 },
             size: { width: 1, height: 1 },
           },
@@ -175,8 +173,8 @@ describe('m.useInstance()', () => {
       await state!.processIntent('show all');
     });
 
-    expect(orderProps!.vesselId).toBe('orders' as VesselId);
-    expect(weatherProps!.vesselId).toBe('weather' as VesselId);
+    expect(orderProps!.vesselId).toBe(VesselId('orders'));
+    expect(weatherProps!.vesselId).toBe(VesselId('weather'));
   });
 
   it('executeAction dispatches to command processor', async () => {

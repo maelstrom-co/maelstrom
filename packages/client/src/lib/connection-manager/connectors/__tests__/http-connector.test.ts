@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { SessionId } from '@maelstrom-co/protocol';
+import {
+  MessageId,
+  SessionId,
+  type SessionHistoryEntry,
+} from '@maelstrom-co/protocol';
 
 import { HttpConnector } from '../http-connector.js';
 
@@ -34,11 +38,11 @@ afterEach(() => {
 
 describe('HttpConnector.getHistory', () => {
   test('POSTs /history with { sessionId } and returns the parsed entries', async () => {
-    const expected = [
+    const expected: SessionHistoryEntry[] = [
       {
         kind: 'turn',
-        id: 'm-1',
-        sessionId: 'persisted',
+        id: MessageId('m-1'),
+        sessionId: SessionId('persisted'),
         timestamp: 1700000000000,
         userIntent: 'show me the calendar',
         assistantMessage: 'Here is your calendar.',
@@ -55,7 +59,7 @@ describe('HttpConnector.getHistory', () => {
     const connector = new HttpConnector({ baseUrl: 'https://api.example.com' });
     const result = await connector.getHistory(SessionId('persisted'));
 
-    expect(result).toEqual(expected as never);
+    expect(result).toEqual(expected);
     expect(lastCall?.url).toBe('https://api.example.com/history');
     expect(lastCall?.method).toBe('POST');
     expect(lastCall?.body).toEqual({ sessionId: 'persisted' });

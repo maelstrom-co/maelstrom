@@ -1,120 +1,45 @@
 import { describe, expect, test } from 'bun:test';
-import type { ChartRequest as BrandedChartRequest } from '@maelstrom-co/protocol';
+import type { ChartRequest } from '@maelstrom-co/protocol';
 import { InstanceId, isErr, isOk, MessageId } from '@maelstrom-co/protocol';
 import {
-  makeGridRequest as makeGridRequestBranded,
-  makeTilingRequest as makeTilingRequestBranded,
+  brandGridResponse,
+  brandTilingResponse,
+  buildSkippedAction,
+  makeGridRequest,
+  makeTilingRequest,
   silentLogger,
+  type AuthorInstanceSnapshot,
+  type AuthorVessel,
+  type GridResponseAuthor,
+  type TilingResponseAuthor,
 } from '../__test-helpers__/fixtures.js';
 import type { Logger } from '../logger.js';
 import { processResponse as processResponseBranded } from './response-processor.js';
 
-// ---------------------------------------------------------------------------
-// Permissive author-facing shapes for fixture literals. The branded protocol
-// types require `InstanceId | VesselId | VariantName | ActionName` at every
-// ID slot; brands erase at runtime, so casting raw-string fixtures at the
-// boundary is sound. These local aliases let the rest of the file write
-// `const x: GridResponse = { ... }` against raw-string literals while still
-// shipping branded values to `processResponse`.
-// ---------------------------------------------------------------------------
+// Discriminates an author response on its layout shape so each branch brands
+// through the matching constructor without an `as` cast.
+const isGridResponseAuthor = (
+  output: GridResponseAuthor | TilingResponseAuthor,
+): output is GridResponseAuthor => 'positions' in output.layout;
 
-type AuthorActionExecution = {
-  readonly instanceId: string;
-  readonly action: string;
-  readonly params?: Record<string, unknown>;
-  readonly paramsJson?: string;
-};
-type AuthorGridLayout = {
-  readonly positions: ReadonlyArray<{
-    readonly instanceId: string;
-    readonly position: { readonly row: number; readonly column: number };
-    readonly size: { readonly width: number; readonly height: number };
-  }>;
-};
-type AuthorTilingLayout = {
-  readonly tree: ReadonlyArray<'H' | 'V' | string | null>;
-  readonly instances: ReadonlyArray<{
-    readonly instanceId: string;
-    readonly vesselId: string;
-    readonly variant: string;
-  }>;
-};
-
-type GridResponse = {
-  readonly userMessage: string;
-  readonly rationale: string;
-  readonly executionPlan: ReadonlyArray<AuthorActionExecution>;
-  readonly layout: AuthorGridLayout;
-};
-type TilingResponse = {
-  readonly userMessage: string;
-  readonly rationale: string;
-  readonly executionPlan: ReadonlyArray<AuthorActionExecution>;
-  readonly layout: AuthorTilingLayout;
-};
-type Vessel = {
-  readonly id: string;
-  readonly name: string;
-  readonly description: string;
-  readonly defaultVariant: string;
-  readonly variants: Readonly<
-    Record<
-      string,
-      {
-        readonly description?: string;
-        readonly props: Readonly<Record<string, unknown>>;
-        readonly minSize: { readonly width: number; readonly height: number };
-        readonly actions: ReadonlyArray<{
-          readonly name: string;
-          readonly description: string;
-          readonly transitionsTo?: string;
-          readonly parameters?: ReadonlyArray<{
-            readonly name: string;
-            readonly type: 'string' | 'number' | 'boolean' | 'object';
-            readonly description: string;
-            readonly required?: boolean;
-          }>;
-        }>;
-      }
-    >
-  >;
-};
-type ChartRequest = {
-  readonly type: 'chart_request';
-  readonly context: BrandedChartRequest['context'];
-  readonly instances: ReadonlyArray<{
-    readonly instanceId: string;
-    readonly vesselId: string;
-    readonly variant: string;
-  }>;
-  readonly vessels: ReadonlyArray<Vessel>;
-  readonly layout:
-    | {
-        readonly type: 'grid';
-        readonly positions: AuthorGridLayout['positions'];
-      }
-    | {
-        readonly type: 'tiling';
-        readonly tree: AuthorTilingLayout['tree'];
-        readonly instances: AuthorTilingLayout['instances'];
-      };
-};
-
-// Re-exports of the branded fixture builders / SUT under permissive types.
-// The casts at the boundary are sound because brands erase at runtime; we
-// rely on the type-checker only to ensure the *shape* matches.
-const makeGridRequest = makeGridRequestBranded as unknown as (
-  overrides?: Partial<ChartRequest>,
-) => ChartRequest;
-const makeTilingRequest = makeTilingRequestBranded as unknown as (
-  overrides?: Partial<ChartRequest>,
-) => ChartRequest;
-const processResponse = processResponseBranded as unknown as (input: {
-  readonly llmOutput: GridResponse | TilingResponse;
+// Brands a raw-string author response (grid or tiling) before handing it to
+// the SUT. Fixtures author the unbranded wire shape — the engine brands during
+// processing — so this mirrors the real boundary while keeping fixture
+// literals free of `as` casts.
+const processResponse = (input: {
+  readonly llmOutput: GridResponseAuthor | TilingResponseAuthor;
   readonly request: ChartRequest;
   readonly messageId: ReturnType<typeof MessageId>;
   readonly logger: Logger;
-}) => ReturnType<typeof processResponseBranded>;
+}): ReturnType<typeof processResponseBranded> =>
+  processResponseBranded({
+    request: input.request,
+    messageId: input.messageId,
+    logger: input.logger,
+    llmOutput: isGridResponseAuthor(input.llmOutput)
+      ? brandGridResponse(input.llmOutput)
+      : brandTilingResponse(input.llmOutput),
+  });
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -131,7 +56,7 @@ describe('processResponse', () => {
       MessageId('00000000-0000-0000-0000-000000000000'),
       MessageId('with spaces and !@#$ chars'),
     ])('round-trips %s into MaelstromResponse.requestId', (messageId) => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'pin the round-trip',
         executionPlan: [],
@@ -153,7 +78,7 @@ describe('processResponse', () => {
 
   describe('grid mode', () => {
     test('builds a valid MaelstromResponse', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Here is your calendar!',
         rationale: 'User asked for calendar',
         executionPlan: [],
@@ -188,7 +113,7 @@ describe('processResponse', () => {
 
   describe('tiling mode', () => {
     test('builds a valid MaelstromResponse with tiling layout', () => {
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'Showing calendar',
         rationale: 'Display the calendar',
         executionPlan: [],
@@ -220,7 +145,7 @@ describe('processResponse', () => {
     });
 
     test('parses execution plan from a tiling request', () => {
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'Switching calendar view',
         rationale: 'User asked for week view',
         executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
@@ -291,7 +216,7 @@ describe('processResponse', () => {
     // every configuration action with `unknown_instance` and the heal
     // layer wastes the retry budget producing the same broken output.
     test('accepts action targeting a newly-declared tiling instance', () => {
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'Opening the journal so you can capture a quick entry',
         rationale: 'User asked to journal',
         executionPlan: [
@@ -372,8 +297,7 @@ describe('processResponse', () => {
         warn: (msg: string) => warnings.push(msg),
       };
 
-      const request: ChartRequest = {
-        type: 'chart_request',
+      const request = makeTilingRequest({
         context: {
           updateReasons: [{ type: 'user_intent', intent: 'Try bad action' }],
           chartDimensions: { columns: 12, rows: 8 },
@@ -381,7 +305,7 @@ describe('processResponse', () => {
         },
         instances: [
           {
-            instanceId: InstanceId('calendar-main'),
+            instanceId: 'calendar-main',
             vesselId: 'calendar',
             variant: 'month',
           },
@@ -403,18 +327,18 @@ describe('processResponse', () => {
         ],
         layout: {
           type: 'tiling',
-          tree: [InstanceId('calendar-main')],
+          tree: ['calendar-main'],
           instances: [
             {
-              instanceId: InstanceId('calendar-main'),
+              instanceId: 'calendar-main',
               vesselId: 'calendar',
               variant: 'month',
             },
           ],
         },
-      };
+      });
 
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'Invalid action in tiling',
         rationale: 'Drops are layout-mode-agnostic',
         executionPlan: [
@@ -559,7 +483,7 @@ describe('processResponse', () => {
       });
 
     test('parses paramsJson into params', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Opening order',
         rationale: 'User wants details',
         executionPlan: [
@@ -589,7 +513,7 @@ describe('processResponse', () => {
     });
 
     test('handles action without paramsJson', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Switching view',
         rationale: 'Simple transition',
         executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
@@ -618,7 +542,7 @@ describe('processResponse', () => {
         error: (msg: string) => errors.push(msg),
       };
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Trying action',
         rationale: 'Test',
         executionPlan: [
@@ -646,7 +570,7 @@ describe('processResponse', () => {
     });
 
     test('handles multiple actions in execution plan', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Multiple actions',
         rationale: 'Chained',
         executionPlan: [
@@ -683,7 +607,7 @@ describe('processResponse', () => {
         error: (msg: string) => errors.push(msg),
       };
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Action test',
         rationale: 'Test',
         executionPlan: [{ instanceId: 'a', action: 'doIt', paramsJson }],
@@ -712,7 +636,7 @@ describe('processResponse', () => {
         warn: (msg: string) => warnings.push(msg),
       };
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Doing something',
         rationale: 'Test',
         executionPlan: [{ instanceId: 'nonexistent', action: 'showWeek' }],
@@ -741,7 +665,7 @@ describe('processResponse', () => {
         warn: (msg: string) => warnings.push(msg),
       };
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Invalid action',
         rationale: 'Test',
         executionPlan: [
@@ -766,7 +690,7 @@ describe('processResponse', () => {
     });
 
     test('passes through action valid for current variant', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Week view',
         rationale: 'Test',
         executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
@@ -793,7 +717,7 @@ describe('processResponse', () => {
         warn: (msg: string) => warnings.push(msg),
       };
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Mixed',
         rationale: 'Test',
         executionPlan: [
@@ -821,7 +745,7 @@ describe('processResponse', () => {
 
   describe('validation', () => {
     test('returns ParseError when userMessage is whitespace-only', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: '   ',
         rationale: 'Whitespace',
         executionPlan: [],
@@ -842,7 +766,7 @@ describe('processResponse', () => {
     });
 
     test('returns ParseError when userMessage is empty', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: '',
         rationale: 'No message',
         executionPlan: [],
@@ -865,7 +789,7 @@ describe('processResponse', () => {
 
   describe('layout validation integration', () => {
     test('grid mode: position_overflow is healed — layout entry dropped, response Ok', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'placing calendar',
         executionPlan: [],
@@ -903,7 +827,7 @@ describe('processResponse', () => {
     });
 
     test('tiling mode: missing_child is healed — split collapses, response Ok', () => {
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'ok',
         rationale: 'splitting area',
         executionPlan: [],
@@ -941,7 +865,7 @@ describe('processResponse', () => {
       // are surfaced. Layout drops live in droppedLayoutEntries; bad actions
       // live in skippedActions. The two are independent, both visible in
       // diagnostics on the same Ok response.
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'overflowing',
         executionPlan: [
@@ -978,7 +902,7 @@ describe('processResponse', () => {
     });
 
     test('valid grid response passes through layout validation (regression lock)', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'placing calendar',
         executionPlan: [],
@@ -1002,7 +926,7 @@ describe('processResponse', () => {
     });
 
     test('valid tiling response passes through layout validation (regression lock)', () => {
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'ok',
         rationale: 'single pane',
         executionPlan: [],
@@ -1029,7 +953,7 @@ describe('processResponse', () => {
 
   describe('variant state simulation', () => {
     // Create a vessel with a multi-variant state machine for testing sequential transitions
-    const multiStateVessel = (): Vessel => ({
+    const multiStateVessel = (): AuthorVessel => ({
       id: 'widget',
       name: 'Widget',
       description: 'Multi-state widget for testing',
@@ -1104,40 +1028,42 @@ describe('processResponse', () => {
         vessels: [multiStateVessel()],
       });
 
-    // Helper for tiling request with custom instances/vessels
-    const makeTilingRequest = (
-      overrides?: Partial<Pick<ChartRequest, 'instances' | 'vessels'>>,
-    ): ChartRequest => ({
-      type: 'chart_request',
-      context: {
-        updateReasons: [{ type: 'user_intent', intent: 'Test' }],
-        chartDimensions: { columns: 12, rows: 8 },
-        layoutMode: 'tiling',
-      },
-      instances: overrides?.instances ?? [
-        {
-          instanceId: InstanceId('widget-1'),
-          vesselId: 'widget',
-          variant: 'compact',
+    // Helper for a widget-centric tiling request with custom instances/vessels.
+    const makeWidgetTilingRequest = (overrides?: {
+      instances?: ReadonlyArray<AuthorInstanceSnapshot>;
+      vessels?: ReadonlyArray<AuthorVessel>;
+    }): ChartRequest =>
+      makeTilingRequest({
+        type: 'chart_request',
+        context: {
+          updateReasons: [{ type: 'user_intent', intent: 'Test' }],
+          chartDimensions: { columns: 12, rows: 8 },
+          layoutMode: 'tiling',
         },
-      ],
-      vessels: overrides?.vessels ?? [multiStateVessel()],
-      layout: {
-        type: 'tiling',
-        tree: [InstanceId('widget-1')],
-        instances: [
+        instances: overrides?.instances ?? [
           {
-            instanceId: InstanceId('widget-1'),
+            instanceId: 'widget-1',
             vesselId: 'widget',
             variant: 'compact',
           },
         ],
-      },
-    });
+        vessels: overrides?.vessels ?? [multiStateVessel()],
+        layout: {
+          type: 'tiling',
+          tree: ['widget-1'],
+          instances: [
+            {
+              instanceId: 'widget-1',
+              vesselId: 'widget',
+              variant: 'compact',
+            },
+          ],
+        },
+      });
 
     test('accepts valid sequential action transitions', () => {
       // compact -> expand -> collapse (should all be valid)
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Managing widget state',
         rationale: 'Sequential transitions',
         executionPlan: [
@@ -1164,7 +1090,7 @@ describe('processResponse', () => {
 
     test('accepts three-step sequential transitions', () => {
       // compact -> expand -> maximize -> restore
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Multi-step transition',
         rationale: 'Three sequential transitions',
         executionPlan: [
@@ -1199,7 +1125,7 @@ describe('processResponse', () => {
 
       // Pins the simulation hand-off (writer mutations visible on the next
       // iteration) AND the self-transition no-op classification at once.
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Invalid sequence',
         rationale: 'Trying expand after already expanded',
         executionPlan: [
@@ -1249,7 +1175,7 @@ describe('processResponse', () => {
       // Detours through `fullscreen` so the third action's target is
       // `compact` (not `fullscreen`), guaranteeing the no-op classifier
       // falls through and the genuine `action_not_valid` path is exercised.
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Invalid sequence',
         rationale: 'collapse from fullscreen is not a defined transition',
         executionPlan: [
@@ -1298,7 +1224,7 @@ describe('processResponse', () => {
       });
 
       // Interleaved actions: A expands, B expands, A collapses, B maximizes
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Interleaved transitions',
         rationale: 'Non-consecutive actions on same instance',
         executionPlan: [
@@ -1365,7 +1291,7 @@ describe('processResponse', () => {
       });
 
       // Mix valid and invalid: A expands, A expands (invalid), B expands, A collapse (valid after skip)
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Mixed valid and invalid',
         rationale: 'Some invalid interleaved actions',
         executionPlan: [
@@ -1414,7 +1340,7 @@ describe('processResponse', () => {
         debug: (msg: string) => debugMessages.push(msg),
       };
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Transition test',
         rationale: 'Testing debug logging',
         executionPlan: [{ instanceId: 'widget-1', action: 'expand' }],
@@ -1443,7 +1369,7 @@ describe('processResponse', () => {
         error: (msg: string) => errors.push(msg),
       };
 
-      const vesselWithBadTransition: Vessel = {
+      const vesselWithBadTransition: AuthorVessel = {
         id: 'bad-widget',
         name: 'Bad Widget',
         description: 'Has a transition to non-existent variant',
@@ -1474,7 +1400,7 @@ describe('processResponse', () => {
         vessels: [vesselWithBadTransition],
       });
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Bad transition',
         rationale: 'Testing non-existent variant target',
         executionPlan: [{ instanceId: 'bad-1', action: 'badAction' }],
@@ -1504,17 +1430,19 @@ describe('processResponse', () => {
       // Diagnostics surface the dropped action for the retry pipeline.
       const skipped = result.value.diagnostics.skippedActions;
       expect(skipped).toHaveLength(1);
-      expect(skipped[0]).toEqual({
-        reason: 'state_drift',
-        instanceId: 'bad-1',
-        action: 'badAction',
-        vesselId: 'bad-widget',
-        targetVariant: 'nonexistent',
-      } as never);
+      expect(skipped[0]).toEqual(
+        buildSkippedAction({
+          reason: 'state_drift',
+          instanceId: 'bad-1',
+          action: 'badAction',
+          vesselId: 'bad-widget',
+          targetVariant: 'nonexistent',
+        }),
+      );
     });
 
     test('works correctly in tiling mode', () => {
-      const request = makeTilingRequest({
+      const request = makeWidgetTilingRequest({
         instances: [
           {
             instanceId: InstanceId('widget-1'),
@@ -1525,7 +1453,7 @@ describe('processResponse', () => {
         vessels: [multiStateVessel()],
       });
 
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'Tiling transition',
         rationale: 'Sequential transitions in tiling mode',
         executionPlan: [
@@ -1583,7 +1511,7 @@ describe('processResponse', () => {
         vessels: [multiStateVessel()],
       });
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Unknown vessel',
         rationale: 'Testing unknown vesselId',
         executionPlan: [
@@ -1613,13 +1541,13 @@ describe('processResponse', () => {
 
       // Diagnostic captures the structured reason for the retry pipeline.
       expect(result.value.diagnostics.skippedActions).toEqual([
-        {
+        buildSkippedAction({
           reason: 'unknown_vessel',
           instanceId: 'orphan-1',
           action: 'expand',
           vesselId: 'does-not-exist',
-        },
-      ] as never);
+        }),
+      ]);
     });
 
     test('skips action when instance variant does not exist in vessel definition', () => {
@@ -1641,7 +1569,7 @@ describe('processResponse', () => {
         vessels: [multiStateVessel()],
       });
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Bad variant',
         rationale: 'Testing non-existent variant on instance',
         executionPlan: [{ instanceId: 'widget-1', action: 'expand' }],
@@ -1670,14 +1598,14 @@ describe('processResponse', () => {
 
       // Diagnostic captures the structured reason for the retry pipeline.
       expect(result.value.diagnostics.skippedActions).toEqual([
-        {
+        buildSkippedAction({
           reason: 'variant_not_on_vessel',
           instanceId: 'widget-1',
           action: 'expand',
           vesselId: 'widget',
           variant: 'deleted-variant',
-        },
-      ] as never);
+        }),
+      ]);
     });
 
     test('drops drifted action but keeps subsequent actions validating against original variant', () => {
@@ -1687,7 +1615,7 @@ describe('processResponse', () => {
         error: (msg: string) => errors.push(msg),
       };
 
-      const vesselWithBadAndGoodActions: Vessel = {
+      const vesselWithBadAndGoodActions: AuthorVessel = {
         id: 'test-widget',
         name: 'Test Widget',
         description: 'Has both a bad transition and a valid action',
@@ -1725,7 +1653,7 @@ describe('processResponse', () => {
       // badTransition resolves cleanly but its target variant is missing —
       // engine drops it so the runtime never attempts an impossible transition.
       // goodAction must still validate against 'start' (the pre-drop variant).
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'After bad transition',
         rationale: 'Testing variant state after failed transition',
         executionPlan: [
@@ -1752,13 +1680,15 @@ describe('processResponse', () => {
       // state_drift diagnostic captures the dropped action with structured fields
       const skipped = result.value.diagnostics.skippedActions;
       expect(skipped).toHaveLength(1);
-      expect(skipped[0]).toEqual({
-        reason: 'state_drift',
-        instanceId: 'tw-1',
-        action: 'badTransition',
-        vesselId: 'test-widget',
-        targetVariant: 'nonexistent',
-      } as never);
+      expect(skipped[0]).toEqual(
+        buildSkippedAction({
+          reason: 'state_drift',
+          instanceId: 'tw-1',
+          action: 'badTransition',
+          vesselId: 'test-widget',
+          targetVariant: 'nonexistent',
+        }),
+      );
 
       // Should have logged an error about the bad transition target
       expect(errors).toHaveLength(1);
@@ -1773,7 +1703,7 @@ describe('processResponse', () => {
       // vessel/variant. Pins the current contract; if duplicate rejection
       // is ever added, this test flips to a failure and a new test
       // replaces it.
-      const vesselA: Vessel = {
+      const vesselA: AuthorVessel = {
         id: 'a',
         name: 'A',
         description: 'Vessel A',
@@ -1786,7 +1716,7 @@ describe('processResponse', () => {
           },
         },
       };
-      const vesselB: Vessel = {
+      const vesselB: AuthorVessel = {
         id: 'b',
         name: 'B',
         description: 'Vessel B',
@@ -1808,7 +1738,7 @@ describe('processResponse', () => {
         vessels: [vesselA, vesselB],
       });
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Target the duplicate instance',
         rationale: 'Last-wins semantics',
         executionPlan: [
@@ -1842,7 +1772,7 @@ describe('processResponse', () => {
       // cleared sim.variants (or mutated it in any way) instead of leaving
       // it alone, the second action below would fail resolveAction because
       // 'advance' is only valid in 'start'.
-      const vessel: Vessel = {
+      const vessel: AuthorVessel = {
         id: 'nt-widget',
         name: 'No-Transition Widget',
         description:
@@ -1880,7 +1810,7 @@ describe('processResponse', () => {
         vessels: [vessel],
       });
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Ping then advance',
         rationale: 'First action stays in start, second advances',
         executionPlan: [
@@ -1912,7 +1842,7 @@ describe('processResponse', () => {
       // executes it, so the simulated variant must stay put. A follow-up
       // action on the same instance should still validate against the
       // original variant — not the phantom target of the dropped action.
-      const vesselWithParamAction: Vessel = {
+      const vesselWithParamAction: AuthorVessel = {
         id: 'param-widget',
         name: 'Param Widget',
         description: 'Has an action that takes params and transitions',
@@ -1963,7 +1893,7 @@ describe('processResponse', () => {
         vessels: [vesselWithParamAction],
       });
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'First with bad params, second without',
         rationale: 'Dropped action must not advance simulated variant',
         executionPlan: [
@@ -1995,7 +1925,7 @@ describe('processResponse', () => {
 
   describe('diagnostics.skippedActions', () => {
     test('is empty when every action is accepted', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'All good',
         rationale: 'Happy path',
         executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
@@ -2037,7 +1967,7 @@ describe('processResponse', () => {
         ],
       });
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Bunch of bad actions',
         rationale: 'Exercise every LLM-path failure',
         executionPlan: [
@@ -2065,39 +1995,47 @@ describe('processResponse', () => {
       const skipped = result.value.diagnostics.skippedActions;
       expect(skipped).toHaveLength(4);
 
-      expect(skipped[0]).toEqual({
-        reason: 'unknown_instance',
-        instanceId: 'ghost',
-        action: 'noop',
-      } as never);
+      expect(skipped[0]).toEqual(
+        buildSkippedAction({
+          reason: 'unknown_instance',
+          instanceId: 'ghost',
+          action: 'noop',
+        }),
+      );
 
-      expect(skipped[1]).toEqual({
-        reason: 'unknown_vessel',
-        instanceId: 'orphan',
-        action: 'noop',
-        vesselId: 'no-such-vessel',
-      } as never);
+      expect(skipped[1]).toEqual(
+        buildSkippedAction({
+          reason: 'unknown_vessel',
+          instanceId: 'orphan',
+          action: 'noop',
+          vesselId: 'no-such-vessel',
+        }),
+      );
 
-      expect(skipped[2]).toEqual({
-        reason: 'variant_not_on_vessel',
-        instanceId: 'bad-var',
-        action: 'expand',
-        vesselId: 'calendar',
-        variant: 'deleted',
-      } as never);
+      expect(skipped[2]).toEqual(
+        buildSkippedAction({
+          reason: 'variant_not_on_vessel',
+          instanceId: 'bad-var',
+          action: 'expand',
+          vesselId: 'calendar',
+          variant: 'deleted',
+        }),
+      );
 
-      expect(skipped[3]).toEqual({
-        reason: 'action_not_valid',
-        instanceId: 'calendar-main',
-        action: 'doesNotExist',
-        vesselId: 'calendar',
-        variant: 'month',
-        validActions: ['showWeek'],
-      } as never);
+      expect(skipped[3]).toEqual(
+        buildSkippedAction({
+          reason: 'action_not_valid',
+          instanceId: 'calendar-main',
+          action: 'doesNotExist',
+          vesselId: 'calendar',
+          variant: 'month',
+          validActions: ['showWeek'],
+        }),
+      );
     });
 
     test('action_not_valid carries the full validActions array, including multi-entry and empty cases', () => {
-      const vessel: Vessel = {
+      const vessel: AuthorVessel = {
         id: 'multi',
         name: 'Multi',
         description: 'Three valid actions',
@@ -2136,7 +2074,7 @@ describe('processResponse', () => {
         vessels: [vessel],
       });
 
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Two bad action picks',
         rationale: 'Exercise validActions arrays of size 3 and 0',
         executionPlan: [
@@ -2156,27 +2094,27 @@ describe('processResponse', () => {
       if (!isOk(result)) return;
 
       expect(result.value.diagnostics.skippedActions).toEqual([
-        {
+        buildSkippedAction({
           reason: 'action_not_valid',
           instanceId: 'm-multi',
           action: 'delta',
           vesselId: 'multi',
           variant: 'ready',
           validActions: ['alpha', 'beta', 'gamma'],
-        },
-        {
+        }),
+        buildSkippedAction({
           reason: 'action_not_valid',
           instanceId: 'm-empty',
           action: 'noop',
           vesselId: 'multi',
           variant: 'empty',
           validActions: [],
-        },
-      ] as never);
+        }),
+      ]);
     });
 
     test('records params_parse_failed when paramsJson is invalid', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Bad params',
         rationale: 'Trigger params parse failure',
         executionPlan: [
@@ -2200,16 +2138,18 @@ describe('processResponse', () => {
 
       const skipped = result.value.diagnostics.skippedActions;
       expect(skipped).toHaveLength(1);
-      expect(skipped[0]).toEqual({
-        reason: 'params_parse_failed',
-        instanceId: 'calendar-main',
-        action: 'showWeek',
-        paramsJson: '{not json',
-      } as never);
+      expect(skipped[0]).toEqual(
+        buildSkippedAction({
+          reason: 'params_parse_failed',
+          instanceId: 'calendar-main',
+          action: 'showWeek',
+          paramsJson: '{not json',
+        }),
+      );
     });
 
     test('preserves order matching the LLM execution plan', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'Two drops',
         rationale: 'Order preservation',
         executionPlan: [
@@ -2238,7 +2178,7 @@ describe('processResponse', () => {
 
   describe('diagnostics.warnings + retryHint', () => {
     test('clean response has no warnings, retryHint.recommend=false, severity=none', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'placing calendar',
         executionPlan: [],
@@ -2271,7 +2211,7 @@ describe('processResponse', () => {
       // not collapse into 'none'. A future refactor that swaps branch order
       // (e.g. checks warnings-only AFTER 'none') would silently downgrade
       // this case; this test catches that.
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: '',
         executionPlan: [],
@@ -2301,7 +2241,7 @@ describe('processResponse', () => {
     });
 
     test('missing rationale surfaces as a warning, retryHint stays at low severity', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: '',
         executionPlan: [],
@@ -2333,7 +2273,7 @@ describe('processResponse', () => {
     });
 
     test('layout fully prunes for a request with instances → retryHint recommends retry', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'overflowing',
         executionPlan: [],
@@ -2360,7 +2300,7 @@ describe('processResponse', () => {
     });
 
     test('all proposed actions skipped for retryable reasons → retryHint recommends retry', () => {
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'bad params',
         executionPlan: [
@@ -2410,7 +2350,7 @@ describe('processResponse', () => {
           },
         ],
       });
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'partial',
         executionPlan: [],
@@ -2445,7 +2385,7 @@ describe('processResponse', () => {
     test('state_drift-only skips do NOT recommend retry (engine-state corruption is not LLM fault)', () => {
       // Both proposed actions are skipped via state_drift; re-prompting
       // can't fix engine-side drift, so the wrapper accepts the response.
-      const richVessel: Vessel = {
+      const richVessel: AuthorVessel = {
         id: 'rich',
         name: 'Rich',
         description: '',
@@ -2466,7 +2406,7 @@ describe('processResponse', () => {
         ],
         vessels: [richVessel],
       });
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'state drift demo',
         executionPlan: [{ instanceId: 'a', action: 'expand' }],
@@ -2504,7 +2444,7 @@ describe('processResponse', () => {
       // ever flips back to `every(...)`, this test fails and the regression
       // is caught — under `every`, a single state_drift skip would suppress
       // retry even when other skips are re-promptable.
-      const vesselWithGood: Vessel = {
+      const vesselWithGood: AuthorVessel = {
         id: 'mixed',
         name: 'Mixed',
         description: '',
@@ -2538,7 +2478,7 @@ describe('processResponse', () => {
         ],
         vessels: [vesselWithGood],
       });
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'mixed',
         executionPlan: [
@@ -2577,7 +2517,7 @@ describe('processResponse', () => {
     // but excluded from `anySkipFixable` so the retry layer doesn't burn
     // calls re-prompting an LLM that has nothing useful to change.
     test('self_transition_noop-only skip does NOT recommend retry', () => {
-      const calendarVessel: Vessel = {
+      const calendarVessel: AuthorVessel = {
         id: 'calendar',
         name: 'Calendar',
         description: 'Calendar with two views',
@@ -2617,7 +2557,7 @@ describe('processResponse', () => {
         ],
         vessels: [calendarVessel],
       });
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'Already on week view',
         rationale: 'no-op',
         // showWeek lives on `month` with transitionsTo: 'week'. Sim variant
@@ -2657,7 +2597,7 @@ describe('processResponse', () => {
       // is recommended even if a self_transition_noop skip is also present.
       // Without this, an over-eager exemption would silently suppress retry
       // on responses that mix a no-op with a typo'd action name.
-      const calendarVessel: Vessel = {
+      const calendarVessel: AuthorVessel = {
         id: 'calendar',
         name: 'Calendar',
         description: 'Calendar with two views',
@@ -2697,7 +2637,7 @@ describe('processResponse', () => {
         ],
         vessels: [calendarVessel],
       });
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'Mixed',
         rationale: 'mixed',
         executionPlan: [
@@ -2734,7 +2674,7 @@ describe('processResponse', () => {
 
     test('empty-request (zero instances) never recommends retry', () => {
       const request = makeGridRequest({ instances: [] });
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'chat-only',
         rationale: 'no chart updates',
         executionPlan: [],
@@ -2757,7 +2697,7 @@ describe('processResponse', () => {
       // layout-empty-when-needed case. The action-empty case still
       // recommends retry but the layout is renderable, so severity stays
       // at medium.
-      const llmOutput: GridResponse = {
+      const llmOutput: GridResponseAuthor = {
         userMessage: 'ok',
         rationale: 'bad params only',
         executionPlan: [
@@ -2794,7 +2734,7 @@ describe('processResponse', () => {
       // raw token count. A tree like [null] has length 1 but renders nothing
       // — without this distinction, retryHint.recommend would stay false on
       // a blank UI.
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'ok',
         rationale: 'r',
         executionPlan: [],
@@ -2816,7 +2756,7 @@ describe('processResponse', () => {
     });
 
     test('tiling: split-only tree (H/V with all null children) recommends retry', () => {
-      const llmOutput: TilingResponse = {
+      const llmOutput: TilingResponseAuthor = {
         userMessage: 'ok',
         rationale: 'r',
         executionPlan: [],
