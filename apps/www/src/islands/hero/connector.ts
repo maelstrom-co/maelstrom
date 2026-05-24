@@ -1,4 +1,9 @@
-import { InstanceId, type TilingLayout } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  type TilingLayout,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import {
   ScriptedConnector,
   type ScriptedStep,
@@ -12,31 +17,35 @@ const APPTS = InstanceId('hero-appts');
 
 type Inst = TilingLayout['instances'][number];
 
-const labFull: Inst = { instanceId: LAB, vesselId: 'lab', variant: 'full' };
+const labFull: Inst = {
+  instanceId: LAB,
+  vesselId: VesselId('lab'),
+  variant: VariantName('full'),
+};
 const vitalsDefault: Inst = {
   instanceId: VITALS,
-  vesselId: 'vitals',
-  variant: 'default',
+  vesselId: VesselId('vitals'),
+  variant: VariantName('default'),
 };
 const vitalsWide: Inst = {
   instanceId: VITALS,
-  vesselId: 'vitals',
-  variant: 'wide',
+  vesselId: VesselId('vitals'),
+  variant: VariantName('wide'),
 };
 const medsDefault: Inst = {
   instanceId: MEDS,
-  vesselId: 'medications',
-  variant: 'default',
+  vesselId: VesselId('medications'),
+  variant: VariantName('default'),
 };
 const apptsDefault: Inst = {
   instanceId: APPTS,
-  vesselId: 'appointments',
-  variant: 'default',
+  vesselId: VesselId('appointments'),
+  variant: VariantName('default'),
 };
 const apptsBig: Inst = {
   instanceId: APPTS,
-  vesselId: 'appointments',
-  variant: 'big',
+  vesselId: VesselId('appointments'),
+  variant: VariantName('big'),
 };
 
 // Desktop tiling: 'V' = left/right, 'H' = top/bottom; ~50/50 splits. Each focus

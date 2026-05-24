@@ -1,4 +1,10 @@
-import { InstanceId, type TilingLayout } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  InstanceId,
+  type TilingLayout,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import {
   ScriptedConnector,
   type ScriptedStep,
@@ -13,33 +19,33 @@ type Inst = TilingLayout['instances'][number];
 
 const weatherCompact: Inst = {
   instanceId: WEATHER_ID,
-  vesselId: 'weather',
-  variant: 'compact',
+  vesselId: VesselId('weather'),
+  variant: VariantName('compact'),
 };
 const weatherFull: Inst = {
   instanceId: WEATHER_ID,
-  vesselId: 'weather',
-  variant: 'full',
+  vesselId: VesselId('weather'),
+  variant: VariantName('full'),
 };
 const calendarMonth: Inst = {
   instanceId: CALENDAR_ID,
-  vesselId: 'calendar',
-  variant: 'month',
+  vesselId: VesselId('calendar'),
+  variant: VariantName('month'),
 };
 const calendarWeek: Inst = {
   instanceId: CALENDAR_ID,
-  vesselId: 'calendar',
-  variant: 'week',
+  vesselId: VesselId('calendar'),
+  variant: VariantName('week'),
 };
 const notesDefault: Inst = {
   instanceId: NOTES_ID,
-  vesselId: 'notes',
-  variant: 'default',
+  vesselId: VesselId('notes'),
+  variant: VariantName('default'),
 };
 const tasksList: Inst = {
   instanceId: TASKS_ID,
-  vesselId: 'tasks',
-  variant: 'list',
+  vesselId: VesselId('tasks'),
+  variant: VariantName('list'),
 };
 
 // Desktop: 2D tiling shows all four vessels rearranging in place.
@@ -103,7 +109,7 @@ const STEP_META: StepMeta[] = [
     executionPlan: [
       {
         instanceId: TASKS_ID,
-        action: 'addTask',
+        action: ActionName('addTask'),
         params: { title: 'Review PR #42' },
       },
     ],
