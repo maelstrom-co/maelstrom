@@ -4,13 +4,13 @@ import type { calendarVessel } from './calendar.vessel';
 import VesselCard from './VesselCard';
 
 const EVENTS = [
-  { time: '9:00', title: 'Team standup', duration: '30m', color: '#0066ff' },
-  { time: '14:00', title: 'Design review', duration: '1h', color: '#00f0ff' },
+  { time: '9:00', title: 'Team standup', duration: '30m', color: '#0091FF' },
+  { time: '14:00', title: 'Design review', duration: '1h', color: '#00C2FF' },
   {
     time: '16:00',
     title: 'Sprint planning',
     duration: '45m',
-    color: '#6b00ff',
+    color: '#6E5BFF',
   },
 ];
 
@@ -22,7 +22,7 @@ export default function CalendarComponent({
 
   return (
     <VesselCard
-      accent="#0066ff"
+      accent="#0091FF"
       label={isWeek ? 'Week View' : 'Calendar'}
       meta="Today"
     >
@@ -33,7 +33,7 @@ export default function CalendarComponent({
           className="absolute left-[18px] top-1 bottom-1 w-px"
           style={{
             background:
-              'linear-gradient(to bottom, rgba(0, 102, 255, 0.15), transparent)',
+              'linear-gradient(to bottom, rgba(0, 145, 255, 0.15), transparent)',
           }}
         />
 

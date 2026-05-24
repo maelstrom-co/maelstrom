@@ -16,7 +16,7 @@ export default function WeatherComponent({
 
   return (
     <VesselCard
-      accent="#00f0ff"
+      accent="#00C2FF"
       label={isFull ? 'Weather Forecast' : 'Weather'}
       meta="San Francisco"
     >
@@ -25,13 +25,13 @@ export default function WeatherComponent({
           <div className="flex items-baseline gap-1">
             <span
               className="text-3xl font-bold text-text tracking-tight"
-              style={{ textShadow: '0 0 20px rgba(0, 240, 255, 0.15)' }}
+              style={{ textShadow: '0 0 20px rgba(0, 194, 255, 0.15)' }}
             >
               72°
             </span>
             <span className="text-[10px] text-text-muted/40">F</span>
           </div>
-          <div className="text-[11px] text-cyan/60 mt-0.5">Sunny</div>
+          <div className="text-[11px] text-[#00C2FF]/60 mt-0.5">Sunny</div>
           <div className="text-[9px] text-text-muted/30 mt-0.5">
             H: 75° L: 64°
           </div>
@@ -44,7 +44,7 @@ export default function WeatherComponent({
             className="h-px w-full mb-3"
             style={{
               background:
-                'linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.08), transparent)',
+                'linear-gradient(90deg, transparent, rgba(0, 194, 255, 0.08), transparent)',
             }}
           />
           <div className="flex items-end gap-1" style={{ height: '70px' }}>
@@ -63,10 +63,10 @@ export default function WeatherComponent({
                     className="w-full rounded-sm"
                     style={{
                       height: `${pct}%`,
-                      background: `linear-gradient(to top, rgba(0, 240, 255, ${i === 2 ? '0.3' : '0.15'}), rgba(0, 240, 255, 0.04))`,
-                      border: '1px solid rgba(0, 240, 255, 0.12)',
+                      background: `linear-gradient(to top, rgba(0, 194, 255, ${i === 2 ? '0.3' : '0.15'}), rgba(0, 194, 255, 0.04))`,
+                      border: '1px solid rgba(0, 194, 255, 0.12)',
                       boxShadow:
-                        i === 2 ? '0 0 8px rgba(0, 240, 255, 0.1)' : 'none',
+                        i === 2 ? '0 0 8px rgba(0, 194, 255, 0.1)' : 'none',
                     }}
                   />
                   <span className="text-[8px] text-text-muted/30 font-mono">

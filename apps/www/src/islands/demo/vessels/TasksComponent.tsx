@@ -33,22 +33,22 @@ export default function TasksComponent({
 
   return (
     <VesselCard
-      accent="#6b00ff"
+      accent="#6E5BFF"
       label="Tasks"
       meta={`${doneCount}/${allTasks.length}`}
     >
       {/* Progress bar */}
       <div
         className="h-1 w-full rounded-full mb-3"
-        style={{ background: 'rgba(107, 0, 255, 0.08)' }}
+        style={{ background: 'rgba(110, 91, 255, 0.08)' }}
       >
         <div
           className="h-full rounded-full transition-all duration-500"
           style={{
             width: `${progress}%`,
             background:
-              'linear-gradient(90deg, rgba(107, 0, 255, 0.4), rgba(107, 0, 255, 0.6))',
-            boxShadow: '0 0 8px rgba(107, 0, 255, 0.3)',
+              'linear-gradient(90deg, rgba(110, 91, 255, 0.4), rgba(110, 91, 255, 0.6))',
+            boxShadow: '0 0 8px rgba(110, 91, 255, 0.3)',
           }}
         />
       </div>
@@ -59,9 +59,9 @@ export default function TasksComponent({
             <div
               className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center"
               style={{
-                border: `1.5px solid ${task.done ? 'rgba(107, 0, 255, 0.5)' : 'rgba(107, 0, 255, 0.25)'}`,
+                border: `1.5px solid ${task.done ? 'rgba(110, 91, 255, 0.5)' : 'rgba(110, 91, 255, 0.25)'}`,
                 background: task.done
-                  ? 'rgba(107, 0, 255, 0.15)'
+                  ? 'rgba(110, 91, 255, 0.15)'
                   : 'transparent',
               }}
             >
@@ -71,7 +71,7 @@ export default function TasksComponent({
                   height="8"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="rgba(107, 0, 255, 0.7)"
+                  stroke="rgba(110, 91, 255, 0.7)"
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -92,9 +92,9 @@ export default function TasksComponent({
           <div key={task} className="flex items-center gap-2.5 animate-fade-in">
             <div
               className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center"
-              style={{ border: '1.5px solid rgba(107, 0, 255, 0.25)' }}
+              style={{ border: '1.5px solid rgba(110, 91, 255, 0.25)' }}
             >
-              <div className="w-1 h-1 rounded-full bg-violet/40" />
+              <div className="w-1 h-1 rounded-full bg-[#6E5BFF]/40" />
             </div>
             <span className="text-[11px] text-text/80 truncate">{task}</span>
           </div>

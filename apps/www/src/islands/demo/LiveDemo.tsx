@@ -30,7 +30,7 @@ function DemoChrome({
           background: 'rgba(5, 12, 25, 0.8)',
           border: '1px solid rgba(255, 255, 255, 0.06)',
           boxShadow:
-            '0 25px 80px rgba(0, 0, 0, 0.5), 0 0 120px rgba(0, 240, 255, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+            '0 25px 80px rgba(0, 0, 0, 0.5), 0 0 120px rgba(0, 145, 255, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
         }}
       >
         {/* Top edge highlight */}
@@ -38,7 +38,7 @@ function DemoChrome({
           className="absolute top-0 inset-x-0 h-px"
           style={{
             background:
-              'linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.12), transparent)',
+              'linear-gradient(90deg, transparent, rgba(0, 145, 255, 0.12), transparent)',
           }}
         />
 
@@ -83,7 +83,7 @@ function DemoChrome({
             </div>
           </div>
           <div className="flex items-center gap-1.5 text-[9px] font-mono text-text-muted/40">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/60 animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[#2BD46B]/60 animate-pulse" />
             live
           </div>
         </div>
@@ -98,10 +98,10 @@ function DemoChrome({
             className="w-full px-3 py-2.5 md:px-4 md:py-3 rounded-xl font-mono text-xs md:text-sm flex items-center gap-2.5 md:gap-3 cursor-pointer transition-all duration-300 focus:outline-none"
             style={{
               background: 'rgba(10, 30, 53, 0.6)',
-              border: `1px solid rgba(0, 240, 255, ${phase === 'typing' || phase === 'processing' ? '0.15' : '0.06'})`,
+              border: `1px solid rgba(0, 145, 255, ${phase === 'typing' || phase === 'processing' ? '0.15' : '0.06'})`,
               boxShadow:
                 phase === 'typing' || phase === 'processing'
-                  ? 'inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 0 20px rgba(0, 240, 255, 0.05)'
+                  ? 'inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 0 20px rgba(0, 145, 255, 0.05)'
                   : 'inset 0 1px 0 rgba(255, 255, 255, 0.03)',
               color: 'var(--color-text)',
               transition: 'border-color 0.3s, box-shadow 0.3s',
@@ -109,7 +109,7 @@ function DemoChrome({
           >
             {/* Mic icon */}
             <svg
-              className={`w-4 h-4 shrink-0 transition-colors duration-300 ${phase === 'typing' ? 'text-cyan/60' : 'text-cyan/25'}`}
+              className={`w-4 h-4 shrink-0 transition-colors duration-300 ${phase === 'typing' ? 'text-[#0091FF]/60' : 'text-[#0091FF]/25'}`}
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -127,7 +127,7 @@ function DemoChrome({
               <span className="flex-1 min-w-0 truncate">
                 {typedText}
                 {phase === 'typing' && (
-                  <span className="ml-0.5 text-cyan animate-blink-cursor">
+                  <span className="ml-0.5 text-[#0091FF] animate-blink-cursor">
                     |
                   </span>
                 )}
@@ -140,7 +140,7 @@ function DemoChrome({
 
             {isProcessing && (
               <span className="shrink-0">
-                <span className="inline-block w-4 h-4 border-2 border-cyan/40 border-t-transparent rounded-full animate-spin" />
+                <span className="inline-block w-4 h-4 border-2 border-[#0091FF]/40 border-t-transparent rounded-full animate-spin" />
               </span>
             )}
           </button>
@@ -153,7 +153,7 @@ function DemoChrome({
               {[0, 1, 2].map((i) => (
                 <div
                   key={i}
-                  className="absolute rounded-full border border-cyan/10"
+                  className="absolute rounded-full border border-[#0091FF]/10"
                   style={{
                     width: `${60 + i * 40}px`,
                     height: `${60 + i * 40}px`,
@@ -162,7 +162,7 @@ function DemoChrome({
                   }}
                 />
               ))}
-              <div className="absolute w-2.5 h-2.5 rounded-full bg-cyan/25 animate-pulse" />
+              <div className="absolute w-2.5 h-2.5 rounded-full bg-[#0091FF]/25 animate-pulse" />
             </div>
           )}
 
@@ -176,10 +176,10 @@ function DemoChrome({
         style={{
           background: showRationale ? 'rgba(10, 30, 53, 0.5)' : 'transparent',
           border: showRationale
-            ? '1px solid rgba(0, 240, 255, 0.1)'
+            ? '1px solid rgba(0, 145, 255, 0.1)'
             : '1px solid transparent',
           boxShadow: showRationale
-            ? '0 0 40px rgba(0, 240, 255, 0.04)'
+            ? '0 0 40px rgba(0, 145, 255, 0.04)'
             : 'none',
           opacity: showRationale ? 1 : 0,
           transform: showRationale ? 'translateY(0)' : 'translateY(4px)',
@@ -193,12 +193,12 @@ function DemoChrome({
             <div
               className="w-5 h-5 rounded-md flex items-center justify-center"
               style={{
-                background: 'rgba(0, 240, 255, 0.1)',
-                border: '1px solid rgba(0, 240, 255, 0.2)',
+                background: 'rgba(0, 145, 255, 0.1)',
+                border: '1px solid rgba(0, 145, 255, 0.2)',
               }}
             >
               <svg
-                className="w-3 h-3 text-cyan/80"
+                className="w-3 h-3 text-[#0091FF]/80"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -213,7 +213,7 @@ function DemoChrome({
             </div>
           </div>
           <p className="text-xs text-text-muted font-mono leading-relaxed">
-            <span className="text-cyan/70 mr-1">reasoning</span>
+            <span className="text-[#0091FF]/70 mr-1">reasoning</span>
             {rationale ?? ' '}
           </p>
         </div>
@@ -232,7 +232,7 @@ function DemoChrome({
         <button
           type="button"
           onClick={replay}
-          className="text-sm text-text-muted/60 hover:text-cyan transition-colors duration-300 cursor-pointer font-mono"
+          className="text-sm text-text-muted/60 hover:text-[#0091FF] transition-colors duration-300 cursor-pointer font-mono"
         >
           ↻ Replay demo
         </button>
