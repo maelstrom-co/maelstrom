@@ -16,6 +16,7 @@ Maelstrom is distributed as a set of scoped packages:
 | `@maelstrom-co/protocol` | Shared types, Zod schemas, message definitions |
 | `@maelstrom-co/engine` | Server-side LLM decision engine |
 | `@maelstrom-co/voice` | Voice capture, playback, VAD (optional) |
+| `@maelstrom-co/voice-server` | Backend voice runtime for STT, engine handoff, and TTS (optional) |
 
 ## Install
 
@@ -74,10 +75,16 @@ ANTHROPIC_API_KEY=your-key             # Anthropic Claude
 
 ## Voice (optional)
 
-For voice features, install the voice package:
+For browser voice features, install the voice package:
 
 ```bash
 npm install @maelstrom-co/voice
+```
+
+For full end-to-end voice, also install the backend runtime package:
+
+```bash
+npm install @maelstrom-co/voice-server
 ```
 
 <Aside type="caution">
