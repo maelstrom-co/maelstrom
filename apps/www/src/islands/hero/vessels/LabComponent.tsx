@@ -1,6 +1,4 @@
-import type { TypedVesselProps } from '@maelstrom-co/react';
 import { useId } from 'react';
-import type { labVessel } from './lab.vessel';
 
 function prand(n: number) {
   const x = Math.sin(n * 9301 + 49297) * 233280;
@@ -57,10 +55,7 @@ function Sparkline({
   );
 }
 
-export default function LabComponent({
-  variantProps,
-}: TypedVesselProps<typeof labVessel>) {
-  const isMini = variantProps.variant === 'mini';
+export default function LabComponent() {
   return (
     <div className="vessel">
       <div className="vessel-head">
@@ -75,21 +70,19 @@ export default function LabComponent({
           gap: 10,
         }}
       >
-        <Sparkline color="#0091FF" seed={1.2} h={isMini ? 38 : 70} />
-        {!isMini && (
-          <div style={{ display: 'flex', gap: 22, marginTop: 6 }}>
-            <div>
-              <div className="kv-l">Latest</div>
-              <div className="kv-v" style={{ color: '#2BD46B' }}>
-                94 <span style={{ fontSize: 14 }}>mg/dL</span>
-              </div>
-            </div>
-            <div>
-              <div className="kv-l">Range</div>
-              <div className="kv-v">65–99</div>
+        <Sparkline color="#0091FF" seed={1.2} h={70} />
+        <div style={{ display: 'flex', gap: 22, marginTop: 6 }}>
+          <div>
+            <div className="kv-l">Latest</div>
+            <div className="kv-v" style={{ color: '#2BD46B' }}>
+              94 <span style={{ fontSize: 14 }}>mg/dL</span>
             </div>
           </div>
-        )}
+          <div>
+            <div className="kv-l">Range</div>
+            <div className="kv-v">65–99</div>
+          </div>
+        </div>
       </div>
     </div>
   );
