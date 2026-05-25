@@ -54,6 +54,17 @@ describe('getCurrentKeyframe', () => {
       state: 'done',
     });
   });
+  it('resolves equal-`at` ties to the last matching keyframe (last-wins)', () => {
+    const tied = [
+      { at: 0, state: 'a' },
+      { at: 0.5, state: 'b' },
+      { at: 0.5, state: 'c' },
+    ];
+    expect(getCurrentKeyframe(tied, 0.5)).toEqual({ at: 0.5, state: 'c' });
+  });
+  it('throws on empty input instead of returning undefined (a `.state` crash for callers)', () => {
+    expect(() => getCurrentKeyframe([], 0.5)).toThrow();
+  });
 });
 
 describe('getCurrentKeyframeIndex', () => {
@@ -74,5 +85,16 @@ describe('getCurrentKeyframeIndex', () => {
   });
   it('returns last index past all thresholds', () => {
     expect(getCurrentKeyframeIndex(keyframes, 1.0)).toBe(2);
+  });
+  it('resolves equal-`at` ties to the last matching index (last-wins)', () => {
+    const tied = [
+      { at: 0, state: 'a' },
+      { at: 0.5, state: 'b' },
+      { at: 0.5, state: 'c' },
+    ];
+    expect(getCurrentKeyframeIndex(tied, 0.5)).toBe(2);
+  });
+  it('throws on empty input', () => {
+    expect(() => getCurrentKeyframeIndex([], 0.5)).toThrow();
   });
 });
