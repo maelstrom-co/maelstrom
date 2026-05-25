@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { submitWaitlist } from '../lib/waitlist';
 
 export default function WaitlistForm() {
   const [email, setEmail] = useState('');
@@ -12,38 +13,13 @@ export default function WaitlistForm() {
     if (!email) return;
 
     setStatus('loading');
-    try {
-      const res = await fetch('/api/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-
-      if (!res.ok) {
-        let errorMsg = 'Something went wrong';
-        try {
-          const data: { error?: string } = await res.json();
-          if (data.error) errorMsg = data.error;
-        } catch {
-          // Response wasn't JSON (e.g. 502 HTML page) — use default message
-        }
-        throw new Error(errorMsg);
-      }
-
+    const result = await submitWaitlist(email);
+    if (result.ok) {
       setStatus('success');
-    } catch (err) {
-      console.error('[WaitlistForm] submit failed', err);
+    } else {
+      console.error('[WaitlistForm] submit failed:', result.message);
       setStatus('error');
-      // fetch rejects with a TypeError on network failure (offline, DNS, CORS);
-      // anything else here is the Error we threw with the server's message above.
-      const isNetworkError = err instanceof TypeError;
-      setErrorMessage(
-        isNetworkError
-          ? 'Network error — check your connection and try again.'
-          : err instanceof Error
-            ? err.message
-            : 'Something went wrong',
-      );
+      setErrorMessage(result.message);
     }
   }
 
