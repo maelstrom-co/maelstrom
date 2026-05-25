@@ -50,7 +50,7 @@ export const POST: APIRoute = async ({ request }) => {
         await resend.contacts.segments.add({ email, segmentId: SEGMENT_ID });
       } catch (segmentErr) {
         console.error(
-          `[waitlist] Failed to add ${email} to segment:`,
+          '[waitlist] Failed to add contact to segment:',
           segmentErr,
         );
       }

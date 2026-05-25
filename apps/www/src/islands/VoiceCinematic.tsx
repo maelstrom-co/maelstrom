@@ -42,7 +42,10 @@ function useCanvasOrb(
     if (!canvas) return;
 
     const rawCtx = canvas.getContext('2d');
-    if (!rawCtx) return;
+    if (!rawCtx) {
+      console.warn('[VoiceCinematic] 2D context unavailable — orb disabled');
+      return;
+    }
     // Bind to an explicitly non-null type so the draw() closure below sees a
     // non-null ctx (control-flow narrowing isn't carried into nested functions).
     const ctx: CanvasRenderingContext2D = rawCtx;

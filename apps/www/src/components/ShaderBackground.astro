@@ -198,21 +198,31 @@
     // A runtime context loss (driver reset, too many live contexts, mobile
     // backgrounding) would otherwise leave the loop spinning on a dead context.
     // We don't attempt restoration, so stop and show the static gradient.
-    canvas.addEventListener("webglcontextlost", (e) => {
+    const onContextLost = (e: Event) => {
       e.preventDefault();
       contextLost = true;
       stop();
       fail("WebGL context lost — using static gradient fallback");
-    });
-    document.addEventListener("visibilitychange", () => {
+    };
+    canvas.addEventListener("webglcontextlost", onContextLost);
+
+    const onVisibility = () => {
       if (document.hidden) stop();
       else start();
-    });
-    window.addEventListener("pagehide", () => {
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // Tear down everything on pagehide (Astro view transitions) so no listeners
+    // or the GL closure outlive the canvas.
+    const onPageHide = () => {
       stop();
       window.removeEventListener("resize", resize);
       window.removeEventListener("pointermove", onPointer);
-    });
+      document.removeEventListener("visibilitychange", onVisibility);
+      canvas.removeEventListener("webglcontextlost", onContextLost);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+    window.addEventListener("pagehide", onPageHide);
   }
 
   initShader();

@@ -128,6 +128,7 @@ function DemoDriver({
   const initializedRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isMountedRef = useRef(true);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
 
@@ -158,10 +159,20 @@ function DemoDriver({
           if (intervalRef.current) clearInterval(intervalRef.current);
           timeoutRef.current = setTimeout(async () => {
             setPhase('processing');
-            await processIntentRef.current(step.prompt);
-            setRationale(step.rationale);
-            setPhase('rearranged');
-            onDone();
+            try {
+              await processIntentRef.current(step.prompt);
+            } catch (err) {
+              console.warn('[MaelstromDemo] processIntent failed', err);
+            } finally {
+              // A breakpoint-cross remount can unmount mid-await; don't touch
+              // state or advance a dead tree. finally still runs so a rejected
+              // processIntent can't strand the demo in 'processing' forever.
+              if (isMountedRef.current) {
+                setRationale(step.rationale);
+                setPhase('rearranged');
+                onDone();
+              }
+            }
           }, HOLD_BEFORE_PROCESS_MS);
         }
       }, TYPE_MS_PER_CHAR);
@@ -189,6 +200,15 @@ function DemoDriver({
     };
     runStep(0);
   }, [typeAndProcess]);
+
+  // Track mount so the async step callback can bail after its await when a
+  // breakpoint-cross remount (key change) has already torn down this instance.
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Wait for the orchestrator to connect, then play the opening intent and the
   // script. The Provider creates its orchestrator in an effect (StrictMode), so
