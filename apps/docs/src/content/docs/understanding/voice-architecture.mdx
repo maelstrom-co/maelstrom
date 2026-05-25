@@ -58,7 +58,7 @@ Client-owned VAD gives Maelstrom a stable boundary layer above those quirks. The
 
 There is also an acoustic echo cancellation caveat. During TTS playback the VAD activation threshold is raised so leaked speaker output is less likely to retrigger the microphone path. That helps preserve barge-in without treating the assistant's own voice as a fresh user turn. If browser AEC is weak or unavailable, false positives are still possible, so this is a mitigation, not magic.
 
-This design has real costs. The Silero model adds roughly 2 MB to first-use browser download size, it requires Wasm support, and inference adds roughly 10 to 30 ms to turn detection. That's a fair price for consistent cross-provider control, but it is still a price.
+This design has real costs. The Silero model and runtime assets add meaningful first-use browser download size, they require Wasm support, and inference adds measurable turn-detection overhead. The exact numbers vary by bundling strategy, runtime version, and deployment setup.
 
 ## Provider Registries and error taxonomy
 
@@ -67,7 +67,7 @@ The server runtime treats providers as discriminated configuration objects inste
 Today that means:
 
 - STT providers: `deepgram`, `google`
-- TTS providers: `cartesia`
+- TTS providers: `cartesia`, `google`
 
 This is a practical design choice more than an aesthetic one. The registry keeps provider selection explicit, validates the public config shape in one place, and lets the runtime specialize STT and TTS independently. You can pick the recognizer and the synthesizer that fit your latency, quality, or pricing needs without pretending they have to come from the same vendor.
 
@@ -115,7 +115,7 @@ The drawback is complexity at the package level. There are more moving parts to 
 
 ### Drawbacks
 
-- Roughly 2 MB of ONNX model download on first use, plus a Wasm requirement in the browser.
+- Browser-side ONNX model and runtime asset download overhead on first use, plus a Wasm requirement in the browser.
 - End-to-end voice requires a deployed `@maelstrom-co/voice-server`, not just the client packages.
 - Latency is chained across STT, engine processing, and TTS, so each stage adds to turn completion time.
 - Provider credentials must stay server-side, which means a real voice integration always needs backend infrastructure.
@@ -140,18 +140,18 @@ The drawback is complexity at the package level. There are more moving parts to 
     description="Follow the guided adoption path from basic voice setup to richer control flows."
   />
   <LinkCard
-    title="`@maelstrom-co/react-voice` Reference"
-    href="/reference/react-voice/maelstrom-voice/"
+    title="@maelstrom-co/react-voice Reference"
+    href="/reference/react-voice/functions/maelstromvoice/"
     description="See the React extension surface, ownership model, and dynamic import behavior."
   />
   <LinkCard
-    title="`@maelstrom-co/voice-server` Runtime Reference"
-    href="/reference/voice-server/create-voice-session/"
-    description="Review `ProcessIntent`, runtime tuning fields, and the backend session contract."
+    title="@maelstrom-co/voice-server Runtime Reference"
+    href="/reference/voice-server/functions/createvoicesession/"
+    description="Review ProcessIntent, runtime tuning fields, and the backend session contract."
   />
   <LinkCard
     title="Speech Controls Reference"
-    href="/reference/voice-server/speech-controls/"
-    description="Compare `speak()` and `enqueueSpeak()` when you need replacement versus queued audio."
+    href="/reference/voice-server/type-aliases/voicesession/"
+    description="Compare speak() and enqueueSpeak() when you need replacement versus queued audio."
   />
 </CardGrid>
