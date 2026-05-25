@@ -33,8 +33,8 @@
       "@maelstrom-co/engine",
       "@maelstrom-co/client",
       "@maelstrom-co/react",
-      "@maelstrom-co/voice-server",
-      "@maelstrom-co/voice"
+      "@maelstrom-co/voice",
+      "@maelstrom-co/voice-server"
     ],
     "targets": {
       "test": {

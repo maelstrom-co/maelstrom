@@ -18,6 +18,8 @@ const [voiceTypeDoc, voiceTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [voiceServerTypeDoc, voiceServerTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [reactVoiceTypeDoc, reactVoiceTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 
 // TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
 // the workspace root on every plugin call, so {path} carries the full
@@ -189,6 +191,18 @@ export default defineConfig({
             sourceLinkTemplate,
           },
         }),
+        reactVoiceTypeDoc({
+          entryPoints: ['../../packages/react-voice/src/index.ts'],
+          tsconfig: '../../packages/react-voice/tsconfig.lib.json',
+          output: 'reference/react-voice',
+          sidebar: { label: '@maelstrom-co/react-voice', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
       ],
       customCss: ['./src/styles/custom.css'],
       expressiveCode: false,
@@ -263,6 +277,7 @@ export default defineConfig({
             engineTypeDocSidebarGroup,
             voiceTypeDocSidebarGroup,
             voiceServerTypeDocSidebarGroup,
+            reactVoiceTypeDocSidebarGroup,
           ],
         },
         {
