@@ -7,7 +7,7 @@ Maelstrom keeps Voice Activity Detection, VAD, on the client. That is a delibera
 
 The browser session decides when speech started, when it probably ended, and how much leading audio to preserve before the backend STT provider gets the final say. That gives the product a more stable turn boundary across providers, but it also means you are shipping a browser-side ONNX model and a Wasm runtime. This guide covers both sides of that tradeoff.
 
-If you only need the API surface, read [`VADConfig`](/reference/voice/type-aliases/vadconfig/). This page focuses on how to tune the shipped behavior in a real app.
+If you only need the API surface, read [`VADConfig`](/reference/voice/interfaces/vadconfig/). This page focuses on how to tune the shipped behavior in a real app.
 
 ## Where VAD fits in the voice stack
 
@@ -220,7 +220,7 @@ That order is boring, but it is practical. Most VAD tuning mistakes come from ch
 
 ## Related pages
 
-- [`VADConfig` reference](/reference/voice/type-aliases/vadconfig/)
+- [`VADConfig` reference](/reference/voice/interfaces/vadconfig/)
 - [Voice Architecture](/understanding/voice-architecture/)
 - [Voice Integration](/guides/voice/voice-integration/)
 - [`createVoiceSession()` runtime reference](/reference/voice-server/functions/createvoicesession/)
