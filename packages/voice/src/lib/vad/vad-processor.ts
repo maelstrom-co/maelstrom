@@ -24,21 +24,21 @@ export interface VADStreamOptions {
    * Minimum continuous speech duration before START_OF_SPEECH (seconds).
    * - Smaller → faster barge-in, more false starts
    * - Larger → steadier detection, delays start
-   * @default 0.25
+   * @default 0.05
    */
   minSpeechDurationSeconds?: number;
   /**
    * Minimum continuous silence duration before END_OF_SPEECH (seconds).
    * - Smaller → ends quicker, risks truncating words
    * - Larger → more natural endings, higher latency
-   * @default 0.5
+   * @default 0.8
    */
   minSilenceDurationSeconds?: number;
   /**
    * Speech probability threshold (0-1).
    * - Higher (0.6-0.8) → fewer false positives, may miss quiet speech
    * - Lower (0.4-0.5) → catches quiet speech, may trigger on noise
-   * @default 0.5
+   * @default 0.7
    */
   activationThreshold?: number;
 
