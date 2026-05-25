@@ -1,11 +1,20 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { getCurrentKeyframe, getCurrentKeyframeIndex, lerp } from '../lib/keyframe-utils';
-import type { OrbState, DashboardKeyframe, LayoutSlot, TranscriptLine } from './voice-cinematic/data';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  transcript,
-  panelMap,
+  getCurrentKeyframe,
+  getCurrentKeyframeIndex,
+  lerp,
+} from '../lib/keyframe-utils';
+import type {
+  DashboardKeyframe,
+  LayoutSlot,
+  OrbState,
+  TranscriptLine,
+} from './voice-cinematic/data';
+import {
   dashboardKeyframes,
   orbKeyframes,
+  panelMap,
+  transcript,
 } from './voice-cinematic/data';
 
 // ── Canvas Orb ──────────────────────────────────────────────────────────
@@ -32,15 +41,21 @@ function useCanvasOrb(
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const rawCtx = canvas.getContext('2d');
+    if (!rawCtx) {
+      console.warn('[VoiceCinematic] 2D context unavailable — orb disabled');
+      return;
+    }
+    // Bind to an explicitly non-null type so the draw() closure below sees a
+    // non-null ctx (control-flow narrowing isn't carried into nested functions).
+    const ctx: CanvasRenderingContext2D = rawCtx;
 
     const isMobile = window.innerWidth < 768;
 
     // Cap DPR on mobile (iPhone 15 is 3x — reduce to 2x)
     const dpr = isMobile
       ? Math.min(window.devicePixelRatio || 1, 2)
-      : (window.devicePixelRatio || 1);
+      : window.devicePixelRatio || 1;
     const size = 280;
     canvas.width = size * dpr;
     canvas.height = size * dpr;
@@ -80,7 +95,7 @@ function useCanvasOrb(
       const p = progressRef.current;
 
       time += 0.016;
-      ctx!.clearRect(0, 0, size, size);
+      ctx.clearRect(0, 0, size, size);
 
       const isActive = s === 'listening' || s === 'responding';
       const isResponding = s === 'responding';
@@ -92,45 +107,70 @@ function useCanvasOrb(
       // ── Rings — fewer on mobile, skip second arc segment ──
       const ringConfigs = isMobile
         ? [
-            { r: 55, width: 1.2, alpha: isResponding ? 0.25 : isActive ? 0.12 : 0.04, speed: 0.3 },
-            { r: 40, width: 1.5, alpha: isResponding ? 0.35 : isActive ? 0.18 : 0.06, speed: -0.2 },
+            {
+              r: 55,
+              width: 1.2,
+              alpha: isResponding ? 0.25 : isActive ? 0.12 : 0.04,
+              speed: 0.3,
+            },
+            {
+              r: 40,
+              width: 1.5,
+              alpha: isResponding ? 0.35 : isActive ? 0.18 : 0.06,
+              speed: -0.2,
+            },
           ]
         : [
-            { r: 65, width: 1.2, alpha: isResponding ? 0.25 : isActive ? 0.12 : 0.04, speed: 0.3 },
-            { r: 50, width: 1.5, alpha: isResponding ? 0.35 : isActive ? 0.18 : 0.06, speed: -0.2 },
-            { r: 35, width: 1, alpha: isResponding ? 0.3 : isActive ? 0.15 : 0.05, speed: 0.15 },
+            {
+              r: 65,
+              width: 1.2,
+              alpha: isResponding ? 0.25 : isActive ? 0.12 : 0.04,
+              speed: 0.3,
+            },
+            {
+              r: 50,
+              width: 1.5,
+              alpha: isResponding ? 0.35 : isActive ? 0.18 : 0.06,
+              speed: -0.2,
+            },
+            {
+              r: 35,
+              width: 1,
+              alpha: isResponding ? 0.3 : isActive ? 0.15 : 0.05,
+              speed: 0.15,
+            },
           ];
 
       for (const ring of ringConfigs) {
         const rot = time * ring.speed + p * Math.PI * 2;
-        ctx!.beginPath();
+        ctx.beginPath();
         const arcLen = Math.PI * (1.2 + Math.sin(time * 0.5) * 0.3);
-        ctx!.arc(cx, cy, ring.r, rot, rot + arcLen);
-        ctx!.strokeStyle = `rgba(0, 240, 255, ${ring.alpha})`;
-        ctx!.lineWidth = ring.width;
-        ctx!.stroke();
+        ctx.arc(cx, cy, ring.r, rot, rot + arcLen);
+        ctx.strokeStyle = `rgba(0, 240, 255, ${ring.alpha})`;
+        ctx.lineWidth = ring.width;
+        ctx.stroke();
 
         if (!isMobile) {
-          ctx!.beginPath();
-          ctx!.arc(cx, cy, ring.r, rot + Math.PI, rot + Math.PI + arcLen * 0.7);
-          ctx!.strokeStyle = `rgba(0, 102, 255, ${ring.alpha * 0.7})`;
-          ctx!.lineWidth = ring.width * 0.8;
-          ctx!.stroke();
+          ctx.beginPath();
+          ctx.arc(cx, cy, ring.r, rot + Math.PI, rot + Math.PI + arcLen * 0.7);
+          ctx.strokeStyle = `rgba(0, 102, 255, ${ring.alpha * 0.7})`;
+          ctx.lineWidth = ring.width * 0.8;
+          ctx.stroke();
         }
       }
 
       // ── Ripples — fewer on mobile ─────────────────────
       if (isActive) {
-        const rippleCount = isMobile ? 1 : (isResponding ? 3 : 2);
+        const rippleCount = isMobile ? 1 : isResponding ? 3 : 2;
         for (let i = 0; i < rippleCount; i++) {
           const ripplePhase = ((time * 0.8 + i * 0.8) % 2.5) / 2.5;
           const rippleR = 25 + ripplePhase * 80;
           const rippleAlpha = (1 - ripplePhase) * (isResponding ? 0.2 : 0.12);
-          ctx!.beginPath();
-          ctx!.arc(cx, cy, rippleR, 0, Math.PI * 2);
-          ctx!.strokeStyle = `rgba(0, 240, 255, ${rippleAlpha})`;
-          ctx!.lineWidth = 1;
-          ctx!.stroke();
+          ctx.beginPath();
+          ctx.arc(cx, cy, rippleR, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(0, 240, 255, ${rippleAlpha})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
         }
       }
 
@@ -146,26 +186,34 @@ function useCanvasOrb(
         const px = cx + Math.cos(particle.angle) * (particle.radius + wobble);
         const py = cy + Math.sin(particle.angle) * (particle.radius + wobble);
 
-        const alpha = particle.brightness * (isResponding ? 0.9 : isActive ? 0.6 : 0.3);
+        const alpha =
+          particle.brightness * (isResponding ? 0.9 : isActive ? 0.6 : 0.3);
 
-        ctx!.beginPath();
-        ctx!.arc(px, py, particle.size, 0, Math.PI * 2);
-        ctx!.fillStyle = `rgba(0, 240, 255, ${alpha})`;
-        ctx!.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, particle.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0, 240, 255, ${alpha})`;
+        ctx.fill();
 
         if (!isMobile && alpha > 0.3) {
-          const glow = ctx!.createRadialGradient(px, py, 0, px, py, particle.size * 4);
+          const glow = ctx.createRadialGradient(
+            px,
+            py,
+            0,
+            px,
+            py,
+            particle.size * 4,
+          );
           glow.addColorStop(0, `rgba(0, 240, 255, ${alpha * 0.3})`);
           glow.addColorStop(1, 'transparent');
-          ctx!.beginPath();
-          ctx!.arc(px, py, particle.size * 4, 0, Math.PI * 2);
-          ctx!.fillStyle = glow;
-          ctx!.fill();
+          ctx.beginPath();
+          ctx.arc(px, py, particle.size * 4, 0, Math.PI * 2);
+          ctx.fillStyle = glow;
+          ctx.fill();
         }
       }
 
       // ── Core blob — fewer points on mobile ────────────
-      ctx!.beginPath();
+      ctx.beginPath();
       for (let i = 0; i <= blobPoints; i++) {
         const a = (i / blobPoints) * Math.PI * 2;
         const deform =
@@ -175,44 +223,59 @@ function useCanvasOrb(
         const r = coreRadius + deform;
         const x = cx + Math.cos(a) * r;
         const y = cy + Math.sin(a) * r;
-        if (i === 0) ctx!.moveTo(x, y);
-        else ctx!.lineTo(x, y);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       }
-      ctx!.closePath();
+      ctx.closePath();
 
-      const coreGrad = ctx!.createRadialGradient(
-        cx - 5, cy - 5, 0,
-        cx, cy, coreRadius + 5,
+      const coreGrad = ctx.createRadialGradient(
+        cx - 5,
+        cy - 5,
+        0,
+        cx,
+        cy,
+        coreRadius + 5,
       );
       coreGrad.addColorStop(0, `rgba(0, 240, 255, ${coreAlpha})`);
       coreGrad.addColorStop(0.5, `rgba(0, 102, 255, ${coreAlpha * 0.7})`);
       coreGrad.addColorStop(1, `rgba(0, 102, 255, 0)`);
-      ctx!.fillStyle = coreGrad;
-      ctx!.fill();
+      ctx.fillStyle = coreGrad;
+      ctx.fill();
 
       // Core inner highlight — skip on mobile
       if (!isMobile) {
-        const highlight = ctx!.createRadialGradient(
-          cx - 8, cy - 8, 0,
-          cx, cy, coreRadius * 0.6,
+        const highlight = ctx.createRadialGradient(
+          cx - 8,
+          cy - 8,
+          0,
+          cx,
+          cy,
+          coreRadius * 0.6,
         );
         highlight.addColorStop(0, `rgba(255, 255, 255, ${coreAlpha * 0.4})`);
         highlight.addColorStop(1, 'transparent');
-        ctx!.beginPath();
-        ctx!.arc(cx, cy, coreRadius * 0.6, 0, Math.PI * 2);
-        ctx!.fillStyle = highlight;
-        ctx!.fill();
+        ctx.beginPath();
+        ctx.arc(cx, cy, coreRadius * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = highlight;
+        ctx.fill();
       }
 
       // ── Outer glow ──────────────────────────────────────
-      const outerGlow = ctx!.createRadialGradient(cx, cy, coreRadius, cx, cy, glowRadius);
+      const outerGlow = ctx.createRadialGradient(
+        cx,
+        cy,
+        coreRadius,
+        cx,
+        cy,
+        glowRadius,
+      );
       outerGlow.addColorStop(0, `rgba(0, 240, 255, ${coreAlpha * 0.15})`);
       outerGlow.addColorStop(0.5, `rgba(0, 102, 255, ${coreAlpha * 0.05})`);
       outerGlow.addColorStop(1, 'transparent');
-      ctx!.beginPath();
-      ctx!.arc(cx, cy, glowRadius, 0, Math.PI * 2);
-      ctx!.fillStyle = outerGlow;
-      ctx!.fill();
+      ctx.beginPath();
+      ctx.arc(cx, cy, glowRadius, 0, Math.PI * 2);
+      ctx.fillStyle = outerGlow;
+      ctx.fill();
 
       animFrameRef.current = requestAnimationFrame(draw);
     }
@@ -246,7 +309,8 @@ function VoiceOrb({
         style={{
           width: 280,
           height: 280,
-          background: 'radial-gradient(circle, rgba(0,240,255,0.06) 0%, transparent 70%)',
+          background:
+            'radial-gradient(circle, rgba(0,240,255,0.06) 0%, transparent 70%)',
           transform: 'scale(2)',
         }}
       />
@@ -258,7 +322,8 @@ function VoiceOrb({
           width: 280,
           height: 280,
           willChange: 'transform',
-          background: 'radial-gradient(circle, rgba(0,240,255,0.05), transparent 70%)',
+          background:
+            'radial-gradient(circle, rgba(0,240,255,0.05), transparent 70%)',
         }}
       />
     </div>
@@ -317,7 +382,8 @@ function DashboardMockup({
       style={{
         background: 'rgba(10, 30, 53, 0.75)',
         border: '1px solid rgba(255, 255, 255, 0.08)',
-        boxShadow: '0 8px 40px rgba(0, 0, 0, 0.4), 0 0 60px rgba(0, 240, 255, 0.04)',
+        boxShadow:
+          '0 8px 40px rgba(0, 0, 0, 0.4), 0 0 60px rgba(0, 240, 255, 0.04)',
       }}
     >
       {/* Title bar */}
@@ -360,9 +426,18 @@ function DashboardMockup({
                 {panel.name}
               </div>
               <div className="space-y-2">
-                <div className="h-1.5 rounded-full" style={{ background: `${panel.color}25`, width: '80%' }} />
-                <div className="h-1.5 rounded-full" style={{ background: `${panel.color}1a`, width: '60%' }} />
-                <div className="h-1.5 rounded-full" style={{ background: `${panel.color}12`, width: '45%' }} />
+                <div
+                  className="h-1.5 rounded-full"
+                  style={{ background: `${panel.color}25`, width: '80%' }}
+                />
+                <div
+                  className="h-1.5 rounded-full"
+                  style={{ background: `${panel.color}1a`, width: '60%' }}
+                />
+                <div
+                  className="h-1.5 rounded-full"
+                  style={{ background: `${panel.color}12`, width: '45%' }}
+                />
               </div>
             </div>
           );
@@ -423,16 +498,19 @@ function Transcript({ visibleLines }: { visibleLines: TranscriptLine[] }) {
             style={{
               opacity: isOldest ? 0.3 : isLatest ? 1 : 0.7,
               transform: isOldest ? 'translateY(-4px) scale(0.95)' : undefined,
-              animation: isLatest ? 'transcript-appear 0.7s cubic-bezier(0.22, 1, 0.36, 1)' : undefined,
+              animation: isLatest
+                ? 'transcript-appear 0.7s cubic-bezier(0.22, 1, 0.36, 1)'
+                : undefined,
             }}
           >
             {line.speaker !== 'system' && (
               <span
                 className="text-xs font-mono tracking-wider uppercase mb-1 block"
                 style={{
-                  color: line.speaker === 'doctor'
-                    ? 'rgba(200, 210, 230, 0.4)'
-                    : 'rgba(200, 210, 230, 0.25)',
+                  color:
+                    line.speaker === 'doctor'
+                      ? 'rgba(200, 210, 230, 0.4)'
+                      : 'rgba(200, 210, 230, 0.25)',
                 }}
               >
                 {line.speaker === 'doctor' ? 'Dr. Reyes' : 'Patient'}
@@ -510,7 +588,8 @@ export default function VoiceCinematic() {
     const scrollableHeight = cachedHeightRef.current;
     if (scrollableHeight <= 0) return;
 
-    const inView = rect.top <= window.innerHeight * 0.5 && rect.bottom >= window.innerHeight;
+    const inView =
+      rect.top <= window.innerHeight * 0.5 && rect.bottom >= window.innerHeight;
     const scrolled = -rect.top;
     const p = Math.max(-0.12, Math.min(1, scrolled / scrollableHeight));
 
@@ -526,70 +605,81 @@ export default function VoiceCinematic() {
     if (!inView) return;
 
     // ── Compute derived values ────────────────────────
-    const orbOpacity = p < 0.08
-      ? p / 0.08
-      : p > 0.92
-        ? (1 - p) / 0.08
-        : 1;
-    const orbScale = p < 0.08
-      ? 0.6 + (p / 0.08) * 0.4
-      : p > 0.92
-        ? 1 - ((p - 0.92) / 0.08) * 0.4
-        : 1;
-    const dashOpacity = p < 0.02
-      ? 0
-      : p < 0.12
-        ? (p - 0.02) / 0.10
-        : p > 0.96
-          ? 0
-          : p > 0.88
-            ? (0.96 - p) / 0.08
-            : 1;
-    const transcriptOpacity = p < 0.04
-      ? 0
-      : p < 0.12
-        ? (p - 0.04) / 0.08
+    const orbOpacity = p < 0.08 ? p / 0.08 : p > 0.92 ? (1 - p) / 0.08 : 1;
+    const orbScale =
+      p < 0.08
+        ? 0.6 + (p / 0.08) * 0.4
         : p > 0.92
-          ? 0
-          : p > 0.86
-            ? (0.92 - p) / 0.06
-            : 1;
-    const headerOpacity = p < -0.04
-      ? Math.max(0, (p + 0.12) / 0.08)
-      : p < 0.10
-        ? 1
-        : Math.max(0, 1 - (p - 0.10) / 0.06);
-    const bgOpacity = p < -0.04
-      ? Math.max(0, (p + 0.12) / 0.08)
-      : p < 0.02
-        ? lerp(0.6, 1, (p + 0.04) / 0.06)
-        : p > 0.94
-          ? (1 - p) / 0.06
+          ? 1 - ((p - 0.92) / 0.08) * 0.4
           : 1;
+    const dashOpacity =
+      p < 0.02
+        ? 0
+        : p < 0.12
+          ? (p - 0.02) / 0.1
+          : p > 0.96
+            ? 0
+            : p > 0.88
+              ? (0.96 - p) / 0.08
+              : 1;
+    const transcriptOpacity =
+      p < 0.04
+        ? 0
+        : p < 0.12
+          ? (p - 0.04) / 0.08
+          : p > 0.92
+            ? 0
+            : p > 0.86
+              ? (0.92 - p) / 0.06
+              : 1;
+    const headerOpacity =
+      p < -0.04
+        ? Math.max(0, (p + 0.12) / 0.08)
+        : p < 0.1
+          ? 1
+          : Math.max(0, 1 - (p - 0.1) / 0.06);
+    const bgOpacity =
+      p < -0.04
+        ? Math.max(0, (p + 0.12) / 0.08)
+        : p < 0.02
+          ? lerp(0.6, 1, (p + 0.04) / 0.06)
+          : p > 0.94
+            ? (1 - p) / 0.06
+            : 1;
     const glowOffset = p * 30;
 
     // ── Apply to DOM directly ─────────────────────────
-    if (overlayRef.current) overlayRef.current.style.opacity = String(Math.max(0, bgOpacity));
-    if (headerRef.current) headerRef.current.style.opacity = String(headerOpacity);
+    if (overlayRef.current)
+      overlayRef.current.style.opacity = String(Math.max(0, bgOpacity));
+    if (headerRef.current)
+      headerRef.current.style.opacity = String(headerOpacity);
     if (orbWrapRef.current) {
       orbWrapRef.current.style.opacity = String(orbOpacity);
       orbWrapRef.current.style.transform = `scale(${orbScale})`;
     }
-    if (dashWrapRef.current) dashWrapRef.current.style.opacity = String(dashOpacity);
-    if (transcriptWrapRef.current) transcriptWrapRef.current.style.opacity = String(transcriptOpacity);
-    if (progressBarRef.current) progressBarRef.current.style.width = `${Math.max(0, p) * 100}%`;
+    if (dashWrapRef.current)
+      dashWrapRef.current.style.opacity = String(dashOpacity);
+    if (transcriptWrapRef.current)
+      transcriptWrapRef.current.style.opacity = String(transcriptOpacity);
+    if (progressBarRef.current)
+      progressBarRef.current.style.width = `${Math.max(0, p) * 100}%`;
 
     // Stars parallax (no CSS transition — scroll handler provides smooth updates)
-    if (starsRef.current) starsRef.current.style.transform = `translateY(${glowOffset * 0.5}px)`;
+    if (starsRef.current)
+      starsRef.current.style.transform = `translateY(${glowOffset * 0.5}px)`;
 
     // Desktop glow blobs — animate via transform only
-    if (glow1Ref.current) glow1Ref.current.style.transform = `translate3d(${glowOffset * 0.6}px, ${glowOffset * 0.9}px, 0)`;
-    if (glow2Ref.current) glow2Ref.current.style.transform = `translate3d(${-glowOffset * 0.3}px, ${-glowOffset * 0.6}px, 0)`;
-    if (glow3Ref.current) glow3Ref.current.style.transform = `translate3d(0, ${glowOffset * 0.45}px, 0)`;
+    if (glow1Ref.current)
+      glow1Ref.current.style.transform = `translate3d(${glowOffset * 0.6}px, ${glowOffset * 0.9}px, 0)`;
+    if (glow2Ref.current)
+      glow2Ref.current.style.transform = `translate3d(${-glowOffset * 0.3}px, ${-glowOffset * 0.6}px, 0)`;
+    if (glow3Ref.current)
+      glow3Ref.current.style.transform = `translate3d(0, ${glowOffset * 0.45}px, 0)`;
 
     // Caustic opacity
     if (causticRef.current) {
-      causticRef.current.style.opacity = orbStateRef.current === 'responding' ? '0.8' : '0.3';
+      causticRef.current.style.opacity =
+        orbStateRef.current === 'responding' ? '0.8' : '0.3';
     }
 
     // ── Discrete updates (React re-render only at keyframe thresholds) ──
@@ -619,7 +709,8 @@ export default function VoiceCinematic() {
       ref={containerRef}
       className="relative h-[320vh] md:h-[400vh]"
       style={{
-        background: 'linear-gradient(to bottom, var(--color-ocean) 0%, var(--color-deep) 20%, var(--color-deep) 80%, var(--color-ocean) 100%)',
+        background:
+          'linear-gradient(to bottom, var(--color-ocean) 0%, var(--color-deep) 20%, var(--color-deep) 80%, var(--color-ocean) 100%)',
       }}
     >
       {/* Always rendered — visibility toggled via ref (no mount/unmount churn) */}
@@ -632,7 +723,8 @@ export default function VoiceCinematic() {
         <div
           className="absolute inset-0"
           style={{
-            background: 'linear-gradient(to bottom, var(--color-ocean) 0%, #0a1630 20%, var(--color-deep) 50%, #0a1630 80%, var(--color-ocean) 100%)',
+            background:
+              'linear-gradient(to bottom, var(--color-ocean) 0%, #0a1630 20%, var(--color-deep) 50%, #0a1630 80%, var(--color-ocean) 100%)',
           }}
         />
 
@@ -658,7 +750,8 @@ export default function VoiceCinematic() {
         />
 
         {/* Ambient glow — mobile: static radial gradients (no blur filter) */}
-        <div className="absolute inset-0 pointer-events-none md:hidden"
+        <div
+          className="absolute inset-0 pointer-events-none md:hidden"
           style={{
             background: `
               radial-gradient(600px 600px at 15% 25%, rgba(0, 240, 255, 0.02), transparent 70%),
@@ -710,7 +803,8 @@ export default function VoiceCinematic() {
             right: '5%',
             width: '50%',
             height: '40%',
-            background: 'radial-gradient(ellipse at 50% 50%, rgba(0, 240, 255, 0.02), transparent 70%)',
+            background:
+              'radial-gradient(ellipse at 50% 50%, rgba(0, 240, 255, 0.02), transparent 70%)',
             opacity: 0.3,
             transition: 'opacity 1s ease',
           }}
@@ -772,7 +866,8 @@ export default function VoiceCinematic() {
                 className="h-full rounded-full"
                 style={{
                   width: '0%',
-                  background: 'linear-gradient(to right, rgba(0,240,255,0.3), rgba(0,102,255,0.5))',
+                  background:
+                    'linear-gradient(to right, rgba(0,240,255,0.3), rgba(0,102,255,0.5))',
                 }}
               />
             </div>

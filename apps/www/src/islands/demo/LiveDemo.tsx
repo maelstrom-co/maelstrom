@@ -1,91 +1,18 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { DemoConnector, DEMO_STEPS } from './connector';
+import { type DemoRenderState, MaelstromDemo } from '../shared/MaelstromDemo';
+import { useIsMobile } from '../shared/useIsMobile';
+import { createDemoConnector } from './connector';
 import { m } from './maelstrom';
 
-// ── Demo UI (uses useMaelstrom for real orchestrator integration) ────
+// ── Chrome (presentational; playback state comes from MaelstromDemo) ──
 
-function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
-  const { processIntent, isProcessing, connectionStatus } = m.useMaelstrom();
-  const [typedText, setTypedText] = useState('');
-  const [phase, setPhase] = useState<'idle' | 'typing' | 'processing' | 'rearranged'>('idle');
-  const [rationale, setRationale] = useState<string | null>(null);
-  const initializedRef = useRef(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const phaseRef = useRef(phase);
-  phaseRef.current = phase;
-
-  // Use refs for callbacks to avoid effect dependency churn when
-  // MaelstromProvider swaps orchestrators (StrictMode, remounts)
-  const processIntentRef = useRef(processIntent);
-  processIntentRef.current = processIntent;
-  const onRequestResetRef = useRef(onRequestReset);
-  onRequestResetRef.current = onRequestReset;
-
-  const cleanup = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-  }, []);
-
-  const typeAndProcess = useCallback((prompt: string, stepIndex: number, onDone: () => void) => {
-    setTypedText('');
-    setPhase('typing');
-
-    let i = 0;
-    intervalRef.current = setInterval(() => {
-      i++;
-      setTypedText(prompt.slice(0, i));
-      if (i >= prompt.length) {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        timeoutRef.current = setTimeout(async () => {
-          setPhase('processing');
-          await processIntentRef.current(prompt);
-          setRationale(DEMO_STEPS[stepIndex].rationale);
-          onDone();
-        }, 500);
-      }
-    }, 40);
-  }, []);
-
-  const runDemo = useCallback(() => {
-    if (phaseRef.current !== 'idle') return;
-
-    // Step 1: type + process first prompt
-    typeAndProcess(DEMO_STEPS[1].prompt!, 1, () => {
-      setPhase('rearranged');
-
-      // Step 2: after a pause, type + process second prompt
-      timeoutRef.current = setTimeout(() => {
-        typeAndProcess(DEMO_STEPS[2].prompt!, 2, () => {
-          setPhase('rearranged');
-          // Auto-replay after showing final state
-          timeoutRef.current = setTimeout(() => onRequestResetRef.current(), 6000);
-        });
-      }, 3000);
-    });
-  }, [typeAndProcess]);
-
-  // Wait for orchestrator to be connected before initializing the demo.
-  // MaelstromProvider creates a fresh orchestrator in useEffect (for StrictMode),
-  // so we yield briefly to let React settle all state updates before calling
-  // processIntent on the final orchestrator instance.
-  useEffect(() => {
-    if (connectionStatus !== 'connected' || initializedRef.current) return;
-    initializedRef.current = true;
-
-    const initTimer = setTimeout(() => {
-      processIntentRef.current('show dashboard')
-        .then(() => {
-          timeoutRef.current = setTimeout(runDemo, 1500);
-        })
-        .catch(() => {
-          console.warn('[LiveDemo] Failed to initialize demo');
-        });
-    }, 100);
-
-    return () => { clearTimeout(initTimer); cleanup(); };
-  }, [connectionStatus, runDemo, cleanup]);
-
+function DemoChrome({
+  typedText,
+  phase,
+  rationale,
+  isProcessing,
+  replay,
+  Chart,
+}: DemoRenderState) {
   const showRationale = phase === 'rearranged' && rationale;
 
   return (
@@ -96,30 +23,61 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
         style={{
           background: 'rgba(5, 12, 25, 0.8)',
           border: '1px solid rgba(255, 255, 255, 0.06)',
-          boxShadow: '0 25px 80px rgba(0, 0, 0, 0.5), 0 0 120px rgba(0, 240, 255, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+          boxShadow:
+            '0 25px 80px rgba(0, 0, 0, 0.5), 0 0 120px rgba(0, 145, 255, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
         }}
       >
         {/* Top edge highlight */}
-        <div className="absolute top-0 inset-x-0 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.12), transparent)' }} />
+        <div
+          className="absolute top-0 inset-x-0 h-px"
+          style={{
+            background:
+              'linear-gradient(90deg, transparent, rgba(0, 145, 255, 0.12), transparent)',
+          }}
+        />
 
         {/* Browser chrome */}
-        <div className="flex items-center gap-3 px-5 py-3" style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
+        <div
+          className="flex items-center gap-3 px-5 py-3"
+          style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}
+        >
           <div className="flex gap-2">
-            <div className="w-2.5 h-2.5 rounded-full" style={{ background: 'rgba(255, 95, 87, 0.35)' }} />
-            <div className="w-2.5 h-2.5 rounded-full" style={{ background: 'rgba(255, 189, 46, 0.25)' }} />
-            <div className="w-2.5 h-2.5 rounded-full" style={{ background: 'rgba(39, 201, 63, 0.25)' }} />
+            <div
+              className="w-2.5 h-2.5 rounded-full"
+              style={{ background: 'rgba(255, 95, 87, 0.35)' }}
+            />
+            <div
+              className="w-2.5 h-2.5 rounded-full"
+              style={{ background: 'rgba(255, 189, 46, 0.25)' }}
+            />
+            <div
+              className="w-2.5 h-2.5 rounded-full"
+              style={{ background: 'rgba(39, 201, 63, 0.25)' }}
+            />
           </div>
           <div className="flex-1 flex justify-center">
             <div
               className="px-5 py-1 rounded-md text-[10px] text-text-muted/40 font-mono flex items-center gap-2"
-              style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)' }}
+              style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.06)',
+              }}
             >
-              <svg className="w-2.5 h-2.5 opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <svg
+                className="w-2.5 h-2.5 opacity-30"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
               app.example.com/dashboard
             </div>
           </div>
           <div className="flex items-center gap-1.5 text-[9px] font-mono text-text-muted/40">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/60 animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[#2BD46B]/60 animate-pulse" />
             live
           </div>
         </div>
@@ -129,22 +87,31 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
           <button
             type="button"
             onClick={() => {
-              if (phase === 'rearranged') onRequestReset();
-              else if (phase === 'idle') runDemo();
+              if (phase === 'rearranged') replay();
             }}
             className="w-full px-3 py-2.5 md:px-4 md:py-3 rounded-xl font-mono text-xs md:text-sm flex items-center gap-2.5 md:gap-3 cursor-pointer transition-all duration-300 focus:outline-none"
             style={{
               background: 'rgba(10, 30, 53, 0.6)',
-              border: `1px solid rgba(0, 240, 255, ${phase === 'typing' || phase === 'processing' ? '0.15' : '0.06'})`,
-              boxShadow: phase === 'typing' || phase === 'processing'
-                ? 'inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 0 20px rgba(0, 240, 255, 0.05)'
-                : 'inset 0 1px 0 rgba(255, 255, 255, 0.03)',
+              border: `1px solid rgba(0, 145, 255, ${phase === 'typing' || phase === 'processing' ? '0.15' : '0.06'})`,
+              boxShadow:
+                phase === 'typing' || phase === 'processing'
+                  ? 'inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 0 20px rgba(0, 145, 255, 0.05)'
+                  : 'inset 0 1px 0 rgba(255, 255, 255, 0.03)',
               color: 'var(--color-text)',
               transition: 'border-color 0.3s, box-shadow 0.3s',
             }}
           >
             {/* Mic icon */}
-            <svg className={`w-4 h-4 shrink-0 transition-colors duration-300 ${phase === 'typing' ? 'text-cyan/60' : 'text-cyan/25'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg
+              className={`w-4 h-4 shrink-0 transition-colors duration-300 ${phase === 'typing' ? 'text-[#0091FF]/60' : 'text-[#0091FF]/25'}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
               <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
               <line x1="12" y1="19" x2="12" y2="23" />
@@ -154,7 +121,9 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
               <span className="flex-1 min-w-0 truncate">
                 {typedText}
                 {phase === 'typing' && (
-                  <span className="ml-0.5 text-cyan animate-blink-cursor">|</span>
+                  <span className="ml-0.5 text-[#0091FF] animate-blink-cursor">
+                    |
+                  </span>
                 )}
               </span>
             ) : (
@@ -165,20 +134,20 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
 
             {isProcessing && (
               <span className="shrink-0">
-                <span className="inline-block w-4 h-4 border-2 border-cyan/40 border-t-transparent rounded-full animate-spin" />
+                <span className="inline-block w-4 h-4 border-2 border-[#0091FF]/40 border-t-transparent rounded-full animate-spin" />
               </span>
             )}
           </button>
         </div>
 
         {/* Dashboard area */}
-        <div className="relative px-4 pb-4" style={{ aspectRatio: '3 / 2' }}>
+        <div className="relative px-4 pb-4 h-[440px] min-[980px]:h-auto min-[980px]:aspect-[3/2]">
           {isProcessing && (
             <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
               {[0, 1, 2].map((i) => (
                 <div
                   key={i}
-                  className="absolute rounded-full border border-cyan/10"
+                  className="absolute rounded-full border border-[#0091FF]/10"
                   style={{
                     width: `${60 + i * 40}px`,
                     height: `${60 + i * 40}px`,
@@ -187,49 +156,78 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
                   }}
                 />
               ))}
-              <div className="absolute w-2.5 h-2.5 rounded-full bg-cyan/25 animate-pulse" />
+              <div className="absolute w-2.5 h-2.5 rounded-full bg-[#0091FF]/25 animate-pulse" />
             </div>
           )}
 
-          <m.Chart style={{ backgroundColor: 'transparent' }} />
+          <Chart style={{ backgroundColor: 'transparent' }} />
         </div>
       </div>
 
       {/* AI Rationale */}
-      <div className="mt-5 px-5 py-4 rounded-xl transition-all duration-500" style={{
-        background: showRationale ? 'rgba(10, 30, 53, 0.5)' : 'transparent',
-        border: showRationale ? '1px solid rgba(0, 240, 255, 0.1)' : '1px solid transparent',
-        boxShadow: showRationale ? '0 0 40px rgba(0, 240, 255, 0.04)' : 'none',
-        opacity: showRationale ? 1 : 0,
-        transform: showRationale ? 'translateY(0)' : 'translateY(4px)',
-        visibility: showRationale ? 'visible' as const : 'hidden' as const,
-      }}>
+      <div
+        className="mt-5 px-5 py-4 rounded-xl transition-all duration-500"
+        style={{
+          background: showRationale ? 'rgba(10, 30, 53, 0.5)' : 'transparent',
+          border: showRationale
+            ? '1px solid rgba(0, 145, 255, 0.1)'
+            : '1px solid transparent',
+          boxShadow: showRationale
+            ? '0 0 40px rgba(0, 145, 255, 0.04)'
+            : 'none',
+          opacity: showRationale ? 1 : 0,
+          transform: showRationale ? 'translateY(0)' : 'translateY(4px)',
+          visibility: showRationale
+            ? ('visible' as const)
+            : ('hidden' as const),
+        }}
+      >
         <div className="flex items-start gap-3">
           <div className="shrink-0 mt-0.5">
-            <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ background: 'rgba(0, 240, 255, 0.1)', border: '1px solid rgba(0, 240, 255, 0.2)' }}>
-              <svg className="w-3 h-3 text-cyan/80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <div
+              className="w-5 h-5 rounded-md flex items-center justify-center"
+              style={{
+                background: 'rgba(0, 145, 255, 0.1)',
+                border: '1px solid rgba(0, 145, 255, 0.2)',
+              }}
+            >
+              <svg
+                className="w-3 h-3 text-[#0091FF]/80"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
                 <path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93V12h2.5a2.75 2.75 0 0 1 2.75 2.75v1.5A2.75 2.75 0 0 1 15.25 19H12v3" />
                 <path d="M8.75 19A2.75 2.75 0 0 1 6 16.25v-1.5A2.75 2.75 0 0 1 8.75 12h2.5V9.93A4.001 4.001 0 0 1 8 6a4 4 0 0 1 4-4" />
               </svg>
             </div>
           </div>
           <p className="text-xs text-text-muted font-mono leading-relaxed">
-            <span className="text-cyan/70 mr-1">reasoning</span>
-            {rationale ?? '\u00A0'}
+            <span className="text-[#0091FF]/70 mr-1">reasoning</span>
+            {rationale ?? ' '}
           </p>
         </div>
       </div>
 
       {/* Replay */}
-      <div className="mt-4 text-center transition-all duration-300" style={{
-        opacity: phase === 'rearranged' ? 1 : 0,
-        transform: phase === 'rearranged' ? 'translateY(0)' : 'translateY(4px)',
-        visibility: phase === 'rearranged' ? 'visible' as const : 'hidden' as const,
-      }}>
+      <div
+        className="mt-4 text-center transition-all duration-300"
+        style={{
+          opacity: phase === 'rearranged' ? 1 : 0,
+          transform:
+            phase === 'rearranged' ? 'translateY(0)' : 'translateY(4px)',
+          visibility:
+            phase === 'rearranged' ? ('visible' as const) : ('hidden' as const),
+        }}
+      >
         <button
           type="button"
-          onClick={onRequestReset}
-          className="text-sm text-text-muted/60 hover:text-cyan transition-colors duration-300 cursor-pointer font-mono"
+          onClick={replay}
+          className="text-sm text-text-muted/60 hover:text-[#0091FF] transition-colors duration-300 cursor-pointer font-mono"
         >
           ↻ Replay demo
         </button>
@@ -241,14 +239,17 @@ function DemoUI({ onRequestReset }: { onRequestReset: () => void }) {
 // ── Entry Point (Astro island) ──────────────────────────────────────
 
 export default function LiveDemo() {
-  // Incrementing the key remounts MaelstromProvider with a fresh
-  // orchestrator + connector, giving a clean reset for each demo cycle
-  const [cycleKey, setCycleKey] = useState(0);
-  const connector = useMemo(() => new DemoConnector(), [cycleKey]);
-
+  const isMobile = useIsMobile();
   return (
-    <m.Provider key={cycleKey} connector={connector} layoutMode="tiling" tilingPaddingPx={4}>
-      <DemoUI onRequestReset={() => setCycleKey((k) => k + 1)} />
-    </m.Provider>
+    <MaelstromDemo
+      // Remount when crossing the breakpoint so the connector emits the matching
+      // (2D vs single-column) layouts immediately.
+      key={isMobile ? 'mobile' : 'desktop'}
+      m={m}
+      createConnector={() => createDemoConnector(isMobile)}
+      initialIntent="show dashboard"
+    >
+      {(state) => <DemoChrome {...state} />}
+    </MaelstromDemo>
   );
 }

@@ -36,11 +36,23 @@ export interface OrbKeyframe {
 // ── Data ─────────────────────────────────────────────────────────────────
 
 export const transcript: TranscriptLine[] = [
-  { speaker: 'doctor', text: '"How long have you had the chest pain?"', at: 0.10 },
+  {
+    speaker: 'doctor',
+    text: '"How long have you had the chest pain?"',
+    at: 0.1,
+  },
   { speaker: 'patient', text: '"About two weeks, mostly at night."', at: 0.22 },
-  { speaker: 'system', text: 'Showing cardiac history + recent labs.', at: 0.34 },
-  { speaker: 'doctor', text: '"Any family history of heart disease?"', at: 0.50 },
-  { speaker: 'patient', text: '"My father had a bypass at 55."', at: 0.60 },
+  {
+    speaker: 'system',
+    text: 'Showing cardiac history + recent labs.',
+    at: 0.34,
+  },
+  {
+    speaker: 'doctor',
+    text: '"Any family history of heart disease?"',
+    at: 0.5,
+  },
+  { speaker: 'patient', text: '"My father had a bypass at 55."', at: 0.6 },
   { speaker: 'system', text: 'Flagging hereditary risk factors.', at: 0.72 },
 ];
 
@@ -92,10 +104,10 @@ export const dashboardKeyframes: DashboardKeyframe[] = [
 
 export const orbKeyframes: OrbKeyframe[] = [
   { at: 0, state: 'idle' },
-  { at: 0.10, state: 'listening' },
+  { at: 0.1, state: 'listening' },
   { at: 0.32, state: 'responding' },
   { at: 0.42, state: 'idle' },
-  { at: 0.50, state: 'listening' },
-  { at: 0.70, state: 'responding' },
+  { at: 0.5, state: 'listening' },
+  { at: 0.7, state: 'responding' },
   { at: 0.84, state: 'idle' },
 ];

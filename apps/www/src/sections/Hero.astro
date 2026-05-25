@@ -1,272 +1,99 @@
 ---
-import Button from '../components/Button.astro';
-import HeroMaelstrom from '../islands/HeroMaelstrom.tsx';
+import CopyButton from '../components/CopyButton.astro';
+import { GITHUB_REPO_URL, INSTALL_COMMAND } from '../data/navigation';
+import HeroDemo from '../islands/hero/HeroDemo';
+
+const DOCS_URL = 'https://docs.maelstrom-ai.co';
+
+// Fetch the live star count at build time. On failure (offline build, API rate
+// limit, or the repo being private to unauthenticated builds) we fall back to a
+// known minimum rather than show a stale/fake number.
+const STAR_COUNT_FALLBACK = '1';
+async function getStarCount(): Promise<string> {
+  try {
+    const apiUrl = GITHUB_REPO_URL.replace(
+      'https://github.com/',
+      'https://api.github.com/repos/',
+    );
+    const res = await fetch(apiUrl, {
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    if (!res.ok) {
+      // A private repo legitimately 404s for unauthenticated builds, but this
+      // also covers 401 (bad token), 403 (rate limit), 5xx — warn so a broken
+      // CI build doesn't silently ship the fallback.
+      console.warn(
+        `[Hero] GitHub stars fetch returned ${res.status}; using fallback`,
+      );
+      return STAR_COUNT_FALLBACK;
+    }
+    const data = (await res.json()) as { stargazers_count?: number };
+    const count = data.stargazers_count;
+    if (typeof count !== 'number') {
+      console.warn(
+        '[Hero] GitHub stars response missing stargazers_count; using fallback',
+      );
+      return STAR_COUNT_FALLBACK;
+    }
+    return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
+  } catch (err) {
+    console.warn('[Hero] GitHub stars fetch failed; using fallback', err);
+    return STAR_COUNT_FALLBACK;
+  }
+}
+const starCount = await getStarCount();
 ---
-
-<section id="hero" class="relative min-h-screen overflow-hidden">
-  <!-- Layered background for depth -->
-  <div class="absolute inset-0 hero-bg" />
-
-  <svg class="absolute w-0 h-0" aria-hidden="true">
-    <filter id="caustic-distortion">
-      <feTurbulence type="turbulence" baseFrequency="0.01 0.02" numOctaves="3" seed="2">
-        <animate attributeName="baseFrequency" values="0.01 0.02;0.015 0.025;0.01 0.02" dur="10s" repeatCount="indefinite" />
-      </feTurbulence>
-      <feDisplacementMap in="SourceGraphic" scale="8" />
-    </filter>
-  </svg>
-
-  <!-- Stars (parallax layer — moves slower) -->
-  <div class="stars absolute inset-0 pointer-events-none parallax-stars" aria-hidden="true" />
-
-  <!-- Gradient mesh blobs for atmosphere -->
-  <div class="absolute inset-0 pointer-events-none parallax-glow" aria-hidden="true">
-    <div class="absolute top-[15%] left-[10%] w-[500px] h-[500px] rounded-full bg-blue/[0.03] blur-[150px]" />
-    <div class="absolute top-[60%] right-[5%] w-[400px] h-[400px] rounded-full bg-violet/[0.04] blur-[130px]" />
-    <div class="absolute top-[35%] right-[30%] w-[700px] h-[700px] rounded-full bg-cyan/[0.025] blur-[180px] animate-pulse-glow" />
-  </div>
-
-  <!-- Caustic light effects -->
-  <div class="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none">
-    <div class="caustic-layer caustic-1 absolute inset-0 opacity-15" />
-    <div class="caustic-layer caustic-2 absolute inset-0 opacity-10" />
-  </div>
-
-  <!-- Deep ocean maelstrom — full screen atmospheric canvas -->
-  <HeroMaelstrom client:load />
-
-  <!-- Content — asymmetric split on desktop -->
-  <div class="relative z-10 min-h-screen flex items-center hero-content-fade">
-    <div class="w-full max-w-7xl mx-auto px-6 md:px-16">
-      <div class="md:max-w-[55%]">
-        <!-- Badge -->
-        <div class="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full hero-badge text-xs font-mono text-cyan/90 mb-10" data-hero-reveal data-delay="0">
-          <span class="w-1.5 h-1.5 rounded-full bg-cyan animate-pulse" />
-          Open Source
+<section class="hero">
+  <div class="container hero-inner">
+    <div class="hero-left">
+      <div class="hero-eyebrow">
+        <span class="hero-pill">
+          <span class="hero-pill-dot"></span>
+          v0.4 — public alpha now live
+        </span>
+      </div>
+      <h1 class="hero-h1">
+        <span class="line">Interfaces that</span>
+        <span class="line accent">orchestrate</span>
+        <span class="line">themselves.</span>
+      </h1>
+      <p class="hero-sub">
+        Maelstrom is the orchestration layer for AI-native interfaces. Describe your
+        components — vessels, states, actions — and an LLM arranges them in real-time
+        around user intent.
+      </p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href={GITHUB_REPO_URL} target="_blank" rel="noopener noreferrer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.5 2 2 6.6 2 12.3c0 4.5 2.9 8.4 6.8 9.8.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.4-3.4-1.4-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.7-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.3 9.3 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10.3 10.3 0 0 0 22 12.3C22 6.6 17.5 2 12 2z"/>
+          </svg>
+          Star on GitHub
+          <span class="star-count">{starCount}</span>
+        </a>
+        <a class="btn btn-ghost" href={DOCS_URL} target="_blank" rel="noopener noreferrer">
+          Read the docs
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M13 6l6 6-6 6"/>
+          </svg>
+        </a>
+      </div>
+      <div class="hero-install">
+        <div class="hero-install-bar">
+          <div class="dot r"></div>
+          <div class="dot y"></div>
+          <div class="dot g"></div>
         </div>
-
-        <h1 class="font-display text-[2.75rem] sm:text-6xl md:text-7xl lg:text-8xl xl:text-[6.5rem] font-black tracking-[-0.03em] mb-10 leading-[1.02]" data-hero-reveal data-delay="1">
-          <span class="text-text">Your App</span><br />
-          <span class="text-text">Should </span>
-          <span class="bg-linear-to-r from-cyan via-blue to-violet bg-clip-text text-transparent hero-gradient-text">
-            Listen.
+        <div class="hero-install-row">
+          <span class="prompt">$</span>
+          <span class="cmd">
+            <span style="color: #2BD46B;">npm</span> install <span style="color: #62C7FF;">@maelstrom-co/react</span>
           </span>
-        </h1>
-
-        <p class="text-xl md:text-2xl lg:text-[1.625rem] text-text/60 max-w-lg mb-12 leading-relaxed" data-hero-reveal data-delay="2">
-          Voice-driven UI, orchestrated by AI.
-        </p>
-
-        <div class="flex flex-col sm:flex-row gap-4" data-hero-reveal data-delay="3">
-          <Button href="https://github.com/maelstrom-co" variant="primary" class="hero-btn-primary">
-            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-            </svg>
-            Star on GitHub
-          </Button>
-        </div>
-
-        <!-- CLI quick-start -->
-        <div class="mt-8" data-hero-reveal data-delay="4">
-          <button
-            class="cli-copy group inline-flex items-center gap-3 px-5 py-3 rounded-xl glass-premium hover:border-cyan/30 transition-all duration-300 cursor-pointer"
-            data-command="npm install @maelstrom-co/react"
-          >
-            <code class="text-sm font-mono text-white/80">
-              <span class="text-cyan/50 select-none">$ </span>npm install @maelstrom-co/react
-            </code>
-            <svg class="w-4 h-4 text-white/30 group-hover:text-cyan/60 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-            <span class="cli-tooltip absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-white text-abyss text-xs font-sans opacity-0 pointer-events-none transition-opacity duration-150" role="status" aria-live="polite">Copied!</span>
-          </button>
+          <CopyButton text={INSTALL_COMMAND} />
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- Scroll indicator -->
-  <div class="absolute bottom-8 left-1/2 -translate-x-1/2 z-10" aria-hidden="true" data-hero-reveal data-delay="4">
-    <div class="w-5 h-8 rounded-full border border-text-muted/20 flex justify-center pt-1.5">
-      <div class="w-1 h-2 rounded-full bg-cyan/50 animate-scroll-dot" />
+    <div class="hero-right">
+      <HeroDemo client:idle />
     </div>
   </div>
 </section>
-
-<style>
-  /* ── Background ─────────────────────────────────────────────── */
-  .hero-bg {
-    background:
-      radial-gradient(ellipse 80% 60% at 70% 50%, rgba(0, 240, 255, 0.03), transparent),
-      radial-gradient(ellipse 60% 80% at 30% 60%, rgba(0, 102, 255, 0.02), transparent),
-      linear-gradient(to bottom, #050810 0%, #0a1230 25%, #0e2040 50%, var(--color-ocean) 100%);
-  }
-
-  /* ── Glass panels ───────────────────────────────────────────── */
-  .glass-subtle {
-    background: rgba(15, 43, 74, 0.3);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(0, 240, 255, 0.1);
-  }
-
-  /* ── Hero badge ─────────────────────────────────────────────── */
-  .hero-badge {
-    position: relative;
-    background: rgba(0, 240, 255, 0.04);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(0, 240, 255, 0.12);
-    box-shadow: 0 0 20px rgba(0, 240, 255, 0.05);
-  }
-
-  /* ── Gradient text glow ─────────────────────────────────────── */
-  .hero-gradient-text {
-    filter: drop-shadow(0 0 40px rgba(0, 240, 255, 0.25))
-            drop-shadow(0 0 80px rgba(0, 102, 255, 0.12));
-  }
-
-  /* ── Button upgrades ────────────────────────────────────────── */
-  .hero-btn-primary {
-    box-shadow:
-      0 0 20px rgba(0, 102, 255, 0.3),
-      0 0 60px rgba(0, 102, 255, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(0, 240, 255, 0.15);
-  }
-
-  .hero-btn-primary:hover {
-    box-shadow:
-      0 0 40px rgba(0, 102, 255, 0.5),
-      0 0 80px rgba(0, 102, 255, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    border-color: rgba(0, 240, 255, 0.3);
-  }
-
-  .hero-btn-secondary {
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.06),
-      0 0 30px rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .hero-btn-secondary:hover {
-    box-shadow:
-      0 0 30px rgba(0, 240, 255, 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    background: rgba(0, 240, 255, 0.05);
-  }
-
-  /* ── Stars ──────────────────────────────────────────────────── */
-  .stars {
-    background-image:
-      radial-gradient(1px 1px at 10% 15%, white, transparent),
-      radial-gradient(1.5px 1.5px at 25% 35%, white, transparent),
-      radial-gradient(1px 1px at 40% 10%, rgba(255,255,255,0.8), transparent),
-      radial-gradient(1.5px 1.5px at 55% 45%, white, transparent),
-      radial-gradient(1px 1px at 70% 20%, rgba(255,255,255,0.7), transparent),
-      radial-gradient(1px 1px at 85% 40%, white, transparent),
-      radial-gradient(1.5px 1.5px at 15% 60%, rgba(255,255,255,0.9), transparent),
-      radial-gradient(1px 1px at 35% 75%, white, transparent),
-      radial-gradient(1px 1px at 50% 55%, rgba(255,255,255,0.6), transparent),
-      radial-gradient(1.5px 1.5px at 65% 70%, white, transparent),
-      radial-gradient(1px 1px at 80% 60%, rgba(255,255,255,0.8), transparent),
-      radial-gradient(1px 1px at 92% 25%, white, transparent),
-      radial-gradient(2px 2px at 30% 25%, rgba(200,220,255,0.9), transparent),
-      radial-gradient(2px 2px at 60% 15%, rgba(200,220,255,0.8), transparent),
-      radial-gradient(1px 1px at 20% 48%, white, transparent),
-      radial-gradient(1.5px 1.5px at 48% 30%, white, transparent);
-    animation: stars-twinkle 6s ease-in-out infinite alternate;
-  }
-
-  @keyframes stars-twinkle {
-    0% { opacity: 0.5; }
-    100% { opacity: 1; }
-  }
-
-  /* ── Ambient glow ───────────────────────────────────────────── */
-  @keyframes animate-pulse-glow {
-    0%, 100% { opacity: 0.5; transform: scale(1); }
-    50% { opacity: 0.8; transform: scale(1.05); }
-  }
-
-  .animate-pulse-glow {
-    animation: animate-pulse-glow 6s ease-in-out infinite;
-  }
-
-  /* ── Scroll dot ─────────────────────────────────────────────── */
-  @keyframes scroll-dot {
-    0% { opacity: 1; transform: translateY(0); }
-    50% { opacity: 0.2; transform: translateY(6px); }
-    100% { opacity: 1; transform: translateY(0); }
-  }
-
-  .animate-scroll-dot {
-    animation: scroll-dot 2s ease-in-out infinite;
-  }
-
-  /* ── Caustics ───────────────────────────────────────────────── */
-  .caustic-1 {
-    background:
-      radial-gradient(ellipse 600px 400px at 30% 40%, rgba(0, 240, 255, 0.08), transparent),
-      radial-gradient(ellipse 500px 300px at 70% 60%, rgba(0, 102, 255, 0.06), transparent);
-    animation: caustic-1 8s ease-in-out infinite alternate;
-  }
-
-  .caustic-2 {
-    background:
-      radial-gradient(ellipse 400px 300px at 50% 30%, rgba(0, 240, 255, 0.06), transparent),
-      radial-gradient(ellipse 350px 250px at 20% 70%, rgba(0, 102, 255, 0.04), transparent);
-    animation: caustic-2 12s ease-in-out infinite alternate;
-    filter: url(#caustic-distortion);
-  }
-
-  @keyframes caustic-1 {
-    0% { transform: translate(0, 0) scale(1); }
-    100% { transform: translate(20px, -10px) scale(1.05); }
-  }
-
-  @keyframes caustic-2 {
-    0% { transform: translate(0, 0) scale(1); }
-    100% { transform: translate(-15px, 12px) scale(1.03); }
-  }
-
-  .cli-copy { position: relative; }
-
-  @media (prefers-reduced-motion: reduce) {
-    .caustic-1, .caustic-2 { animation: none; }
-    .caustic-2 { filter: none; }
-    .stars { animation: none; }
-    .animate-pulse-glow { animation: none; }
-    .animate-scroll-dot { animation: none; }
-  }
-</style>
-
-<script>
-  // CLI copy
-  document.querySelector('.cli-copy')?.addEventListener('click', async (e) => {
-    const btn = (e.currentTarget as HTMLElement);
-    const command = btn.dataset.command;
-    if (!command) return;
-    const tooltip = btn.querySelector('.cli-tooltip') as HTMLElement;
-    try {
-      await navigator.clipboard.writeText(command);
-    } catch {
-      if (tooltip) {
-        tooltip.textContent = 'Press Ctrl+C';
-        tooltip.style.opacity = '1';
-        setTimeout(() => { tooltip.style.opacity = '0'; tooltip.textContent = 'Copied!'; }, 2000);
-      }
-      return;
-    }
-    if (tooltip) {
-      tooltip.style.opacity = '1';
-      setTimeout(() => { tooltip.style.opacity = '0'; }, 1500);
-    }
-  });
-
-  // Parallax handled by CSS animation-timeline: scroll()
-</script>

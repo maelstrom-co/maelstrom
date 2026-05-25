@@ -1,30 +1,25 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import Cloud from '../sections/Cloud.astro';
+import Demo from '../sections/Demo.astro';
+import FAQ from '../sections/FAQ.astro';
+import Footer from '../sections/Footer.astro';
 import Hero from '../sections/Hero.astro';
 import HowItWorks from '../sections/HowItWorks.astro';
-import Demo from '../sections/Demo.astro';
-import Voice from '../sections/Voice.astro';
-import Cloud from '../sections/Cloud.astro';
-import Footer from '../sections/Footer.astro';
 ---
 
-<Layout title="Maelstrom — AI-Powered Voice UI Framework for React" description="Open-source framework where language models orchestrate your UI. Voice-driven interfaces, dynamic layouts, and intelligent component arrangement — all from natural language.">
+<Layout title="Maelstrom — Interfaces that orchestrate themselves" description="Maelstrom is the orchestration layer for AI-native interfaces. Describe your components — vessels, states, actions — and an LLM arranges them in real-time around user intent.">
   <main>
     <Hero />
 
-    <Voice />
+    <HowItWorks />
 
-    <div style="overflow-x: clip; background: linear-gradient(to bottom, var(--color-ocean) 0%, var(--color-ocean) 10%, var(--color-deep) 45%, var(--color-abyss) 80%, var(--color-abyss) 100%);">
-      <HowItWorks />
+    <Demo />
 
-      <div class="section-separator" aria-hidden="true" />
+    <Cloud />
 
-      <Demo />
+    <FAQ />
 
-      <div class="section-separator" aria-hidden="true" />
-
-      <Cloud />
-      <Footer />
-    </div>
+    <Footer />
   </main>
 </Layout>

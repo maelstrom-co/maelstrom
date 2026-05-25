@@ -45,8 +45,7 @@ const toChartRequestMessage = (
   request: ChartRequest,
   sessionId: SessionId = DEFAULT_SESSION_ID,
   id: MessageId = DEFAULT_MESSAGE_ID,
-): ChartRequestMessage =>
-  ChartRequestMessage({ sessionId, id, request });
+): ChartRequestMessage => ChartRequestMessage({ sessionId, id, request });
 
 afterEach(() => {
   mockChat.mockReset();

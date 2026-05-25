@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import {
-  transcript,
   allPanels,
-  panelMap,
   dashboardKeyframes,
   orbKeyframes,
+  panelMap,
+  transcript,
 } from './data';
 
 describe('voice cinematic data', () => {
@@ -19,8 +19,10 @@ describe('voice cinematic data', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('panelMap contains all panels', () => {
-    expect(panelMap.size).toBe(allPanels.length);
+  it('panelMap resolves each panel id back to its panel', () => {
+    for (const panel of allPanels) {
+      expect(panelMap.get(panel.id)).toBe(panel);
+    }
   });
 
   it('dashboard keyframes reference only valid panel IDs', () => {
@@ -33,7 +35,9 @@ describe('voice cinematic data', () => {
 
   it('dashboard keyframes have ascending at values', () => {
     for (let i = 1; i < dashboardKeyframes.length; i++) {
-      expect(dashboardKeyframes[i].at).toBeGreaterThan(dashboardKeyframes[i - 1].at);
+      expect(dashboardKeyframes[i].at).toBeGreaterThan(
+        dashboardKeyframes[i - 1].at,
+      );
     }
   });
 

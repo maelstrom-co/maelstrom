@@ -1,10 +1,9 @@
 export const prerender = false;
 
-import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
+import type { APIRoute } from 'astro';
 import { Resend } from 'resend';
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { validateWaitlistEmail } from '../../lib/waitlist';
 
 export const POST: APIRoute = async ({ request }) => {
   const resend = new Resend(env.RESEND_API_KEY);
@@ -13,36 +12,47 @@ export const POST: APIRoute = async ({ request }) => {
   try {
     body = await request.json();
   } catch {
-    return new Response(
-      JSON.stringify({ error: 'Invalid request body' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } },
-    );
-  }
-
-  const { email } = body;
-
-  if (!email || typeof email !== 'string' || !EMAIL_RE.test(email)) {
-    return new Response(JSON.stringify({ error: 'A valid email is required' }), {
+    return new Response(JSON.stringify({ error: 'Invalid request body' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
+  const validation = validateWaitlistEmail(body);
+  if (!validation.ok) {
+    return new Response(JSON.stringify({ error: validation.error }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  const email = validation.email;
+
   try {
     const { error } = await resend.contacts.create({ email });
 
     if (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      console.error('[waitlist] Resend contacts.create failed:', error);
+      return new Response(
+        JSON.stringify({
+          error: 'Could not add you to the waitlist. Please try again.',
+        }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     }
 
     if (SEGMENT_ID) {
+      // Contact creation is the source of truth; segment membership is
+      // best-effort, so a failed segment add must not fail the signup.
       try {
         await resend.contacts.segments.add({ email, segmentId: SEGMENT_ID });
       } catch (segmentErr) {
-        console.error('[waitlist] Failed to add contact to segment:', segmentErr);
+        console.error(
+          '[waitlist] Failed to add contact to segment:',
+          segmentErr,
+        );
       }
     }
 
@@ -52,12 +62,9 @@ export const POST: APIRoute = async ({ request }) => {
     });
   } catch (err) {
     console.error('[waitlist] Unhandled error:', err);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      },
-    );
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 };

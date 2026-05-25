@@ -10,14 +10,22 @@ export const weatherVessel = defineVessel({
       props: {},
       minSize: { width: 3, height: 2 },
       actions: [
-        { name: 'expand', description: 'Show full weather forecast', transitionsTo: 'full' },
+        {
+          name: 'expand',
+          description: 'Show full weather forecast',
+          transitionsTo: 'full',
+        },
       ],
     },
     full: {
       props: {},
       minSize: { width: 3, height: 4 },
       actions: [
-        { name: 'collapse', description: 'Show compact weather', transitionsTo: 'compact' },
+        {
+          name: 'collapse',
+          description: 'Show compact weather',
+          transitionsTo: 'compact',
+        },
       ],
     },
   },

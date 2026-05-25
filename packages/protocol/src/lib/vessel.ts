@@ -46,7 +46,10 @@ export const VesselSchema = z
       .min(1, 'defaultVariant is required')
       .transform(VariantName),
     variants: z.record(
-      z.string().min(1, 'Variant name must be non-empty').transform(VariantName),
+      z
+        .string()
+        .min(1, 'Variant name must be non-empty')
+        .transform(VariantName),
       VesselVariantSchema,
     ),
   })

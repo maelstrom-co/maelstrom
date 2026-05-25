@@ -23,11 +23,7 @@ export default defineConfig({
       formats: ['es' as const],
     },
     rollupOptions: {
-      external: [
-        '@maelstrom-co/protocol',
-        '@tanstack/ai',
-        'zod',
-      ],
+      external: ['@maelstrom-co/protocol', '@tanstack/ai', 'zod'],
     },
   },
 });
