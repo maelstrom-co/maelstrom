@@ -1,6 +1,6 @@
 import { type DemoRenderState, MaelstromDemo } from '../shared/MaelstromDemo';
 import { useIsMobile } from '../shared/useIsMobile';
-import { createHeroConnector, HERO_SCRIPT } from './connector';
+import { createHeroConnector } from './connector';
 import { mHero } from './maelstrom';
 
 // Fixed chart height on every breakpoint — a real app gives the engine a bounded
@@ -66,7 +66,6 @@ export default function HeroDemo() {
       m={mHero}
       createConnector={() => createHeroConnector(isMobile)}
       initialIntent="show dashboard"
-      script={HERO_SCRIPT}
     >
       {(state) => <HeroChrome {...state} />}
     </MaelstromDemo>

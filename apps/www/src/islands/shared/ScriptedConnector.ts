@@ -25,10 +25,45 @@ export interface ScriptedStep {
 }
 
 /**
+ * A scripted step minus its layout — the breakpoint-independent metadata
+ * (prompt, messages, actions). Each connector pairs one list of these with its
+ * per-breakpoint layouts via {@link buildScriptedSteps}.
+ */
+export type StepMeta = Omit<ScriptedStep, 'layout'>;
+
+/** A non-empty step list, so `process` always has a step to return. */
+export type ScriptedSteps = readonly [ScriptedStep, ...ScriptedStep[]];
+
+/**
+ * Pair breakpoint-independent step metadata with per-breakpoint layouts. The two
+ * lists are positional and must be the same non-zero length; a mismatch throws
+ * rather than silently yielding a step with an undefined layout.
+ */
+export function buildScriptedSteps(
+  meta: readonly StepMeta[],
+  layouts: readonly TilingLayout[],
+): ScriptedSteps {
+  if (meta.length === 0) {
+    throw new Error('buildScriptedSteps: needs at least one step');
+  }
+  if (meta.length !== layouts.length) {
+    throw new Error(
+      `buildScriptedSteps: ${meta.length} steps need ${meta.length} layouts, got ${layouts.length}`,
+    );
+  }
+  // Safe: the guards above prove the result is the same non-zero length as meta.
+  return meta.map((m, i) => ({
+    ...m,
+    layout: layouts[i],
+  })) as unknown as ScriptedSteps;
+}
+
+/**
  * Deterministic connector that replays a fixed list of steps in order — one per
  * request — with a simulated engine delay on non-initial calls. Shared by the
  * site's scripted demos (hero, "See It In Action"); each supplies its own steps
- * and vessels.
+ * and vessels. `steps` is exposed so the demo driver can derive its typed script
+ * from the same source it replays (no separate, desyncable script list).
  */
 export class ScriptedConnector implements EngineConnector {
   readonly capabilities: ConnectorCapabilities = {
@@ -39,7 +74,7 @@ export class ScriptedConnector implements EngineConnector {
   private requestCount = 0;
 
   constructor(
-    private readonly steps: readonly ScriptedStep[],
+    readonly steps: ScriptedSteps,
     private readonly delayMs = 1200,
   ) {}
 

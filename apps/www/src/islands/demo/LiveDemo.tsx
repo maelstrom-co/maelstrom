@@ -1,13 +1,7 @@
 import { type DemoRenderState, MaelstromDemo } from '../shared/MaelstromDemo';
 import { useIsMobile } from '../shared/useIsMobile';
-import { createDemoConnector, DEMO_STEPS } from './connector';
+import { createDemoConnector } from './connector';
 import { m } from './maelstrom';
-
-// Prompts + rationales replayed by the demo, aligned with the demo connector's
-// step order (step 0 is the initial 'show dashboard' layout).
-const SCRIPT = DEMO_STEPS.flatMap((step) =>
-  step.prompt ? [{ prompt: step.prompt, rationale: step.rationale }] : [],
-);
 
 // ── Chrome (presentational; playback state comes from MaelstromDemo) ──
 
@@ -254,7 +248,6 @@ export default function LiveDemo() {
       m={m}
       createConnector={() => createDemoConnector(isMobile)}
       initialIntent="show dashboard"
-      script={SCRIPT}
     >
       {(state) => <DemoChrome {...state} />}
     </MaelstromDemo>

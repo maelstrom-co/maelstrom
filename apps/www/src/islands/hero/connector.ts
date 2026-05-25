@@ -4,10 +4,10 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
-import type { DemoScriptStep } from '../shared/MaelstromDemo';
 import {
+  buildScriptedSteps,
   ScriptedConnector,
-  type ScriptedStep,
+  type StepMeta,
 } from '../shared/ScriptedConnector';
 
 const LAB = InstanceId('hero-lab');
@@ -95,46 +95,35 @@ const MOBILE_LAYOUTS: TilingLayout[] = [
   stacked(apptsDefault, medsDefault), // appointments + medications
 ];
 
-type StepMeta = { prompt?: string; userMessage: string; rationale: string };
-
+// Prompts/messages/actions are layout-independent; only the tiling differs per
+// breakpoint, so steps are assembled from this shared metadata + the layouts.
 const STEP_META: StepMeta[] = [
-  { userMessage: 'Your health dashboard.', rationale: 'Opening overview.' },
+  {
+    userMessage: 'Your health dashboard.',
+    rationale: 'Opening overview.',
+    executionPlan: [],
+  },
   {
     prompt: 'show me my lab results',
     userMessage: 'Here are your latest lab results.',
     rationale: 'Brought labs forward with the glucose trend.',
+    executionPlan: [],
   },
   {
     prompt: 'check my vitals',
     userMessage: 'Your latest vitals.',
     rationale: 'Spread vitals across the top for a quick read.',
+    executionPlan: [],
   },
   {
     prompt: 'what are my appointments this week',
     userMessage: "Here's what's coming up.",
     rationale: 'Expanded your upcoming appointments.',
+    executionPlan: [],
   },
 ];
 
-const buildSteps = (layouts: TilingLayout[]): ScriptedStep[] => {
-  if (layouts.length !== STEP_META.length) {
-    throw new Error(
-      `buildSteps: expected ${STEP_META.length} layouts, got ${layouts.length}`,
-    );
-  }
-  return STEP_META.map((meta, i) => ({
-    ...meta,
-    executionPlan: [],
-    layout: layouts[i],
-  }));
-};
-
-export const createHeroConnector = (isMobile = false) =>
+export const createHeroConnector = (isMobile = false): ScriptedConnector =>
   new ScriptedConnector(
-    buildSteps(isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS),
+    buildScriptedSteps(STEP_META, isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS),
   );
-
-/** Prompts + rationales for MaelstromDemo — every step that carries a prompt. */
-export const HERO_SCRIPT: DemoScriptStep[] = STEP_META.flatMap((meta) =>
-  meta.prompt ? [{ prompt: meta.prompt, rationale: meta.rationale }] : [],
-);

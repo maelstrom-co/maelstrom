@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { ScriptedConnector, ScriptedStep } from './ScriptedConnector';
 
 /**
  * The slice of a Maelstrom instance the demo engine drives. Every site instance
@@ -32,6 +33,13 @@ export interface DemoScriptStep {
   rationale: string;
 }
 
+/** Derive the typed playback script from the connector's steps (single source). */
+function deriveScript(steps: readonly ScriptedStep[]): DemoScriptStep[] {
+  return steps.flatMap((step) =>
+    step.prompt ? [{ prompt: step.prompt, rationale: step.rationale }] : [],
+  );
+}
+
 /** Playback state handed to the chrome render-prop on every render. */
 export interface DemoRenderState {
   typedText: string;
@@ -46,12 +54,14 @@ export interface DemoRenderState {
 
 export interface MaelstromDemoProps {
   m: DemoMaelstrom;
-  /** Fresh connector per cycle — called again on each replay for a clean reset. */
-  createConnector: () => MaelstromProviderProps['connector'];
+  /**
+   * Fresh connector per cycle — called again on each replay for a clean reset.
+   * The playback script is derived from the connector's own steps, so prompts
+   * and layouts can't drift out of order.
+   */
+  createConnector: () => ScriptedConnector;
   /** Intent fired once on connect to render the opening layout (e.g. 'show dashboard'). */
   initialIntent?: string;
-  /** Ordered turns to replay. Order must align with the connector's step order. */
-  script: DemoScriptStep[];
   layoutMode?: MaelstromProviderProps['layoutMode'];
   tilingPaddingPx?: number;
   children: (state: DemoRenderState) => ReactNode;
@@ -75,7 +85,6 @@ export function MaelstromDemo({
   m,
   createConnector,
   initialIntent,
-  script,
   layoutMode = 'tiling',
   tilingPaddingPx = 4,
   children,
@@ -86,6 +95,7 @@ export function MaelstromDemo({
   const createConnectorRef = useRef(createConnector);
   createConnectorRef.current = createConnector;
   const connector = useMemo(() => createConnectorRef.current(), [cycleKey]);
+  const script = useMemo(() => deriveScript(connector.steps), [connector]);
 
   const { Provider } = m;
   return (

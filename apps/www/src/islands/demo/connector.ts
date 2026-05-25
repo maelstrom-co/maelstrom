@@ -6,8 +6,9 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import {
+  buildScriptedSteps,
   ScriptedConnector,
-  type ScriptedStep,
+  type StepMeta,
 } from '../shared/ScriptedConnector';
 
 const WEATHER_ID = InstanceId('weather-1');
@@ -90,8 +91,6 @@ const MOBILE_LAYOUTS: TilingLayout[] = [
 
 // Prompts/rationales/actions are layout-independent; only the tiling differs per
 // breakpoint, so the steps are assembled from this shared metadata.
-type StepMeta = Omit<ScriptedStep, 'layout'>;
-
 const STEP_META: StepMeta[] = [
   { userMessage: '', rationale: 'Initial layout', executionPlan: [] },
   {
@@ -116,20 +115,11 @@ const STEP_META: StepMeta[] = [
   },
 ];
 
-const buildSteps = (layouts: TilingLayout[]): ScriptedStep[] => {
-  if (layouts.length !== STEP_META.length) {
-    throw new Error(
-      `buildSteps: expected ${STEP_META.length} layouts, got ${layouts.length}`,
-    );
-  }
-  return STEP_META.map((meta, i) => ({ ...meta, layout: layouts[i] }));
-};
-
 /** Build a demo connector whose layouts match the breakpoint. */
 export const createDemoConnector = (isMobile = false): ScriptedConnector =>
   new ScriptedConnector(
-    buildSteps(isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS),
+    buildScriptedSteps(STEP_META, isMobile ? MOBILE_LAYOUTS : DESKTOP_LAYOUTS),
   );
 
-/** Desktop steps — exposed for the script driver's prompts/rationales and tests. */
-export const DEMO_STEPS: ScriptedStep[] = buildSteps(DESKTOP_LAYOUTS);
+/** Desktop steps — exposed for tests. */
+export const DEMO_STEPS = buildScriptedSteps(STEP_META, DESKTOP_LAYOUTS);
