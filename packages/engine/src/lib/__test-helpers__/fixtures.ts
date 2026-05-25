@@ -12,7 +12,12 @@ import type {
   VesselInstanceSnapshot,
   VesselVariant,
 } from '@maelstrom-co/protocol';
-import { ActionName, InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  InstanceId,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { Logger } from '../logger.js';
@@ -213,10 +218,11 @@ const brandLayout = (
     ? { type: 'grid', positions: layout.positions.map(brandGridPosition) }
     : {
         type: 'tiling',
-        tree: layout.tree.map((node): TilingNode =>
-          node === null || node === 'H' || node === 'V'
-            ? node
-            : InstanceId(node),
+        tree: layout.tree.map(
+          (node): TilingNode =>
+            node === null || node === 'H' || node === 'V'
+              ? node
+              : InstanceId(node),
         ),
         instances: layout.instances.map(brandTilingInstance),
       };
@@ -411,11 +417,10 @@ const brandActionExecution = (
   ...(exec.paramsJson !== undefined ? { paramsJson: exec.paramsJson } : {}),
 });
 
-const brandTilingTree = (
-  tree: ReadonlyArray<AuthorTilingNode>,
-): TilingNode[] =>
-  tree.map((node): TilingNode =>
-    node === null || node === 'H' || node === 'V' ? node : InstanceId(node),
+const brandTilingTree = (tree: ReadonlyArray<AuthorTilingNode>): TilingNode[] =>
+  tree.map(
+    (node): TilingNode =>
+      node === null || node === 'H' || node === 'V' ? node : InstanceId(node),
   );
 
 /** Brands a complete grid LLM-output author shape into a typed `GridResponse`. */
@@ -474,14 +479,22 @@ export function buildGridResponse(
 // ---------------------------------------------------------------------------
 
 export type AuthorSkippedAction =
-  | { readonly reason: 'unknown_instance'; readonly instanceId: string; readonly action: string }
+  | {
+      readonly reason: 'unknown_instance';
+      readonly instanceId: string;
+      readonly action: string;
+    }
   | {
       readonly reason: 'unknown_vessel';
       readonly instanceId: string;
       readonly action: string;
       readonly vesselId: string;
     }
-  | { readonly reason: 'no_simulated_variant'; readonly instanceId: string; readonly action: string }
+  | {
+      readonly reason: 'no_simulated_variant';
+      readonly instanceId: string;
+      readonly action: string;
+    }
   | {
       readonly reason: 'variant_not_on_vessel';
       readonly instanceId: string;

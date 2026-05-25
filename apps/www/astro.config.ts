@@ -24,18 +24,14 @@ export default defineConfig({
   srcDir: './src',
   outDir: './dist',
   fonts: [
+    // A single Inter face serves both body and headings — global.css points
+    // --font-sans and --font-display at this one variable, so it's one Google
+    // fetch with the union of weights (was two overlapping Inter entries).
     {
       provider: fontProviders.google(),
       name: 'Inter',
       cssVariable: '--font-heading',
       weights: [400, 500, 600, 700],
-      fallbacks: ['system-ui', 'sans-serif'],
-    },
-    {
-      provider: fontProviders.google(),
-      name: 'Inter',
-      cssVariable: '--font-body',
-      weights: [400, 500, 600],
       fallbacks: ['system-ui', 'sans-serif'],
     },
     {

@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { ChartRequest } from '@maelstrom-co/protocol';
-import { ActionName, InstanceId, isErr, isOk, MessageId } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  InstanceId,
+  isErr,
+  isOk,
+  MessageId,
+} from '@maelstrom-co/protocol';
 import {
   brandGridResponse,
   brandTilingResponse,
@@ -1675,7 +1681,9 @@ describe('processResponse', () => {
       // Only goodAction survives — badTransition is dropped pre-emptively
       // rather than handed to the runtime to crash on.
       expect(result.value.executionPlan).toHaveLength(1);
-      expect(result.value.executionPlan[0].action).toBe(ActionName('goodAction'));
+      expect(result.value.executionPlan[0].action).toBe(
+        ActionName('goodAction'),
+      );
 
       // state_drift diagnostic captures the dropped action with structured fields
       const skipped = result.value.diagnostics.skippedActions;

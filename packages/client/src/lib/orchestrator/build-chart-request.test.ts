@@ -131,7 +131,11 @@ describe('buildChartRequest', () => {
       type: 'tiling' as const,
       tree: [],
       instances: [
-        { instanceId: InstanceId('i-1'), vesselId: VesselId('v-1'), variant: VariantName('default') },
+        {
+          instanceId: InstanceId('i-1'),
+          vesselId: VesselId('v-1'),
+          variant: VariantName('default'),
+        },
       ],
     };
 

@@ -20,7 +20,11 @@ import type { VesselManagerOptions } from './vessel-manager.types.js';
  */
 export type VesselManagerEvents = {
   vessel_registered: { vessel: Vessel; timestamp: number };
-  vessel_unregistered: { vesselId: VesselId; vessel: Vessel; timestamp: number };
+  vessel_unregistered: {
+    vesselId: VesselId;
+    vessel: Vessel;
+    timestamp: number;
+  };
 };
 
 const DEFAULT_OPTIONS = {

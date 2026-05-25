@@ -339,7 +339,11 @@ describe('buildTilingChartState', () => {
         type: 'tiling',
         tree: ['orphan'],
         instances: [
-          { instanceId: 'orphan', vesselId: 'missing-vessel', variant: 'month' },
+          {
+            instanceId: 'orphan',
+            vesselId: 'missing-vessel',
+            variant: 'month',
+          },
         ],
       },
     });

@@ -17,7 +17,9 @@ export const createMockResponse = (
   requestId,
   userMessage: 'ok',
   rationale: 'test',
-  executionPlan: [{ instanceId: InstanceId(instanceId), action: ActionName(action) }],
+  executionPlan: [
+    { instanceId: InstanceId(instanceId), action: ActionName(action) },
+  ],
   layout: createMockLayout(instanceId),
 });
 

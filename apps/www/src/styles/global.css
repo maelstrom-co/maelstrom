@@ -20,7 +20,7 @@
   --color-text-dark: #0a1e35;
   --color-text-dark-muted: #4a6a85;
 
-  --font-sans: var(--font-body, "Inter"), system-ui, sans-serif;
+  --font-sans: var(--font-heading, "Inter"), system-ui, sans-serif;
   --font-mono: var(--font-code, "JetBrains Mono"), monospace;
   --font-display: var(--font-heading, "Inter"), system-ui, sans-serif;
 }
@@ -44,7 +44,7 @@
   --pink: #ff5c8a;
 
   --font-sans:
-    var(--font-body, "Inter"), "SF Pro Display", -apple-system,
+    var(--font-heading, "Inter"), "SF Pro Display", -apple-system,
     BlinkMacSystemFont, system-ui, sans-serif;
   --font-display:
     var(--font-heading, "Inter"), "Inter Tight", -apple-system, system-ui,

@@ -576,7 +576,10 @@ describe('createDemoVoiceWsSessionController', () => {
   test('sends engine.maelstrom.response with envelope id after voiceSession.processRequest resolves', async () => {
     const sendMessage = mock(() => {});
     const sendEngineError = createSendEngineErrorMock();
-    const voiceResponse = createEngineResponse('chart updated', 'voice-generated-uuid');
+    const voiceResponse = createEngineResponse(
+      'chart updated',
+      'voice-generated-uuid',
+    );
     const voiceSession = createVoiceSessionStub();
     voiceSession.processRequest = mock(async () => voiceResponse);
 

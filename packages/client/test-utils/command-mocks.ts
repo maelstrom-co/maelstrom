@@ -20,7 +20,9 @@ export function createExecuteActionsCommand(
 ): Command {
   return {
     kind: 'execute_actions',
-    executionPlan: [{ instanceId: InstanceId(instanceId), action: ActionName(action) }],
+    executionPlan: [
+      { instanceId: InstanceId(instanceId), action: ActionName(action) },
+    ],
   };
 }
 
