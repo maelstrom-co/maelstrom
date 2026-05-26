@@ -303,6 +303,64 @@ The hook forwards `vadOptions` to the browser voice session. The demo intentiona
 
 For a deeper tuning guide and the rationale behind client-owned VAD, read [VAD Configuration](/guides/voice/vad-configuration/).
 
+## Changing STT/TTS language
+
+Yes — language is configurable today, with different knobs for STT and TTS.
+
+### STT language (supported)
+
+At the browser/session layer, set `language` in `m.useVoice({...})`:
+
+```tsx
+const voice = m.useVoice({
+  autoAcquireMic: true,
+  language: 'es-ES',
+});
+```
+
+This value is forwarded to the voice session and then into the STT connect flow. In the current stack:
+
+- `@maelstrom-co/react-voice` forwards `language` into `VoiceSessionConfig.language`
+- `@maelstrom-co/voice` passes that value to `connector.startListening(language, ...)`
+- `@maelstrom-co/voice-server` uses it when connecting STT providers (for example Deepgram and Google STT)
+
+Demo-specific note: the demo WS server also accepts a `language` query parameter (for example `/ws?language=es-ES`) and injects it into `createVoiceSession(...)`.
+
+### TTS language (supported, provider-config driven)
+
+TTS language is set on provider options when constructing the server runtime, for example:
+
+```ts
+const voiceSession = createVoiceSession({
+  stt: {
+    type: 'google',
+    options: { projectId: 'my-project' },
+  },
+  tts: {
+    type: 'google',
+    options: {
+      language: 'es-ES',
+      defaultVoiceName: 'es-ES-Chirp3-HD-Achernar',
+    },
+  },
+  sessionId,
+  language: 'es-ES',
+  buildChartRequest,
+  processIntent,
+});
+```
+
+`cartesia` and `google` TTS providers both expose `language` in provider options.
+
+### Current runtime limitation
+
+The shared `createVoiceSession()` runtime does not currently expose a dedicated per-turn TTS-language switch on its public session API. In practice, that means:
+
+- STT language can be set through session config / connect path.
+- TTS language is primarily selected through provider defaults (and voice choice), then applied during speech synthesis.
+- Changing TTS lang
+uage at runtime generally means reconfiguring/recreating the voice session (or switching to a provider/voice already configured for that language).
+
 ## Voice error handling contract
 
 The detailed `engine.error` payload shape, provider taxonomy, and demo websocket boundary behavior now live in [Voice Errors](/guides/voice/voice-errors/).
