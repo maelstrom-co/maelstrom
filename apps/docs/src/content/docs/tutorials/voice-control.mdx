@@ -9,6 +9,11 @@ import { Aside } from '@astrojs/starlight/components';
   Voice requires the optional `@maelstrom-co/voice` package. See [Installation](/getting-started/installation) for setup.
 </Aside>
 
+<Aside type="tip">
+  New to Maelstrom voice? Follow this tutorial end to end.
+  Already shipping and need decision-level reference? See [Voice Integration](/guides/voice/voice-integration/).
+</Aside>
+
 Voice control in Maelstrom has two halves that work together.
 
 - In the browser, `@maelstrom-co/react-voice` and `@maelstrom-co/voice` handle microphone capture, local VAD, playback, and shared React state.
@@ -58,7 +63,25 @@ export const m = createMaelstrom({
 
 That keeps the voice API on the same typed `m` object as the rest of your Maelstrom app.
 
-## 4. Add the browser voice UI
+## 4. Wrap your app in `m.Provider` with a voice-capable connector
+
+Before `m.useVoice()` runs, render your app inside `m.Provider` with a connector that supports the `voice` capability and forwards audio to your backend runtime.
+
+```tsx
+function HomePage() {
+  const connector = useMemo(() => createVoiceCapableConnector(), []);
+
+  return (
+    <m.Provider connector={connector} debug>
+      <DemoApp />
+    </m.Provider>
+  );
+}
+```
+
+The demo follows this same boundary pattern. In your app, the connector is where browser capture/streaming meets the backend `@maelstrom-co/voice-server` runtime.
+
+## 5. Add the browser voice UI
 
 Keep one component near the shell as the voice owner. That component calls `m.useVoice({ ... })`, creates the session, and chooses options like greeting, VAD tuning, and barge-in behavior.
 
@@ -112,7 +135,7 @@ If multiple components try to own the same session, configuration gets muddy fas
   `VoiceOrb` is a shared state view, not a second voice session. It reflects the same state that `m.useVoice()` owns.
 </Aside>
 
-## 5. Handle the gesture gate
+## 6. Handle the gesture gate
 
 Browser media policy usually blocks microphone access and audio playback until the user clicks something first. In Maelstrom, that shows up as `needsUserGesture`.
 
@@ -162,7 +185,7 @@ That user click is not optional polish. It is how you satisfy browser policy.
 
 If your UI wants to unlock playback early without starting capture yet, call `voice.prepareAudio()` from a user action. If you want the same click to unlock audio and begin listening, call `voice.start()` like the demo does.
 
-## 6. Connect to the backend runtime
+## 7. Connect to the backend runtime
 
 The browser hook does not speak to STT and TTS providers by itself. It connects to a backend runtime, typically over WebSocket, and that backend runtime should be powered by `@maelstrom-co/voice-server`.
 
