@@ -30,7 +30,7 @@ These are the actual fields exposed by the current implementation:
 | --- | --- | --- |
 | `minSpeechDurationSeconds` | `0.05` | Minimum continuous speech before the browser emits `speech_start`. |
 | `minSilenceDurationSeconds` | `0.8` | Minimum continuous silence before the browser emits `speech_end`. |
-| `activationThreshold` | `0.7` | Normal listening speech probability threshold. |
+| `activationThreshold` | `0.7` in low-level `@maelstrom-co/voice`, `0.5` effective default via `m.useVoice()` | Normal listening speech probability threshold. |
 | `preSpeechPaddingSeconds` | `0.3` | Buffered audio preserved before detected speech start. |
 | `maxUserTalkingDurationSeconds` | no low-level VAD default, `VoiceSession` falls back to `60` seconds | Upper bound for one continuous user turn before the session forces a boundary. |
 
@@ -77,7 +77,7 @@ This is one of the most sensitive knobs in the system. If it is too short, users
 
 ### `activationThreshold`
 
-Default: `0.7`
+Default: `0.7` in low-level `@maelstrom-co/voice`; `0.5` effective default in `@maelstrom-co/react-voice` (`m.useVoice()`).
 
 This is the normal listening probability threshold for deciding whether a 32 ms chunk is speech.
 
@@ -85,6 +85,11 @@ This is the normal listening probability threshold for deciding whether a 32 ms 
 - Lower it when users speak quietly or with weak microphone gain.
 
 Higher thresholds are safer in noisy rooms. Lower thresholds are kinder to soft voices. There is no universally correct value because microphone quality and room acoustics dominate this choice.
+
+Layer note:
+
+- If you instantiate the low-level browser runtime directly, the shipped threshold default is `0.7`.
+- If you use the canonical React entry point (`m.useVoice()`), `@maelstrom-co/react-voice` currently forwards `activationThreshold: 0.5` unless you override it.
 
 ### `preSpeechPaddingSeconds`
 
@@ -132,7 +137,12 @@ This is a good pattern to copy. Start with the defaults, change one or two thing
 
 There is an important browser caveat here.
 
-While assistant TTS is playing, the browser VAD raises its live activation threshold to `0.8`. That is higher than the normal default of `0.7`.
+While assistant TTS is playing, the browser VAD raises its live activation threshold to `0.8`.
+
+Compared to defaults:
+
+- Low-level runtime path: `0.7` → `0.8`
+- `m.useVoice()` path: `0.5` → `0.8`
 
 The reason is acoustic echo cancellation, AEC. If the browser leaks assistant playback back into the microphone path, the VAD can mistake TTS output for fresh user speech. Raising the threshold during playback reduces false positives and keeps barge-in usable.
 
@@ -203,7 +213,7 @@ The backend runtime uses fields like these instead:
 
 Those server fields are useful because the backend still has to deal with late STT refinement and transport timing. They are not replacements for client VAD settings, and they should not be documented as if they live in `vadOptions`.
 
-If you need those controls, see the [`@maelstrom-co/voice-server` runtime reference](/reference/voice-server/create-voice-session/).
+If you need those controls, see the [`@maelstrom-co/voice-server` runtime reference](/reference/voice-server/functions/createvoicesession/).
 
 ## Practical tuning workflow
 

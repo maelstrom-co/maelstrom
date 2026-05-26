@@ -69,6 +69,11 @@ Today that means:
 - STT providers: `deepgram`, `google`
 - TTS providers: `cartesia`, `google`
 
+Canonical config references:
+
+- [`STTProviderConfig`](/reference/voice-server/type-aliases/sttproviderconfig/)
+- [`TTSProviderConfig`](/reference/voice-server/type-aliases/ttsproviderconfig/)
+
 This is a practical design choice more than an aesthetic one. The registry keeps provider selection explicit, validates the public config shape in one place, and lets the runtime specialize STT and TTS independently. You can pick the recognizer and the synthesizer that fit your latency, quality, or pricing needs without pretending they have to come from the same vendor.
 
 Errors are normalized the same way. The runtime classifies provider failures into a coarse taxonomy: `auth`, `quota`, `transport`, `parse`, `server`, and `unknown`. That taxonomy crosses the WebSocket boundary instead of raw provider error objects.
