@@ -41,9 +41,11 @@ The client uses a **microkernel architecture**. The `Orchestrator` is the compos
 
 Each manager owns a TanStack Store for reactive state and extends TypedEmitter for events.
 
-## Data flow
+## Voice (optional)
 
-**Voice Integration**: Maelstrom also ships an optional full-stack voice layer. See [Voice Architecture](/understanding/voice-architecture/) for how the browser audio pipeline, client VAD, and server runtime connect.
+Maelstrom also ships an optional full-stack voice layer. See [Voice Architecture](/understanding/voice-architecture/) for how the browser audio pipeline, client VAD, and server runtime connect.
+
+## Data flow
 
 1. User expresses intent (text or voice)
 2. Client packages intent + context into a `ChartRequest`

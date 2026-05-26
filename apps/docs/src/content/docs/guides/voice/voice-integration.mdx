@@ -3,6 +3,8 @@ title: Voice Integration
 description: Add Maelstrom voice end to end, from the React shell and browser session to the backend voice runtime.
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 Complete voice integration in Maelstrom has two halves.
 
 - On the browser side, `@maelstrom-co/react-voice` and `@maelstrom-co/voice` handle microphone capture, local VAD, playback, and the shared React session.
@@ -12,26 +14,30 @@ You need both. The React extension gives you a real browser voice client, but it
 
 If you want the rationale behind that split, read [Voice Architecture](/understanding/voice-architecture/) first. This guide stays focused on the practical adoption path used by the demo app.
 
+<Aside type="tip">
+  First time implementing voice? Follow [Add Voice Control](/tutorials/voice-control/) for the guided step-by-step path.
+</Aside>
+
 ## What this guide builds
 
 By the end of this guide you will have the same core shape the demo uses:
 
-1. install `@maelstrom-co/react-voice`
+1. install `@maelstrom-co/react-voice` and `@maelstrom-co/voice`
 2. extend your Maelstrom instance with `.with(maelstromVoice())`
 3. own the browser voice session with `m.useVoice({...})`
 4. render `<m.VoiceOrb />` so users can see session state
 5. handle `needsUserGesture` with an explicit dialog or button
 6. connect the browser to a backend runtime powered by `@maelstrom-co/voice-server`
 
-## 1. Install the browser package
+## 1. Install the browser packages
 
-Add the React voice extension to the app that already hosts your Maelstrom UI.
+Add the browser voice packages to the app that already hosts your Maelstrom UI.
 
 ```bash
-bun add @maelstrom-co/react-voice
+bun add @maelstrom-co/react-voice @maelstrom-co/voice
 ```
 
-`@maelstrom-co/react-voice` loads the browser runtime from `@maelstrom-co/voice` for you. Keep `@maelstrom-co/voice-server` on the server side, not in the browser bundle.
+`@maelstrom-co/react-voice` dynamically loads the browser runtime from `@maelstrom-co/voice`, but `@maelstrom-co/voice` is still a peer dependency and should be installed explicitly (especially for npm/pnpm/yarn workflows). Keep `@maelstrom-co/voice-server` on the server side, not in the browser bundle.
 
 ## 2. Extend your Maelstrom instance
 
@@ -297,90 +303,16 @@ The hook forwards `vadOptions` to the browser voice session. The demo intentiona
 
 For a deeper tuning guide and the rationale behind client-owned VAD, read [VAD Configuration](/guides/voice/vad-configuration/).
 
-## Voice error contract
+## Voice error handling contract
 
-The demo voice websocket keeps the existing `engine.error` event name.
+The detailed `engine.error` payload shape, provider taxonomy, and demo websocket boundary behavior now live in [Voice Errors](/guides/voice/voice-errors/).
 
-For generic setup or runtime failures, the payload stays in the legacy shape:
-
-```ts
-{
-  type: 'engine.error';
-  sessionId: string;
-  timestamp: number;
-  error: string;
-}
-```
-
-When an STT or TTS provider error crosses the runtime boundary, `engine.error`
-still keeps a verbose, human-readable `error` string. Structured provider
-metadata is optional and additive, it supplements the message and does not
-replace it.
-
-```ts
-{
-  type: 'engine.error';
-  sessionId: string;
-  timestamp: number;
-  error: string;
-  kind?: 'auth' | 'quota' | 'transport' | 'parse' | 'server' | 'unknown';
-  source?: 'stt' | 'tts';
-  provider?: string;
-}
-```
-
-Only these six provider kinds are part of the current contract:
-
-| kind | Meaning |
-| --- | --- |
-| `auth` | Invalid credentials, expired credentials, or permission failures. |
-| `quota` | Usage limits, subscription limits, or credit exhaustion. |
-| `transport` | Connection loss, websocket failures, timeouts, or other network transport issues. |
-| `parse` | Provider payloads that could not be decoded or validated. |
-| `server` | Provider-side 5xx or equivalent upstream service failures. |
-| `unknown` | Any provider error that does not fit the shared buckets above. |
-
-The same taxonomy is shared by both voice provider boundaries:
-
-- `source: 'stt'` identifies Speech-to-Text provider failures such as rejected credentials, streaming transport problems, or malformed transcript payloads.
-- `source: 'tts'` identifies Text-to-Speech provider failures such as rejected credentials, synthesis transport problems, or malformed audio metadata.
-- `provider` names the upstream provider when that detail is available.
-
-These fields stay optional. Clients should treat them as extra context on top of
-the main message string, not as a guaranteed replacement for it.
-
-## Demo websocket boundary behavior
-
-The demo server preserves provider-classified runtime errors on `engine.error`
-without introducing a new event type. It forwards optional `kind`, `source`, and
-`provider` fields only when the runtime error already exposes them. Otherwise,
-it sends the legacy string-only payload.
-
-The `engine.error.error` field is a flattened human-readable message string. If a
-provider error wraps nested causes, the demo websocket flattens that cause chain
-into the serialized message text before sending it to the client.
-
-Raw `cause` objects and stack traces are not serialized over the wire.
-
-That means clients can keep existing message handling and opt into source-specific
-narrowing when metadata is present.
-
-```ts
-if (error.source === 'stt') {
-  console.log('STT provider error', error.kind, error.provider, error.error);
-}
-
-if (error.source === 'tts') {
-  console.log('TTS provider error', error.kind, error.provider, error.error);
-}
-```
-
-If `source` is missing, treat the event as a generic voice setup or runtime
-failure and fall back to the legacy string-only handling path.
+Use that page when you need reference-level error semantics; this guide stays focused on end-to-end integration flow.
 
 ## Next steps
 
 - Read [Voice Architecture](/understanding/voice-architecture/) if you want the design rationale behind the browser and server split.
 - Read [`UseVoiceOptions`](/reference/react-voice/type-aliases/usevoiceoptions/) and [`UseVoiceReturn`](/reference/react-voice/interfaces/usevoicereturn/) for the full `useVoice` surface.
 - Read [Voice Control](/tutorials/voice-control/) if you want the step-by-step adoption path.
+- Read [Voice Errors](/guides/voice/voice-errors/) for the provider error taxonomy and websocket contract details.
 - Read the [`@maelstrom-co/voice-server` runtime reference](/reference/voice-server/functions/createvoicesession/) before configuring providers and runtime timing on the backend.
