@@ -1,96 +1,178 @@
 ---
 title: Quick Start
-description: Get a working Maelstrom app running in minutes.
+description: Get a Maelstrom app running in 5 minutes — one vessel, one intent, one render.
 ---
 
-import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+By the end of this guide you'll have a chart with one vessel, driven by a running Maelstrom engine that interprets a natural-language intent and positions the component on screen.
+
+**Time:** ~5 minutes &nbsp;|&nbsp; **Framework:** React (primary) · Vanilla JS (parallel tabs)
+
+<Aside type="note" title="Prerequisites">
+- Node 20+ or Bun
+- A running Maelstrom engine — the fastest path is `nx serve demo` from a clone of the repo (see Step 2)
+- An LLM provider API key (Google Gemini, OpenAI, or Anthropic) — see [Installation](/getting-started/installation/) for the full matrix
+</Aside>
 
 <Steps>
 
-1. **Install packages**
+1. ## Install packages
 
-   <Tabs syncKey="framework">
-     <TabItem label="React">
-     ```bash
-     npm install @maelstrom-co/react @maelstrom-co/client
-     ```
+   <Tabs syncKey="pkgmgr">
+     <TabItem label="npm">
+     <Tabs syncKey="framework">
+       <TabItem label="React">
+       ```bash
+       npm install @maelstrom-co/react @maelstrom-co/client @maelstrom-co/protocol
+       ```
+       </TabItem>
+       <TabItem label="Vanilla JS">
+       ```bash
+       npm install @maelstrom-co/client @maelstrom-co/protocol
+       ```
+       </TabItem>
+     </Tabs>
      </TabItem>
-     <TabItem label="Vanilla JS">
-     ```bash
-     npm install @maelstrom-co/client
-     ```
+     <TabItem label="bun">
+     <Tabs syncKey="framework">
+       <TabItem label="React">
+       ```bash
+       bun add @maelstrom-co/react @maelstrom-co/client @maelstrom-co/protocol
+       ```
+       </TabItem>
+       <TabItem label="Vanilla JS">
+       ```bash
+       bun add @maelstrom-co/client @maelstrom-co/protocol
+       ```
+       </TabItem>
+     </Tabs>
+     </TabItem>
+     <TabItem label="pnpm">
+     <Tabs syncKey="framework">
+       <TabItem label="React">
+       ```bash
+       pnpm add @maelstrom-co/react @maelstrom-co/client @maelstrom-co/protocol
+       ```
+       </TabItem>
+       <TabItem label="Vanilla JS">
+       ```bash
+       pnpm add @maelstrom-co/client @maelstrom-co/protocol
+       ```
+       </TabItem>
+     </Tabs>
      </TabItem>
    </Tabs>
 
-2. **Define a Vessel**
+   `@maelstrom-co/protocol` provides `defineVessel` and the shared type definitions used by both client and engine. `@maelstrom-co/react` depends on `@maelstrom-co/client`, so for the React path you only need to install `client` separately to get access to the connector classes.
+
+2. ## Get an engine running
+
+   Maelstrom ships with a fully-wired demo engine. Clone the repo and start it:
+
+   ```bash
+   git clone https://github.com/maelstrom-co/maelstrom.git
+   cd maelstrom
+   bun install
+   cp .env.example .env   # add your LLM provider key
+   nx serve demo
+   ```
+
+   This starts two processes:
+   - **TanStack Start dev server** on `http://localhost:3000`
+   - **Maelstrom WebSocket engine** on `ws://localhost:3001/ws`
+
+   Your app connects to `ws://localhost:3001/ws`. Leave this terminal running.
+
+   <Aside type="tip" title="No engine yet?">
+   To test vessel rendering without a live engine, see the [Programmatic Layout guide](/guides/client/programmatic-layout/) — it shows how to drive chart state directly without going through the WebSocket.
+   </Aside>
+
+3. ## Define a Vessel
+
+   A vessel is a state machine: it declares its variants, the minimum grid space each variant needs, and the actions that transition between them. The LLM uses the `description` fields to understand what the vessel does and how to position it.
 
    <Tabs syncKey="framework">
      <TabItem label="React">
-     ```tsx title="vessels/greeting.tsx"
+     ```tsx title="src/vessels/greeting.tsx"
      import { vessel } from '@maelstrom-co/react';
      import { defineVessel } from '@maelstrom-co/protocol';
 
      const greetingDefinition = defineVessel({
        id: 'greeting',
        name: 'Greeting',
-       description: 'Displays a greeting message',
+       description: 'Displays a greeting message to the user.',
        defaultVariant: 'compact',
        variants: {
          compact: {
-           description: 'Short greeting',
+           description: 'Short one-line greeting',
            props: { message: 'Hello!' },
+           // minSize is in grid units, not pixels.
+           // The engine uses this to know how much chart space to allocate.
            minSize: { width: 2, height: 1 },
            actions: [],
          },
        },
      });
 
-     function GreetingComponent({ variantProps }) {
-       return <div>{variantProps.message}</div>;
+     function GreetingComponent({ variantProps }: { variantProps: { message: string } }) {
+       return (
+         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: '1.5rem', fontWeight: 600 }}>
+           {variantProps.message}
+         </div>
+       );
      }
 
      export const greetingVessel = vessel(greetingDefinition, GreetingComponent);
      ```
      </TabItem>
      <TabItem label="Vanilla JS">
-     ```ts title="vessels/greeting.ts"
-     import type { Vessel } from '@maelstrom-co/protocol';
+     ```ts title="src/vessels/greeting.ts"
+     import { defineVessel } from '@maelstrom-co/protocol';
 
-     export const greetingDefinition: Vessel = {
+     export const greetingDefinition = defineVessel({
        id: 'greeting',
        name: 'Greeting',
-       description: 'Displays a greeting message',
+       description: 'Displays a greeting message to the user.',
        defaultVariant: 'compact',
        variants: {
          compact: {
-           description: 'Short greeting',
+           description: 'Short one-line greeting',
            props: { message: 'Hello!' },
            minSize: { width: 2, height: 1 },
            actions: [],
          },
        },
-     };
+     });
 
      export function renderGreeting(container: HTMLElement, props: { message: string }) {
+       container.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;font-size:1.5rem;font-weight:600';
        container.textContent = props.message;
      }
      ```
      </TabItem>
    </Tabs>
 
-3. **Create the app**
+4. ## Wire the Provider
 
    <Tabs syncKey="framework">
      <TabItem label="React">
-     ```tsx title="App.tsx"
+     Create a `WebSocketConnector` pointing at the engine URL from Step 2, then pass it to `m.Provider`:
+
+     ```tsx title="src/App.tsx"
      import { createMaelstrom } from '@maelstrom-co/react';
+     import { WebSocketConnector } from '@maelstrom-co/client';
      import { greetingVessel } from './vessels/greeting';
 
      const m = createMaelstrom({
        vessels: [greetingVessel],
      });
 
-     export function App({ connector }) {
+     const connector = new WebSocketConnector({
+       url: 'ws://localhost:3001/ws',
+     });
+
+     export function App() {
        return (
          <m.Provider connector={connector}>
            <m.Chart className="h-screen" />
@@ -98,32 +180,96 @@ import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
        );
      }
      ```
+
+     `m.Chart` renders the grid canvas. The engine places vessels on it using CSS transforms — you don't manage positions manually.
      </TabItem>
      <TabItem label="Vanilla JS">
-     ```ts title="main.ts"
+     ```ts title="src/main.ts"
      import { Orchestrator, WebSocketConnector } from '@maelstrom-co/client';
-     import { greetingDefinition, renderGreeting } from './vessels/greeting';
+     import { greetingDefinition } from './vessels/greeting';
 
-     const connector = new WebSocketConnector({ url: 'wss://api.example.com/ws' });
+     const connector = new WebSocketConnector({ url: 'ws://localhost:3001/ws' });
      const orchestrator = new Orchestrator(connector);
 
-     // Register vessel definitions
+     // Register every vessel the engine may place on the chart
      orchestrator.vesselManager.registerVessel(greetingDefinition);
 
-     // Set chart dimensions
+     // Tell the engine how many grid columns and rows are available
      orchestrator.chartManager.setDimensions({ columns: 12, rows: 8 });
 
-     // Connect and process user intent
      await orchestrator.connect();
+     ```
+     </TabItem>
+   </Tabs>
+
+5. ## Submit an intent
+
+   <Tabs syncKey="framework">
+     <TabItem label="React">
+     Add a simple input that calls `processIntent`. The `useMaelstrom` hook exposes connection state so you can give the user feedback while the engine is thinking:
+
+     ```tsx title="src/IntentBar.tsx"
+     import { useState } from 'react';
+
+     // m is the instance created in App.tsx — import it or co-locate
+     export function IntentBar() {
+       const { processIntent, connectionStatus, isProcessing } = m.useMaelstrom();
+       const [value, setValue] = useState('');
+
+       return (
+         <form
+           onSubmit={(e) => {
+             e.preventDefault();
+             if (!value.trim()) return;
+             void processIntent(value.trim());
+             setValue('');
+           }}
+           style={{ display: 'flex', gap: 8, padding: 16 }}
+         >
+           <input
+             value={value}
+             onChange={(e) => setValue(e.target.value)}
+             placeholder="Tell the engine what to show…"
+             disabled={connectionStatus !== 'connected' || isProcessing}
+             style={{ flex: 1, border: '1px solid #ccc', borderRadius: 4, padding: '8px 12px' }}
+           />
+           <button type="submit" disabled={isProcessing}>
+             {isProcessing ? 'Thinking…' : 'Send'}
+           </button>
+         </form>
+       );
+     }
+     ```
+
+     Add `<IntentBar />` below `<m.Chart />` in your `App.tsx`.
+     </TabItem>
+     <TabItem label="Vanilla JS">
+     ```ts title="src/main.ts (continued)"
+     // After connecting, submit the intent
      await orchestrator.processIntent('show me a greeting');
      ```
      </TabItem>
    </Tabs>
 
+6. ## What you should see
+
+   Once the engine processes the intent, the greeting vessel appears on the chart at the grid position the engine chose. You'll see `"Hello!"` rendered inside a cell on the screen.
+
+   The engine response includes layout directives — the client applies CSS transforms to position the vessel without you writing any placement code.
+
+   If the vessel doesn't appear, check:
+   - The WebSocket engine is running (`nx serve demo` terminal is still active)
+   - Your `.env` has a valid LLM provider key
+   - The browser console for WebSocket connection errors
+
 </Steps>
 
 ## Next steps
 
-- [Core Concepts](/getting-started/core-concepts) — understand the architecture
-- [Installation](/getting-started/installation) — detailed setup with all options
-- [Build Your First Dashboard](/tutorials/first-dashboard) — full walkthrough
+- [Core Concepts](/getting-started/core-concepts/) — vessels, charts, the engine, and the protocol in depth
+- [Installation](/getting-started/installation/) — full setup matrix for all LLM providers and package managers
+- [Build Your First Dashboard](/tutorials/first-dashboard/) — multi-vessel app with real actions
+- [Voice Control](/tutorials/voice-control/) — add microphone input to any Maelstrom app
+- [React guides](/guides/react/creating-vessels/) — variants, actions, lazy loading, error handling
+- [Client guides](/guides/client/custom-connectors/) — custom connectors, programmatic layout
+- [API Reference](/reference/react/) — full TypeDoc for all packages
