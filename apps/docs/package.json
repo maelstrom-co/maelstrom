@@ -33,6 +33,7 @@
       "@maelstrom-co/engine",
       "@maelstrom-co/client",
       "@maelstrom-co/react",
+      "@maelstrom-co/react-voice",
       "@maelstrom-co/voice",
       "@maelstrom-co/voice-server"
     ],
