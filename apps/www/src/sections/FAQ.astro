@@ -1,28 +1,28 @@
 ---
 const FAQS = [
   {
-    q: 'Does Maelstrom replace my UI components?',
-    a: 'No — it orchestrates them. You bring your existing React components (or a design system); Maelstrom decides which ones to show, in what variant, and where to place them based on user intent.',
+    q: 'Does Maelstrom replace my application UI?',
+    a: 'No — Maelstrom orchestrates the UI you already own. You describe your React components as Vessels, including their states, actions, and size needs; Maelstrom decides what to show and where based on user intent.',
   },
   {
-    q: 'Which LLMs are supported?',
-    a: 'Out of the box: Anthropic, OpenAI, Google, and any OpenAI-compatible endpoint. Bring-your-own provider via the `connector` interface.',
+    q: 'Can we start with existing React components?',
+    a: 'Yes. Wrap your components with the React bindings, declare the variants and actions the AI may use, and keep your business logic in your code. Maelstrom handles orchestration, not component generation.',
   },
   {
-    q: 'Is the layout deterministic?',
-    a: 'The Engine returns a typed `Plan` with explicit positions and variants. You can pin layouts, constrain ranges, or hand-author plans alongside AI-generated ones.',
+    q: 'How does voice fit into the product?',
+    a: 'Voice and text share the same intent flow: the user says or types what they want, then Maelstrom produces the same kind of action and layout plan. The open-source voice packages provide capture, playback, Voice Activity Detection (VAD), and React helpers. Today, the built-in voice providers are Deepgram and Google for speech-to-text (STT), plus Cartesia and Google for text-to-speech (TTS); Maelstrom Cloud adds managed voice with speech-to-text (STT), text-to-speech (TTS), and low-latency Voice Activity Detection (VAD).',
   },
   {
-    q: 'How do I handle streaming?',
-    a: 'Plans stream token-by-token and apply incrementally. Vessels animate into position as the model is still thinking. The user feels response in <300ms.',
+    q: 'Which models and providers can we use?',
+    a: 'Maelstrom is provider-agnostic. The homepage stack targets Anthropic, OpenAI, Google, and OpenAI-compatible endpoints, and the engine adapter model lets you bring your own provider or connector when you need a different runtime.',
   },
   {
-    q: 'What about offline / air-gapped?',
-    a: "Run any local model via the `engine` adapter. We've validated against Llama 3, Qwen, and Mistral on consumer hardware.",
+    q: 'What does Maelstrom control at runtime?',
+    a: 'It chooses valid actions, component variants, and grid positions from the capabilities you declare. Your components still own rendering, data access, permissions, and side effects, so the AI operates inside boundaries you define.',
   },
   {
-    q: 'Open source?',
-    a: 'Yes — `@maelstrom-co/*` packages are MIT. Maelstrom Cloud is an optional managed runtime with paid tiers.',
+    q: 'What is open source, and what is Maelstrom Cloud?',
+    a: 'The `@maelstrom-co/*` packages are MIT-licensed. Maelstrom Cloud is optional managed orchestration for teams that want hosted infrastructure, managed voice, multi-model routing, caching, edge deployment, and analytics without running those pieces themselves.',
   },
 ];
 ---
