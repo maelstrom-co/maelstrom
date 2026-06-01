@@ -3,14 +3,14 @@ title: Voice Integration
 description: Add Maelstrom voice end to end, from the React shell and browser session to the backend voice runtime.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Complete voice integration in Maelstrom has two halves.
 
-- On the browser side, `@maelstrom-co/react-voice` and `@maelstrom-co/voice` handle microphone capture, local VAD, playback, and the shared React session.
-- On the backend side, `@maelstrom-co/voice-server` handles STT, the handoff into the engine, TTS, and the runtime rules around speech delivery.
+- On the browser side, `@maelstrom-co/react-voice` and `@maelstrom-co/voice` handle microphone capture, local Voice Activity Detection (VAD), playback, and the shared React session.
+- On the backend side, `@maelstrom-co/voice-server` handles Speech-to-Text (STT), the handoff into the engine, Text-to-Speech (TTS), and the runtime rules around speech delivery.
 
-You need both. The React extension gives you a real browser voice client, but it does not turn finalized speech into `ChartRequest`s or synthesize the assistant reply by itself.
+You need both. The React package gives you a real browser voice client, but it does not turn finalized speech into `ChartRequest`s or synthesize the assistant reply by itself.
 
 If you want the rationale behind that split, read [Voice Architecture](/understanding/voice-architecture/) first. This guide stays focused on the practical adoption path used by the demo app.
 
@@ -39,9 +39,23 @@ By the end of this guide you will have the same core shape the demo uses:
 
 Add the browser voice packages to the app that already hosts your Maelstrom UI.
 
-```bash
-bun add @maelstrom-co/react-voice @maelstrom-co/voice
-```
+<Tabs>
+  <TabItem label="npm">
+  ```bash
+  npm install @maelstrom-co/react-voice @maelstrom-co/voice
+  ```
+  </TabItem>
+  <TabItem label="bun">
+  ```bash
+  bun add @maelstrom-co/react-voice @maelstrom-co/voice
+  ```
+  </TabItem>
+  <TabItem label="pnpm">
+  ```bash
+  pnpm add @maelstrom-co/react-voice @maelstrom-co/voice
+  ```
+  </TabItem>
+</Tabs>
 
 `@maelstrom-co/react-voice` dynamically loads the browser runtime from `@maelstrom-co/voice`, but `@maelstrom-co/voice` is still a peer dependency and should be installed explicitly (especially for npm/pnpm/yarn workflows). Keep `@maelstrom-co/voice-server` on the server side, not in the browser bundle.
 
