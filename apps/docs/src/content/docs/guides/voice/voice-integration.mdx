@@ -1,40 +1,96 @@
 ---
 title: Voice Integration
-description: Add the demo-style Maelstrom voice flow to an existing app, from the React shell to a backend voice runtime.
+description: Add Maelstrom voice end to end, from the React shell and browser session to the backend voice runtime.
 ---
 
-This guide assumes you already have a working Maelstrom app. It stays on the integrator path the demo uses: browser packages and React ownership on one side, a backend `@maelstrom-co/voice-server` runtime on the other.
+import { Aside } from '@astrojs/starlight/components';
 
-If you want the why behind that split, read [Voice Architecture](/understanding/voice-architecture/). If this is your first voice setup, start with [Add Voice Control](/tutorials/voice-control/).
+Complete voice integration in Maelstrom has two halves.
 
-## What this guide decides
+- On the browser side, `@maelstrom-co/react-voice` and `@maelstrom-co/voice` handle microphone capture, local VAD, playback, and the shared React session.
+- On the backend side, `@maelstrom-co/voice-server` handles STT, the handoff into the engine, TTS, and the runtime rules around speech delivery.
 
-Use this page after the first end to end setup already works. It focuses on the integration decisions the demo makes in real app shells:
+You need both. The React extension gives you a real browser voice client, but it does not turn finalized speech into `ChartRequest`s or synthesize the assistant reply by itself.
 
-1. where the one owning `m.useVoice({...})` call lives
-2. how the shell keeps voice status, typed fallback, and retry UI together
-3. when to start immediately, when to wait for a click, and when to degrade to typed or manual control
-4. which session options are worth changing early, and which backend/runtime details should stay linked out
+If you want the rationale behind that split, read [Voice Architecture](/understanding/voice-architecture/) first. This guide stays focused on the practical adoption path used by the demo app.
 
-## Start from the tutorial baseline
+<Aside type="tip">
+  First time implementing voice? Follow [Add Voice Control](/tutorials/voice-control/) for the guided step-by-step path.
+</Aside>
 
-This guide assumes your app already matches the base setup from [Add Voice Control](/tutorials/voice-control/):
+## What this guide builds
 
-- the browser app has `@maelstrom-co/react-voice` and `@maelstrom-co/voice`
-- your typed Maelstrom instance already uses `.with(maelstromVoice())`
-- `m.Provider` already has a connector that advertises the `voice` capability
+By the end of this guide you will have the same core shape the demo uses:
 
-If any of those are still missing, go back to the tutorial first. The package install note still lives in [packages/voice/README.md](https://github.com/maelstrom-co/maelstrom/blob/main/packages/voice/README.md).
+1. install `@maelstrom-co/react-voice` and `@maelstrom-co/voice`
+2. extend your Maelstrom instance with `.with(maelstromVoice())`
+3. own the browser voice session with `m.useVoice({...})`
+4. render `<m.VoiceOrb />` so users can see session state
+5. handle `needsUserGesture` with an explicit dialog or button
+6. connect the browser to a backend runtime powered by `@maelstrom-co/voice-server`
 
-Keep the boundary simple: the browser session streams audio through the connector, the backend runtime does the STT, intent handoff, and TTS work.
+## 1. Install the browser packages
+
+Add the browser voice packages to the app that already hosts your Maelstrom UI.
+
+```bash
+bun add @maelstrom-co/react-voice @maelstrom-co/voice
+```
+
+`@maelstrom-co/react-voice` dynamically loads the browser runtime from `@maelstrom-co/voice`, but `@maelstrom-co/voice` is still a peer dependency and should be installed explicitly (especially for npm/pnpm/yarn workflows). Keep `@maelstrom-co/voice-server` on the server side, not in the browser bundle.
+
+## 2. Extend your Maelstrom instance
+
+The extension point is `maelstromVoice()`. Apply it once when you create the typed Maelstrom instance.
+
+```tsx
+import { createMaelstrom } from '@maelstrom-co/react';
+import { maelstromVoice } from '@maelstrom-co/react-voice';
+import { calendarEntry } from '../vessels/calendar.vessel';
+import { journalEntry } from '../vessels/journal.vessel';
+import { tasksEntry } from '../vessels/tasks.vessel';
+import { weatherEntry } from '../vessels/weather.vessel';
+
+export const m = createMaelstrom({
+  vessels: [calendarEntry, weatherEntry, journalEntry, tasksEntry],
+}).with(maelstromVoice());
+```
+
+That adds two browser-facing members to the instance:
+
+- `m.useVoice()`, the shared session hook
+- `m.VoiceOrb`, the visual state indicator
+
+Only apply `maelstromVoice()` once per instance. The extension creates a shared voice store, so stacking it more than once creates separate stores and confusing ownership.
+
+## 3. Provide a connector that actually supports voice
+
+The voice extension does not create transport on its own. Your `m.Provider` still needs a connector that advertises the `voice` capability and forwards browser audio to your backend runtime.
+
+The demo does that before any voice hook runs:
+
+```tsx
+function HomePage() {
+  const connector = useMemo(() => createDemoConnector(), []);
+
+  return (
+    <m.Provider connector={connector} debug>
+      <DemoApp />
+    </m.Provider>
+  );
+}
+```
+
+In your app, that connector is the boundary between the browser session and the server runtime. The browser side should stream audio to a backend process that runs `@maelstrom-co/voice-server`.
+
+For backend setup details, see:
 
 - [`createVoiceSession()`](/reference/voice-server/functions/createvoicesession/)
 - [Voice Server API Reference](/reference/voice-server/)
-- [Voice Architecture](/understanding/voice-architecture/)
 
-## Own the session with `m.useVoice({...})`
+## 4. Own the session with `m.useVoice({...})`
 
-Keep one owner component near the app shell. That component creates the session, chooses the setup options, and renders the visible voice status.
+The demo keeps one owner component near the app shell. That component creates the session, chooses the language and VAD behavior, and decides whether barge-in is allowed.
 
 ```tsx
 function DemoApp() {
@@ -57,7 +113,6 @@ function DemoApp() {
             <h1 className="text-xl font-bold text-white">Maelstrom Demo</h1>
             <p className="text-sm text-gray-400">AI-Orchestrated Dynamic UI</p>
           </div>
-
           <div className="flex items-center gap-3">
             <m.VoiceOrb size={40} />
             <StatusIndicator />
@@ -70,31 +125,24 @@ function DemoApp() {
       </main>
 
       <IntentInput />
-
-      {voice.needsUserGesture && (
-        <EnableVoiceDialog
-          onEnable={() => {
-            void voice.start();
-          }}
-          voiceState={voice.state}
-        />
-      )}
     </div>
   );
 }
 ```
 
-This is the demo's core ownership shape. The same component owns the session, surfaces status, and keeps the typed fallback in reach.
+This is the call shape that makes the component the session owner. Other components can still observe the same session state by calling `m.useVoice()` with no options.
 
-### One owner, many observers
+### Why the owner pattern exists
 
-Pass options in one place only. `m.useVoice({...})` creates the owner session. `m.useVoice()` with no options is the observer path for any other component that just needs shared state or actions.
+There should be one component responsible for session configuration. If multiple components try to create the same browser voice session with different options, microphone state, callbacks, and error handling become impossible to reason about.
 
-That rule keeps microphone state, startup behavior, and error handling easy to reason about.
+Maelstrom solves that by making `m.useVoice({...})` the owner path and `m.useVoice()` the observer path.
 
-## Keep `m.VoiceOrb` and typed input in the same shell
+## 5. Render `<m.VoiceOrb />`
 
-The orb gives users visible feedback for shared states such as listening, speaking, and error.
+The orb is not just decoration. It exposes the shared session state in a place users can actually see while the chart is changing.
+
+The demo renders it in the header:
 
 ```tsx
 <div className="flex items-center gap-3">
@@ -103,12 +151,101 @@ The orb gives users visible feedback for shared states such as listening, speaki
 </div>
 ```
 
-Keep the typed path too. The demo leaves its text input in place after voice is enabled.
+That gives you immediate feedback for states such as listening, speaking, and error without building a second status system around the hook.
+
+## 6. Handle `needsUserGesture`
+
+This is the part many voice integrations get wrong.
+
+Browsers often refuse to unlock microphone capture or assistant playback until the user clicks something first. That is not a Maelstrom quirk. It is how browser media policy works.
+
+`m.useVoice()` exposes that state through `needsUserGesture`. When it flips to `true`, render a real affordance and let the user click to start or retry voice.
+
+The demo uses a modal dialog:
+
+```tsx
+{voice.needsUserGesture && (
+  <EnableVoiceDialog
+    onEnable={() => {
+      void voice.start();
+    }}
+    voiceState={voice.state}
+  />
+)}
+```
+
+And the dialog copy explains why the click exists:
+
+```tsx
+export function EnableVoiceDialog({
+  onEnable,
+  voiceState,
+}: EnableVoiceDialogProps) {
+  const showError = voiceState === 'error';
+
+  return (
+    <div role="dialog" aria-modal="true">
+      <h2>Enable voice</h2>
+      <p>
+        Your browser requires a click before the demo can use the microphone
+        and play assistant audio. Tap below to enable voice.
+      </p>
+      {showError && (
+        <p role="alert">
+          Voice didn't start. Check microphone permission and try again.
+        </p>
+      )}
+      <button type="button" onClick={onEnable}>
+        {showError ? 'Retry' : 'Enable voice'}
+      </button>
+    </div>
+  );
+}
+```
+
+### Why the gesture gate matters
+
+Without the explicit gate, the app looks broken. The hook knows audio is blocked, but the user sees a silent UI with no obvious recovery path.
+
+With the gate, the failure mode is honest:
+
+- the browser needs a user gesture
+- the app tells the user why
+- the same button can act as the first enable step or a retry path after a permission failure
+
+If you want to unlock audio without immediately entering the listening state, call `voice.prepareAudio()` from the click handler instead. The demo uses `voice.start()` because the desired behavior is immediate listening after the user opts in.
+
+## 7. Connect the browser to the backend runtime
+
+At this point the browser side is ready, but voice is still incomplete until the connector reaches a backend runtime.
+
+That backend runtime should run `@maelstrom-co/voice-server`, receive audio from the browser, call STT, hand the final transcript to the Maelstrom engine, then send synthesized assistant audio back to the client.
+
+The end-to-end path looks like this:
+
+1. browser VAD detects speech
+2. browser streams PCM audio through the voice-capable connector
+3. backend runtime transcribes speech
+4. backend runtime builds a Maelstrom request and calls the engine
+5. backend runtime synthesizes the assistant reply
+6. browser plays the returned audio and updates `m.VoiceOrb`
+
+That is why this guide keeps mentioning `@maelstrom-co/voice-server` early. `@maelstrom-co/react-voice` is the browser entry point, not the whole product story.
+
+Use the backend reference pages for the server half:
+
+- [`createVoiceSession()`](/reference/voice-server/functions/createvoicesession/)
+- [Voice Server API Reference](/reference/voice-server/)
+- [Speech Controls (`speak()` / `enqueueSpeak()`)](/reference/voice-server/interfaces/voicesession/)
+
+## 8. Add typed or spoken intents side by side
+
+The demo keeps its text input even after voice is enabled.
 
 ```tsx
 function IntentInput() {
   const [intent, setIntent] = useState('');
-  const { processIntent, isProcessing } = m.useMaelstrom();
+  const { processIntent, isProcessing, lastError } = m.useMaelstrom();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,67 +267,49 @@ function IntentInput() {
       <button type="submit" disabled={isProcessing || !intent.trim()}>
         {isProcessing ? 'Processing...' : 'Send'}
       </button>
+      {lastError && <div>Error: {lastError.message}</div>}
     </form>
   );
 }
 ```
 
-That is the safest default for most products. Voice adds another control path, it does not need to replace text input. If you want the full first-run shell walkthrough, use [Add Voice Control](/tutorials/voice-control/).
-
-## Handle `needsUserGesture` with a real retry path
-
-Browsers often block microphone access or playback until the user clicks something first. In Maelstrom, that shows up as `needsUserGesture`.
-
-Render a real affordance when that flag flips to `true`:
-
-```tsx
-{voice.needsUserGesture && (
-  <EnableVoiceDialog
-    onEnable={() => {
-      void voice.start();
-    }}
-    voiceState={voice.state}
-  />
-)}
-```
-
-Do not treat this as a decorative modal. The recovery UI should do three jobs:
-
-1. explain that the browser needs a user click before the app can use the microphone and playback
-2. reuse the same button for first enable and retry after a failed start
-3. keep the typed path visible so the user can continue if permission or startup fails again
-
-If you want to unlock audio without starting capture yet, call `voice.prepareAudio()` from the click handler instead. Use `voice.start()` when the same click should begin listening right away.
+That is a good default. Voice should add another control path, not replace the typed one unless your product truly needs voice-only interaction.
 
 ## Common session choices
 
-You do not need the whole option surface to ship the first integration. These are the choices most apps make up front:
-
 ### `autoAcquireMic`
 
-- Use `true` when your UI already has a clear gesture recovery path, like the demo dialog.
-- Use `false` when you want the app to wait for an explicit start action.
+This decides whether the owner session should try to bootstrap microphone access as soon as it can.
+
+- `autoAcquireMic: true` is the demo path. It works well when your UI already has a clear gesture gate.
+- `autoAcquireMic: false` is safer when you want the app to stay quiet until the user explicitly starts audio.
 
 ### `greeting`
 
-`greeting` fits the auto-start path. Keep it for flows where the app should speak as part of startup, not for delayed manual start.
+`greeting` is only valid when `autoAcquireMic: true`.
+
+That constraint is intentional. A greeting only makes sense when the session has a defined moment to start audio on its own.
 
 ### `allowBargeIn`
 
-Set this to `true` when users should be able to interrupt assistant speech by talking. Leave it `false` when your product needs stricter turn-taking.
+When `true`, the user can interrupt assistant speech by talking. The demo keeps it enabled because interruption is part of what makes the system feel conversational instead of queued and rigid.
 
 ### `vadOptions`
 
-Start with small overrides only. The demo changes just two fields:
+The hook forwards `vadOptions` to the browser voice session. The demo intentionally changes only two fields:
 
 - `minSpeechDurationSeconds: 0.032`
 - `preSpeechPaddingSeconds: 0.45`
 
-For deeper tuning, read [VAD Configuration](/guides/voice/vad-configuration/). For the full hook option surface, read [`UseVoiceOptions`](/reference/react-voice/type-aliases/usevoiceoptions/).
+For a deeper tuning guide and the rationale behind client-owned VAD, read [VAD Configuration](/guides/voice/vad-configuration/).
 
-## Language, errors, and backend runtime settings
+## Changing STT/TTS language
 
-Browser session language belongs in `m.useVoice({...})`:
+Yes — language is configurable today, with different knobs for STT and TTS.
+
+### STT language (supported)
+
+At the browser/session layer, set `language` in `m.useVoice({...})`:
 
 ```tsx
 const voice = m.useVoice({
@@ -199,20 +318,59 @@ const voice = m.useVoice({
 });
 ```
 
-Keep the rest of the boundary clean. Backend provider configuration, runtime timing, and speech queue behavior belong on the backend runtime pages, not in this guide. Detailed error semantics live on the dedicated error page.
+This value is forwarded to the voice session and then into the STT connect flow. In the current stack:
 
-Handle runtime failures in the owner component. Surface the failure near the voice controls, keep the retry path available, and fall back to typed or manual input when the browser voice path is not reliable enough for that device or room.
+- `@maelstrom-co/react-voice` forwards `language` into `VoiceSessionConfig.language`
+- `@maelstrom-co/voice` passes that value to `connector.startListening(language, ...)`
+- `@maelstrom-co/voice-server` uses it when connecting STT providers (for example Deepgram and Google STT)
 
-- Backend runtime setup: [`createVoiceSession()`](/reference/voice-server/functions/createvoicesession/)
-- Backend package index: [Voice Server API Reference](/reference/voice-server/)
-- Error contract: [Voice Errors](/guides/voice/voice-errors/)
+Demo-specific note: the demo WS server also accepts a `language` query parameter (for example `/ws?language=es-ES`) and injects it into `createVoiceSession(...)`.
+
+### TTS language (supported, provider-config driven)
+
+TTS language is set on provider options when constructing the server runtime, for example:
+
+```ts
+const voiceSession = createVoiceSession({
+  stt: {
+    type: 'google',
+    options: { projectId: 'my-project' },
+  },
+  tts: {
+    type: 'google',
+    options: {
+      language: 'es-ES',
+      defaultVoiceName: 'es-ES-Chirp3-HD-Achernar',
+    },
+  },
+  sessionId,
+  language: 'es-ES',
+  buildChartRequest,
+  processIntent,
+});
+```
+
+`cartesia` and `google` TTS providers both expose `language` in provider options.
+
+### Current runtime limitation
+
+The shared `createVoiceSession()` runtime does not currently expose a dedicated per-turn TTS-language switch on its public session API. In practice, that means:
+
+- STT language can be set through session config / connect path.
+- TTS language is primarily selected through provider defaults (and voice choice), then applied during speech synthesis.
+- Changing TTS lang
+uage at runtime generally means reconfiguring/recreating the voice session (or switching to a provider/voice already configured for that language).
+
+## Voice error handling contract
+
+The detailed `engine.error` payload shape, provider taxonomy, and demo websocket boundary behavior now live in [Voice Errors](/guides/voice/voice-errors/).
+
+Use that page when you need reference-level error semantics; this guide stays focused on end-to-end integration flow.
 
 ## Next steps
 
-Your best next step is [VAD Configuration](/guides/voice/vad-configuration/), once the basic integration is running and you need to tune turn detection.
-
-Supporting follow-up:
-
-- [Voice Errors](/guides/voice/voice-errors/) for runtime failure handling
-- [Voice Architecture](/understanding/voice-architecture/) for the browser and backend split
-- [Add Voice Control](/tutorials/voice-control/) if you want the guided first-run path
+- Read [Voice Architecture](/understanding/voice-architecture/) if you want the design rationale behind the browser and server split.
+- Read [`UseVoiceOptions`](/reference/react-voice/type-aliases/usevoiceoptions/) and [`UseVoiceReturn`](/reference/react-voice/interfaces/usevoicereturn/) for the full `useVoice` surface.
+- Read [Voice Control](/tutorials/voice-control/) if you want the step-by-step adoption path.
+- Read [Voice Errors](/guides/voice/voice-errors/) for the provider error taxonomy and websocket contract details.
+- Read the [`@maelstrom-co/voice-server` runtime reference](/reference/voice-server/functions/createvoicesession/) before configuring providers and runtime timing on the backend.
