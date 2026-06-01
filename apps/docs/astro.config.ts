@@ -14,6 +14,12 @@ const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [voiceTypeDoc, voiceTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [voiceServerTypeDoc, voiceServerTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [reactVoiceTypeDoc, reactVoiceTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 
 // TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
 // the workspace root on every plugin call, so {path} carries the full
@@ -91,12 +97,14 @@ export default defineConfig({
             {
               label: 'Getting Started',
               paths: ['getting-started/**'],
-              description: 'Introduction, quick start, core concepts, and installation',
+              description:
+                'Introduction, quick start, core concepts, and installation',
             },
             {
               label: 'Guides',
               paths: ['guides/**'],
-              description: 'Task-oriented how-tos for React, Engine, Client, and Voice',
+              description:
+                'Task-oriented how-tos for React, Engine, Client, and Voice',
             },
             {
               label: 'API Reference',
@@ -104,7 +112,11 @@ export default defineConfig({
               description: 'Complete API documentation for all packages',
             },
           ],
-          promote: ['getting-started/introduction', 'getting-started/quick-start', 'getting-started/core-concepts'],
+          promote: [
+            'getting-started/introduction',
+            'getting-started/quick-start',
+            'getting-started/core-concepts',
+          ],
           demote: ['community/changelog'],
         }),
         reactTypeDoc({
@@ -148,6 +160,42 @@ export default defineConfig({
           tsconfig: '../../packages/engine/tsconfig.lib.json',
           output: 'reference/engine',
           sidebar: { label: '@maelstrom-co/engine', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        voiceTypeDoc({
+          entryPoints: ['../../packages/voice/src/index.ts'],
+          tsconfig: '../../packages/voice/tsconfig.lib.json',
+          output: 'reference/voice',
+          sidebar: { label: '@maelstrom-co/voice', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        voiceServerTypeDoc({
+          entryPoints: ['../../packages/voice-server/src/index.ts'],
+          tsconfig: '../../packages/voice-server/tsconfig.lib.json',
+          output: 'reference/voice-server',
+          sidebar: { label: '@maelstrom-co/voice-server', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        reactVoiceTypeDoc({
+          entryPoints: ['../../packages/react-voice/src/index.ts'],
+          tsconfig: '../../packages/react-voice/tsconfig.lib.json',
+          output: 'reference/react-voice',
+          sidebar: { label: '@maelstrom-co/react-voice', collapsed: true },
           typeDoc: {
             excludeInternal: true,
             disableGit: true,
@@ -227,6 +275,9 @@ export default defineConfig({
             clientTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
+            voiceTypeDocSidebarGroup,
+            voiceServerTypeDocSidebarGroup,
+            reactVoiceTypeDocSidebarGroup,
           ],
         },
         {
@@ -234,6 +285,7 @@ export default defineConfig({
           items: [
             { slug: 'understanding/why-maelstrom' },
             { slug: 'understanding/architecture' },
+            { slug: 'understanding/voice-architecture' },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },

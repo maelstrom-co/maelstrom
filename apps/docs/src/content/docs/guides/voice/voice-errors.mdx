@@ -1,0 +1,93 @@
+---
+title: Voice Errors
+description: Reference for voice runtime error payloads, provider taxonomy, and demo websocket boundary behavior.
+---
+
+This page documents the error contract used by the voice runtime and demo websocket bridge.
+
+## Voice error contract
+
+The demo voice websocket keeps the existing `engine.error` event name.
+
+For generic setup or runtime failures, the payload stays in the legacy shape:
+
+```ts
+{
+  type: 'engine.error';
+  sessionId: string;
+  timestamp: number;
+  error: string;
+}
+```
+
+When an STT or TTS provider error crosses the runtime boundary, `engine.error`
+still keeps a verbose, human-readable `error` string. Structured provider
+metadata is optional and additive, it supplements the message and does not
+replace it.
+
+```ts
+{
+  type: 'engine.error';
+  sessionId: string;
+  timestamp: number;
+  error: string;
+  kind?: 'auth' | 'quota' | 'transport' | 'parse' | 'server' | 'unknown';
+  source?: 'stt' | 'tts';
+  provider?: string;
+}
+```
+
+Only these six provider kinds are part of the current contract:
+
+| kind | Meaning |
+| --- | --- |
+| `auth` | Invalid credentials, expired credentials, or permission failures. |
+| `quota` | Usage limits, subscription limits, or credit exhaustion. |
+| `transport` | Connection loss, websocket failures, timeouts, or other network transport issues. |
+| `parse` | Provider payloads that could not be decoded or validated. |
+| `server` | Provider-side 5xx or equivalent upstream service failures. |
+| `unknown` | Any provider error that does not fit the shared buckets above. |
+
+The same taxonomy is shared by both voice provider boundaries:
+
+- `source: 'stt'` identifies Speech-to-Text provider failures such as rejected credentials, streaming transport problems, or malformed transcript payloads.
+- `source: 'tts'` identifies Text-to-Speech provider failures such as rejected credentials, synthesis transport problems, or malformed audio metadata.
+- `provider` names the upstream provider when that detail is available.
+
+These fields stay optional. Clients should treat them as extra context on top of
+the main message string, not as a guaranteed replacement for it.
+
+## Demo websocket boundary behavior
+
+The demo server preserves provider-classified runtime errors on `engine.error`
+without introducing a new event type. It forwards optional `kind`, `source`, and
+`provider` fields only when the runtime error already exposes them. Otherwise,
+it sends the legacy string-only payload.
+
+The `engine.error.error` field is a flattened human-readable message string. If a
+provider error wraps nested causes, the demo websocket flattens that cause chain
+into the serialized message text before sending it to the client.
+
+Raw `cause` objects and stack traces are not serialized over the wire.
+
+That means clients can keep existing message handling and opt into source-specific
+narrowing when metadata is present.
+
+```ts
+if (error.source === 'stt') {
+  console.log('STT provider error', error.kind, error.provider, error.error);
+}
+
+if (error.source === 'tts') {
+  console.log('TTS provider error', error.kind, error.provider, error.error);
+}
+```
+
+If `source` is missing, treat the event as a generic voice setup or runtime
+failure and fall back to the legacy string-only handling path.
+
+## Related pages
+
+- [Voice Integration](/guides/voice/voice-integration/)
+- [Voice Architecture](/understanding/voice-architecture/)
+- [`createVoiceSession()` runtime reference](/reference/voice-server/functions/createvoicesession/)
