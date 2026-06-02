@@ -1,3 +1,5 @@
+import { nanoid } from 'nanoid';
+
 import { classifyTTSError, createTTSError } from '../../provider-errors.js';
 import type {
   SpeechChunk,
@@ -141,7 +143,7 @@ function parseCartesiaMessage(data: unknown): CartesiaWebSocketMessage {
 }
 
 function generateContextId(): string {
-  return `ctx-${crypto.randomUUID()}`;
+  return `ctx-${nanoid()}`;
 }
 
 /**

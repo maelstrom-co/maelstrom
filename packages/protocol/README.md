@@ -62,8 +62,8 @@ Every identifier in Maelstrom is a branded string — structurally `string`, nom
 
 | Brand          | Auto-generated      | Used for                                  |
 |----------------|---------------------|-------------------------------------------|
-| `SessionId`    | `session-<UUID>`    | One conversation                          |
-| `MessageId`    | UUID                | One envelope                              |
+| `SessionId`    | `session-<Nano ID>` | One conversation                          |
+| `MessageId`    | Nano ID             | One envelope                              |
 | `InstanceId`   | No                  | One mounted vessel on the chart           |
 | `VesselId`     | No                  | A registered vessel type                  |
 | `VariantName`  | No                  | A state within a vessel                   |
@@ -72,7 +72,7 @@ Every identifier in Maelstrom is a branded string — structurally `string`, nom
 ```ts
 import { SessionId, VesselId, MessageId } from '@maelstrom-co/protocol';
 
-const session = SessionId();             // auto-generated, e.g. session-<uuid>
+const session = SessionId();             // auto-generated, e.g. session-<nanoid>
 const explicit = SessionId('user-42');   // existing identifier
 
 const vessel = VesselId('calendar');     // always developer-provided

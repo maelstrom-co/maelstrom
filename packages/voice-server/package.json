@@ -33,7 +33,8 @@
   "dependencies": {
     "@google-cloud/speech": "catalog:",
     "@google-cloud/text-to-speech": "catalog:",
-    "@maelstrom-co/protocol": "0.0.0"
+    "@maelstrom-co/protocol": "0.0.0",
+    "nanoid": "catalog:"
   },
   "nx": {
     "name": "@maelstrom-co/voice-server",

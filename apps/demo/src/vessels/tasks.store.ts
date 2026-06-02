@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid';
 import { useSyncExternalStore } from 'react';
 import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
@@ -55,7 +56,7 @@ export const tasksActions = {
     setState({
       tasks: [
         ...state.tasks,
-        { id: crypto.randomUUID(), title, done: false, subtasks: [] },
+        { id: nanoid(), title, done: false, subtasks: [] },
       ],
     });
   },
@@ -97,7 +98,7 @@ export const tasksActions = {
               ...t,
               subtasks: [
                 ...t.subtasks,
-                { id: crypto.randomUUID(), title: subtaskTitle, done: false },
+                { id: nanoid(), title: subtaskTitle, done: false },
               ],
             }
           : t,

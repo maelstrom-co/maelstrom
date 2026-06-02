@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { type Brand, requireNonEmptyBrand } from './brand.js';
@@ -19,14 +20,13 @@ export type MessageId = Brand<string, 'MessageId'>;
 /**
  * Creates or brands a MessageId. Smart constructor — same pattern as SessionId.
  *
- * - Called with no arguments: generates a new unique message ID (raw UUID,
- *   no prefix).
+ * - Called with no arguments: generates a new unique Nano ID (no prefix).
  * - Called with an existing string: brands it as a MessageId without
  *   changing its value. Use this when rehydrating from serialized data.
  *
  * @example
  * ```ts
- * const fresh = MessageId();          // new UUID
+ * const fresh = MessageId();          // new Nano ID
  * const echoed = MessageId(input.id); // brands an existing id
  * ```
  */
@@ -34,7 +34,7 @@ export const MessageId = (value?: string): MessageId => {
   if (value !== undefined) {
     requireNonEmptyBrand(value, 'MessageId');
   }
-  return (value ?? crypto.randomUUID()) as MessageId;
+  return (value ?? nanoid()) as MessageId;
 };
 
 /**

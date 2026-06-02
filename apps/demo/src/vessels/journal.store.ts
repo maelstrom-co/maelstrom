@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid';
 import { useSyncExternalStore } from 'react';
 import { findByFuzzyTitle } from './find-by-fuzzy-title';
 
@@ -70,7 +71,7 @@ export function getJournalSnapshot(): JournalState {
 export const journalActions = {
   createEntry(title: string): void {
     const entry: JournalEntry = {
-      id: crypto.randomUUID(),
+      id: nanoid(),
       title,
       content: '',
       date: formatToday(),

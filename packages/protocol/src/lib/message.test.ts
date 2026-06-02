@@ -3,12 +3,23 @@ import { describe, expect, test } from 'bun:test';
 import { MessageId, MessageIdSchema } from './message.js';
 
 describe('MessageId', () => {
-  test('generates a valid UUID when called with no arguments', () => {
-    const id = MessageId();
-    expect(typeof id).toBe('string');
-    expect(id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+  test('generates an id without requiring crypto.randomUUID', () => {
+    const originalRandomUUID = crypto.randomUUID;
+    Object.defineProperty(crypto, 'randomUUID', {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      const id = MessageId();
+      expect(typeof id).toBe('string');
+      expect(id).toHaveLength(21);
+    } finally {
+      Object.defineProperty(crypto, 'randomUUID', {
+        configurable: true,
+        value: originalRandomUUID,
+      });
+    }
   });
 
   test('preserves the provided value when rehydrating', () => {
