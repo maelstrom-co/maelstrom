@@ -40,6 +40,7 @@ describe('ChartRequestMessage factory', () => {
       request: stubRequest,
     });
     expect(a.id).not.toBe(b.id);
+    // nanoid() default length
     expect(a.id).toHaveLength(21);
   });
 
@@ -114,6 +115,7 @@ describe('AssistantInjectionMessage factory', () => {
       content: 'b',
     });
     expect(a.id).not.toBe(b.id);
+    // nanoid() default length
     expect(a.id).toHaveLength(21);
   });
 
