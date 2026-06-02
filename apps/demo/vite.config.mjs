@@ -13,7 +13,6 @@ export default defineConfig({
   root: rootDir,
   server: {
     port: 3000,
-    allowedHosts: ["demos.jacarte.me"]
   },
   plugins: [
     tsConfigPaths({
