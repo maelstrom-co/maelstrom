@@ -24,6 +24,7 @@
     "@tanstack/react-start": "catalog:",
     "clsx": "^2.1.1",
     "hono": "catalog:",
+    "nanoid": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwind-merge": "^3.5.0",

@@ -8,6 +8,7 @@ import {
   type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
 import type { ProcessIntent } from '@maelstrom-co/voice-server';
+import { nanoid } from 'nanoid';
 
 export function createDemoVoiceIntentAdapter(
   engine: Engine,
@@ -71,7 +72,7 @@ export function createDemoVoiceIntentAdapter(
         // synthetic `voice-…` id.
         const id =
           getExplicitRequestId(request) ??
-          MessageId(`voice-${crypto.randomUUID()}`);
+          MessageId(`voice-${nanoid()}`);
         const envelope = ChartRequestMessage({ sessionId, id, request });
 
         let result: Awaited<ReturnType<Engine['handle']>>;

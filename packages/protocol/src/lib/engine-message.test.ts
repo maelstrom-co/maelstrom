@@ -40,9 +40,7 @@ describe('ChartRequestMessage factory', () => {
       request: stubRequest,
     });
     expect(a.id).not.toBe(b.id);
-    expect(a.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+    expect(a.id).toHaveLength(21);
   });
 
   test('uses the provided id when given', () => {
@@ -116,9 +114,7 @@ describe('AssistantInjectionMessage factory', () => {
       content: 'b',
     });
     expect(a.id).not.toBe(b.id);
-    expect(a.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+    expect(a.id).toHaveLength(21);
   });
 
   test('uses the provided id when given', () => {
