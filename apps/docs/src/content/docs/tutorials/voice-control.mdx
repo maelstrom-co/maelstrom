@@ -14,6 +14,12 @@ import { Aside } from '@astrojs/starlight/components';
   Already shipping and need decision-level reference? See [Voice Integration](/guides/voice/voice-integration/).
 </Aside>
 
+<Aside type="note">
+  Voice is currently **React-only**. These snippets use the `@maelstrom-co/react-voice`
+  bindings (`m.useVoice()`, `m.VoiceOrb`) and don't change with the framework selector —
+  there's no Vanilla JS equivalent yet.
+</Aside>
+
 Voice control in Maelstrom has two halves that work together.
 
 - In the browser, `@maelstrom-co/react-voice` and `@maelstrom-co/voice` handle microphone capture, local VAD, playback, and shared React state.
