@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
   MessageId,
   SessionId,
+  VoiceServerMessageSchema,
   type VoiceServerMessage,
 } from '@maelstrom-co/protocol';
 
@@ -245,6 +246,15 @@ function createMockVoiceConnector(): VoiceConnector & {
     },
 
     simulateVoiceMessage(message: VoiceServerMessage) {
+      // Validate against the wire schema so tests can't inject shapes that
+      // wouldn't survive the real connector's ingress safeParse (forged or
+      // missing brands, missing required fields). Fail loud on a bad fixture.
+      const parsed = VoiceServerMessageSchema.safeParse(message);
+      if (!parsed.success) {
+        throw new Error(
+          `simulateVoiceMessage: malformed VoiceServerMessage (${parsed.error.issues[0]?.message ?? 'schema mismatch'})`,
+        );
+      }
       voiceMessageCallbacks.forEach((cb) => {
         cb(message);
       });
