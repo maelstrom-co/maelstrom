@@ -18,7 +18,7 @@ Frame your handling around where the failure originates. Each surface has a dist
 | Surface | Channel | What it covers |
 | --- | --- | --- |
 | Engine / processing | `useMaelstrom().lastError` (plus `onError`) | A `processIntent` call fails — the engine rejects, the request times out, or response handling throws. |
-| Connector | `useMaelstrom().connectionStatus` + `connectionError` (plus `onError`) | The transport cannot connect, drops, or the Orchestrator fails to start. |
+| Connector | `useMaelstrom().connectionStatus` + `connectionError` (plus `onError` on initial connect) | The transport fails to connect or the Orchestrator fails to start. Mid-session drops update `connectionStatus`/`connectionError` only — they do not reach `onError`. |
 | Vessel runtime | The built-in `ErrorBoundary` | A vessel component throws or a lazy chunk fails to load. |
 
 The first two are reactive state you read in your own components. The third is automatic and internal — covered below.
