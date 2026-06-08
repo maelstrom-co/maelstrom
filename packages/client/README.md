@@ -5,17 +5,20 @@ Framework-agnostic client core for Maelstrom.
 ## Install
 
 ```bash
-bun add @maelstrom-co/client
+bun add @maelstrom-co/client @maelstrom-co/protocol
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/client`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/client @maelstrom-co/protocol`
 
 ## What it does
 
-- **Orchestrator** — coordinates intent submission, engine responses, and the execution order (actions → sizes → layout → overflow)
+- **Orchestrator** — executes actions then applies layout — see [Core Concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) for the full pipeline
 - **Vessel registry** — registers vessel definitions so the engine knows what components are available
-- **Chart Manager** — tracks grid dimensions and translates engine layout directives into CSS transforms
-- **Connectors** — transport-agnostic contract; ships with `WebSocketConnector` and `VoiceWebSocketConnector` for the Maelstrom engine, and `HttpConnector` for request/response flows
+- **Chart Manager** — tracks grid dimensions and applies engine layout directives as CSS positioning
+- **Connectors** — transport-agnostic contract:
+  - `WebSocketConnector` — for the Maelstrom WebSocket engine
+  - `VoiceWebSocketConnector` — for voice-enabled engine sessions
+  - `HttpConnector` — for request/response flows
 
 ## Quick example
 
@@ -47,6 +50,8 @@ orchestrator.chartManager.setDimensions({ columns: 12, rows: 8 });
 await orchestrator.connect();
 await orchestrator.processIntent('show me a greeting');
 ```
+
+Both calls reject on transport or LLM errors — wrap in try/catch in real apps.
 
 ## Docs
 

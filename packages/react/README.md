@@ -12,11 +12,14 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react @maelstrom-co/cli
 
 ## What it does
 
-- **`createMaelstrom({ vessels })`** — factory that returns a fully-typed `{ Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, with }` instance
-- **`vessel(definition, component, skeleton?)`** — pairs a vessel definition with a React component; supports lazy imports for code splitting
+- **`createMaelstrom({ vessels })`** — factory that returns a typed Maelstrom instance — see bullets below for what it exposes
+- **`vessel(definition, component | loader, loadingComponent?)`** — pairs a vessel definition with a React component; `loadingComponent` is only used when a lazy loader is passed
 - **`m.Provider`** — connects to the engine and owns all chart state; accepts any `EngineConnector`
-- **`m.Chart`** — renders the grid canvas; the engine positions vessels here via CSS transforms
-- **Hooks** — `useMaelstrom` for intent submission and connection status; `useVessel` and `useActions` for vessel-level state; `useInstance` for raw access
+- **`m.Chart`** — renders the grid canvas; the engine emits layout directives that Chart renders as CSS positioning
+- **Hooks**
+  - `useMaelstrom` — intent submission and connection status
+  - `useVessel` and `useActions` — vessel-level state
+  - `useInstance` — raw access to the Maelstrom instance
 - **`.with(extension)`** — builder for optional extensions (e.g. `maelstromVoice()` from `@maelstrom-co/react-voice`)
 
 ## Quick example
@@ -24,7 +27,25 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react @maelstrom-co/cli
 ```tsx
 import { createMaelstrom, vessel } from '@maelstrom-co/react';
 import { WebSocketConnector } from '@maelstrom-co/client';
-import { greetingVessel } from './vessels/greeting'; // see Quick Start for full definition
+import { defineVessel } from '@maelstrom-co/protocol';
+
+const greetingVessel = vessel(
+  defineVessel({
+    id: 'greeting',
+    name: 'Greeting',
+    description: 'Displays a greeting message.',
+    defaultVariant: 'compact',
+    variants: {
+      compact: {
+        description: 'One-line greeting',
+        props: { message: 'Hello!' },
+        minSize: { width: 2, height: 1 },
+        actions: [],
+      },
+    },
+  }),
+  ({ variantProps }) => <div>{variantProps.message}</div>
+);
 
 const m = createMaelstrom({ vessels: [greetingVessel] });
 const connector = new WebSocketConnector({ url: 'ws://localhost:3001/ws' });
