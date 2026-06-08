@@ -87,10 +87,10 @@ export default function GreetingComponent({
 
 Actions live on each variant's `actions` array. A `VesselActionDefinition` has four fields:
 
-- **`name`** — the identifier the LLM emits and your runner keys off. Must be unique within a variant.
-- **`description`** — what the action does, in plain language. The LLM reads this to decide when to invoke it.
-- **`parameters`** *(optional)* — an array of `ActionParameter` describing typed inputs the LLM fills.
-- **`transitionsTo`** *(optional)* — the name of the variant this action moves the vessel into. Omit it for actions that mutate data without changing variant.
+- **`name`**: the identifier the LLM emits and your runner keys off. Must be unique within a variant.
+- **`description`**: what the action does, in plain language. The LLM reads this to decide when to invoke it.
+- **`parameters`** *(optional)*: an array of `ActionParameter` describing typed inputs the LLM fills.
+- **`transitionsTo`** *(optional)*: the name of the variant this action moves the vessel into. Omit it for actions that mutate data without changing variant.
 
 Give `card` an action that takes a parameter and an action that switches to `expanded`:
 
@@ -130,7 +130,7 @@ Each entry in `parameters` is an `ActionParameter`:
 | --- | --- | --- |
 | `name` | `string` | Parameter key. Becomes a property on the typed params object. |
 | `type` | `'string' \| 'number' \| 'boolean' \| 'object'` | The value type. Drives the TypeScript type your handler receives. |
-| `description` | `string` | What the parameter means — the LLM uses this to fill the value. |
+| `description` | `string` | What the parameter means; the LLM uses this to fill the value. |
 | `required` | `boolean` *(optional)* | When `false`, the param is optional on the typed params object. Defaults to required. |
 | `defaultValue` | `unknown` *(optional)* | Value the engine may use when none is supplied. |
 | `enum` | `unknown[]` *(optional)* | Constrains the value to a fixed set of allowed options. |

@@ -21,7 +21,7 @@ By the end of this guide your app will:
 
 ## Define the vessel
 
-Use `defineVessel` from `@maelstrom-co/protocol` to describe the vessel. The function returns the input verbatim so TypeScript preserves all literal types, which flow downstream into your component and action runners.
+Use `defineVessel` from `@maelstrom-co/protocol` to describe the vessel. It's an identity function at runtime: it returns the input as is and exists purely for type safety. Its `<const V>` signature captures the literal types of your variant names, action names, and prop shapes, then flows them downstream so your component and action runners are fully typed. It also constrains the object to `VesselDefinition`, so mistakes are caught at the definition site rather than at runtime.
 
 ```ts title="src/vessels/greeting/greeting.vessel.ts"
 import { defineVessel } from '@maelstrom-co/protocol';
@@ -45,10 +45,10 @@ export const greetingVessel = defineVessel({
 
 Key fields:
 
-- **`id`** — unique string the engine uses to address this vessel. Keep it short and stable.
-- **`name` / `description`** — human-readable labels the LLM reads to decide when to show the vessel.
-- **`defaultVariant`** — the variant that renders before any action transitions the vessel. Must be a key in `variants`.
-- **`variants`** — a map of named states. Each variant carries `props` (the shape your component receives), `minSize` (in grid cells — see [Grid vs Tiling](/understanding/grid-vs-tiling/) for how cells map to pixels), and `actions` (covered in [Vessel Variants & Actions](/guides/react/variants-and-actions/)).
+- **`id`**: unique string the engine uses to address this vessel. Keep it short and stable.
+- **`name` / `description`**: human-readable labels the LLM reads to decide when to show the vessel.
+- **`defaultVariant`**: the variant that renders before any action transitions the vessel. Must be a key in `variants`.
+- **`variants`**: a map of named states. Each variant carries `props` (the shape your component receives), `minSize` (in grid cells; see [Grid vs Tiling](/understanding/grid-vs-tiling/) for how cells map to pixels), and `actions` (covered in [Vessel Variants & Actions](/guides/react/variants-and-actions/)).
 
 The `props` values in the definition are used only to infer the TypeScript shape; the LLM fills the actual values at runtime.
 
@@ -82,7 +82,7 @@ export default function GreetingComponent({
 | --- | --- | --- |
 | `instanceId` | `InstanceId` | Unique ID for this placed instance of the vessel. |
 | `variantProps` | discriminated union | `{ variant: K } & props` for the active variant `K`. Narrow on `.variant` to access the typed props for that state. |
-| `executeAction` | `(name, params?) => void` | Fire an action — covered in [Vessel Variants & Actions](/guides/react/variants-and-actions/). |
+| `executeAction` | `(name, params?) => void` | Fire an action; covered in [Vessel Variants & Actions](/guides/react/variants-and-actions/). |
 
 ## Register and mount
 
