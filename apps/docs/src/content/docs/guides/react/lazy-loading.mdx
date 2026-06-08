@@ -5,7 +5,7 @@ description: How to lazy-load Vessel components for better bundle performance.
 
 import { Aside } from '@astrojs/starlight/components';
 
-A vessel's component only matters once the engine decides to place it — this guide converts the eager `greetingVessel` registration into the lazy overload so its code stays out of your main bundle until then.
+A vessel's component only matters once the engine decides to place it. This guide converts the eager `greetingVessel` registration into the lazy overload so its code stays out of your main bundle until then.
 
 <Aside type="note">
   **Before you start:** finish [Creating Vessels](/guides/react/creating-vessels/). This guide picks up the `greetingVessel`, `GreetingComponent`, and `greetingEntry` defined there and changes only how the component is registered.
@@ -35,7 +35,7 @@ export const m = createMaelstrom({
 });
 ```
 
-That's the only change from [Creating Vessels](/guides/react/creating-vessels/) — `greetingVessel` and `GreetingComponent` are untouched. The third argument is what selects the lazy overload.
+That's the only change from [Creating Vessels](/guides/react/creating-vessels/); `greetingVessel` and `GreetingComponent` are untouched. The third argument is what selects the lazy overload.
 
 The loader matches `LazyVesselComponentLoader<V>`:
 
@@ -45,7 +45,7 @@ type LazyVesselComponentLoader<V> = () => Promise<{
 }>;
 ```
 
-A bare `() => import('./greeting.component')` satisfies this directly, which is why `GreetingComponent` is the module's **default export** in [Creating Vessels](/guides/react/creating-vessels/). The loader must resolve to a `{ default }` shape — a named export won't match the type, and the dynamic import won't render.
+A bare `() => import('./greeting.component')` satisfies this directly, which is why `GreetingComponent` is the module's **default export** in [Creating Vessels](/guides/react/creating-vessels/). The loader must resolve to a `{ default }` shape; a named export won't match the type, and the dynamic import won't render.
 
 <Aside type="caution">
   The component the loader resolves must be the module's default export. If you only have a named export, re-export it as default in a small wrapper module, or change the dynamic import to map it: `() => import('./greeting.component').then((m) => ({ default: m.GreetingComponent }))`.
@@ -74,10 +74,10 @@ When the engine places the vessel, the Chart resolves it from the registry and d
 
 The import runs once and the resolved chunk is reused for later mounts of the same vessel.
 
-If the loader rejects — a network blip or a missing chunk — the Chart shows a load-error fallback with a retry affordance. Retrying produces a fresh `lazy()` instance, which busts the previously cached rejected promise so the loader runs again instead of replaying the failure.
+If the loader rejects (a network blip or a missing chunk), the Chart shows a load-error fallback with a retry affordance. Retrying produces a fresh `lazy()` instance, which busts the previously cached rejected promise so the loader runs again instead of replaying the failure.
 
 <Aside type="tip">
-  Tailoring the failure UI — custom error components, retry copy, reporting — is covered in [Error handling](/guides/react/error-handling/). This guide only notes that the retry path exists.
+  Tailoring the failure UI (custom error components, retry copy, reporting) is covered in [Error handling](/guides/react/error-handling/). This guide only notes that the retry path exists.
 </Aside>
 
 ## When to use

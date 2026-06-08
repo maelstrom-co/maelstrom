@@ -5,7 +5,7 @@ description: How to define and register Vessel components.
 
 import { Aside } from '@astrojs/starlight/components';
 
-A Vessel is a self-contained UI unit the engine can place on the Chart — this guide shows you how to author one from definition to render.
+A Vessel is a self-contained UI unit the engine can place on the Chart. This guide shows you how to author one, from definition to render.
 
 <Aside type="note">
   **Before you start:** complete the [React quickstart](/getting-started/quick-start/) so you have a working `createMaelstrom()` setup. For a conceptual overview of how Vessels fit into the framework, see [`packages/react/README.md`](https://github.com/maelstrom-co/maelstrom/blob/main/packages/react/README.md).
@@ -21,7 +21,7 @@ By the end of this guide your app will:
 
 ## Define the vessel
 
-Use `defineVessel` from `@maelstrom-co/protocol` to describe the vessel. The function returns the input verbatim so TypeScript preserves all literal types — those types flow downstream into your component and action runners.
+Use `defineVessel` from `@maelstrom-co/protocol` to describe the vessel. The function returns the input verbatim so TypeScript preserves all literal types, which flow downstream into your component and action runners.
 
 ```ts title="src/vessels/greeting/greeting.vessel.ts"
 import { defineVessel } from '@maelstrom-co/protocol';
@@ -50,7 +50,7 @@ Key fields:
 - **`defaultVariant`** — the variant that renders before any action transitions the vessel. Must be a key in `variants`.
 - **`variants`** — a map of named states. Each variant carries `props` (the shape your component receives), `minSize` (in grid cells — see [Grid vs Tiling](/understanding/grid-vs-tiling/) for how cells map to pixels), and `actions` (covered in [Vessel Variants & Actions](/guides/react/variants-and-actions/)).
 
-The `props` values in the definition are used only to infer the TypeScript shape — the LLM fills the actual values at runtime.
+The `props` values in the definition are used only to infer the TypeScript shape; the LLM fills the actual values at runtime.
 
 ## Build the component
 
@@ -64,7 +64,7 @@ export default function GreetingComponent({
   variantProps,
 }: TypedVesselProps<typeof greetingVessel>) {
   // variantProps is a discriminated union narrowed per variant.
-  // With one variant this is straightforward — narrow when you add more.
+  // With one variant this is straightforward; narrow when you add more.
   if (variantProps.variant === 'card') {
     return (
       <div style={{ padding: '1rem' }}>
@@ -115,7 +115,7 @@ export default function App() {
 }
 ```
 
-`<m.Chart />` renders vessels as the engine places them. The greeting vessel appears when the engine decides to show it — you don't position it manually.
+`<m.Chart />` renders vessels as the engine places them. The greeting vessel appears when the engine decides to show it; you don't position it manually.
 
 <Aside type="tip">
   The `connector` prop is the bridge between your React app and the engine backend. See the React quickstart for a working connector setup.
