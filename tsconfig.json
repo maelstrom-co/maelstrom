@@ -32,6 +32,9 @@
     },
     {
       "path": "./packages/voice-server"
+    },
+    {
+      "path": "./packages/telemetry"
     }
   ]
 }

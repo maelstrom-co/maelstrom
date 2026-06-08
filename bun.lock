@@ -201,6 +201,10 @@
         "react-dom": ">=18.0.0",
       },
     },
+    "packages/telemetry": {
+      "name": "@maelstrom-co/telemetry",
+      "version": "0.0.0",
+    },
     "packages/voice": {
       "name": "@maelstrom-co/voice",
       "version": "0.0.0",
@@ -861,6 +865,8 @@
     "@maelstrom-co/react": ["@maelstrom-co/react@workspace:packages/react"],
 
     "@maelstrom-co/react-voice": ["@maelstrom-co/react-voice@workspace:packages/react-voice"],
+
+    "@maelstrom-co/telemetry": ["@maelstrom-co/telemetry@workspace:packages/telemetry"],
 
     "@maelstrom-co/voice": ["@maelstrom-co/voice@workspace:packages/voice"],
 

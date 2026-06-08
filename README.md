@@ -116,21 +116,22 @@ The protocol defines the message contract. Transport (WebSocket, HTTP, etc.) is 
 
 ### Shared
 
-| Package                                    | Description                     | Documentation                         |
-| ------------------------------------------ | ------------------------------- | ------------------------------------- |
-| [`@maelstrom-co/protocol`](./packages/protocol) | Core types and message contract | [README](./packages/protocol/README.md) |
+| Package                                           | Description                         | Documentation                            |
+| ------------------------------------------------- | ----------------------------------- | ---------------------------------------- |
+| [`@maelstrom-co/protocol`](./packages/protocol)   | Core types and message contract     | [README](./packages/protocol/README.md)  |
+| [`@maelstrom-co/telemetry`](./packages/telemetry) | Provider-neutral telemetry contract | [README](./packages/telemetry/README.md) |
 
 ### Client
 
-| Package                              | Description                       | Documentation                      |
-| ------------------------------------ | --------------------------------- | ---------------------------------- |
-| [`@maelstrom-co/client`](./packages/client) | Framework-agnostic client library | [README](./packages/client/README.md)  |
-| [`@maelstrom-co/react`](./packages/react) | React bindings and components     | [README](./packages/react/README.md) |
+| Package                                     | Description                       | Documentation                         |
+| ------------------------------------------- | --------------------------------- | ------------------------------------- |
+| [`@maelstrom-co/client`](./packages/client) | Framework-agnostic client library | [README](./packages/client/README.md) |
+| [`@maelstrom-co/react`](./packages/react)   | React bindings and components     | [README](./packages/react/README.md)  |
 
 ### Server
 
-| Package                                | Description         | Documentation                       |
-| -------------------------------------- | ------------------- | ----------------------------------- |
+| Package                                     | Description         | Documentation                         |
+| ------------------------------------------- | ------------------- | ------------------------------------- |
 | [`@maelstrom-co/engine`](./packages/engine) | LLM decision engine | [README](./packages/engine/README.md) |
 
 ---
