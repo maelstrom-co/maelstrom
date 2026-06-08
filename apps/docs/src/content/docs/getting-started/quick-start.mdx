@@ -38,9 +38,9 @@ By the end of this guide you'll have a chart with one vessel, driven by a runnin
 
 2. ## Define a Vessel
 
-   A vessel is a state machine: it declares its variants, the minimum grid space each variant needs, and the actions that transition between them. The LLM uses the `description` fields to understand what the vessel does and how to position it.
+   A vessel is a state machine: variants are its states, actions are transitions between them, and the LLM uses the `description` fields to understand what the vessel does and how to position it.
 
-   `minSize` is in grid units, not pixels — the engine uses this to know how much chart space to allocate.
+   `minSize` is in chart cells — both engine and client respect it as the variant's floor, regardless of layout mode (grid or tiling).
 
    <Tabs syncKey="framework">
      <TabItem label="React">
@@ -48,27 +48,30 @@ By the end of this guide you'll have a chart with one vessel, driven by a runnin
      import { vessel } from '@maelstrom-co/react';
      import { defineVessel } from '@maelstrom-co/protocol';
 
-     const greetingDefinition = defineVessel({
-       id: 'greeting',
-       name: 'Greeting',
-       description: 'Displays a greeting message to the user.',
-       defaultVariant: 'compact',
-       variants: {
-         compact: {
-           description: 'Short one-line greeting',
-           props: { message: 'Hello!' },
-           minSize: { width: 2, height: 1 },
-           actions: [],
-         },
-       },
-     });
-
      function GreetingComponent({ variantProps }) {
        return <div>{variantProps.message}</div>;
      }
 
-     export const greetingVessel = vessel(greetingDefinition, GreetingComponent);
+     export const greetingVessel = vessel(
+       defineVessel({
+         id: 'greeting',
+         name: 'Greeting',
+         description: 'Displays a greeting message to the user.',
+         defaultVariant: 'compact',
+         variants: {
+           compact: {
+             description: 'Short one-line greeting',
+             props: { message: 'Hello!' },
+             minSize: { width: 2, height: 1 },
+             actions: [],
+           },
+         },
+       }),
+       GreetingComponent,
+     );
      ```
+
+     `defineVessel` lives in `@maelstrom-co/protocol` (framework-agnostic, used by Vanilla JS too); `vessel(...)` lives in `@maelstrom-co/react` and pairs the definition with a React component.
      </TabItem>
      <TabItem label="Vanilla JS">
      ```ts title="src/vessels/greeting.ts"
@@ -200,19 +203,39 @@ By the end of this guide you'll have a chart with one vessel, driven by a runnin
      Add `<IntentBar />` below `<m.Chart />` in your `App.tsx`.
      </TabItem>
      <TabItem label="Vanilla JS">
-     ```ts title="src/main.ts (continued)"
-     try {
-       await orchestrator.processIntent('show me a greeting');
-     } catch (err) {
-       console.error('Maelstrom setup failed — is the engine running on ws://localhost:3001/ws?', err);
-     }
+     Add a form to your HTML and wire a submit handler:
+
+     ```html title="index.html"
+     <form id="intent-form">
+       <input id="intent-input" placeholder="Tell the engine what to show…" />
+       <button type="submit">Send</button>
+     </form>
      ```
+
+     ```ts title="src/main.ts (continued)"
+     const form = document.getElementById('intent-form') as HTMLFormElement;
+     const input = document.getElementById('intent-input') as HTMLInputElement;
+
+     form.addEventListener('submit', async (event) => {
+       event.preventDefault();
+       const value = input.value.trim();
+       if (!value) return;
+       input.value = '';
+       try {
+         await orchestrator.processIntent(value);
+       } catch (err) {
+         console.error('processIntent failed — is the engine running on ws://localhost:3001/ws?', err);
+       }
+     });
+     ```
+
+     The React tab uses the `useMaelstrom` hook to surface `connectionStatus` and `isProcessing` for UI feedback. The Vanilla equivalents live on `orchestrator` directly — see the [client guides](/guides/client/custom-connectors/) for the reactive shape.
      </TabItem>
    </Tabs>
 
 5. ## What you should see
 
-   Once the engine processes the intent, the greeting vessel appears on the chart at the grid position the engine chose. You'll see `"Hello!"` rendered inside a cell on the screen.
+   Type something like `show me a greeting` and submit. The engine processes the intent and the greeting vessel appears on the chart at the grid position the engine chose. You'll see `"Hello!"` rendered inside a cell on the screen.
 
    The engine response includes layout directives — the client applies CSS positioning to place the vessel without you writing any placement code.
 
