@@ -13,7 +13,7 @@ Maelstrom is an AI-orchestrated dynamic UI framework. An LLM acts as an intellig
 bun install
 
 # Run the demo app (TanStack Start)
-nx serve demo
+nx dev demo
 
 # Build all packages
 nx run-many -t build
