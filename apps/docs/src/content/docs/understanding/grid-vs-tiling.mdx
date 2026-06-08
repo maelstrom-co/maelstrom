@@ -1,54 +1,110 @@
 ---
 title: Grid vs Tiling Layout
-description: When to use Grid layout versus Tiling layout, and how each works.
+description: The two layout algorithms the engine can return, and how each turns Vessel state into pixels.
 ---
 
-Maelstrom supports two layout modes because adaptive interfaces need two different kinds of control. Grid mode gives predictable cell-based placement. Tiling mode fills the available space with recursive splits.
+Maelstrom ships two layout modes. The engine picks one when it answers a `ChartRequest`, the client renders whichever it gets, and which one fits a given app is a design decision — not a runtime negotiation.
 
-## Grid layout
+Both modes operate on the same inputs: the set of visible Vessel instances, their current variants, and a `minSize` declared on each variant. They differ in how they describe placement.
 
-Grid layout divides the Chart into uniform cells. A Vessel variant declares `minSize` in cells, and the engine chooses row, column, width, and height.
+## Grid layout: explicit coordinates
 
-```text
-columns ->  0   1   2   3   4   5
-          ┌───┬───┬───┬───┬───┬───┐
-row 0     │ weather   │ calendar  │
-          ├───┴───┬───┴───┬───┬───┤
-row 1     │ tasks         │ empty │
-          └───────────────┴───────┘
+A `GridLayout` is a flat list of placements on a discrete grid:
+
+```ts
+import type { GridLayout } from '@maelstrom-co/protocol';
+
+const layout: GridLayout = {
+  type: 'grid',
+  positions: [
+    {
+      instanceId: 'calendar-1',
+      position: { row: 0, column: 0 },
+      size: { width: 6, height: 4 },
+    },
+    {
+      instanceId: 'weather-1',
+      position: { row: 0, column: 6 },
+      size: { width: 4, height: 3 },
+    },
+  ],
+};
 ```
 
-Use grid when dashboard stability matters. It is easier to reason about exact placement, repeated arrangements, and components sized in consistent units.
+Every cell is an integer. The grid origin is top-left: `row: 0, column: 0`. The Chart container observes its own size, divides by the configured grid unit (default 80px), and exposes the result as `ChartDimensions` to both the LLM and the renderer. Coordinates are *never* pixels.
 
-## Tiling layout
+The engine returns a `GridLayout` when the response shape was negotiated as `layoutMode: 'grid'` in the request. The client then translates each `(row, column, width, height)` into a CSS transform.
 
-Tiling layout fills the whole container with a split tree. Instead of coordinates, the layout describes how space is divided.
+### When grid fits
 
-```text
-┌──────────────────────────────┬──────────────┐
-│ calendar                     │ weather      │
-│                              ├──────────────┤
-│                              │ tasks        │
-└──────────────────────────────┴──────────────┘
+- **Information-dense dashboards.** You want eight widgets visible at once, each in a known spot.
+- **Layouts a designer would draw.** The LLM is choosing among "Calendar takes the left half" / "Weather goes top-right" — discrete decisions that map naturally to coordinates.
+- **Predictable empty space.** If the LLM only places six Vessels in a twelve-column grid, the remaining columns stay blank. That is sometimes exactly what you want.
+
+### What grid asks of the LLM
+
+Coordinates have to fit. The LLM has to keep every `position.row + size.height` inside `chartDimensions.rows`, and the same for columns. The engine heals overflows when it can (drops invalid positions, records the reason) rather than failing the whole turn, but the prompt makes the constraint explicit so the model rarely needs healing in the first place.
+
+## Tiling layout: a recursive binary tree
+
+A `TilingLayout` describes the same screen as a tree of splits with Vessel instances at the leaves:
+
+```ts
+import type { TilingLayout } from '@maelstrom-co/protocol';
+
+const layout: TilingLayout = {
+  type: 'tiling',
+  // Preorder traversal: split operators (`H`/`V`) followed by their two children.
+  // This tree splits horizontally; the top half is `calendar-1`, the bottom
+  // half splits vertically into `weather-1` (left) and `tasks-1` (right).
+  tree: ['H', 'calendar-1', 'V', 'weather-1', 'tasks-1'],
+  instances: [
+    { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' },
+    { instanceId: 'weather-1',  vesselId: 'weather',  variant: 'current' },
+    { instanceId: 'tasks-1',    vesselId: 'tasks',    variant: 'list' },
+  ],
+};
 ```
 
-Use tiling when density matters and empty gaps are worse than variable proportions. It works well for workspaces where every visible Vessel should get a share of the available screen.
+`tree` is a preorder list of `TilingNode` values: `'H'` (horizontal split), `'V'` (vertical split), an instance id, or `null` for an empty leaf. The client's parser (`packages/client/src/lib/chart-manager/tiling.ts`) walks the list, builds an in-memory tree, and recursively bisects the container rect — every horizontal split divides the available height, every vertical split divides the available width.
 
-## Decision guide
+There is no `chartDimensions` row-and-column count to honour at the leaf level. The tree itself is the structure; the container size is the only spatial input.
 
-| Choose | When |
-| --- | --- |
-| Grid | You want predictable dashboard placement, stable cell sizing, or layouts that leave intentional empty space. |
-| Tiling | You want the visible Vessels to fill the container and adapt as Vessels appear or disappear. |
+### When tiling fits
 
-## Trade-offs
+- **Filling whatever screen you give it.** A tiling layout always covers the whole container — no gaps, no whitespace columns. If you resize, every Vessel resizes with you.
+- **A few Vessels at a time.** Three to five panes feels natural. Twenty leaves would compute fine but read as visual noise.
+- **Letting the LLM compose freely.** "Show me the calendar with weather and tasks alongside" maps cleanly to "split horizontally, then split the bottom vertically" — no coordinate arithmetic.
 
-Grid is more predictable, but it can leave unused space. Tiling is denser, but proportions can shift more dramatically as the layout tree changes. In both modes, the engine still has to respect each active variant's `minSize`.
+### What tiling asks of the LLM
 
-The useful question is not which mode is more advanced. The useful question is what kind of surprise is acceptable. Grid may surprise users with gaps. Tiling may surprise them with changing proportions.
+The tree has to be well-formed: every `'H'` and `'V'` needs two children, every leaf id has to appear in `instances`, and the input instance list has to be a subset of `layout.instances` (the LLM may *add* instances for a turn — useful when the response brings a new Vessel into view). The protocol validates all of this at parse time so the renderer never sees a broken tree.
+
+## How `minSize` feeds both modes
+
+Every `VesselVariant` declares a `minSize` (`packages/protocol/src/lib/vessel.ts`) — the minimum number of chart cells that variant needs to be usable. The same field shapes both layout modes, but the LLM consumes it differently:
+
+- **In grid mode**, `minSize` is a lower bound on `GridPosition.size`. The LLM must allocate at least that much. If it doesn't, the engine's heal pass drops the position with reason `size_below_minimum` and the renderer skips it.
+- **In tiling mode**, `minSize` is a hint about how generously to subdivide. There is no per-leaf size guarantee — a leaf's actual size falls out of the tree shape and the container rect. The LLM uses `minSize` to decide whether a variant *can* go in a corner of a four-way split at all, or whether it needs to own a larger half.
+
+The shared signal matters: a Calendar `'month'` variant might declare `minSize: { width: 6, height: 4 }`, and that single number tells the LLM "don't try to put this in a sidebar" regardless of which layout mode is active. Defining `minSize` honestly is the load-bearing input to good layout decisions.
+
+## Picking a mode
+
+You choose at instance-creation time via `layoutMode` in the request context, and the engine returns the matching shape. The two modes are not interchangeable per turn — the request and response have to agree, and `ChartRequestSchema` rejects the mismatch.
+
+| Need                                      | Likely fit         |
+| ----------------------------------------- | ------------------ |
+| Multi-widget dashboard, designed grid     | `'grid'`           |
+| Adaptive split layout, fills the viewport | `'tiling'`         |
+| Mixed: dense rows + a focus pane          | `'grid'` usually wins; tiling can't carve out fixed-pixel rails |
+| LLM-driven composition with few panes     | `'tiling'`         |
+
+When in doubt, start with grid. It's the easier model to reason about — both for you and for the LLM.
 
 ## Next steps
 
-- [Layout Modes](/guides/react/layout-modes/) — configure the mode in React
-- [Core Concepts](/getting-started/core-concepts/) — see how layout fits the turn lifecycle
-- [The Engine](/understanding/engine/) — understand how layout output is validated and healed
+- [Layout Modes guide](/guides/react/layout-modes/) — how to configure each mode in `@maelstrom-co/react`.
+- [The Vessel State Machine](/understanding/vessel-state-machine/) — where `minSize` is declared and why it lives on variants, not on Vessels.
+- [The Protocol](/understanding/protocol/) — the `GridLayout` and `TilingLayout` types in full.
+- [Architecture Overview](/understanding/architecture/) — where layout sits in the wider data flow.

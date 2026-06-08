@@ -1,42 +1,60 @@
 ---
 title: Why Maelstrom?
-description: The problem Maelstrom exists to fix, and what makes it different.
+description: The problem Maelstrom exists to fix, the design bet behind it, and how to decide whether it fits your app.
 ---
 
-The most powerful technology in a generation arrived, and the industry answered with two lazy defaults — both now hardening into standards.
+Traditional UIs are built for a world where developers know in advance what the user will need. In AI-powered applications, that assumption breaks: users ask for outcomes — "help me plan tomorrow around the rain," "show the meetings that affect my launch checklist" — and the useful interface is the one that assembles the right pieces at the moment of need. Most UI systems treat arrangement as a build-time decision; AI interaction makes arrangement a runtime problem.
+
+The industry has answered that problem with two lazy defaults, both now hardening into standards.
 
 ## Two wrong turns
 
-**Bolt a chat box onto every app.** Walls of text where working software used to be. The transcript becomes the UI, and human reading speed becomes the bottleneck of the whole revolution.
+**Bolt a chat box onto every app.** The UI stays fixed; the LLM answers in text or fires a few predefined tools. The model never gets to *use* the interface — it can only describe what the user could click. Walls of text replace working software, the transcript becomes the UI, and human reading speed becomes the bottleneck of the whole revolution.
 
-**Let the model hallucinate the interface.** Generative UI invents components from a prompt and throws out everything a team knows about its own product. Usability craters; craft evaporates.
+**Let the model hallucinate the interface.** Generative UI invents components from a prompt and throws out everything a team knows about its own product. Every widget is a one-shot — no shared state, no layout system, no way to reason about whether two things fit on screen together. The UX degrades the moment the model has to coordinate more than one component at a time, and craft evaporates with it.
 
-Both miss the point. The interface doesn't need to be retired into a chat log, and it doesn't need to be generated from scratch. It needs to **adapt** — composed by AI in the moment, out of pieces you designed on purpose. Maelstrom exists for that gap: it treats the interface as a set of declared capabilities that an engine can orchestrate at runtime — show this Vessel, transition that Vessel, give the calendar more room, collapse the weather card, keep tasks visible while the user plans the week.
+Both miss the point. The interface doesn't need to be retired into a chat log, and it doesn't need to be generated from scratch. It needs to **adapt** — composed by AI in the moment, out of pieces you designed on purpose. Maelstrom exists for that gap: a real component system the LLM is *allowed* to drive — not by emitting markup, but by choosing among components, variants, and positions the application defined up front.
 
-## The problem: static screens in dynamic work
+## The design bet
 
-In traditional UI architecture, developers choose the navigation structure, the layout, and the component state ahead of time. Users adapt to those choices. They learn which page holds which tool, how to open the right panel, and how to recover when the screen does not match the task.
+Three commitments separate Maelstrom from free-form generative UI:
 
-AI products invert that expectation. A user does not want to remember whether weather, calendar, notes, and tasks live in separate tabs. They ask for an outcome: "help me plan tomorrow around the rain" or "show the meetings that affect my launch checklist." The useful UI is the one that assembles those pieces together at the moment of need.
+1. **The component system stays yours.** You declare Vessels — components with explicit state machines (variants and actions). The LLM never invents new components, never writes JSX. It chooses among the ones you shipped.
+2. **The model reasons over a small, validated domain.** Branded IDs. Discrete variants. Integer grid coordinates instead of pixels. A `minSize` per variant. Every input the LLM sees is constrained and typed; every output it returns is parsed against a schema before anything renders.
+3. **Decisions and rendering are different jobs.** The engine decides; the framework binding renders. The two halves can swap independently — replace the reference engine without touching the React app, replace React without touching the engine.
 
-The culprit is not React, routing, or dashboards. The culprit is that most UI systems treat arrangement as a build-time decision, while AI interaction makes arrangement a runtime problem.
+Those three together are the bet: *if you give the model a closed world of well-typed components and a grid to place them on, it can orchestrate UIs reliably enough to put in front of users.*
 
-## The Maelstrom thesis
+## Why state machines and a grid?
 
-Maelstrom keeps developers in control of the safe parts and lets the engine decide the adaptive parts.
+Both choices look opinionated. Both are load-bearing.
 
-- Developers define Vessels, variants, actions, and minimum sizes.
-- The engine chooses among those declared options for the current intent.
-- The client applies the engine's grid or tiling layout, then executes the requested actions in the same response batch.
-- The Chart reconciles overflow after action-driven variant changes.
+**State machines** ([The Vessel State Machine](/understanding/vessel-state-machine/)) because the LLM needs a closed set of legal moves. When the Calendar is collapsed, the model sees `expand` and nothing else — it cannot ask for `showWeek` and silently fail. Each variant also declares its `minSize`, so the LLM knows the size cost of a transition *before* it commits. That single signal is what lets the model trade space: "Collapse Calendar to fit Weather."
 
-This is not unconstrained UI generation. The LLM cannot invent a new settings page or mutate arbitrary component internals. It can only orchestrate the catalogue your application exposes.
+**A grid** because integer coordinates are the smallest reasoning surface that still describes layout. The LLM never sees pixels — only `row`, `column`, `width`, `height`. Two natural layout modes fall out: [explicit grid placement and a recursive tiling tree](/understanding/grid-vs-tiling/). Both stay inside the same small numeric domain. The container computes its own pixel size; the model never has to.
+
+The result is an architecture an LLM can drive with the failure modes you'd want: when the model picks a bad layout it picks one the schema validates; when it's wrong, the heal pass drops the offending piece and the rest of the turn still renders. For how a decision actually flows through the system, see [How the LLM Orchestrates UI](/understanding/llm-orchestration/).
+
+## What you get
+
+A separation that mirrors how teams already think:
+
+- **Designers and engineers define Vessels.** Every component has a clear contract — variants, actions, sizes — documented in code.
+- **Product decides which Vessels exist in the app.** The set of Vessels is the product surface.
+- **The LLM decides which ones to show, how, and where.** Not what to build. What to use.
+
+And a separation that matches how systems should be built:
+
+- **[Protocol](/understanding/protocol/)** — transport-agnostic types both sides speak.
+- **[Engine](/understanding/engine/)** — stateless decision core, swappable.
+- **Client** — framework-agnostic runtime that applies decisions.
+- **Framework bindings** — `@maelstrom-co/react` today, others later.
+
+Each layer is independently testable, independently replaceable, and small enough to read in an afternoon. See the [Architecture Overview](/understanding/architecture/) for how the pieces fit together.
 
 ## What changes for users
 
-A Maelstrom interface can move from "find the right screen" to "say the goal." The user still sees real product components, but the arrangement reflects the current task instead of a fixed navigation path.
-
-For example, a planning assistant can keep tasks compact while expanding the calendar. A support dashboard can put customer history next to live diagnostics. A planning workspace can rearrange visible tools without asking the user to drag panels by hand.
+A Maelstrom interface moves from "find the right screen" to "say the goal." The user still sees real product components, but the arrangement reflects the current task instead of a fixed navigation path. A planning assistant keeps tasks compact while expanding the calendar. A support dashboard puts customer history next to live diagnostics. A workspace rearranges visible tools without asking the user to drag panels by hand.
 
 ## When not to use it
 
@@ -51,9 +69,9 @@ Use a conventional UI when:
 
 Use Maelstrom when the interface has multiple meaningful components and the best combination depends on what the user asks next.
 
-## Next steps
+## Where to go next
 
-- [How Maelstrom compares](/understanding/comparison/) — vs chat-UI libraries and agent frameworks
-- [Core Concepts](/getting-started/core-concepts/) — learn the vocabulary
-- [The Vessel State Machine](/understanding/vessel-state-machine/) — understand the component model
-- [How the LLM Orchestrates UI](/understanding/llm-orchestration/) — see what the engine can and cannot decide
+- [How Maelstrom compares](/understanding/comparison/) — vs chat-UI libraries and agent frameworks.
+- [Core Concepts](/getting-started/core-concepts/) — the vocabulary in one page.
+- [How the LLM Orchestrates UI](/understanding/llm-orchestration/) — the decision loop the bet is built on.
+- [Quick Start](/getting-started/quick-start/) — run it.

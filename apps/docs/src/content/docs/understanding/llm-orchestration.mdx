@@ -1,68 +1,143 @@
 ---
 title: How the LLM Orchestrates UI
-description: How the Engine uses an LLM to make layout and interaction decisions.
+description: From user intent to engine decision to rendered layout — the contract that lets an LLM drive your UI without inventing it.
 ---
 
-The LLM in Maelstrom is an orchestrator, not a component generator. It reads the current chart state and the declared Vessel catalogue, then chooses actions and layout that match the user's intent.
+The LLM in Maelstrom doesn't generate components, write JSX, or stream HTML. It picks among the Vessels you defined, decides which variant each visible instance should be in, and proposes a layout. Three structured outputs, validated against schemas, fed into a strict client-side execution order.
 
-That boundary is the central design choice. The model can decide that a calendar should expand and sit next to tasks, but it cannot invent a new calendar component or call an action your Vessel did not declare.
+This page walks the decision loop end to end: what the client sends, what the engine prompts, what the LLM returns, and how the client applies the result without ever trusting it blindly.
 
-## What the model sees
+## The two sides of the contract
 
-For each turn, the engine builds a prompt from:
-
-- the user's update reason, such as a natural-language intent
-- the current chart dimensions and layout mode
-- the visible instances and their active variants
-- the registered Vessels, variants, sizes, and actions
-- optional conversation history and prompt customizations
-
-The model returns structured data: a rationale, an execution plan, and a layout directive.
-
-## What the model may decide
-
-The model can choose among declared options:
-
-| Decision | Example |
-| --- | --- |
-| Show or keep a Vessel visible | Place weather when the user asks about rain. |
-| Invoke an action | Call `showWeek` on a calendar instance. |
-| Pick a layout | Put agenda and tasks side by side. |
-| Respect size constraints | Allocate at least the target variant's `minSize`. |
-
-## What the model cannot decide
-
-The model cannot bypass your application boundary:
-
-- It cannot generate arbitrary React components.
-- It cannot invoke actions that are not declared for the active variant.
-- It cannot access provider credentials or server internals through the client.
-- It cannot make invalid wire payloads survive validation unchanged.
-
-The engine still validates, heals, and may retry the model's output.
-
-## Trade-offs
-
-LLM orchestration buys flexibility at the cost of nondeterminism. Two valid responses may arrange the same Vessels differently. Maelstrom manages that trade-off with schemas, branded protocol types, explicit state machines, and a healing layer for recoverable model mistakes.
-
-```mermaid
-flowchart TD
-  Flexibility["Flexibility<br/>user asks for outcomes instead of pages"]
-  Constraint["Constraint<br/>model chooses only from declared Vessels/actions"]
-  Validation["Validation<br/>protocol schema rejects malformed output"]
-  Healing["Healing<br/>recoverable layout/action issues are pruned"]
-  Retry["Retry<br/>no-op results can be re-asked within budget"]
-
-  Flexibility --> Constraint
-  Constraint --> Validation
-  Validation --> Healing
-  Healing --> Retry
+```
+Client                            Engine
+──────                            ──────
+ChartRequest    ─────────────────▶ build prompt → LLM → parse → heal
+                                            │
+ExecutionPlan + Layout  ◀──────────  MaelstromResponse
+   │
+   ▼
+Apply (strict order)
 ```
 
-This is not foolproof. Better Vessel descriptions, realistic sizes, and targeted prompt customization still matter. The orchestration layer gives the model a safer operating area; it does not remove the need to design that area well.
+Two envelopes. One request type into the engine. One response type out. Everything in between is the engine's reference implementation, and everything else is your code.
+
+## What the client sends: `ChartRequest`
+
+A `ChartRequest` (`packages/protocol/src/lib/request.ts`) is a flat snapshot of *what is true right now* plus *why we're asking*:
+
+```ts
+import type { ChartRequest } from '@maelstrom-co/protocol';
+
+const request: ChartRequest = {
+  type: 'chart_request',
+  context: {
+    updateReasons: [
+      { type: 'user_intent', intent: 'show me my calendar for next week' },
+    ],
+    chartDimensions: { columns: 12, rows: 8 },
+    layoutMode: 'grid',
+  },
+  instances: [
+    { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' },
+  ],
+  vessels: [/* every Vessel definition the app registered */],
+  layout: { type: 'grid', positions: [/* current placements */] },
+};
+```
+
+Three things matter about that shape:
+
+- **The reason is structured.** `UpdateReason` is a discriminated union of `user_intent`, `chart_resize`, and `vessel_mutation`. The engine prompts differently for each — a resize doesn't ask the LLM to invent new instances; it asks it to refit what's there.
+- **The vessels are *all* the vessels.** Not just the visible ones. The LLM needs to know it can summon `weather` into the layout, not only that `calendar` already exists.
+- **The current state is the truth.** `instances[]` carries the snapshot variant for each visible instance. The LLM's plan is judged against this — actions only count if they're valid *from the variant the instance is in*.
+
+`ChartRequestSchema` validates the whole shape before the engine touches it. Layout mode has to agree with the layout type; every instance has to reference a real vessel and a real variant; positions can't double-book an instance id. Garbage in becomes a `RequestValidationError` with a structured path, not a confused LLM call.
+
+## What the engine builds
+
+The engine takes the request and assembles a prompt with these slots (see the [Architecture Overview](/understanding/architecture/)):
+
+1. **System context** — what Maelstrom is and what the LLM's job is.
+2. **Available vessels** — every Vessel definition, every variant, every action, every parameter — including the descriptions the author wrote for the model to read.
+3. **Current instance state** — each visible instance's id, vessel, and current variant.
+4. **Chart constraints** — the grid dimensions and the chosen layout mode.
+5. **The update reasons** — why this turn is happening.
+
+It also passes a *structured output schema*. The reference engine doesn't ask the LLM for JSON and hope; it tells the model exactly which fields exist (`userMessage`, `rationale`, `executionPlan`, `layout`) and which shape each one takes — `GridResponseSchema` or `TilingResponseSchema` depending on the requested mode. The model fills the slots.
+
+## What the LLM returns: `MaelstromResponse`
+
+```ts
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
+
+const response: MaelstromResponse = {
+  type: 'maelstrom_response',
+  requestId: '...',
+  userMessage: "Showing next week on your calendar.",
+  rationale: 'User wants week view; collapsing nothing else fits.',
+  executionPlan: [
+    { instanceId: 'calendar-1', action: 'showWeek' },
+  ],
+  layout: {
+    type: 'grid',
+    positions: [
+      {
+        instanceId: 'calendar-1',
+        position: { row: 0, column: 0 },
+        size: { width: 6, height: 4 },
+      },
+    ],
+  },
+};
+```
+
+Three outputs, each with a different audience:
+
+- **`userMessage`** — the conversational reply, shown in the chat.
+- **`rationale`** — internal reasoning for debugging and logs. Never user-facing.
+- **`executionPlan`** — actions to invoke on existing instances, in order. Each `ActionExecution` carries `instanceId`, `action`, and optional `params`.
+- **`layout`** — the resulting placement: a `GridLayout` or `TilingLayout`. See [Grid vs Tiling Layout](/understanding/grid-vs-tiling/).
+
+The engine validates the shape against the schema, then runs a coherence pass that drops anything inconsistent (positions outside the grid, actions invalid for the current variant, leaves missing from the tiling tree). Drops are recorded with categorical reasons (`position_overflow`, `unknown_vessel`, `size_below_minimum`, `tree_missing_child`, …) and stay engine-internal. The client receives only what survived.
+
+The engine never throws across the boundary — it returns `Result<EngineOutput, EngineError>`. See [The Engine](/understanding/engine/) for the heal-don't-fail philosophy and the retry policy.
+
+## The strict execution order
+
+The client applies a response as one atomic batch, in this order:
+
+1. **Apply layout.** Write the engine's `layout` — every instance's position *and* size — straight into the instance store. The engine already validated and healed those numbers, so the client applies them as-is; there is no client-side size recalculation.
+2. **Execute actions.** Run each `ActionExecution`, transitioning its instance to a new variant (and possibly mutating props via the framework binding).
+
+Both steps dispatch together as a single batch (`set_layout`, then `execute_actions`), so the arrangement and the transitions land in the same render.
+
+This order is load-bearing. An action can transition a Vessel to a different variant — new content, new props, a new `minSize`. Applying the engine's geometry *first* means that when the transition renders, it lands straight in its final slot instead of briefly occupying stale coordinates and then jumping. The engine planned the layout against the variants the actions produce, so the two halves agree by construction:
+
+- The engine returns a `collapse` on Calendar *and* a layout that gives Calendar two columns.
+- The client places Calendar in that two-column slot, then runs `collapse`.
+- Calendar renders as `collapsed` in the space that was always meant for it — no clipped intermediate frame.
+
+There is no separate "look up the new size" or "handle overflow" step. `minSize` is enforced on the engine side, before the response is sent; on the client, overflow is just `overflow: hidden` on the Chart container. What closes the loop instead is the React `<Chart>`'s `ResizeObserver`: it floors the container's pixel size to whole grid cells and, only when the cell count actually changes, schedules a fresh `chart_resize` request back to the engine — a feedback path independent of the layout-plus-actions apply batch.
+
+## What this design avoids
+
+- **Hallucinated coordinates.** The LLM works in integer chart units inside known dimensions; out-of-range positions are caught at parse or healed.
+- **Hallucinated actions.** Actions are scoped to the *current* variant; the model can't fire transitions that don't exist in this state.
+- **Untyped components.** The model never invents a component — it picks among the Vessels you registered.
+- **Unrecoverable failures.** Drops, schema errors, and retries are bounded and categorised. A bad turn becomes a partial layout, not a blank page.
+
+The boundary itself stays small: [the Engine](/understanding/engine/) is defined by a single `handle(message): Promise<Result<EngineOutput, EngineError>>` method. The reference implementation does a lot inside that method; production deployments can replace all of it without touching the client or the protocol.
+
+## What this design doesn't cover
+
+- **Streaming responses.** Today the engine returns a complete `MaelstromResponse`. Streaming is future work.
+- **Conversation memory.** The protocol carries one turn. History is opt-in via the engine's pluggable store (`EngineConfig.history`).
 
 ## Next steps
 
-- [The Engine](/understanding/engine/) — validation, healing, and retry behavior
-- [The Vessel State Machine](/understanding/vessel-state-machine/) — the component contract the model reads
-- [Customize the system prompt](/guides/engine/system-prompt/) — tune model behavior without changing protocol validation
+- [The Vessel State Machine](/understanding/vessel-state-machine/) — the typed domain the LLM reasons over.
+- [Grid vs Tiling Layout](/understanding/grid-vs-tiling/) — the two output shapes the layout slot can take.
+- [The Engine](/understanding/engine/) — the boundary contract and the heal pipeline.
+- [The Protocol](/understanding/protocol/) — every type referenced on this page.
+- [Architecture Overview](/understanding/architecture/) — where this loop sits in the wider system.

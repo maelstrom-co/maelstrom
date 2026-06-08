@@ -1,85 +1,135 @@
 ---
 title: The Vessel State Machine
-description: How Vessels model UI components as state machines with variants and actions.
+description: How variants and actions turn a UI component into a state machine the LLM can reason about.
 ---
 
-A Vessel is a UI component described as a state machine. Variants are the states. Actions are the legal transitions or operations available from the current state. The engine can reason about the component because those states and transitions are explicit.
+A Vessel is not a React component. It's a *description* of a component — a state machine the engine knows how to drive. The actual render happens later, in whichever framework binding you use. This separation is the whole point: the LLM reasons about a small, validated machine; the framework renders whatever pixels follow.
 
-```mermaid
-stateDiagram-v2
-  compact --> detailed: expand
-  detailed --> compact: collapse
-  compact --> compact: refresh
-  detailed --> detailed: refresh
+## The machine
+
+Every Vessel declares three things:
+
+- **`variants`** — the discrete states the component can be in.
+- **`defaultVariant`** — which state a new instance starts in.
+- **Per-variant `actions`** — the transitions available *from that state*.
+
+That shape is enforced by `VesselSchema` (`packages/protocol/src/lib/vessel.ts`). A Vessel with no variants, a `defaultVariant` that doesn't exist, an action that transitions to an unknown variant, or duplicate action names within a variant will fail validation before it reaches the engine.
+
+```ts
+import { defineVessel } from '@maelstrom-co/protocol';
+
+const calendar = defineVessel({
+  id: 'calendar',
+  name: 'Calendar',
+  description: 'Shows the user\'s schedule.',
+  defaultVariant: 'month',
+  variants: {
+    month: {
+      props: { view: 'month' },
+      minSize: { width: 6, height: 4 },
+      actions: [
+        {
+          name: 'showWeek',
+          description: 'Switch to a one-week view.',
+          transitionsTo: 'week',
+        },
+        {
+          name: 'collapse',
+          description: 'Shrink to a small summary.',
+          transitionsTo: 'collapsed',
+        },
+      ],
+    },
+    week: {
+      props: { view: 'week' },
+      minSize: { width: 4, height: 4 },
+      actions: [
+        {
+          name: 'showMonth',
+          description: 'Return to month view.',
+          transitionsTo: 'month',
+        },
+      ],
+    },
+    collapsed: {
+      props: { view: 'collapsed' },
+      minSize: { width: 2, height: 1 },
+      actions: [
+        {
+          name: 'expand',
+          description: 'Restore to month view.',
+          transitionsTo: 'month',
+        },
+      ],
+    },
+  },
+});
 ```
 
-## Why state machines fit orchestration
-
-An LLM needs to know what it may do safely. A regular React component can hide that behind arbitrary event handlers. A Vessel exposes the important parts: what states exist, how much room each state needs, and what actions can move between states.
-
-That gives the engine three useful facts:
-
-1. which actions are valid right now
-2. which variant an action will produce
-3. how much layout space the target variant needs
+That's a three-state machine. The Calendar starts in `month`. From `month` it can become `week` or `collapsed`. From `week` it can become `month`. From `collapsed` it can become `month`. There is no edge from `week` directly to `collapsed` — and the engine knows that, because the action isn't declared on `week`.
 
 ## Variants are states
 
-A variant names one renderable state of the component. Each variant carries `props`, `minSize`, and `actions`.
+Each `VesselVariant` describes what the component *is* in that state:
 
-```ts
-variants: {
-  compact: {
-    props: { title: 'Inbox', unread: 3 },
-    minSize: { width: 2, height: 1 },
-    actions: [{ name: 'expand', description: 'Show message list.', transitionsTo: 'list' }],
-  },
-  list: {
-    props: { messages: [] as string[] },
-    minSize: { width: 4, height: 3 },
-    actions: [{ name: 'collapse', description: 'Return to summary.', transitionsTo: 'compact' }],
-  },
-}
-```
+- **`props`** — the data the component renders with. Whatever your framework binding consumes.
+- **`minSize`** — the smallest chart-cell footprint this state is usable at. Feeds both layout modes (see [Grid vs Tiling](/understanding/grid-vs-tiling/)).
+- **`actions`** — the buttons the LLM can press while you're here.
 
-`minSize` is part of the state because different states need different room. A collapsed card may fit in two cells; a detailed chart may need six.
+A variant is not a route or a tab. It's the *whole shape* of the Vessel at one moment: which data it shows, how much room it needs, what it can do next. Two states with the same props but different `minSize` are still two states — the size difference is the meaningful one.
 
-## Actions are transitions or operations
+## Actions are transitions
 
-An action with `transitionsTo` moves the Vessel to another variant. An action without `transitionsTo` stays in the current variant and lets your application perform work, such as saving data or refreshing content.
+A `VesselAction` is an edge in the graph:
 
-Invalid transitions should fail early. If `transitionsTo` names a variant that does not exist, validation should reject the definition rather than waiting for the engine to discover the typo at runtime.
+- **`name`** — the identifier the LLM emits in its execution plan.
+- **`description`** — what the LLM reads to decide whether to invoke it.
+- **`parameters`** — optional structured arguments (`ActionParameter[]`).
+- **`transitionsTo`** — the target variant after the action runs.
 
-## The execution order matters
+`transitionsTo` is what makes the machine a machine. When it's set, the action moves the instance to a new state — and a new `minSize`, and a new action set. When it's omitted, the action is a *self-action*: it can still mutate `props` or trigger side effects via the framework binding, but the Vessel's variant doesn't change.
 
-When an engine response arrives, the client applies the engine's layout directive before executing actions. The engine has already planned against the target variants, so the client can place Vessels first, run the requested transitions, then reconcile any resulting size changes during overflow handling.
+The protocol validates that every `transitionsTo` target exists. Typos can't ship.
 
-```mermaid
-sequenceDiagram
-  participant Engine
-  participant Client
-  participant Vessel
-  participant Chart
+## Why a machine, not a flat config?
 
-  Engine->>Client: expand inbox and place it at 4 x 3
-  Client->>Chart: apply layout
-  Client->>Vessel: run expand
-  Client->>Vessel: read list.minSize
-  Client->>Chart: handle overflow if needed
-```
+The engine isn't choosing what to render. It's reasoning about what *can happen next*. A state machine gives it three things a flat config cannot:
 
-This keeps the visual arrangement and action execution in the same response batch while preserving a final overflow pass for variants whose rendered size changed after the action.
+- **A closed set of legal actions.** When the Calendar is in `collapsed`, the only action the LLM sees is `expand`. It cannot hallucinate `showWeek` and have it silently fail — `showWeek` doesn't exist on `collapsed`, so it never enters the prompt.
+- **Predictable post-transition size.** Before the LLM commits to invoking `expand`, it already knows the next `minSize` is `{ width: 6, height: 4 }`. That lets it plan the layout it wants to land in, not just the layout it's leaving.
+- **Reasoning over trade-offs.** "Weather wants four cells of width. Calendar's `month` variant needs six. The grid only has eight. Collapse Calendar to free four columns, then place Weather." That whole sentence is *only* possible because each variant declares its size cost up front.
 
-## Designing a good Vessel state machine
+A flat config — one component, one render function, one set of props — gives you none of that. You'd either pay for an LLM hallucination every turn or constrain the model so tightly it can't help you.
 
-- Keep variants meaningful to the user, not just to the implementation.
-- Give every action a plain-language description that explains when it should be used.
-- Use `transitionsTo` only when the visible state changes.
-- Keep `minSize` realistic; too-small values create cramped UI even when validation passes.
-- Prefer a few clear variants over many near-duplicates.
+## What the engine sees
+
+Every `ChartRequest` carries the full set of registered vessels plus a snapshot of every visible instance's *current* variant (`VesselInstanceSnapshot`, `packages/protocol/src/lib/request.ts`). The engine builds a prompt that tells the LLM:
+
+1. Here is every Vessel and every variant it has.
+2. Here is each visible instance and what variant it is in *right now*.
+3. Here are the actions available from each instance's current variant — and what variant each one transitions to.
+
+Then it asks for an execution plan. The structured-output schema (`ActionExecution` in `packages/protocol/src/lib/response.ts`) requires `instanceId` and `action`; the engine's coherence pass rejects actions that aren't valid for the instance's current state.
+
+The variant the LLM ends up choosing is rarely the only legal one. It's the one whose post-transition `minSize` fits the room the LLM also wants to give Weather and Tasks. That trade-off is the orchestration loop — see [How the LLM Orchestrates UI](/understanding/llm-orchestration/) for the rest of the picture.
+
+## Self-actions and parameters
+
+Not every action has to transition. A `Search` Vessel might expose a `query` action with a `text` parameter and no `transitionsTo` — it filters results in place, no state change. The protocol allows it: `transitionsTo` is optional on `VesselActionSchema`.
+
+`parameters` is where structured arguments live. Each parameter declares a `type` (`'string' | 'number' | 'boolean' | 'object'`), a `description` the LLM reads, optional `required`, `defaultValue`, and an `enum` of allowed values. The engine packages these into the LLM's tool definitions so the model emits typed params, not free text.
+
+## Authoring tips
+
+- **Make variants meaningfully different.** Two states that differ only by a boolean prop don't earn their own machine entry — collapse them into one variant whose props the action mutates.
+- **Use `description` liberally.** The LLM never reads your TypeScript. It only sees the descriptions on the Vessel, on each action, and on each parameter. Treat those strings as the contract.
+- **Be honest about `minSize`.** If a variant *needs* six columns to be legible, declare six. The LLM will trade space elsewhere; it can't trade what you didn't tell it.
+- **Keep default variants small.** New instances start in `defaultVariant`. If that variant has a large `minSize`, a turn that creates the instance is forced to find room for it — which can crowd out the rest of the layout.
 
 ## Next steps
 
-- [Creating Vessels](/guides/react/creating-vessels/) — define the first state machine in React
-- [Vessel Variants & Actions](/guides/react/variants-and-actions/) — wire actions and handlers
-- [How the LLM Orchestrates UI](/understanding/llm-orchestration/) — see how the engine uses this state machine
+- [Creating Vessels](/guides/react/creating-vessels/) — wire a definition like the one above into `@maelstrom-co/react`.
+- [Vessel Variants & Actions](/guides/react/variants-and-actions/) — the practical how-to for designing the machine.
+- [Grid vs Tiling Layout](/understanding/grid-vs-tiling/) — where `minSize` actually lands.
+- [How the LLM Orchestrates UI](/understanding/llm-orchestration/) — how the engine drives the machine.
+- [The Protocol](/understanding/protocol/) — the full `Vessel`, `VesselVariant`, and `VesselAction` types.
