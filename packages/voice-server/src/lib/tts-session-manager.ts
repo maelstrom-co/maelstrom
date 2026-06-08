@@ -1,10 +1,16 @@
+import type {
+  TelemetryAttributes,
+  TelemetryAttributeValue,
+} from '@maelstrom-co/telemetry';
 import { createTTSError } from './provider-errors.js';
 import { createInitialTTSSessionManagerState } from './tts-session-manager.state.js';
 import type {
   SpeechChunk,
+  SpeechSynthesisHandle,
   TTSEvent,
   TTSProvider,
   VoiceDisconnectedEvent,
+  VoiceProviderErrorKind,
   VoiceSessionCallbacks,
   VoiceSessionQueuedTurnsDroppedError,
   VoiceSessionState,
@@ -31,6 +37,7 @@ type TTSSessionManagerCallbacks = {
   emitAudioOutput: (chunk: SpeechChunk) => number;
   onSpeechStarted: VoiceSessionCallbacks['onSpeechStarted'];
   onSpeechStopped: VoiceSessionCallbacks['onSpeechStopped'];
+  telemetry?: TTSSessionManagerTelemetry;
 };
 
 type SpeakConfig = {
@@ -46,6 +53,82 @@ type DispatchSpeakOptions = Pick<SpeakConfig, 'queued' | 'voice'> & {
 };
 
 type StopContext = 'dispatch_speak' | 'interrupt' | 'process_request';
+
+type MutableTelemetryAttributes = Record<string, TelemetryAttributeValue>;
+
+type TTSTelemetryProviderError = Error & {
+  source: 'tts';
+  provider: string;
+  kind: VoiceProviderErrorKind;
+};
+
+type TTSSessionManagerTelemetry = {
+  emitProviderError: (
+    event: {
+      name: string;
+      attributes?: TelemetryAttributes;
+    },
+    metric: {
+      name: string;
+      value: number;
+      attributes?: TelemetryAttributes;
+    },
+  ) => void;
+  recordConnectDuration: (timing: {
+    name: string;
+    duration: number;
+    attributes?: TelemetryAttributes;
+  }) => void;
+  recordQueuedTurnsCount: (metric: {
+    name: string;
+    value: number;
+    attributes?: TelemetryAttributes;
+  }) => void;
+  recordQueuedTurnsDroppedCount: (metric: {
+    name: string;
+    value: number;
+    attributes?: TelemetryAttributes;
+  }) => void;
+  recordFirstByteDuration: (timing: {
+    name: string;
+    duration: number;
+    attributes?: TelemetryAttributes;
+  }) => void;
+  recordSynthesizeDuration: (timing: {
+    name: string;
+    duration: number;
+    attributes?: TelemetryAttributes;
+  }) => void;
+};
+
+function isProviderErrorKind(value: unknown): value is VoiceProviderErrorKind {
+  return (
+    value === 'auth' ||
+    value === 'quota' ||
+    value === 'transport' ||
+    value === 'parse' ||
+    value === 'server' ||
+    value === 'unknown'
+  );
+}
+
+function isTTSTelemetryProviderError(
+  error: unknown,
+): error is TTSTelemetryProviderError {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const source = Reflect.get(error, 'source');
+  const provider = Reflect.get(error, 'provider');
+  const kind = Reflect.get(error, 'kind');
+
+  return (
+    source === 'tts' &&
+    typeof provider === 'string' &&
+    isProviderErrorKind(kind)
+  );
+}
 
 function getDroppedQueueCount(error: unknown): number {
   return error instanceof Error &&
@@ -83,6 +166,90 @@ export function createTTSSessionManager(
   callbacks: TTSSessionManagerCallbacks,
 ) {
   const state = createInitialTTSSessionManagerState();
+
+  function emitTtsProviderErrorTelemetry(error: unknown): void {
+    if (!isTTSTelemetryProviderError(error)) {
+      return;
+    }
+
+    const attributes = {
+      source: 'tts',
+      provider: error.provider,
+      kind: error.kind,
+    };
+
+    callbacks.telemetry?.emitProviderError(
+      {
+        name: 'maelstrom.voice_server.provider.error',
+        attributes,
+      },
+      {
+        name: 'maelstrom.voice_server.provider.error_count',
+        value: 1,
+        attributes,
+      },
+    );
+  }
+
+  function recordConnectDuration(
+    outcome: 'success' | 'failure',
+    startedAt: number,
+  ): void {
+    callbacks.telemetry?.recordConnectDuration({
+      name: 'maelstrom.voice_server.tts.connect.duration',
+      duration: performance.now() - startedAt,
+      attributes: {
+        provider: tts.name,
+        outcome,
+      },
+    });
+  }
+
+  function recordSynthesizeDuration(
+    outcome: 'completed' | 'stopped' | 'failure',
+    startedAt: number,
+    queued: boolean,
+    voiceProvided: boolean,
+  ): void {
+    const attributes: MutableTelemetryAttributes = {
+      provider: tts.name,
+      queued,
+      outcome,
+      voiceProvided,
+    };
+
+    callbacks.telemetry?.recordSynthesizeDuration({
+      name: 'maelstrom.voice_server.tts.synthesize.duration',
+      duration: performance.now() - startedAt,
+      attributes,
+    });
+  }
+
+  function recordFirstByteDuration(): void {
+    if (
+      state.activeSpeech.finished ||
+      state.activeSpeech.firstByteTimingRecorded ||
+      state.activeSpeech.firstByteTimingStartedAt === null
+    ) {
+      return;
+    }
+
+    const attributes: MutableTelemetryAttributes = {
+      provider: tts.name,
+      queued: state.activeSpeech.queued,
+    };
+
+    if (state.activeSpeech.voiceProvided !== undefined) {
+      attributes.voiceProvided = state.activeSpeech.voiceProvided;
+    }
+
+    state.activeSpeech.firstByteTimingRecorded = true;
+    callbacks.telemetry?.recordFirstByteDuration({
+      name: 'maelstrom.voice_server.tts.first_byte.duration',
+      duration: performance.now() - state.activeSpeech.firstByteTimingStartedAt,
+      attributes,
+    });
+  }
 
   function clearQueue() {
     state.speakQueue = [];
@@ -142,6 +309,10 @@ export function createTTSSessionManager(
         if (droppedQueueCount > 0) {
           callbacks.trace('tts.queued_turns.dropped', {
             droppedQueueCount,
+          });
+          callbacks.telemetry?.recordQueuedTurnsDroppedCount({
+            name: 'maelstrom.voice_server.queued_turns.dropped_count',
+            value: droppedQueueCount,
           });
           clearQueue();
           callbacks.setVoiceState('idle');
@@ -223,6 +394,7 @@ export function createTTSSessionManager(
   function handleTTSEvent(event: TTSEvent) {
     switch (event.type) {
       case 'chunk':
+        recordFirstByteDuration();
         callbacks.trace('tts.chunk.received', {
           bytes: event.chunk.data.length,
           format: event.chunk.format,
@@ -243,6 +415,7 @@ export function createTTSSessionManager(
           message: event.error.message,
           provider: event.error.provider,
         });
+        emitTtsProviderErrorTelemetry(event.error);
         callbacks.reportError(event.error);
         handleInterruptedSpeech();
         break;
@@ -270,10 +443,19 @@ export function createTTSSessionManager(
 
   async function connect() {
     if (!tts.isConnected()) {
+      const startedAt = performance.now();
       callbacks.trace('tts.connecting', {
         provider: tts.name,
       });
-      await tts.connect();
+
+      try {
+        await tts.connect();
+        recordConnectDuration('success', startedAt);
+      } catch (error) {
+        recordConnectDuration('failure', startedAt);
+        emitTtsProviderErrorTelemetry(error);
+        throw error;
+      }
     }
 
     if (!state.ttsUnsubscribe) {
@@ -333,6 +515,10 @@ export function createTTSSessionManager(
   }
 
   async function speak(text: string, config: SpeakConfig = {}) {
+    const synthesizeStartedAt = performance.now();
+    const queued = config.queued ?? false;
+    const voiceProvided = config.voice !== undefined;
+
     callbacks.trace('tts.speak.requested', {
       textLength: text.length,
       preview: text.slice(0, 80),
@@ -349,7 +535,17 @@ export function createTTSSessionManager(
       tts.stop();
     }
 
-    await connect();
+    try {
+      await connect();
+    } catch (error) {
+      recordSynthesizeDuration(
+        'failure',
+        synthesizeStartedAt,
+        queued,
+        voiceProvided,
+      );
+      throw error;
+    }
 
     if (callbacks.isDestroyed() || config.shouldDispatch?.() === false) {
       return;
@@ -361,12 +557,30 @@ export function createTTSSessionManager(
     }
 
     const generation = state.activeSpeechGeneration + 1;
-    const handle = tts.speak(text, speakOptions);
+    const firstByteTimingStartedAt = performance.now();
+    let handle: SpeechSynthesisHandle;
+
+    try {
+      handle = tts.speak(text, speakOptions);
+    } catch (error) {
+      emitTtsProviderErrorTelemetry(error);
+      recordSynthesizeDuration(
+        'failure',
+        synthesizeStartedAt,
+        queued,
+        voiceProvided,
+      );
+      throw error;
+    }
 
     state.activeSpeechGeneration = generation;
     state.activeSpeech = {
       generation,
       finished: false,
+      firstByteTimingStartedAt,
+      firstByteTimingRecorded: false,
+      queued,
+      voiceProvided,
     };
     callbacks.setVoiceState('speaking');
     callbacks.trace('tts.speak.dispatched', {
@@ -387,6 +601,13 @@ export function createTTSSessionManager(
 
     void handle.completion
       .then((reason) => {
+        recordSynthesizeDuration(
+          reason,
+          synthesizeStartedAt,
+          queued,
+          voiceProvided,
+        );
+
         if (reason === 'completed') {
           completeActiveSpeech(generation, true);
           return;
@@ -399,6 +620,12 @@ export function createTTSSessionManager(
           provider: tts.name,
           generation,
         });
+        recordSynthesizeDuration(
+          'failure',
+          synthesizeStartedAt,
+          queued,
+          voiceProvided,
+        );
         completeActiveSpeech(generation, false);
       });
   }
@@ -413,6 +640,10 @@ export function createTTSSessionManager(
       state.pendingDispatchCount > 0
     ) {
       state.speakQueue.push({ text, voice });
+      callbacks.telemetry?.recordQueuedTurnsCount({
+        name: 'maelstrom.voice_server.queued_turns.count',
+        value: state.speakQueue.length,
+      });
       return;
     }
 

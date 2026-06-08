@@ -1,9 +1,14 @@
+import type { TelemetrySink } from '@maelstrom-co/telemetry';
 import type { MaelstromResponse, SessionId } from '@maelstrom-co/protocol';
 import { handleTranscriptGraceExpiryTerminalBranches } from './transcript-grace.js';
 import {
   createInitialTurnCoordinatorState,
   type TurnCoordinatorState,
 } from './turn-coordinator.state.js';
+import {
+  emitVoiceSessionTelemetryEvent,
+  recordVoiceSessionTelemetryTiming,
+} from './telemetry.js';
 import type {
   TranscriptionResult,
   VoiceSessionCallbacks,
@@ -25,6 +30,15 @@ type NotifyCallbackSafely = <T extends unknown[]>(
   traceEvent: string,
   ...args: T
 ) => void;
+
+type EmitStateTelemetry = (
+  previousState: VoiceSessionState,
+  newState: VoiceSessionState,
+) => void;
+
+type TurnTelemetrySource = 'stt' | 'explicit';
+
+type TurnTelemetryOutcome = 'completed' | 'aborted' | 'superseded' | 'errored';
 
 export type TurnCoordinatorDeps = {
   sessionId: SessionId;
@@ -51,10 +65,12 @@ export type TurnCoordinatorDeps = {
     details?: Record<string, unknown>,
   ) => void;
   notifyCallbackSafely: NotifyCallbackSafely;
+  telemetry?: TelemetrySink;
   eventSink: Pick<
     VoiceSessionEventSink,
     'emitTranscript' | 'emitVoiceStateChange'
   >;
+  emitStateTelemetry?: EmitStateTelemetry;
   callbacks: VoiceSessionCallbacks;
   // lazy refs to break circular deps — call these at invocation time, not at creation time
   getSttStartListening: () => () => Promise<void>;
@@ -77,7 +93,9 @@ export function createTurnCoordinator(deps: TurnCoordinatorDeps) {
     reportError,
     reportAsyncFailure,
     notifyCallbackSafely,
+    telemetry,
     eventSink,
+    emitStateTelemetry,
     callbacks,
     getSttStartListening,
     getTTSStop,
@@ -105,6 +123,12 @@ export function createTurnCoordinator(deps: TurnCoordinatorDeps) {
     });
     state.state = newState;
     eventSink.emitVoiceStateChange(newState);
+    try {
+      emitStateTelemetry?.(previousState, newState);
+    } catch {
+      // WHY: State-change telemetry is best-effort observability. Listener/callback ordering and the
+      // state transition itself must remain authoritative even if a telemetry adapter throws.
+    }
 
     if (
       newState === 'idle' &&
@@ -151,6 +175,59 @@ export function createTurnCoordinator(deps: TurnCoordinatorDeps) {
       clearTimeout(state.autoRestartTimeout);
       state.autoRestartTimeout = null;
     }
+  }
+
+  function emitTurnStartedTelemetry(source: TurnTelemetrySource): void {
+    emitVoiceSessionTelemetryEvent(telemetry, {
+      name: 'maelstrom.voice_server.turn.started',
+      attributes: {
+        source,
+      },
+    });
+  }
+
+  function emitTurnCompletedTelemetry(input: {
+    outcome: TurnTelemetryOutcome;
+    source: TurnTelemetrySource;
+    speakResponse: boolean;
+    startedAt: number;
+  }): void {
+    emitVoiceSessionTelemetryEvent(telemetry, {
+      name: 'maelstrom.voice_server.turn.completed',
+      attributes: {
+        source: input.source,
+        outcome: input.outcome,
+      },
+    });
+
+    recordVoiceSessionTelemetryTiming(telemetry, {
+      name: 'maelstrom.voice_server.intent.duration',
+      duration: performance.now() - input.startedAt,
+      attributes: {
+        outcome: input.outcome,
+        speakResponse: input.speakResponse,
+      },
+    });
+  }
+
+  function resolveTurnOutcome(
+    abortController: AbortController,
+  ): TurnTelemetryOutcome {
+    if (abortController.signal.aborted) {
+      return state.activeProcessAbortController === abortController ||
+        state.activeProcessAbortController === null ||
+        isDestroyed()
+        ? 'aborted'
+        : 'superseded';
+    }
+
+    if (isDestroyed()) {
+      return 'aborted';
+    }
+
+    return state.activeProcessAbortController === abortController
+      ? 'errored'
+      : 'superseded';
   }
 
   function abortActiveProcessing(): void {
@@ -389,6 +466,28 @@ export function createTurnCoordinator(deps: TurnCoordinatorDeps) {
       return undefined;
     }
 
+    const source: TurnTelemetrySource =
+      options.traceDetails?.explicitRequest === true ? 'explicit' : 'stt';
+    const speakResponse = options.speakResponse !== false;
+    const turnStartedAt = performance.now();
+    let turnTelemetryEmitted = false;
+    let turnOutcome: TurnTelemetryOutcome | undefined;
+
+    function emitTurnTelemetryIfNeeded() {
+      if (turnTelemetryEmitted || !turnOutcome) {
+        return;
+      }
+
+      turnTelemetryEmitted = true;
+      emitTurnCompletedTelemetry({
+        outcome: turnOutcome,
+        source,
+        speakResponse,
+        startedAt: turnStartedAt,
+      });
+    }
+
+    emitTurnStartedTelemetry(source);
     clearAutoRestartTimeout();
 
     if (state.state === 'speaking') {
@@ -419,6 +518,8 @@ export function createTurnCoordinator(deps: TurnCoordinatorDeps) {
         abortController.signal.aborted ||
         state.activeProcessAbortController !== abortController
       ) {
+        turnOutcome = resolveTurnOutcome(abortController);
+        emitTurnTelemetryIfNeeded();
         return undefined;
       }
 
@@ -430,6 +531,8 @@ export function createTurnCoordinator(deps: TurnCoordinatorDeps) {
         isDestroyed() ||
         state.activeProcessAbortController !== abortController
       ) {
+        turnOutcome = resolveTurnOutcome(abortController);
+        emitTurnTelemetryIfNeeded();
         return undefined;
       }
 
@@ -437,6 +540,9 @@ export function createTurnCoordinator(deps: TurnCoordinatorDeps) {
         requestId: response.requestId,
         replyLength: response.userMessage.length,
       });
+
+      turnOutcome = 'completed';
+      emitTurnTelemetryIfNeeded();
 
       if (response.userMessage && options.speakResponse !== false) {
         await getTTSSpeak()(response.userMessage, {});
@@ -447,10 +553,14 @@ export function createTurnCoordinator(deps: TurnCoordinatorDeps) {
       return response;
     } catch (error: unknown) {
       if (abortController.signal.aborted) {
+        turnOutcome = resolveTurnOutcome(abortController);
+        emitTurnTelemetryIfNeeded();
         trace('intent.processing.aborted');
         return undefined;
       }
 
+      turnOutcome = 'errored';
+      emitTurnTelemetryIfNeeded();
       reportError(error);
       if (
         state.activeProcessAbortController === abortController &&
@@ -463,6 +573,8 @@ export function createTurnCoordinator(deps: TurnCoordinatorDeps) {
       if (state.activeProcessAbortController === abortController) {
         state.activeProcessAbortController = null;
       }
+
+      emitTurnTelemetryIfNeeded();
     }
   }
 

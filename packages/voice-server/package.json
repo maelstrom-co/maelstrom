@@ -34,7 +34,8 @@
     "@google-cloud/speech": "catalog:",
     "@google-cloud/text-to-speech": "catalog:",
     "@maelstrom-co/protocol": "0.0.0",
-    "nanoid": "catalog:"
+    "nanoid": "catalog:",
+    "@maelstrom-co/telemetry": "0.0.0"
   },
   "nx": {
     "name": "@maelstrom-co/voice-server",

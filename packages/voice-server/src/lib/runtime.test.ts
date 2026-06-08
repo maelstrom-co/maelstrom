@@ -5,12 +5,18 @@ import {
   MessageId,
   SessionId,
 } from '@maelstrom-co/protocol';
+import type {
+  TelemetryEvent,
+  TelemetrySink,
+  TelemetryTiming,
+} from '@maelstrom-co/telemetry';
 import FakeTimers from '@sinonjs/fake-timers';
 import { defaultAudioDropDebounceMs } from './audio-buffer-queue.js';
 import { createVoiceSession } from './runtime.js';
 import { sttProviderFactories } from './stt/registry.js';
 import { handleTranscriptGraceExpiryTerminalBranches } from './transcript-grace.js';
 import { ttsProviderFactories } from './tts/registry.js';
+import * as voiceTelemetry from './telemetry.js';
 import type {
   AudioChunk,
   ProcessIntent,
@@ -708,6 +714,29 @@ function createReconnectTraceRecorder() {
   };
 }
 
+function createTelemetrySinkRecorder(): {
+  events: TelemetryEvent[];
+  timings: TelemetryTiming[];
+  sink: TelemetrySink;
+} {
+  const events: TelemetryEvent[] = [];
+  const timings: TelemetryTiming[] = [];
+
+  return {
+    events,
+    timings,
+    sink: {
+      emitEvent(event) {
+        events.push(event);
+      },
+      recordMetric() {},
+      recordTiming(timing) {
+        timings.push(timing);
+      },
+    },
+  };
+}
+
 describe('createVoiceSession runtime finalization', () => {
   beforeEach(() => {
     clock = FakeTimers.install({ shouldAdvanceTime: true });
@@ -715,6 +744,55 @@ describe('createVoiceSession runtime finalization', () => {
 
   afterEach(() => {
     clock.uninstall();
+  });
+
+  test('emits session lifecycle telemetry exactly once and excludes sessionId from attributes', () => {
+    const telemetry = createTelemetrySinkRecorder();
+    const { config, stt, tts } = createConfig({
+      telemetry: telemetry.sink,
+    });
+
+    const runtime = createRuntime(config, { stt, tts });
+
+    runtime.destroy();
+    runtime.destroy();
+
+    expect(telemetry.events).toEqual([
+      {
+        name: 'maelstrom.voice_server.session.started',
+        attributes: undefined,
+      },
+      {
+        name: 'maelstrom.voice_server.session.completed',
+        attributes: undefined,
+      },
+    ]);
+    expect(telemetry.timings).toHaveLength(1);
+    expect(telemetry.timings[0]?.name).toBe(
+      'maelstrom.voice_server.session.duration',
+    );
+    expect(telemetry.timings[0]?.unit).toBe('ms');
+    expect(telemetry.timings[0]?.duration).toBeGreaterThanOrEqual(0);
+    expect(telemetry.timings[0]?.attributes).toBeUndefined();
+  });
+
+  test('skips session lifecycle telemetry when the sink is absent', () => {
+    const emitTelemetrySpy = spyOn(
+      voiceTelemetry,
+      'emitVoiceSessionTelemetryEvent',
+    );
+    const recordTimingSpy = spyOn(
+      voiceTelemetry,
+      'recordVoiceSessionTelemetryTiming',
+    );
+    const { config, stt, tts } = createConfig({ telemetry: undefined });
+
+    const runtime = createRuntime(config, { stt, tts });
+
+    runtime.destroy();
+
+    expect(emitTelemetrySpy).not.toHaveBeenCalled();
+    expect(recordTimingSpy).not.toHaveBeenCalled();
   });
 
   test('buildChartRequest uses named transcript/sessionId input for finalized turns', async () => {

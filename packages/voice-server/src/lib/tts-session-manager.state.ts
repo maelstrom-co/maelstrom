@@ -9,6 +9,10 @@ export type TTSSessionManagerState = {
   activeSpeech: {
     generation: number;
     finished: boolean;
+    firstByteTimingStartedAt: number | null;
+    firstByteTimingRecorded: boolean;
+    queued: boolean;
+    voiceProvided?: boolean;
   };
 };
 
@@ -22,6 +26,9 @@ export function createInitialTTSSessionManagerState(): TTSSessionManagerState {
     activeSpeech: {
       generation: 0,
       finished: true,
+      firstByteTimingStartedAt: null,
+      firstByteTimingRecorded: false,
+      queued: false,
     },
   };
 }

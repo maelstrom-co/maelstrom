@@ -1,3 +1,4 @@
+import type { TelemetrySink } from '@maelstrom-co/telemetry';
 import type {
   SpeechChunk,
   SttCircuitStatus,
@@ -12,6 +13,10 @@ import type {
   VoiceSessionEventSink,
 } from './voice-session-events.contract.js';
 import { createInitialVoiceSessionEventsState } from './voice-session-events.state.js';
+import {
+  recordVoiceSessionTelemetryMetric,
+  recordVoiceSessionTelemetryTiming,
+} from './telemetry.js';
 
 type NotifyCallbackSafely = <T extends unknown[]>(
   callback: ((...args: T) => void) | undefined,
@@ -44,6 +49,7 @@ export interface VoiceSessionInternalEventHub
 export function createVoiceSessionEvents(
   callbacks: VoiceSessionCallbacks,
   traceCallback?: (event: string, details?: Record<string, unknown>) => void,
+  telemetry?: TelemetrySink,
 ): VoiceSessionInternalEventHub {
   const state = createInitialVoiceSessionEventsState();
   let isReportingTraceCallbackFailure = false;
@@ -190,6 +196,21 @@ export function createVoiceSessionEvents(
         'callback.onAudioDropped.failed',
         event,
       );
+
+      recordVoiceSessionTelemetryMetric(telemetry, {
+        name: 'maelstrom.voice_server.audio.dropped_count',
+        value: 1,
+        attributes: {
+          reason: event.reason,
+        },
+      });
+      recordVoiceSessionTelemetryTiming(telemetry, {
+        name: 'maelstrom.voice_server.audio.dropped_duration',
+        duration: event.droppedDurationMs,
+        attributes: {
+          reason: event.reason,
+        },
+      });
     },
     emitAudioOutput(chunk: SpeechChunk) {
       notifyListenersSafely(

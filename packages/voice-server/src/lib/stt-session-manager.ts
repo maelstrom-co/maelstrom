@@ -1,3 +1,7 @@
+import type {
+  TelemetryAttributes,
+  TelemetryAttributeValue,
+} from '@maelstrom-co/telemetry';
 import type { createAudioBufferQueue } from './audio-buffer-queue.js';
 import {
   createInitialSTTSessionManagerState,
@@ -31,6 +35,7 @@ type ReconnectFailureDirective = {
 };
 
 type AudioBufferQueue = ReturnType<typeof createAudioBufferQueue>;
+type STTConnectOperation = 'start_listening' | 'warmup' | 'reconnect';
 
 type STTSessionManagerConfig = {
   language?: string;
@@ -85,11 +90,48 @@ type STTSessionManagerEventBus = Pick<
   'emitSttCircuitStatusChange'
 >;
 
+type MutableTelemetryAttributes = Record<string, TelemetryAttributeValue>;
+
+type STTTelemetryProviderError = Error & {
+  source: 'stt';
+  provider: string;
+  kind: VoiceProviderErrorKind;
+};
+
+type STTSessionManagerTelemetry = {
+  recordConnectDuration: (timing: {
+    name: string;
+    duration: number;
+    attributes?: TelemetryAttributes;
+  }) => void;
+  recordFirstTokenDuration: (timing: {
+    name: string;
+    duration: number;
+    attributes?: TelemetryAttributes;
+  }) => void;
+  emitTranscriptMetadata: (event: {
+    name: string;
+    attributes?: TelemetryAttributes;
+  }) => void;
+  emitProviderError: (
+    event: {
+      name: string;
+      attributes?: TelemetryAttributes;
+    },
+    metric: {
+      name: string;
+      value: number;
+      attributes?: TelemetryAttributes;
+    },
+  ) => void;
+};
+
 export interface CreateSTTSessionManagerCallbacks
   extends STTSessionManagerConfig,
     STTSessionManagerRuntimeBridge,
     STTSessionManagerTurnAccess {
   eventBus: STTSessionManagerEventBus;
+  telemetry?: STTSessionManagerTelemetry;
 }
 
 export interface STTSessionManager {
@@ -255,6 +297,35 @@ function isRecoverableIdleDisconnect(event: VoiceDisconnectedEvent): boolean {
   );
 }
 
+function isProviderErrorKind(value: unknown): value is VoiceProviderErrorKind {
+  return (
+    value === 'auth' ||
+    value === 'quota' ||
+    value === 'transport' ||
+    value === 'parse' ||
+    value === 'server' ||
+    value === 'unknown'
+  );
+}
+
+function isSTTTelemetryProviderError(
+  error: unknown,
+): error is STTTelemetryProviderError {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const source = Reflect.get(error, 'source');
+  const provider = Reflect.get(error, 'provider');
+  const kind = Reflect.get(error, 'kind');
+
+  return (
+    source === 'stt' &&
+    typeof provider === 'string' &&
+    isProviderErrorKind(kind)
+  );
+}
+
 export function createSTTSessionManager(
   stt: STTProvider,
   audioBufferQueue: AudioBufferQueue,
@@ -262,6 +333,115 @@ export function createSTTSessionManager(
 ): STTSessionManager {
   let state = createInitialSTTSessionManagerState();
   const disconnectSuppression = createSttDisconnectSuppressionController();
+
+  function emitSttProviderErrorTelemetry(error: unknown): void {
+    if (!isSTTTelemetryProviderError(error)) {
+      return;
+    }
+
+    const attributes = {
+      source: 'stt',
+      provider: error.provider,
+      kind: error.kind,
+    };
+
+    callbacks.telemetry?.emitProviderError(
+      {
+        name: 'maelstrom.voice_server.provider.error',
+        attributes,
+      },
+      {
+        name: 'maelstrom.voice_server.provider.error_count',
+        value: 1,
+        attributes,
+      },
+    );
+  }
+
+  function recordConnectDuration(
+    operation: STTConnectOperation,
+    outcome: 'success' | 'failure',
+    startedAt: number,
+  ): void {
+    callbacks.telemetry?.recordConnectDuration({
+      name: 'maelstrom.voice_server.stt.connect.duration',
+      duration: performance.now() - startedAt,
+      attributes: {
+        provider: stt.name,
+        operation,
+        outcome,
+        circuitStatus: getCircuitStatus(),
+      },
+    });
+  }
+
+  function emitTranscriptMetadata(result: TranscriptionResult): void {
+    const attributes: MutableTelemetryAttributes = {
+      provider: stt.name,
+      isFinal: result.isFinal,
+    };
+
+    if (result.confidence !== undefined) {
+      attributes.confidence = result.confidence;
+    }
+
+    if (result.language !== undefined) {
+      attributes.language = result.language;
+    }
+
+    if (result.durationInSeconds !== undefined) {
+      attributes.durationInSeconds = result.durationInSeconds;
+    }
+
+    callbacks.telemetry?.emitTranscriptMetadata({
+      name: 'maelstrom.voice_server.stt.transcript.metadata',
+      attributes,
+    });
+  }
+
+  function beginFirstTokenAttempt(operation: STTConnectOperation): void {
+    state.firstTokenAttempt =
+      operation === 'start_listening'
+        ? {
+            operation,
+            startedAt: performance.now(),
+            recorded: false,
+          }
+        : {
+            operation: null,
+            startedAt: null,
+            recorded: false,
+          };
+  }
+
+  function clearFirstTokenAttempt(): void {
+    state.firstTokenAttempt = {
+      operation: null,
+      startedAt: null,
+      recorded: false,
+    };
+  }
+
+  function recordFirstTokenDuration(): void {
+    if (
+      state.firstTokenAttempt.operation !== 'start_listening' ||
+      state.firstTokenAttempt.recorded ||
+      state.firstTokenAttempt.startedAt === null
+    ) {
+      return;
+    }
+
+    state.firstTokenAttempt.recorded = true;
+    callbacks.telemetry?.recordFirstTokenDuration({
+      name: 'maelstrom.voice_server.stt.first_token.duration',
+      duration: performance.now() - state.firstTokenAttempt.startedAt,
+      attributes: {
+        provider: stt.name,
+        operation: state.firstTokenAttempt.operation,
+        circuitStatus: getCircuitStatus(),
+      },
+    });
+  }
 
   function isForegroundStarting(): boolean {
     return state.foreground.kind === 'starting';
@@ -436,12 +616,20 @@ export function createSTTSessionManager(
   function handleSTTEvent(event: STTEvent) {
     if (event.type === 'disconnected' && disconnectSuppression.isSuppressed()) {
       return;
-    }
+      }
 
-    switch (event.type) {
-      case 'transcript': {
-        const transcriptText = event.result.text.trim();
-        const turnState = callbacks.getTurnState();
+      switch (event.type) {
+        case 'transcript': {
+          emitTranscriptMetadata(event.result);
+
+          if (event.result.isFinal) {
+            clearFirstTokenAttempt();
+          } else {
+            recordFirstTokenDuration();
+          }
+
+          const transcriptText = event.result.text.trim();
+          const turnState = callbacks.getTurnState();
 
         callbacks.trace('stt.transcript.received', {
           textLength: transcriptText.length,
@@ -487,10 +675,12 @@ export function createSTTSessionManager(
         break;
       }
 
-      case 'error':
-        callbacks.trace('stt.error', {
-          kind: event.error.kind,
-          message: event.error.message,
+        case 'error':
+          clearFirstTokenAttempt();
+          emitSttProviderErrorTelemetry(event.error);
+          callbacks.trace('stt.error', {
+            kind: event.error.kind,
+            message: event.error.message,
           provider: event.error.provider,
         });
         callbacks.reportError(event.error);
@@ -512,6 +702,7 @@ export function createSTTSessionManager(
         break;
 
       case 'disconnected': {
+        clearFirstTokenAttempt();
         if (!isDisconnectedEvent(event)) {
           break;
         }
@@ -536,7 +727,7 @@ export function createSTTSessionManager(
     }
   }
 
-  async function ensureSTTConnected() {
+  async function ensureSTTConnected(operation: STTConnectOperation) {
     if (callbacks.isDestroyed()) {
       return;
     }
@@ -554,7 +745,21 @@ export function createSTTSessionManager(
       language: connectConfig.language ?? null,
       circuitStatus: getCircuitStatus(),
     });
-    await stt.connect(connectConfig);
+
+    const startedAt = performance.now();
+
+    beginFirstTokenAttempt(operation);
+
+    try {
+      await stt.connect(connectConfig);
+      recordConnectDuration(operation, 'success', startedAt);
+    } catch (error) {
+      clearFirstTokenAttempt();
+      recordConnectDuration(operation, 'failure', startedAt);
+      emitSttProviderErrorTelemetry(error);
+      throw error;
+    }
+
     if (!state.sttUnsubscribe) {
       state.sttUnsubscribe = stt.onEvent(handleSTTEvent);
     }
@@ -577,7 +782,7 @@ export function createSTTSessionManager(
     }
 
     try {
-      await ensureSTTConnected();
+      await ensureSTTConnected(operation);
     } catch (error) {
       if (getCircuitStatus() === 'half_open') {
         openSttCircuit();
@@ -602,7 +807,7 @@ export function createSTTSessionManager(
       }
     }
 
-    await ensureSTTConnected();
+    await ensureSTTConnected('reconnect');
   }
 
   async function reconnectSTT(trigger: STTReconnectTrigger): Promise<void> {
@@ -881,6 +1086,7 @@ export function createSTTSessionManager(
 
     callbacks.setPendingFinalFromVAD(true);
     callbacks.setSuppressIncomingAudio(true);
+    clearFirstTokenAttempt();
 
     if (!stt.isConnected()) {
       audioBufferQueue.flushDropEvent();
@@ -1046,6 +1252,7 @@ export function createSTTSessionManager(
   async function disconnect() {
     state.sttUnsubscribe?.();
     state.sttUnsubscribe = null;
+    clearFirstTokenAttempt();
     clearReconnectDelayTimeout();
     clearReconnectResetTimeout();
     clearSttCircuitCooldownTimeout();

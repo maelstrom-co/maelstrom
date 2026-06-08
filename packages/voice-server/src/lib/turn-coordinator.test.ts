@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { TelemetrySink } from '@maelstrom-co/telemetry';
 import {
   MessageId,
   SessionId,
@@ -7,8 +8,12 @@ import {
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
-import { createTurnCoordinator } from './turn-coordinator.js';
+import {
+  createTurnCoordinator,
+  type TurnCoordinatorDeps,
+} from './turn-coordinator.js';
 import type {
+  TranscriptionResult,
   VoiceSessionCallbacks,
   VoiceSessionIntentRequestBuilder,
   VoiceSessionState,
@@ -54,6 +59,10 @@ function createCoordinatorHarness(
     interimResults: boolean;
     transcriptGraceMs: number;
     callbacks: VoiceSessionCallbacks;
+    emitStateTelemetry: (
+      previousState: VoiceSessionState,
+      newState: VoiceSessionState,
+    ) => void;
     buildChartRequest: VoiceSessionIntentRequestBuilder;
     processIntent: (
       request: ChartRequest,
@@ -65,8 +74,21 @@ function createCoordinatorHarness(
   const traces: Array<{ event: string; details?: Record<string, unknown> }> =
     [];
   const reportedErrors: Error[] = [];
+  const telemetryEvents: Array<{
+    name: string;
+    attributes?: Record<string, string | number | boolean>;
+  }> = [];
+  const telemetryTimings: Array<{
+    name: string;
+    duration: number;
+    attributes?: Record<string, string | number | boolean>;
+  }> = [];
   const transcripts: Array<{ text: string; isFinal: boolean }> = [];
   const voiceStates: VoiceSessionState[] = [];
+  const stateTelemetryCalls: Array<{
+    previousState: VoiceSessionState;
+    newState: VoiceSessionState;
+  }> = [];
   let destroyed = false;
   let currentState: VoiceSessionState = 'idle';
   let pendingFinalFromVAD = false;
@@ -96,7 +118,28 @@ function createCoordinatorHarness(
   const processIntent =
     overrides.processIntent ?? (async (request) => createResponse(request));
 
-  const coordinator = createTurnCoordinator({
+  const telemetry: TelemetrySink = {
+    emitEvent(event) {
+      telemetryEvents.push({
+        name: event.name,
+        attributes: event.attributes as
+          | Record<string, string | number | boolean>
+          | undefined,
+      });
+    },
+    recordMetric() {},
+    recordTiming(timing) {
+      telemetryTimings.push({
+        name: timing.name,
+        duration: timing.duration,
+        attributes: timing.attributes as
+          | Record<string, string | number | boolean>
+          | undefined,
+      });
+    },
+  };
+
+  const deps: TurnCoordinatorDeps = {
     sessionId: SessionId('turn-coordinator-test'),
     intentBoundary: {
       buildChartRequest,
@@ -106,36 +149,53 @@ function createCoordinatorHarness(
     transcriptGraceMs: overrides.transcriptGraceMs ?? 10,
     interimResults: overrides.interimResults ?? false,
     isDestroyed: () => destroyed,
-    trace(event, details) {
+    trace(event: string, details?: Record<string, unknown>) {
       traces.push({ event, details });
     },
-    reportError(error) {
+    reportError(error: unknown) {
       reportedErrors.push(
         error instanceof Error ? error : new Error(String(error)),
       );
     },
-    reportAsyncFailure(event, error, details) {
+    reportAsyncFailure(
+      event: string,
+      error: unknown,
+      details?: Record<string, unknown>,
+    ) {
       traces.push({ event, details });
       reportedErrors.push(
         error instanceof Error ? error : new Error(String(error)),
       );
     },
-    notifyCallbackSafely(callback, _traceEvent, ...args) {
+    notifyCallbackSafely<T extends unknown[]>(
+      callback: ((...args: T) => void) | undefined,
+      _traceEvent: string,
+      ...args: T
+    ) {
       callback?.(...args);
     },
     eventSink: {
-      emitTranscript(result, options) {
+      emitTranscript(
+        result: TranscriptionResult,
+        options: { includeCallback: boolean },
+      ) {
         transcripts.push({ text: result.text, isFinal: result.isFinal });
         if (options.includeCallback) {
           callbacks.onTranscript?.(result);
         }
         return transcripts.length;
       },
-      emitVoiceStateChange(state) {
+      emitVoiceStateChange(state: VoiceSessionState) {
         voiceStates.push(state);
         callbacks.onVoiceStateChange?.(state);
       },
     },
+    emitStateTelemetry:
+      overrides.emitStateTelemetry ??
+      ((previousState: VoiceSessionState, newState: VoiceSessionState) => {
+        stateTelemetryCalls.push({ previousState, newState });
+      }),
+    telemetry,
     callbacks,
     getSttStartListening: () => async () => {
       sttStartListeningCalls += 1;
@@ -143,7 +203,7 @@ function createCoordinatorHarness(
     getTTSStop: () => () => {
       ttsStopCalls += 1;
     },
-    getTTSSpeak: () => async (text) => {
+    getTTSSpeak: () => async (text: string) => {
       spokenTexts.push(text);
     },
     getSttEndStream: () => () => {
@@ -154,7 +214,9 @@ function createCoordinatorHarness(
       vadClearCalls += 1;
     },
     getVADIsPendingFinalFromVAD: () => () => pendingFinalFromVAD,
-  });
+  };
+
+  const coordinator = createTurnCoordinator(deps);
 
   return {
     callbackEvents,
@@ -176,12 +238,30 @@ function createCoordinatorHarness(
     spokenTexts,
     sttEndStreamCalls: () => sttEndStreamCalls,
     sttStartListeningCalls: () => sttStartListeningCalls,
+    stateTelemetryCalls,
+    telemetryEvents,
+    telemetryTimings,
     traces,
     transcripts,
     ttsStopCalls: () => ttsStopCalls,
     vadClearCalls: () => vadClearCalls,
     voiceStates,
   };
+}
+
+function expectTelemetryAttributesToStaySanitized(
+  attributes: Record<string, string | number | boolean> | undefined,
+): void {
+  expect(attributes).not.toHaveProperty('requestId');
+  expect(attributes).not.toHaveProperty('sessionId');
+  expect(attributes).not.toHaveProperty('text');
+  expect(attributes).not.toHaveProperty('textLength');
+  expect(attributes).not.toHaveProperty('preview');
+  expect(attributes).not.toHaveProperty('prompt');
+  expect(attributes).not.toHaveProperty('responseText');
+  expect(attributes).not.toHaveProperty('replyLength');
+  expect(attributes).not.toHaveProperty('transcriptLength');
+  expect(attributes).not.toHaveProperty('userMessage');
 }
 
 describe('turn-coordinator', () => {
@@ -245,6 +325,45 @@ describe('turn-coordinator', () => {
     expect(harness.sttStartListeningCalls()).toBe(1);
   });
 
+  test('emits state telemetry only after voice state listeners and callbacks finish', () => {
+    const sequence: string[] = [];
+    const harness = createCoordinatorHarness({
+      callbacks: {
+        onVoiceStateChange() {
+          sequence.push('callback');
+        },
+      },
+      emitStateTelemetry(previousState, newState) {
+        sequence.push(`telemetry:${previousState}->${newState}`);
+      },
+    });
+
+    harness.coordinator.setVoiceState('listening');
+
+    expect(harness.voiceStates).toEqual(['listening']);
+    expect(sequence).toEqual(['callback', 'telemetry:idle->listening']);
+  });
+
+  test('swallows state telemetry failures without blocking the transition or callbacks', () => {
+    const callbackStates: VoiceSessionState[] = [];
+    const harness = createCoordinatorHarness({
+      callbacks: {
+        onVoiceStateChange(state) {
+          callbackStates.push(state);
+        },
+      },
+      emitStateTelemetry() {
+        throw new Error('telemetry exploded');
+      },
+    });
+
+    expect(() => harness.coordinator.setVoiceState('listening')).not.toThrow();
+
+    expect(harness.coordinator.getVoiceState()).toBe('listening');
+    expect(harness.voiceStates).toEqual(['listening']);
+    expect(callbackStates).toEqual(['listening']);
+  });
+
   test('skips stale intent work after a newer request wins during request creation', async () => {
     let firstResolve!: (request: ChartRequest) => void;
     const processedRequests: string[] = [];
@@ -294,5 +413,208 @@ describe('turn-coordinator', () => {
     expect(harness.reportedErrors[0]?.message).toContain(
       'Repeated transcript grace expiries reached degraded mode',
     );
+  });
+
+  test('records explicit intent timing and turn lifecycle telemetry without request or response content', async () => {
+    const harness = createCoordinatorHarness({
+      processIntent: async (request) =>
+        createResponse(request, {
+          userMessage: 'secret assistant reply',
+        }),
+    });
+
+    await harness.coordinator.processRequest(createRequest('secret user intent'));
+
+    expect(harness.telemetryEvents).toEqual([
+      {
+        name: 'maelstrom.voice_server.turn.started',
+        attributes: { source: 'explicit' },
+      },
+      {
+        name: 'maelstrom.voice_server.turn.completed',
+        attributes: {
+          source: 'explicit',
+          outcome: 'completed',
+        },
+      },
+    ]);
+    expect(harness.telemetryTimings).toHaveLength(1);
+    expect(harness.telemetryTimings[0]?.name).toBe(
+      'maelstrom.voice_server.intent.duration',
+    );
+    expect(harness.telemetryTimings[0]?.duration).toBeGreaterThanOrEqual(0);
+    expect(harness.telemetryTimings[0]?.attributes).toEqual({
+      outcome: 'completed',
+      speakResponse: true,
+    });
+    expect(harness.spokenTexts).toEqual(['secret assistant reply']);
+
+    for (const event of harness.telemetryEvents) {
+      expectTelemetryAttributesToStaySanitized(event.attributes);
+    }
+    for (const timing of harness.telemetryTimings) {
+      expectTelemetryAttributesToStaySanitized(timing.attributes);
+    }
+  });
+
+  test('records STT turn lifecycle telemetry when a finalized transcript starts processing', async () => {
+    const harness = createCoordinatorHarness();
+
+    harness.coordinator.finalizeTranscript('hello from speech');
+    await clock.tickAsync(0);
+
+    expect(harness.telemetryEvents).toEqual([
+      {
+        name: 'maelstrom.voice_server.turn.started',
+        attributes: { source: 'stt' },
+      },
+      {
+        name: 'maelstrom.voice_server.turn.completed',
+        attributes: {
+          source: 'stt',
+          outcome: 'completed',
+        },
+      },
+    ]);
+  });
+
+  test('records aborted intent timing and turn completion exactly once when interrupted mid-processing', async () => {
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const harness = createCoordinatorHarness({
+      processIntent: (_request, signal) =>
+        new Promise<MaelstromResponse>((_resolve, reject) => {
+          resolveStarted();
+          signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'));
+          });
+        }),
+    });
+
+    const pendingRequest = harness.coordinator.processRequest(
+      createRequest('interrupt me'),
+    );
+
+    await started;
+
+    harness.coordinator.interrupt();
+    await pendingRequest;
+
+    expect(harness.telemetryEvents).toEqual([
+      {
+        name: 'maelstrom.voice_server.turn.started',
+        attributes: { source: 'explicit' },
+      },
+      {
+        name: 'maelstrom.voice_server.turn.completed',
+        attributes: {
+          source: 'explicit',
+          outcome: 'aborted',
+        },
+      },
+    ]);
+    expect(harness.telemetryTimings[0]?.attributes).toEqual({
+      outcome: 'aborted',
+      speakResponse: true,
+    });
+  });
+
+  test('records superseded and errored terminal outcomes without duplicate turn completion events', async () => {
+    let resolveFirstRequestStarted!: () => void;
+    const firstRequestStarted = new Promise<void>((resolve) => {
+      resolveFirstRequestStarted = resolve;
+    });
+    let firstRequestSignal: AbortSignal | undefined;
+    const harness = createCoordinatorHarness({
+      processIntent: (request, signal) => {
+        const intent = request.context.updateReasons[0];
+        if (intent?.type === 'user_intent' && intent.intent === 'first request') {
+          firstRequestSignal = signal;
+          return new Promise<MaelstromResponse>((_resolve, reject) => {
+            resolveFirstRequestStarted();
+            signal?.addEventListener('abort', () => {
+              reject(new Error('superseded'));
+            });
+          });
+        }
+
+        if (intent?.type === 'user_intent' && intent.intent === 'error request') {
+          throw new Error('process failed');
+        }
+
+        return Promise.resolve(createResponse(request));
+      },
+    });
+
+    const firstRequest = harness.coordinator.processRequest(
+      createRequest('first request'),
+    );
+    await firstRequestStarted;
+    const secondRequest = harness.coordinator.processRequest(
+      createRequest('second request'),
+    );
+
+    await Promise.all([firstRequest, secondRequest]);
+    await expect(
+      harness.coordinator.processRequest(createRequest('error request')),
+    ).resolves.toBeUndefined();
+
+    expect(firstRequestSignal?.aborted).toBe(true);
+    expect(harness.telemetryEvents).toEqual([
+      {
+        name: 'maelstrom.voice_server.turn.started',
+        attributes: { source: 'explicit' },
+      },
+      {
+        name: 'maelstrom.voice_server.turn.started',
+        attributes: { source: 'explicit' },
+      },
+      {
+        name: 'maelstrom.voice_server.turn.completed',
+        attributes: {
+          source: 'explicit',
+          outcome: 'superseded',
+        },
+      },
+      {
+        name: 'maelstrom.voice_server.turn.completed',
+        attributes: {
+          source: 'explicit',
+          outcome: 'completed',
+        },
+      },
+      {
+        name: 'maelstrom.voice_server.turn.started',
+        attributes: { source: 'explicit' },
+      },
+      {
+        name: 'maelstrom.voice_server.turn.completed',
+        attributes: {
+          source: 'explicit',
+          outcome: 'errored',
+        },
+      },
+    ]);
+    expect(
+      harness.telemetryEvents.filter(
+        (event) => event.name === 'maelstrom.voice_server.turn.completed',
+      ),
+    ).toHaveLength(3);
+    expect(harness.telemetryTimings.map((timing) => timing.attributes)).toEqual([
+      {
+        outcome: 'superseded',
+        speakResponse: true,
+      },
+      {
+        outcome: 'completed',
+        speakResponse: true,
+      },
+      {
+        outcome: 'errored',
+        speakResponse: true,
+      },
+    ]);
   });
 });

@@ -179,6 +179,7 @@ export function resolveVoiceSessionConfig(
       'circuitBreakerTimeoutMs',
     ),
     trace: config.trace,
+    telemetry: config.telemetry,
     intentBoundary:
       config.buildChartRequest && config.processIntent
         ? {
@@ -188,4 +189,3 @@ export function resolveVoiceSessionConfig(
         : null,
   };
 }
-

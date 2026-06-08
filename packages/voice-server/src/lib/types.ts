@@ -3,6 +3,7 @@ import type {
   MaelstromResponse,
   SessionId,
 } from '@maelstrom-co/protocol';
+import type { TelemetrySink } from '@maelstrom-co/telemetry';
 import type { STTProviderConfig } from './stt/registry.js';
 import type { TTSProviderConfig } from './tts/registry.js';
 
@@ -723,6 +724,15 @@ interface VoiceSessionBaseConfig {
   circuitBreakerTimeoutMs?: number;
   /** Optional trace sink for runtime lifecycle and provider events. */
   trace?: (event: string, details?: Record<string, unknown>) => void;
+  /**
+   * Optional synchronous telemetry sink for runtime-owned instrumentation.
+   *
+   * Use this for sanitized counters, timings, and event attributes that the runtime emits on its own.
+   * Unlike `trace`, this sink is intentionally privacy-filtered: runtime emitters exclude transcript text,
+   * prompts, raw audio, message bodies, `sessionId`, and `requestId`. If the sink is absent or throws,
+   * the runtime treats telemetry emission as a no-op and continues processing.
+   */
+  telemetry?: TelemetrySink;
 }
 
 interface VoiceSessionIntentBoundaryConfig {
@@ -745,6 +755,9 @@ interface VoiceSessionNoIntentBoundaryConfig {
  * If an app wants the runtime to process finalized transcripts (and explicit text turns), it must
  * provide both halves of the boundary: `buildChartRequest` to create a request and `processIntent`
  * to execute it. A config where only one half is present is intentionally unrepresentable.
+ *
+ * Observability is split on purpose: `trace` is a caller-owned debug hook that may contain richer
+ * local detail, while `telemetry` is reserved for the runtime's sanitized metrics/events contract.
  */
 export type VoiceSessionConfig = VoiceSessionBaseConfig &
   (VoiceSessionIntentBoundaryConfig | VoiceSessionNoIntentBoundaryConfig);
@@ -789,6 +802,14 @@ export interface ResolvedVoiceSessionConfig {
   circuitBreakerTimeoutMs: number;
   /** Optional trace sink for observability hooks. */
   trace?: (event: string, details?: Record<string, unknown>) => void;
+  /**
+   * Optional synchronous telemetry sink preserved from the public config for runtime-owned instrumentation.
+   *
+   * The resolved runtime keeps the same privacy guarantees as the public config: telemetry payloads
+   * are sanitized metadata only, and missing/throwing sinks are treated as a no-op so observability
+   * failures never interrupt the voice session.
+   */
+  telemetry?: TelemetrySink;
   /** Intent-processing boundary, or `null` when the runtime should stay transport-only. */
   intentBoundary: VoiceSessionIntentBoundaryConfig | null;
 }
@@ -971,4 +992,3 @@ export interface VoiceSession {
   /** Permanently tear down the session, disconnect providers, and drop listeners. */
   destroy(): void;
 }
-

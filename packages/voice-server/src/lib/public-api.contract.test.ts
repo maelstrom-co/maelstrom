@@ -6,6 +6,7 @@
  */
 import { expect, test } from 'bun:test';
 import { SessionId } from '@maelstrom-co/protocol';
+import type { TelemetrySink } from '@maelstrom-co/telemetry';
 import * as voiceServer from '@maelstrom-co/voice-server';
 import {
   type BaseSTTOptions,
@@ -64,6 +65,11 @@ test('public API contract is locked', () => {
     type: 'cartesia',
     options: { apiKey: 'cartesia-key', defaultVoiceId: 'voice-123' },
   };
+  const telemetry: NonNullable<VoiceSessionConfig['telemetry']> = {
+    emitEvent() {},
+    recordMetric() {},
+    recordTiming() {},
+  };
 
   const audioDropReason: VoiceSessionAudioDropReason = 'state_not_listening';
 
@@ -79,6 +85,7 @@ test('public API contract is locked', () => {
     sessionId,
     transcriptGraceMs: explicitTranscriptGraceMs,
     audioBufferMaxMs: explicitAudioBufferMaxMs,
+    telemetry,
   };
 
   type OnAudioDroppedIsOptional =
@@ -203,6 +210,9 @@ test('public API contract is locked', () => {
     >
       ? true
       : false;
+  type _AssertTelemetryConfigType = Expect<
+    Equal<VoiceSessionConfig['telemetry'], TelemetrySink | undefined>
+  >;
   type _AssertEnqueueSpeak = Expect<
     Equal<VoiceSession['enqueueSpeak'], (text: string, voice?: string) => void>
   >;
@@ -224,8 +234,12 @@ test('public API contract is locked', () => {
 
   void publicConfigIncludesTranscriptGraceMs;
   void resolvedConfigIncludesTranscriptGraceMs;
+  void telemetry;
+  void (0 as unknown as _AssertTelemetryConfigType);
   void (0 as unknown as _AssertEnqueueSpeak);
   void (0 as unknown as _AssertQueuedTurnsDroppedTypeGuard);
+
+  expect('TelemetrySink' in voiceServer).toBe(false);
 
   onSttCircuitStatusChange((status) => {
     replayedCircuitStatuses.push(status);

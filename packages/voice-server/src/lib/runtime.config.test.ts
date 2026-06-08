@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { SessionId } from '@maelstrom-co/protocol';
+import type { TelemetrySink } from '@maelstrom-co/telemetry';
 import { resolveVoiceSessionConfig } from './runtime.config.js';
 import { sttProviderFactories } from './stt/registry.js';
 import { ttsProviderFactories } from './tts/registry.js';
@@ -129,6 +130,12 @@ const defaultProcessIntent: ProcessIntent = {
   },
 };
 
+const testTelemetrySink: TelemetrySink = {
+  emitEvent() {},
+  recordMetric() {},
+  recordTiming() {},
+};
+
 function withPatchedProviderFactories<T>(
   providers: {
     stt?: STTProvider;
@@ -206,6 +213,33 @@ describe('resolveVoiceSessionConfig', () => {
     expect(resolved.reconnectBackoffMultiplier).toBe(2.5);
     expect(resolved.reconnectJitterMs).toBe(350);
     expect(resolved.circuitBreakerTimeoutMs).toBe(120000);
+  });
+
+  test('preserves telemetry when provided', () => {
+    const resolved = resolveVoiceSessionConfig(
+      {
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('resolve-session'),
+        telemetry: testTelemetrySink,
+      },
+      defaultResolveConfig,
+    );
+
+    expect(resolved.telemetry).toBe(testTelemetrySink);
+  });
+
+  test('leaves telemetry undefined when omitted', () => {
+    const resolved = resolveVoiceSessionConfig(
+      {
+        stt: createSTTTestConfig(),
+        tts: createTTSTestConfig(),
+        sessionId: SessionId('resolve-session'),
+      },
+      defaultResolveConfig,
+    );
+
+    expect(resolved.telemetry).toBeUndefined();
   });
 
   test('wraps provider construction failures with voice-session context', () => {

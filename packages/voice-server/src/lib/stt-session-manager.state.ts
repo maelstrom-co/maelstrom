@@ -1,5 +1,11 @@
 import type { SttCircuitStatus } from './types.js';
 
+export type STTSessionManagerFirstTokenAttemptState = {
+  operation: 'start_listening' | null;
+  startedAt: number | null;
+  recorded: boolean;
+};
+
 export type STTSessionManagerForegroundState =
   | {
       kind: 'idle';
@@ -39,6 +45,7 @@ export type STTSessionManagerCircuitState =
 
 type STTSessionManagerBaseState = {
   sttUnsubscribe: (() => void) | null;
+  firstTokenAttempt: STTSessionManagerFirstTokenAttemptState;
 };
 
 type STTSessionManagerIdleLifecycleState = STTSessionManagerBaseState & {
@@ -115,6 +122,11 @@ export function createInitialSTTSessionManagerState(): STTSessionManagerState {
   return {
     phase: 'idle',
     sttUnsubscribe: null,
+    firstTokenAttempt: {
+      operation: null,
+      startedAt: null,
+      recorded: false,
+    },
     foreground: {
       kind: 'idle',
     },

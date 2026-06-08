@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, type Mock, spyOn, test } from 'bun:test';
+import type { TelemetrySink } from '@maelstrom-co/telemetry';
 
 import {
   createAudioBufferQueue,
   defaultAudioDropDebounceMs,
   measureAudioChunkDurationMs,
 } from './audio-buffer-queue.js';
+import { createVoiceSessionEvents } from './voice-session-events.js';
 import type { AudioChunk, VoiceSessionAudioDroppedEvent } from './types.js';
 
 interface TimerStub {
@@ -73,6 +75,75 @@ function makeOpusChunkWithoutBytesPerSample(sequence: number): AudioChunk {
     encoding: 'opus',
     timestamp: sequence,
     sequence,
+  };
+}
+
+function makeLinear16Chunk(sequence: number): AudioChunk {
+  return {
+    data: new Uint8Array(32),
+    sampleRate: 16000,
+    encoding: 'linear16',
+    bytesPerSample: 2,
+    channels: 1,
+    timestamp: sequence,
+    sequence,
+  };
+}
+
+function createTelemetryRecorder() {
+  const recordedMetrics: Array<Record<string, unknown>> = [];
+  const recordedTimings: Array<Record<string, unknown>> = [];
+
+  const sink: TelemetrySink = {
+    emitEvent() {},
+    recordMetric(metric) {
+      recordedMetrics.push(metric as unknown as Record<string, unknown>);
+    },
+    recordTiming(timing) {
+      recordedTimings.push(timing as unknown as Record<string, unknown>);
+    },
+  };
+
+  return {
+    sink,
+    recordedMetrics,
+    recordedTimings,
+  };
+}
+
+function createAudioDropTelemetryContext() {
+  const callbackEvents: VoiceSessionAudioDroppedEvent[] = [];
+  const listenerEvents: VoiceSessionAudioDroppedEvent[] = [];
+  const telemetry = createTelemetryRecorder();
+
+  const events = createVoiceSessionEvents(
+    {
+      onAudioDropped(event) {
+        callbackEvents.push(event);
+      },
+    },
+    undefined,
+    telemetry.sink,
+  );
+
+  events.onAudioDropped((event) => {
+    listenerEvents.push(event);
+  });
+
+  const queue = createAudioBufferQueue({
+    audioBufferMaxMs: 5,
+    trace() {},
+    reportError() {},
+    emitAudioDropped: events.emitAudioDropped,
+    isDestroyed: events.isDestroyed,
+  });
+
+  return {
+    queue,
+    events,
+    telemetry,
+    listenerEvents,
+    callbackEvents,
   };
 }
 
@@ -377,5 +448,154 @@ describe('audio-buffer-queue dropped-audio accounting', () => {
     });
 
     expect(durationMs).toBe(1);
+  });
+
+  test('records one telemetry count and timing pair for one debounced audio-drop bucket', () => {
+    const { queue, listenerEvents, callbackEvents, telemetry } =
+      createAudioDropTelemetryContext();
+    const timerHarness = installTimerHarness();
+
+    queue.dropNonListeningChunk({
+      voiceState: 'processing',
+      chunk: makeLinear16Chunk(1),
+      normalizeError(error) {
+        return error instanceof Error
+          ? error
+          : new Error(String(error), { cause: error });
+      },
+    });
+    queue.dropNonListeningChunk({
+      voiceState: 'processing',
+      chunk: makeLinear16Chunk(2),
+      normalizeError(error) {
+        return error instanceof Error
+          ? error
+          : new Error(String(error), { cause: error });
+      },
+    });
+    queue.dropNonListeningChunk({
+      voiceState: 'processing',
+      chunk: makeLinear16Chunk(3),
+      normalizeError(error) {
+        return error instanceof Error
+          ? error
+          : new Error(String(error), { cause: error });
+      },
+    });
+
+    expect(listenerEvents).toHaveLength(0);
+    expect(callbackEvents).toHaveLength(0);
+
+    timerHarness.fireTimer(1);
+
+    const deliveredEvent: VoiceSessionAudioDroppedEvent = {
+      type: 'audio_dropped',
+      reason: 'state_not_listening',
+      droppedDurationMs: 3,
+    };
+
+    expect(listenerEvents).toEqual([deliveredEvent]);
+    expect(callbackEvents).toEqual([deliveredEvent]);
+    expect(telemetry.recordedMetrics).toEqual([
+      expect.objectContaining({
+        name: 'maelstrom.voice_server.audio.dropped_count',
+        kind: 'counter',
+        value: 1,
+        unit: 'count',
+        attributes: { reason: 'state_not_listening' },
+      }),
+    ]);
+    expect(telemetry.recordedTimings).toEqual([
+      expect.objectContaining({
+        name: 'maelstrom.voice_server.audio.dropped_duration',
+        duration: 3,
+        unit: 'ms',
+        attributes: { reason: 'state_not_listening' },
+      }),
+    ]);
+
+    expect(Object.keys(telemetry.recordedMetrics[0]?.attributes ?? {})).toEqual([
+      'reason',
+    ]);
+    expect(Object.keys(telemetry.recordedTimings[0]?.attributes ?? {})).toEqual([
+      'reason',
+    ]);
+
+    for (const recorded of [
+      telemetry.recordedMetrics[0],
+      telemetry.recordedTimings[0],
+    ]) {
+      expect(recorded).not.toHaveProperty('bytes');
+      expect(recorded).not.toHaveProperty('chunk');
+      expect(recorded).not.toHaveProperty('sequence');
+      expect(recorded).not.toHaveProperty('sampleRate');
+      expect(recorded).not.toHaveProperty('encoding');
+      expect(recorded).not.toHaveProperty('sessionId');
+      expect(recorded).not.toHaveProperty('requestId');
+      expect(recorded).not.toHaveProperty('text');
+      expect(recorded).not.toHaveProperty('preview');
+      expect(recorded).not.toHaveProperty('provider');
+      expect(recorded).not.toHaveProperty('raw');
+    }
+  });
+
+  test('suppresses pending audio-drop delivery and telemetry when destroyed before debounce fires', () => {
+    const { queue, events, listenerEvents, callbackEvents, telemetry } =
+      createAudioDropTelemetryContext();
+    const timerHarness = installTimerHarness();
+
+    queue.dropNonListeningChunk({
+      voiceState: 'processing',
+      chunk: makeLinear16Chunk(1),
+      normalizeError(error) {
+        return error instanceof Error
+          ? error
+          : new Error(String(error), { cause: error });
+      },
+    });
+
+    events.destroy();
+    timerHarness.fireTimer(1);
+
+    expect(listenerEvents).toHaveLength(0);
+    expect(callbackEvents).toHaveLength(0);
+    expect(telemetry.recordedMetrics).toHaveLength(0);
+    expect(telemetry.recordedTimings).toHaveLength(0);
+  });
+
+  test('keeps listener and callback delivery intact when the telemetry sink throws', () => {
+    const listenerEvents: VoiceSessionAudioDroppedEvent[] = [];
+    const callbackEvents: VoiceSessionAudioDroppedEvent[] = [];
+    const events = createVoiceSessionEvents(
+      {
+        onAudioDropped(event) {
+          callbackEvents.push(event);
+        },
+      },
+      undefined,
+      {
+        emitEvent() {},
+        recordMetric() {
+          throw new Error('metric sink failed');
+        },
+        recordTiming() {
+          throw new Error('timing sink failed');
+        },
+      },
+    );
+
+    events.onAudioDropped((event) => {
+      listenerEvents.push(event);
+    });
+
+    const event: VoiceSessionAudioDroppedEvent = {
+      type: 'audio_dropped',
+      reason: 'state_not_listening',
+      droppedDurationMs: 3,
+    };
+
+    expect(() => events.emitAudioDropped(event)).not.toThrow();
+    expect(listenerEvents).toEqual([event]);
+    expect(callbackEvents).toEqual([event]);
   });
 });

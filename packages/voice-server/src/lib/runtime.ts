@@ -1,6 +1,11 @@
 import { createAudioBufferQueue } from './audio-buffer-queue.js';
 import { resolveVoiceSessionConfig } from './runtime.config.js';
 import { createSTTSessionManager } from './stt-session-manager.js';
+import {
+  emitVoiceSessionTelemetryEvent,
+  recordVoiceSessionTelemetryMetric,
+  recordVoiceSessionTelemetryTiming,
+} from './telemetry.js';
 import { createTTSSessionManager } from './tts-session-manager.js';
 import { createTurnCoordinator } from './turn-coordinator.js';
 import type {
@@ -67,6 +72,7 @@ export function createVoiceSession(
     reconnectJitterMs,
     circuitBreakerTimeoutMs,
     trace: traceCallback,
+    telemetry,
     intentBoundary,
   } = resolveVoiceSessionConfig(config, {
     vadFinalDebounceMs: defaultVadFinalDebounceMs,
@@ -79,8 +85,14 @@ export function createVoiceSession(
     reconnectJitterMs: defaultReconnectJitterMs,
     circuitBreakerTimeoutMs: defaultCircuitBreakerTimeoutMs,
   });
+  const sessionStartedAt = performance.now();
 
-  const sessionEvents = createVoiceSessionEvents(callbacks, traceCallback);
+  const sessionEvents = createVoiceSessionEvents(
+    callbacks,
+    traceCallback,
+    telemetry,
+  );
+  let hasEmittedSessionCompletionTelemetry = false;
 
   function resetBufferedAudioState() {
     // WHY: Manual stop/destroy are explicit teardown boundaries. We intentionally discard any
@@ -115,7 +127,17 @@ export function createVoiceSession(
     reportError: sessionEvents.reportError,
     reportAsyncFailure: sessionEvents.reportAsyncFailure,
     notifyCallbackSafely: sessionEvents.notifyCallbackSafely,
+    telemetry,
     eventSink: sessionEvents,
+    emitStateTelemetry(previousState, newState) {
+      emitVoiceSessionTelemetryEvent(telemetry, {
+        name: 'maelstrom.voice_server.state_changed',
+        attributes: {
+          previousState,
+          nextState: newState,
+        },
+      });
+    },
     callbacks,
     getSttStartListening: () => sttSessionManager.startListening,
     getTTSStop:
@@ -141,6 +163,27 @@ export function createVoiceSession(
     emitAudioOutput: sessionEvents.emitAudioOutput,
     onSpeechStarted: callbacks.onSpeechStarted,
     onSpeechStopped: callbacks.onSpeechStopped,
+    telemetry: {
+      emitProviderError(event, metric) {
+        recordVoiceSessionTelemetryMetric(telemetry, metric);
+        emitVoiceSessionTelemetryEvent(telemetry, event);
+      },
+      recordConnectDuration(timing) {
+        recordVoiceSessionTelemetryTiming(telemetry, timing);
+      },
+      recordQueuedTurnsCount(metric) {
+        recordVoiceSessionTelemetryMetric(telemetry, metric);
+      },
+      recordQueuedTurnsDroppedCount(metric) {
+        recordVoiceSessionTelemetryMetric(telemetry, metric);
+      },
+      recordFirstByteDuration(timing) {
+        recordVoiceSessionTelemetryTiming(telemetry, timing);
+      },
+      recordSynthesizeDuration(timing) {
+        recordVoiceSessionTelemetryTiming(telemetry, timing);
+      },
+    },
   });
 
   vadCoordinator = createVADCoordinator({
@@ -184,7 +227,28 @@ export function createVoiceSession(
     eventBus: {
       emitSttCircuitStatusChange: sessionEvents.emitSttCircuitStatusChange,
     },
+    telemetry: {
+      recordConnectDuration(timing) {
+        recordVoiceSessionTelemetryTiming(telemetry, timing);
+      },
+      recordFirstTokenDuration(timing) {
+        recordVoiceSessionTelemetryTiming(telemetry, timing);
+      },
+      emitTranscriptMetadata(event) {
+        emitVoiceSessionTelemetryEvent(telemetry, event);
+      },
+      emitProviderError(event, metric) {
+        recordVoiceSessionTelemetryMetric(telemetry, metric);
+        emitVoiceSessionTelemetryEvent(telemetry, event);
+      },
+    },
   });
+
+  if (telemetry) {
+    emitVoiceSessionTelemetryEvent(telemetry, {
+      name: 'maelstrom.voice_server.session.started',
+    });
+  }
 
   function cleanupProviders() {
     void sttSessionManager.disconnect().catch((error) => {
@@ -208,6 +272,17 @@ export function createVoiceSession(
   }
 
   function destroy(): void {
+    if (telemetry && !hasEmittedSessionCompletionTelemetry) {
+      hasEmittedSessionCompletionTelemetry = true;
+      emitVoiceSessionTelemetryEvent(telemetry, {
+        name: 'maelstrom.voice_server.session.completed',
+      });
+      recordVoiceSessionTelemetryTiming(telemetry, {
+        name: 'maelstrom.voice_server.session.duration',
+        duration: performance.now() - sessionStartedAt,
+      });
+    }
+
     sessionEvents.destroy();
     ttsSessionManager.destroy();
     turnCoordinator.destroy();
