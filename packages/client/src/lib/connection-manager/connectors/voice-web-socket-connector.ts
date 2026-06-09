@@ -10,6 +10,7 @@ import {
   MessageId,
   SessionHistoryEntryArraySchema,
   toError,
+  VoiceServerMessageSchema,
 } from '@maelstrom-co/protocol';
 
 import { RequestCorrelator } from '../../utils/request-correlator.js';
@@ -475,9 +476,33 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
         data.type === 'engine.maelstrom.response' &&
         isCorrelatableId(data.requestId)
       ) {
+        const requestId = MessageId(data.requestId);
+        // safeParse at the wire boundary — a malformed payload (forged or
+        // missing brand, server bug, mangling proxy) rejects the awaiting
+        // caller with a useful error rather than resolving it with a coerced
+        // frame. Mirrors the engine.history.response treatment below.
+        const parsed = VoiceServerMessageSchema.safeParse(data);
+        if (!parsed.success) {
+          const rejected = this.#correlator.reject(
+            requestId,
+            new Error(
+              `engine.maelstrom.response: malformed payload (${parsed.error.issues[0]?.message ?? 'schema mismatch'})`,
+            ),
+          );
+          if (!rejected) {
+            console.warn(
+              `[VoiceConnector] engine.maelstrom.response with malformed payload and no pending request: requestId=${data.requestId}`,
+            );
+          }
+          return;
+        }
+        // Discriminant is guaranteed by the safeParse above; the guard narrows
+        // the union so `response` / `requestId` are the branded fields.
+        const message = parsed.data;
+        if (message.type !== 'engine.maelstrom.response') return;
         const resolved = this.#correlator.resolve(
-          MessageId(data.requestId),
-          data.response,
+          message.requestId,
+          message.response,
         );
         if (this.#debug) {
           console.log(
@@ -492,13 +517,11 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
             `[VoiceConnector] engine.maelstrom.response with no pending request: requestId=${data.requestId} (routing to voice/push listeners as voice-initiated response)`,
           );
           this.#voiceMessageListeners.forEach((listener) => {
-            listener(data as VoiceServerMessage);
+            listener(message);
           });
-          if (data.response) {
-            this.#pushMessageListeners.forEach((listener) => {
-              listener(data.response as MaelstromResponse);
-            });
-          }
+          this.#pushMessageListeners.forEach((listener) => {
+            listener(message.response);
+          });
         }
       } else if (
         data.type === 'engine.history.response' &&
@@ -555,28 +578,29 @@ export class VoiceWebSocketConnector implements VoiceConnector, PushConnector {
           );
         }
       } else {
-        // All other messages are voice messages
-        if ((data as VoiceServerMessage).type === 'engine.stt.ready') {
-          // Guard the replay cache at the wire boundary: a malformed
-          // engine.stt.ready (missing sessionId) would otherwise persist in
-          // the slot and re-broadcast to every late subscriber for the
-          // lifetime of the connection. Matches the safeParse precedent
-          // used for engine.history.response above.
-          if (typeof (data as { sessionId?: unknown }).sessionId === 'string') {
-            this.#lastSttReady = data as VoiceServerMessage;
-          } else {
-            // Always-on warn: wire-contract violation, not a debug breadcrumb.
-            // Matches the policy of every other console.warn in #handleMessage
-            // (parse failures, uncorrelated frames) — only console.log calls
-            // are gated behind #debug.
-            console.warn(
-              '[VoiceConnector] engine.stt.ready with malformed sessionId; not caching for replay',
-              data,
-            );
-          }
+        // All other frames are voice messages. safeParse at the wire boundary
+        // so a malformed frame (forged/missing brand, contract drift) is
+        // dropped with a warn rather than broadcast to listeners wearing a
+        // forged brand. Nothing to reject here — these frames are not tied to
+        // a pending request.
+        const parsed = VoiceServerMessageSchema.safeParse(data);
+        if (!parsed.success) {
+          // Always-on warn: wire-contract violation, not a debug breadcrumb.
+          console.warn(
+            `[VoiceConnector] dropping malformed voice message (${parsed.error.issues[0]?.message ?? 'schema mismatch'})`,
+            data,
+          );
+          return;
+        }
+        const message = parsed.data;
+        if (message.type === 'engine.stt.ready') {
+          // sessionId is guaranteed present + branded by the schema, so the
+          // late-subscriber replay cache can store the validated message
+          // directly without re-checking the wire shape.
+          this.#lastSttReady = message;
         }
         this.#voiceMessageListeners.forEach((listener) => {
-          listener(data as VoiceServerMessage);
+          listener(message);
         });
       }
     } catch (err) {

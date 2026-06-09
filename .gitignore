@@ -71,6 +71,7 @@ docs/superpowers/
 .omc/
 .opencode/
 .omo/
+.infisical.json
 
 logs.txt
 

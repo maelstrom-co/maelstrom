@@ -28,6 +28,7 @@
     "access": "public"
   },
   "dependencies": {
+    "nanoid": "catalog:",
     "zod": "catalog:"
   },
   "nx": {

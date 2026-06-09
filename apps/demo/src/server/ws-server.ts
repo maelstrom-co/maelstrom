@@ -45,6 +45,7 @@ import { Hono } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import type { BunWebSocketData, BunWebSocketHandler } from 'hono/bun';
 import { cors } from 'hono/cors';
+import { nanoid } from 'nanoid';
 import { DEMO_KEYTERMS } from './demo-keyterms.js';
 import { getProviderErrorMetadata } from './provider-error-metadata.js';
 import { flattenErrorChain } from './voice-error-format.js';
@@ -165,7 +166,7 @@ export function createDemoWsApp(deps?: DemoWsAppDeps): {
     '/ws',
     upgradeWebSocket((c) => {
       const sessionId = SessionId(
-        c.req.query('sessionId') || crypto.randomUUID(),
+        c.req.query('sessionId') || nanoid(),
       );
       const language = c.req.query('language') || 'en';
       const getVoiceProviderKeys =

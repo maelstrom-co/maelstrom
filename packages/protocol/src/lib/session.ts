@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { type Brand, requireNonEmptyBrand } from './brand.js';
@@ -22,7 +23,7 @@ export type SessionId = Brand<string, 'SessionId'>;
  *
  * @example
  * ```ts
- * const fresh = SessionId();               // 'session-<uuid>'
+ * const fresh = SessionId();               // 'session-<nanoid>'
  * const fromDb = SessionId(row.sessionId); // brands an existing id
  * ```
  */
@@ -30,7 +31,7 @@ export const SessionId = (value?: string): SessionId => {
   if (value !== undefined) {
     requireNonEmptyBrand(value, 'SessionId');
   }
-  return (value ?? `session-${crypto.randomUUID()}`) as SessionId;
+  return (value ?? `session-${nanoid()}`) as SessionId;
 };
 
 /**

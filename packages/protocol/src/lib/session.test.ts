@@ -3,12 +3,24 @@ import { describe, expect, test } from 'bun:test';
 import { SessionId, SessionIdSchema } from './session.js';
 
 describe('SessionId', () => {
-  test('generates a unique id with session- prefix when called with no arguments', () => {
-    const id = SessionId();
-    expect(typeof id).toBe('string');
-    expect(id).toMatch(
-      /^session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+  test('generates a unique id with session- prefix without requiring crypto.randomUUID', () => {
+    const originalRandomUUID = crypto.randomUUID;
+    Object.defineProperty(crypto, 'randomUUID', {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      const id = SessionId();
+      expect(typeof id).toBe('string');
+      expect(id).toStartWith('session-');
+      expect(id).toHaveLength('session-'.length + 21);
+    } finally {
+      Object.defineProperty(crypto, 'randomUUID', {
+        configurable: true,
+        value: originalRandomUUID,
+      });
+    }
   });
 
   test('preserves the provided value when given a non-empty string', () => {
