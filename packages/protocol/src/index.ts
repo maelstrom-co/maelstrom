@@ -101,3 +101,7 @@ export type {
   VoiceClientMessage,
   VoiceServerMessage,
 } from './lib/voice-messages.js';
+export {
+  VoiceClientMessageSchema,
+  VoiceServerMessageSchema,
+} from './lib/voice-messages.js';

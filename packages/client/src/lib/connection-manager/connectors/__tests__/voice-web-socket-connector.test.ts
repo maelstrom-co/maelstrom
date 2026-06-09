@@ -52,6 +52,7 @@ describe('VoiceWebSocketConnector wire contract', () => {
 
     ws.emitJson({
       type: 'engine.maelstrom.response',
+      sessionId: 'session-voice',
       requestId: envelope.id,
       response: {
         type: 'maelstrom_response',
@@ -75,6 +76,7 @@ describe('VoiceWebSocketConnector wire contract', () => {
 
     ws.emitJson({
       type: 'engine.maelstrom.response',
+      sessionId: 'session-voice',
       requestId: envelope.id,
       response: {
         type: 'maelstrom_response',
@@ -106,6 +108,28 @@ describe('VoiceWebSocketConnector wire contract', () => {
     });
 
     await expect(promise).rejects.toThrow('voice envelope rejected');
+    await connector.disconnect();
+  });
+
+  test('malformed engine.maelstrom.response rejects the awaiting process() caller', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    const envelope = buildEnvelope(MessageId('voice-malformed-1'));
+    const promise = connector.process(envelope);
+
+    // Correlatable requestId (matches the pending request) but a malformed
+    // payload: `response` is not an object. The schema rejects it at the wire
+    // boundary, so the awaiting caller is rejected with a useful error rather
+    // than resolved with a coerced frame.
+    ws.emitJson({
+      type: 'engine.maelstrom.response',
+      sessionId: 'session-voice',
+      requestId: envelope.id,
+      response: 'not-an-object',
+    });
+
+    await expect(promise).rejects.toThrow(/malformed payload/i);
     await connector.disconnect();
   });
 });
@@ -150,6 +174,7 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
     try {
       ws.emitJson({
         type: 'engine.maelstrom.response',
+        sessionId: 'session-voice',
         requestId: 'voice-no-pending',
         response: {
           type: 'maelstrom_response',
@@ -181,6 +206,43 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
     }
   });
 
+  test('malformed engine.maelstrom.response with no pending request warns and routes nowhere', async () => {
+    const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
+    const ws = await connectAndOpen(connector);
+
+    const pushed: MaelstromResponse[] = [];
+    connector.onPushMessage((response) => {
+      pushed.push(response);
+    });
+    const voiceMessages: VoiceServerMessage[] = [];
+    connector.onVoiceMessage((message) => {
+      voiceMessages.push(message);
+    });
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // Correlatable requestId, no pending request, malformed body. The reject
+      // finds no pending caller, so the connector takes the no-pending warn
+      // branch and must NOT fall through to the voice/push fan-out.
+      ws.emitJson({
+        type: 'engine.maelstrom.response',
+        sessionId: 'session-voice',
+        requestId: 'no-pending-malformed',
+        response: 'not-an-object',
+      });
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        'engine.maelstrom.response with malformed payload and no pending request',
+      );
+      expect(pushed).toHaveLength(0);
+      expect(voiceMessages).toHaveLength(0);
+    } finally {
+      warnSpy.mockRestore();
+      await connector.disconnect();
+    }
+  });
+
   test('engine.maelstrom.response with empty-string requestId does not push to listeners', async () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
     const ws = await connectAndOpen(connector);
@@ -205,7 +267,12 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
         },
       });
 
-      expect(warnSpy).not.toHaveBeenCalled();
+      // The empty-id frame fails schema validation in the voice branch: it is
+      // surfaced (warn) and dropped rather than silently swallowed.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        'dropping malformed voice message',
+      );
       // Crucially: the empty-id frame did NOT get treated as an unsolicited
       // push and routed to pushMessageListeners (the misroute the spec calls
       // out for VoiceWebSocketConnector).
@@ -242,7 +309,12 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
         },
       });
 
-      expect(warnSpy).not.toHaveBeenCalled();
+      // Non-string requestId fails schema validation in the voice branch:
+      // surfaced (warn) and dropped, never routed as a push.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        'dropping malformed voice message',
+      );
       expect(pushed).toHaveLength(0);
     } finally {
       warnSpy.mockRestore();
@@ -257,6 +329,10 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
     const envelope = buildEnvelope(MessageId('voice-valid-pending'));
     const promise = connector.process(envelope);
 
+    // The malformed engine.error (non-correlatable requestId) is surfaced and
+    // dropped in the voice branch; spy so the warn doesn't clutter output.
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
     ws.emitJson({
       type: 'engine.error',
       requestId: '',
@@ -265,6 +341,7 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
 
     ws.emitJson({
       type: 'engine.maelstrom.response',
+      sessionId: 'session-voice',
       requestId: envelope.id,
       response: {
         type: 'maelstrom_response',
@@ -278,6 +355,7 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
 
     const response = await promise;
     expect(response.userMessage).toBe('ok');
+    warnSpy.mockRestore();
     await connector.disconnect();
   });
 
@@ -287,6 +365,10 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
 
     const envelope = buildEnvelope(MessageId('voice-valid-pending-2'));
     const promise = connector.process(envelope);
+
+    // The malformed engine.error (non-correlatable requestId) is surfaced and
+    // dropped in the voice branch; spy so the warn doesn't clutter output.
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 
     ws.emitJson({
       type: 'engine.error',
@@ -298,6 +380,7 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
 
     ws.emitJson({
       type: 'engine.maelstrom.response',
+      sessionId: 'session-voice',
       requestId: envelope.id,
       response: {
         type: 'maelstrom_response',
@@ -311,6 +394,7 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
 
     const response = await promise;
     expect(response.userMessage).toBe('ok');
+    warnSpy.mockRestore();
     await connector.disconnect();
   });
 
@@ -342,10 +426,13 @@ describe('VoiceWebSocketConnector silent-failure hygiene', () => {
         },
       });
 
-      // Whitespace failed `isCorrelatableId` so neither the correlator path
-      // nor the unmatched-warn fallback fires; the handler completed without
-      // logging a parse error.
-      expect(warnSpy).not.toHaveBeenCalled();
+      // Whitespace fails `isCorrelatableId`, so the frame falls to the voice
+      // branch where the schema rejects it: surfaced (warn) and dropped, never
+      // routed as a push, and crucially without throwing a parse error.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        'dropping malformed voice message',
+      );
       expect(errorSpy).not.toHaveBeenCalled();
       expect(pushed).toHaveLength(0);
     } finally {
@@ -364,7 +451,7 @@ describe('engine.stt.ready sticky replay', () => {
     const received: VoiceServerMessage[] = [];
     connector.onVoiceMessage((msg) => received.push(msg));
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1', timestamp: 1 });
 
     expect(received).toHaveLength(1);
     expect(received[0].type).toBe('engine.stt.ready');
@@ -375,7 +462,7 @@ describe('engine.stt.ready sticky replay', () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
     const ws = await connectAndOpen(connector);
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1', timestamp: 1 });
 
     const received: VoiceServerMessage[] = [];
     connector.onVoiceMessage((msg) => received.push(msg));
@@ -392,7 +479,7 @@ describe('engine.stt.ready sticky replay', () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
     const ws = await connectAndOpen(connector);
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1', timestamp: 1 });
 
     const received: VoiceServerMessage[] = [];
     connector.onVoiceMessage((msg) => received.push(msg));
@@ -401,7 +488,7 @@ describe('engine.stt.ready sticky replay', () => {
     expect(received).toHaveLength(1);
     expect((received[0] as { sessionId: string }).sessionId).toBe('session-1');
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-2' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-2', timestamp: 1 });
 
     expect(received).toHaveLength(2);
     expect((received[1] as { sessionId: string }).sessionId).toBe('session-2');
@@ -412,7 +499,7 @@ describe('engine.stt.ready sticky replay', () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
     let ws = await connectAndOpen(connector);
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A', timestamp: 1 });
     await connector.disconnect();
 
     // reconnect without emitting engine.stt.ready again
@@ -430,11 +517,11 @@ describe('engine.stt.ready sticky replay', () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
     let ws = await connectAndOpen(connector);
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A', timestamp: 1 });
     await connector.disconnect();
 
     ws = await connectAndOpen(connector);
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-B' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-B', timestamp: 1 });
 
     const received: VoiceServerMessage[] = [];
     connector.onVoiceMessage((msg) => received.push(msg));
@@ -451,7 +538,7 @@ describe('engine.stt.ready sticky replay', () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
     const ws = await connectAndOpen(connector);
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A', timestamp: 1 });
     ws.emitClose(1006);
 
     const received: VoiceServerMessage[] = [];
@@ -482,7 +569,7 @@ describe('engine.stt.ready sticky replay', () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
     const ws = await connectAndOpen(connector);
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1', timestamp: 1 });
 
     const a: VoiceServerMessage[] = [];
     const b: VoiceServerMessage[] = [];
@@ -504,7 +591,7 @@ describe('engine.stt.ready sticky replay', () => {
     connector.onVoiceMessage((msg) => received.push(msg));
 
     const ws = await connectAndOpen(connector);
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1', timestamp: 1 });
 
     expect(received).toHaveLength(1);
     expect((received[0] as { sessionId: string }).sessionId).toBe('session-1');
@@ -515,8 +602,8 @@ describe('engine.stt.ready sticky replay', () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
     const ws = await connectAndOpen(connector);
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A' });
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-B' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-A', timestamp: 1 });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-B', timestamp: 1 });
 
     const received: VoiceServerMessage[] = [];
     connector.onVoiceMessage((msg) => received.push(msg));
@@ -531,7 +618,7 @@ describe('engine.stt.ready sticky replay', () => {
     const connector = new VoiceWebSocketConnector({ url: 'ws://voice' });
     const ws = await connectAndOpen(connector);
 
-    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1' });
+    ws.emitJson({ type: 'engine.stt.ready', sessionId: 'session-1', timestamp: 1 });
 
     const received: VoiceServerMessage[] = [];
     const off = connector.onVoiceMessage((msg) => received.push(msg));
@@ -704,6 +791,7 @@ describe('VoiceWebSocketConnector getHistory', () => {
       // Settle process() so the test doesn't leak an unhandled rejection.
       ws.emitJson({
         type: 'engine.maelstrom.response',
+        sessionId: 'session-voice',
         requestId: sharedId,
         response: {
           type: 'maelstrom_response',

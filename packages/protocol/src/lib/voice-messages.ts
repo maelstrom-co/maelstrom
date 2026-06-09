@@ -11,10 +11,16 @@
  * the specific signal.
  */
 
+import { z } from 'zod';
+
+import type { Mutable } from './_drift-guards.js';
 import type { ChartRequestMessage } from './engine-message.js';
+import { ChartRequestMessageSchema } from './engine-message.js';
 import type { MessageId } from './message.js';
+import { MessageIdSchema } from './message.js';
 import type { MaelstromResponse } from './response.js';
 import type { SessionId } from './session.js';
+import { SessionIdSchema } from './session.js';
 
 export const voiceProviderErrorKinds = [
   'auth',
@@ -303,3 +309,279 @@ export type VoiceServerMessage =
   | SpeechStartedMessage
   | SpeechStoppedMessage
   | MaelstromResponseMessage;
+
+// ============================================================================
+// Wire-format Zod parsers
+//
+// These validate JSON-deserialized voice frames at the wire boundary. Like
+// `EngineMessageSchema` / `SessionHistoryEntrySchema`, the schema's job is to
+// enforce the *envelope* contract — the discriminator, a finite timestamp,
+// and (critically) the branded `sessionId` / `id` / `requestId` fields, which
+// `JSON.parse` would otherwise hand to consumers as forged brands. Payload
+// bodies are validated only as deep as that contract requires:
+//
+//  - `engine.maelstrom.response`'s `response` is accepted as an opaque
+//    `MaelstromResponse` object (non-null object, shape unchecked). No client
+//    connector validates the response body today — `HttpConnector` casts it,
+//    the WS connectors resolve the correlator with the raw frame — because the
+//    engine validates its own LLM output before assembling the response. The
+//    branded `requestId` redundancy with the inner `response.requestId` is
+//    intentionally left alone (out of scope).
+//  - The audio frames' `data` fields (`client.audio_capture.audio_sent`,
+//    `engine.tts.sent`) are opaque: a `Uint8Array` can't round-trip JSON and
+//    no consumer reads it — the audio bytes arrive as separate binary frames,
+//    and the JSON frame carries only the surrounding metadata.
+// ============================================================================
+
+const finiteTimestamp = z
+  .number()
+  .refine(Number.isFinite, { message: 'timestamp must be a finite number' });
+
+// Binary payloads (`AudioInputMessage.data` / `AudioOutputMessage.data`) are
+// modeled as opaque: a `Uint8Array` does not survive `JSON.stringify`/`parse`
+// (it serializes to an index-keyed object), and no consumer reads the field —
+// the actual audio bytes travel as separate binary `ArrayBuffer` frames. The
+// `engine.tts.sent` / `client.audio_capture.audio_sent` JSON frames carry only
+// the surrounding metadata. `z.custom` types the field as `Uint8Array` for the
+// drift guard while accepting whatever the wire delivers.
+const opaqueBinary = z.custom<Uint8Array>();
+
+const voiceStateValues = [
+  'idle',
+  'listening',
+  'processing',
+  'speaking',
+] as const;
+
+// --- Client → server --------------------------------------------------------
+
+const AudioInputMessageSchema = z.object({
+  type: z.literal('client.audio_capture.audio_sent'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  data: opaqueBinary,
+  sampleRate: z.number(),
+  encoding: z.string(),
+  sequence: z.number(),
+  isFinal: z.boolean(),
+});
+
+const StartListeningMessageSchema = z.object({
+  type: z.literal('client.audio_capture.ready'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  language: z.string().optional(),
+  interimResults: z.boolean().optional(),
+});
+
+const StopListeningMessageSchema = z.object({
+  type: z.literal('client.audio_capture.closed'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+});
+
+const SpeakMessageCommandSchema = z.object({
+  type: z.literal('client.voice.speak'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  id: MessageIdSchema,
+  text: z.string(),
+});
+
+const AddAssistantMessageCommandSchema = z.object({
+  type: z.literal('client.history.add_assistant_message'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  id: MessageIdSchema,
+  message: z.string(),
+});
+
+const VADSpeechStartMessageSchema = z.object({
+  type: z.literal('client.vad.speech_start'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+});
+
+const VADSpeechEndMessageSchema = z.object({
+  type: z.literal('client.vad.speech_end'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+});
+
+const MaelstromProcessMessageCommandSchema = z.object({
+  type: z.literal('client.maelstrom.process'),
+  timestamp: finiteTimestamp,
+  request: ChartRequestMessageSchema,
+});
+
+/**
+ * Wire-format Zod parser for the {@link VoiceClientMessage} discriminated
+ * union. Dispatches on `type` and validates each variant's envelope —
+ * branded `sessionId` / `id`, finite `timestamp`, and the inner
+ * `ChartRequestMessage` for `client.maelstrom.process`. The `data` field of
+ * `client.audio_capture.audio_sent` is opaque (see `opaqueBinary`).
+ */
+export const VoiceClientMessageSchema = z.discriminatedUnion('type', [
+  AudioInputMessageSchema,
+  StartListeningMessageSchema,
+  StopListeningMessageSchema,
+  SpeakMessageCommandSchema,
+  AddAssistantMessageCommandSchema,
+  VADSpeechStartMessageSchema,
+  VADSpeechEndMessageSchema,
+  MaelstromProcessMessageCommandSchema,
+]);
+
+// --- Server → client --------------------------------------------------------
+
+const AudioOutputMessageSchema = z.object({
+  type: z.literal('engine.tts.sent'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  data: opaqueBinary,
+  format: z.string(),
+  sampleRate: z.number(),
+  text: z.string().optional(),
+  sequence: z.number(),
+  isFinal: z.boolean(),
+  cancellable: z.boolean().optional(),
+  queued: z.boolean().optional(),
+});
+
+const TranscriptMessageSchema = z.object({
+  type: z.literal('engine.stt.transcript'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  text: z.string(),
+  isFinal: z.boolean(),
+  confidence: z.number().optional(),
+  language: z.string().optional(),
+  durationInSeconds: z.number().optional(),
+});
+
+const VoiceStateMessageSchema = z.object({
+  type: z.literal('engine.voice.state'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  state: z.enum(voiceStateValues),
+  previousState: z.enum(voiceStateValues).optional(),
+});
+
+const VoiceReadyMessageSchema = z.object({
+  type: z.literal('engine.stt.ready'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+});
+
+const VoiceErrorMessageSchema = z.object({
+  type: z.literal('engine.error'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  requestId: MessageIdSchema.optional(),
+  error: z.string(),
+  kind: z.enum(voiceProviderErrorKinds).optional(),
+  source: z.enum(['stt', 'tts']).optional(),
+  provider: z.string().optional(),
+});
+
+const SpeechStartedMessageSchema = z.object({
+  type: z.literal('client.audio_playback.started'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  text: z.string(),
+  voice: z.string().optional(),
+});
+
+const SpeechStoppedMessageSchema = z.object({
+  type: z.literal('client.audio_playback.stopped'),
+  sessionId: SessionIdSchema,
+  timestamp: finiteTimestamp,
+  completed: z.boolean(),
+  interruptedAfterSeconds: z.number().optional(),
+});
+
+const MaelstromResponseMessageSchema = z.object({
+  type: z.literal('engine.maelstrom.response'),
+  sessionId: SessionIdSchema,
+  requestId: MessageIdSchema,
+  response: z.custom<MaelstromResponse>(
+    (value) => typeof value === 'object' && value !== null,
+    { message: 'response must be a MaelstromResponse object' },
+  ),
+});
+
+/**
+ * Wire-format Zod parser for the {@link VoiceServerMessage} discriminated
+ * union. Dispatches on `type` and validates each variant's envelope — branded
+ * `sessionId`, and where the variant carries them, branded `requestId` and a
+ * finite `timestamp` (`engine.maelstrom.response` has no timestamp; `requestId`
+ * is optional on `engine.error`). The `engine.maelstrom.response` `response`
+ * payload is validated only as a non-null object, and `engine.tts.sent`'s
+ * `data` is opaque; their inner shapes are the engine's contract (see the
+ * section comment above).
+ */
+export const VoiceServerMessageSchema = z.discriminatedUnion('type', [
+  TranscriptMessageSchema,
+  AudioOutputMessageSchema,
+  VoiceStateMessageSchema,
+  VoiceReadyMessageSchema,
+  VoiceErrorMessageSchema,
+  SpeechStartedMessageSchema,
+  SpeechStoppedMessageSchema,
+  MaelstromResponseMessageSchema,
+]);
+
+// ---------------------------------------------------------------------------
+// Drift guards. `Mutable<T>` (from `./_drift-guards.js`) strips `readonly`
+// because `z.infer` does not synthesize it. `_Comparable<M>` distributes over
+// each union arm and drops the fields the schema models more loosely than the
+// hand-written type, by design:
+//
+//  - audio `data` (`client.audio_capture.audio_sent`, `engine.tts.sent`) — an
+//    opaque `Uint8Array` (see `opaqueBinary`); `Mutable<Uint8Array>` would
+//    explode into a string/typed-array mapped type. Not a brand.
+//  - `MaelstromProcessMessageCommand.request` — validated by
+//    `ChartRequestMessageSchema`, which owns the inner `request.layout`
+//    branding asymmetry and is drift-guarded where that schema is defined.
+//    Re-checking it here would just duplicate that guard.
+//  - `MaelstromResponseMessage.response` — an opaque `MaelstromResponse` whose
+//    `readonly` arrays don't survive `Mutable`'s round-trip; its shape is the
+//    engine's contract, not this schema's.
+//
+// What remains — every branded envelope field plus the finite `timestamp` — is
+// checked in both directions.
+// ---------------------------------------------------------------------------
+
+type _Comparable<M> = M extends {
+  type: 'client.audio_capture.audio_sent' | 'engine.tts.sent';
+}
+  ? Omit<M, 'data'>
+  : M extends { type: 'client.maelstrom.process' }
+    ? Omit<M, 'request'>
+    : M extends { type: 'engine.maelstrom.response' }
+      ? Omit<M, 'response'>
+      : M;
+
+type _WireVoiceClientMessage = _Comparable<VoiceClientMessage>;
+type _InferredVoiceClientMessage = _Comparable<
+  z.infer<typeof VoiceClientMessageSchema>
+>;
+const _vcmFwd: _InferredVoiceClientMessage extends Mutable<_WireVoiceClientMessage>
+  ? true
+  : false = true;
+const _vcmBwd: Mutable<_WireVoiceClientMessage> extends _InferredVoiceClientMessage
+  ? true
+  : false = true;
+
+type _WireVoiceServerMessage = _Comparable<VoiceServerMessage>;
+type _InferredVoiceServerMessage = _Comparable<
+  z.infer<typeof VoiceServerMessageSchema>
+>;
+const _vsmFwd: _InferredVoiceServerMessage extends Mutable<_WireVoiceServerMessage>
+  ? true
+  : false = true;
+const _vsmBwd: Mutable<_WireVoiceServerMessage> extends _InferredVoiceServerMessage
+  ? true
+  : false = true;
+
+void [_vcmFwd, _vcmBwd, _vsmFwd, _vsmBwd];
