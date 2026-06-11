@@ -17,9 +17,9 @@ Frame your handling around where the failure originates. Each surface has a dist
 
 | Surface | Channel | What it covers |
 | --- | --- | --- |
-| Engine / processing | `useMaelstrom().lastError` (plus `onError`) | A `processIntent` call fails: the engine rejects, the request times out, or response handling throws. |
-| Connector | `useMaelstrom().connectionStatus` + `connectionError` (plus `onError` on initial connect) | The transport fails to connect or the Orchestrator fails to start. Mid-session drops update `connectionStatus`/`connectionError` only; they do not reach `onError`. |
-| Vessel runtime | The built-in `ErrorBoundary` | A vessel component throws or a lazy chunk fails to load. |
+| [Engine / processing](/understanding/engine/) | `useMaelstrom().lastError` (plus `onError`) | A `processIntent` call fails: the engine rejects, the request times out, or response handling throws. |
+| [Connector](/understanding/connectors/) | `useMaelstrom().connectionStatus` + `connectionError` (plus `onError` on initial connect) | The transport fails to connect or the Orchestrator fails to start. Mid-session drops update `connectionStatus`/`connectionError` only; they do not reach `onError`. |
+| [Vessel runtime](/understanding/vessel-state-machine/) | The built-in `ErrorBoundary` | A *lazy* vessel's render throws or its chunk fails to load. Eagerly-registered vessels rely on your own React error boundary. |
 
 The first two are reactive state you read in your own components. The third is automatic and internal, covered below.
 
@@ -118,7 +118,7 @@ Gate input on `connectionStatus === 'connected'` so users aren't typing into a d
 
 ## Vessel runtime errors
 
-When a vessel component throws during render, Maelstrom catches it so one broken vessel can't take down the whole Chart.
+Rendering a vessel can throw errors. Maelstrom catches them so one broken vessel can't take down the whole Chart.
 
 This is **automatic and internal**: there is nothing to wire up, and almost nothing to configure:
 
@@ -132,7 +132,7 @@ This is **automatic and internal**: there is nothing to wire up, and almost noth
 
 ## Retry UX
 
-There is no single global "retry"; recovery is per-surface:
+There is no single global "retry", recovery is per-surface:
 
 - **Connector errors.** When `connectionStatus === 'error'`, recovery depends on your connector's reconnect behavior. Surface the `'error'` state in your UI and give the user a way to retry the action once status returns to `'connected'`.
 - **Lazy vessel loads.** The built-in `VesselLoadError` card already renders a **Retry** button that re-imports the failed chunk. You get this for free; see [Lazy Loading](/guides/react/lazy-loading/) for how lazy entries are registered.

@@ -77,7 +77,7 @@ The import runs once and the resolved chunk is reused for later mounts of the sa
 If the loader rejects (a network blip or a missing chunk), the Chart shows a load-error fallback with a retry affordance. Retrying produces a fresh `lazy()` instance, which busts the previously cached rejected promise so the loader runs again instead of replaying the failure.
 
 <Aside type="tip">
-  Tailoring the failure UI (custom error components, retry copy, reporting) is covered in [Error handling](/guides/react/error-handling/). This guide only notes that the retry path exists.
+  `onError` reporting for failed chunk loads is covered in [Error handling](/guides/react/error-handling/). The failure card, retry copy, and boundary placement are internal; this guide only notes that the retry path exists.
 </Aside>
 
 ## When to use
@@ -88,5 +88,5 @@ Leave a vessel eager when it's small or almost always on screen. For an always-v
 
 ## Next steps
 
-- [Error handling](/guides/react/error-handling/) — customize what users see when a loader fails
+- [Error handling](/guides/react/error-handling/) — handle `onError` reporting for failed loads and other errors
 - [Creating Vessels](/guides/react/creating-vessels/) — the eager baseline this guide builds on
