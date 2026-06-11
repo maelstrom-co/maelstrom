@@ -290,6 +290,7 @@ export default defineConfig({
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },
             { slug: 'understanding/vessel-state-machine' },
+            { slug: 'understanding/connectors' },
             { slug: 'understanding/grid-vs-tiling' },
           ],
         },

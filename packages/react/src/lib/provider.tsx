@@ -30,7 +30,7 @@ export interface MaelstromProviderProps {
   tilingPaddingPx?: number;
   /** Enable debug logging. Overrides the factory default. */
   debug?: boolean;
-  /** Called on connection and processIntent errors. Errors also surface via useMaelstrom(). */
+  /** Called on Orchestrator startup failures, connection failures, processIntent failures, and executeAction failures. Errors also surface via useMaelstrom(). */
   onError?: (error: Error) => void;
   children: ReactNode;
 }
