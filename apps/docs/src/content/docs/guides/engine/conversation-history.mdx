@@ -5,6 +5,8 @@ description: How to configure a HistoryStore, tune truncation, and project entri
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
+Stateless turns are predictable and cheap, but they forget what the user just told the assistant. History gives the model continuity across a session, at the cost of storage, truncation policy, and operational concurrency.
+
 History is opt-in. When omitted, every `chart_request` runs in isolation —
 the LLM sees the current chart state but nothing from prior turns.
 Configuring `history` flips the engine into stateful mode: prior turns and
@@ -20,6 +22,16 @@ that let you enrich what is persisted and what the LLM sees.
 - A decision about persistence: in-memory for local dev/tests, or your own
   backend (Redis, Postgres, SQLite, …) for anything that needs to survive a
   process restart.
+
+## Local dev vs production
+
+| Environment | Store | Main concern |
+| --- | --- | --- |
+| Local dev/tests | `createInMemoryStore()` | Fast setup; data disappears on restart. |
+| Single-instance server | Durable store | Persist turns and enforce truncation after writes. |
+| Multi-instance server | Durable store plus session affinity, distributed lock, or queue | Coordinate writes for the same `sessionId` across processes. |
+
+Set truncation before production traffic. Without `maxEntries` or `maxChars`, every retained turn can make later prompts longer and more expensive.
 
 ## Steps
 

@@ -5,9 +5,11 @@ description: Get a Maelstrom app running in 5 minutes — one vessel, one intent
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-By the end of this guide you'll have a chart with one vessel, driven by a running Maelstrom engine that interprets a natural-language intent and positions the component on screen.
+By the end of this guide you'll have a chart with one vessel, driven by a running Maelstrom engine that interprets a natural-language intent and positions the component on screen. The visible result is deliberately small: a single greeting card appears where the engine places it, proving that the client, connector, engine, and chart can complete one full turn.
 
 **Time:** ~5 minutes &nbsp;|&nbsp; **Framework:** React (primary) · Vanilla JS (parallel tabs)
+
+Before step 1, make sure the engine process is running and reachable at `ws://localhost:3001/ws`. The app code below connects to that endpoint; if the engine is not running, the UI can render but no intent will be processed.
 
 <Aside type="note" title="Prerequisites">
 - Node 20+ or Bun
@@ -235,7 +237,7 @@ By the end of this guide you'll have a chart with one vessel, driven by a runnin
 
 5. ## What you should see
 
-   Type something like `show me a greeting` and submit. The engine processes the intent and the greeting vessel appears on the chart at the grid position the engine chose. You'll see `"Hello!"` rendered inside a cell on the screen.
+   Type something like `show me a greeting` and submit. The engine processes the intent and the greeting vessel appears on the chart at the grid position the engine chose. You should see one small card containing `"Hello!"` inside the chart area; the exact position may vary because the engine chooses the layout.
 
    The engine response includes layout directives — the client applies CSS positioning to place the vessel without you writing any placement code.
 

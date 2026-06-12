@@ -3,7 +3,7 @@ title: Architecture Overview
 description: How Maelstrom's packages and layers fit together.
 ---
 
-Maelstrom is organized as a layered architecture where each package has a clear responsibility.
+Maelstrom is organized as a layered architecture because the UI, protocol, engine, and voice runtime fail in different ways and need different deployment boundaries. Browser packages render and capture input; server packages own LLM, STT, and TTS provider calls; the protocol keeps the two sides speaking one contract.
 
 ```
 @maelstrom-co/protocol    (foundation: shared types, zod schemas, message contract)
@@ -17,6 +17,14 @@ Maelstrom is organized as a layered architecture where each package has a clear 
     ▼            ▼
 @maelstrom-co/react  @maelstrom-co/voice
 (React bindings)     (audio capture/playback, VAD)
+    │                    │
+    └─────┬──────────────┘
+          ▼
+@maelstrom-co/react-voice
+(React voice extension)
+
+@maelstrom-co/voice-server
+(backend STT, engine handoff, TTS runtime)
 ```
 
 ## Package responsibilities
@@ -28,6 +36,8 @@ Maelstrom is organized as a layered architecture where each package has a clear 
 | `react` | UI | React bindings — `createMaelstrom()`, `vessel()`, Provider, Chart, hooks. |
 | `engine` | Server | LLM decision engine — processes context and returns execution plans. |
 | `voice` | Client (optional) | Audio capture, playback, VAD (Silero via onnxruntime-web). |
+| `react-voice` | UI extension (optional) | React `useVoice()` and `VoiceOrb` integration on a Maelstrom instance. |
+| `voice-server` | Server (optional) | STT, engine handoff, TTS, speech queueing, and runtime voice lifecycle. |
 
 ## Client architecture
 
@@ -51,4 +61,6 @@ Maelstrom also ships an optional full-stack voice layer. See [Voice Architecture
 2. Client packages intent + context into a `ChartRequest`
 3. `ChartRequest` is sent to the Engine via a connector
 4. Engine processes with LLM and returns a `MaelstromResponse`
-5. Client executes actions (variant transitions), then applies layout
+5. Client executes actions, reads the resulting variant sizes, applies layout, then handles overflow
+
+The order in step 5 is load-bearing. Layout must happen after actions because actions can transition Vessels into variants with different `minSize` requirements.

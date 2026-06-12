@@ -33,6 +33,19 @@ This is the backend runtime that turns browser voice events into a complete conv
 
 The core contract is intentionally small: the runtime receives finalized speech, calls `buildChartRequest`, passes that request to `processIntent`, then decides how and when to speak the resulting reply. That keeps the voice runtime engine-agnostic while still integrating cleanly with Maelstrom's response pipeline.
 
+## Runtime boundary diagram
+
+```text
+Browser runtime                         Server runtime                           Providers
+┌────────────────────────────┐          ┌────────────────────────────┐          ┌──────────┐
+│ react-voice + voice        │ audio -> │ voice-server               │ audio -> │ STT      │
+│ capture, VAD, playback     │ <-audio  │ transcript, engine, speech │ <-text   │ TTS      │
+└────────────────────────────┘          └──────────────┬─────────────┘          └──────────┘
+                                                       │
+                                                       ▼
+                                             Maelstrom Engine
+```
+
 ## Data Flow
 
 The full path is easier to understand as a turn lifecycle.

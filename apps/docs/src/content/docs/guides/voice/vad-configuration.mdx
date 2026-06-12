@@ -43,6 +43,27 @@ One mechanical detail matters while you tune:
 - Duration fields become sample counts with `Math.floor(seconds * sampleRate)`, so the real behavior is frame and sample based.
 - Very small duration changes, especially below one 512-sample frame, will not behave like a perfectly smooth continuous knob.
 
+## Glossary
+
+| Term | Meaning in this guide |
+| --- | --- |
+| PCM | Raw audio sample format streamed from the browser. |
+| ONNX | Model format used by the Silero VAD runtime. |
+| Wasm | Browser execution backend used by ONNX Runtime Web. |
+| VAD | Voice Activity Detection; decides speech start and end boundaries. |
+| STT | Speech-to-Text provider on the backend. |
+| TTS | Text-to-Speech provider on the backend. |
+
+## Symptom-first tuning map
+
+| Symptom | Field to try first | First change | Roll back if |
+| --- | --- | --- | --- |
+| First syllable clipped | `preSpeechPaddingSeconds` | raise slightly | starts include too much noise |
+| Short commands start late | `minSpeechDurationSeconds` | lower toward one VAD frame | false starts increase |
+| Keyboard or room noise triggers speech | `activationThreshold` | raise slightly | quiet speakers stop triggering |
+| Sentences split into fragments | `minSilenceDurationSeconds` | raise slightly | handoff feels too slow |
+| Turns never end cleanly | `minSilenceDurationSeconds` | lower slightly | word endings get clipped |
+
 ## Field-by-field tuning guidance
 
 ### `minSpeechDurationSeconds`

@@ -3,6 +3,8 @@ title: Voice Errors
 description: Reference for voice runtime error payloads, provider taxonomy, and demo websocket boundary behavior.
 ---
 
+This page is for client code that needs to render recoverable voice failures without learning every provider's private error shape. The voice runtime keeps one public event name and adds optional metadata when an STT or TTS provider failure can be classified.
+
 This page documents the error contract used by the voice runtime and demo websocket bridge.
 
 ## Voice error contract
@@ -56,6 +58,19 @@ The same taxonomy is shared by both voice provider boundaries:
 
 These fields stay optional. Clients should treat them as extra context on top of
 the main message string, not as a guaranteed replacement for it.
+
+## Recommended UI behavior
+
+| kind | Suggested user-facing behavior |
+| --- | --- |
+| `auth` | Tell the operator credentials are misconfigured; do not ask the end user to retry repeatedly. |
+| `quota` | Surface temporary unavailability and route to typed input or a non-voice path. |
+| `transport` | Offer retry and keep typed input visible. |
+| `parse` | Show a generic voice failure and report diagnostics server-side. |
+| `server` | Treat as provider outage or backend failure; retry later. |
+| `unknown` | Show a generic recoverable failure and log the full server-side context. |
+
+`sessionId` is part of the demo websocket payload so the client can correlate the event with the active session. Do not copy that field into telemetry attributes unless a telemetry contract explicitly allows it; error payload correlation and privacy-safe telemetry are separate surfaces.
 
 ## Demo websocket boundary behavior
 

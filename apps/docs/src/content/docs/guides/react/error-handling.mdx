@@ -140,6 +140,19 @@ There is no single global "retry", recovery is per-surface:
 
 The throughline: keep a working input path visible whenever an error is on screen, so the user always has a way forward.
 
+## Recovery decision tree
+
+```text
+Failure appears
+  ├─ connectionStatus === 'error' -> show disconnected state, wait for reconnect, keep retry visible
+  ├─ lastError is set -> let the user edit or resubmit the intent
+  └─ lazy vessel fallback appears -> use the built-in Retry card or report through onError
+```
+
+The useful rule is to keep a working input path visible. Users should never have to refresh the page just to recover from a failed intent or transient connector issue.
+
+Reference surfaces: [`MaelstromProviderProps`](/reference/react/interfaces/maelstromproviderprops/), [`MaelstromState`](/reference/react/interfaces/maelstromstate/), and [`DynamicVesselHandle`](/reference/react/interfaces/dynamicvesselhandle/).
+
 ## Next steps
 
 - [Lazy Loading Vessels](/guides/react/lazy-loading/) — register lazy vessels and customize their loading and error states

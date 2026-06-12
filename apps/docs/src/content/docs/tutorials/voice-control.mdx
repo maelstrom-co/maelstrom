@@ -25,7 +25,9 @@ Voice control in Maelstrom has two halves that work together.
 - In the browser, `@maelstrom-co/react-voice` and `@maelstrom-co/voice` handle microphone capture, local VAD, playback, and shared React state.
 - On the backend runtime, `@maelstrom-co/voice-server` handles STT, the handoff into the engine, TTS, and queued assistant speech.
 
-This tutorial assumes you already have a working Maelstrom app and want to add the same mainstream voice shape the demo uses.
+This tutorial assumes you already have a working Maelstrom app and want to add the same mainstream voice shape the demo uses. Success means a user can click to enable voice, speak an intent, see the chart respond, and still use typed input if microphone setup fails.
+
+The companion [Voice Integration](/guides/voice/voice-integration/) guide is the decision-level reference. Stay here if this is your first implementation path; use the guide when you already know the shape and need to check boundaries or options.
 
 ## 1. Prerequisites
 
@@ -211,6 +213,15 @@ Read the backend API reference for the server half:
 <Aside type="note">
   The browser packages are the client half. `@maelstrom-co/voice-server` is the backend runtime that completes the voice path.
 </Aside>
+
+## Troubleshooting
+
+| Symptom | Check | Recovery |
+| --- | --- | --- |
+| Browser asks for a click before voice starts | `voice.needsUserGesture` | Show an enable dialog and call `voice.start()` or `voice.prepareAudio()` from the click handler. |
+| Microphone permission is denied | Browser permission state and `voice.state === 'error'` | Keep typed input visible and offer a retry after the user changes browser permissions. |
+| `m.useVoice()` starts but no audio reaches STT | The Provider connector advertises voice capability and streams audio to the backend | Swap in a voice-capable connector; the React extension does not create transport by itself. |
+| The browser UI works but no assistant response arrives | Backend `@maelstrom-co/voice-server` runtime is running and configured with STT/TTS providers | Start or fix the backend runtime; browser packages do not synthesize replies on their own. |
 
 ## Where to go next
 

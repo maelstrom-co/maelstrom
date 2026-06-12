@@ -20,6 +20,10 @@ By the end of this guide your `greetingVessel` will:
 3. fire an action from the component with `executeAction`
 4. handle that action in your app with `useActions`
 
+## Mental model
+
+A variant is a legal UI state. An action is a legal transition or operation from the currently active state. The engine can only invoke actions declared on the active variant, so the state machine is both a UI model and a safety boundary.
+
 ## Define variants
 
 The `variants` map holds the discrete states a vessel can be in. Each variant carries its own `props`, `minSize`, and `actions`. Add a second `expanded` variant next to `card`:
@@ -208,6 +212,18 @@ The handler params are typed from the vessel definition: `setName` receives `{ n
 <Aside type="note">
   Pass a stable `runner`: define it outside the component or wrap it in `useMemo`. A fresh object each render re-registers the handlers on every render. Only one `useActions` call per `instanceId` is supported; a second registration overwrites the first.
 </Aside>
+
+### Missing handlers and invalid parameters
+
+If the engine or a component invokes an action without a registered handler, Maelstrom treats that action as a no-op rather than crashing the Chart. Use that default for actions that only transition variants. When an action needs data or side effects, return `err(...)` from the handler for invalid parameters so the failure reaches the error surface instead of silently mutating state.
+
+```tsx
+setName: async ({ name }) => {
+  if (!name.trim()) return err(new Error('name must not be empty'));
+  await saveGreetingTarget(name);
+  return ok(undefined);
+}
+```
 
 With both halves wired, the loop is complete: the component (or the LLM) fires `expand`, the runner's handler runs, the action transitions the vessel to `expanded`, and the component re-renders into the expanded state.
 

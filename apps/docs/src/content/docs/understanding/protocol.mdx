@@ -9,6 +9,8 @@ The protocol is the API surface that survives implementation changes. The curren
 
 ## Branded IDs
 
+A branded string is a normal string with a compile-time label attached. The label disappears at runtime, but TypeScript can still prevent you from passing a `VesselId` where a `SessionId` belongs.
+
 Every identifier is a branded string — structurally a `string`, nominally distinct.
 
 ```ts
@@ -46,6 +48,29 @@ const message = ChartRequestMessage({
   // id and timestamp auto-fill unless passed.
 });
 ```
+
+## Full chart request example
+
+```ts
+import { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
+
+const message = ChartRequestMessage({
+  sessionId: SessionId('user-42'),
+  request: {
+    type: 'chart_request',
+    context: {
+      layoutMode: 'grid',
+      updateReasons: [{ type: 'user_intent', intent: 'Show weather and tasks' }],
+      chartDimensions: { columns: 12, rows: 8 },
+    },
+    instances: [],
+    vessels: [weatherVessel, tasksVessel],
+    layout: { type: 'grid', positions: [] },
+  },
+});
+```
+
+The protocol defines this payload. A connector decides whether it travels over WebSocket, HTTP, or an in-memory test boundary.
 
 ## Vessel definitions
 

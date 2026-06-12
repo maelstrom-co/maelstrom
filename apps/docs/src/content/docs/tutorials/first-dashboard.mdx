@@ -5,10 +5,189 @@ description: A step-by-step tutorial to create a working AI-orchestrated dashboa
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
+A one-vessel quickstart proves that the engine can place a component. A dashboard proves the reason Maelstrom exists: the useful screen changes when the user asks for a different mix of information.
+
+In this tutorial, you'll build a three-vessel dashboard with weather, calendar, and task components. The engine will decide which cards to show and how much space each one deserves for a given intent.
+
 <Aside type="note">
-  This tutorial assumes you've completed the [Quick Start](/getting-started/quick-start) and have a basic understanding of [Core Concepts](/getting-started/core-concepts).
+  This tutorial assumes you've completed the [Quick Start](/getting-started/quick-start/) and have a working `m.Provider`, connector, and engine endpoint.
 </Aside>
 
-In this tutorial, you'll build a multi-vessel dashboard where the LLM arranges weather, calendar, and task components based on user intent.
+## What you will build
 
-*Content coming soon.*
+The finished dashboard has three Vessels:
+
+```text
+┌─────────────────────── Chart ───────────────────────┐
+│ ┌──────────────┐ ┌────────────────────────────────┐ │
+│ │ Weather      │ │ Calendar                       │ │
+│ │ compact/full │ │ agenda/week                    │ │
+│ └──────────────┘ └────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ Tasks                                           │ │
+│ │ summary/list                                    │ │
+│ └─────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────┘
+```
+
+The exact positions are chosen by the engine. The point is that all three components are declared up front, and the engine decides which variants fit the user's request.
+
+<Steps>
+
+1. ## Define the Weather vessel
+
+   ```tsx title="src/vessels/weather.vessel.tsx"
+   import { defineVessel } from '@maelstrom-co/protocol';
+   import { vessel, type TypedVesselProps } from '@maelstrom-co/react';
+
+   const weatherDefinition = defineVessel({
+     id: 'weather',
+     name: 'Weather',
+     description: 'Shows current conditions and a short forecast for a city.',
+     defaultVariant: 'compact',
+     variants: {
+       compact: {
+         props: { city: 'Stockholm', temperature: 18, condition: 'Cloudy' },
+         minSize: { width: 2, height: 1 },
+         actions: [
+           { name: 'expand', description: 'Show a larger forecast view.', transitionsTo: 'forecast' },
+         ],
+       },
+       forecast: {
+         props: { city: 'Stockholm', summary: 'Mild with light rain later today.' },
+         minSize: { width: 4, height: 2 },
+         actions: [
+           { name: 'collapse', description: 'Return to the compact weather card.', transitionsTo: 'compact' },
+         ],
+       },
+     },
+   });
+
+   function WeatherCard({ variantProps }: TypedVesselProps<typeof weatherDefinition>) {
+     if (variantProps.variant === 'forecast') {
+       return <section><h2>{variantProps.city} forecast</h2><p>{variantProps.summary}</p></section>;
+     }
+
+     return <section><h2>{variantProps.city}</h2><p>{variantProps.temperature}° · {variantProps.condition}</p></section>;
+   }
+
+   export const weatherEntry = vessel(weatherDefinition, WeatherCard);
+   ```
+
+2. ## Add Calendar and Tasks vessels
+
+   Use the same pattern for the other dashboard areas. Keep descriptions concrete because the engine reads them when choosing what to show.
+
+   ```tsx title="src/vessels/dashboard.vessels.tsx"
+   import { defineVessel } from '@maelstrom-co/protocol';
+   import { vessel, type TypedVesselProps } from '@maelstrom-co/react';
+
+   const calendarDefinition = defineVessel({
+     id: 'calendar',
+     name: 'Calendar',
+     description: 'Shows upcoming meetings, agenda items, and weekly availability.',
+     defaultVariant: 'agenda',
+     variants: {
+       agenda: {
+         props: { heading: 'Today', items: ['Design review', 'Customer call'] as string[] },
+         minSize: { width: 3, height: 2 },
+         actions: [{ name: 'showWeek', description: 'Show the full week view.', transitionsTo: 'week' }],
+       },
+       week: {
+         props: { heading: 'This week', items: ['Mon: planning', 'Wed: demo'] as string[] },
+         minSize: { width: 5, height: 3 },
+         actions: [{ name: 'showAgenda', description: 'Return to today agenda.', transitionsTo: 'agenda' }],
+       },
+     },
+   });
+
+   function CalendarCard({ variantProps }: TypedVesselProps<typeof calendarDefinition>) {
+     return <section><h2>{variantProps.heading}</h2><ul>{variantProps.items.map((item) => <li key={item}>{item}</li>)}</ul></section>;
+   }
+
+   const tasksDefinition = defineVessel({
+     id: 'tasks',
+     name: 'Tasks',
+     description: 'Shows open tasks, priorities, and personal work reminders.',
+     defaultVariant: 'summary',
+     variants: {
+       summary: {
+         props: { count: 4 },
+         minSize: { width: 2, height: 1 },
+         actions: [{ name: 'showList', description: 'Show the full task list.', transitionsTo: 'list' }],
+       },
+       list: {
+         props: { tasks: ['Prepare demo', 'Review PR', 'Book travel'] as string[] },
+         minSize: { width: 4, height: 3 },
+         actions: [{ name: 'summarize', description: 'Return to task summary.', transitionsTo: 'summary' }],
+       },
+     },
+   });
+
+   function TasksCard({ variantProps }: TypedVesselProps<typeof tasksDefinition>) {
+     if (variantProps.variant === 'summary') return <section><h2>{variantProps.count} tasks open</h2></section>;
+     return <section><h2>Tasks</h2><ul>{variantProps.tasks.map((task) => <li key={task}>{task}</li>)}</ul></section>;
+   }
+
+   export const calendarEntry = vessel(calendarDefinition, CalendarCard);
+   export const tasksEntry = vessel(tasksDefinition, TasksCard);
+   ```
+
+3. ## Register all dashboard vessels
+
+   ```ts title="src/maelstrom.ts"
+   import { createMaelstrom } from '@maelstrom-co/react';
+   import { weatherEntry } from './vessels/weather.vessel';
+   import { calendarEntry, tasksEntry } from './vessels/dashboard.vessels';
+
+   export const m = createMaelstrom({
+     vessels: [weatherEntry, calendarEntry, tasksEntry],
+   });
+   ```
+
+   Registration is the safe boundary. The engine can only place Vessels from this list and can only invoke actions those Vessels declare.
+
+4. ## Mount the dashboard shell
+
+   ```tsx title="src/App.tsx"
+   import { WebSocketConnector } from '@maelstrom-co/client';
+   import { m } from './maelstrom';
+   import { IntentBar } from './IntentBar';
+
+   const connector = new WebSocketConnector({ url: 'ws://localhost:3001/ws' });
+
+   export function App() {
+     return (
+       <m.Provider connector={connector} layoutMode="grid" cellSizePx={120}>
+         <main style={{ height: '100vh', display: 'grid', gridTemplateRows: '1fr auto' }}>
+           <m.Chart />
+           <IntentBar />
+         </main>
+       </m.Provider>
+     );
+   }
+   ```
+
+5. ## Try dashboard-shaped intents
+
+   Send prompts that ask for different views:
+
+   - `Show me my meetings and weather before lunch.`
+   - `I need a focused task view with today's weather small.`
+   - `Show the whole week and keep tasks visible.`
+
+   The engine should choose variants that match the intent. For example, a weekly planning request should prefer the calendar `week` variant, while a quick status request may keep weather and tasks compact.
+
+</Steps>
+
+## Result and trade-offs
+
+You now have a dashboard where the layout is not hardcoded to one product flow. The trade-off is that the engine needs good descriptions and sensible `minSize` values. If a Vessel description is vague, the model has less signal. If a variant's minimum size is too small, the Chart can technically fit it while the UI still feels cramped.
+
+Use this tutorial as the baseline for richer dashboards: add real data, implement action handlers, and move repeated card styling into shared components.
+
+## Next steps
+
+- [Vessel Variants & Actions](/guides/react/variants-and-actions/) — add real handlers behind dashboard actions
+- [Layout Modes](/guides/react/layout-modes/) — choose grid or tiling for your dashboard
+- [Error Handling](/guides/react/error-handling/) — keep the dashboard usable when the engine or connector fails

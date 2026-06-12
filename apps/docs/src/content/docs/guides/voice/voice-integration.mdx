@@ -7,12 +7,20 @@ import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Use this guide when you already have a Maelstrom app and want to add the same voice flow the demo uses.
 
+Minimum viable integration:
+
+```text
+React shell -> voice-capable connector -> voice-server runtime -> engine -> TTS audio back to browser
+```
+
 Voice integration has two halves:
 
 - in the browser, `@maelstrom-co/react-voice` and `@maelstrom-co/voice` handle microphone capture, local Voice Activity Detection (VAD), playback, and the shared React session
 - on the backend, `@maelstrom-co/voice-server` handles Speech-to-Text (STT), the handoff into the engine, Text-to-Speech (TTS), and speech delivery rules
 
 You need both halves. The React package gives you a browser voice client, but it does not turn finalized speech into `ChartRequest`s or synthesize the assistant reply on its own.
+
+This page is the reference path for teams that already know they want voice. If you want a first-run tutorial with more hand-holding, start with [Add Voice Control](/tutorials/voice-control/).
 
 If you want the rationale behind that split, read [Voice Architecture](/understanding/voice-architecture/). This page stays on the practical integration path.
 
@@ -260,7 +268,7 @@ You do not need the whole option surface to ship the first integration. These ar
 
 ### `allowBargeIn`
 
-Set this to `true` when users should be able to interrupt assistant speech by talking. Leave it `false` when your product needs stricter turn-taking.
+Set this to `true` when users should be able to interrupt assistant speech by talking. Leave it `false` when your product needs stricter turn-taking. For example, some legal disclaimer messages might not be interrupted.
 
 ### `vadOptions`
 

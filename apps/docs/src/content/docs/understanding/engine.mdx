@@ -5,7 +5,7 @@ description: The reference decision core, and the boundary that keeps it swappab
 
 The Engine is Maelstrom's decision core. Given the current chart state and a user intent, it asks an LLM to produce a layout and an execution plan, then returns a structured response.
 
-`@maelstrom-co/engine` is a **reference implementation**. It ships so you can run Maelstrom locally, build demos, and understand how the contract works. It is not production-grade — production deployments supply their own implementation behind the same boundary.
+`@maelstrom-co/engine` is a **reference implementation**, not a mandate. Production systems may keep this package if its concurrency, history, logging, and safety trade-offs match their needs, or replace it with another implementation behind the same `Engine.handle()` contract. It ships so you can run Maelstrom locally, build demos, and understand how the contract works. It is not production-grade — production deployments supply their own implementation behind the same boundary.
 
 ## Where it fits
 
@@ -33,6 +33,19 @@ Inputs and outputs are tagged envelopes (see [The Protocol](/understanding/proto
 
 This signature is the contract. The implementation behind it can change without anything else needing to know.
 
+## Pipeline diagram
+
+```text
+ChartRequest
+  -> build prompt
+  -> call LLM adapter
+  -> parse structured JSON
+  -> validate protocol schema
+  -> heal recoverable layout/action issues
+  -> retry if the user would otherwise see a no-op
+  -> return EngineOutput
+```
+
 ## What the reference implementation does
 
 For a `chart_request`, the engine runs:
@@ -58,6 +71,19 @@ The engine validates inputs at three boundaries and the LLM's output at a fourth
 ### Heal, don't fail
 
 For step 4, an empty UI is worse than a partial one. The heal layer drops invalid pieces and records each one with a structured reason — categorical labels such as `position_overflow`, `unknown_vessel`, `unknown_variant`, `size_below_minimum`, `duplicate_instance_id`, or `tree_missing_child`. Soft-failures like a missing `rationale` are recorded as warnings. Drop entries and warnings stay engine-internal: they feed the retry decision and engine logs, but the engine strips them at its boundary. Consumers receive only the surviving layout; rendering proceeds with whatever made it through.
+
+### Example: healed output
+
+If the model returns two positions and one overflows the chart, the engine can keep the valid position and drop the invalid one:
+
+```text
+Model output:    weather at row 0, calendar at row 99
+Chart size:      12 columns x 8 rows
+Healed result:   weather survives, calendar position drops with position_overflow
+User sees:       partial useful layout instead of a failed turn
+```
+
+The dropped entry is logged for diagnostics, but consumers receive only the surviving layout.
 
 ### When the engine retries
 

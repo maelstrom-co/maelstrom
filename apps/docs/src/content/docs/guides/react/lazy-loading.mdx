@@ -80,11 +80,24 @@ If the loader rejects (a network blip or a missing chunk), the Chart shows a loa
   `onError` reporting for failed chunk loads is covered in [Error handling](/guides/react/error-handling/). The failure card, retry copy, and boundary placement are internal; this guide only notes that the retry path exists.
 </Aside>
 
+## When not to use
+
+Do not lazy-load a tiny vessel that appears on every screen, such as a persistent status badge. In that case, the user pays an extra loading state and network round-trip for code they were going to need immediately anyway.
+
+```tsx
+// Keep small, always-visible vessels eager.
+export const statusEntry = vessel(statusVessel, StatusBadge);
+```
+
+Use the lazy overload for vessels whose component code is large enough, or rare enough, that delaying the chunk changes the initial page load.
+
 ## When to use
 
 Reach for the lazy overload when a vessel is large, pulls in heavy dependencies (charts, editors, media), or is shown only in specific flows. Those are the cases where keeping the code out of the initial bundle pays off.
 
 Leave a vessel eager when it's small or almost always on screen. For an always-visible vessel, lazy loading just adds a loading flash and a second network round-trip without saving any meaningful bundle weight.
+
+For the exact overload shapes, see [`vessel()`](/reference/react/functions/vessel/).
 
 ## Next steps
 

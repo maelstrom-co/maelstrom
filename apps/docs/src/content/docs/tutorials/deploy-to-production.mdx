@@ -3,6 +3,111 @@ title: Deploy to Production
 description: Configure the Engine, connectors, and deploy your Maelstrom app.
 ---
 
-In this tutorial, you'll take a Maelstrom app from development to production — configuring the Engine on a server, setting up WebSocket connectors, and deploying.
+import { Aside, Steps } from '@astrojs/starlight/components';
 
-*Content coming soon.*
+A local Maelstrom demo can run with an in-memory engine, a development WebSocket, and a single provider key. Production needs stricter boundaries: provider credentials stay server-side, history must be durable if you enable it, and the connector path must survive deploys, restarts, and network failures.
+
+This tutorial turns a development setup into a production-shaped deployment checklist. It does not prescribe one hosting provider; it names the boundaries you need to make explicit before shipping.
+
+<Aside type="caution">
+  The bundled `@maelstrom-co/engine` is a reference implementation. Use it to learn the contract, run demos, and build prototypes. For production, decide whether you can operate it with the required history, locking, logging, and safety controls, or whether you should provide your own implementation behind the same `Engine.handle()` boundary.
+</Aside>
+
+<Steps>
+
+1. ## Split browser and server responsibilities
+
+   Browser code should render the Chart, capture user intent, and talk to a connector. Server code should own LLM provider keys and the engine implementation.
+
+   ```text
+   Browser app
+     ├─ @maelstrom-co/react
+     ├─ @maelstrom-co/client connector
+     └─ no provider secrets
+
+   Server runtime
+     ├─ engine implementation
+     ├─ LLM provider adapter + API key
+     ├─ optional history store
+     └─ optional voice-server runtime
+   ```
+
+2. ## Configure the engine server
+
+   Keep provider configuration in server environment variables. Pick the adapter and model intentionally; stronger structured-output models can reduce healing and retries, while lower-latency models can improve responsiveness.
+
+   ```ts title="src/server/engine.ts"
+   import { createEngine } from '@maelstrom-co/engine';
+   import { geminiText } from '@tanstack/ai-gemini';
+
+   export const engine = createEngine({
+     adapter: geminiText(process.env.MAELSTROM_MODEL ?? 'gemini-2.0-flash'),
+     maxRetries: 1,
+   });
+   ```
+
+   See [Use a custom LLM provider](/guides/engine/custom-llm-providers/) for provider-specific setup.
+
+3. ## Choose the transport connector
+
+   WebSocket is the most common production shape because Maelstrom turns are interactive and voice paths may stream audio. HTTP can work for request/response deployments. In-memory connectors are useful for tests, not browser deployments.
+
+   Put the public connector URL in browser configuration and keep private provider keys on the server:
+
+   ```ts title="src/client/connector.ts"
+   import { WebSocketConnector } from '@maelstrom-co/client';
+
+   export const connector = new WebSocketConnector({
+     url: import.meta.env.PUBLIC_MAELSTROM_WS_URL,
+   });
+   ```
+
+4. ## Make history durable if you enable it
+
+   Conversation history is opt-in. If you enable it in production, use a durable store such as Redis, Postgres, or SQLite, and account for concurrency across server instances.
+
+   <Aside type="caution">
+     The in-memory history store is for local development and tests. It is lost on restart and does not coordinate across multiple deployed engine instances.
+   </Aside>
+
+   Read [Enable conversation history](/guides/engine/conversation-history/) before enabling history for real users.
+
+5. ## Add production error reporting
+
+   Render connector state in the UI and report server-side engine failures to your observability stack. Keep the user-facing recovery path simple: if the connector is disconnected, disable intent submission; if processing fails, allow the user to retry the intent.
+
+   ```tsx
+   <m.Provider
+     connector={connector}
+     onError={(error) => {
+       reportError(error);
+     }}
+   >
+     <m.Chart />
+   </m.Provider>
+   ```
+
+6. ## Add voice only after the text path is stable
+
+   Full voice deployment adds `@maelstrom-co/voice-server`, STT credentials, TTS credentials, browser VAD assets, and WebSocket audio streaming. Ship the typed path first, then add voice once the connector and engine path are observable.
+
+   Use [Voice Architecture](/understanding/voice-architecture/) to understand the browser/server split before exposing voice to users.
+
+</Steps>
+
+## Production checklist
+
+- [ ] Browser bundle contains no LLM, STT, or TTS provider secrets.
+- [ ] Engine server has provider keys injected from the deployment environment.
+- [ ] Connector URL is environment-specific and points at the deployed runtime.
+- [ ] UI renders connection and processing errors with retry paths.
+- [ ] History is either disabled or backed by a durable store.
+- [ ] Multi-instance deployments have session affinity, a distributed lock, or a per-session queue if history/concurrency matters.
+- [ ] Voice deployments keep provider credentials server-side and leave typed input available as fallback.
+
+## Next steps
+
+- [The Engine](/understanding/engine/) — understand the reference implementation boundary
+- [Connectors](/understanding/connectors/) — choose the transport shape
+- [Conversation history](/guides/engine/conversation-history/) — configure durable context
+- [Voice Architecture](/understanding/voice-architecture/) — deploy full-stack voice without leaking provider concerns into the browser
