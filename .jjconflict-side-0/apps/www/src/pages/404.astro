@@ -1,0 +1,31 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Page Not Found — Maelstrom">
+  <main class="min-h-screen flex items-center justify-center px-6">
+    <div class="text-center max-w-md">
+      <svg width="48" height="48" viewBox="0 0 48 48" class="mx-auto mb-8 text-cyan/30" aria-hidden="true">
+        <path
+          d="M24 24 C24 20, 28 18, 30 20 C32 22, 30 27, 26 28 C22 29, 17 26, 17 22 C17 17, 22 13, 27 13 C33 13, 37 18, 37 24 C37 31, 31 36, 24 36 C16 36, 11 30, 11 23 C11 15, 17 9, 25 9"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        />
+        <circle cx="24" cy="24" r="1.5" fill="currentColor" />
+      </svg>
+
+      <h1 class="font-display text-6xl md:text-7xl font-bold text-text mb-4">404</h1>
+      <p class="text-lg text-text-muted mb-10 leading-relaxed">
+        This page drifted into the abyss.
+      </p>
+      <a
+        href="/"
+        class="inline-flex items-center px-6 py-2.5 rounded-full text-sm font-medium bg-cyan/10 text-cyan border border-cyan/20 hover:bg-cyan/15 hover:border-cyan/30 hover:shadow-[0_0_20px_rgba(0,240,255,0.1)] transition-all duration-300"
+      >
+        Back to shore
+      </a>
+    </div>
+  </main>
+</Layout>

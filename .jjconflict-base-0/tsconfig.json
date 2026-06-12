@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compileOnSave": false,
+  "files": [],
+  "references": [
+    {
+      "path": "./apps/demo"
+    },
+    {
+      "path": "./packages/client"
+    },
+    {
+      "path": "./tools/biome-plugin"
+    },
+    {
+      "path": "./packages/react"
+    },
+    {
+      "path": "./tools/astro-plugin"
+    },
+    {
+      "path": "./packages/protocol"
+    },
+    {
+      "path": "./packages/engine"
+    }
+  ]
+}

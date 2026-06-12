@@ -1,0 +1,54 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-cyan-accent: #00f0ff;
+  --color-blue-accent: #0066ff;
+  --color-seafoam-accent: #00ffa3;
+  --color-violet-accent: #6b00ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+}
+
+/* Vessel animations */
+.vessel-wrapper {
+  transition: transform 0.3s ease-out, width 0.3s ease-out, height 0.3s ease-out;
+}
+
+/* Intent input styling */
+.intent-input {
+  @apply bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+}
+
+/* Fade in animation for new items */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease forwards;
+}
+
+/* Scribe pulse animation */
+@keyframes scribe-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.animate-scribe-pulse {
+  animation: scribe-pulse 1.5s ease-in-out infinite;
+}

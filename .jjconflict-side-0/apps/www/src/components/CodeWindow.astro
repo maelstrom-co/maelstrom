@@ -1,0 +1,30 @@
+---
+interface Props {
+  filename: string;
+  class?: string;
+}
+
+const { filename, class: className = '' } = Astro.props;
+---
+
+<div class:list={['rounded-2xl glass-premium overflow-hidden code-block-glow flex-1 flex flex-col', className]}>
+  <div class="flex items-center gap-2 px-4 py-2.5 border-b border-white/5 shrink-0">
+    <div class="w-2 h-2 rounded-full bg-white/10" />
+    <div class="w-2 h-2 rounded-full bg-white/10" />
+    <div class="w-2 h-2 rounded-full bg-white/10" />
+    <span class="ml-2 text-[10px] text-text-muted font-mono">{filename}</span>
+  </div>
+  <slot />
+</div>
+
+<style>
+  .code-block-glow {
+    box-shadow: 0 4px 40px rgba(0, 0, 0, 0.3), 0 0 60px rgba(0, 240, 255, 0.03);
+  }
+
+  /* Let Radix ScrollArea handle scrolling, not the native <pre> */
+  .code-block-glow :global(pre) {
+    overflow: visible !important;
+    background: transparent !important;
+  }
+</style>

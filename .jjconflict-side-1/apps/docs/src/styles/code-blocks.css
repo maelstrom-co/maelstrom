@@ -1,0 +1,149 @@
+/* ── Code blocks: Expressive Code with glass treatment ─────────────── */
+/* EC renders: .expressive-code > figure.frame > (figcaption.header?) + pre + .copy
+   Title frames (title="…"), copy button, and line/word highlighting are all
+   native EC features. This file only layers on the glass visual treatment,
+   overriding EC's theme-derived backgrounds/borders. */
+
+.expressive-code {
+  margin: 1rem 0;
+}
+
+.expressive-code .frame pre {
+  padding: 1rem 1.25rem;
+  font-family: var(--font-code, 'JetBrains Mono'), monospace;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  tab-size: 2;
+}
+
+/* Glass treatment — wrap the whole frame (header + code) in one rounded,
+   bordered, shadowed box, with a translucent code surface.
+   EC's theme background lives in the `starlight.components` cascade layer;
+   this unlayered customCss wins the cascade. !important is defensive against
+   future specificity shifts, not strictly required. */
+.expressive-code .frame {
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+:root[data-theme='dark'] .expressive-code .frame {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 4px 24px rgba(0, 0, 0, 0.25);
+}
+
+:root[data-theme='dark'] .expressive-code .frame pre {
+  background: rgba(15, 43, 74, 0.4) !important;
+}
+
+:root[data-theme='dark'] .expressive-code .frame .header {
+  background: rgba(10, 25, 50, 0.5);
+  color: #7a9ab5;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme='light'] .expressive-code .frame {
+  border: 1px solid rgba(10, 30, 53, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 4px 24px rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme='light'] .expressive-code .frame pre {
+  background: rgba(240, 237, 232, 0.5) !important;
+}
+
+:root[data-theme='light'] .expressive-code .frame .header {
+  background: rgba(230, 225, 218, 0.6);
+  color: #5a7a95;
+  border-bottom: 1px solid rgba(10, 30, 53, 0.08);
+}
+
+/* Title bar typography — full-width file-tab bar in the code font, matching
+   the previous design (EC's editor-tab chrome is zeroed out in astro.config). */
+.expressive-code .frame:not(.is-terminal) .header {
+  justify-content: flex-start;
+}
+
+.expressive-code .frame:not(.is-terminal) .title {
+  padding: 0.5rem 1rem;
+  font-family: var(--font-code, 'JetBrains Mono'), monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+}
+
+/* ── Copy button ──────────────────────────────────────────────────── */
+/* Restyle EC's native copy button to match the previous custom button:
+   a 2rem rounded translucent square, hidden until the block is hovered,
+   accent-tinted on hover. EC draws the icon via `button::after` using a
+   mask-image; we swap in the previous clipboard glyph and recolor it. */
+.expressive-code .copy button {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.375rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+}
+
+/* EC paints its own border on `button::before` and its background on a child
+   `button div`, both inset overlays. Neutralize them so they don't fight the
+   border/background applied directly to the button above. */
+.expressive-code .copy button::before,
+.expressive-code .copy button div {
+  display: none;
+}
+
+.expressive-code .copy button::after {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Crect%20width='14'%20height='14'%20x='8'%20y='8'%20rx='2'%20ry='2'/%3E%3Cpath%20d='M4%2016c-1.1%200-2-.9-2-2V4c0-1.1.9-2%202-2h10c1.1%200%202%20.9%202%202'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Crect%20width='14'%20height='14'%20x='8'%20y='8'%20rx='2'%20ry='2'/%3E%3Cpath%20d='M4%2016c-1.1%200-2-.9-2-2V4c0-1.1.9-2%202-2h10c1.1%200%202%20.9%202%202'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: 14px;
+  mask-size: 14px;
+  background: var(--sl-color-gray-3);
+}
+
+.expressive-code .copy button:hover {
+  background: color-mix(in srgb, var(--color-accent-500) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 20%, transparent);
+}
+
+.expressive-code .copy button:hover::after {
+  background: var(--color-accent-500);
+}
+
+:root[data-theme='light'] .expressive-code .copy button {
+  border-color: rgba(10, 30, 53, 0.1);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+:root[data-theme='light'] .expressive-code .copy button:hover {
+  background: color-mix(in srgb, var(--color-accent-500) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 20%, transparent);
+}
+
+/* ── Focus highlighting (dim the rest) ────────────────────────────── */
+/* Line marks ({1,3-5}) act as a focus effect: marked lines stay sharp,
+   every other line dims. ins=/del= keep their diff colors for actual
+   additions/removals. */
+.expressive-code pre:has(.ec-line.mark) .ec-line:not(.mark) {
+  opacity: 0.4;
+}
+
+/* Drop EC's neutral mark band and gutter accent — emphasis comes from dimming
+   the unmarked lines instead. Hide the accent by color only (not width): EC
+   gives every line the same gutter border width, so zeroing it on marked lines
+   would shift their code left relative to unmarked ones. */
+.expressive-code .ec-line.mark {
+  background: transparent !important;
+}
+
+.expressive-code .ec-line.mark .code {
+  border-inline-start-color: transparent !important;
+}

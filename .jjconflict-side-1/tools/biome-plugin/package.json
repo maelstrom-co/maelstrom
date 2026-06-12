@@ -1,0 +1,50 @@
+{
+  "name": "@maelstrom-co/biome-plugin",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "name": "biome-plugin",
+    "targets": {
+      "build": {
+        "executor": "@nx/js:tsc",
+        "outputs": [
+          "{options.outputPath}"
+        ],
+        "options": {
+          "outputPath": "tools/biome-plugin/dist",
+          "main": "tools/biome-plugin/src/index.ts",
+          "tsConfig": "tools/biome-plugin/tsconfig.lib.json",
+          "rootDir": "tools/biome-plugin/src",
+          "generatePackageJson": false,
+          "assets": [
+            {
+              "input": "./tools/biome-plugin/src",
+              "glob": "**/!(*.ts)",
+              "output": "."
+            },
+            {
+              "input": "./tools/biome-plugin/src",
+              "glob": "**/*.d.ts",
+              "output": "."
+            }
+          ]
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  }
+}

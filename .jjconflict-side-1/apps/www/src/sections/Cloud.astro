@@ -1,0 +1,75 @@
+---
+import WaitlistForm from '../islands/WaitlistForm.tsx';
+
+const CLOUD = [
+  {
+    title: 'Managed Voice',
+    body: 'Zero-config voice with STT, TTS, edge delivery, and low-latency voice activity detection.',
+  },
+  {
+    title: 'Pro Engine',
+    body: 'Multi-model routing, response caching, and global edge deployment for production orchestration.',
+  },
+  {
+    title: 'Analytics',
+    body: 'Insight into intent patterns, layout performance, vessel usage, and session behavior.',
+  },
+];
+---
+
+<section class="cloud" id="waitlist">
+  <div class="container">
+    <div class="how-head">
+      <span class="eyebrow">Maelstrom cloud</span>
+      <h2 class="section-h2">Managed Orchestration</h2>
+      <p class="section-sub">
+        Deploy AI-driven interfaces without managing infrastructure. Scaling your
+        generative UI layer has never been easier.
+      </p>
+    </div>
+
+    <div class="cloud-grid">
+      {CLOUD.map((c, i) => (
+        <div class="cloud-card">
+          <div class="cloud-icon">
+            {i === 0 && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="9" y="2" width="6" height="13" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0" />
+                <line x1="12" y1="18" x2="12" y2="22" />
+              </svg>
+            )}
+            {i === 1 && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
+              </svg>
+            )}
+            {i === 2 && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <line x1="4" y1="20" x2="4" y2="10" />
+                <line x1="10" y1="20" x2="10" y2="4" />
+                <line x1="16" y1="20" x2="16" y2="14" />
+                <line x1="22" y1="20" x2="2" y2="20" />
+              </svg>
+            )}
+          </div>
+          <h3 class="cloud-title">{c.title}</h3>
+          <p class="cloud-body">{c.body}</p>
+          <div class="cloud-meta mono">0{i + 1} / 03</div>
+        </div>
+      ))}
+    </div>
+
+    <div class="waitlist-card">
+      <div class="waitlist-inner">
+        <div>
+          <h3 class="waitlist-title">Get early access</h3>
+          <p class="waitlist-sub">
+            Join engineers building with Maelstrom Cloud.
+          </p>
+        </div>
+        <WaitlistForm client:visible />
+      </div>
+    </div>
+  </div>
+</section>

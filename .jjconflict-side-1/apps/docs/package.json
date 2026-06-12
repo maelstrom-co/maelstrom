@@ -1,0 +1,46 @@
+{
+  "name": "@maelstrom-co/docs",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@astrojs/react": "catalog:",
+    "@astrojs/sitemap": "catalog:",
+    "@astrojs/starlight": "^0.39.0",
+    "@astrojs/starlight-tailwind": "^5.0.0",
+    "astro": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@astrojs/check": "catalog:",
+    "@cloudflare/workers-types": "^4.20260317.1",
+    "@tailwindcss/vite": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@types/jsdom": "^21.1.7",
+    "jsdom": "catalog:",
+    "starlight-llms-txt": "^0.8.0",
+    "starlight-typedoc": "^0.22.0",
+    "tailwindcss": "catalog:",
+    "typedoc": "^0.28.0",
+    "typedoc-plugin-markdown": "^4.6.0",
+    "typescript": "catalog:"
+  },
+  "nx": {
+    "implicitDependencies": [
+      "@maelstrom-co/protocol",
+      "@maelstrom-co/engine",
+      "@maelstrom-co/client",
+      "@maelstrom-co/react"
+    ],
+    "targets": {
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

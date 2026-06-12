@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+env:
+  NX_NO_CLOUD: ${{ vars.NX_NO_CLOUD }}
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - uses: nrwl/nx-set-shas@v4
+
+      - name: Run lint, test, build, typecheck
+        run: bunx nx run-many -t format lint test build typecheck
+      # - run: bunx nx fix-ci
+      #   if: always()

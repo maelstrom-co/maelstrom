@@ -1,0 +1,54 @@
+---
+title: Grid vs Tiling Layout
+description: When to use Grid layout versus Tiling layout, and how each works.
+---
+
+Maelstrom supports two layout modes because adaptive interfaces need two different kinds of control. Grid mode gives predictable cell-based placement. Tiling mode fills the available space with recursive splits.
+
+## Grid layout
+
+Grid layout divides the Chart into uniform cells. A Vessel variant declares `minSize` in cells, and the engine chooses row, column, width, and height.
+
+```text
+columns ->  0   1   2   3   4   5
+          ┌───┬───┬───┬───┬───┬───┐
+row 0     │ weather   │ calendar  │
+          ├───┴───┬───┴───┬───┬───┤
+row 1     │ tasks         │ empty │
+          └───────────────┴───────┘
+```
+
+Use grid when dashboard stability matters. It is easier to reason about exact placement, repeated arrangements, and components sized in consistent units.
+
+## Tiling layout
+
+Tiling layout fills the whole container with a split tree. Instead of coordinates, the layout describes how space is divided.
+
+```text
+┌──────────────────────────────┬──────────────┐
+│ calendar                     │ weather      │
+│                              ├──────────────┤
+│                              │ tasks        │
+└──────────────────────────────┴──────────────┘
+```
+
+Use tiling when density matters and empty gaps are worse than variable proportions. It works well for workspaces where every visible Vessel should get a share of the available screen.
+
+## Decision guide
+
+| Choose | When |
+| --- | --- |
+| Grid | You want predictable dashboard placement, stable cell sizing, or layouts that leave intentional empty space. |
+| Tiling | You want the visible Vessels to fill the container and adapt as Vessels appear or disappear. |
+
+## Trade-offs
+
+Grid is more predictable, but it can leave unused space. Tiling is denser, but proportions can shift more dramatically as the layout tree changes. In both modes, the engine still has to respect each active variant's `minSize`.
+
+The useful question is not which mode is more advanced. The useful question is what kind of surprise is acceptable. Grid may surprise users with gaps. Tiling may surprise them with changing proportions.
+
+## Next steps
+
+- [Layout Modes](/guides/react/layout-modes/) — configure the mode in React
+- [Core Concepts](/getting-started/core-concepts/) — see how layout fits the turn lifecycle
+- [The Engine](/understanding/engine/) — understand how layout output is validated and healed

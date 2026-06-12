@@ -1,0 +1,52 @@
+---
+title: Why Maelstrom?
+description: The vision behind Maelstrom and the AI-orchestrated UI manifesto.
+---
+
+Most applications still ask users to navigate a tree of screens that developers predicted months earlier. That model works when the product has a small number of fixed tasks. It breaks down when the user is working with an AI assistant, several tools, and a goal that changes sentence by sentence.
+
+Maelstrom exists for that gap. It treats the interface as a set of declared capabilities that an engine can orchestrate at runtime: show this Vessel, transition that Vessel, give the calendar more room, collapse the weather card, keep tasks visible while the user plans the week.
+
+## The problem: static screens in dynamic work
+
+In traditional UI architecture, developers choose the navigation structure, the layout, and the component state ahead of time. Users adapt to those choices. They learn which page holds which tool, how to open the right panel, and how to recover when the screen does not match the task.
+
+AI products invert that expectation. A user does not want to remember whether weather, calendar, notes, and tasks live in separate tabs. They ask for an outcome: "help me plan tomorrow around the rain" or "show the meetings that affect my launch checklist." The useful UI is the one that assembles those pieces together at the moment of need.
+
+The culprit is not React, routing, or dashboards. The culprit is that most UI systems treat arrangement as a build-time decision, while AI interaction makes arrangement a runtime problem.
+
+## The Maelstrom thesis
+
+Maelstrom keeps developers in control of the safe parts and lets the engine decide the adaptive parts.
+
+- Developers define Vessels, variants, actions, and minimum sizes.
+- The engine chooses among those declared options for the current intent.
+- The client executes actions before layout so components render in the state the engine planned for.
+- The Chart applies the resulting grid or tiling layout.
+
+This is not unconstrained UI generation. The LLM cannot invent a new settings page or mutate arbitrary component internals. It can only orchestrate the catalogue your application exposes.
+
+## What changes for users
+
+A Maelstrom interface can move from "find the right screen" to "say the goal." The user still sees real product components, but the arrangement reflects the current task instead of a fixed navigation path.
+
+For example, a planning assistant can keep tasks compact while expanding the calendar. A support dashboard can put customer history next to live diagnostics. A planning workspace can rearrange visible tools without asking the user to drag panels by hand.
+
+## When not to use it
+
+Maelstrom adds orchestration machinery, so it is not the right default for every app.
+
+Use a conventional UI when:
+
+- the product has one primary flow and little need for runtime layout changes
+- every screen must be fully deterministic for compliance or training reasons
+- the application has too few components for orchestration to add value
+- you are not prepared to write clear Vessel descriptions and action boundaries
+
+Use Maelstrom when the interface has multiple meaningful components and the best combination depends on what the user asks next.
+
+## Next steps
+
+- [Core Concepts](/getting-started/core-concepts/) — learn the vocabulary
+- [The Vessel State Machine](/understanding/vessel-state-machine/) — understand the component model
+- [How the LLM Orchestrates UI](/understanding/llm-orchestration/) — see what the engine can and cannot decide

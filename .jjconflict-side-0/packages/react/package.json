@@ -1,0 +1,60 @@
+{
+  "name": "@maelstrom-co/react",
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./_testing": {
+      "@maelstrom-co/source": "./src/_testing.ts",
+      "types": "./dist/_testing.d.ts",
+      "import": "./dist/_testing.js",
+      "default": "./dist/_testing.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/react"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@maelstrom-co/client": "0.0.0",
+    "@maelstrom-co/protocol": "0.0.0",
+    "@tanstack/react-store": "catalog:"
+  },
+  "devDependencies": {
+    "@testing-library/react": "catalog:",
+    "happy-dom": "catalog:"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "nx": {
+    "targets": {
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

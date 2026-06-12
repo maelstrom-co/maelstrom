@@ -1,0 +1,148 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "namedInputs": {
+    "default": [
+      "{projectRoot}/**/*",
+      "sharedGlobals"
+    ],
+    "production": [
+      "default",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/src/test-setup.[jt]s"
+    ],
+    "sharedGlobals": []
+  },
+  "plugins": [
+    {
+      "plugin": "@nx/js/typescript",
+      "options": {
+        "typecheck": {
+          "targetName": "typecheck"
+        },
+        "build": {
+          "targetName": "build",
+          "configName": "tsconfig.lib.json",
+          "buildDepsName": "build-deps",
+          "watchDepsName": "watch-deps"
+        }
+      }
+    },
+    {
+      "plugin": "@nx/vite/plugin",
+      "options": {
+        "buildTargetName": "build",
+        "serveTargetName": "serve",
+        "devTargetName": "dev",
+        "previewTargetName": "preview",
+        "serveStaticTargetName": "serve-static",
+        "typecheckTargetName": "typecheck",
+        "buildDepsTargetName": "build-deps",
+        "watchDepsTargetName": "watch-deps"
+      }
+    },
+    {
+      "plugin": "@maelstrom-co/biome-plugin",
+      "options": {
+        "lintTargetName": "lint",
+        "formatTargetName": "format",
+        "checkTargetName": "check"
+      }
+    },
+    {
+      "plugin": "@maelstrom-co/astro-plugin",
+      "options": {
+        "buildTargetName": "build",
+        "devTargetName": "dev",
+        "previewTargetName": "preview",
+        "typecheckTargetName": "typecheck"
+      }
+    }
+  ],
+  "targetDefaults": {
+    "build": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "typecheck": {
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "^build"
+      ],
+      "options": {
+        "passWithNoTests": true
+      }
+    },
+    "dev": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "@nx/js:tsc": {
+      "cache": true,
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "production",
+        "^production"
+      ]
+    },
+    "nx-release-publish": {
+      "options": {
+        "registry": "https://npm.pkg.github.com"
+      }
+    }
+  },
+  "generators": {
+    "@nx/react": {
+      "application": {
+        "babel": true,
+        "style": "tailwind",
+        "linter": "none",
+        "bundler": "vite"
+      },
+      "component": {
+        "style": "tailwind"
+      },
+      "library": {
+        "style": "tailwind",
+        "linter": "none",
+        "unitTestRunner": "none"
+      }
+    }
+  },
+  "release": {
+    "projects": [
+      "packages/*"
+    ],
+    "projectsRelationship": "fixed",
+    "version": {
+      "preVersionCommand": "bunx nx run-many -t build",
+      "currentVersionResolver": "git-tag",
+      "versionActionsOptions": {
+        "skipLockFileUpdate": true
+      },
+      "git": {
+        "commitMessage": "chore(release): {version}"
+      }
+    },
+    "releaseTag": {
+      "pattern": "v{version}",
+      "strictPreid": false
+    },
+    "changelog": {
+      "projectChangelogs": false,
+      "workspaceChangelog": {
+        "file": false,
+        "createRelease": "github"
+      }
+    }
+  },
+  "nxCloudId": "69b94146895823a3b98c76ba"
+}

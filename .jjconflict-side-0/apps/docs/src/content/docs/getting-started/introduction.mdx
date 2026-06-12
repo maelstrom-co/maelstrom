@@ -1,0 +1,68 @@
+---
+title: Introduction
+description: What is Maelstrom and why does it exist?
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Most product interfaces assume that developers can predict the screen a user will need before the user asks for it. That works for fixed workflows, but it breaks down in AI-powered applications where the useful interface changes with the user's intent, the available tools, and the space on screen.
+
+Maelstrom is an AI-orchestrated dynamic UI framework. You define the components your product can show, and an LLM acts as an orchestrator that chooses which components to display, which state each component should enter, and how those components should fit inside the available chart.
+
+## What problem does it solve?
+
+Traditional UIs hardcode layouts, navigation flows, and component states at build time. Maelstrom keeps those pieces explicit, but moves the selection and arrangement decision to the engine at runtime. The result is not an LLM inventing arbitrary UI; it is an LLM choosing among the Vessels, variants, and actions your application already declared.
+
+That matters for products such as dashboards, data explorers, multi-tool workspaces, and conversational applications. In those products, the user often asks for an outcome rather than a page name. Maelstrom gives the engine a safe catalogue of UI capabilities, then lets it assemble the right surface for the current request.
+
+## Who is it for?
+
+Maelstrom is designed for developers building AI-powered applications where the interface should adapt to user intent. It ships first-class React bindings alongside a framework-agnostic client, so you can start with React and still keep the orchestration boundary independent from the UI framework.
+
+Use it when your product has multiple task-specific components and the right arrangement depends on what the user is trying to do. If your application has one fixed flow and no need for runtime layout decisions, a conventional UI will usually be simpler.
+
+## How it works
+
+1. **You define Vessels** — UI components with typed variants, minimum sizes, and actions the engine may invoke.
+2. **The engine orchestrates** — based on user intent and current chart state, it chooses actions and layout.
+3. **The Chart renders** — a grid or tiling layout positions the selected Vessels on screen.
+
+<Tabs syncKey="framework">
+  <TabItem label="React">
+  ```tsx title="App.tsx"
+  import { createMaelstrom, vessel } from '@maelstrom-co/react';
+
+  const m = createMaelstrom({
+    vessels: [weatherVessel, calendarVessel, taskVessel],
+  });
+
+  function App() {
+    return (
+      <m.Provider connector={connector}>
+        <m.Chart />
+      </m.Provider>
+    );
+  }
+  ```
+  </TabItem>
+  <TabItem label="Vanilla JS">
+  ```ts title="main.ts"
+  import { Orchestrator, WebSocketConnector } from '@maelstrom-co/client';
+
+  const connector = new WebSocketConnector({ url: 'wss://api.example.com/ws' });
+  const orchestrator = new Orchestrator(connector);
+
+  orchestrator.vesselManager.registerVessel(weatherDefinition);
+  orchestrator.vesselManager.registerVessel(calendarDefinition);
+  orchestrator.vesselManager.registerVessel(taskDefinition);
+
+  await orchestrator.connect();
+  ```
+  </TabItem>
+</Tabs>
+
+## Next steps
+
+- [Quick Start](/getting-started/quick-start) — get a working one-vessel example in minutes
+- [Core Concepts](/getting-started/core-concepts) — understand the concepts behind the example
+- [Build Your First Dashboard](/tutorials/first-dashboard) — expand the quickstart into a multi-vessel dashboard

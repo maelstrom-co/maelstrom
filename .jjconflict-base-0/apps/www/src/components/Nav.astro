@@ -1,0 +1,81 @@
+---
+import { GITHUB_REPO_URL, navLinks } from '../data/navigation';
+import MaelstromLogo from './MaelstromLogo.astro';
+---
+
+<header class="nav" id="site-nav">
+  <div class="container nav-inner">
+    <a href="/" class="nav-logo" aria-label="Maelstrom home">
+      <MaelstromLogo height={22} color="white" decorative />
+    </a>
+    <nav class="nav-links" id="nav-links" aria-label="Main navigation">
+      {navLinks.map((link) => (
+        <a
+          href={link.href}
+          target={link.href.startsWith('http') ? '_blank' : undefined}
+          rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+        >
+          {link.label}
+        </a>
+      ))}
+      <a href={GITHUB_REPO_URL} target="_blank" rel="noopener noreferrer">
+        GitHub
+      </a>
+    </nav>
+    <a href="#waitlist" class="btn btn-primary nav-cta">Join Waitlist</a>
+    <button
+      type="button"
+      class="nav-toggle"
+      id="nav-toggle"
+      aria-label="Open menu"
+      aria-expanded="false"
+      aria-controls="nav-links"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<script>
+  const nav = document.getElementById('site-nav');
+  if (nav) {
+    const onScroll = () => {
+      if (window.scrollY > 20) nav.classList.add('scrolled');
+      else nav.classList.remove('scrolled');
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+
+    const toggle = document.getElementById('nav-toggle');
+    const links = document.getElementById('nav-links');
+    if (toggle && links) {
+      const setOpen = (open: boolean) => {
+        nav.classList.toggle('nav-open', open);
+        toggle.setAttribute('aria-expanded', String(open));
+        toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+      };
+      toggle.addEventListener('click', () =>
+        setOpen(!nav.classList.contains('nav-open')),
+      );
+      links.querySelectorAll('a').forEach((a) =>
+        a.addEventListener('click', () => setOpen(false)),
+      );
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && nav.classList.contains('nav-open')) {
+          setOpen(false);
+          toggle.focus();
+        }
+      });
+      // Reset stale open state when the viewport grows past the mobile breakpoint.
+      window
+        .matchMedia('(min-width: 821px)')
+        .addEventListener('change', (e) => {
+          if (e.matches) setOpen(false);
+        });
+    }
+  }
+</script>

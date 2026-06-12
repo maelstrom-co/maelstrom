@@ -1,0 +1,102 @@
+---
+title: Layout Modes
+description: Choose between Grid and Tiling layout modes.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The engine arranges vessels on the Chart using one of two layout algorithms. This guide shows you how to pick a mode and tune the one prop that shapes it.
+
+<Aside type="note">
+  **Before you start:** complete [Creating Vessels](/guides/react/creating-vessels/) so you have a `greetingVessel`, a registered `m = createMaelstrom(...)` instance, and an `<m.Provider>` / `<m.Chart />` shell. This guide builds on that setup.
+</Aside>
+
+## Grid vs tiling
+
+**Grid** lays vessels out on a fixed-cell grid. Each variant declares a `minSize` in grid cells, and the engine places vessels into whole cells of a uniform size. The result is a predictable, dashboard-style layout where every vessel snaps to the same underlying grid.
+
+**Tiling** fills the whole container with a recursive tiling tree: vessels divide the available space between them rather than occupying fixed cells. There is no leftover grid; the tiles grow and shrink to consume the container as vessels come and go. For the conceptual deep-dive on how cells and tiles map to pixels, see [Grid vs Tiling](/understanding/grid-vs-tiling/).
+
+## Set the mode
+
+`LayoutMode` is `'grid' | 'tiling'`. Choose it with the `layoutMode` prop on the Provider:
+
+```tsx title="src/app.tsx"
+import { m } from './maelstrom';
+import { myConnector } from './connector';
+
+export default function App() {
+  return (
+    <m.Provider connector={myConnector} layoutMode="grid">
+      <m.Chart />
+    </m.Provider>
+  );
+}
+```
+
+Switch to tiling by passing `layoutMode="tiling"` instead.
+
+<Aside type="note">
+  `layoutMode` is a Provider-only prop; there is no `layoutMode` key on `createMaelstrom()`. The size props below (`cellSizePx`, `tilingPaddingPx`) can be set as factory defaults on `createMaelstrom()` and overridden per-Provider.
+</Aside>
+
+## Grid mode
+
+In grid mode, `cellSizePx` sets the pixel size of a single grid cell. Each vessel occupies the cells derived from its variant's `minSize` (declared in `width` / `height` grid cells; see [Creating Vessels](/guides/react/creating-vessels/)).
+
+```tsx title="src/app.tsx"
+<m.Provider connector={myConnector} layoutMode="grid" cellSizePx={120}>
+  <m.Chart />
+</m.Provider>
+```
+
+You can also set the default cell size when you create the instance:
+
+```tsx title="src/maelstrom.ts"
+export const m = createMaelstrom({
+  vessels: [greetingEntry],
+  cellSizePx: 120,
+});
+```
+
+The Provider's `cellSizePx` overrides the factory default when both are set.
+
+## Tiling mode
+
+In tiling mode, `tilingPaddingPx` sets the gap in pixels between tiles. The recursive tiling tree fills the container, so there is no fixed cell size to configure; vessels share the available space.
+
+```tsx title="src/app.tsx"
+<m.Provider connector={myConnector} layoutMode="tiling" tilingPaddingPx={8}>
+  <m.Chart />
+</m.Provider>
+```
+
+As with `cellSizePx`, `tilingPaddingPx` can be set as a factory default on `createMaelstrom()` and overridden on the Provider.
+
+## How the modes look
+
+```text
+Grid mode                  Tiling mode
+┌───┬───┬───┬───┐          ┌───────────┬─────┐
+│ A │ A │ B │ B │          │ A         │ B   │
+├───┼───┼───┼───┤          │           ├─────┤
+│ C │ C │ C │   │          │           │ C   │
+└───┴───┴───┴───┘          └───────────┴─────┘
+fixed cells + gaps          recursive splits fill all space
+```
+
+Grid optimizes for predictability: positions snap to cells, `minSize` maps directly to cell counts, and empty space can remain. Tiling optimizes for density: the layout fills the container, but the exact proportions are governed by the split tree rather than a shared cell grid.
+
+## Choosing
+
+| Mode | Fits when |
+| --- | --- |
+| `grid` | You want a fixed, predictable dashboard where vessels snap to a uniform grid and respect their `minSize` cell counts. |
+| `tiling` | You want vessels to fill all available space, with tiles that grow and shrink as the set of placed vessels changes. |
+
+Reach for grid when layout stability matters and you size vessels in cells. Reach for tiling when you want a dense, space-filling surface with no leftover gaps.
+
+## Next steps
+
+- [Creating Vessels](/guides/react/creating-vessels/) — declare a variant's `minSize` in grid cells
+- [Grid vs Tiling](/understanding/grid-vs-tiling/) — the conceptual model behind cells and the tiling tree

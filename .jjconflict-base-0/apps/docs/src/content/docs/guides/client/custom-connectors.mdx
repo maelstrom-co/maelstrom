@@ -1,0 +1,86 @@
+---
+title: Custom Connectors
+description: How to implement custom transport connectors (WebSocket, HTTP, etc.).
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A Connector is the transport adapter between the Maelstrom client and the engine backend. It should move protocol messages across a boundary; it should not decide layout, mutate Vessels, or hide engine errors.
+
+Use a custom Connector when the built-in transport does not match your deployment shape: a proprietary WebSocket gateway, an HTTP endpoint, or an in-process test harness.
+
+## Responsibilities
+
+A connector owns four jobs:
+
+1. open and close the transport session
+2. send intent or chart messages to the engine
+3. deliver engine responses back to the client
+4. expose connection failures in a way the UI can render
+
+It should preserve the protocol payload. If the transport changes from WebSocket to HTTP, the message shape should not.
+
+## WebSocket-shaped connector
+
+A WebSocket connector is the usual browser-to-server shape because it supports long-lived sessions and streaming extensions.
+
+```ts title="src/connector.ts"
+import { WebSocketConnector } from '@maelstrom-co/client';
+
+export const connector = new WebSocketConnector({
+  url: import.meta.env.PUBLIC_MAELSTROM_WS_URL,
+});
+```
+
+Use this shape when the engine lives behind a server route and the browser needs live connection state.
+
+## In-memory connector for tests
+
+For tests, keep the engine in the same process and avoid a network transport entirely. The connector still implements the same `EngineConnector` shape; only the transport disappears.
+
+```ts title="test/create-test-connector.ts"
+import type { Engine } from '@maelstrom-co/engine';
+import type { EngineConnector } from '@maelstrom-co/client';
+import { isOk } from '@maelstrom-co/protocol';
+
+export function createInMemoryConnector(engine: Engine): EngineConnector {
+  return {
+    capabilities: { streaming: false, stateful: false },
+    async connect() {},
+    async disconnect() {},
+    subscribe() {
+      return () => {};
+    },
+    async addAssistantMessage() {},
+    async getHistory() {
+      return [];
+    },
+    async process(message) {
+      const result = await engine.handle(message);
+      if (isOk(result) && result.value.type === 'chart_response') {
+        return result.value.response;
+      }
+      throw new Error('Engine did not return a chart response.');
+    },
+  };
+}
+```
+
+Treat this as a test seam, not a production browser connector. It is useful because the protocol stays the same while transport disappears.
+
+## Failure and retry behavior
+
+Do not swallow transport failures. Surface them through the same connection state your UI already reads from `useMaelstrom()`. The user-facing recovery path should be clear:
+
+| Failure | Connector behavior | UI behavior |
+| --- | --- | --- |
+| Initial connection fails | report an error and stay disconnected | show unavailable state and retry affordance |
+| Mid-session drop | update connection status | disable intent submission until reconnected |
+| Request timeout | reject or return a failed result through the normal channel | show processing error and let the user resubmit |
+| Malformed response | preserve enough detail for logging | show generic failure, report diagnostic details server-side |
+
+## Next steps
+
+- [Connectors](/understanding/connectors/) — conceptual model and transport comparison
+- [Programmatic Layout Control](/guides/client/programmatic-layout/) — when to bypass engine-driven layout in controlled scenarios
+- [Error Handling](/guides/react/error-handling/) — render connector failures in React
