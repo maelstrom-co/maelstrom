@@ -25,10 +25,9 @@ The protocol defines the payload. The connector defines how that payload travels
 
 | Connector shape | Fits when | Trade-off |
 | --- | --- | --- |
-| WebSocket | Interactive browser sessions and voice-capable transports | Requires connection lifecycle handling. |
+| WebSocket | Interactive browser sessions | Requires connection lifecycle handling. |
 | HTTP | Simple request/response deployments | Less natural for streaming or long-lived sessions. |
 | In-memory | Tests, local harnesses, embedded demos | Not a browser deployment boundary. |
-| Voice-capable WebSocket | Browser audio must stream to a backend runtime | Must keep provider credentials and STT/TTS on the server. |
 
 ## What a connector should own
 
@@ -41,13 +40,11 @@ The protocol defines the payload. The connector defines how that payload travels
 
 - Choosing which Vessels appear.
 - Mutating Vessel state outside declared actions.
-- Calling LLM, STT, or TTS providers directly from the browser.
 - Converting provider-specific errors into user-facing policy by itself.
 
-Those responsibilities belong to the engine, application action handlers, or backend voice runtime.
+Those responsibilities belong to the engine or application action handlers.
 
 ## Next steps
 
 - [Custom Connectors](/guides/client/custom-connectors/) — implement a transport adapter
 - [The Protocol](/understanding/protocol/) — understand the payload the connector carries
-- [Voice Architecture](/understanding/voice-architecture/) — see how voice-capable connectors fit the browser/server split

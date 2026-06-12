@@ -15,9 +15,6 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
 | `@maelstrom-co/client` | Framework-agnostic client — Orchestrator, connectors, managers |
 | `@maelstrom-co/protocol` | Shared types, Zod schemas, message definitions |
 | `@maelstrom-co/engine` | Server-side LLM decision engine |
-| `@maelstrom-co/voice` | Browser voice capture, playback, and VAD |
-| `@maelstrom-co/react-voice` | React voice extension that adds `useVoice()` and `VoiceOrb` |
-| `@maelstrom-co/voice-server` | Backend voice runtime for STT, engine handoff, and TTS |
 
 ## Minimal installs by use case
 
@@ -25,8 +22,6 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
 | --- | --- | --- |
 | React chart only | `@maelstrom-co/react` | An engine implementation, commonly `@maelstrom-co/engine` |
 | Framework-agnostic client | `@maelstrom-co/client @maelstrom-co/protocol` | An engine implementation |
-| Browser voice controls | `@maelstrom-co/react-voice @maelstrom-co/voice` | Existing engine backend still required |
-| Full voice loop | `@maelstrom-co/react-voice @maelstrom-co/voice` | `@maelstrom-co/voice-server` plus an engine implementation |
 
 `@maelstrom-co/react` depends on the client and protocol packages, but many guides install `@maelstrom-co/client` explicitly because connector classes such as `WebSocketConnector` are imported from the client package. Keeping that dependency explicit makes the transport boundary visible in your app.
 
@@ -84,48 +79,7 @@ ANTHROPIC_API_KEY=your-key             # Anthropic Claude
   Choose one provider first. You can switch providers later by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
 </Aside>
 
-## Voice packages
-
-Voice is optional and split across browser and server because microphone capture belongs in the browser while provider credentials and STT/TTS calls belong on the backend.
-
-<Tabs>
-  <TabItem label="npm">
-  ```bash
-  # Browser voice UI
-  npm install @maelstrom-co/react-voice @maelstrom-co/voice
-
-  # Backend voice runtime
-  npm install @maelstrom-co/voice-server
-  ```
-  </TabItem>
-  <TabItem label="bun">
-  ```bash
-  # Browser voice UI
-  bun add @maelstrom-co/react-voice @maelstrom-co/voice
-
-  # Backend voice runtime
-  bun add @maelstrom-co/voice-server
-  ```
-  </TabItem>
-  <TabItem label="pnpm">
-  ```bash
-  # Browser voice UI
-  pnpm add @maelstrom-co/react-voice @maelstrom-co/voice
-
-  # Backend voice runtime
-  pnpm add @maelstrom-co/voice-server
-  ```
-  </TabItem>
-</Tabs>
-
-<Aside type="caution">
-  The browser voice runtime includes `onnxruntime-web` and model/runtime assets, which is why voice stays in optional packages. Final download size depends on your bundler and deployment setup.
-</Aside>
-
-If you only install the browser packages, you can build microphone controls and playback UI, but you still need `@maelstrom-co/voice-server` or an equivalent backend runtime to complete the browser-to-server voice flow.
-
 ## Next steps
 
 - [Quick Start](/getting-started/quick-start/) — wire the smallest working chart
-- [Voice Integration](/guides/voice/voice-integration/) — add the full browser and backend voice path
 - [Use a custom LLM provider](/guides/engine/custom-llm-providers/) — choose the model adapter for the reference engine

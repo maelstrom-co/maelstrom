@@ -7,7 +7,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 A Connector is the transport adapter between the Maelstrom client and the engine backend. It should move protocol messages across a boundary; it should not decide layout, mutate Vessels, or hide engine errors.
 
-Use a custom Connector when the built-in transport does not match your deployment shape: a proprietary WebSocket gateway, an HTTP endpoint, an in-process test harness, or a voice-capable bridge.
+Use a custom Connector when the built-in transport does not match your deployment shape: a proprietary WebSocket gateway, an HTTP endpoint, or an in-process test harness.
 
 ## Responsibilities
 
@@ -45,7 +45,7 @@ import { isOk } from '@maelstrom-co/protocol';
 
 export function createInMemoryConnector(engine: Engine): EngineConnector {
   return {
-    capabilities: { voice: false, streaming: false, stateful: false },
+    capabilities: { streaming: false, stateful: false },
     async connect() {},
     async disconnect() {},
     subscribe() {
@@ -78,10 +78,6 @@ Do not swallow transport failures. Surface them through the same connection stat
 | Mid-session drop | update connection status | disable intent submission until reconnected |
 | Request timeout | reject or return a failed result through the normal channel | show processing error and let the user resubmit |
 | Malformed response | preserve enough detail for logging | show generic failure, report diagnostic details server-side |
-
-<Aside type="tip">
-  If your connector also carries voice audio, keep the voice stream as a transport capability. The connector can move audio bytes, but the backend runtime should still own STT, TTS, and provider credentials.
-</Aside>
 
 ## Next steps
 

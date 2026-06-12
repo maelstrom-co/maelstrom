@@ -45,6 +45,12 @@ The difference is ownership. In the engine-owned path, layout reflects the model
   Programmatic control can be useful, but it is not a substitute for better Vessel descriptions or better engine prompts. If the engine consistently chooses poor layouts, fix the orchestration inputs first.
 </Aside>
 
+## A note on `instanceId`
+
+Each mounted Vessel instance gets an `instanceId` from the client runtime. That identifier is how you address one specific live instance when you call APIs such as `executeAction()` or `setLayout()`.
+
+In other words, `InstanceId('weather-1')` is not an arbitrary label you invent for the example. It must match the instance the client actually created for that mounted Vessel. Use the instance ID you already have in application state, or the one returned by the part of your app that created the instance.
+
 ## Example: reset to a known layout
 
 ```ts

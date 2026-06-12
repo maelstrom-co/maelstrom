@@ -36,7 +36,7 @@ Before step 1, make sure the engine process is running and reachable at `ws://lo
 
    For bun, pnpm, or yarn substitute `npm install` with `bun add`, `pnpm add`, or `yarn add`.
 
-   `@maelstrom-co/react` re-exports vessel APIs but does not re-export the connector classes (`WebSocketConnector`, `HttpConnector`, `VoiceWebSocketConnector`), so install `@maelstrom-co/client` alongside it.
+    `@maelstrom-co/react` re-exports vessel APIs but does not re-export the connector classes (`WebSocketConnector`, `HttpConnector`), so install `@maelstrom-co/client` alongside it.
 
 2. ## Define a Vessel
 
@@ -253,7 +253,6 @@ Before step 1, make sure the engine process is running and reachable at `ws://lo
 - [Core Concepts](/getting-started/core-concepts/) — vessels, charts, the engine, and the protocol in depth
 - [Installation](/getting-started/installation/) — full setup matrix for all LLM providers and package managers
 - [Build Your First Dashboard](/tutorials/first-dashboard/) — multi-vessel app with real actions
-- [Voice Control](/tutorials/voice-control/) — add microphone input to any Maelstrom app
 - [React guides](/guides/react/creating-vessels/) — variants, actions, lazy loading, error handling
 - [Client guides](/guides/client/custom-connectors/) — custom connectors, programmatic layout
 - [API Reference](/reference/react/) — full TypeDoc for all packages

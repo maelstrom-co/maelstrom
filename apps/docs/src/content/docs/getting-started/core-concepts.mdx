@@ -8,16 +8,16 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 Maelstrom has four core concepts. The important invariant is that the LLM orchestrates declared UI capabilities; it does not generate arbitrary components at runtime.
 
 <CardGrid>
-  <Card title="Vessels" icon="puzzle">
+  <Card title="Vessels" icon="puzzle" href="/understanding/vessel-state-machine/">
     Predefined UI components represented as state machines. Each Vessel declares variants, minimum sizes, and actions the engine may invoke.
   </Card>
-  <Card title="Chart" icon="seti:layout">
+  <Card title="Chart" icon="seti:layout" href="/understanding/grid-vs-tiling/">
     Layout surface that renders Vessels. The engine works with integer layout units, not raw pixels.
   </Card>
-  <Card title="Engine" icon="rocket">
+  <Card title="Engine" icon="rocket" href="/understanding/engine/">
     Decision core. It reads user intent, current chart state, registered Vessels, and chart dimensions, then returns actions and layout.
   </Card>
-  <Card title="Protocol" icon="document">
+  <Card title="Protocol" icon="document" href="/understanding/protocol/">
     Shared message contract between client and engine. It keeps transports swappable because every transport carries the same payloads.
   </Card>
 </CardGrid>

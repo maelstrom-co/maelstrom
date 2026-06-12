@@ -25,11 +25,10 @@ This tutorial turns a development setup into a production-shaped deployment chec
      ├─ @maelstrom-co/client connector
      └─ no provider secrets
 
-   Server runtime
-     ├─ engine implementation
-     ├─ LLM provider adapter + API key
-     ├─ optional history store
-     └─ optional voice-server runtime
+    Server runtime
+      ├─ engine implementation
+      ├─ LLM provider adapter + API key
+      └─ optional history store
    ```
 
 2. ## Configure the engine server
@@ -50,7 +49,7 @@ This tutorial turns a development setup into a production-shaped deployment chec
 
 3. ## Choose the transport connector
 
-   WebSocket is the most common production shape because Maelstrom turns are interactive and voice paths may stream audio. HTTP can work for request/response deployments. In-memory connectors are useful for tests, not browser deployments.
+   WebSocket is the most common production shape because Maelstrom turns are interactive. HTTP can work for request/response deployments. In-memory connectors are useful for tests, not browser deployments.
 
    Put the public connector URL in browser configuration and keep private provider keys on the server:
 
@@ -87,27 +86,19 @@ This tutorial turns a development setup into a production-shaped deployment chec
    </m.Provider>
    ```
 
-6. ## Add voice only after the text path is stable
-
-   Full voice deployment adds `@maelstrom-co/voice-server`, STT credentials, TTS credentials, browser VAD assets, and WebSocket audio streaming. Ship the typed path first, then add voice once the connector and engine path are observable.
-
-   Use [Voice Architecture](/understanding/voice-architecture/) to understand the browser/server split before exposing voice to users.
-
 </Steps>
 
 ## Production checklist
 
-- [ ] Browser bundle contains no LLM, STT, or TTS provider secrets.
+- [ ] Browser bundle contains no LLM provider secrets.
 - [ ] Engine server has provider keys injected from the deployment environment.
 - [ ] Connector URL is environment-specific and points at the deployed runtime.
 - [ ] UI renders connection and processing errors with retry paths.
 - [ ] History is either disabled or backed by a durable store.
 - [ ] Multi-instance deployments have session affinity, a distributed lock, or a per-session queue if history/concurrency matters.
-- [ ] Voice deployments keep provider credentials server-side and leave typed input available as fallback.
 
 ## Next steps
 
 - [The Engine](/understanding/engine/) — understand the reference implementation boundary
 - [Connectors](/understanding/connectors/) — choose the transport shape
 - [Conversation history](/guides/engine/conversation-history/) — configure durable context
-- [Voice Architecture](/understanding/voice-architecture/) — deploy full-stack voice without leaking provider concerns into the browser

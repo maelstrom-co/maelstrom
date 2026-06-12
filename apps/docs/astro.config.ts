@@ -3,6 +3,8 @@ import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, fontProviders } from 'astro/config';
+import { existsSync, rmSync } from 'node:fs';
+import path from 'node:path';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
 
@@ -14,12 +16,6 @@ const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
-const [voiceTypeDoc, voiceTypeDocSidebarGroup] =
-  createStarlightTypeDocPlugin();
-const [voiceServerTypeDoc, voiceServerTypeDocSidebarGroup] =
-  createStarlightTypeDocPlugin();
-const [reactVoiceTypeDoc, reactVoiceTypeDocSidebarGroup] =
-  createStarlightTypeDocPlugin();
 
 // TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
 // the workspace root on every plugin call, so {path} carries the full
@@ -28,6 +24,76 @@ const [reactVoiceTypeDoc, reactVoiceTypeDocSidebarGroup] =
 const repoRoot = '../../';
 const sourceLinkTemplate =
   'https://github.com/maelstrom-co/maelstrom/blob/main/{path}#L{line}';
+
+const docsRoot = path.resolve(process.cwd(), 'apps/docs/src/content/docs/reference');
+const distRoot = path.resolve(process.cwd(), 'apps/docs/dist/reference');
+const prunedReferencePaths = [
+  'voice',
+  'voice-server',
+  'react-voice',
+  'client/classes/VoiceWebSocketConnector.md',
+  'client/README.md',
+  'client/interfaces/AudioChunk.md',
+  'client/interfaces/ConnectorCapabilities.md',
+  'client/interfaces/EngineConnector.md',
+  'client/interfaces/PushConnector.md',
+  'client/interfaces/VoiceConnector.md',
+  'client/interfaces/VoiceWebSocketConnectorOptions.md',
+  'client/functions/packAudioFrame.md',
+  'client/functions/parseAudioFrame.md',
+  'protocol/README.md',
+  'protocol/classes/VoiceError.md',
+  'protocol/interfaces/TranscriptMessage.md',
+  'protocol/type-aliases/VoiceClientMessage.md',
+  'protocol/type-aliases/VoiceErrorCode.md',
+  'protocol/type-aliases/VoiceServerMessage.md',
+  'protocol/variables/VoiceClientMessageSchema.md',
+  'protocol/variables/VoiceServerMessageSchema.md',
+  'react/type-aliases/MaelstromExtension.md',
+];
+
+const prunedOutputPaths = [
+  'voice',
+  'voice-server',
+  'react-voice',
+  'client/readme',
+  'client/classes/voicewebsocketconnector',
+  'client/functions/packaudioframe',
+  'client/functions/parseaudioframe',
+  'client/interfaces/audiochunk',
+  'client/interfaces/connectorcapabilities',
+  'client/interfaces/engineconnector',
+  'client/interfaces/pushconnector',
+  'client/interfaces/voiceconnector',
+  'client/interfaces/voicewebsocketconnectoroptions',
+  'protocol/readme',
+  'protocol/classes/voiceerror',
+  'protocol/interfaces/transcriptmessage',
+  'protocol/type-aliases/voiceclientmessage',
+  'protocol/type-aliases/voiceerrorcode',
+  'protocol/type-aliases/voiceservermessage',
+  'protocol/variables/voiceclientmessageschema',
+  'protocol/variables/voiceservermessageschema',
+  'react/type-aliases/maelstromextension',
+];
+
+function pruneReferenceDocs() {
+  for (const relativePath of prunedReferencePaths) {
+    const absolutePath = path.join(docsRoot, relativePath);
+    if (existsSync(absolutePath)) {
+      rmSync(absolutePath, { recursive: true, force: true });
+    }
+  }
+}
+
+function pruneBuiltDocs() {
+  for (const relativePath of prunedOutputPaths) {
+    const absolutePath = path.join(distRoot, relativePath);
+    if (existsSync(absolutePath)) {
+      rmSync(absolutePath, { recursive: true, force: true });
+    }
+  }
+}
 
 export default defineConfig({
   site: 'https://docs.maelstrom-ai.co',
@@ -103,8 +169,8 @@ export default defineConfig({
             {
               label: 'Guides',
               paths: ['guides/**'],
-              description:
-                'Task-oriented how-tos for React, Engine, Client, and Voice',
+                description:
+                  'Task-oriented how-tos for React, Engine, and Client',
             },
             {
               label: 'API Reference',
@@ -167,42 +233,6 @@ export default defineConfig({
             sourceLinkTemplate,
           },
         }),
-        voiceTypeDoc({
-          entryPoints: ['../../packages/voice/src/index.ts'],
-          tsconfig: '../../packages/voice/tsconfig.lib.json',
-          output: 'reference/voice',
-          sidebar: { label: '@maelstrom-co/voice', collapsed: true },
-          typeDoc: {
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
-        }),
-        voiceServerTypeDoc({
-          entryPoints: ['../../packages/voice-server/src/index.ts'],
-          tsconfig: '../../packages/voice-server/tsconfig.lib.json',
-          output: 'reference/voice-server',
-          sidebar: { label: '@maelstrom-co/voice-server', collapsed: true },
-          typeDoc: {
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
-        }),
-        reactVoiceTypeDoc({
-          entryPoints: ['../../packages/react-voice/src/index.ts'],
-          tsconfig: '../../packages/react-voice/tsconfig.lib.json',
-          output: 'reference/react-voice',
-          sidebar: { label: '@maelstrom-co/react-voice', collapsed: true },
-          typeDoc: {
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
-        }),
       ],
       customCss: ['./src/styles/custom.css'],
       expressiveCode: false,
@@ -227,7 +257,6 @@ export default defineConfig({
           label: 'Tutorials',
           items: [
             { slug: 'tutorials/first-dashboard' },
-            { slug: 'tutorials/voice-control' },
             { slug: 'tutorials/deploy-to-production' },
           ],
         },
@@ -259,13 +288,6 @@ export default defineConfig({
                 { slug: 'guides/client/programmatic-layout' },
               ],
             },
-            {
-              label: 'Voice',
-              items: [
-                { slug: 'guides/voice/voice-integration' },
-                { slug: 'guides/voice/vad-configuration' },
-              ],
-            },
           ],
         },
         {
@@ -275,9 +297,6 @@ export default defineConfig({
             clientTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
-            voiceTypeDocSidebarGroup,
-            voiceServerTypeDocSidebarGroup,
-            reactVoiceTypeDocSidebarGroup,
           ],
         },
         {
@@ -285,7 +304,6 @@ export default defineConfig({
           items: [
             { slug: 'understanding/why-maelstrom' },
             { slug: 'understanding/architecture' },
-            { slug: 'understanding/voice-architecture' },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },
@@ -306,6 +324,18 @@ export default defineConfig({
       lastUpdated: true,
       pagination: true,
     }),
+    {
+      name: 'prune-reference-docs',
+      hooks: {
+        'astro:build:start': () => {
+          pruneReferenceDocs();
+        },
+        'astro:build:done': () => {
+          pruneReferenceDocs();
+          pruneBuiltDocs();
+        },
+      },
+    },
     react(),
     sitemap(),
   ],

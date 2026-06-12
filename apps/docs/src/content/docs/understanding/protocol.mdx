@@ -49,29 +49,6 @@ const message = ChartRequestMessage({
 });
 ```
 
-## Full chart request example
-
-```ts
-import { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
-
-const message = ChartRequestMessage({
-  sessionId: SessionId('user-42'),
-  request: {
-    type: 'chart_request',
-    context: {
-      layoutMode: 'grid',
-      updateReasons: [{ type: 'user_intent', intent: 'Show weather and tasks' }],
-      chartDimensions: { columns: 12, rows: 8 },
-    },
-    instances: [],
-    vessels: [weatherVessel, tasksVessel],
-    layout: { type: 'grid', positions: [] },
-  },
-});
-```
-
-The protocol defines this payload. A connector decides whether it travels over WebSocket, HTTP, or an in-memory test boundary.
-
 ## Vessel definitions
 
 A `Vessel` describes one component the engine can reason about: variants (states), actions (transitions), and the metadata the LLM uses to choose between them.
