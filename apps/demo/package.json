@@ -4,21 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/server/ws-server.ts & vite dev --port 3000",
-    "dev:ws": "bun run src/server/ws-server.ts",
+    "dev": "vite dev --port 3000",
     "dev:client": "vite dev --port 3000",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
-    "test": "bun test && bun test ./src/server/voice-session-config.test.isolated.ts"
+    "test": "bun test"
   },
   "dependencies": {
     "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
-    "@maelstrom-co/react-voice": "workspace:*",
-    "@maelstrom-co/voice": "workspace:*",
-    "@maelstrom-co/voice-server": "workspace:*",
     "@tanstack/ai-gemini": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
