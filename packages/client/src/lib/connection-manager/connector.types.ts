@@ -38,8 +38,6 @@ import type {
   MessageId,
   SessionHistoryEntry,
   SessionId,
-  VoiceClientMessage,
-  VoiceServerMessage,
 } from '@maelstrom-co/protocol';
 
 import type { Unsubscribe } from '../types.js';
@@ -441,83 +439,4 @@ export interface AssistantMessage {
   id: MessageId;
   /** Message content */
   message: string;
-}
-
-// ============================================================================
-// Audio Types for Voice Connector
-// ============================================================================
-
-/**
- * Audio chunk for voice input.
- */
-export interface AudioChunk {
-  /** Audio data as bytes */
-  data: Uint8Array;
-  /** Sample rate in Hz (e.g., 16000) */
-  sampleRate: number;
-  /** Encoding format (e.g., 'opus', 'pcm') */
-  encoding: string;
-  /** Whether this is the final chunk of an utterance */
-  isFinal: boolean;
-}
-
-/**
- * Metadata for an audio frame received from the server.
- */
-export interface AudioFrameMeta {
-  /** Whether this audio frame can be cancelled (e.g., user interrupted) */
-  cancellable: boolean;
-}
-
-/**
- * Flags byte layout for audio frame metadata.
- * First byte of each audio frame indicates metadata flags.
- */
-export const AUDIO_FRAME_FLAGS = {
-  /** Bit 0: Set if audio can be cancelled */
-  CANCELLABLE: 0x01,
-} as const;
-
-// ============================================================================
-// Voice Connector
-// ============================================================================
-
-/**
- * Extended connector with voice capabilities.
- *
- * Voice connectors support bidirectional audio streaming over a WebSocket
- * connection. All subscription methods return `Unsubscribe` for cleanup.
- */
-export interface VoiceConnector extends EngineConnector {
-  /**
-   * Send an audio chunk to the server for transcription.
-   */
-  sendAudioChunk(chunk: AudioChunk): void;
-
-  /**
-   * Start listening for voice input.
-   */
-  startListening(language?: string): void;
-
-  /**
-   * Stop listening for voice input.
-   */
-  stopListening(): void;
-
-  /**
-   * Subscribe to voice messages from the server.
-   */
-  onVoiceMessage(callback: (message: VoiceServerMessage) => void): Unsubscribe;
-
-  /**
-   * Subscribe to binary audio output from the server (TTS).
-   */
-  onBinaryAudio(
-    callback: (data: Uint8Array, meta: AudioFrameMeta) => void,
-  ): Unsubscribe;
-
-  /**
-   * Send a voice message to the server.
-   */
-  sendVoiceMessage(message: VoiceClientMessage): void;
 }
