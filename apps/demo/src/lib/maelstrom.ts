@@ -4,6 +4,13 @@ import { journalEntry } from '../vessels/journal.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
 
-const vessels = [calendarEntry, weatherEntry, journalEntry, tasksEntry] as const;
+const vessels = [
+  calendarEntry,
+  weatherEntry,
+  journalEntry,
+  tasksEntry,
+] as const;
 
-export const m: MaelstromInstance<typeof vessels> = createMaelstrom({ vessels });
+export const m: MaelstromInstance<typeof vessels> = createMaelstrom({
+  vessels,
+});
