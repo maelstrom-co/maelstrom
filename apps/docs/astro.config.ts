@@ -14,12 +14,6 @@ const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
-const [voiceTypeDoc, voiceTypeDocSidebarGroup] =
-  createStarlightTypeDocPlugin();
-const [voiceServerTypeDoc, voiceServerTypeDocSidebarGroup] =
-  createStarlightTypeDocPlugin();
-const [reactVoiceTypeDoc, reactVoiceTypeDocSidebarGroup] =
-  createStarlightTypeDocPlugin();
 
 // TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
 // the workspace root on every plugin call, so {path} carries the full
@@ -81,7 +75,7 @@ export default defineConfig({
               label: 'Guides',
               paths: ['guides/**'],
               description:
-                'Task-oriented how-tos for React, Engine, Client, and Voice',
+                'Task-oriented how-tos for React, Engine, and Client',
             },
             {
               label: 'API Reference',
@@ -144,42 +138,6 @@ export default defineConfig({
             sourceLinkTemplate,
           },
         }),
-        voiceTypeDoc({
-          entryPoints: ['../../packages/voice/src/index.ts'],
-          tsconfig: '../../packages/voice/tsconfig.lib.json',
-          output: 'reference/voice',
-          sidebar: { label: '@maelstrom-co/voice', collapsed: true },
-          typeDoc: {
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
-        }),
-        voiceServerTypeDoc({
-          entryPoints: ['../../packages/voice-server/src/index.ts'],
-          tsconfig: '../../packages/voice-server/tsconfig.lib.json',
-          output: 'reference/voice-server',
-          sidebar: { label: '@maelstrom-co/voice-server', collapsed: true },
-          typeDoc: {
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
-        }),
-        reactVoiceTypeDoc({
-          entryPoints: ['../../packages/react-voice/src/index.ts'],
-          tsconfig: '../../packages/react-voice/tsconfig.lib.json',
-          output: 'reference/react-voice',
-          sidebar: { label: '@maelstrom-co/react-voice', collapsed: true },
-          typeDoc: {
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
-        }),
       ],
       customCss: ['./src/styles/custom.css'],
       // Code blocks render through Expressive Code: native title frames
@@ -228,7 +186,6 @@ export default defineConfig({
           label: 'Tutorials',
           items: [
             { slug: 'tutorials/first-dashboard' },
-            { slug: 'tutorials/voice-control' },
             { slug: 'tutorials/deploy-to-production' },
           ],
         },
@@ -260,13 +217,6 @@ export default defineConfig({
                 { slug: 'guides/client/programmatic-layout' },
               ],
             },
-            {
-              label: 'Voice',
-              items: [
-                { slug: 'guides/voice/voice-integration' },
-                { slug: 'guides/voice/vad-configuration' },
-              ],
-            },
           ],
         },
         {
@@ -276,9 +226,6 @@ export default defineConfig({
             clientTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
-            voiceTypeDocSidebarGroup,
-            voiceServerTypeDocSidebarGroup,
-            reactVoiceTypeDocSidebarGroup,
           ],
         },
         {
@@ -286,7 +233,6 @@ export default defineConfig({
           items: [
             { slug: 'understanding/why-maelstrom' },
             { slug: 'understanding/architecture' },
-            { slug: 'understanding/voice-architecture' },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },

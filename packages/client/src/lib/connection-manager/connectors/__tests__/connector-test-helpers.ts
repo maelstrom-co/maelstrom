@@ -9,10 +9,8 @@ import {
 import { FakeWebSocket } from './fake-websocket.js';
 
 /**
- * Shared envelope fixture for connector wire-contract tests. Both
- * `WebSocketConnector` and `VoiceWebSocketConnector` consume the same
- * envelope shape — the helper keeps protocol-shape drift breaking one place
- * instead of two.
+ * Shared envelope fixture for connector wire-contract tests — keeps
+ * protocol-shape drift breaking in one place.
  */
 export const buildEnvelope = (id: MessageId): ChartRequestMessageType => {
   const request: ChartRequest = {

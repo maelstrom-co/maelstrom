@@ -17,7 +17,6 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/client @maelstrom-co/pr
 - **Chart Manager** — tracks grid dimensions and applies engine layout directives as CSS positioning
 - **Connectors** — transport-agnostic contract:
   - `WebSocketConnector` — for the Maelstrom WebSocket engine
-  - `VoiceWebSocketConnector` — for voice-enabled engine sessions
   - `HttpConnector` — for request/response flows
 
 ## Quick example
