@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { nanoid } from 'nanoid';
 import { createDemoConnector } from '../lib/connector';
 import { m } from '../lib/maelstrom';
 import { MicToggle } from '../components/mic-toggle';
@@ -40,8 +41,13 @@ function DemoApp() {
         <m.Chart />
       </main>
 
-      {/* Intent input */}
-      <IntentInput />
+      {/* Input controls */}
+      <div className="bg-gray-800 border-t border-gray-700 p-4">
+        <div className="max-w-4xl mx-auto flex flex-col gap-3">
+          <IntentInput />
+          <VoiceInput />
+        </div>
+      </div>
     </div>
   );
 }
@@ -91,46 +97,99 @@ function IntentInput() {
   ];
 
   return (
-    <div className="bg-gray-800 border-t border-gray-700 p-4">
-      <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={intent}
-            onChange={(e) => setIntent(e.target.value)}
-            placeholder="Tell Maelstrom what you want to do..."
-            className="intent-input flex-1"
-            disabled={isProcessing}
-          />
+    <form onSubmit={handleSubmit}>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={intent}
+          onChange={(e) => setIntent(e.target.value)}
+          placeholder="Tell Maelstrom what you want to do..."
+          className="intent-input flex-1"
+          disabled={isProcessing}
+        />
+        <button
+          type="submit"
+          disabled={isProcessing || !intent.trim()}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-6 py-3 rounded-lg font-medium transition-colors"
+        >
+          {isProcessing ? 'Processing...' : 'Send'}
+        </button>
+      </div>
+
+      {lastError && (
+        <div className="mt-2 text-sm text-red-400">
+          Error: {lastError.message}
+        </div>
+      )}
+
+      {/* Suggestions */}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {suggestions.map((suggestion) => (
           <button
-            type="submit"
-            disabled={isProcessing || !intent.trim()}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-6 py-3 rounded-lg font-medium transition-colors"
+            key={suggestion}
+            type="button"
+            onClick={() => setIntent(suggestion)}
+            className="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-full text-gray-300 transition-colors"
           >
-            {isProcessing ? 'Processing...' : 'Send'}
+            {suggestion}
           </button>
-        </div>
+        ))}
+      </div>
+    </form>
+  );
+}
 
-        {lastError && (
-          <div className="mt-2 text-sm text-red-400">
-            Error: {lastError.message}
-          </div>
-        )}
+function VoiceInput() {
+  const { status, currentTranscript, connect, startTalking, stopTalking } = m.voice.useVoice();
+  const roomName = useMemo(() => `maelstrom-${nanoid()}`, []);
 
-        {/* Suggestions */}
-        <div className="mt-3 flex flex-wrap gap-2">
-          {suggestions.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              onClick={() => setIntent(suggestion)}
-              className="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-full text-gray-300 transition-colors"
-            >
-              {suggestion}
-            </button>
-          ))}
-        </div>
-      </form>
+  useEffect(() => {
+    void connect(roomName);
+  }, [connect, roomName]);
+
+  const statusColor =
+    status === 'connected'
+      ? 'bg-green-500'
+      : status === 'connecting'
+        ? 'bg-yellow-500'
+        : status === 'error'
+          ? 'bg-red-500'
+          : 'bg-gray-500';
+
+  const statusLabel =
+    status === 'connected'
+      ? 'Voice ready'
+      : status === 'connecting'
+        ? 'Connecting...'
+        : status === 'error'
+          ? 'Voice error'
+          : 'Voice disconnected';
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 text-sm text-gray-400">
+        <div className={`w-2 h-2 rounded-full ${statusColor}`} />
+        <span>{statusLabel}</span>
+      </div>
+
+      <button
+        type="button"
+        disabled={status !== 'connected'}
+        onMouseDown={() => void startTalking()}
+        onMouseUp={() => void stopTalking()}
+        onMouseLeave={() => void stopTalking()}
+        className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed px-4 py-2 rounded-lg text-sm font-medium transition-colors select-none"
+        aria-label="Hold to speak"
+      >
+        <span>🎤</span>
+        <span>Hold to speak</span>
+      </button>
+
+      {currentTranscript && (
+        <span className="text-sm text-gray-400 italic truncate max-w-xs">
+          "{currentTranscript}"
+        </span>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { journalEntry } from '../vessels/journal.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
 import { voiceSpike } from './voice-spike';
+import { liveKitVoice } from './voice/livekit-voice';
 
 const vessels = [
   calendarEntry,
@@ -12,6 +13,4 @@ const vessels = [
   tasksEntry,
 ] as const;
 
-export const m = createMaelstrom({
-  vessels,
-}).with(voiceSpike());
+export const m = createMaelstrom({ vessels }).with(voiceSpike()).with(liveKitVoice());

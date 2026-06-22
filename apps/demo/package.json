@@ -12,6 +12,7 @@
     "test": "bun test --pass-with-no-tests"
   },
   "dependencies": {
+    "livekit-client": "^2.13.1",
     "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
@@ -23,6 +24,7 @@
     "@tanstack/react-start": "catalog:",
     "clsx": "^2.1.1",
     "hono": "catalog:",
+    "livekit-server-sdk": "^2.13.1",
     "nanoid": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

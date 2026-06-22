@@ -1,0 +1,16 @@
+{
+  "name": "maelstrom-voice-agent",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "node --env-file=../../.env index.ts"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.4.8",
+    "@livekit/agents-plugin-deepgram": "^1.4.8",
+    "livekit-server-sdk": "^2.0.0",
+    "dotenv": "^16.0.0"
+  }
+}
