@@ -78,8 +78,8 @@ describe('mintLiveKitToken', () => {
   test('throws when credentials are missing', async () => {
     delete process.env.LIVEKIT_API_KEY;
     delete process.env.LIVEKIT_API_SECRET;
-    await expect(mintLiveKitToken({ roomName: 'maelstrom-abc' })).rejects.toThrow(
-      'LiveKit credentials not configured',
-    );
+    await expect(
+      mintLiveKitToken({ roomName: 'maelstrom-abc' }),
+    ).rejects.toThrow('LiveKit credentials not configured');
   });
 });

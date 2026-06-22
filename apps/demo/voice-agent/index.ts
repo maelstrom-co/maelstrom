@@ -55,8 +55,14 @@ export default defineAgent({
     // into its shared AudioSource. Cartesia reads CARTESIA_API_KEY from env and
     // defaults to the sonic-3 model + default voice.
     const cartesiaTTS = new TTS();
-    const ttsSource = new AudioSource(cartesiaTTS.sampleRate, cartesiaTTS.numChannels);
-    const ttsTrack = LocalAudioTrack.createAudioTrack('assistant-voice', ttsSource);
+    const ttsSource = new AudioSource(
+      cartesiaTTS.sampleRate,
+      cartesiaTTS.numChannels,
+    );
+    const ttsTrack = LocalAudioTrack.createAudioTrack(
+      'assistant-voice',
+      ttsSource,
+    );
     const ttsPublishOptions = new TrackPublishOptions();
     ttsPublishOptions.source = TrackSource.SOURCE_MICROPHONE;
     await room.localParticipant.publishTrack(ttsTrack, ttsPublishOptions);
@@ -76,14 +82,18 @@ export default defineAgent({
     room.registerTextStreamHandler(SPEAK_TOPIC, (reader) => {
       void (async () => {
         const text = await reader.readAll();
-        speakChain = speakChain.then(() => speak(text)).catch((err) => {
-          console.error('[voice-agent] TTS synthesis failed', err);
-        });
+        speakChain = speakChain
+          .then(() => speak(text))
+          .catch((err) => {
+            console.error('[voice-agent] TTS synthesis failed', err);
+          });
         await speakChain;
       })();
     });
 
-    async function processAudioTrack(track: import('@livekit/rtc-node').RemoteTrack) {
+    async function processAudioTrack(
+      track: import('@livekit/rtc-node').RemoteTrack,
+    ) {
       const audioStream = new AudioStream(track);
       const speechStream = deepgramSTT.stream();
       let segmentCounter = 0;
@@ -96,17 +106,22 @@ export default defineAgent({
       })();
 
       // Listen for turn_end data packets to flush the STT buffer
-      room.on(RoomEvent.DataReceived, (payload: Uint8Array, _participant, _kind, topic) => {
-        if (topic !== 'turn') return;
-        try {
-          const msg = JSON.parse(new TextDecoder().decode(payload)) as { type?: string };
-          if (msg.type === 'turn_end') {
-            speechStream.flush();
+      room.on(
+        RoomEvent.DataReceived,
+        (payload: Uint8Array, _participant, _kind, topic) => {
+          if (topic !== 'turn') return;
+          try {
+            const msg = JSON.parse(new TextDecoder().decode(payload)) as {
+              type?: string;
+            };
+            if (msg.type === 'turn_end') {
+              speechStream.flush();
+            }
+          } catch {
+            // ignore malformed data
           }
-        } catch {
-          // ignore malformed data
-        }
-      });
+        },
+      );
 
       // Consume STT events and publish final transcripts back to the client
       for await (const event of speechStream) {

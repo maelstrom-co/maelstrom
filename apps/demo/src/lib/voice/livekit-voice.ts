@@ -52,7 +52,9 @@ export interface VoiceAPI {
  * `speak` text stream for TTS synthesis. A no-op when no room is joined (voice
  * off), so callers never need to branch on connection state.
  */
-export function createSpeakTransport(getRoom: () => Room | null): SpeakTransport {
+export function createSpeakTransport(
+  getRoom: () => Room | null,
+): SpeakTransport {
   return async (text: string) => {
     const room = getRoom();
     if (!room) return;
@@ -60,7 +62,9 @@ export function createSpeakTransport(getRoom: () => Room | null): SpeakTransport
   };
 }
 
-export function liveKitVoice(options: LiveKitVoiceOptions = {}): MaelstromExtension<{
+export function liveKitVoice(
+  options: LiveKitVoiceOptions = {},
+): MaelstromExtension<{
   voice: { useVoice: () => VoiceAPI };
 }> {
   return (ctx) => {
@@ -117,7 +121,9 @@ export function liveKitVoice(options: LiveKitVoiceOptions = {}): MaelstromExtens
 
             setStatus('connecting');
             try {
-              const { token, url } = await getLivekitToken({ data: { roomName } });
+              const { token, url } = await getLivekitToken({
+                data: { roomName },
+              });
 
               const room = new Room();
               roomRef.current = room;
@@ -133,7 +139,10 @@ export function liveKitVoice(options: LiveKitVoiceOptions = {}): MaelstromExtens
               room.on(RoomEvent.TranscriptionReceived, (segments) => {
                 const finals = segments.filter((s) => s.final);
                 if (finals.length === 0) return;
-                const text = finals.map((s) => s.text).join(' ').trim();
+                const text = finals
+                  .map((s) => s.text)
+                  .join(' ')
+                  .trim();
                 if (!text) return;
                 setCurrentTranscript(text);
                 void seams.current.onTranscript(text);
@@ -154,9 +163,9 @@ export function liveKitVoice(options: LiveKitVoiceOptions = {}): MaelstromExtens
               await room.connect(url, token);
               // Publish mic track muted — unmute on startTalking
               await room.localParticipant.setMicrophoneEnabled(true);
-              const micTrack = [...room.localParticipant.trackPublications.values()].find(
-                (p) => p.kind === 'audio',
-              );
+              const micTrack = [
+                ...room.localParticipant.trackPublications.values(),
+              ].find((p) => p.kind === 'audio');
               if (micTrack?.track) {
                 await micTrack.track.mute();
               }

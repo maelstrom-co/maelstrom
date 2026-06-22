@@ -150,8 +150,16 @@ function readVoicePref(): boolean {
 }
 
 function VoiceInput() {
-  const { status, currentTranscript, enabled, audioBlocked, setEnabled, startTalking, stopTalking, enableAudio } =
-    m.voice.useVoice();
+  const {
+    status,
+    currentTranscript,
+    enabled,
+    audioBlocked,
+    setEnabled,
+    startTalking,
+    stopTalking,
+    enableAudio,
+  } = m.voice.useVoice();
   const roomName = useMemo(() => `maelstrom-${nanoid()}`, []);
 
   // First-visit ask, then remember: return visits auto-join + auto-enable; first
@@ -196,7 +204,9 @@ function VoiceInput() {
         type="button"
         onClick={toggleVoice}
         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors select-none ${
-          enabled ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-gray-600'
+          enabled
+            ? 'bg-blue-600 hover:bg-blue-700'
+            : 'bg-gray-700 hover:bg-gray-600'
         }`}
         aria-pressed={enabled}
         aria-label={enabled ? 'Turn voice off' : 'Turn voice on'}

@@ -27,7 +27,9 @@ function makeMockRoom() {
     disconnect: mockRoomDisconnect,
     localParticipant: mockLocalParticipant,
     _emit: (event: string, ...args: unknown[]) => {
-      handlers[event]?.forEach((h) => h(...args));
+      handlers[event]?.forEach((h) => {
+        h(...args);
+      });
     },
   };
 }
@@ -123,7 +125,9 @@ describe('liveKitVoice extension', () => {
     const seams = defaultSeams(orchestrator as never, speak);
 
     await seams.onTranscript('show me the weather');
-    expect(orchestrator.processIntent).toHaveBeenCalledWith('show me the weather');
+    expect(orchestrator.processIntent).toHaveBeenCalledWith(
+      'show me the weather',
+    );
   });
 
   test('custom onTranscript override is called instead of processIntent', async () => {
@@ -206,7 +210,9 @@ describe('createSpeakTransport', () => {
   });
 
   test('sends text to the worker over the speak topic', async () => {
-    const { createSpeakTransport, SPEAK_TOPIC } = await import('./livekit-voice');
+    const { createSpeakTransport, SPEAK_TOPIC } = await import(
+      './livekit-voice'
+    );
     const room = { localParticipant: mockLocalParticipant } as never;
     const speak = createSpeakTransport(() => room);
 
