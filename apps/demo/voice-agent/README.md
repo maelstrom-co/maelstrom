@@ -1,8 +1,11 @@
 # Maelstrom Voice Agent
 
-LiveKit agent worker for the Maelstrom demo. STT-only (Phase 1).
+LiveKit agent worker for the Maelstrom demo.
 
-Pipeline: user mic audio → Deepgram STT → transcript → client via publishTranscription.
+- **STT:** user mic audio → Deepgram → transcript → client via publishTranscription.
+- **TTS:** client `speak` text stream (the response's userMessage) → Cartesia → published back
+  as an audio track the client attaches and plays.
+
 No LLM in the agent — Maelstrom engine remains the only orchestrator.
 
 ## Secret-to-process mapping
@@ -51,18 +54,18 @@ LIVEKIT_URL=ws://localhost:7880
 LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=secret
 DEEPGRAM_API_KEY=<your key>
-CARTESIA_API_KEY=<your key — Phase 2 TTS>
+CARTESIA_API_KEY=<your key>
 ```
 
 `livekit-server --dev` uses the well-known insecure key/secret (`devkey`/`secret`).
-These defaults are pre-filled — only Deepgram (and Cartesia for Phase 2) require real keys.
+These defaults are pre-filled — only Deepgram (STT) and Cartesia (TTS) require real keys.
 
-## Verifying Phase 1
+## Verifying the voice loop
 
 1. Start all four processes above.
 2. Open `http://localhost:3000` in a browser.
-3. Accept the microphone permission prompt.
-4. Hold the "Hold to speak" button and say "show me the weather".
-5. Release — the UI should update exactly as if you had typed the intent.
-
-No spoken response in Phase 1. TTS is added in Phase 2.
+3. Toggle voice on (the master switch joins the room + unlocks audio playback).
+4. Accept the microphone permission prompt.
+5. Hold the "Hold to speak" button and say "show me the weather".
+6. Release — the UI updates exactly as if typed **and** the assistant speaks its `userMessage`.
+7. Type-in / voice-out also works: with voice on, typing an intent still speaks the reply.
