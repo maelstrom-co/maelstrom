@@ -139,16 +139,40 @@ function IntentInput() {
   );
 }
 
+// Remembers the user's voice preference across visits (app-controlled). NOT the
+// browser's audio-unlock — a fresh hard load may still block the first playback
+// until a gesture; that's covered by the audioBlocked detection below.
+const VOICE_PREF_KEY = 'maelstrom:voice-enabled';
+
+function readVoicePref(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(VOICE_PREF_KEY) === 'true';
+}
+
 function VoiceInput() {
-  const { status, currentTranscript, connect, startTalking, stopTalking } = m.voice.useVoice();
+  const { status, currentTranscript, enabled, audioBlocked, setEnabled, startTalking, stopTalking, enableAudio } =
+    m.voice.useVoice();
   const roomName = useMemo(() => `maelstrom-${nanoid()}`, []);
 
+  // First-visit ask, then remember: return visits auto-join + auto-enable; first
+  // visit waits for the explicit toggle click (gesture + consent).
   useEffect(() => {
-    void connect(roomName);
-  }, [connect, roomName]);
+    if (readVoicePref()) {
+      void setEnabled(true, roomName);
+    }
+  }, [setEnabled, roomName]);
 
-  const statusColor =
-    status === 'connected'
+  const toggleVoice = () => {
+    const next = !enabled;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(VOICE_PREF_KEY, String(next));
+    }
+    void setEnabled(next, roomName);
+  };
+
+  const statusColor = !enabled
+    ? 'bg-gray-500'
+    : status === 'connected'
       ? 'bg-green-500'
       : status === 'connecting'
         ? 'bg-yellow-500'
@@ -156,8 +180,9 @@ function VoiceInput() {
           ? 'bg-red-500'
           : 'bg-gray-500';
 
-  const statusLabel =
-    status === 'connected'
+  const statusLabel = !enabled
+    ? 'Voice off'
+    : status === 'connected'
       ? 'Voice ready'
       : status === 'connecting'
         ? 'Connecting...'
@@ -167,6 +192,19 @@ function VoiceInput() {
 
   return (
     <div className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={toggleVoice}
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors select-none ${
+          enabled ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-gray-600'
+        }`}
+        aria-pressed={enabled}
+        aria-label={enabled ? 'Turn voice off' : 'Turn voice on'}
+      >
+        <span>{enabled ? '🔊' : '🔇'}</span>
+        <span>{enabled ? 'Voice on' : 'Voice off'}</span>
+      </button>
+
       <div className="flex items-center gap-2 text-sm text-gray-400">
         <div className={`w-2 h-2 rounded-full ${statusColor}`} />
         <span>{statusLabel}</span>
@@ -174,7 +212,7 @@ function VoiceInput() {
 
       <button
         type="button"
-        disabled={status !== 'connected'}
+        disabled={!enabled || status !== 'connected'}
         onMouseDown={() => void startTalking()}
         onMouseUp={() => void stopTalking()}
         onMouseLeave={() => void stopTalking()}
@@ -184,6 +222,18 @@ function VoiceInput() {
         <span>🎤</span>
         <span>Hold to speak</span>
       </button>
+
+      {/* Conditional "tap to enable sound" — only when playback is actually blocked */}
+      {enabled && audioBlocked && (
+        <button
+          type="button"
+          onClick={() => void enableAudio()}
+          className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors select-none"
+        >
+          <span>🔈</span>
+          <span>Tap to enable sound</span>
+        </button>
+      )}
 
       {currentTranscript && (
         <span className="text-sm text-gray-400 italic truncate max-w-xs">
