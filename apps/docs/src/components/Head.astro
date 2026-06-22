@@ -12,15 +12,12 @@ const { head } = Astro.locals.starlightRoute;
 <ClientRouter />
 <PostHog />
 <script>
-  import { enhanceCodeBlocks } from '../lib/code-blocks';
   import { initTocPath, cleanupTocPath } from '../lib/toc-path';
 
-  enhanceCodeBlocks();
   initTocPath();
 
   document.addEventListener('astro:before-swap', cleanupTocPath);
   document.addEventListener('astro:after-swap', () => {
-    enhanceCodeBlocks();
     requestAnimationFrame(initTocPath);
   });
 </script>

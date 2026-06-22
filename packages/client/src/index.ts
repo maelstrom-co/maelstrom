@@ -52,28 +52,16 @@ export type {
 // Connector types (client-specific transport interfaces)
 export type {
   AssistantMessage,
-  AudioChunk,
-  AudioFrameMeta,
   CircuitStatus,
   ConnectionStatus,
   ConnectorCapabilities,
   ConnectorEvent,
   EngineConnector,
   PushConnector,
-  VoiceConnector,
 } from './lib/connection-manager/connector.types.js';
-// Connector functions and constants (not types)
-export { AUDIO_FRAME_FLAGS } from './lib/connection-manager/connector.types.js';
 export type { HttpConnectorOptions } from './lib/connection-manager/connectors/http-connector.js';
 // Connectors
 export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';
-// Connector utilities for audio frame handling (used by all voice connectors)
-export {
-  packAudioFrame,
-  parseAudioFrame,
-} from './lib/connection-manager/connectors/utils.js';
-export type { VoiceWebSocketConnectorOptions } from './lib/connection-manager/connectors/voice-web-socket-connector.js';
-export { VoiceWebSocketConnector } from './lib/connection-manager/connectors/voice-web-socket-connector.js';
 export type { WebSocketConnectorOptions } from './lib/connection-manager/connectors/web-socket-connector.js';
 export { WebSocketConnector } from './lib/connection-manager/connectors/web-socket-connector.js';
 // Command Processor

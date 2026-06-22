@@ -78,8 +78,7 @@ export type {
   EngineOutput,
   EngineOutputBase,
 } from './lib/engine-output.js';
-export { MaelstromError, VoiceError } from './lib/errors/index.js';
-export type { VoiceErrorCode } from './lib/errors/index.js';
+export { MaelstromError } from './lib/errors/index.js';
 export type { SessionHistoryEntry } from './lib/session-history-entry.js';
 export {
   SessionHistoryEntryArraySchema,
@@ -96,12 +95,3 @@ export {
   TilingTreeSchema,
   VesselInstanceSnapshotSchema,
 } from './lib/schemas.js';
-export type {
-  TranscriptMessage,
-  VoiceClientMessage,
-  VoiceServerMessage,
-} from './lib/voice-messages.js';
-export {
-  VoiceClientMessageSchema,
-  VoiceServerMessageSchema,
-} from './lib/voice-messages.js';

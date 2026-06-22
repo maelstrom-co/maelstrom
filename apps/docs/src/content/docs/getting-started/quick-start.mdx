@@ -36,7 +36,7 @@ Before step 1, make sure the engine process is running and reachable at `ws://lo
 
    For bun, pnpm, or yarn substitute `npm install` with `bun add`, `pnpm add`, or `yarn add`.
 
-    `@maelstrom-co/react` re-exports vessel APIs but does not re-export the connector classes (`WebSocketConnector`, `HttpConnector`), so install `@maelstrom-co/client` alongside it.
+   `@maelstrom-co/react` re-exports vessel APIs but does not re-export the connector classes (`WebSocketConnector`, `HttpConnector`), so install `@maelstrom-co/client` alongside it.
 
 2. ## Define a Vessel
 
@@ -46,7 +46,7 @@ Before step 1, make sure the engine process is running and reachable at `ws://lo
 
    <Tabs syncKey="framework">
      <TabItem label="React">
-     ```tsx title="src/vessels/greeting.tsx"
+     ```tsx title="src/vessels/greeting.tsx" {9-22}
      import { vessel } from '@maelstrom-co/react';
      import { defineVessel } from '@maelstrom-co/protocol';
 

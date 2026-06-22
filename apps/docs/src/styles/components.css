@@ -229,7 +229,7 @@ site-search dialog[open]::backdrop {
   site-search dialog,
   site-search dialog::backdrop,
   .toc-path-active,
-  .code-copy-btn,
+  .expressive-code .copy button,
   .feedback-btn,
   starlight-toc a,
   .framework-chevron,

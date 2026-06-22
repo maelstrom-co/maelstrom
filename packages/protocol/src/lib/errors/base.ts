@@ -1,8 +1,8 @@
 /**
  * Base class for all Maelstrom-emitted errors.
  *
- * Carries a string `code` for programmatic switching (subclasses narrow this
- * to discriminated unions like {@link VoiceErrorCode}) and an optional
+ * Carries a string `code` for programmatic switching (subclasses may narrow
+ * this to discriminated unions) and an optional
  * `cause` slot that preserves the original error when the failure was
  * triggered by a lower-level rejection. Use `instanceof MaelstromError` to
  * catch any Maelstrom-emitted failure in a single branch.

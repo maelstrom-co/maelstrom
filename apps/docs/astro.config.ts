@@ -102,29 +102,6 @@ export default defineConfig({
   redirects: {
     '/': { destination: '/getting-started/introduction/', status: 301 },
   },
-  markdown: {
-    shikiConfig: {
-      themes: {
-        light: 'github-light',
-        dark: 'github-dark',
-      },
-      defaultColor: false,
-      transformers: [
-        {
-          // Extract title="..." from code fence meta and set as data attribute
-          name: 'meta-title',
-          pre(node) {
-            const raw = this.options.meta?.__raw;
-            if (!raw) return;
-            const match = raw.match(/title="([^"]+)"/);
-            if (match) {
-              node.properties['data-title'] = match[1];
-            }
-          },
-        },
-      ],
-    },
-  },
   integrations: [
     starlight({
       title: 'Maelstrom',
@@ -169,8 +146,8 @@ export default defineConfig({
             {
               label: 'Guides',
               paths: ['guides/**'],
-                description:
-                  'Task-oriented how-tos for React, Engine, and Client',
+              description:
+                'Task-oriented how-tos for React, Engine, and Client',
             },
             {
               label: 'API Reference',
@@ -235,7 +212,31 @@ export default defineConfig({
         }),
       ],
       customCss: ['./src/styles/custom.css'],
-      expressiveCode: false,
+      // Code blocks render through Expressive Code: native title frames
+      // (title="..."), copy button, and line/word highlighting. The glass
+      // visual treatment is layered on in src/styles/code-blocks.css —
+      // backgrounds/borders are overridden there rather than via theme.
+      expressiveCode: {
+        themes: ['github-dark', 'github-light'],
+        styleOverrides: {
+          borderRadius: '0.5rem',
+          codeFontFamily: "var(--font-code, 'JetBrains Mono'), monospace",
+          codeFontSize: '0.875rem',
+          codeLineHeight: '1.7',
+          // Strip EC's editor-tab chrome so the title renders as a plain
+          // full-width header bar (styled in code-blocks.css), matching the
+          // previous bespoke design rather than EC's default tab look.
+          frames: {
+            editorActiveTabBackground: 'transparent',
+            editorActiveTabBorderColor: 'transparent',
+            editorActiveTabIndicatorTopColor: 'transparent',
+            editorActiveTabIndicatorBottomColor: 'transparent',
+            editorTabBarBackground: 'transparent',
+            editorTabBarBorderBottomColor: 'transparent',
+            frameBoxShadowCssValue: 'none',
+          },
+        },
+      },
       components: {
         Header: './src/components/Header.astro',
         Sidebar: './src/components/Sidebar.astro',

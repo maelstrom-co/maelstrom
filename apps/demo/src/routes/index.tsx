@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
-import { EnableVoiceDialog } from '../components/enable-voice-dialog';
 import { createDemoConnector } from '../lib/connector';
 import { m } from '../lib/maelstrom';
 
@@ -19,17 +18,6 @@ function HomePage() {
 }
 
 function DemoApp() {
-  const voice = m.useVoice({
-    autoAcquireMic: true,
-    allowBargeIn: true,
-    vadOptions: {
-      minSpeechDurationSeconds: 0.032,
-      preSpeechPaddingSeconds: 0.45,
-    },
-    greeting:
-      "Hello! I'm the Maelstrom demo assistant. I can help you manage your calendar, weather, journal, and tasks. Try asking me to rearrange your dashboard or perform actions like adding tasks or writing journal entries.",
-  });
-
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
@@ -40,7 +28,6 @@ function DemoApp() {
             <p className="text-sm text-gray-400">AI-Orchestrated Dynamic UI</p>
           </div>
           <div className="flex items-center gap-3">
-            <m.VoiceOrb size={40} />
             <StatusIndicator />
           </div>
         </div>
@@ -53,15 +40,6 @@ function DemoApp() {
 
       {/* Intent input */}
       <IntentInput />
-
-      {voice.needsUserGesture && (
-        <EnableVoiceDialog
-          onEnable={() => {
-            void voice.start();
-          }}
-          voiceState={voice.state}
-        />
-      )}
     </div>
   );
 }
