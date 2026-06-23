@@ -23,7 +23,7 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
 | React chart only | `@maelstrom-co/react` | An engine implementation, commonly `@maelstrom-co/engine` |
 | Framework-agnostic client | `@maelstrom-co/client @maelstrom-co/protocol` | An engine implementation |
 
-`@maelstrom-co/react` depends on the client and protocol packages, but many guides install `@maelstrom-co/client` explicitly because connector classes such as `WebSocketConnector` are imported from the client package. Keeping that dependency explicit makes the transport boundary visible in your app.
+`@maelstrom-co/react` depends on the client and protocol packages and re-exports the vessel definition helper plus connector classes (`WebSocketConnector`, `HttpConnector`) you need to connect to the engine, so React apps only need to install `@maelstrom-co/react`. Install `@maelstrom-co/client` separately only if you are building a framework-agnostic client.
 
 ## Install
 
@@ -31,7 +31,7 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
   <TabItem label="npm">
   ```bash
   # Client-side React app
-  npm install @maelstrom-co/react @maelstrom-co/client
+  npm install @maelstrom-co/react
 
   # Server-side reference engine
   npm install @maelstrom-co/engine
@@ -40,7 +40,7 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
   <TabItem label="bun">
   ```bash
   # Client-side React app
-  bun add @maelstrom-co/react @maelstrom-co/client
+  bun add @maelstrom-co/react
 
   # Server-side reference engine
   bun add @maelstrom-co/engine
@@ -49,7 +49,7 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
   <TabItem label="pnpm">
   ```bash
   # Client-side React app
-  pnpm add @maelstrom-co/react @maelstrom-co/client
+  pnpm add @maelstrom-co/react
 
   # Server-side reference engine
   pnpm add @maelstrom-co/engine
@@ -66,17 +66,17 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
 
 ## Environment variables
 
-The reference Engine requires an LLM provider API key. Only one provider key is needed for a basic setup:
+The demo engine uses Google Gemini. Set one of the following environment variables:
 
 ```bash
 # .env
-GOOGLE_GENERATIVE_AI_API_KEY=your-key  # Google Gemini
-OPENAI_API_KEY=your-key                # OpenAI
-ANTHROPIC_API_KEY=your-key             # Anthropic Claude
+GOOGLE_API_KEY=your-key        # Google Gemini (primary)
+GEMINI_API_KEY=your-key        # Alternative name for the same key
+WS_PORT=3001                   # Optional — WebSocket port (defaults to 3001)
 ```
 
 <Aside type="tip">
-  Choose one provider first. You can switch providers later by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
+  The demo engine uses `@tanstack/ai-gemini` with `gemini-3.1-flash-lite-preview`. You can switch providers later by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
 </Aside>
 
 ## Next steps

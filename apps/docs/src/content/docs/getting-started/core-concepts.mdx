@@ -87,6 +87,8 @@ const weatherVessel = defineVessel({
 
 The Chart is the layout container. In grid mode, the engine returns row and column positions. In tiling mode, it returns a split tree. Both modes use the same Vessel catalogue and both must respect each active variant's `minSize`.
 
+The Chart also notifies the engine when it gets resized. When the container dimensions change, the client sends a `chart_resize` update to the engine so it can recalculate the layout and reposition Vessels that no longer fit.
+
 ## Engine
 
 The Engine runs server-side and processes user intent. When a user says "show me the weather and my calendar", the Engine:
@@ -101,11 +103,11 @@ The Protocol defines the messages moving between client and engine. The client c
 
 ## Execution order
 
-When processing Engine responses, the client executes in this order:
+When processing Engine responses, the client dispatches layout and actions as an atomic batch, applying them in this order:
 
-1. **Execute actions** so variants can transition.
-2. **Get new sizes** from each resulting variant's `minSize`.
-3. **Apply layout** with the final sizes known.
+1. **Apply layout** using the layout directive the engine returned.
+2. **Execute actions** so variants can transition.
+3. **Read new sizes** from each resulting variant's `minSize`.
 4. **Handle overflow** if the requested arrangement does not fit.
 
-This ordering is critical because layout depends on the final variant, not the variant that was active before the action ran.
+Layout is applied first because the engine already knows the target sizes when it produces the directive. Actions then transition variants, and the client resolves any size changes from variant transitions before handling overflow.

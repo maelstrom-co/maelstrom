@@ -18,18 +18,23 @@ Programmatic layout fits cases where determinism matters more than orchestration
 | Tests | Assert a known chart state without waiting for an LLM response. |
 | Demo reset buttons | Return to a curated layout before a presentation. |
 | Admin tooling | Force a diagnostic panel onto the chart. |
+| Command palettes | Snap the UI to a named workspace when the user chooses a command. |
+| Keyboard shortcuts | Move from broad orchestration to a deterministic layout for power-user flows. |
 | Import/export flows | Restore a saved arrangement exactly. |
 
 For normal user intent, prefer `processIntent()` so the engine can choose actions and layout together.
 
 ## Engine-owned vs developer-triggered layout
 
-```text
-Engine-owned turn
-user intent -> engine -> actions + layout -> Chart
+```mermaid
+flowchart TD
+  UserIntent[User intent] --> Engine[Engine]
+  Engine --> EngineLayout[Actions + layout]
+  EngineLayout --> Chart[Chart]
 
-Programmatic layout
-app event -> CommandProcessor.setLayout() -> layout -> Chart
+  AppEvent[App event<br/>command palette, shortcut, reset] --> SetLayout[CommandProcessor.setLayout]
+  SetLayout --> ProgrammaticLayout[Layout]
+  ProgrammaticLayout --> Chart
 ```
 
 The difference is ownership. In the engine-owned path, layout reflects the model's interpretation of intent. In the programmatic path, layout reflects a deterministic application event.
@@ -53,7 +58,7 @@ In other words, `InstanceId('weather-1')` is not an arbitrary label you invent f
 
 ## Example: reset to a known layout
 
-```ts
+```ts {17-19}
 import { InstanceId, type GridLayout } from '@maelstrom-co/protocol';
 import type { Orchestrator } from '@maelstrom-co/client';
 

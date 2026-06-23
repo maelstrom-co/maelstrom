@@ -1,13 +1,26 @@
 ---
-title: Custom Connectors
-description: How to implement custom transport connectors (WebSocket, HTTP, etc.).
+title: Connectors
+description: Understand Maelstrom's built-in transport connectors and how to create your own.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
 A Connector is the transport adapter between the Maelstrom client and the engine backend. It should move protocol messages across a boundary; it should not decide layout, mutate Vessels, or hide engine errors.
 
-Use a custom Connector when the built-in transport does not match your deployment shape: a proprietary WebSocket gateway, an HTTP endpoint, or an in-process test harness.
+## Built-in connectors
+
+Maelstrom ships with two connector implementations that cover the most common deployment shapes:
+
+| Connector | When to use it |
+| --- | --- |
+| `WebSocketConnector` | Long-lived browser-to-server connections with live connection state |
+| `HttpConnector` | Request/response flows without persistent sessions |
+
+Most React apps start with `WebSocketConnector` because the engine supports streaming and the browser needs live status feedback.
+
+## When you need a custom connector
+
+Use a custom Connector when the built-in transport does not match your deployment shape: a proprietary WebSocket gateway, an HTTP endpoint with bespoke auth, or an in-process test harness.
 
 ## Responsibilities
 
