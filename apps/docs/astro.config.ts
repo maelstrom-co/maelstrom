@@ -7,6 +7,7 @@ import { existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
+import mermaid from 'astro-mermaid';
 
 const [reactTypeDoc, reactTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
@@ -103,6 +104,9 @@ export default defineConfig({
     '/': { destination: '/getting-started/introduction/', status: 301 },
   },
   integrations: [
+     mermaid({
+    autoTheme: true,
+  }),
     starlight({
       title: 'Maelstrom',
       description:
