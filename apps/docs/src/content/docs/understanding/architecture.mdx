@@ -45,6 +45,6 @@ Each manager owns a TanStack Store for reactive state and extends TypedEmitter f
 2. Client packages intent + context into a `ChartRequest`
 3. `ChartRequest` is sent to the Engine via a connector
 4. Engine processes with LLM and returns a `MaelstromResponse`
-5. Client executes actions, reads the resulting variant sizes, applies layout, then handles overflow
+5. Client applies layout, executes actions, reads the resulting variant sizes, then handles overflow
 
-The order in step 5 is load-bearing. Layout must happen after actions because actions can transition Vessels into variants with different `minSize` requirements.
+The order in step 5 is load-bearing. The runtime dispatches layout first and actions second as one response batch, then uses the final overflow pass to account for variants whose `minSize` changed after an action transition.

@@ -87,9 +87,9 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 ### Execution Order (Critical)
 
 When processing engine responses, the client MUST execute in this order:
-1. Execute actions first (transitions variants)
-2. Get new sizes (from variant minSize)
-3. Apply layout (CSS transforms)
+1. Apply layout (CSS transforms)
+2. Execute actions (transitions variants)
+3. Get new sizes (from variant minSize)
 4. Handle overflow
 
 ## Tech Stack

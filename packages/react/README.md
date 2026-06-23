@@ -64,7 +64,7 @@ export function App() {
 - Quick start: https://docs.maelstrom-ai.co/getting-started/quick-start/
 - Core concepts: https://docs.maelstrom-ai.co/getting-started/core-concepts/
 - React guides: https://docs.maelstrom-ai.co/guides/react/creating-vessels/
-- API reference: https://docs.maelstrom-ai.co/reference/react/
+- API reference: https://docs.maelstrom-ai.co/reference/react/readme/
 
 ## License
 

@@ -21,8 +21,8 @@ Maelstrom keeps developers in control of the safe parts and lets the engine deci
 
 - Developers define Vessels, variants, actions, and minimum sizes.
 - The engine chooses among those declared options for the current intent.
-- The client executes actions before layout so components render in the state the engine planned for.
-- The Chart applies the resulting grid or tiling layout.
+- The client applies the engine's grid or tiling layout, then executes the requested actions in the same response batch.
+- The Chart reconciles overflow after action-driven variant changes.
 
 This is not unconstrained UI generation. The LLM cannot invent a new settings page or mutate arbitrary component internals. It can only orchestrate the catalogue your application exposes.
 

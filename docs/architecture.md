@@ -258,9 +258,9 @@ The protocol only defines message shapes. Transport is a separate concern:
                                     │
                                     ▼
 6. Client executes response (STRICT ORDER):
-   a. Execute actions (transitions variants)
-   b. Get new sizes (from variant minSize)
-   c. Apply layout (CSS transforms)
+   a. Apply layout (CSS transforms)
+   b. Execute actions (transitions variants)
+   c. Get new sizes (from variant minSize)
    d. Handle overflow
                                     │
                                     ▼
@@ -271,16 +271,16 @@ The protocol only defines message shapes. Transport is a separate concern:
 
 The client MUST execute the response in this strict order:
 
-1. **Execute Actions First**: Run all actions sequentially, transitioning variants
-2. **Get New Sizes**: Look up minSize from the new variant
-3. **Apply Layout**: Position Vessels using CSS transforms
+1. **Apply Layout First**: Position Vessels using CSS transforms
+2. **Execute Actions**: Run all actions sequentially, transitioning variants
+3. **Get New Sizes**: Look up minSize from the new variant
 4. **Handle Overflow**: Manage Vessels that don't fit
 
 This order matters because:
 
-- Actions transition Vessels to new variants
-- New variants have different minSize requirements
-- Layout must allocate at least the minSize for each variant
+- The engine response already contains the layout directive for the planned arrangement
+- Actions transition Vessels to new variants after placement
+- The final overflow pass catches variants whose minSize requirements changed after actions
 
 ---
 

@@ -55,14 +55,14 @@ Invalid transitions should fail early. If `transitionsTo` names a variant that d
 
 ## The execution order matters
 
-When an engine response arrives, the client executes actions before applying layout. That order lets Maelstrom measure the target variant, not the stale variant.
+When an engine response arrives, the client applies the engine's layout directive before executing actions. The engine has already planned against the target variants, so the client can place Vessels first, run the requested transitions, then reconcile any resulting size changes during overflow handling.
 
 ```text
 engine says: expand inbox, place it at 4 x 3
-client does: run expand -> active variant is list -> read list.minSize -> apply layout
+client does: apply layout -> run expand -> read list.minSize -> handle overflow if needed
 ```
 
-If layout ran first, the client could size a compact card and then immediately transition it into a detailed view that no longer fits.
+This keeps the visual arrangement and action execution in the same response batch while preserving a final overflow pass for variants whose rendered size changed after the action.
 
 ## Designing a good Vessel state machine
 
