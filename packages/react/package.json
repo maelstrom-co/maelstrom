@@ -49,6 +49,12 @@
   },
   "nx": {
     "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
       "test": {
         "command": "bun test",
         "options": {
