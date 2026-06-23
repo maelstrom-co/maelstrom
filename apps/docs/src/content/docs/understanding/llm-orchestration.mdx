@@ -45,12 +45,18 @@ The engine still validates, heals, and may retry the model's output.
 
 LLM orchestration buys flexibility at the cost of nondeterminism. Two valid responses may arrange the same Vessels differently. Maelstrom manages that trade-off with schemas, branded protocol types, explicit state machines, and a healing layer for recoverable model mistakes.
 
-```text
-flexibility:       user asks for outcomes instead of pages
-constraint:        model chooses only from declared Vessels/actions
-validation:        protocol schema rejects malformed output
-healing:           recoverable layout/action issues are pruned
-retry:             no-op results can be re-asked within budget
+```mermaid
+flowchart TD
+  Flexibility["Flexibility<br/>user asks for outcomes instead of pages"]
+  Constraint["Constraint<br/>model chooses only from declared Vessels/actions"]
+  Validation["Validation<br/>protocol schema rejects malformed output"]
+  Healing["Healing<br/>recoverable layout/action issues are pruned"]
+  Retry["Retry<br/>no-op results can be re-asked within budget"]
+
+  Flexibility --> Constraint
+  Constraint --> Validation
+  Validation --> Healing
+  Healing --> Retry
 ```
 
 This is not foolproof. Better Vessel descriptions, realistic sizes, and targeted prompt customization still matter. The orchestration layer gives the model a safer operating area; it does not remove the need to design that area well.

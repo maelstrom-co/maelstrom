@@ -35,15 +35,25 @@ This signature is the contract. The implementation behind it can change without 
 
 ## Pipeline diagram
 
-```text
-ChartRequest
-  -> build prompt
-  -> call LLM adapter
-  -> parse structured JSON
-  -> validate protocol schema
-  -> heal recoverable layout/action issues
-  -> retry if the user would otherwise see a no-op
-  -> return EngineOutput
+```mermaid
+flowchart TD
+  Request["ChartRequest"]
+  Prompt["Build prompt"]
+  Adapter["Call LLM adapter"]
+  Parse["Parse structured JSON"]
+  Validate["Validate protocol schema"]
+  Heal["Heal recoverable<br/>layout/action issues"]
+  Retry{"Would the user<br/>see a no-op?"}
+  Return["Return EngineOutput"]
+
+  Request --> Prompt
+  Prompt --> Adapter
+  Adapter --> Parse
+  Parse --> Validate
+  Validate --> Heal
+  Heal --> Retry
+  Retry -->|"yes, within budget"| Prompt
+  Retry -->|"no"| Return
 ```
 
 ## What the reference implementation does
@@ -76,11 +86,20 @@ For step 4, an empty UI is worse than a partial one. The heal layer drops invali
 
 If the model returns two positions and one overflows the chart, the engine can keep the valid position and drop the invalid one:
 
-```text
-Model output:    weather at row 0, calendar at row 99
-Chart size:      12 columns x 8 rows
-Healed result:   weather survives, calendar position drops with position_overflow
-User sees:       partial useful layout instead of a failed turn
+```mermaid
+flowchart TD
+  Model["Model output<br/>weather row 0<br/>calendar row 99"]
+  Bounds["Chart size<br/>12 columns x 8 rows"]
+  Heal["Heal layer"]
+  Weather["weather survives"]
+  Calendar["calendar drops<br/>position_overflow"]
+  User["User sees partial useful layout<br/>instead of a failed turn"]
+
+  Model --> Heal
+  Bounds --> Heal
+  Heal --> Weather
+  Heal --> Calendar
+  Weather --> User
 ```
 
 The dropped entry is logged for diagnostics, but consumers receive only the surviving layout.

@@ -9,14 +9,14 @@ The connector should be boring. If it starts making layout decisions or hiding e
 
 ## Where connectors fit
 
-```text
-React app / client orchestrator
-        │
-        ▼
-Connector (transport adapter)
-        │
-        ▼
-Engine backend
+```mermaid
+flowchart TD
+  ReactApp["React app / client orchestrator"]
+  Connector["Connector<br/>transport adapter"]
+  Engine["Engine backend"]
+
+  ReactApp --> Connector
+  Connector --> Engine
 ```
 
 The protocol defines the payload. The connector defines how that payload travels.
@@ -46,5 +46,5 @@ Those responsibilities belong to the engine or application action handlers.
 
 ## Next steps
 
-- [Custom Connectors](/guides/client/custom-connectors/) — implement a transport adapter
+- [Connectors](/guides/client/custom-connectors/) — implement a transport adapter
 - [The Protocol](/understanding/protocol/) — understand the payload the connector carries

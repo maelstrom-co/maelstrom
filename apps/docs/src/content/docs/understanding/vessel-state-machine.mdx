@@ -5,15 +5,12 @@ description: How Vessels model UI components as state machines with variants and
 
 A Vessel is a UI component described as a state machine. Variants are the states. Actions are the legal transitions or operations available from the current state. The engine can reason about the component because those states and transitions are explicit.
 
-```text
-              expand
-  compact ─────────────▶ detailed
-    ▲                    │
-    │                    │ collapse
-    └────────────────────┘
-
-  compact actions:  expand, refresh
-  detailed actions: collapse, refresh
+```mermaid
+stateDiagram-v2
+  compact --> detailed: expand
+  detailed --> compact: collapse
+  compact --> compact: refresh
+  detailed --> detailed: refresh
 ```
 
 ## Why state machines fit orchestration
@@ -57,9 +54,18 @@ Invalid transitions should fail early. If `transitionsTo` names a variant that d
 
 When an engine response arrives, the client applies the engine's layout directive before executing actions. The engine has already planned against the target variants, so the client can place Vessels first, run the requested transitions, then reconcile any resulting size changes during overflow handling.
 
-```text
-engine says: expand inbox, place it at 4 x 3
-client does: apply layout -> run expand -> read list.minSize -> handle overflow if needed
+```mermaid
+sequenceDiagram
+  participant Engine
+  participant Client
+  participant Vessel
+  participant Chart
+
+  Engine->>Client: expand inbox and place it at 4 x 3
+  Client->>Chart: apply layout
+  Client->>Vessel: run expand
+  Client->>Vessel: read list.minSize
+  Client->>Chart: handle overflow if needed
 ```
 
 This keeps the visual arrangement and action execution in the same response batch while preserving a final overflow pass for variants whose rendered size changed after the action.

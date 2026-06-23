@@ -17,17 +17,17 @@ In this tutorial, you'll build a three-vessel dashboard with weather, calendar, 
 
 The finished dashboard has three Vessels:
 
-```text
-┌─────────────────────── Chart ───────────────────────┐
-│ ┌──────────────┐ ┌────────────────────────────────┐ │
-│ │ Weather      │ │ Calendar                       │ │
-│ │ compact/full │ │ agenda/week                    │ │
-│ └──────────────┘ └────────────────────────────────┘ │
-│ ┌─────────────────────────────────────────────────┐ │
-│ │ Tasks                                           │ │
-│ │ summary/list                                    │ │
-│ └─────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  subgraph Chart["Chart"]
+    Weather["Weather<br/>compact / full"]
+    Calendar["Calendar<br/>agenda / week"]
+    Tasks["Tasks<br/>summary / list"]
+  end
+
+  Weather ~~~ Calendar
+  Weather ~~~ Tasks
+  Calendar ~~~ Tasks
 ```
 
 The exact positions are chosen by the engine. The point is that all three components are declared up front, and the engine decides which variants fit the user's request.

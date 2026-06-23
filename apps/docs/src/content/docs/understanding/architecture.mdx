@@ -5,17 +5,16 @@ description: How Maelstrom's packages and layers fit together.
 
 Maelstrom is organized as a layered architecture because the UI, protocol, and engine fail in different ways and need different deployment boundaries. Browser packages render and capture input, server packages own provider calls and orchestration, and the protocol keeps the two sides speaking one contract.
 
-```
-@maelstrom-co/protocol    (foundation: shared types, zod schemas, message contract)
-         │
-    ┌────┴────┐
-    ▼         ▼
-@maelstrom-co/client   @maelstrom-co/engine
-(framework-agnostic)   (LLM decision core)
-    │
-    ▼
-@maelstrom-co/react
-(React bindings)
+```mermaid
+flowchart TD
+  Protocol["@maelstrom-co/protocol<br/>shared types, Zod schemas, message contract"]
+  Client["@maelstrom-co/client<br/>framework-agnostic orchestration"]
+  Engine["@maelstrom-co/engine<br/>LLM decision core"]
+  React["@maelstrom-co/react<br/>React bindings"]
+
+  Protocol --> Client
+  Protocol --> Engine
+  Client --> React
 ```
 
 ## Package responsibilities

@@ -19,16 +19,23 @@ This tutorial turns a development setup into a production-shaped deployment chec
 
    Browser code should render the Chart, capture user intent, and talk to a connector. Server code should own LLM provider keys and the engine implementation.
 
-   ```text
-   Browser app
-     ├─ @maelstrom-co/react
-     ├─ @maelstrom-co/client connector
-     └─ no provider secrets
+   ```mermaid
+   flowchart LR
+     subgraph Browser["Browser app"]
+       React["@maelstrom-co/react"]
+       Connector["@maelstrom-co/client connector"]
+       NoSecrets["no provider secrets"]
+     end
 
-    Server runtime
-      ├─ engine implementation
-      ├─ LLM provider adapter + API key
-      └─ optional history store
+     subgraph Server["Server runtime"]
+       Engine["engine implementation"]
+       Provider["LLM provider adapter + API key"]
+       History["optional history store"]
+     end
+
+     Connector --> Engine
+     Engine --> Provider
+     Engine -. optional .-> History
    ```
 
 2. ## Configure the engine server

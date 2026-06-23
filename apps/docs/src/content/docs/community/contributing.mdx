@@ -51,8 +51,16 @@ Package tests can depend on built outputs from other packages. If a test fails b
 
 Maelstrom packages build on each other in layers:
 
-```text
-protocol -> client / engine -> react
+```mermaid
+flowchart TD
+  Protocol["protocol"]
+  Client["client"]
+  Engine["engine"]
+  React["react"]
+
+  Protocol --> Client
+  Protocol --> Engine
+  Client --> React
 ```
 
 Keep changes in the lowest package that owns the behavior. For example, message shapes belong in `@maelstrom-co/protocol`, orchestration state belongs in `@maelstrom-co/client`, and React-specific hooks belong in `@maelstrom-co/react`.

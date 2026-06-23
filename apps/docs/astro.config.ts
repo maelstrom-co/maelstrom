@@ -104,9 +104,9 @@ export default defineConfig({
     '/': { destination: '/getting-started/introduction/', status: 301 },
   },
   integrations: [
-     mermaid({
-    autoTheme: true,
-  }),
+    mermaid({
+      autoTheme: true,
+    }),
     starlight({
       title: 'Maelstrom',
       description:
