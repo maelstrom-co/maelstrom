@@ -3,8 +3,11 @@ import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, fontProviders } from 'astro/config';
+import { existsSync, rmSync } from 'node:fs';
+import path from 'node:path';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
+import mermaid from 'astro-mermaid';
 
 const [reactTypeDoc, reactTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
@@ -23,6 +26,76 @@ const repoRoot = '../../';
 const sourceLinkTemplate =
   'https://github.com/maelstrom-co/maelstrom/blob/main/{path}#L{line}';
 
+const docsRoot = path.resolve(process.cwd(), 'apps/docs/src/content/docs/reference');
+const distRoot = path.resolve(process.cwd(), 'apps/docs/dist/reference');
+const prunedReferencePaths = [
+  'voice',
+  'voice-server',
+  'react-voice',
+  'client/classes/VoiceWebSocketConnector.md',
+  'client/README.md',
+  'client/interfaces/AudioChunk.md',
+  'client/interfaces/ConnectorCapabilities.md',
+  'client/interfaces/EngineConnector.md',
+  'client/interfaces/PushConnector.md',
+  'client/interfaces/VoiceConnector.md',
+  'client/interfaces/VoiceWebSocketConnectorOptions.md',
+  'client/functions/packAudioFrame.md',
+  'client/functions/parseAudioFrame.md',
+  'protocol/README.md',
+  'protocol/classes/VoiceError.md',
+  'protocol/interfaces/TranscriptMessage.md',
+  'protocol/type-aliases/VoiceClientMessage.md',
+  'protocol/type-aliases/VoiceErrorCode.md',
+  'protocol/type-aliases/VoiceServerMessage.md',
+  'protocol/variables/VoiceClientMessageSchema.md',
+  'protocol/variables/VoiceServerMessageSchema.md',
+  'react/type-aliases/MaelstromExtension.md',
+];
+
+const prunedOutputPaths = [
+  'voice',
+  'voice-server',
+  'react-voice',
+  'client/readme',
+  'client/classes/voicewebsocketconnector',
+  'client/functions/packaudioframe',
+  'client/functions/parseaudioframe',
+  'client/interfaces/audiochunk',
+  'client/interfaces/connectorcapabilities',
+  'client/interfaces/engineconnector',
+  'client/interfaces/pushconnector',
+  'client/interfaces/voiceconnector',
+  'client/interfaces/voicewebsocketconnectoroptions',
+  'protocol/readme',
+  'protocol/classes/voiceerror',
+  'protocol/interfaces/transcriptmessage',
+  'protocol/type-aliases/voiceclientmessage',
+  'protocol/type-aliases/voiceerrorcode',
+  'protocol/type-aliases/voiceservermessage',
+  'protocol/variables/voiceclientmessageschema',
+  'protocol/variables/voiceservermessageschema',
+  'react/type-aliases/maelstromextension',
+];
+
+function pruneReferenceDocs() {
+  for (const relativePath of prunedReferencePaths) {
+    const absolutePath = path.join(docsRoot, relativePath);
+    if (existsSync(absolutePath)) {
+      rmSync(absolutePath, { recursive: true, force: true });
+    }
+  }
+}
+
+function pruneBuiltDocs() {
+  for (const relativePath of prunedOutputPaths) {
+    const absolutePath = path.join(distRoot, relativePath);
+    if (existsSync(absolutePath)) {
+      rmSync(absolutePath, { recursive: true, force: true });
+    }
+  }
+}
+
 export default defineConfig({
   site: 'https://docs.maelstrom-ai.co',
   output: 'static',
@@ -31,6 +104,9 @@ export default defineConfig({
     '/': { destination: '/getting-started/introduction/', status: 301 },
   },
   integrations: [
+    mermaid({
+      autoTheme: true,
+    }),
     starlight({
       title: 'Maelstrom',
       description:
@@ -253,6 +329,18 @@ export default defineConfig({
       lastUpdated: true,
       pagination: true,
     }),
+    {
+      name: 'prune-reference-docs',
+      hooks: {
+        'astro:build:start': () => {
+          pruneReferenceDocs();
+        },
+        'astro:build:done': () => {
+          pruneReferenceDocs();
+          pruneBuiltDocs();
+        },
+      },
+    },
     react(),
     sitemap(),
   ],

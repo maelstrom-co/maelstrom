@@ -3,20 +3,18 @@ title: Architecture Overview
 description: How Maelstrom's packages and layers fit together.
 ---
 
-Maelstrom is organized as a layered architecture where each package has a clear responsibility.
+Maelstrom is organized as a layered architecture because the UI, protocol, and engine fail in different ways and need different deployment boundaries. Browser packages render and capture input, server packages own provider calls and orchestration, and the protocol keeps the two sides speaking one contract.
 
-```
-@maelstrom-co/protocol    (foundation: shared types, zod schemas, message contract)
-         │
-    ┌────┴────┐
-    ▼         ▼
-@maelstrom-co/client   @maelstrom-co/engine
-(framework-agnostic)   (LLM decision core)
-    │
-    ├────────────┐
-    ▼            ▼
-@maelstrom-co/react  @maelstrom-co/voice
-(React bindings)     (audio capture/playback, VAD)
+```mermaid
+flowchart TD
+  Protocol["@maelstrom-co/protocol<br/>shared types, Zod schemas, message contract"]
+  Client["@maelstrom-co/client<br/>framework-agnostic orchestration"]
+  Engine["@maelstrom-co/engine<br/>LLM decision core"]
+  React["@maelstrom-co/react<br/>React bindings"]
+
+  Protocol --> Client
+  Protocol --> Engine
+  Client --> React
 ```
 
 ## Package responsibilities
@@ -27,7 +25,6 @@ Maelstrom is organized as a layered architecture where each package has a clear 
 | `client` | Client | Orchestrator, ChartManager, CommandProcessor, VesselManager, connectors. Framework-agnostic. |
 | `react` | UI | React bindings — `createMaelstrom()`, `vessel()`, Provider, Chart, hooks. |
 | `engine` | Server | LLM decision engine — processes context and returns execution plans. |
-| `voice` | Client (optional) | Audio capture, playback, VAD (Silero via onnxruntime-web). |
 
 ## Client architecture
 
@@ -41,14 +38,12 @@ The client uses a **microkernel architecture**. The `Orchestrator` is the compos
 
 Each manager owns a TanStack Store for reactive state and extends TypedEmitter for events.
 
-## Voice (optional)
-
-Maelstrom also ships an optional full-stack voice layer. See [Voice Architecture](/understanding/voice-architecture/) for how the browser audio pipeline, client VAD, and server runtime connect.
-
 ## Data flow
 
-1. User expresses intent (text or voice)
+1. User expresses intent
 2. Client packages intent + context into a `ChartRequest`
 3. `ChartRequest` is sent to the Engine via a connector
 4. Engine processes with LLM and returns a `MaelstromResponse`
-5. Client executes actions (variant transitions), then applies layout
+5. Client applies layout, executes actions, reads the resulting variant sizes, then handles overflow
+
+The order in step 5 is load-bearing. The runtime dispatches layout first and actions second as one response batch, then uses the final overflow pass to account for variants whose `minSize` changed after an action transition.

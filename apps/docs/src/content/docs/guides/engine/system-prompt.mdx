@@ -5,6 +5,8 @@ description: How to replace, extend, or transform the Engine's prompt sections w
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
+Prompt customization changes the instructions sent to the model; it does not bypass protocol schemas, layout validation, healing, or retry behavior. Treat it as a behavior layer on top of the same structured-output contract.
+
 The Engine builds its prompt from **named sections**. You can override any
 section by name without touching the others — the prompt-builder owns
 joining, ordering, and template-variable substitution.
@@ -104,11 +106,37 @@ section keys (anything outside the table above), only `string` and
 
 <Aside type="caution" title="Removing sections is sharp">
   Setting a system section to `null` removes its content from the prompt
-  entirely. Without `layout` or `actions` the LLM loses the instructions
-  that tell it how to format positions or encode action parameters — expect
-  aggressively healed responses and exhausted retries. Only do this when
-  you've replaced the section's role on another section.
+  entirely. Without `layout`, the model may return positions outside the chart
+  or malformed tiling trees. Without `actions`, it may omit required action
+  parameters or invoke actions that are not valid for the current variant. The
+  engine will try to heal those responses, but repeated invalid output can
+  exhaust the retry budget and leave the user with a partial or empty update.
+  Only remove a section when you have replaced that section's role elsewhere.
 </Aside>
+
+## End-to-end example
+
+A healthcare scheduling app might keep the default layout and action rules, but add domain constraints to both prompt halves:
+
+```ts
+export const engine = createEngine({
+  adapter: geminiText('<your-model-id>'),
+  prompt: {
+    vars: { assistantName: 'Aria' },
+    system: {
+      identity: { append: 'You help clinic staff arrange scheduling tools.' },
+      rules: { append: 'Never speculate about diagnoses or treatment.' },
+    },
+    user: {
+      updateTriggers: {
+        append: 'Prefer the calendar and patient-search vessels for appointment requests.',
+      },
+    },
+  },
+});
+```
+
+The system additions are stable policy. The user addition is request-time context that can depend on the current chart, tenant, or workflow.
 
 ## Variations
 

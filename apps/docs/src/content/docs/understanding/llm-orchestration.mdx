@@ -3,4 +3,66 @@ title: How the LLM Orchestrates UI
 description: How the Engine uses an LLM to make layout and interaction decisions.
 ---
 
-*Content coming soon.*
+The LLM in Maelstrom is an orchestrator, not a component generator. It reads the current chart state and the declared Vessel catalogue, then chooses actions and layout that match the user's intent.
+
+That boundary is the central design choice. The model can decide that a calendar should expand and sit next to tasks, but it cannot invent a new calendar component or call an action your Vessel did not declare.
+
+## What the model sees
+
+For each turn, the engine builds a prompt from:
+
+- the user's update reason, such as a natural-language intent
+- the current chart dimensions and layout mode
+- the visible instances and their active variants
+- the registered Vessels, variants, sizes, and actions
+- optional conversation history and prompt customizations
+
+The model returns structured data: a rationale, an execution plan, and a layout directive.
+
+## What the model may decide
+
+The model can choose among declared options:
+
+| Decision | Example |
+| --- | --- |
+| Show or keep a Vessel visible | Place weather when the user asks about rain. |
+| Invoke an action | Call `showWeek` on a calendar instance. |
+| Pick a layout | Put agenda and tasks side by side. |
+| Respect size constraints | Allocate at least the target variant's `minSize`. |
+
+## What the model cannot decide
+
+The model cannot bypass your application boundary:
+
+- It cannot generate arbitrary React components.
+- It cannot invoke actions that are not declared for the active variant.
+- It cannot access provider credentials or server internals through the client.
+- It cannot make invalid wire payloads survive validation unchanged.
+
+The engine still validates, heals, and may retry the model's output.
+
+## Trade-offs
+
+LLM orchestration buys flexibility at the cost of nondeterminism. Two valid responses may arrange the same Vessels differently. Maelstrom manages that trade-off with schemas, branded protocol types, explicit state machines, and a healing layer for recoverable model mistakes.
+
+```mermaid
+flowchart TD
+  Flexibility["Flexibility<br/>user asks for outcomes instead of pages"]
+  Constraint["Constraint<br/>model chooses only from declared Vessels/actions"]
+  Validation["Validation<br/>protocol schema rejects malformed output"]
+  Healing["Healing<br/>recoverable layout/action issues are pruned"]
+  Retry["Retry<br/>no-op results can be re-asked within budget"]
+
+  Flexibility --> Constraint
+  Constraint --> Validation
+  Validation --> Healing
+  Healing --> Retry
+```
+
+This is not foolproof. Better Vessel descriptions, realistic sizes, and targeted prompt customization still matter. The orchestration layer gives the model a safer operating area; it does not remove the need to design that area well.
+
+## Next steps
+
+- [The Engine](/understanding/engine/) — validation, healing, and retry behavior
+- [The Vessel State Machine](/understanding/vessel-state-machine/) — the component contract the model reads
+- [Customize the system prompt](/guides/engine/system-prompt/) — tune model behavior without changing protocol validation

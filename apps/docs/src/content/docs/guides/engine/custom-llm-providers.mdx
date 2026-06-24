@@ -5,6 +5,8 @@ description: How to swap the Engine's LLM adapter — Gemini, OpenAI, Anthropic,
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
+Provider choice changes the three things users feel first: structured-output quality, latency, and cost. Stronger models usually need less healing, faster models reduce turn time, and cheaper models matter when your Vessel catalogue makes prompts large.
+
 The reference engine talks to the model through a [TanStack AI](https://tanstack.com/ai)
 text adapter. Swapping providers is a single field on `EngineConfig.adapter`
 — the prompt builder, response parser, heal layer, and retry policy are all
@@ -106,7 +108,7 @@ through the new provider.
 ## Choosing a model
 
 Provider catalogues change faster than these docs do — the model ids above
-are illustrative. Pick from the provider's own catalogue, then weight along
+are illustrative, not recommendations. Check the provider and TanStack AI adapter documentation before pinning a production model. Pick from the provider's own catalogue, then weight the choice along
 three axes:
 
 - **Structured output quality.** The engine asks for JSON validated against

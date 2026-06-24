@@ -73,6 +73,20 @@ In tiling mode, `tilingPaddingPx` sets the gap in pixels between tiles. The recu
 
 As with `cellSizePx`, `tilingPaddingPx` can be set as a factory default on `createMaelstrom()` and overridden on the Provider.
 
+## How the modes look
+
+```text
+Grid mode                  Tiling mode
+┌───┬───┬───┬───┐          ┌───────────┬─────┐
+│ A │ A │ B │ B │          │ A         │ B   │
+├───┼───┼───┼───┤          │           ├─────┤
+│ C │ C │ C │   │          │           │ C   │
+└───┴───┴───┴───┘          └───────────┴─────┘
+fixed cells + gaps          recursive splits fill all space
+```
+
+Grid optimizes for predictability: positions snap to cells, `minSize` maps directly to cell counts, and empty space can remain. Tiling optimizes for density: the layout fills the container, but the exact proportions are governed by the split tree rather than a shared cell grid.
+
 ## Choosing
 
 | Mode | Fits when |

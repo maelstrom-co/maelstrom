@@ -2,6 +2,12 @@
 export { vessel } from './lib/vessel.js';
 export { createMaelstrom } from './lib/create-maelstrom.js';
 
+export { defineVessel } from '@maelstrom-co/protocol';
+export {
+  WebSocketConnector,
+  HttpConnector,
+} from '@maelstrom-co/client';
+
 // Types — vessel system
 export type {
   ActionHandler,

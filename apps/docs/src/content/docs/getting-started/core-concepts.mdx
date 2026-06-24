@@ -3,36 +3,48 @@ title: Core Concepts
 description: Understand Vessels, Charts, the Engine, and how they work together.
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Maelstrom has four core concepts that work together to create AI-orchestrated UIs.
+Maelstrom has four core concepts. The important invariant is that the LLM orchestrates declared UI capabilities; it does not generate arbitrary components at runtime.
 
 <CardGrid>
-  <Card title="Vessels" icon="puzzle">
-    State machines representing UI components. Each vessel has variants. A variant is a compound of discrete states with size requirements. A vessel also declares actions as transitions between its variants for the LLM to invoke.
-  </Card>
-  <Card title="Chart" icon="seti:layout">
-    Grid-based layout system. The LLM works with integer grid coordinates — column and row units, not pixels. Grid calculations are based on the Chart container size, not the browser viewport.
-  </Card>
-  <Card title="Engine" icon="rocket">
-    Stateless decision core on the server. Takes context as: user intent, current state and chart dimensions. It returns an execution plan in the form of actions to invoke and layout directives (where to position Vessels).
-  </Card>
-  <Card title="Protocol" icon="document">
-    Shared types, Zod schemas, and message definitions. Transport-agnostic contract between client and engine.
-  </Card>
+  <LinkCard title="Vessels" href="/understanding/vessel-state-machine/" description="Predefined UI components represented as state machines. Each Vessel declares variants, minimum sizes, and actions the engine may invoke."/>
+  <LinkCard title="Chart" href="/understanding/grid-vs-tiling/" description="Layout surface that renders Vessels. The engine works with integer layout units, not raw pixels." />
+  <LinkCard title="Engine" href="/understanding/engine/" description="Decision core. It reads user intent, current chart state, registered Vessels, and chart dimensions, then returns actions and layout."/>
+  <LinkCard title="Protocol" href="/understanding/protocol/" description="Shared message contract between client and engine. It keeps transports swappable because every transport carries the same payloads."/>
 </CardGrid>
+
+## The turn lifecycle
+
+A Maelstrom turn starts with intent and ends with a rendered chart.
+
+```mermaid
+flowchart TD
+  Intent["User intent"]
+  Snapshot["Client snapshots current Vessels<br/>and Chart state"]
+  Engine["Engine chooses actions<br/>and layout"]
+  Apply["Client applies layout,<br/>executes actions, handles overflow"]
+  Render["Chart renders the updated<br/>Vessel arrangement"]
+
+  Intent --> Snapshot
+  Snapshot --> Engine
+  Engine --> Apply
+  Apply --> Render
+```
+
+That separation is what keeps Maelstrom safe. The LLM can choose from the catalogue you gave it, but your code still owns the actual components, action handlers, validation, and rendering.
 
 ## Vessels
 
-A Vessel is the fundamental unit in Maelstrom. Think of it as a UI component with an explicit state machine that the LLM can reason about.
+A Vessel is the fundamental unit in Maelstrom. Think of it as a UI component with an explicit state machine that the engine can reason about.
 
 ### Variants
 
-Each Vessel has one or more **variants** — discrete states that define how the component looks and behaves. A variant specifies its minimum grid size, the props it receives, and what actions are available.
+Each Vessel has one or more **variants**. A variant is a named UI state with three pieces of information: the props your component receives, the minimum chart size it needs, and the actions available while that variant is active.
 
 ### Actions
 
-Actions are transitions between variants that the LLM can invoke. Each action has a name, a human-readable description (so the LLM knows when to use it), and a target variant.
+Actions are named operations the engine may invoke. Some actions transition the Vessel to another variant, while others keep the same variant and let your application mutate data or perform side effects.
 
 ```typescript
 const weatherVessel = defineVessel({
@@ -63,31 +75,36 @@ const weatherVessel = defineVessel({
 
 ## Chart
 
-The Chart is a grid-based layout container. The LLM positions Vessels using integer grid coordinates. Maelstrom supports two layout modes:
+The Chart is the layout container. In grid mode, the engine returns row and column positions. In tiling mode, it returns a split tree. Both modes use the same Vessel catalogue and both must respect each active variant's `minSize`.
 
-### Grid Mode
-
-Explicit row/column positioning with width/height. Each Vessel gets a precise position on the grid. Best for dashboard-style layouts where you want full control over placement.
-
-### Tiling Mode
-
-Binary tree layout using horizontal and vertical splits that fills available space. The LLM describes the layout as nested splits rather than coordinates. Best for responsive, space-filling layouts.
+The Chart also notifies the engine when it gets resized. When the container dimensions change, the client sends a `chart_resize` update to the engine so it can recalculate the layout and reposition Vessels that no longer fit.
 
 ## Engine
 
 The Engine runs server-side and processes user intent. When a user says "show me the weather and my calendar", the Engine:
 
-1. Reads the available Vessels, their current variants, and the Chart dimensions
-2. Decides which Vessels to display and in which variants
-3. Returns actions to execute and a layout to apply
+1. Reads available Vessels, current variants, and Chart dimensions.
+2. Decides which Vessels to show and which actions to invoke.
+3. Returns an execution plan and layout directive.
 
-## Execution Order
+## Protocol
 
-When processing Engine responses, the client executes in this order:
+The Protocol defines the messages moving between client and engine. The client can use WebSocket, HTTP, or an in-memory connector, but the payload shape remains the same.
 
-1. **Execute actions** (transitions variants)
-2. **Get new sizes** (from variant `minSize`)
-3. **Apply layout** (CSS transforms)
-4. **Handle overflow**
+## Execution order
 
-This ordering is critical — layout depends on knowing the final sizes after variant transitions.
+When processing Engine responses, the client dispatches layout and actions as an atomic batch, applying them in this order:
+
+```mermaid
+flowchart LR
+  Layout["Apply layout"] --> Actions["Execute actions"]
+  Actions --> Sizes["Read new sizes"]
+  Sizes --> Overflow["Handle overflow"]
+```
+
+1. **Apply layout** using the layout directive the engine returned.
+2. **Execute actions** so variants can transition.
+3. **Read new sizes** from each resulting variant's `minSize`.
+4. **Handle overflow** if the requested arrangement does not fit.
+
+Layout is applied first because the engine already knows the target sizes when it produces the directive. Actions then transition variants, and the client resolves any size changes from variant transitions before handling overflow.

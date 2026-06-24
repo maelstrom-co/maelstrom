@@ -5,48 +5,53 @@ description: Install Maelstrom packages and configure your environment.
 
 import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
-## Packages
+Maelstrom is distributed as scoped packages so you can install only the layers your app needs. Most React apps start with `@maelstrom-co/react` in the browser and `@maelstrom-co/engine` on the server.
 
-Maelstrom is distributed as a set of scoped packages:
+## Packages
 
 | Package | Purpose |
 |---------|---------|
-| `@maelstrom-co/react` | React bindings — `createMaelstrom()`, `vessel()`, hooks, components |
+| `@maelstrom-co/react` | React bindings — `createMaelstrom()`, `vessel()`, hooks, Provider, Chart |
 | `@maelstrom-co/client` | Framework-agnostic client — Orchestrator, connectors, managers |
 | `@maelstrom-co/protocol` | Shared types, Zod schemas, message definitions |
 | `@maelstrom-co/engine` | Server-side LLM decision engine |
-| `@maelstrom-co/voice` | Voice capture, playback, VAD (optional) |
-| `@maelstrom-co/voice-server` | Backend voice runtime for STT, engine handoff, and TTS (optional) |
+
+## Minimal installs by use case
+
+| Use case | Install in the browser app | Install on the server |
+| --- | --- | --- |
+| React chart only | `@maelstrom-co/react` | An engine implementation, commonly `@maelstrom-co/engine` |
+| Framework-agnostic client | `@maelstrom-co/client @maelstrom-co/protocol` | An engine implementation |
+
+`@maelstrom-co/react` depends on the client and protocol packages and re-exports the vessel definition helper plus connector classes (`WebSocketConnector`, `HttpConnector`) you need to connect to the engine, so React apps only need to install `@maelstrom-co/react`. Install `@maelstrom-co/client` separately only if you are building a framework-agnostic client.
 
 ## Install
-
-Most applications need `@maelstrom-co/react` (which includes `client` and `protocol` as dependencies) and `@maelstrom-co/engine` for the server:
 
 <Tabs>
   <TabItem label="npm">
   ```bash
-  # Client-side
+  # Client-side React app
   npm install @maelstrom-co/react
 
-  # Server-side
+  # Server-side reference engine
   npm install @maelstrom-co/engine
   ```
   </TabItem>
   <TabItem label="bun">
   ```bash
-  # Client-side
+  # Client-side React app
   bun add @maelstrom-co/react
 
-  # Server-side
+  # Server-side reference engine
   bun add @maelstrom-co/engine
   ```
   </TabItem>
   <TabItem label="pnpm">
   ```bash
-  # Client-side
+  # Client-side React app
   pnpm add @maelstrom-co/react
 
-  # Server-side
+  # Server-side reference engine
   pnpm add @maelstrom-co/engine
   ```
   </TabItem>
@@ -55,50 +60,26 @@ Most applications need `@maelstrom-co/react` (which includes `client` and `proto
 ## Peer dependencies
 
 `@maelstrom-co/react` requires:
+
 - `react` >= 18.0.0
 - `react-dom` >= 18.0.0
 
 ## Environment variables
 
-The Engine requires an LLM provider API key:
+The demo engine uses Google Gemini. Set one of the following environment variables:
 
 ```bash
 # .env
-GOOGLE_GENERATIVE_AI_API_KEY=your-key  # Google Gemini
-OPENAI_API_KEY=your-key                # OpenAI
-ANTHROPIC_API_KEY=your-key             # Anthropic Claude
+GOOGLE_API_KEY=your-key        # Google Gemini (primary)
+GEMINI_API_KEY=your-key        # Alternative name for the same key
+WS_PORT=3001                   # Optional — WebSocket port (defaults to 3001)
 ```
 
 <Aside type="tip">
-  Only one LLM provider key is needed. Choose whichever provider you prefer.
+  The demo engine uses `@tanstack/ai-gemini` with `gemini-3.1-flash-lite-preview`. You can switch providers later by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
 </Aside>
 
-## Voice (optional)
+## Next steps
 
-For browser voice features, install the voice package:
-
-```bash
-npm install @maelstrom-co/voice
-```
-
-For full end-to-end voice, also install the backend runtime package:
-
-```bash
-npm install @maelstrom-co/voice-server
-```
-
-<Aside type="caution">
-  The voice package includes `onnxruntime-web` and model/runtime assets, which is why it's a separate optional package. Final download size varies by bundling and deployment setup.
-</Aside>
-
-## Voice Integration
-
-Full end-to-end voice integration needs both the browser-side packages and the backend runtime package. Install `@maelstrom-co/react-voice` and `@maelstrom-co/voice` in the app that captures microphone input and plays speech, then install `@maelstrom-co/voice-server` in the backend that runs the STT, engine, and TTS pipeline.
-
-| Package | Role | Install |
-|---------|------|---------|
-| `@maelstrom-co/react-voice` | React extension that adds `useVoice()` and `VoiceOrb` to a Maelstrom instance | `bun add @maelstrom-co/react-voice` |
-| `@maelstrom-co/voice` | Browser voice runtime for audio capture, playback, and VAD | `bun add @maelstrom-co/voice` |
-| `@maelstrom-co/voice-server` | Server runtime that orchestrates STT, engine processing, and TTS output | `bun add @maelstrom-co/voice-server` |
-
-If you only install the browser packages, you can build the client-side voice controls, but you still need `@maelstrom-co/voice-server` or an equivalent backend runtime to complete the full browser-to-server voice flow.
+- [Quick Start](/getting-started/quick-start/) — wire the smallest working chart
+- [Use a custom LLM provider](/guides/engine/custom-llm-providers/) — choose the model adapter for the reference engine

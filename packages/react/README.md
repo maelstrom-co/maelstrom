@@ -5,15 +5,17 @@ React bindings for Maelstrom — AI-orchestrated dynamic UIs.
 ## Install
 
 ```bash
-bun add @maelstrom-co/react @maelstrom-co/client @maelstrom-co/protocol
+bun add @maelstrom-co/react
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react @maelstrom-co/client @maelstrom-co/protocol`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react`
 
 ## What it does
 
 - **`createMaelstrom({ vessels })`** — factory that returns a typed Maelstrom instance — see bullets below for what it exposes
+- **`defineVessel(config)`** — declares the framework-agnostic vessel state machine
 - **`vessel(definition, component | loader, loadingComponent?)`** — pairs a vessel definition with a React component; `loadingComponent` is only used when a lazy loader is passed
+- **`WebSocketConnector` / `HttpConnector`** — client connectors re-exported for React apps
 - **`m.Provider`** — connects to the engine and owns all chart state; accepts any `EngineConnector`
 - **`m.Chart`** — renders the grid canvas; the engine emits layout directives that Chart renders as CSS positioning
 - **Hooks**
@@ -25,9 +27,7 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react @maelstrom-co/cli
 ## Quick example
 
 ```tsx
-import { createMaelstrom, vessel } from '@maelstrom-co/react';
-import { WebSocketConnector } from '@maelstrom-co/client';
-import { defineVessel } from '@maelstrom-co/protocol';
+import { createMaelstrom, defineVessel, vessel, WebSocketConnector } from '@maelstrom-co/react';
 
 const greetingVessel = vessel(
   defineVessel({
@@ -64,7 +64,7 @@ export function App() {
 - Quick start: https://docs.maelstrom-ai.co/getting-started/quick-start/
 - Core concepts: https://docs.maelstrom-ai.co/getting-started/core-concepts/
 - React guides: https://docs.maelstrom-ai.co/guides/react/creating-vessels/
-- API reference: https://docs.maelstrom-ai.co/reference/react/
+- API reference: https://docs.maelstrom-ai.co/reference/react/readme/
 
 ## License
 

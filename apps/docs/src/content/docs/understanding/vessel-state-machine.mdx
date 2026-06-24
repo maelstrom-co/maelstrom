@@ -3,4 +3,83 @@ title: The Vessel State Machine
 description: How Vessels model UI components as state machines with variants and actions.
 ---
 
-*Content coming soon.*
+A Vessel is a UI component described as a state machine. Variants are the states. Actions are the legal transitions or operations available from the current state. The engine can reason about the component because those states and transitions are explicit.
+
+```mermaid
+stateDiagram-v2
+  compact --> detailed: expand
+  detailed --> compact: collapse
+  compact --> compact: refresh
+  detailed --> detailed: refresh
+```
+
+## Why state machines fit orchestration
+
+An LLM needs to know what it may do safely. A regular React component can hide that behind arbitrary event handlers. A Vessel exposes the important parts: what states exist, how much room each state needs, and what actions can move between states.
+
+That gives the engine three useful facts:
+
+1. which actions are valid right now
+2. which variant an action will produce
+3. how much layout space the target variant needs
+
+## Variants are states
+
+A variant names one renderable state of the component. Each variant carries `props`, `minSize`, and `actions`.
+
+```ts
+variants: {
+  compact: {
+    props: { title: 'Inbox', unread: 3 },
+    minSize: { width: 2, height: 1 },
+    actions: [{ name: 'expand', description: 'Show message list.', transitionsTo: 'list' }],
+  },
+  list: {
+    props: { messages: [] as string[] },
+    minSize: { width: 4, height: 3 },
+    actions: [{ name: 'collapse', description: 'Return to summary.', transitionsTo: 'compact' }],
+  },
+}
+```
+
+`minSize` is part of the state because different states need different room. A collapsed card may fit in two cells; a detailed chart may need six.
+
+## Actions are transitions or operations
+
+An action with `transitionsTo` moves the Vessel to another variant. An action without `transitionsTo` stays in the current variant and lets your application perform work, such as saving data or refreshing content.
+
+Invalid transitions should fail early. If `transitionsTo` names a variant that does not exist, validation should reject the definition rather than waiting for the engine to discover the typo at runtime.
+
+## The execution order matters
+
+When an engine response arrives, the client applies the engine's layout directive before executing actions. The engine has already planned against the target variants, so the client can place Vessels first, run the requested transitions, then reconcile any resulting size changes during overflow handling.
+
+```mermaid
+sequenceDiagram
+  participant Engine
+  participant Client
+  participant Vessel
+  participant Chart
+
+  Engine->>Client: expand inbox and place it at 4 x 3
+  Client->>Chart: apply layout
+  Client->>Vessel: run expand
+  Client->>Vessel: read list.minSize
+  Client->>Chart: handle overflow if needed
+```
+
+This keeps the visual arrangement and action execution in the same response batch while preserving a final overflow pass for variants whose rendered size changed after the action.
+
+## Designing a good Vessel state machine
+
+- Keep variants meaningful to the user, not just to the implementation.
+- Give every action a plain-language description that explains when it should be used.
+- Use `transitionsTo` only when the visible state changes.
+- Keep `minSize` realistic; too-small values create cramped UI even when validation passes.
+- Prefer a few clear variants over many near-duplicates.
+
+## Next steps
+
+- [Creating Vessels](/guides/react/creating-vessels/) — define the first state machine in React
+- [Vessel Variants & Actions](/guides/react/variants-and-actions/) — wire actions and handlers
+- [How the LLM Orchestrates UI](/understanding/llm-orchestration/) — see how the engine uses this state machine

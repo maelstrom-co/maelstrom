@@ -15,11 +15,13 @@ A Vessel is Maelstrom's representation of a UI component — a definition that w
 
 By the end of this guide you will have:
 
-1. define a `greetingVessel` with a single variant and typed props
-2. build a React component that renders those props
-3. register the entry with `createMaelstrom()` and mount the Chart
+1. Define a `greetingVessel` with a single variant and typed props.
+2. Build a React component that renders those props.
+3. Register the entry with `createMaelstrom()` and mount the Chart.
 
 ## Define the vessel
+
+Descriptions are part of the runtime contract, not decoration. The engine reads the Vessel `description`, each variant description, and each action description to decide whether the component is relevant to a user's intent. Write them as product behavior, not implementation notes.
 
 Use `defineVessel` from `@maelstrom-co/protocol` to describe the vessel. It's an identity function at runtime: it returns the input as is and exists purely for type safety. Its `<const V>` signature captures the literal types of your variant names, action names, and prop shapes. Those types flow downstream so your component and action runners are fully typed. It also constrains the object to `VesselDefinition`, so mistakes are caught at the definition site rather than at runtime.
 

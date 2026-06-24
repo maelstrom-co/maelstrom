@@ -9,6 +9,8 @@ The protocol is the API surface that survives implementation changes. The curren
 
 ## Branded IDs
 
+A branded string is a normal string with a compile-time label attached. The label disappears at runtime, but TypeScript can still prevent you from passing a `VesselId` where a `SessionId` belongs.
+
 Every identifier is a branded string — structurally a `string`, nominally distinct.
 
 ```ts

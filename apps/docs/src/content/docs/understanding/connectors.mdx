@@ -3,12 +3,48 @@ title: Connectors
 description: How Connectors bridge the Maelstrom client to the engine backend.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+A Connector is the transport boundary between the Maelstrom client and the engine backend. It carries protocol messages, reports connection state, and keeps the UI from knowing whether the engine is reached through WebSocket, HTTP, or an in-memory test harness.
 
-<Aside type="caution">
-  This page is a stub. Full conceptual coverage is coming soon.
-</Aside>
+The connector should be boring. If it starts making layout decisions or hiding engine failures, it is doing work that belongs somewhere else.
 
-A Connector is the transport layer between the Maelstrom client and the engine backend. It handles opening the session, sending intents, and streaming responses back.
+## Where connectors fit
 
-For how to build a custom Connector, see [Custom Connectors](/guides/client/custom-connectors/).
+```mermaid
+flowchart TD
+  ReactApp["React app / client orchestrator"]
+  Connector["Connector<br/>transport adapter"]
+  Engine["Engine backend"]
+
+  ReactApp --> Connector
+  Connector --> Engine
+```
+
+The protocol defines the payload. The connector defines how that payload travels.
+
+## Common connector shapes
+
+| Connector shape | Fits when | Trade-off |
+| --- | --- | --- |
+| WebSocket | Interactive browser sessions | Requires connection lifecycle handling. |
+| HTTP | Simple request/response deployments | Less natural for streaming or long-lived sessions. |
+| In-memory | Tests, local harnesses, embedded demos | Not a browser deployment boundary. |
+
+## What a connector should own
+
+- Opening and closing the transport session.
+- Sending user intent or chart request messages.
+- Receiving engine responses and errors.
+- Updating connection status so the UI can disable or retry actions.
+
+## What a connector should not own
+
+- Choosing which Vessels appear.
+- Mutating Vessel state outside declared actions.
+- Converting provider-specific errors into user-facing policy by itself.
+
+Those responsibilities belong to the engine or application action handlers.
+
+## Next steps
+
+- [Connectors](/guides/client/custom-connectors/) — implement a transport adapter
+- [The Protocol](/understanding/protocol/) — understand the payload the connector carries

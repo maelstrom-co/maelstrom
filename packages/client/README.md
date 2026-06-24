@@ -12,7 +12,7 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/client @maelstrom-co/pr
 
 ## What it does
 
-- **Orchestrator** — executes actions then applies layout — see [Core Concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) for the full pipeline
+- **Orchestrator** — applies layout then executes actions — see [Core Concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) for the full pipeline
 - **Vessel registry** — registers vessel definitions so the engine knows what components are available
 - **Chart Manager** — tracks grid dimensions and applies engine layout directives as CSS positioning
 - **Connectors** — transport-agnostic contract:
