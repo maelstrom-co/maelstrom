@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/server/ws-server.ts & vite dev --port 3000",
+    "dev": "bun run src/server/ws-server.ts & bun run dev:agent & vite dev --port 3000",
     "dev:ws": "bun run src/server/ws-server.ts",
     "dev:client": "vite dev --port 3000",
+    "dev:agent": "cd voice-agent && node --env-file=../../../.env index.ts start",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
     "test": "bun test --pass-with-no-tests"
