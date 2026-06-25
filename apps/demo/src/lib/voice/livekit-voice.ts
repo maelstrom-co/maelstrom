@@ -119,45 +119,51 @@ export function liveKitVoice(
           const connect = useCallback(async (roomName: string) => {
             if (roomRef.current) return;
 
+            // Claim the slot synchronously, before any await, so a concurrent
+            // call (e.g. React StrictMode double-invoking the auto-join effect)
+            // sees roomRef set and returns instead of opening a second room.
+            const room = new Room();
+            roomRef.current = room;
             setStatus('connecting');
+
+            room.on(RoomEvent.Connected, () => setStatus('connected'));
+            room.on(RoomEvent.Disconnected, () => {
+              // Ignore a superseded room's late Disconnected — only the active
+              // room may clear the ref.
+              if (roomRef.current !== room) return;
+              roomRef.current = null;
+              setStatus('disconnected');
+            });
+            room.on(RoomEvent.Reconnecting, () => setStatus('connecting'));
+            room.on(RoomEvent.Reconnected, () => setStatus('connected'));
+
+            room.on(RoomEvent.TranscriptionReceived, (segments) => {
+              const finals = segments.filter((s) => s.final);
+              if (finals.length === 0) return;
+              const text = finals
+                .map((s) => s.text)
+                .join(' ')
+                .trim();
+              if (!text) return;
+              setCurrentTranscript(text);
+              void seams.current.onTranscript(text);
+            });
+
+            // Attach the agent's TTS audio track to a hidden sink so it plays.
+            room.on(RoomEvent.TrackSubscribed, (track) => {
+              if (track.kind !== Track.Kind.Audio) return;
+              attachAudioTrack(track, audioElRef);
+            });
+
+            // Surface the conditional "tap to enable sound" affordance only
+            // when the browser actually blocks playback.
+            room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+              setAudioBlocked(!room.canPlaybackAudio);
+            });
+
             try {
               const { token, url } = await getLivekitToken({
                 data: { roomName },
-              });
-
-              const room = new Room();
-              roomRef.current = room;
-
-              room.on(RoomEvent.Connected, () => setStatus('connected'));
-              room.on(RoomEvent.Disconnected, () => {
-                setStatus('disconnected');
-                roomRef.current = null;
-              });
-              room.on(RoomEvent.Reconnecting, () => setStatus('connecting'));
-              room.on(RoomEvent.Reconnected, () => setStatus('connected'));
-
-              room.on(RoomEvent.TranscriptionReceived, (segments) => {
-                const finals = segments.filter((s) => s.final);
-                if (finals.length === 0) return;
-                const text = finals
-                  .map((s) => s.text)
-                  .join(' ')
-                  .trim();
-                if (!text) return;
-                setCurrentTranscript(text);
-                void seams.current.onTranscript(text);
-              });
-
-              // Attach the agent's TTS audio track to a hidden sink so it plays.
-              room.on(RoomEvent.TrackSubscribed, (track) => {
-                if (track.kind !== Track.Kind.Audio) return;
-                attachAudioTrack(track, audioElRef);
-              });
-
-              // Surface the conditional "tap to enable sound" affordance only
-              // when the browser actually blocks playback.
-              room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
-                setAudioBlocked(!room.canPlaybackAudio);
               });
 
               await room.connect(url, token);
@@ -176,8 +182,14 @@ export function liveKitVoice(
               setAudioBlocked(!room.canPlaybackAudio);
             } catch (err) {
               console.error('[liveKitVoice] connect failed', err);
-              roomRef.current = null;
-              setStatus('error');
+              // Tear down the orphaned room; only clear the ref + flag error if
+              // this room is still the active one (a newer connect may have
+              // superseded it).
+              void room.disconnect();
+              if (roomRef.current === room) {
+                roomRef.current = null;
+                setStatus('error');
+              }
             }
           }, []);
 
