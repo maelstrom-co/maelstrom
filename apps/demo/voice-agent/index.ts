@@ -18,6 +18,7 @@ import {
   AudioSource,
   LocalAudioTrack,
   RoomEvent,
+  TrackKind,
   TrackPublishOptions,
   TrackSource,
   AudioStream,
@@ -95,13 +96,19 @@ export default defineAgent({
     async function processAudioTrack(
       track: import('@livekit/rtc-node').RemoteTrack,
     ) {
+      console.error('[voice-agent] processAudioTrack start', track.sid);
       const audioStream = new AudioStream(track);
       const speechStream = deepgramSTT.stream();
       let segmentCounter = 0;
+      let frameCount = 0;
 
       // Pipe audio frames into the STT stream
       const pipeTask = (async () => {
         for await (const frame of audioStream) {
+          frameCount++;
+          if (frameCount % 100 === 0) {
+            console.error('[voice-agent] audio frames piped', frameCount);
+          }
           speechStream.pushFrame(frame);
         }
       })();
@@ -116,6 +123,7 @@ export default defineAgent({
               type?: string;
             };
             if (msg.type === 'turn_end') {
+              console.error('[voice-agent] turn_end received, flushing STT');
               speechStream.flush();
             }
           } catch {
@@ -126,9 +134,11 @@ export default defineAgent({
 
       // Consume STT events and publish final transcripts back to the client
       for await (const event of speechStream) {
+        console.error('[voice-agent] STT event', event.type);
         if (event.type !== stt.SpeechEventType.FINAL_TRANSCRIPT) continue;
         const text = event.alternatives?.[0]?.text?.trim();
         if (!text) continue;
+        console.error('[voice-agent] FINAL transcript:', text);
 
         segmentCounter++;
         const segmentId = `seg-${segmentCounter}`;
@@ -156,15 +166,34 @@ export default defineAgent({
     }
 
     // Handle tracks already published when agent joins
+    console.error(
+      '[voice-agent] user joined, existing publications:',
+      userParticipant.trackPublications.size,
+    );
     for (const [, publication] of userParticipant.trackPublications) {
-      if (publication.kind === 'audio' && publication.track) {
+      console.error(
+        '[voice-agent] existing pub',
+        publication.kind,
+        'subscribed track?',
+        !!publication.track,
+      );
+      if (publication.kind === TrackKind.KIND_AUDIO && publication.track) {
         void processAudioTrack(publication.track);
       }
     }
 
     // Handle tracks published after agent joins
     room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
-      if (participant.identity !== 'user' || track.kind !== 'audio') return;
+      console.error(
+        '[voice-agent] TrackSubscribed',
+        participant.identity,
+        track.kind,
+      );
+      if (
+        participant.identity !== 'user' ||
+        track.kind !== TrackKind.KIND_AUDIO
+      )
+        return;
       void processAudioTrack(track as import('@livekit/rtc-node').RemoteTrack);
     });
   },

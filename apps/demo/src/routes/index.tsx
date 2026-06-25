@@ -153,6 +153,7 @@ function VoiceInput() {
   const {
     status,
     currentTranscript,
+    micLevel,
     enabled,
     audioBlocked,
     setEnabled,
@@ -161,6 +162,17 @@ function VoiceInput() {
     enableAudio,
   } = m.voice.useVoice();
   const roomName = useMemo(() => `maelstrom-${nanoid()}`, []);
+  const [talking, setTalking] = useState(false);
+
+  const beginTalk = () => {
+    setTalking(true);
+    void startTalking();
+  };
+  const endTalk = () => {
+    if (!talking) return;
+    setTalking(false);
+    void stopTalking();
+  };
 
   // First-visit ask, then remember: return visits auto-join + auto-enable; first
   // visit waits for the explicit toggle click (gesture + consent).
@@ -223,15 +235,35 @@ function VoiceInput() {
       <button
         type="button"
         disabled={!enabled || status !== 'connected'}
-        onMouseDown={() => void startTalking()}
-        onMouseUp={() => void stopTalking()}
-        onMouseLeave={() => void stopTalking()}
-        className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed px-4 py-2 rounded-lg text-sm font-medium transition-colors select-none"
+        onMouseDown={beginTalk}
+        onMouseUp={endTalk}
+        onMouseLeave={endTalk}
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors select-none disabled:bg-gray-800 disabled:cursor-not-allowed ${
+          talking
+            ? 'bg-red-600 ring-2 ring-red-400 animate-pulse'
+            : 'bg-gray-700 hover:bg-gray-600'
+        }`}
         aria-label="Hold to speak"
+        aria-pressed={talking}
       >
         <span>🎤</span>
-        <span>Hold to speak</span>
+        <span>{talking ? 'Listening…' : 'Hold to speak'}</span>
       </button>
+
+      {/* Live mic level — proves the browser is capturing while you hold. */}
+      {talking && (
+        <div className="flex items-center gap-1" aria-label="Mic input level">
+          <div className="h-3 w-32 rounded bg-gray-700 overflow-hidden">
+            <div
+              className="h-full bg-green-500 transition-[width] duration-75"
+              style={{ width: `${Math.min(100, Math.round(micLevel * 300))}%` }}
+            />
+          </div>
+          <span className="text-xs tabular-nums text-gray-400">
+            {Math.round(micLevel * 100)}
+          </span>
+        </div>
+      )}
 
       {/* Conditional "tap to enable sound" — only when playback is actually blocked */}
       {enabled && audioBlocked && (

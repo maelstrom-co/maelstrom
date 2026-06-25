@@ -33,6 +33,8 @@ export type VoiceStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 export interface VoiceAPI {
   status: VoiceStatus;
   currentTranscript: string;
+  /** Live mic input level 0..1 (RMS) while talking — 0 when muted/idle. Proves capture. */
+  micLevel: number;
   /** Whether the master voice switch is on (room joined / joining). */
   enabled: boolean;
   /** True when the browser is blocking audio playback (needs a gesture to unlock). */
@@ -75,10 +77,15 @@ export function liveKitVoice(
 
           const roomRef = useRef<Room | null>(null);
           const audioElRef = useRef<HTMLAudioElement | null>(null);
+          const meterRef = useRef<{
+            ctx: AudioContext;
+            raf: number;
+          } | null>(null);
           const [status, setStatus] = useState<VoiceStatus>('disconnected');
           const [enabled, setEnabledState] = useState(false);
           const [audioBlocked, setAudioBlocked] = useState(false);
           const [currentTranscript, setCurrentTranscript] = useState('');
+          const [micLevel, setMicLevel] = useState(0);
 
           const speak = useRef<SpeakTransport>(
             createSpeakTransport(() => roomRef.current),
@@ -112,6 +119,7 @@ export function liveKitVoice(
 
           useEffect(() => {
             return () => {
+              stopMetering();
               roomRef.current?.disconnect();
             };
           }, []);
@@ -167,14 +175,15 @@ export function liveKitVoice(
               });
 
               await room.connect(url, token);
-              // Publish mic track muted — unmute on startTalking
+              // Publish the mic track, then mute it via the SAME API used by
+              // start/stopTalking. Muting through setMicrophoneEnabled (not a
+              // direct track.mute()) keeps the publication's enabled flag in
+              // sync, so startTalking's setMicrophoneEnabled(true) is a real
+              // false→true toggle that actually unmutes. A direct track.mute()
+              // leaves the publication "enabled", making the later enable a
+              // silent no-op — the mic would never reopen.
               await room.localParticipant.setMicrophoneEnabled(true);
-              const micTrack = [
-                ...room.localParticipant.trackPublications.values(),
-              ].find((p) => p.kind === 'audio');
-              if (micTrack?.track) {
-                await micTrack.track.mute();
-              }
+              await room.localParticipant.setMicrophoneEnabled(false);
 
               // Proactive return-visit detection: read canPlaybackAudio right
               // after join (LiveKit reports the blocked state silently, before
@@ -226,13 +235,56 @@ export function liveKitVoice(
             [connect, disconnect, enableAudio],
           );
 
+          // Tap the live mic MediaStreamTrack with a Web Audio analyser and
+          // publish its RMS as micLevel each frame. Gives the UI a direct,
+          // pipeline-independent "the browser is hearing you" signal.
+          const startMetering = useCallback(
+            (mediaStreamTrack: MediaStreamTrack) => {
+              stopMetering();
+              const Ctx =
+                window.AudioContext ??
+                (
+                  window as unknown as {
+                    webkitAudioContext: typeof AudioContext;
+                  }
+                ).webkitAudioContext;
+              const ctx = new Ctx();
+              const source = ctx.createMediaStreamSource(
+                new MediaStream([mediaStreamTrack]),
+              );
+              const analyser = ctx.createAnalyser();
+              analyser.fftSize = 256;
+              source.connect(analyser);
+              const data = new Uint8Array(analyser.fftSize);
+              const tick = () => {
+                analyser.getByteTimeDomainData(data);
+                let sum = 0;
+                for (const v of data) {
+                  const x = (v - 128) / 128;
+                  sum += x * x;
+                }
+                setMicLevel(Math.sqrt(sum / data.length));
+                const raf = requestAnimationFrame(tick);
+                if (meterRef.current) meterRef.current.raf = raf;
+              };
+              meterRef.current = { ctx, raf: requestAnimationFrame(tick) };
+            },
+            [],
+          );
+
           const startTalking = useCallback(async () => {
             const room = roomRef.current;
             if (!room) return;
             await room.localParticipant.setMicrophoneEnabled(true);
-          }, []);
+            const mst = [
+              ...room.localParticipant.trackPublications.values(),
+            ].find((p) => p.kind === 'audio')?.track?.mediaStreamTrack;
+            if (mst) startMetering(mst);
+          }, [startMetering]);
 
           const stopTalking = useCallback(async () => {
+            stopMetering();
+            setMicLevel(0);
             const room = roomRef.current;
             if (!room) return;
             // Signal the agent to flush its STT buffer
@@ -244,9 +296,20 @@ export function liveKitVoice(
             await room.localParticipant.setMicrophoneEnabled(false);
           }, []);
 
+          // Stop the analyser loop + free the AudioContext. Stable identity
+          // (no deps) so startTalking/cleanup can call it without churn.
+          function stopMetering() {
+            const meter = meterRef.current;
+            if (!meter) return;
+            cancelAnimationFrame(meter.raf);
+            void meter.ctx.close();
+            meterRef.current = null;
+          }
+
           return {
             status,
             currentTranscript,
+            micLevel,
             enabled,
             audioBlocked,
             setEnabled,
