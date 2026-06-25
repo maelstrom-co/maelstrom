@@ -1,3 +1,8 @@
+// The `_` prefix keeps this file out of Astro's router: every non-underscore
+// file under src/pages/ becomes a route, which turned this test into a
+// prerendered `/api/waitlist.test` endpoint and failed the build on its
+// top-level `bun:test` import. The underscore lets it stay colocated with the
+// route it covers without shipping as an endpoint. `bun test` still picks it up.
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
 const contactsCreate = mock(async () => ({ data: { id: 'c1' }, error: null }));
