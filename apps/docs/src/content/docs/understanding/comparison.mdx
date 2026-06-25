@@ -1,0 +1,49 @@
+---
+title: How Maelstrom compares
+description: Maelstrom vs chat-UI libraries (Vercel AI SDK, assistant-ui, ChatKit, Tambo) and agent frameworks (LangGraph, CopilotKit/AG-UI).
+---
+
+Maelstrom does a different job from most AI-UI tooling: a model arranges, resizes, transitions, and invokes the components **you** designed on a spatial layout surface — it never generates new ones. A fair comparison needs two tables: the libraries we genuinely compete with, and the frameworks we sit *on top of*.
+
+:::note
+Compiled from public docs and changelogs, June 2026. Spot an error? [Open an issue](https://github.com/maelstrom-co/maelstrom) — we'd rather be corrected than wrong.
+:::
+
+## Libraries that orchestrate or generate UI (where we compete)
+
+The axis that matters: **does the AI arrange spatial layout over _your_ stateful components — or render into a chat thread / generate throwaway UI?**
+
+| | UI surface | Whose components | AI arranges layout? | Component model | Where *they* win today |
+|---|---|---|---|---|---|
+| **Maelstrom** | **spatial surface (tiling/grid)** | **yours, pre-built** | **yes — tiling & grid** | **typed state machine + size-aware variants** | — *(pre-1.0; smallest ecosystem)* |
+| **Tambo** | chat thread / inline | yours, registered | no — inline render + prop updates | props via Zod schema | mature fullstack, MCP, hosted state |
+| **CopilotKit** | copilot / chat | your app's | no | actions + state sync | large ecosystem; in-app copilot + state sync; rides AG-UI |
+| **assistant-ui** | chat thread | chat-embedded | no | message parts / tool-UI | mature chat primitives (we ship none) |
+| **Thesys C1** | generated at runtime | C1-generated, prebuilt renderers | n/a — generated | C1 DSL + prebuilt renderers | zero component inventory needed |
+| **Vercel AI SDK** | chat + generative-UI primitives | tool-call slots | no | typed tools | transport maturity, framework + provider reach |
+| **OpenAI ChatKit** | embedded chat widget | in-thread widgets | no | widgets | official drop-in branded chat for the OpenAI stack |
+
+Every option here either renders into a conversation, generates UI from scratch, or both. None give the model a spatial layout surface over your pre-built, stateful components. Tambo is the closest — it lets the model pick *your* registered components — but it renders them inline and never decides layout or state transitions. That gap — layout orchestration plus state-machine Vessels — is what Maelstrom is for.
+
+## Frameworks Maelstrom sits on top of (where we complement)
+
+These aren't competitors; they're substrate. Maelstrom is the UI-orchestration layer their output can feed.
+
+| | What it is | How it pairs with Maelstrom |
+|---|---|---|
+| **LangGraph** | backend agent / graph orchestration (no end-user UI) | runs the agent loop; Maelstrom is the spatial UI its decisions drive |
+| **AG-UI** (protocol) | agent ↔ app transport | a transport Maelstrom can ride — already on AG-UI? Maelstrom is the layout layer on top |
+| **Vercel AI SDK** | streaming + typed tool-call transport | Maelstrom can consume its tool-call stream as the intent signal |
+
+On CopilotKit and AG-UI specifically — the product and the protocol are different things: we compete with the CopilotKit copilot experience, and co-exist with AG-UI the protocol. If you've adopted AG-UI, Maelstrom sits on top of it — we're the layout layer, not another copilot framework.
+
+## Where Maelstrom is the wrong tool
+
+Maelstrom earns its keep only when the right layout *changes* with intent. If the layout should stay fixed, you don't need an orchestrator:
+
+- **Static or brand-critical surfaces** — marketing pages, blogs, landing and hero sections. Every pixel is intentional; rearrangement is a liability, not a feature.
+- **Layouts fixed by mandate** — when the arrangement is legally or procedurally required. (Bounded, deterministic transitions can still fit *regulated* domains — the non-fit is a layout that must not move at all.)
+- **High-stakes, one-shot flows** — a wire transfer, an irreversible admin step. A deliberate, fixed workflow beats fluid rearrangement when getting it right *once* matters more than getting it right *fast*.
+- **Single-purpose screens** — one thing to show, one way to show it; an orchestrator is overkill.
+
+A design rule, not a non-fit: **keep a human in the loop for irreversible actions.** Maelstrom invokes only the actions you expose, so don't wire "send $10k" or "submit the order" to fire from intent alone — gate them behind explicit confirmation. Reversible, low-stakes actions like logging a blood-pressure reading are exactly the fit.

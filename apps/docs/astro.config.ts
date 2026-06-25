@@ -308,6 +308,7 @@ export default defineConfig({
           label: 'Understanding',
           items: [
             { slug: 'understanding/why-maelstrom' },
+            { slug: 'understanding/comparison' },
             { slug: 'understanding/architecture' },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },

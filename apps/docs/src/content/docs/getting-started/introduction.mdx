@@ -7,7 +7,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Most product interfaces assume that developers can predict the screen a user will need before the user asks for it. That works for fixed workflows, but it breaks down in AI-powered applications where the useful interface changes with the user's intent, the available tools, and the space on screen.
 
-Maelstrom is an AI-orchestrated dynamic UI framework. You define the components your product can show, and an LLM acts as an orchestrator that chooses which components to display, which state each component should enter, and how those components should fit inside the available chart.
+**Maelstrom orchestrates the components you designed.** It's an open-source library for AI-orchestrated UI: you author your components as Vessels — typed state machines with variants and size hints — and a model arranges, resizes, and invokes them on a spatial layout surface, by intent, in real time. It arranges the interface you designed; it never generates one.
 
 ## What problem does it solve?
 
