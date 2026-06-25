@@ -35,11 +35,12 @@ process.on('uncaughtException', (err) => {
 
 export default defineAgent({
   entry: async (ctx: JobContext) => {
+    // Connect the agent to the room first — waitForParticipant requires a
+    // connected room, and the agent must be joined to publish transcriptions.
+    await ctx.connect();
+
     // Wait for the user participant to join
     const userParticipant = await ctx.waitForParticipant('user');
-
-    // Connect the agent to the room so it can publish transcriptions
-    await ctx.connect();
 
     const deepgramSTT = new STT({
       apiKey: process.env.DEEPGRAM_API_KEY,
