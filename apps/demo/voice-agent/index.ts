@@ -8,7 +8,7 @@
  * No agent LLM — the Maelstrom engine is the only orchestrator. The client receives the
  * transcript (onTranscript → processIntent) and sends the userMessage to speak (onResponse).
  *
- * Run: node --env-file=../../.env index.ts start
+ * Run (from this dir): node --env-file=../../../.env index.ts start
  */
 
 import { cli, defineAgent, stt, type JobContext } from '@livekit/agents';
