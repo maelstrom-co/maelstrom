@@ -11,7 +11,7 @@
  * Run (from this dir): node --env-file=../../../.env index.ts start
  */
 
-import { cli, defineAgent, stt, type JobContext } from '@livekit/agents';
+import { cli, defineAgent, stt, tts, type JobContext } from '@livekit/agents';
 import { STT } from '@livekit/agents-plugin-deepgram';
 import { TTS } from '@livekit/agents-plugin-cartesia';
 import {
@@ -57,6 +57,9 @@ export default defineAgent({
     // into its shared AudioSource. Cartesia reads CARTESIA_API_KEY from env and
     // defaults to the sonic-3 model + default voice.
     const cartesiaTTS = new TTS();
+    cartesiaTTS.on('error', (e) => {
+      console.error('[voice-agent] Cartesia TTS error event:', e);
+    });
     const ttsSource = new AudioSource(
       cartesiaTTS.sampleRate,
       cartesiaTTS.numChannels,
@@ -74,16 +77,31 @@ export default defineAgent({
     async function speak(text: string) {
       const trimmed = text.trim();
       if (!trimmed) return;
-      const stream = cartesiaTTS.synthesize(trimmed);
+      console.error('[voice-agent] TTS synthesize start:', trimmed);
+      // Use the websocket streaming path (`stream()`), NOT `synthesize()`.
+      // The Cartesia plugin unconditionally sets `max_buffer_delay_ms` in the
+      // request body, which the HTTP `/tts/bytes` endpoint (used by
+      // `synthesize()`) rejects with HTTP 400 — yielding zero audio frames and
+      // no thrown error. The field is only valid on the websocket endpoint.
+      const stream = cartesiaTTS.stream();
+      stream.pushText(trimmed);
+      stream.flush();
+      stream.endInput();
+      let frames = 0;
       for await (const audio of stream) {
+        if (audio === tts.SynthesizeStream.END_OF_STREAM) break;
+        frames++;
         await ttsSource.captureFrame(audio.frame);
       }
+      stream.close();
+      console.error('[voice-agent] TTS synthesize done, frames:', frames);
     }
 
     // Client sends the response's userMessage over the `speak` text stream.
     room.registerTextStreamHandler(SPEAK_TOPIC, (reader) => {
       void (async () => {
         const text = await reader.readAll();
+        console.error('[voice-agent] speak stream received:', text);
         speakChain = speakChain
           .then(() => speak(text))
           .catch((err) => {
@@ -100,15 +118,42 @@ export default defineAgent({
       const audioStream = new AudioStream(track);
       const speechStream = deepgramSTT.stream();
       let segmentCounter = 0;
-      let frameCount = 0;
+
+      // Push-to-talk turn buffer. Deepgram endpointing emits a FINAL transcript
+      // at every natural pause, so one held utterance can yield several finals.
+      // We accumulate them and publish ONE combined transcript per hold (on
+      // turn_end), so the orchestrator gets a single intent per press — not a
+      // chunk per pause.
+      const turnBuffer: string[] = [];
+      let emitTimer: ReturnType<typeof setTimeout> | null = null;
+      const emitTurn = () => {
+        emitTimer = null;
+        const text = turnBuffer.join(' ').replace(/\s+/g, ' ').trim();
+        turnBuffer.length = 0;
+        if (!text) return;
+        segmentCounter++;
+        const now = BigInt(Date.now()) * 1_000_000n; // nanoseconds
+        console.error('[voice-agent] turn transcript emitted:', text);
+        // publishTranscription triggers RoomEvent.TranscriptionReceived on the client
+        void room.localParticipant.publishTranscription({
+          participantIdentity: userParticipant.identity,
+          trackSid: '',
+          segments: [
+            {
+              id: `seg-${segmentCounter}`,
+              text,
+              startTime: now,
+              endTime: now,
+              language: 'en-US',
+              final: true,
+            },
+          ],
+        });
+      };
 
       // Pipe audio frames into the STT stream
       const pipeTask = (async () => {
         for await (const frame of audioStream) {
-          frameCount++;
-          if (frameCount % 100 === 0) {
-            console.error('[voice-agent] audio frames piped', frameCount);
-          }
           speechStream.pushFrame(frame);
         }
       })();
@@ -125,6 +170,10 @@ export default defineAgent({
             if (msg.type === 'turn_end') {
               console.error('[voice-agent] turn_end received, flushing STT');
               speechStream.flush();
+              // Grace window for the trailing final the flush produces, then
+              // emit the whole hold as one transcript.
+              if (emitTimer) clearTimeout(emitTimer);
+              emitTimer = setTimeout(emitTurn, 600);
             }
           } catch {
             // ignore malformed data
@@ -132,33 +181,13 @@ export default defineAgent({
         },
       );
 
-      // Consume STT events and publish final transcripts back to the client
+      // Buffer each final; the turn_end handler joins them into one transcript.
       for await (const event of speechStream) {
-        console.error('[voice-agent] STT event', event.type);
         if (event.type !== stt.SpeechEventType.FINAL_TRANSCRIPT) continue;
         const text = event.alternatives?.[0]?.text?.trim();
         if (!text) continue;
-        console.error('[voice-agent] FINAL transcript:', text);
-
-        segmentCounter++;
-        const segmentId = `seg-${segmentCounter}`;
-        const now = BigInt(Date.now()) * 1_000_000n; // nanoseconds
-
-        // publishTranscription triggers RoomEvent.TranscriptionReceived on the client
-        await room.localParticipant.publishTranscription({
-          participantIdentity: userParticipant.identity,
-          trackSid: '',
-          segments: [
-            {
-              id: segmentId,
-              text,
-              startTime: now,
-              endTime: now,
-              language: 'en-US',
-              final: true,
-            },
-          ],
-        });
+        console.error('[voice-agent] FINAL transcript (buffered):', text);
+        turnBuffer.push(text);
       }
 
       await pipeTask;
