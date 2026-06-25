@@ -55,6 +55,7 @@ mock.module('livekit-client', () => ({
   },
   Track: { Kind: { Audio: 'audio' } },
   DataPacket_Kind: { RELIABLE: 0 },
+  setLogLevel: mock(() => {}),
 }));
 
 // --- Mocks for get-livekit-token ---

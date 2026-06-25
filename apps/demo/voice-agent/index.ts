@@ -77,7 +77,6 @@ export default defineAgent({
     async function speak(text: string) {
       const trimmed = text.trim();
       if (!trimmed) return;
-      console.error('[voice-agent] TTS synthesize start:', trimmed);
       // Use the websocket streaming path (`stream()`), NOT `synthesize()`.
       // The Cartesia plugin unconditionally sets `max_buffer_delay_ms` in the
       // request body, which the HTTP `/tts/bytes` endpoint (used by
@@ -87,21 +86,17 @@ export default defineAgent({
       stream.pushText(trimmed);
       stream.flush();
       stream.endInput();
-      let frames = 0;
       for await (const audio of stream) {
         if (audio === tts.SynthesizeStream.END_OF_STREAM) break;
-        frames++;
         await ttsSource.captureFrame(audio.frame);
       }
       stream.close();
-      console.error('[voice-agent] TTS synthesize done, frames:', frames);
     }
 
     // Client sends the response's userMessage over the `speak` text stream.
     room.registerTextStreamHandler(SPEAK_TOPIC, (reader) => {
       void (async () => {
         const text = await reader.readAll();
-        console.error('[voice-agent] speak stream received:', text);
         speakChain = speakChain
           .then(() => speak(text))
           .catch((err) => {
@@ -114,7 +109,6 @@ export default defineAgent({
     async function processAudioTrack(
       track: import('@livekit/rtc-node').RemoteTrack,
     ) {
-      console.error('[voice-agent] processAudioTrack start', track.sid);
       const audioStream = new AudioStream(track);
       const speechStream = deepgramSTT.stream();
       let segmentCounter = 0;
@@ -133,7 +127,6 @@ export default defineAgent({
         if (!text) return;
         segmentCounter++;
         const now = BigInt(Date.now()) * 1_000_000n; // nanoseconds
-        console.error('[voice-agent] turn transcript emitted:', text);
         // publishTranscription triggers RoomEvent.TranscriptionReceived on the client
         void room.localParticipant.publishTranscription({
           participantIdentity: userParticipant.identity,
@@ -168,7 +161,6 @@ export default defineAgent({
               type?: string;
             };
             if (msg.type === 'turn_end') {
-              console.error('[voice-agent] turn_end received, flushing STT');
               speechStream.flush();
               // Grace window for the trailing final the flush produces, then
               // emit the whole hold as one transcript.
@@ -186,7 +178,6 @@ export default defineAgent({
         if (event.type !== stt.SpeechEventType.FINAL_TRANSCRIPT) continue;
         const text = event.alternatives?.[0]?.text?.trim();
         if (!text) continue;
-        console.error('[voice-agent] FINAL transcript (buffered):', text);
         turnBuffer.push(text);
       }
 
@@ -195,17 +186,7 @@ export default defineAgent({
     }
 
     // Handle tracks already published when agent joins
-    console.error(
-      '[voice-agent] user joined, existing publications:',
-      userParticipant.trackPublications.size,
-    );
     for (const [, publication] of userParticipant.trackPublications) {
-      console.error(
-        '[voice-agent] existing pub',
-        publication.kind,
-        'subscribed track?',
-        !!publication.track,
-      );
       if (publication.kind === TrackKind.KIND_AUDIO && publication.track) {
         void processAudioTrack(publication.track);
       }
@@ -213,11 +194,6 @@ export default defineAgent({
 
     // Handle tracks published after agent joins
     room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
-      console.error(
-        '[voice-agent] TrackSubscribed',
-        participant.identity,
-        track.kind,
-      );
       if (
         participant.identity !== 'user' ||
         track.kind !== TrackKind.KIND_AUDIO

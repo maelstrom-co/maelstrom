@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Room, RoomEvent, Track } from 'livekit-client';
+import { Room, RoomEvent, Track, setLogLevel } from 'livekit-client';
 import type { RemoteTrack } from 'livekit-client';
 import type { MaelstromExtension } from '@maelstrom-co/react';
 import { getLivekitToken } from './get-livekit-token';
 import { defaultSeams } from './seams';
 import type { ShouldSpeak, SpeakTransport, VoiceSeams } from './seams';
+
+// Quiet the livekit-client SDK's verbose signal/connection logging (which dumps
+// the full connect URL on every join). Warnings and errors still surface.
+setLogLevel('warn');
 
 /** Text-stream topic the client uses to send TTS requests to the worker. */
 export const SPEAK_TOPIC = 'speak';
