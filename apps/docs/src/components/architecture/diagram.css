@@ -1,0 +1,291 @@
+/* Theme-aware via Starlight CSS variables. The diagram is a single SVG stage
+   (fixed viewBox 1000x520) so cards, beams, bands, and the camera share one
+   coordinate space and scale uniformly. Light = crisp/glow-free; dark = hero
+   panel with glow. Motion is content and is NOT gated on reduced-motion. */
+.arch {
+  --arch-border: var(--sl-color-gray-5);
+  --arch-panel:
+    radial-gradient(120% 90% at 18% -10%, color-mix(in srgb, var(--sl-color-accent) 7%, transparent), transparent 55%),
+    linear-gradient(165deg, var(--sl-color-gray-7), var(--sl-color-gray-6));
+  --arch-rail: var(--sl-color-gray-4);
+  --arch-rail-dim: var(--sl-color-gray-5);
+  --arch-beam-req: #0284c7;
+  --arch-beam-res: #7c3aed;
+  --arch-beam-dep: var(--sl-color-accent);
+  --arch-glow: 0 0 0 transparent;
+  --arch-band: rgba(15, 23, 42, 0.022);
+  --arch-band-contract: rgba(2, 132, 199, 0.06);
+  --arch-band-label: rgba(15, 23, 42, 0.34);
+  --arch-node-bg: linear-gradient(180deg, #ffffff, var(--sl-color-gray-7));
+  --arch-node-border: var(--sl-color-gray-4);
+  --arch-node-shadow: 0 6px 16px -10px rgba(15, 23, 42, 0.5);
+  --arch-node-text: #0f172a;
+  --arch-accent: var(--sl-color-accent);
+  --arch-subtitle-bg: rgba(255, 255, 255, 0.72);
+
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+:root[data-theme='dark'] .arch {
+  --arch-border: rgba(148, 163, 184, 0.16);
+  --arch-panel:
+    radial-gradient(120% 90% at 16% -10%, rgba(56, 189, 248, 0.1), transparent 55%),
+    radial-gradient(120% 90% at 86% 110%, rgba(167, 139, 250, 0.1), transparent 55%),
+    linear-gradient(165deg, #0b1018, #070a10);
+  --arch-rail: rgba(148, 163, 184, 0.34);
+  --arch-rail-dim: rgba(148, 163, 184, 0.18);
+  --arch-beam-req: #38bdf8;
+  --arch-beam-res: #a78bfa;
+  --arch-beam-dep: var(--sl-color-accent-high);
+  --arch-glow: 0 0 5px currentColor;
+  --arch-band: rgba(148, 163, 184, 0.028);
+  --arch-band-contract: rgba(56, 189, 248, 0.06);
+  --arch-band-label: rgba(148, 163, 184, 0.5);
+  --arch-node-bg: linear-gradient(180deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.94));
+  --arch-node-border: rgba(148, 163, 184, 0.24);
+  --arch-node-shadow: 0 12px 30px -14px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --arch-node-text: #e2e8f0;
+  --arch-accent: var(--sl-color-accent-high);
+  --arch-subtitle-bg: rgba(8, 12, 20, 0.62);
+}
+
+/* The stage: a responsive box locked to the viewBox aspect ratio, clipping the
+   camera. */
+.arch-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1000 / 520;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--arch-border);
+  background: var(--arch-panel);
+  box-shadow: 0 22px 60px -38px rgba(0, 0, 0, 0.5);
+}
+.arch-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* The camera. Phase B drives `transform` per beat; the transition makes pan/zoom
+   smooth. transform-origin 0 0 so translate is in raw stage units. */
+.arch-camera {
+  transform-origin: 0 0;
+  transition: transform 1.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Cinematic subtitle: the current beat, overlaid at the bottom of the stage
+   (outside the camera, so it stays put while the diagram pans/zooms). */
+.arch-subtitle {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: 86%;
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--arch-node-text);
+  background: var(--arch-subtitle-bg);
+  padding: 0.4rem 1.1rem;
+  border-radius: 12px;
+  border: 1px solid var(--arch-node-border);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Label bands — the deployment zones as quiet background, no glass boxes. */
+.arch-band__fill { fill: var(--arch-band); }
+.arch-band--contract .arch-band__fill { fill: var(--arch-band-contract); }
+.arch-band__label {
+  fill: var(--arch-band-label);
+  font: 600 13px ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+}
+
+/* Beams: a dim rail plus a flowing comet (a short dash swept along the
+   pathLength-normalised path). The channel spine is the brightest element. */
+.arch-beam--channel { color: var(--arch-beam-req); }
+.arch-beam--dependency { color: var(--arch-beam-dep); }
+.arch-rail {
+  fill: none;
+  stroke: var(--arch-rail);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.arch-beam--dependency .arch-rail { stroke: var(--arch-rail-dim); stroke-width: 2; }
+.arch-flow {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 16 84;
+  opacity: 0.9;
+  animation: arch-flow 3.4s linear infinite;
+  filter: drop-shadow(var(--arch-glow));
+}
+.arch-beam--dependency .arch-flow { stroke-width: 2.4; opacity: 0.55; }
+@keyframes arch-flow {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* While the loop travels the channel, the spine brightens and the response leg
+   flips colour and direction. */
+.arch-flow--active {
+  stroke-width: 4.5;
+  opacity: 1;
+  animation-duration: 1.15s;
+}
+.arch-beam--active.arch-beam--reverse { color: var(--arch-beam-res); }
+.arch-beam--reverse .arch-flow--active { animation-direction: reverse; }
+
+/* The packet riding the active channel; colour set per direction inline. */
+.arch-packet { fill: currentColor; filter: drop-shadow(var(--arch-glow)); }
+
+/* The browser-side cluster fades out when the camera focuses elsewhere. */
+.arch-node--secondary,
+.arch-beam--dependency {
+  transition: opacity 0.6s ease;
+}
+.arch--cluster-hidden .arch-node--secondary {
+  opacity: 0;
+  pointer-events: none;
+}
+.arch--cluster-hidden .arch-beam--dependency { opacity: 0; }
+
+/* Nodes: foreignObject HTML cards. overflow visible so shadows/glow are not
+   clipped by the foreignObject viewport. */
+.arch-node-fo { overflow: visible; }
+.arch-node {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 14px;
+  border: 1px solid var(--arch-node-border);
+  border-radius: 12px;
+  background: var(--arch-node-bg);
+  box-shadow: var(--arch-node-shadow);
+  color: var(--arch-node-text);
+  cursor: pointer;
+  text-align: left;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.arch-node__scope { font-size: 11px; line-height: 1.1; opacity: 0.5; }
+.arch-node__name { font-size: 17px; line-height: 1.1; font-weight: 650; }
+.arch-node--secondary { opacity: 0.82; }
+.arch-node--secondary .arch-node__name { font-size: 15px; }
+.arch-node:hover { border-color: var(--arch-accent); }
+.arch-node[aria-pressed='true'] {
+  border-color: var(--arch-accent);
+  box-shadow: var(--arch-node-shadow), 0 0 0 1px var(--arch-accent),
+    0 0 24px -4px var(--arch-accent);
+}
+.arch-node:focus-visible {
+  outline: 2px solid var(--arch-accent);
+  outline-offset: 2px;
+}
+
+/* Starlight injects content-flow margins inside .sl-markdown-content; the diagram
+   owns its spacing, so neutralise them on its interactive children. Specificity
+   (0,2,0) beats Starlight's :where()-based rule. */
+.arch-stage .arch-node,
+.arch-controls__buttons .arch-controls__btn {
+  margin: 0;
+}
+
+/* Detail panel beneath the diagram: narrates the current beat, or the explored
+   node. Fixed min-height so the layout does not jump as beats change. */
+.arch-detail {
+  font-size: 0.85rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--arch-border);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--arch-node-border) 22%, transparent);
+  min-height: 6rem;
+}
+.arch-detail__title { font-size: 0.92rem; margin: 0 0 0.35rem; word-break: break-word; }
+.arch-detail__body { margin: 0; opacity: 0.85; }
+.arch-detail__meta { font-size: 0.75rem; opacity: 0.6; margin: 0.5rem 0 0; }
+.arch-detail__link { display: inline-block; margin: 0.5rem 0 0; font-size: 0.8rem; font-weight: 600; }
+.arch-detail__fields {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.arch-detail__fields li { margin: 0; }
+.arch-detail__fields code {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--arch-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--arch-accent) 30%, transparent);
+  color: var(--arch-node-text);
+}
+
+/* Controls: circular icon buttons; play/pause is accent-filled. */
+.arch-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.arch-controls__buttons { display: flex; align-items: center; gap: 0.4rem; }
+.arch-controls__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--arch-node-border);
+  border-radius: 999px;
+  background: var(--arch-node-bg);
+  box-shadow: var(--arch-node-shadow);
+  color: var(--sl-color-text);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.arch-controls__btn:hover { transform: translateY(-1px); border-color: var(--arch-accent); }
+.arch-controls__btn:focus-visible { outline: 2px solid var(--arch-accent); outline-offset: 2px; }
+.arch-controls__btn svg { width: 0.95rem; height: 0.95rem; fill: currentColor; }
+.arch-controls__btn--play {
+  background: var(--sl-color-accent);
+  border-color: var(--sl-color-accent);
+  color: var(--sl-color-black);
+}
+/* Detail toggle: pushed to the end of the controls row. */
+.arch-controls__toggle {
+  margin: 0 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--arch-node-border);
+  background: transparent;
+  color: var(--sl-color-text);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.arch-controls__toggle:hover { opacity: 1; border-color: var(--arch-accent); }
+.arch-controls__toggle--on { opacity: 1; border-color: var(--arch-accent); color: var(--arch-accent); }
+.arch-controls__toggle:focus-visible { outline: 2px solid var(--arch-accent); outline-offset: 2px; }
+
+.arch-fallback { font-size: 0.8rem; opacity: 0.8; }
+.arch--hydrated .arch-fallback { display: none; }

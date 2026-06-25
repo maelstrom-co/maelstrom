@@ -32,7 +32,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - uses: nrwl/nx-set-shas@v4
 
-      - name: Run lint, test, build, typecheck
-        run: bunx nx run-many -t format lint test build typecheck
+      - name: Install Playwright browser
+        run: bunx playwright install --with-deps chromium
+        working-directory: apps/docs
+
+      - name: Run lint, test, build, typecheck, e2e
+        run: bunx nx run-many -t format lint test build typecheck e2e
       # - run: bunx nx fix-ci
       #   if: always()

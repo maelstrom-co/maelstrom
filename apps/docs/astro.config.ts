@@ -296,26 +296,29 @@ export default defineConfig({
           ],
         },
         {
-          label: 'API Reference',
-          items: [
-            reactTypeDocSidebarGroup,
-            clientTypeDocSidebarGroup,
-            protocolTypeDocSidebarGroup,
-            engineTypeDocSidebarGroup,
-          ],
-        },
-        {
           label: 'Understanding',
           items: [
             { slug: 'understanding/why-maelstrom' },
             { slug: 'understanding/comparison' },
-            { slug: 'understanding/architecture' },
+            {
+              label: 'Architecture Overview',
+              link: '/understanding/architecture/',
+            },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },
             { slug: 'understanding/vessel-state-machine' },
             { slug: 'understanding/connectors' },
             { slug: 'understanding/grid-vs-tiling' },
+          ],
+        },
+        {
+          label: 'API Reference',
+          items: [
+            reactTypeDocSidebarGroup,
+            clientTypeDocSidebarGroup,
+            protocolTypeDocSidebarGroup,
+            engineTypeDocSidebarGroup,
           ],
         },
         {

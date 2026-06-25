@@ -15,7 +15,9 @@
   "devDependencies": {
     "@astrojs/check": "catalog:",
     "@cloudflare/workers-types": "^4.20260317.1",
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "catalog:",
+    "@testing-library/react": "^16.1.0",
     "@types/jsdom": "^21.1.7",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -38,7 +40,7 @@
     ],
     "targets": {
       "test": {
-        "command": "bun test",
+        "command": "bun test src",
         "options": {
           "cwd": "{projectRoot}"
         }
