@@ -252,7 +252,7 @@ function VoiceInput() {
 
       {/* Live mic level — proves the browser is capturing while you hold. */}
       {talking && (
-        <div className="flex items-center gap-1" aria-label="Mic input level">
+        <div className="flex items-center gap-1">
           <div className="h-3 w-32 rounded bg-gray-700 overflow-hidden">
             <div
               className="h-full bg-green-500 transition-[width] duration-75"
