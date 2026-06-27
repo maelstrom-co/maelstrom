@@ -50,6 +50,14 @@ export default function ArchitectureDiagram() {
     return () => clearInterval(id);
   }, [loop.playing]);
 
+  // Exploring a package is transient: advancing the loop or pressing play clears
+  // the exploration so the panel returns to narrating the current beat. Without
+  // this, activeId (only ever set on focus/click, never cleared) would pin the
+  // panel to the last-focused node and it would stop following the beats.
+  useEffect(() => {
+    setActiveId(null);
+  }, [loop.index, loop.playing]);
+
   const activeNode = activeId ? (nodeById(activeId) ?? null) : null;
   const currentStep = STEPS[loop.index];
   // While the loop plays, the panel narrates the beat; paused, it yields to the

@@ -43,4 +43,15 @@ describe('ArchitectureDiagram — interaction', () => {
     });
     expect(subtitle).not.toBeNull();
   });
+
+  it('stops pinning the detail panel to an explored node once the loop advances', () => {
+    render(<ArchitectureDiagram />);
+    // Explore a package while paused — the panel shows its role.
+    fireEvent.focus(screen.getByRole('button', { name: /protocol/i }));
+    expect(screen.getByText(/message contract/i)).not.toBeNull();
+    // Advancing the loop clears the exploration; the panel narrates the beat
+    // again instead of staying stuck on the package card.
+    fireEvent.click(screen.getByRole('button', { name: /next/i }));
+    expect(screen.queryByText(/message contract/i)).toBeNull();
+  });
 });

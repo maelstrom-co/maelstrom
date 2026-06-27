@@ -14,6 +14,14 @@ import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagr
     title: 'Architecture Overview',
     description:
       'How Maelstrom works: the feedback loop between the browser and a server-side LLM, and the one contract they speak.',
+    // A src/pages route is not a content-collection entry, so Starlight cannot
+    // auto-derive these the way it does for sibling docs. Set them explicitly:
+    // the GitHub edit link, and prev/next pagination to the neighbouring
+    // Understanding pages (matching the sidebar order).
+    editUrl:
+      'https://github.com/maelstrom-co/maelstrom/edit/main/apps/docs/src/pages/understanding/architecture.astro',
+    prev: { link: '/understanding/comparison/', label: 'How Maelstrom compares' },
+    next: { link: '/understanding/engine/', label: 'The Engine' },
   }}
 >
   <p>
@@ -24,7 +32,7 @@ import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagr
     below traces one trip around that loop — press play, or explore a package.
   </p>
 
-  <ArchitectureDiagram client:visible />
+  <ArchitectureDiagram client:load />
 
   <h2>The round-trip, in words</h2>
 

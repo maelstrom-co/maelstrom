@@ -26,9 +26,6 @@ export const EDGES: Edge[] = [
   { id: 'react-demo', from: 'react', to: 'demo', kind: 'dependency' },
 ];
 
-/** Ordered node ids the request packet travels; the response runs it reversed. */
-export const CHANNEL_PATH: readonly string[] = ['client', 'protocol', 'engine'];
-
 export type EdgeDirection = 'forward' | 'reverse';
 
 /**

@@ -103,6 +103,10 @@ export function anchor(
 ): { x: number; y: number } {
   const dx = tx - node.x;
   const dy = ty - node.y;
+  // Coincident target: the ray has no direction, so 0 * Infinity would produce
+  // a NaN coordinate (and malformed "M NaN,NaN" path data). Anchor at the
+  // center instead.
+  if (dx === 0 && dy === 0) return { x: node.x, y: node.y };
   const sx = dx === 0 ? Infinity : node.w / 2 / Math.abs(dx);
   const sy = dy === 0 ? Infinity : node.h / 2 / Math.abs(dy);
   const s = Math.min(sx, sy);

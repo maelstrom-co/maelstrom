@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { EDGES, CHANNEL_PATH, channelDirectionForStep } from '../edges';
+import { EDGES, channelDirectionForStep } from '../edges';
 import { NODES } from '../nodes';
 import { STEPS } from '../loop-machine';
 
@@ -27,7 +27,6 @@ describe('EDGES', () => {
       'client-protocol',
       'protocol-engine',
     ]);
-    expect([...CHANNEL_PATH]).toEqual(['client', 'protocol', 'engine']);
   });
 });
 
