@@ -24,8 +24,8 @@ export const POS: Record<string, StageNode> = {
   client: { x: 240, y: 330, w: 152, h: 62 },
   protocol: { x: 500, y: 330, w: 152, h: 62 },
   engine: { x: 772, y: 330, w: 152, h: 62 },
-  react: { x: 240, y: 198, w: 128, h: 50 },
-  demo: { x: 240, y: 86, w: 128, h: 50 },
+  react: { x: 240, y: 198, w: 152, h: 62 },
+  demo: { x: 240, y: 86, w: 152, h: 62 },
 };
 
 export interface Band {
