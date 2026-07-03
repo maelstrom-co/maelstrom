@@ -50,15 +50,9 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 @maelstrom-co/client   @maelstrom-co/engine
 (framework-agnostic) (LLM decision core: @tanstack/ai)
     │
-    ├────────────┐
-    ▼            ▼
-@maelstrom-co/react  @maelstrom-co/voice
-(React bindings)  (audio capture/playback, VAD)
-    │            │
-    └─────┬──────┘
-          ▼
-@maelstrom-co/react-voice
-(React voice extension via .with(maelstromVoice()))
+    ▼
+@maelstrom-co/react
+(React bindings)
 ```
 
 ### Package Locations
@@ -69,8 +63,6 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 | `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Message Processor, Orchestrator |
 | `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
-| `@maelstrom-co/voice` | `packages/voice/` | Client-side audio: capture, playback, VAD (Silero via onnxruntime-web), voice sessions |
-| `@maelstrom-co/react-voice` | `packages/react-voice/` | Optional React voice extension: `maelstromVoice()` factory adding `useVoice` and `VoiceOrb` to a Maelstrom instance via `.with()` |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts
@@ -100,7 +92,6 @@ When processing engine responses, the client MUST execute in this order:
 - **Frontend**: React 19, TanStack Router/Start
 - **Styling**: Tailwind CSS
 - **LLM**: @tanstack/ai with @tanstack/ai-gemini, Effect for functional composition
-- **Voice**: Deepgram (STT), Cartesia (TTS), Silero VAD via onnxruntime-web
 
 ## Coding Conventions
 
