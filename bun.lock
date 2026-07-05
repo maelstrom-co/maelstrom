@@ -182,6 +182,17 @@
         "react-dom": ">=18.0.0",
       },
     },
+    "packages/realtime": {
+      "name": "@maelstrom-co/realtime",
+      "version": "0.0.0",
+      "dependencies": {
+        "@maelstrom-co/client": "0.0.0",
+        "@maelstrom-co/protocol": "0.0.0",
+      },
+      "devDependencies": {
+        "@sinonjs/fake-timers": "catalog:",
+      },
+    },
     "tools/astro-plugin": {
       "name": "@maelstrom-co/astro-plugin",
       "version": "0.0.1",
@@ -817,6 +828,8 @@
     "@maelstrom-co/protocol": ["@maelstrom-co/protocol@workspace:packages/protocol"],
 
     "@maelstrom-co/react": ["@maelstrom-co/react@workspace:packages/react"],
+
+    "@maelstrom-co/realtime": ["@maelstrom-co/realtime@workspace:packages/realtime"],
 
     "@maelstrom-co/www": ["@maelstrom-co/www@workspace:apps/www"],
 
