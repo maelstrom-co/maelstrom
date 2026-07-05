@@ -80,3 +80,5 @@ plans.local
 
 # tts2 e2e testing
 .tts2mic-cache
+
+test-output

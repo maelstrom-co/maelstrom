@@ -86,11 +86,17 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 
 ### Execution Order (Critical)
 
-When processing engine responses, the client MUST execute in this order:
-1. Apply layout (CSS transforms)
-2. Execute actions (transitions variants)
-3. Get new sizes (from variant minSize)
-4. Handle overflow
+When processing an engine response, the orchestrator dispatches an atomic batch
+in this order — and the order is load-bearing, because an action can transition a
+Vessel to another variant (which carries its own `minSize`):
+1. Apply layout (`set_layout` — positions and sizes)
+2. Execute actions (`execute_actions` — runs the `executionPlan`; may transition variants)
+
+There is no inline "get new sizes" or "handle overflow" step. Applying the
+response re-renders the UI; the React `<Chart>`'s `ResizeObserver` floors the new
+pixel size to whole grid cells and, if they changed, schedules a fresh
+`chart_resize` request — that observer is what closes the feedback loop. "Overflow"
+is only CSS `overflow: hidden`; there is no resolver.
 
 ## Tech Stack
 

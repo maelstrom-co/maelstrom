@@ -1,0 +1,123 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagram';
+
+// Authored as a standalone Starlight page (not a content-collection entry) so the
+// diagram can be a real Astro island: `starlight-llms-txt` renders every docs
+// content entry through a container with no React renderer and would crash the
+// /llms-full.txt build on an embedded framework component. A src/pages route is
+// outside that collection, so the island renders normally in dev and build.
+---
+
+<StarlightPage
+  frontmatter={{
+    title: 'Architecture Overview',
+    description:
+      'How Maelstrom works: the feedback loop between the browser and a server-side LLM, and the one contract they speak.',
+    // A src/pages route is not a content-collection entry, so Starlight cannot
+    // auto-derive these the way it does for sibling docs. Set them explicitly:
+    // the GitHub edit link, and prev/next pagination to the neighbouring
+    // Understanding pages (matching the sidebar order).
+    editUrl:
+      'https://github.com/maelstrom-co/maelstrom/edit/main/apps/docs/src/pages/understanding/architecture.astro',
+    prev: { link: '/understanding/comparison/', label: 'How Maelstrom compares' },
+    next: { link: '/understanding/engine/', label: 'The Engine' },
+  }}
+>
+  <p>
+    Maelstrom turns a user's intent into a laid-out UI by running a loop between
+    your browser and an LLM on the server. Browser packages describe the current
+    state and capture input, the server <code>engine</code> decides what to show,
+    and <code>protocol</code> is the single contract both sides speak. The diagram
+    below traces one trip around that loop — press play, or explore a package.
+  </p>
+
+  <ArchitectureDiagram client:load />
+
+  <h2>The round-trip, in words</h2>
+
+  <h3>It starts with a reason</h3>
+  <p>
+    Every update begins with an <code>UpdateReason</code>, and there are three: a
+    <code>user_intent</code> (someone asks for something), a
+    <code>chart_resize</code> (the available grid changed), or a
+    <code>vessel_mutation</code> (a component changed its own state).
+    <a href="/understanding/llm-orchestration/"><code>@maelstrom-co/client</code></a>
+    batches the pending reasons and builds a <code>ChartRequest</code> — a snapshot
+    of the current Vessel instances, the chart's dimensions <em>in grid cells</em>,
+    the registered Vessels, and the layout mode — then sends it across the
+    deployment boundary.
+  </p>
+
+  <h3>The engine decides</h3>
+  <p>
+    <a href="/understanding/engine/"><code>@maelstrom-co/engine</code></a> is
+    stateless per request. It assembles a prompt, calls an LLM, and returns a
+    <code>MaelstromResponse</code> with four parts: a <code>userMessage</code>
+    (the conversational reply), a <code>rationale</code> (its private reasoning),
+    an <code>executionPlan</code> (the actions to run), and a new
+    <code>layout</code> (where everything goes).
+  </p>
+
+  <h3>The client applies it</h3>
+  <p>
+    The client applies the response in a fixed order — <strong>layout first, then
+    actions</strong>. <code>set_layout</code> positions and sizes every instance;
+    <code>execute_actions</code> then runs the <code>executionPlan</code>. The
+    order is load-bearing: an action can flip a Vessel to a different variant via
+    <code>transitionsTo</code>, and each variant declares its own
+    <code>minSize</code>, so positions must be set before actions change them.
+  </p>
+
+  <h3>The loop closes</h3>
+  <p>
+    Applying the response re-renders the UI. The <code>Chart</code>'s
+    <code>ResizeObserver</code> measures the result and floors it to whole grid
+    cells. If those cells changed, that is a new <code>chart_resize</code> reason —
+    and the round-trip runs again. That observer, quietly closing the loop, is what
+    lets the layout settle. There is no separate overflow pass; the grid is simply
+    clipped with CSS.
+  </p>
+
+  <h2>The vocabulary</h2>
+  <dl>
+    <dt><strong>Vessel</strong></dt>
+    <dd>
+      A registered component type — an id, a description, and a set of variants.
+      The LLM reasons about Vessels by their descriptions. See the
+      <a href="/understanding/vessel-state-machine/">vessel state machine</a>.
+    </dd>
+    <dt><strong>Variant</strong></dt>
+    <dd>
+      One mode of a Vessel, carrying its props, the actions available in that mode,
+      and a <code>minSize</code> — the smallest number of grid cells it needs.
+    </dd>
+    <dt><strong>Action</strong></dt>
+    <dd>
+      An operation the engine can invoke on an instance. An action may move the
+      instance to another variant via <code>transitionsTo</code>.
+    </dd>
+    <dt><strong>Chart</strong></dt>
+    <dd>
+      The grid the Vessels live in. The engine works in integer cells
+      (<code>rows</code> × <code>columns</code>), never pixels — the
+      <code>ResizeObserver</code> is what converts the two.
+    </dd>
+  </dl>
+
+  <p>
+    <strong>The five packages:</strong> <code>protocol</code> is the contract;
+    <code>client</code> orchestrates and <code>react</code> binds it to React, with
+    the <code>demo</code> app consuming them on the browser side; and
+    <code>engine</code> runs the decision on the server.
+  </p>
+
+  <h2>Where to go next</h2>
+  <ul>
+    <li><a href="/getting-started/quick-start/">Quick start</a> — build a chart.</li>
+    <li><a href="/getting-started/core-concepts/">Core concepts</a> — Vessels, variants, and the chart.</li>
+    <li><a href="/understanding/protocol/">The protocol</a> — the message contract in full.</li>
+    <li><a href="/understanding/engine/">The engine</a> — how the LLM decision is made.</li>
+    <li><a href="/understanding/why-maelstrom/">Why Maelstrom</a> — the motivation.</li>
+  </ul>
+</StarlightPage>

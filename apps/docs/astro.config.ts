@@ -140,6 +140,18 @@ export default defineConfig({
 - \`@maelstrom-co/protocol\` — Shared types, Zod schemas, message contract
 - \`@maelstrom-co/engine\` — LLM decision engine (createEngine, LLMProvider)
 `,
+          // The Architecture Overview is an interactive Astro island living at a
+          // src/pages route (outside the docs content collection, so the island
+          // doesn't crash the llms-full.txt container render). Surface it here so
+          // LLM consumers still get a pointer to the runtime-loop walkthrough.
+          optionalLinks: [
+            {
+              label: 'Architecture Overview',
+              url: 'https://docs.maelstrom-ai.co/understanding/architecture/',
+              description:
+                'Interactive walkthrough of the runtime feedback loop between the browser client, the protocol contract, and the server engine, plus the load-bearing layout-before-actions apply order.',
+            },
+          ],
           customSets: [
             {
               label: 'Getting Started',
@@ -296,26 +308,29 @@ export default defineConfig({
           ],
         },
         {
-          label: 'API Reference',
-          items: [
-            reactTypeDocSidebarGroup,
-            clientTypeDocSidebarGroup,
-            protocolTypeDocSidebarGroup,
-            engineTypeDocSidebarGroup,
-          ],
-        },
-        {
           label: 'Understanding',
           items: [
             { slug: 'understanding/why-maelstrom' },
             { slug: 'understanding/comparison' },
-            { slug: 'understanding/architecture' },
+            {
+              label: 'Architecture Overview',
+              link: '/understanding/architecture/',
+            },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },
             { slug: 'understanding/vessel-state-machine' },
             { slug: 'understanding/connectors' },
             { slug: 'understanding/grid-vs-tiling' },
+          ],
+        },
+        {
+          label: 'API Reference',
+          items: [
+            reactTypeDocSidebarGroup,
+            clientTypeDocSidebarGroup,
+            protocolTypeDocSidebarGroup,
+            engineTypeDocSidebarGroup,
           ],
         },
         {
