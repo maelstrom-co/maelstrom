@@ -57,6 +57,8 @@
         "@maelstrom-co/engine": "workspace:*",
         "@maelstrom-co/protocol": "workspace:*",
         "@maelstrom-co/react": "workspace:*",
+        "@maelstrom-co/realtime": "workspace:*",
+        "@maelstrom-co/realtime-server": "workspace:*",
         "@tanstack/ai-gemini": "catalog:",
         "@tanstack/react-router": "catalog:",
         "@tanstack/react-start": "catalog:",
@@ -191,6 +193,13 @@
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
+      },
+    },
+    "packages/realtime-server": {
+      "name": "@maelstrom-co/realtime-server",
+      "version": "0.0.0",
+      "dependencies": {
+        "@maelstrom-co/protocol": "0.0.0",
       },
     },
     "tools/astro-plugin": {
@@ -830,6 +839,8 @@
     "@maelstrom-co/react": ["@maelstrom-co/react@workspace:packages/react"],
 
     "@maelstrom-co/realtime": ["@maelstrom-co/realtime@workspace:packages/realtime"],
+
+    "@maelstrom-co/realtime-server": ["@maelstrom-co/realtime-server@workspace:packages/realtime-server"],
 
     "@maelstrom-co/www": ["@maelstrom-co/www@workspace:apps/www"],
 

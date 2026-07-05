@@ -1,8 +1,9 @@
-import { createMaelstrom, type MaelstromInstance } from '@maelstrom-co/react';
+import { createMaelstrom } from '@maelstrom-co/react';
 import { calendarEntry } from '../vessels/calendar.vessel';
 import { journalEntry } from '../vessels/journal.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
+import { voiceSpike } from './voice-spike';
 
 const vessels = [
   calendarEntry,
@@ -11,6 +12,6 @@ const vessels = [
   tasksEntry,
 ] as const;
 
-export const m: MaelstromInstance<typeof vessels> = createMaelstrom({
+export const m = createMaelstrom({
   vessels,
-});
+}).with(voiceSpike());

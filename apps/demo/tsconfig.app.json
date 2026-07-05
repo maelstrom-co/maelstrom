@@ -39,6 +39,12 @@
     },
     {
       "path": "../../packages/client/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/realtime/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/realtime-server/tsconfig.lib.json"
     }
   ]
 }
