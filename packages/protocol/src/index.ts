@@ -84,6 +84,16 @@ export {
   SessionHistoryEntryArraySchema,
   SessionHistoryEntrySchema,
 } from './lib/session-history-entry.js';
+export type {
+  RealtimeProvider,
+  TokenHandshakeRequest,
+  TokenHandshakeResponse,
+} from './lib/token-handshake.js';
+export {
+  RealtimeProviderSchema,
+  TokenHandshakeRequestSchema,
+  TokenHandshakeResponseSchema,
+} from './lib/token-handshake.js';
 export {
   ActionExecutionSchema,
   ChartPositionSchema,
