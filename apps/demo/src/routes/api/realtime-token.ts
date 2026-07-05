@@ -8,7 +8,7 @@ import { createOpenAiMintHandler } from '@maelstrom-co/realtime-server';
  */
 const mintHandler = createOpenAiMintHandler({
   apiKey: process.env.OPENAI_API_KEY ?? '',
-  model: 'gpt-realtime-1.5',
+  model: 'gpt-realtime-2',
 });
 
 export const Route = createFileRoute('/api/realtime-token')({

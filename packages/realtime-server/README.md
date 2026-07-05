@@ -27,7 +27,7 @@ import { createOpenAiMintHandler } from '@maelstrom-co/realtime-server';
 
 const handler = createOpenAiMintHandler({
   apiKey: process.env.OPENAI_API_KEY!,
-  model: 'gpt-realtime-1.5',
+  model: 'gpt-realtime-2',
 });
 
 // Wire into your framework of choice, e.g. a Request/Response fetch handler.

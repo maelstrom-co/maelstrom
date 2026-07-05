@@ -1,3 +1,4 @@
+import { Logger } from '@maelstrom-co/client';
 import type {
   UiStructuralSnapshot,
   Unsubscribe,
@@ -50,6 +51,8 @@ export interface RealtimeSessionOptions {
   readonly groundingDebounceMs?: number;
   readonly summarize?: SummarizeFn;
   readonly onEvent?: (event: SidechannelEvent) => void;
+  /** Enable verbose debug tracing (default false). */
+  readonly debug?: boolean;
 }
 
 const UPDATE_UI_TOOL: RealtimeToolSpec = {
@@ -133,6 +136,7 @@ export class RealtimeSession implements VoiceSession {
   readonly #summarize: SummarizeFn;
   readonly #onEvent: (event: SidechannelEvent) => void;
   readonly #pushGrounding: (snapshot: UiStructuralSnapshot) => void;
+  readonly #logger: Logger;
 
   #state: VoiceSessionState = 'idle';
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
@@ -145,6 +149,7 @@ export class RealtimeSession implements VoiceSession {
     this.#sessionId = options.sessionId;
     this.#summarize = options.summarize ?? defaultSummarize;
     this.#onEvent = options.onEvent ?? (() => {});
+    this.#logger = new Logger(options.debug ?? false, 'realtime');
     this.#pushGrounding = groundedDebounce((snapshot: UiStructuralSnapshot) => {
       this.#adapter.injectGrounding(this.#summarize(snapshot));
     }, options.groundingDebounceMs ?? DEFAULT_GROUNDING_DEBOUNCE_MS);
@@ -213,6 +218,7 @@ export class RealtimeSession implements VoiceSession {
     name: string;
     argumentsJson: string;
   }): Promise<void> {
+    this.#logger.debug('session: tool_call received', call);
     const startedAt = Date.now();
     this.#emit({
       type: 'tool_call',
@@ -251,6 +257,7 @@ export class RealtimeSession implements VoiceSession {
 
   /** Returns whether the update applied successfully (for the sidechannel result event). */
   async #handleUpdateUi(callId: string, argumentsJson: string): Promise<boolean> {
+    this.#logger.debug('update_ui: parsing arguments', argumentsJson);
     let intent: string;
     try {
       const parsed: unknown = JSON.parse(argumentsJson);
@@ -258,7 +265,8 @@ export class RealtimeSession implements VoiceSession {
       if (typeof intent !== 'string' || intent.length === 0) {
         throw new Error('missing "intent" string');
       }
-    } catch {
+    } catch (error) {
+      this.#logger.warn('update_ui: bad arguments', argumentsJson, error);
       await this.#adapter.sendToolResult(callId, {
         ok: false,
         summary: 'Could not understand that request.',
@@ -266,12 +274,19 @@ export class RealtimeSession implements VoiceSession {
       return false;
     }
 
+    this.#logger.debug('update_ui: submitting intent', intent);
     const renderStart = Date.now();
     try {
       // Domain-data boundary: only the plain intent string crosses here.
       await this.#instance.submitIntent(intent);
+      this.#logger.debug('update_ui: submitIntent resolved, awaiting idle');
       await this.#instance.waitForIdle();
+      this.#logger.debug('update_ui: idle (render settled)', { ms: Date.now() - renderStart });
     } catch (error) {
+      // Fires on the routine barge-in path (busy) as well as genuine
+      // pipeline failures — kept at debug level so the expected-busy case
+      // doesn't spam always-on output.
+      this.#logger.debug('update_ui: submitIntent/waitForIdle rejected', error);
       // Barge-in: the instance throws while a prior intent is still in
       // flight. Never let that exception reach the adapter — answer
       // gracefully so the model can tell the user to wait and retry.
@@ -317,6 +332,7 @@ export class RealtimeSession implements VoiceSession {
   }
 
   async #handleGetUiState(callId: string): Promise<boolean> {
+    this.#logger.debug('get_ui_state: reading snapshot');
     const snapshot = this.#instance.getStructuralSnapshot();
     await this.#adapter.sendToolResult(callId, snapshot);
     return true;

@@ -1,3 +1,4 @@
+import { Logger } from '@maelstrom-co/client';
 import type { Unsubscribe } from '@maelstrom-co/client';
 import type { TokenHandshakeResponse } from '@maelstrom-co/protocol';
 
@@ -22,6 +23,8 @@ export interface CreateOpenAiAdapterOptions {
    * the adapter — `RealtimeSession` never sees a credential.
    */
   readonly mintToken: () => Promise<TokenHandshakeResponse>;
+  /** Enable verbose debug tracing (default false). */
+  readonly debug?: boolean;
 }
 
 function toOaiTool(spec: RealtimeToolSpec): unknown {
@@ -56,6 +59,7 @@ function toOaiTool(spec: RealtimeToolSpec): unknown {
  */
 export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): RealtimeProviderAdapter {
   const { mintToken } = options;
+  const logger = new Logger(options.debug ?? false, 'realtime');
 
   let pc: RTCPeerConnection | undefined;
   let dc: RTCDataChannel | undefined;
@@ -87,11 +91,24 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
     try {
       parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     } catch (error) {
+      logger.error('← data-channel parse error', raw, error);
       emit({ type: 'error', error });
       return;
     }
+    const type = (parsed as { type?: unknown })?.type;
+    // Noisy transcript deltas flood the console — log only their type.
+    if (type === 'response.audio_transcript.delta') {
+      logger.debug('←', type);
+    } else {
+      logger.debug('←', type, parsed);
+    }
     const event = parseOaiServerEvent(parsed);
-    if (event) emit(event);
+    if (event) {
+      logger.debug('parsed →', event.type, event);
+      emit(event);
+    } else {
+      logger.debug('unrecognized or unparsed event', type, parsed);
+    }
   }
 
   return {
@@ -129,16 +146,16 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
         const channel = connection.createDataChannel('oai-events');
         dc = channel;
         channel.onopen = () => {
-          channel.send(
-            JSON.stringify({
-              type: 'session.update',
-              session: {
-                type: 'realtime',
-                tools: opts.tools.map(toOaiTool),
-                instructions: opts.instructions,
-              },
-            }),
-          );
+          const sessionUpdate = {
+            type: 'session.update',
+            session: {
+              type: 'realtime',
+              tools: opts.tools.map(toOaiTool),
+              instructions: opts.instructions,
+            },
+          };
+          logger.debug('→ session.update', sessionUpdate);
+          channel.send(JSON.stringify(sessionUpdate));
         };
         channel.onmessage = (event: MessageEvent) => {
           handleDataChannelMessage(event.data as unknown);
@@ -184,6 +201,7 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
     },
 
     async sendToolResult(callId: string, output: unknown): Promise<void> {
+      logger.debug('→ sendToolResult', { callId, output });
       if (!dc || dc.readyState !== 'open') {
         emit({
           type: 'error',

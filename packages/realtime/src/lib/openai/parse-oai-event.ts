@@ -17,7 +17,7 @@ function asString(value: unknown): string | undefined {
  * arguments, call_id}` at the top level). The transcript / speech-started /
  * error mappings below are not documented there — OpenAI's Realtime API
  * doesn't document a settled shape for those event names for
- * `gpt-realtime-1.5` at spike time, so these are the maintainer's best-known
+ * `gpt-realtime-2` at this point, so these are the maintainer's best-known
  * shapes from prior Realtime API versions, isolated here so they're cheap to
  * correct once real traffic is observed.
  */
@@ -27,7 +27,12 @@ export function parseOaiServerEvent(raw: unknown): RealtimeAdapterEvent | null {
   if (type === undefined) return null;
 
   switch (type) {
-    case 'function_call': {
+    case 'function_call':
+    case 'response.function_call_arguments.done': {
+      // gpt-realtime-2 streams function calls via
+      // `response.function_call_arguments.delta` then `.done` (with `call_id`,
+      // `name`, `arguments` at the top level). Older API versions emit a
+      // top-level `function_call` event with the same field names. Handle both.
       const callId = asString(raw.call_id);
       const name = asString(raw.name);
       const argumentsJson = asString(raw.arguments);

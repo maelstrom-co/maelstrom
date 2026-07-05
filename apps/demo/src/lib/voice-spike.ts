@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { MaelstromExtension } from '@maelstrom-co/react';
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import {
@@ -16,10 +16,9 @@ export interface VoiceSpikeApi {
 }
 
 /**
- * MAE-300 Task 9 demo spike: wires the OpenAI realtime voice loop to this
- * demo's Orchestrator via `RealtimeSession`. This is throwaway wiring for
- * live validation, not the eventual `@maelstrom-co/react-realtime` package
- * (deferred — see MAE-300).
+ * Demo spike: wires the OpenAI realtime voice loop to this demo's Orchestrator
+ * via `RealtimeSession`. Throwaway wiring for live validation, not the eventual
+ * framework-binding package.
  */
 export function voiceSpike(): MaelstromExtension<{
   useVoiceSpike: () => VoiceSpikeApi;
@@ -29,7 +28,10 @@ export function voiceSpike(): MaelstromExtension<{
       const { orchestrator } = ctx.useMaelstromContext();
       const [state, setState] = useState<VoiceSessionState>('idle');
 
-      const session = useMemo(() => {
+      // Created exactly once via a lazy initializer. RealtimeSession owns
+      // mutable connection state and subscriptions, so it must be a stable
+      // instance across renders — useMemo's cache is not guaranteed to persist.
+      const [session] = useState(() => {
         const bridge: RealtimeInstance = {
           submitIntent: (intent) =>
             orchestrator.processIntent(intent).then(() => {}),
@@ -38,20 +40,27 @@ export function voiceSpike(): MaelstromExtension<{
           onSettled: (cb) => orchestrator.onSettled(cb),
         };
 
+        // Spike wiring: enable realtime tracing for live validation. The
+        // package gates these logs behind this flag; this turns them on for
+        // the realtime path only, independent of the instance's global debug.
+        const debug = true;
+
         const adapter = createOpenAiAdapter({
           mintToken: () => mintOpenAiToken(orchestrator.getConfig().sessionId),
+          debug,
         });
 
         return new RealtimeSession({
           adapter,
           instance: bridge,
           sessionId: orchestrator.getConfig().sessionId,
+          debug,
           onEvent: (event: SidechannelEvent) => {
             // Latency/timing sidechannel — read this during live validation.
             console.table([event]);
           },
         });
-      }, [orchestrator]);
+      });
 
       useEffect(() => {
         return session.on('state', setState);

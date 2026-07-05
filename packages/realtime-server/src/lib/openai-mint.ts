@@ -44,7 +44,7 @@ interface OpenAiClientSecretResponse {
  * ```ts
  * const handler = createOpenAiMintHandler({
  *   apiKey: process.env.OPENAI_API_KEY!,
- *   model: 'gpt-realtime-1.5',
+ *   model: 'gpt-realtime-2',
  * });
  * export const POST = handler; // wire into your framework's fetch adapter
  * ```
@@ -79,13 +79,19 @@ export function createOpenAiMintHandler(
     let upstream: Response;
     let upstreamBody: OpenAiClientSecretResponse;
     try {
+      // `/v1/realtime/client_secrets` nests the model under `session`, not at
+      // top level (top-level `model` is rejected as unknown_parameter). Send the
+      // documented nested shape so the model we configure is actually honored.
       upstream = await doFetch('https://api.openai.com/v1/realtime/client_secrets', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model }),
+        body: JSON.stringify({
+          expires_after: { anchor: 'created_at', seconds: 600 },
+          session: { type: 'realtime', model },
+        }),
       });
 
       if (!upstream.ok) {
