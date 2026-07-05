@@ -13,13 +13,13 @@ function asString(value: unknown): string | undefined {
  * provider-neutral event union, or `null` if the event carries nothing
  * `RealtimeSession` needs.
  *
- * `function_call` is mapped per `provider-api-facts.md` (`{name, arguments,
- * call_id}` at the top level). The transcript / speech-started / error
- * mappings below are NOT in that facts file — OpenAI's Realtime API doesn't
- * document a settled shape for those event names for `gpt-realtime-1.5` at
- * spike time, so these are the maintainer's best-known shapes from prior
- * Realtime API versions, isolated here so they're cheap to correct once the
- * Task 9 e2e spike observes real traffic.
+ * `function_call` is mapped per the OpenAI Realtime API docs (`{name,
+ * arguments, call_id}` at the top level). The transcript / speech-started /
+ * error mappings below are not documented there — OpenAI's Realtime API
+ * doesn't document a settled shape for those event names for
+ * `gpt-realtime-1.5` at spike time, so these are the maintainer's best-known
+ * shapes from prior Realtime API versions, isolated here so they're cheap to
+ * correct once real traffic is observed.
  */
 export function parseOaiServerEvent(raw: unknown): RealtimeAdapterEvent | null {
   if (!isRecord(raw)) return null;

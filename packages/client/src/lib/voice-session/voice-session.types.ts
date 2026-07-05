@@ -23,16 +23,16 @@ export interface GroundingUpdate {
 
 /**
  * The seam both voice tracks satisfy toward a Maelstrom instance: the realtime
- * (MAE-300) track and the cascaded LiveKit pipeline (MAE-286). It emits intents
- * into the instance, consumes speakable results, and receives grounding
- * updates. Concrete implementations live in `@maelstrom-co/realtime`
- * (`RealtimeSession`) and the cascade package — never in `client`.
+ * track and the cascaded voice pipeline. It emits intents into the instance,
+ * consumes speakable results, and receives grounding updates. Concrete
+ * implementations live in `@maelstrom-co/realtime` (`RealtimeSession`) and the
+ * cascade package — never in `client`.
  *
  * The v1 seam is deliberately minimal (lifecycle + state only);
  * `SpeakableResult` and `GroundingUpdate` are exported but unreferenced by
  * this interface for now. The full seam shape (intent-emission surface,
- * speakable-result and grounding-update flow) is to be settled during the
- * MAE-286 coordination, before the contract ossifies.
+ * speakable-result and grounding-update flow) is to be settled through
+ * follow-up coordination, before the contract ossifies.
  */
 export interface VoiceSession {
   readonly state: VoiceSessionState;

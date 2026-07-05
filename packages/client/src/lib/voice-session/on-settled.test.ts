@@ -101,7 +101,7 @@ describe('Orchestrator.onSettled', () => {
     // traverses the SAME CommandProcessor queue as engine-dispatched responses
     // (see use-vessel-core.ts's executeAction callback). There is no
     // store-bypassing write path for direct manipulation, so the queue-idle
-    // transition alone grounds both D6 settle sources.
+    // transition alone grounds both settle sources.
     const { orchestrator } = createTestOrchestrator();
     let settledCount = 0;
     orchestrator.onSettled(() => {

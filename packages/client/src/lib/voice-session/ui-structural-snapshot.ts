@@ -11,7 +11,7 @@ import type { Orchestrator } from '../orchestrator/orchestrator.js';
 /**
  * Terse, structural-only view of what is on screen. Deliberately excludes
  * vessel domain data: the engine plans structurally and the model grounds on
- * shape, never contents (MAE-300 D6 / open question 5).
+ * shape, never contents.
  */
 export interface UiStructuralSnapshot {
   readonly instances: readonly VesselInstanceSnapshot[];

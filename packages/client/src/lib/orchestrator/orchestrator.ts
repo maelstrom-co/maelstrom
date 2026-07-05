@@ -157,8 +157,8 @@ export class Orchestrator {
    *
    * Fires whenever the CommandProcessor's command queue drains back to
    * idle — the moment a batch of layout + action commands has fully
-   * applied. Both settle sources required by grounding (MAE-300 D6) reach
-   * this transition: an engine response dispatched via `processIntent` /
+   * applied. Both settle sources required by grounding reach this
+   * transition: an engine response dispatched via `processIntent` /
    * `flushUpdates` (`set_layout` + `execute_actions` as one atomic batch),
    * and direct manipulation (a user click / variant change, which reaches
    * the processor through `commandProcessor.executeActions()` the same way

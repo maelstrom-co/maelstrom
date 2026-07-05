@@ -11,15 +11,15 @@ import { parseOaiServerEvent } from './parse-oai-event.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 
-/** Stable id for the single latest-wins grounding context item (D6). */
+/** Stable id for the single latest-wins grounding context item. */
 const GROUNDING_ITEM_ID = 'maelstrom-grounding';
 
 /** Options for {@link createOpenAiAdapter}. */
 export interface CreateOpenAiAdapterOptions {
   /**
    * Mints the ephemeral OpenAI realtime client secret this adapter connects
-   * with. Called once per `connect()`. D7 assigns the token handshake to the
-   * adapter — `RealtimeSession` never sees a credential.
+   * with. Called once per `connect()`. The token handshake is assigned to
+   * the adapter — `RealtimeSession` never sees a credential.
    */
   readonly mintToken: () => Promise<TokenHandshakeResponse>;
 }
@@ -42,7 +42,7 @@ function toOaiTool(spec: RealtimeToolSpec): unknown {
  *
  * The data-channel envelope → adapter-event mapping lives in
  * {@link parseOaiServerEvent}; this class is thin `RTCPeerConnection` glue
- * around it and is exercised end-to-end in the Task 9 demo spike rather than
+ * around it and is exercised end-to-end in the demo spike rather than
  * unit-tested.
  *
  * @example
