@@ -2,6 +2,9 @@
 export type { Engine } from './lib/engine.js';
 export { createEngine } from './lib/engine.js';
 
+// Envelope handler — shared WS-host dispatch entry point
+export { handleEnvelope } from './lib/envelope-handler.js';
+
 // Config
 export type { EngineConfig } from './lib/config.js';
 export { resolveConfig } from './lib/config.js';
