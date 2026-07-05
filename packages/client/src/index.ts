@@ -131,3 +131,9 @@ export type { VesselManagerOptions } from './lib/vessel-management/vessel-manage
 // Voice Session
 export type { UiStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
 export { readStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
+export type {
+  GroundingUpdate,
+  SpeakableResult,
+  VoiceSession,
+  VoiceSessionState,
+} from './lib/voice-session/voice-session.types.js';
