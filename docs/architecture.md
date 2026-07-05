@@ -208,16 +208,21 @@ The protocol defines the structure of messages between client and engine, indepe
 
 #### Message Types
 
-**Client → Engine:**
+Messages travel as **envelopes** over the duplex stream. The `EngineMessage` variants (`chart_request`, `assistant_message`) are the frames the LLM sees; the envelope layer adds transport-only frames the LLM never sees.
 
-- `ChartRequest`: User intent + current state
-- `PingMessage`: Heartbeat (if using persistent connection)
+**Client → Engine (`ClientEnvelope`):**
 
-**Engine → Client:**
+- `chart_request` (`ChartRequestMessage`): User intent + current state
+- `assistant_message` (`AssistantInjectionMessage`): Inject an assistant turn into session history
+- `client.history.get` (`HistoryGetMessage`): Ask the host to replay recorded session history
 
-- `MaelstromResponse`: Execution plan + layout directives
-- `ErrorResponse`: Error information
-- `PongMessage`: Heartbeat response
+**Engine → Client (`ServerEnvelope`):**
+
+- `engine.maelstrom.response` (`MaelstromResponseMessage`): Execution plan + layout directives
+- `engine.history.response` (`HistoryResponseMessage`): The recorded session-history entries
+- `engine.error` (`EngineErrorMessage`): A failure, correlated to the request when recoverable
+
+The **codec** owns parsing and validation: `encodeEnvelope` serializes any envelope, and `decodeClientEnvelope` / `decodeServerEnvelope` return a `Result` (never throw) — a malformed frame yields an `EnvelopeError` rather than a rejected promise, so a host or connector branches without a try/catch.
 
 #### Transport Agnostic
 
@@ -228,6 +233,8 @@ The protocol only defines message shapes. Transport is a separate concern:
 | WebSocket | Real-time, persistent connections |
 | HTTP      | Stateless, request/response       |
 | In-memory | Testing, embedded deployments     |
+
+The envelope module in `@maelstrom-co/protocol` is the single home of the stream wire contract. It has exactly two adapters: `WebSocketConnector` (client side) encodes outbound frames and decodes server envelopes, and `handleEnvelope` (engine side) decodes a client frame, dispatches it to the engine, and maps the outcome back to a `ServerEnvelope`. A host such as the demo's `ws-server.ts` owns only socket plumbing — it never hand-builds or hand-parses a wire shape.
 
 ---
 

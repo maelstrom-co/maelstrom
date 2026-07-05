@@ -2,22 +2,33 @@
 /**
  * Minimal text-only WebSocket engine server for the demo.
  *
- * Speaks the `@maelstrom-co/client` `WebSocketConnector` contract:
- * - client sends `{ type: 'chart_request', id, sessionId, request }`
- * - server replies `{ type: 'engine.maelstrom.response', requestId, response }`
- * - `client.history.get` → `engine.history.response`
+ * Speaks the `@maelstrom-co/protocol` envelope contract: every frame is decoded,
+ * dispatched, and answered by `@maelstrom-co/engine`'s `handleEnvelope`, so this
+ * host owns only socket plumbing — no wire shapes are hand-listed here.
  *
  * One shared engine (history is keyed by sessionId, so a single in-memory store
  * isolates sessions correctly). The engine requires GOOGLE_API_KEY (or
  * GEMINI_API_KEY) at construction; if it's missing the socket still connects and
- * each chart request returns an error rather than failing the connection.
+ * each request returns an `engine.error` rather than failing the connection.
+ *
+ * Behavior differs from the previous hand-rolled handler in three ways, all by
+ * delegating to `handleEnvelope`: history and assistant-message failures now
+ * surface as `engine.error` (previously swallowed); assistant messages are now
+ * recorded to history via `engine.handle` (previously a no-op); and an unknown
+ * frame type gets an `engine.error` reply instead of silence.
  */
 import {
   createEngine,
   createInMemoryStore,
+  handleEnvelope,
   type Engine,
 } from '@maelstrom-co/engine';
-import { isErr } from '@maelstrom-co/protocol';
+import {
+  decodeClientEnvelope,
+  encodeEnvelope,
+  EngineErrorMessage,
+  isErr,
+} from '@maelstrom-co/protocol';
 import { geminiText } from '@tanstack/ai-gemini';
 
 const PORT = Number(process.env.WS_PORT ?? 3001);
@@ -44,13 +55,6 @@ try {
   );
 }
 
-type WireMessage = {
-  type?: string;
-  id?: string;
-  sessionId?: string;
-  [key: string]: unknown;
-};
-
 const server = Bun.serve({
   port: PORT,
   fetch(req, srv) {
@@ -64,76 +68,28 @@ const server = Bun.serve({
   },
   websocket: {
     async message(ws, raw) {
-      let msg: WireMessage;
-      try {
-        msg = JSON.parse(String(raw));
-      } catch {
+      // Engine failed to construct (e.g. missing key). Decode the frame purely
+      // to recover correlation so the client's pending request is rejected
+      // promptly instead of stranded to time out.
+      if (engine === null) {
+        const decoded = decodeClientEnvelope(raw);
+        const error = engineInitError ?? 'engine unavailable';
+        ws.send(
+          encodeEnvelope(
+            isErr(decoded)
+              ? EngineErrorMessage({ error })
+              : EngineErrorMessage({
+                  error,
+                  requestId: decoded.value.id,
+                  sessionId: decoded.value.sessionId,
+                }),
+          ),
+        );
         return;
       }
 
-      const fail = (error: string) =>
-        ws.send(
-          JSON.stringify({
-            type: 'engine.error',
-            sessionId: msg.sessionId,
-            requestId: msg.id,
-            error,
-          }),
-        );
-
-      try {
-        if (msg.type === 'chart_request') {
-          if (!engine) {
-            fail(engineInitError ?? 'engine unavailable');
-            return;
-          }
-          // engine.handle validates the wire shape internally
-          // (validateEngineMessage); the cast only satisfies the compile-time
-          // signature.
-          const result = await engine.handle(
-            msg as unknown as Parameters<Engine['handle']>[0],
-          );
-          if (isErr(result)) {
-            fail(result.error.message);
-            return;
-          }
-          if (result.value.type === 'chart_response') {
-            ws.send(
-              JSON.stringify({
-                type: 'engine.maelstrom.response',
-                sessionId: msg.sessionId,
-                requestId: result.value.id,
-                response: result.value.response,
-              }),
-            );
-          }
-          return;
-        }
-
-        if (msg.type === 'client.history.get') {
-          const entries =
-            engine && msg.sessionId
-              ? await engine
-                  .getHistory(
-                    msg.sessionId as Parameters<Engine['getHistory']>[0],
-                  )
-                  .then((r) => (isErr(r) ? [] : r.value))
-              : [];
-          ws.send(
-            JSON.stringify({
-              type: 'engine.history.response',
-              requestId: msg.id,
-              entries,
-            }),
-          );
-          return;
-        }
-
-        // client.history.add_assistant_message and other client messages are
-        // no-ops for the text-only demo.
-      } catch (err) {
-        fail(err instanceof Error ? err.message : String(err));
-      }
+      const reply = await handleEnvelope(engine, raw);
+      if (reply) ws.send(encodeEnvelope(reply));
     },
   },
 });
