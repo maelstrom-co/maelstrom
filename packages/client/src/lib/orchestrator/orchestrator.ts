@@ -21,6 +21,10 @@ import { CommandProcessor } from '../command-processor/command-processor.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
+import {
+  readStructuralSnapshot,
+  type UiStructuralSnapshot,
+} from '../voice-session/ui-structural-snapshot.js';
 import { buildChartRequest } from './build-chart-request.js';
 import type {
   OrchestratorOptions,
@@ -140,6 +144,11 @@ export class Orchestrator {
       sessionId: this.#config.sessionId,
       layoutMode: this.#config.layoutMode,
     };
+  }
+
+  /** Structural-only UI snapshot for grounding + `get_ui_state` pulls. */
+  getStructuralSnapshot(): UiStructuralSnapshot {
+    return readStructuralSnapshot(this);
   }
 
   // ==========================================================================
