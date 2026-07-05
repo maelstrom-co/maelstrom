@@ -94,6 +94,8 @@ export {
   TokenHandshakeRequestSchema,
   TokenHandshakeResponseSchema,
 } from './lib/token-handshake.js';
+export type { SidechannelEvent } from './lib/sidechannel-event.js';
+export { SidechannelEventSchema } from './lib/sidechannel-event.js';
 export {
   ActionExecutionSchema,
   ChartPositionSchema,
