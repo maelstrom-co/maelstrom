@@ -26,6 +26,9 @@
     },
     {
       "path": "./packages/realtime"
+    },
+    {
+      "path": "./packages/realtime-server"
     }
   ]
 }
