@@ -252,8 +252,13 @@ export type ConnectorEvent =
  *   }
  *
  *   async addAssistantMessage(msg: AssistantMessage): Promise<void> {
- *     // Fire-and-forget — server does not send an ack for this message type
- *     this.ws?.send(JSON.stringify({ type: 'client.history.add_assistant_message', ...msg }));
+ *     // Fire-and-forget — server does not send an ack for this message type.
+ *     // Translate to the real assistant_message envelope and encode it.
+ *     this.ws?.send(encodeEnvelope(AssistantInjectionMessage({
+ *       sessionId: this.sessionId,
+ *       content: msg.message,
+ *       id: msg.id,
+ *     })));
  *   }
  * }
  * ```
@@ -396,6 +401,32 @@ export interface EngineConnector {
    * that behavior themselves.
    */
   getHistory(sessionId: SessionId): Promise<readonly SessionHistoryEntry[]>;
+}
+
+// ============================================================================
+// Wire Engine Error
+// ============================================================================
+
+/**
+ * The error a connector rejects a pending request with when the engine host
+ * reports a failure over the wire.
+ *
+ * Surfaces the `engine.error` envelope's `error` string as the message. `code`
+ * carries whatever machine-readable tag the host attached — either an engine
+ * `EngineError` tag or an `EnvelopeErrorKind` (`'invalid_json'` /
+ * `'invalid_envelope'`) when the host rejected the client's own frame. There
+ * is deliberately no closed taxonomy: the wire contract does not fix the set of
+ * codes, so consumers must handle an unknown or absent `code` gracefully rather
+ * than switching exhaustively over it.
+ */
+export class WireEngineError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'WireEngineError';
+    if (code !== undefined) this.code = code;
+  }
 }
 
 // ============================================================================

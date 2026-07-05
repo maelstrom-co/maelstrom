@@ -1,14 +1,25 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import {
+  ActionName,
+  decodeClientEnvelope,
+  EngineErrorMessage,
+  encodeEnvelope,
+  EnvelopeError,
+  HistoryResponseMessage,
   InstanceId,
+  isOk,
+  MaelstromResponseMessage,
   MessageId,
   SessionId,
+  type MaelstromResponse,
+  type ServerEnvelope,
   type SessionHistoryEntry,
 } from '@maelstrom-co/protocol';
 
+import { WireEngineError } from '../../connector.types.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
-import { installFakeWebSocket } from './fake-websocket.js';
+import { FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
 
 let teardown: (() => void) | null = null;
 
@@ -19,6 +30,29 @@ beforeEach(() => {
 afterEach(() => {
   teardown?.();
   teardown = null;
+});
+
+/**
+ * Deliver a real ServerEnvelope through the same codec the wire uses: the
+ * frame is built with protocol's smart constructor and serialized with
+ * `encodeEnvelope`, so every emit doubles as a cross-package conformance check
+ * that the connector decodes exactly what a host encodes.
+ */
+const emitServer = (ws: FakeWebSocket, env: ServerEnvelope): void => {
+  ws.onmessage?.({ data: encodeEnvelope(env) });
+};
+
+const buildResponse = (
+  requestId: MessageId,
+  overrides: Partial<MaelstromResponse> = {},
+): MaelstromResponse => ({
+  type: 'maelstrom_response',
+  requestId,
+  userMessage: '',
+  rationale: '',
+  executionPlan: [],
+  layout: { type: 'grid', positions: [] },
+  ...overrides,
 });
 
 describe('WebSocketConnector wire contract', () => {
@@ -45,18 +79,13 @@ describe('WebSocketConnector wire contract', () => {
     expect(typeof payload.timestamp).toBe('number');
     expect(payload.request.type).toBe('chart_request');
 
-    ws.emitJson({
-      type: 'engine.maelstrom.response',
-      requestId: envelope.id,
-      response: {
-        type: 'maelstrom_response',
+    emitServer(
+      ws,
+      MaelstromResponseMessage({
         requestId: envelope.id,
-        userMessage: '',
-        rationale: '',
-        executionPlan: [],
-        layout: { type: 'grid', positions: [] },
-      },
-    });
+        response: buildResponse(envelope.id),
+      }),
+    );
     await promise;
     await connector.disconnect();
   });
@@ -68,18 +97,18 @@ describe('WebSocketConnector wire contract', () => {
     const envelope = buildEnvelope(MessageId('round-trip-2'));
     const promise = connector.process(envelope);
 
-    ws.emitJson({
-      type: 'engine.maelstrom.response',
-      requestId: envelope.id,
-      response: {
-        type: 'maelstrom_response',
+    emitServer(
+      ws,
+      MaelstromResponseMessage({
         requestId: envelope.id,
-        userMessage: 'ok',
-        rationale: '',
-        executionPlan: [{ instanceId: InstanceId('i-1'), action: 'noop' }],
-        layout: { type: 'grid', positions: [] },
-      },
-    });
+        response: buildResponse(envelope.id, {
+          userMessage: 'ok',
+          executionPlan: [
+            { instanceId: InstanceId('i-1'), action: ActionName('noop') },
+          ],
+        }),
+      }),
+    );
 
     const response = await promise;
     expect(response.requestId).toBe(envelope.id);
@@ -94,11 +123,13 @@ describe('WebSocketConnector wire contract', () => {
     const envelope = buildEnvelope(MessageId('round-trip-3'));
     const promise = connector.process(envelope);
 
-    ws.emitJson({
-      type: 'engine.error',
-      requestId: envelope.id,
-      error: 'envelope rejected',
-    });
+    emitServer(
+      ws,
+      EngineErrorMessage({
+        requestId: envelope.id,
+        error: 'envelope rejected',
+      }),
+    );
 
     await expect(promise).rejects.toThrow('envelope rejected');
     await connector.disconnect();
@@ -122,28 +153,89 @@ describe('WebSocketConnector wire contract', () => {
   });
 });
 
-describe('WebSocketConnector silent-failure hygiene', () => {
-  test('parse failure logs the bound error and the raw event data', async () => {
+describe('WebSocketConnector assistant message', () => {
+  test('sends a decodable assistant_message with an epoch-scale timestamp', async () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);
 
-    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    await connector.addAssistantMessage({
+      id: MessageId('a-1'),
+      message: 'hello there',
+    });
+
+    expect(ws.sent).toHaveLength(1);
+    // Round-trip through the real client codec, not a string comparison: the
+    // connector must emit a frame a host can decode as assistant_message.
+    const decoded = decodeClientEnvelope(ws.sent[0]);
+    expect(isOk(decoded)).toBe(true);
+    if (!isOk(decoded)) throw new Error('expected a decodable client envelope');
+    const value = decoded.value;
+    expect(value.type).toBe('assistant_message');
+    if (value.type !== 'assistant_message') {
+      throw new Error('expected assistant_message');
+    }
+    expect(value.content).toBe('hello there');
+    expect(value.id).toBe(MessageId('a-1'));
+    expect(value.sessionId).toBe(SessionId('session-1'));
+    // Pins the performance.now() → Date.now() fix: a wall-clock epoch is well
+    // past 1e12ms, a performance.now() offset (ms since page origin) is not.
+    expect(value.timestamp).toBeGreaterThan(1e12);
+    await connector.disconnect();
+  });
+});
+
+describe('WebSocketConnector silent-failure hygiene', () => {
+  test('undecodable non-JSON frame with no recoverable id warns', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      // Deliver a non-JSON payload through onmessage directly so JSON.parse
-      // throws inside #handleMessage. Bypasses emitJson which JSON-encodes.
+      // Deliver a non-JSON payload directly through onmessage. The codec owns
+      // parse failure now; with no recoverable requestId the frame is warned,
+      // not silently trusted.
       ws.onmessage?.({ data: '{not-json' });
 
-      expect(errorSpy).toHaveBeenCalledTimes(1);
-      const callArgs = errorSpy.mock.calls[0];
-      expect(callArgs[0]).toContain(
-        '[WebSocketConnector] Failed to parse message',
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        '[WebSocketConnector] undecodable frame',
       );
-      expect(callArgs[1]).toBeInstanceOf(Error); // bound parse exception
-      expect(callArgs[2]).toBe('{not-json'); // raw event.data preserved
     } finally {
-      errorSpy.mockRestore();
+      warnSpy.mockRestore();
       await connector.disconnect();
     }
+  });
+
+  test('malformed engine.maelstrom.response rejects the pending process()', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const envelope = buildEnvelope(MessageId('malformed-response'));
+    const promise = connector.process(envelope);
+
+    // Valid requestId, but the response is missing executionPlan → the codec
+    // rejects it. The pending request must fail with the EnvelopeError instead
+    // of stranding until timeout.
+    ws.emitJson({
+      type: 'engine.maelstrom.response',
+      requestId: envelope.id,
+      response: {
+        type: 'maelstrom_response',
+        requestId: envelope.id,
+        userMessage: '',
+        rationale: '',
+        layout: { type: 'grid', positions: [] },
+        // executionPlan intentionally omitted
+      },
+    });
+
+    let caught: unknown;
+    await promise.catch((error: unknown) => {
+      caught = error;
+    });
+    expect(caught).toBeInstanceOf(EnvelopeError);
+    expect((caught as Error).message).toMatch(/executionPlan/i);
+    await connector.disconnect();
   });
 
   test('unmatched engine.maelstrom.response emits a console.warn', async () => {
@@ -153,18 +245,13 @@ describe('WebSocketConnector silent-failure hygiene', () => {
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       // No outstanding process() call → no pending request for this id.
-      ws.emitJson({
-        type: 'engine.maelstrom.response',
-        requestId: 'no-such-pending',
-        response: {
-          type: 'maelstrom_response',
-          requestId: 'no-such-pending',
-          userMessage: '',
-          rationale: '',
-          executionPlan: [],
-          layout: { type: 'grid', positions: [] },
-        },
-      });
+      emitServer(
+        ws,
+        MaelstromResponseMessage({
+          requestId: MessageId('no-such-pending'),
+          response: buildResponse(MessageId('no-such-pending')),
+        }),
+      );
 
       expect(warnSpy).toHaveBeenCalledTimes(1);
       expect(warnSpy.mock.calls[0][0]).toContain(
@@ -177,14 +264,18 @@ describe('WebSocketConnector silent-failure hygiene', () => {
     }
   });
 
-  test('engine.maelstrom.response with empty-string requestId does not call resolve', async () => {
+  test('response frame with an empty requestId is unrecoverable and warns', async () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);
 
-    // No console.warn for unmatched-response should fire either, because we
-    // never reach #correlator.resolve at all when the guard rejects the id.
+    const envelope = buildEnvelope(MessageId('intact-1'));
+    const promise = connector.process(envelope);
+
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     try {
+      // Empty requestId fails the codec's MessageId schema, and recovery skips
+      // it (nothing correlates to an empty id) — so the frame is warned and no
+      // pending request is touched.
       ws.emitJson({
         type: 'engine.maelstrom.response',
         requestId: '',
@@ -198,107 +289,151 @@ describe('WebSocketConnector silent-failure hygiene', () => {
         },
       });
 
-      expect(warnSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        '[WebSocketConnector] undecodable frame',
+      );
+
+      // The unrelated pending request still resolves normally.
+      emitServer(
+        ws,
+        MaelstromResponseMessage({
+          requestId: envelope.id,
+          response: buildResponse(envelope.id, { userMessage: 'ok' }),
+        }),
+      );
+      const response = await promise;
+      expect(response.userMessage).toBe('ok');
     } finally {
       warnSpy.mockRestore();
       await connector.disconnect();
     }
   });
 
-  test('engine.maelstrom.response with non-string requestId is ignored', async () => {
+  test('engine.error with a non-string requestId does not reject pending requests', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const envelope = buildEnvelope(MessageId('intact-2'));
+    const promise = connector.process(envelope);
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // Wire delivers a number requestId — fails the codec and is unrecoverable
+      // (not a string), so the pending request is left untouched.
+      ws.emitJson({
+        type: 'engine.error',
+        requestId: 42 as unknown as string,
+        error: 'should not propagate',
+      });
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        '[WebSocketConnector] undecodable frame',
+      );
+
+      emitServer(
+        ws,
+        MaelstromResponseMessage({
+          requestId: envelope.id,
+          response: buildResponse(envelope.id, { userMessage: 'ok' }),
+        }),
+      );
+      const response = await promise;
+      expect(response.userMessage).toBe('ok');
+    } finally {
+      warnSpy.mockRestore();
+      await connector.disconnect();
+    }
+  });
+});
+
+describe('WebSocketConnector engine.error', () => {
+  test('rejects with a WireEngineError carrying the wire code', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const envelope = buildEnvelope(MessageId('coded-1'));
+    const promise = connector.process(envelope);
+
+    emitServer(
+      ws,
+      EngineErrorMessage({
+        requestId: envelope.id,
+        error: 'history not configured',
+        code: 'HistoryNotConfigured',
+      }),
+    );
+
+    let caught: unknown;
+    await promise.catch((error: unknown) => {
+      caught = error;
+    });
+    expect(caught).toBeInstanceOf(WireEngineError);
+    expect((caught as WireEngineError).code).toBe('HistoryNotConfigured');
+    expect((caught as Error).message).toBe('history not configured');
+    await connector.disconnect();
+  });
+
+  test('without a requestId warns and rejects no pending request', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const envelope = buildEnvelope(MessageId('untouched-1'));
+    const promise = connector.process(envelope);
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // A stream-level fault the host could not correlate — requestId omitted.
+      emitServer(ws, EngineErrorMessage({ error: 'stream fault' }));
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        '[WebSocketConnector] engine.error with no requestId',
+      );
+
+      // Pending request is unaffected and resolves normally.
+      emitServer(
+        ws,
+        MaelstromResponseMessage({
+          requestId: envelope.id,
+          response: buildResponse(envelope.id, { userMessage: 'ok' }),
+        }),
+      );
+      const response = await promise;
+      expect(response.userMessage).toBe('ok');
+    } finally {
+      warnSpy.mockRestore();
+      await connector.disconnect();
+    }
+  });
+
+  test('with no matching pending request emits a console.warn', async () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);
 
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      ws.emitJson({
-        type: 'engine.maelstrom.response',
-        // Wire delivers a number — the double cast bypasses TS to test the
-        // runtime guard against a malformed payload.
-        requestId: 42 as unknown as string,
-        response: {
-          type: 'maelstrom_response',
-          requestId: 'irrelevant',
-          userMessage: '',
-          rationale: '',
-          executionPlan: [],
-          layout: { type: 'grid', positions: [] },
-        },
-      });
+      // Most likely real-world cause: post-timeout server failure delivery.
+      // Both correlators miss; the warn keeps the diagnostic from being
+      // silently swallowed.
+      emitServer(
+        ws,
+        EngineErrorMessage({
+          requestId: MessageId('no-such-pending'),
+          error: 'too late',
+        }),
+      );
 
-      expect(warnSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        'engine.error with no pending request',
+      );
+      expect(warnSpy.mock.calls[0][0]).toContain('too late');
     } finally {
       warnSpy.mockRestore();
       await connector.disconnect();
     }
-  });
-
-  test('engine.error with empty-string requestId does not reject pending requests', async () => {
-    const connector = new WebSocketConnector({ url: 'ws://test' });
-    const ws = await connectAndOpen(connector);
-
-    const envelope = buildEnvelope(MessageId('valid-pending'));
-    const promise = connector.process(envelope);
-
-    // Malformed engine.error frame: empty requestId. The isCorrelatableId
-    // guard at the engine.error site must reject this so it does NOT call
-    // correlator.reject (which could otherwise misroute or mis-trigger).
-    ws.emitJson({
-      type: 'engine.error',
-      requestId: '',
-      error: 'should not propagate',
-    });
-
-    // Pending request remains unaffected — we then resolve it normally.
-    ws.emitJson({
-      type: 'engine.maelstrom.response',
-      requestId: envelope.id,
-      response: {
-        type: 'maelstrom_response',
-        requestId: envelope.id,
-        userMessage: 'ok',
-        rationale: '',
-        executionPlan: [],
-        layout: { type: 'grid', positions: [] },
-      },
-    });
-
-    const response = await promise;
-    expect(response.userMessage).toBe('ok');
-    await connector.disconnect();
-  });
-
-  test('engine.error with non-string requestId does not reject pending requests', async () => {
-    const connector = new WebSocketConnector({ url: 'ws://test' });
-    const ws = await connectAndOpen(connector);
-
-    const envelope = buildEnvelope(MessageId('valid-pending-2'));
-    const promise = connector.process(envelope);
-
-    ws.emitJson({
-      type: 'engine.error',
-      // Wire delivers a number — the double cast bypasses TS to test the
-      // runtime guard against a malformed payload.
-      requestId: 42 as unknown as string,
-      error: 'should not propagate',
-    });
-
-    ws.emitJson({
-      type: 'engine.maelstrom.response',
-      requestId: envelope.id,
-      response: {
-        type: 'maelstrom_response',
-        requestId: envelope.id,
-        userMessage: 'ok',
-        rationale: '',
-        executionPlan: [],
-        layout: { type: 'grid', positions: [] },
-      },
-    });
-
-    const response = await promise;
-    expect(response.userMessage).toBe('ok');
-    await connector.disconnect();
   });
 });
 
@@ -322,11 +457,10 @@ describe('WebSocketConnector getHistory', () => {
 
     // Settle the outstanding promise before disconnect so it doesn't surface
     // as an unhandled rejection.
-    ws.emitJson({
-      type: 'engine.history.response',
-      requestId: payload.id,
-      entries: [],
-    });
+    emitServer(
+      ws,
+      HistoryResponseMessage({ requestId: MessageId(payload.id), entries: [] }),
+    );
     await promise;
     await connector.disconnect();
   });
@@ -347,11 +481,13 @@ describe('WebSocketConnector getHistory', () => {
         content: 'seeded',
       },
     ];
-    ws.emitJson({
-      type: 'engine.history.response',
-      requestId: payload.id,
-      entries: fakeEntries,
-    });
+    emitServer(
+      ws,
+      HistoryResponseMessage({
+        requestId: MessageId(payload.id),
+        entries: fakeEntries,
+      }),
+    );
 
     const result = await promise;
     expect(result).toEqual(fakeEntries);
@@ -365,15 +501,21 @@ describe('WebSocketConnector getHistory', () => {
     const promise = connector.getHistory(SessionId('s-1'));
     const payload = JSON.parse(ws.sent[0] as string) as { id: string };
 
-    // Schema rejection at the wire boundary surfaces server contract
-    // violations to the caller instead of silently coercing to [].
+    // Intentionally malformed — hand-built so it bypasses the constructor. The
+    // codec rejects it at the boundary and the recovered requestId fails the
+    // awaiting caller instead of silently coercing to [].
     ws.emitJson({
       type: 'engine.history.response',
       requestId: payload.id,
       entries: 'not-an-array',
     });
 
-    await expect(promise).rejects.toThrow(/malformed entries/i);
+    let caught: unknown;
+    await promise.catch((error: unknown) => {
+      caught = error;
+    });
+    expect(caught).toBeInstanceOf(EnvelopeError);
+    expect((caught as Error).message).toMatch(/entries/i);
     await connector.disconnect();
   });
 
@@ -385,7 +527,8 @@ describe('WebSocketConnector getHistory', () => {
     const payload = JSON.parse(ws.sent[0] as string) as { id: string };
 
     // NaN timestamps would silently corrupt sort order on the client; the
-    // schema's finite-number refinement must reject them at ingress.
+    // schema's finite-number refinement must reject them at ingress (NaN
+    // serializes to null, which is likewise rejected).
     ws.emitJson({
       type: 'engine.history.response',
       requestId: payload.id,
@@ -400,7 +543,12 @@ describe('WebSocketConnector getHistory', () => {
       ],
     });
 
-    await expect(promise).rejects.toThrow(/malformed entries/i);
+    let caught: unknown;
+    await promise.catch((error: unknown) => {
+      caught = error;
+    });
+    expect(caught).toBeInstanceOf(EnvelopeError);
+    expect((caught as Error).message).toMatch(/timestamp/i);
     await connector.disconnect();
   });
 
@@ -411,11 +559,13 @@ describe('WebSocketConnector getHistory', () => {
     const promise = connector.getHistory(SessionId('s-1'));
     const payload = JSON.parse(ws.sent[0] as string) as { id: string };
 
-    ws.emitJson({
-      type: 'engine.error',
-      requestId: payload.id,
-      error: 'history backend down',
-    });
+    emitServer(
+      ws,
+      EngineErrorMessage({
+        requestId: MessageId(payload.id),
+        error: 'history backend down',
+      }),
+    );
 
     await expect(promise).rejects.toThrow('history backend down');
     await connector.disconnect();
@@ -451,11 +601,10 @@ describe('WebSocketConnector cross-correlator isolation', () => {
     try {
       // engine.history.response routes only via #historyCorrelator; a chart
       // request pending on the same id must not be resolved.
-      ws.emitJson({
-        type: 'engine.history.response',
-        requestId: sharedId,
-        entries: [],
-      });
+      emitServer(
+        ws,
+        HistoryResponseMessage({ requestId: sharedId, entries: [] }),
+      );
 
       // process() must remain pending — race against an already-resolved
       // sentinel to detect a wrongful resolution without waiting for a
@@ -472,45 +621,14 @@ describe('WebSocketConnector cross-correlator isolation', () => {
       );
 
       // Settle process() so the test doesn't leak an unhandled rejection.
-      ws.emitJson({
-        type: 'engine.maelstrom.response',
-        requestId: sharedId,
-        response: {
-          type: 'maelstrom_response',
+      emitServer(
+        ws,
+        MaelstromResponseMessage({
           requestId: sharedId,
-          userMessage: 'ok',
-          rationale: '',
-          executionPlan: [],
-          layout: { type: 'grid', positions: [] },
-        },
-      });
-      await processP;
-    } finally {
-      warnSpy.mockRestore();
-      await connector.disconnect();
-    }
-  });
-
-  test('engine.error with no matching pending request emits a console.warn', async () => {
-    const connector = new WebSocketConnector({ url: 'ws://test' });
-    const ws = await connectAndOpen(connector);
-
-    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      // Most likely real-world cause: post-timeout server failure delivery.
-      // Both correlators miss; the warn keeps the diagnostic from being
-      // silently swallowed.
-      ws.emitJson({
-        type: 'engine.error',
-        requestId: 'no-such-pending',
-        error: 'too late',
-      });
-
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(warnSpy.mock.calls[0][0]).toContain(
-        'engine.error with no pending request',
+          response: buildResponse(sharedId, { userMessage: 'ok' }),
+        }),
       );
-      expect(warnSpy.mock.calls[0][0]).toContain('too late');
+      await processP;
     } finally {
       warnSpy.mockRestore();
       await connector.disconnect();

@@ -59,6 +59,7 @@ export type {
   EngineConnector,
   PushConnector,
 } from './lib/connection-manager/connector.types.js';
+export { WireEngineError } from './lib/connection-manager/connector.types.js';
 export type { HttpConnectorOptions } from './lib/connection-manager/connectors/http-connector.js';
 // Connectors
 export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';
