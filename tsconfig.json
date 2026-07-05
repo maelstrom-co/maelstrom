@@ -23,6 +23,9 @@
     },
     {
       "path": "./packages/engine"
+    },
+    {
+      "path": "./packages/realtime"
     }
   ]
 }
