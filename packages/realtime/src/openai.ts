@@ -1,2 +1,2 @@
-// OpenAI Realtime adapter arrives in a follow-on task (MAE-300).
-export {};
+export type { CreateOpenAiAdapterOptions } from './lib/openai/openai-adapter.js';
+export { createOpenAiAdapter } from './lib/openai/openai-adapter.js';
