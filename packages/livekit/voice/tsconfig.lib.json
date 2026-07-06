@@ -1,0 +1,45 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "lib": ["es2022", "dom"],
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "rootDir": "src",
+    "jsx": "react-jsx",
+    "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo"
+  },
+  "exclude": [
+    "out-tsc",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.spec.tsx",
+    "**/*.test.tsx",
+    "**/*.spec.js",
+    "**/*.test.js",
+    "**/*.spec.jsx",
+    "**/*.test.jsx",
+    "**/__tests__/*.ts",
+    "**/__tests__/*.tsx"
+  ],
+  "include": [
+    "src/**/*.js",
+    "src/**/*.jsx",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "references": [
+    {
+      "path": "../../protocol/tsconfig.lib.json"
+    },
+    {
+      "path": "../../client/tsconfig.lib.json"
+    },
+    {
+      "path": "../../react/tsconfig.lib.json"
+    }
+  ]
+}

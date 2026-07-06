@@ -29,6 +29,12 @@
     },
     {
       "path": "./packages/realtime-server"
+    },
+    {
+      "path": "./packages/livekit/agent"
+    },
+    {
+      "path": "./packages/livekit/voice"
     }
   ]
 }

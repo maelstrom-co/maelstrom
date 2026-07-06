@@ -91,6 +91,7 @@
   "workspaces": [
     "apps/*",
     "packages/*",
+    "packages/*/*",
     "tools/*"
   ],
   "nx": {
