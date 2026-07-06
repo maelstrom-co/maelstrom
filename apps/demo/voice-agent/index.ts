@@ -17,6 +17,7 @@ import { TTS } from '@livekit/agents-plugin-cartesia';
 import {
   AudioSource,
   LocalAudioTrack,
+  type RemoteTrack,
   RoomEvent,
   TrackKind,
   TrackPublishOptions,
@@ -28,10 +29,26 @@ import { ServerOptions } from '@livekit/agents';
 /** Text-stream topic the client uses to send TTS requests. Mirrors SPEAK_TOPIC client-side. */
 const SPEAK_TOPIC = 'speak';
 
-// Silence stderr noise from optional native modules
+// Optional native/platform bindings (LiveKit FFI prebuilds, Silero VAD) probe-
+// load and throw MODULE_NOT_FOUND on unsupported platforms — that's noise, not a
+// real failure. Suppress ONLY those (matched by module code + name), and re-throw
+// everything else so a genuine missing dependency or startup crash stays visible
+// instead of leaving the agent half-initialized with no diagnostic.
+const OPTIONAL_NATIVE_MODULES = [
+  '@livekit/rtc-ffi-bindings',
+  '@livekit/agents-plugin-silero',
+];
 process.on('uncaughtException', (err) => {
-  // Re-throw anything that isn't a missing optional native module
-  if (!String(err).includes('Cannot find module')) throw err;
+  const code = (err as NodeJS.ErrnoException).code;
+  const message = err instanceof Error ? err.message : String(err);
+  if (
+    code === 'MODULE_NOT_FOUND' &&
+    OPTIONAL_NATIVE_MODULES.some((name) => message.includes(name))
+  ) {
+    console.debug('[voice-agent] suppressed optional native module error:', message);
+    return;
+  }
+  throw err;
 });
 
 export default defineAgent({
@@ -51,6 +68,27 @@ export default defineAgent({
 
     // Find the user's audio track (may already be published or arrive shortly)
     const room = ctx.room;
+
+    // Single room-scoped turn_end listener, registered ONCE (not per track).
+    // Each processAudioTrack sets `flushActiveTurn` to flush ITS speechStream,
+    // so a turn_end packet always routes to the currently-active track. The old
+    // per-track registration leaked a listener per invocation and flushed stale
+    // streams once more than one track existed.
+    let flushActiveTurn: (() => void) | null = null;
+    room.on(
+      RoomEvent.DataReceived,
+      (payload: Uint8Array, _participant, _kind, topic) => {
+        if (topic !== 'turn') return;
+        try {
+          const msg = JSON.parse(new TextDecoder().decode(payload)) as {
+            type?: string;
+          };
+          if (msg.type === 'turn_end') flushActiveTurn?.();
+        } catch (err) {
+          console.warn('[voice-agent] ignoring malformed turn packet', err);
+        }
+      },
+    );
 
     // --- TTS return path (Cartesia) ---
     // Publish a single audio track up front; each speak request captures frames
@@ -99,16 +137,27 @@ export default defineAgent({
         const text = await reader.readAll();
         speakChain = speakChain
           .then(() => speak(text))
-          .catch((err) => {
+          .catch(async (err) => {
             console.error('[voice-agent] TTS synthesis failed', err);
+            // Signal the client so its UI can indicate speak-back failed rather
+            // than waiting indefinitely for audio that will never arrive.
+            try {
+              await room.localParticipant.publishData(
+                new TextEncoder().encode(JSON.stringify({ type: 'tts_error' })),
+                { reliable: true, topic: 'tts' },
+              );
+            } catch (signalErr) {
+              console.error(
+                '[voice-agent] failed to signal TTS error to client',
+                signalErr,
+              );
+            }
           });
         await speakChain;
       })();
     });
 
-    async function processAudioTrack(
-      track: import('@livekit/rtc-node').RemoteTrack,
-    ) {
+    async function processAudioTrack(track: RemoteTrack) {
       const audioStream = new AudioStream(track);
       const speechStream = deepgramSTT.stream();
       let segmentCounter = 0;
@@ -151,27 +200,16 @@ export default defineAgent({
         }
       })();
 
-      // Listen for turn_end data packets to flush the STT buffer
-      room.on(
-        RoomEvent.DataReceived,
-        (payload: Uint8Array, _participant, _kind, topic) => {
-          if (topic !== 'turn') return;
-          try {
-            const msg = JSON.parse(new TextDecoder().decode(payload)) as {
-              type?: string;
-            };
-            if (msg.type === 'turn_end') {
-              speechStream.flush();
-              // Grace window for the trailing final the flush produces, then
-              // emit the whole hold as one transcript.
-              if (emitTimer) clearTimeout(emitTimer);
-              emitTimer = setTimeout(emitTurn, 600);
-            }
-          } catch {
-            // ignore malformed data
-          }
-        },
-      );
+      // Route turn_end packets (received by the room-scoped listener) to THIS
+      // track's stream while it is the active one.
+      const flushThisTurn = () => {
+        speechStream.flush();
+        // Grace window for the trailing final the flush produces, then emit the
+        // whole hold as one transcript.
+        if (emitTimer) clearTimeout(emitTimer);
+        emitTimer = setTimeout(emitTurn, 600);
+      };
+      flushActiveTurn = flushThisTurn;
 
       // Buffer each final; the turn_end handler joins them into one transcript.
       for await (const event of speechStream) {
@@ -183,6 +221,7 @@ export default defineAgent({
 
       await pipeTask;
       speechStream.endInput();
+      if (flushActiveTurn === flushThisTurn) flushActiveTurn = null;
     }
 
     // Handle tracks already published when agent joins
@@ -199,7 +238,7 @@ export default defineAgent({
         track.kind !== TrackKind.KIND_AUDIO
       )
         return;
-      void processAudioTrack(track as import('@livekit/rtc-node').RemoteTrack);
+      void processAudioTrack(track as RemoteTrack);
     });
   },
 });
