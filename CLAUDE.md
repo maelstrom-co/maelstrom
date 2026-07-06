@@ -134,3 +134,17 @@ The `@maelstrom-co/*` packages are published to external consumers, so the comme
 ## Linear Workflow
 
 When picking up a Linear ticket (MAE-XXX) to start work on it, immediately move it to "In Progress" before doing anything else. Do this as the first action when a ticket is picked up — not after planning, not after the first commit. If the ticket is already In Progress, leave it.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live in **Linear** (`MAE-XXX`, team `MAE`), driven via the Linear MCP tools — not GitHub Issues. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical roles as Linear labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`), with `wontfix` mapped to the `Canceled` workflow state. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+**Single-context**: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
