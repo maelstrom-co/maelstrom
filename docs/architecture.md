@@ -378,12 +378,13 @@ These enable:
 ```
 @maelstrom-co/protocol     (foundation: types + messages)
          │
-    ┌────┴────┐
-    ▼         ▼
-@maelstrom-co/client   @maelstrom-co/engine
-         │
-         ▼
-@maelstrom-co/react
+    ┌────┼───────────────┐
+    ▼    ▼               ▼
+@maelstrom-co/client  @maelstrom-co/engine  @maelstrom-co/realtime-server
+    │
+    ├──────────┐
+    ▼          ▼
+@maelstrom-co/react  @maelstrom-co/realtime
 ```
 
 ### Why This Structure?
@@ -392,6 +393,8 @@ These enable:
 - **client**: Framework-agnostic client, can be used anywhere
 - **engine**: Server-side only, has LLM provider dependencies
 - **react**: React-specific bindings, optional
+- **realtime**: browser-side realtime voice core; talks to the provider directly with ephemeral tokens, feeds intents into the client
+- **realtime-server**: mints ephemeral provider tokens; the sole holder of provider API keys; shares only protocol schemas with the browser side (no code crosses the HTTP boundary)
 
 ---
 
