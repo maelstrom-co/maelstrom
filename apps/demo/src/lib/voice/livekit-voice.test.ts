@@ -1,4 +1,5 @@
 import { test, expect, mock, beforeEach, describe } from 'bun:test';
+import { renderHook, act } from '@testing-library/react';
 
 // --- Mocks for livekit-client ---
 
@@ -7,6 +8,7 @@ const mockRoomDisconnect = mock(async () => {});
 const mockPublishData = mock(async () => {});
 const mockSetMicrophoneEnabled = mock(async () => undefined);
 const mockSendText = mock(async (_text: string, _opts?: unknown) => ({}));
+const mockStartAudio = mock(async () => {});
 
 const mockLocalParticipant = {
   setMicrophoneEnabled: mockSetMicrophoneEnabled,
@@ -25,6 +27,8 @@ function makeMockRoom() {
     off: mock(() => {}),
     connect: mockRoomConnect,
     disconnect: mockRoomDisconnect,
+    startAudio: mockStartAudio,
+    canPlaybackAudio: true,
     localParticipant: mockLocalParticipant,
     _emit: (event: string, ...args: unknown[]) => {
       handlers[event]?.forEach((h) => {
@@ -42,6 +46,8 @@ mock.module('livekit-client', () => ({
     off = currentRoom.off;
     connect = currentRoom.connect;
     disconnect = currentRoom.disconnect;
+    startAudio = currentRoom.startAudio;
+    canPlaybackAudio = currentRoom.canPlaybackAudio;
     localParticipant = currentRoom.localParticipant;
   },
   RoomEvent: {
@@ -63,19 +69,49 @@ mock.module('livekit-client', () => ({
 // Stub createServerFn so importing the real ./get-livekit-token module does not
 // pull a TanStack Start runtime; the real mintLiveKitToken stays intact for the
 // sibling token-route test (Bun's mock.module is process-global).
+// Stub createServerFn so the real ./get-livekit-token module imports without a
+// TanStack Start runtime. The token handler delegates to a global hook so tests
+// can drive connect() to success (default) or failure. This must match the stub
+// in get-livekit-token.test.ts: Bun registers module mocks process-globally, so
+// whichever file's stub the token module binds at eval, the indirection is the
+// same — and the real mintLiveKitToken export stays intact for the sibling test.
+type MockToken = { token: string; url: string };
+const DEFAULT_TOKEN: MockToken = {
+  token: 'test-token',
+  url: 'ws://localhost:7880',
+};
+const g = globalThis as { __mockGetToken?: (arg: unknown) => Promise<MockToken> };
+g.__mockGetToken = async () => DEFAULT_TOKEN;
 mock.module('@tanstack/react-start', () => ({
   createServerFn: () => ({
-    inputValidator: () => ({ handler: () => () => undefined }),
+    inputValidator: () => ({
+      handler: () => (arg: unknown) => g.__mockGetToken!(arg),
+    }),
   }),
 }));
 
 // Import after mocks are set up
 const { liveKitVoice } = await import('./livekit-voice');
 
+// Captures the processing_completed subscriber the hook registers, so tests can
+// drive the read-only response-observation seam directly.
+let capturedProcessingCb: ((e: { response: unknown }) => void) | null = null;
+const mockOff = mock(() => {});
+
 // Minimal orchestrator mock
 function makeOrchestrator() {
+  capturedProcessingCb = null;
+  mockOff.mockReset();
   return {
     processIntent: mock(async (_text: string) => ({})),
+    requestCoordinator: {
+      events: {
+        on: mock((event: string, cb: (e: { response: unknown }) => void) => {
+          if (event === 'processing_completed') capturedProcessingCb = cb;
+          return mockOff;
+        }),
+      },
+    },
   };
 }
 
@@ -162,7 +198,7 @@ describe('liveKitVoice extension', () => {
     const speak = mock(async (_text: string) => {});
     const seams = defaultSeams(orchestrator as never, speak);
 
-    seams.onResponse(makeResponse('   '));
+    await seams.onResponse(makeResponse('   '));
     expect(speak).not.toHaveBeenCalled();
   });
 
@@ -173,7 +209,7 @@ describe('liveKitVoice extension', () => {
     const never = () => false;
     const seams = defaultSeams(orchestrator as never, speak, never);
 
-    seams.onResponse(makeResponse('would be spoken if predicate allowed'));
+    await seams.onResponse(makeResponse('would be spoken if predicate allowed'));
     expect(speak).not.toHaveBeenCalled();
   });
 });
@@ -231,5 +267,147 @@ describe('createSpeakTransport', () => {
     await speak('nobody hears this');
 
     expect(mockSendText).not.toHaveBeenCalled();
+  });
+});
+
+describe('useVoice hook', () => {
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockRoomConnect.mockReset();
+    mockRoomDisconnect.mockReset();
+    mockSetMicrophoneEnabled.mockReset();
+    mockPublishData.mockReset();
+    mockStartAudio.mockReset();
+    g.__mockGetToken = async () => DEFAULT_TOKEN;
+  });
+
+  function renderVoice(options: Record<string, unknown> = {}) {
+    const orchestrator = makeOrchestrator();
+    const ext = liveKitVoice(options)(makeCtx(orchestrator));
+    return { orchestrator, ...renderHook(() => ext.voice.useVoice()) };
+  }
+
+  test('connect transitions connecting→connected on RoomEvent.Connected', async () => {
+    const { result } = renderVoice();
+    expect(result.current.status).toBe('disconnected');
+
+    await act(async () => {
+      await result.current.setEnabled({ enabled: true }, 'room-1');
+    });
+    act(() => currentRoom._emit('connected'));
+
+    expect(result.current.status).toBe('connected');
+    expect(result.current.enabled).toBe(true);
+  });
+
+  test('a second setEnabled(true) while connected does not re-connect', async () => {
+    const { result } = renderVoice();
+    await act(async () => {
+      await result.current.setEnabled({ enabled: true }, 'room-1');
+    });
+    const callsAfterFirst = mockRoomConnect.mock.calls.length;
+
+    await act(async () => {
+      await result.current.setEnabled({ enabled: true }, 'room-1');
+    });
+
+    expect(mockRoomConnect.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  test('connect failure sets error status, surfaces the message, leaves enabled false', async () => {
+    g.__mockGetToken = async () => {
+      throw new Error('LiveKit credentials not configured');
+    };
+    const { result } = renderVoice();
+
+    await act(async () => {
+      await result.current.setEnabled({ enabled: true }, 'room-1');
+    });
+
+    expect(result.current.status).toBe('error');
+    expect(result.current.enabled).toBe(false);
+    expect(result.current.errorMessage).toBe('LiveKit credentials not configured');
+  });
+
+  test('setEnabled(false) disconnects and clears state', async () => {
+    const { result } = renderVoice();
+    await act(async () => {
+      await result.current.setEnabled({ enabled: true }, 'room-1');
+    });
+    act(() => currentRoom._emit('connected'));
+
+    await act(async () => {
+      await result.current.setEnabled({ enabled: false }, 'room-1');
+    });
+
+    expect(mockRoomDisconnect).toHaveBeenCalled();
+    expect(result.current.status).toBe('disconnected');
+    expect(result.current.enabled).toBe(false);
+  });
+
+  test('processing_completed drives onResponse with the response; unsubscribes on unmount', () => {
+    const onResponse = mock((_r: unknown) => {});
+    const orchestrator = makeOrchestrator();
+    const ext = liveKitVoice({ onResponse })(makeCtx(orchestrator));
+    const { unmount } = renderHook(() => ext.voice.useVoice());
+
+    expect(capturedProcessingCb).not.toBeNull();
+    act(() => capturedProcessingCb!({ response: makeResponse('spoken back') }));
+
+    expect(onResponse).toHaveBeenCalledTimes(1);
+    expect(
+      (onResponse.mock.calls[0][0] as { userMessage: string }).userMessage,
+    ).toBe('spoken back');
+
+    unmount();
+    expect(mockOff).toHaveBeenCalled();
+  });
+
+  test('TranscriptionReceived joins final segments, trims, and drops empty', async () => {
+    const onTranscript = mock((_t: string) => {});
+    const orchestrator = makeOrchestrator();
+    const ext = liveKitVoice({ onTranscript })(makeCtx(orchestrator));
+    const { result } = renderHook(() => ext.voice.useVoice());
+    await act(async () => {
+      await result.current.setEnabled({ enabled: true }, 'room-1');
+    });
+
+    act(() =>
+      currentRoom._emit('transcriptionReceived', [
+        { text: 'hello', final: true },
+        { text: 'world', final: true },
+        { text: 'ignored', final: false },
+      ]),
+    );
+    expect(onTranscript).toHaveBeenLastCalledWith('hello world');
+    expect(result.current.currentTranscript).toBe('hello world');
+
+    onTranscript.mockReset();
+    act(() =>
+      currentRoom._emit('transcriptionReceived', [{ text: '   ', final: true }]),
+    );
+    expect(onTranscript).not.toHaveBeenCalled();
+  });
+
+  test('stopTalking publishes the turn_end packet on the turn topic', async () => {
+    const { result } = renderVoice();
+    await act(async () => {
+      await result.current.setEnabled({ enabled: true }, 'room-1');
+    });
+    act(() => currentRoom._emit('connected'));
+
+    await act(async () => {
+      await result.current.stopTalking();
+    });
+
+    const call = mockPublishData.mock.calls.at(-1) as unknown as [
+      Uint8Array,
+      { reliable: boolean; topic: string },
+    ];
+    const [payload, opts] = call;
+    expect(opts).toEqual({ reliable: true, topic: 'turn' });
+    expect(JSON.parse(new TextDecoder().decode(payload))).toEqual({
+      type: 'turn_end',
+    });
   });
 });

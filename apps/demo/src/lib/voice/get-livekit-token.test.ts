@@ -21,11 +21,22 @@ mock.module('livekit-server-sdk', () => ({
   },
 }));
 
-// createServerFn is irrelevant to the token-minting logic under test; stub it so
-// the module imports without a TanStack Start runtime.
+// createServerFn is irrelevant to the token-minting logic under test (these
+// tests call mintLiveKitToken directly), but the stub must match the one in
+// livekit-voice.test.ts: Bun registers module mocks process-globally, so a
+// divergent stub would make the getLivekitToken binding order-dependent. The
+// token handler delegates to a global hook set by the hook test.
+type MockToken = { token: string; url: string };
+const g = globalThis as { __mockGetToken?: (arg: unknown) => Promise<MockToken> };
+g.__mockGetToken ??= async () => ({
+  token: 'test-token',
+  url: 'ws://localhost:7880',
+});
 mock.module('@tanstack/react-start', () => ({
   createServerFn: () => ({
-    inputValidator: () => ({ handler: () => () => undefined }),
+    inputValidator: () => ({
+      handler: () => (arg: unknown) => g.__mockGetToken!(arg),
+    }),
   }),
 }));
 
@@ -73,6 +84,12 @@ describe('mintLiveKitToken', () => {
   test('honours a custom identity', async () => {
     await mintLiveKitToken({ roomName: 'maelstrom-abc', identity: 'agent' });
     expect(lastIdentity).toBe('agent');
+  });
+
+  test('defaults the url to ws://localhost:7880 when LIVEKIT_URL is unset', async () => {
+    delete process.env.LIVEKIT_URL;
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(result.url).toBe('ws://localhost:7880');
   });
 
   test('throws when credentials are missing', async () => {
