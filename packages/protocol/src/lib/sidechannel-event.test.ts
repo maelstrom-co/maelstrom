@@ -20,7 +20,29 @@ describe('SidechannelEventSchema', () => {
     if (e.type === 'tool_call') expect(e.name).toBe('update_ui');
   });
 
+  it('accepts a tool_result event with measured latency', () => {
+    const e = SidechannelEventSchema.parse({
+      ...base, type: 'tool_result', callId: 'call_1', ok: true, latencyMs: 42,
+    });
+    if (e.type === 'tool_result') expect(e.latencyMs).toBe(42);
+  });
+
+  it('accepts a timing event', () => {
+    const e = SidechannelEventSchema.parse({
+      ...base, type: 'timing', label: 'render', ms: 12,
+    });
+    if (e.type === 'timing') expect(e.ms).toBe(12);
+  });
+
   it('rejects an unknown event type', () => {
     expect(() => SidechannelEventSchema.parse({ ...base, type: 'audio' })).toThrow();
+  });
+
+  it('rejects a negative tool_result latency', () => {
+    expect(() =>
+      SidechannelEventSchema.parse({
+        ...base, type: 'tool_result', callId: 'c', ok: false, latencyMs: -1,
+      }),
+    ).toThrow();
   });
 });
