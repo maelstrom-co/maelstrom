@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { UiStructuralSnapshot } from '@maelstrom-co/client';
+import { RequestInFlightError } from '@maelstrom-co/client';
 import { InstanceId, SessionId, VariantName, VesselId } from '@maelstrom-co/protocol';
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
 
@@ -22,14 +23,22 @@ interface MockAdapter extends RealtimeProviderAdapter {
   readonly toolResults: Array<{ callId: string; output: unknown }>;
   readonly groundingCalls: string[];
   readonly connectCalls: number;
+  /** Number of adapter-event handlers currently subscribed via `on()` — a leaked subscription shows up here. */
+  readonly listenerCount: number;
+  /** Makes the next `connect()` call reject instead of resolving. */
+  failNextConnect(): void;
+  /** Makes `connect()` block until the returned function is called. */
+  gateConnect(): () => void;
   emitToolCall(call: { callId: string; name: string; argumentsJson: string }): void;
 }
 
 function makeMockAdapter(): MockAdapter {
   const toolResults: Array<{ callId: string; output: unknown }> = [];
   const groundingCalls: string[] = [];
-  let handler: ((event: RealtimeAdapterEvent) => void) | undefined;
+  const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
   let connectCalls = 0;
+  let shouldFailNextConnect = false;
+  let gate: Promise<void> | undefined;
 
   return {
     toolResults,
@@ -37,8 +46,29 @@ function makeMockAdapter(): MockAdapter {
     get connectCalls() {
       return connectCalls;
     },
+    get listenerCount() {
+      return handlers.size;
+    },
+    failNextConnect() {
+      shouldFailNextConnect = true;
+    },
+    gateConnect() {
+      let release!: () => void;
+      gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
+    },
     connect: async () => {
       connectCalls += 1;
+      if (gate) {
+        await gate;
+        gate = undefined;
+      }
+      if (shouldFailNextConnect) {
+        shouldFailNextConnect = false;
+        throw new Error('adapter connect failed');
+      }
     },
     disconnect: async () => {},
     sendToolResult: async (callId, output) => {
@@ -48,13 +78,13 @@ function makeMockAdapter(): MockAdapter {
       groundingCalls.push(text);
     },
     on: (h) => {
-      handler = h;
+      handlers.add(h);
       return () => {
-        handler = undefined;
+        handlers.delete(h);
       };
     },
     emitToolCall(call) {
-      handler?.({ type: 'tool_call', ...call });
+      for (const h of handlers) h({ type: 'tool_call', ...call });
     },
   };
 }
@@ -78,7 +108,7 @@ function makeMockInstance(snapshot: UiStructuralSnapshot): MockInstance {
     submitted,
     submitIntent: async (intent: string) => {
       if (inFlight) {
-        throw new Error('A request is already in flight');
+        throw new RequestInFlightError();
       }
       inFlight = true;
       submitted.push(intent);
@@ -423,5 +453,133 @@ describe('RealtimeSession — sidechannel events', () => {
       expect(call.sessionId).toBe(testSessionId);
       expect(result.sessionId).toBe(testSessionId);
     }
+  });
+});
+
+// ============================================================================
+// Behavior 7: connection lifecycle — state transitions, re-entry, cleanup
+// ============================================================================
+
+describe('RealtimeSession — connection lifecycle', () => {
+  it('transitions connecting -> connected on success, and connected -> idle on disconnect', async () => {
+    const { session, adapter } = makeHarness();
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+
+    await session.connect();
+    expect(states).toEqual(['connecting', 'connected']);
+    expect(session.state).toBe('connected');
+
+    await session.disconnect();
+    expect(states).toEqual(['connecting', 'connected', 'idle']);
+    expect(session.state).toBe('idle');
+  });
+
+  it('transitions connecting -> error and rethrows when adapter.connect rejects', async () => {
+    const { session, adapter } = makeHarness();
+    adapter.failNextConnect();
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+
+    let thrown: unknown;
+    try {
+      await session.connect();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(states).toEqual(['connecting', 'error']);
+    expect(session.state).toBe('error');
+  });
+
+  it('is a no-op when connect() is called again while already connected', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    expect(adapter.connectCalls).toBe(1);
+
+    await session.connect();
+    expect(adapter.connectCalls).toBe(1); // no second connect attempt
+    expect(session.state).toBe('connected');
+  });
+
+  it('is a no-op when connect() is called again while still connecting', async () => {
+    const { session, adapter } = makeHarness();
+    const release = adapter.gateConnect();
+
+    const firstConnect = session.connect();
+    await flushMicrotasks();
+    expect(session.state).toBe('connecting');
+
+    await session.connect(); // guarded: state is 'connecting'
+    expect(adapter.connectCalls).toBe(1);
+
+    release();
+    await firstConnect;
+    expect(session.state).toBe('connected');
+    expect(adapter.connectCalls).toBe(1);
+  });
+
+  it('tears down subscriptions on a failed connect so a stale settle never reaches the adapter', async () => {
+    const { session, adapter, instance } = makeHarness();
+    adapter.failNextConnect();
+
+    try {
+      await session.connect();
+    } catch {
+      // asserted via state in the prior test — only cleanup matters here.
+    }
+
+    expect(adapter.listenerCount).toBe(0);
+
+    // A settle firing after the failed connect must not reach the adapter —
+    // the onSettled subscription installed before the rejection was torn
+    // down in the failure-cleanup path.
+    instance.settle();
+    await flushMicrotasks();
+    expect(adapter.groundingCalls).toEqual([]);
+  });
+
+  it('retries cleanly after a failed connect — exactly one subscription, no double-handling', async () => {
+    const { session, adapter } = makeHarness();
+    adapter.failNextConnect();
+
+    try {
+      await session.connect();
+    } catch {
+      // expected — see the dedicated error-transition test above.
+    }
+    expect(session.state).toBe('error');
+    expect(adapter.listenerCount).toBe(0);
+
+    await session.connect(); // retry succeeds
+    expect(session.state).toBe('connected');
+    expect(adapter.listenerCount).toBe(1);
+    expect(adapter.connectCalls).toBe(2);
+
+    adapter.emitToolCall({ callId: 'c1', name: 'get_ui_state', argumentsJson: '{}' });
+    await flushMicrotasks();
+
+    // Exactly one tool_result — a leaked handler from the failed attempt
+    // would have produced two.
+    expect(adapter.toolResults).toHaveLength(1);
+  });
+
+  it('disconnect cancels a pending debounced grounding push so it cannot land after teardown', async () => {
+    const adapter = makeMockAdapter();
+    const instance = makeMockInstance(populatedSnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      groundingDebounceMs: 20,
+    });
+    await session.connect();
+
+    instance.settle(); // schedules a debounced grounding push ~20ms out
+    await session.disconnect();
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(adapter.groundingCalls).toEqual([]);
   });
 });

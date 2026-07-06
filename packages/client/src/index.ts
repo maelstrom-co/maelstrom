@@ -110,6 +110,7 @@ export type {
 } from './lib/orchestrator/request-coordinator.js';
 export { RequestCoordinator } from './lib/orchestrator/request-coordinator.js';
 export type { RequestCoordinatorOptions } from './lib/orchestrator/request-coordinator.types.js';
+export { RequestInFlightError } from './lib/orchestrator/request-in-flight-error.js';
 // Types
 export type { Unsubscribe, VesselInstance } from './lib/types.js';
 export type { UpdateCoordinatorEvents } from './lib/update-coordination/update-coordinator.js';

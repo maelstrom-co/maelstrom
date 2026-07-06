@@ -45,8 +45,8 @@ export type RealtimeAdapterEvent =
  * Provider-agnostic seam a realtime voice transport (OpenAI WebRTC, Google
  * Live API, …) implements. `RealtimeSession` drives every provider through
  * this interface only — it never branches on provider identity. Concrete
- * transports live in `./openai` / `./google` (later tasks); this task
- * defines the seam and exercises it against a mock.
+ * transports live in `./openai`; additional providers ship as sibling
+ * subpaths.
  */
 export interface RealtimeProviderAdapter {
   /**

@@ -30,4 +30,37 @@ describe('groundedDebounce', () => {
     expect(seen).toEqual([1, 2]);
     clock.uninstall();
   });
+
+  it('cancel() drops a pending trailing call', () => {
+    const clock = FakeTimers.install();
+    const seen: number[] = [];
+    const d = groundedDebounce((n: number) => seen.push(n), 1000);
+    d(1);
+    d.cancel();
+    clock.tick(1000);
+    expect(seen).toEqual([]);
+    clock.uninstall();
+  });
+
+  it('cancel() is a no-op when nothing is pending', () => {
+    const clock = FakeTimers.install();
+    const seen: number[] = [];
+    const d = groundedDebounce((n: number) => seen.push(n), 1000);
+    expect(() => d.cancel()).not.toThrow();
+    clock.tick(1000);
+    expect(seen).toEqual([]);
+    clock.uninstall();
+  });
+
+  it('a call after cancel() still fires normally', () => {
+    const clock = FakeTimers.install();
+    const seen: number[] = [];
+    const d = groundedDebounce((n: number) => seen.push(n), 1000);
+    d(1);
+    d.cancel();
+    d(2);
+    clock.tick(1000);
+    expect(seen).toEqual([2]);
+    clock.uninstall();
+  });
 });

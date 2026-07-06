@@ -3,26 +3,32 @@ import { m } from '../lib/maelstrom';
 const STATE_LABEL: Record<string, string> = {
   idle: 'Start voice',
   connecting: 'Connecting…',
+  connected: 'Voice on',
   listening: 'Listening',
   thinking: 'Thinking…',
   speaking: 'Speaking…',
   error: 'Voice error',
 };
 
+// Every state where the transport is live — mic on, session up.
+const CONNECTED_STATES = new Set(['connected', 'listening', 'thinking', 'speaking']);
+
 /**
- * Mic toggle for the MAE-300 realtime voice spike. Calls
+ * Mic toggle for the realtime voice spike. Calls
  * `session.connect()`/`disconnect()` and reflects `session.state`.
- * Unverified live — see task-9-report.md for validation steps.
  */
 export function MicToggle() {
   const { state, connect, disconnect } = m.useVoiceSpike();
-  const isConnected = state !== 'idle' && state !== 'error';
+  const isConnected = CONNECTED_STATES.has(state);
 
   const handleClick = () => {
     if (isConnected) {
       void disconnect();
     } else {
-      void connect();
+      // Failure already lands in `state` ('error') via the session's own
+      // state transition — this catch only exists so the rejection isn't
+      // unhandled.
+      void connect().catch(() => {});
     }
   };
 

@@ -34,6 +34,7 @@ import type {
 } from './orchestrator.types.js';
 import { resolveOrchestratorOptions } from './orchestrator.types.js';
 import { RequestCoordinator } from './request-coordinator.js';
+import { RequestInFlightError } from './request-in-flight-error.js';
 
 /**
  * Composition root that creates, wires, and coordinates all microkernels.
@@ -200,7 +201,7 @@ export class Orchestrator {
       throw new Error('Orchestrator is disposed');
     }
     if (this.#requestCoordinator.isProcessing) {
-      throw new Error('A request is already in flight');
+      throw new RequestInFlightError();
     }
 
     const pendingUpdates = this.#updateCoordinator.takeCoalesced();

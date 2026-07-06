@@ -1,4 +1,4 @@
-import { Logger } from '@maelstrom-co/client';
+import { Logger, RequestInFlightError } from '@maelstrom-co/client';
 import type {
   UiStructuralSnapshot,
   Unsubscribe,
@@ -86,8 +86,6 @@ const DEFAULT_GROUNDING_DEBOUNCE_MS = 1000;
 const BUSY_SUMMARY =
   'Still applying the previous change — try again in a moment.';
 
-const IN_FLIGHT_MESSAGE = 'A request is already in flight';
-
 const APPLY_FAILED_SUMMARY = 'Something went wrong applying that change.';
 
 function defaultSummarize(snapshot: UiStructuralSnapshot): string {
@@ -135,7 +133,7 @@ export class RealtimeSession implements VoiceSession {
   readonly #sessionId: SessionId;
   readonly #summarize: SummarizeFn;
   readonly #onEvent: (event: SidechannelEvent) => void;
-  readonly #pushGrounding: (snapshot: UiStructuralSnapshot) => void;
+  readonly #pushGrounding: ((snapshot: UiStructuralSnapshot) => void) & { cancel(): void };
   readonly #logger: Logger;
 
   #state: VoiceSessionState = 'idle';
@@ -160,6 +158,11 @@ export class RealtimeSession implements VoiceSession {
   }
 
   async connect(): Promise<void> {
+    // Re-entry guard: without it, a second connect() before the first
+    // resolves would stack a second set of subscriptions on top of the
+    // first's (only the last unsubscribe would ever be reachable).
+    if (this.#state === 'connected' || this.#state === 'connecting') return;
+
     this.#setState('connecting');
     this.#unsubscribeAdapter = this.#adapter.on((event) => {
       this.#handleAdapterEvent(event);
@@ -167,20 +170,31 @@ export class RealtimeSession implements VoiceSession {
     this.#unsubscribeSettled = this.#instance.onSettled(() => {
       this.#pushGrounding(this.#instance.getStructuralSnapshot());
     });
-    await this.#adapter.connect({
-      tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL],
-      instructions: DEFAULT_INSTRUCTIONS,
-    });
-    this.#setState('idle');
+    try {
+      await this.#adapter.connect({
+        tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL],
+        instructions: DEFAULT_INSTRUCTIONS,
+      });
+    } catch (error) {
+      this.#cleanupConnection();
+      this.#setState('error');
+      throw error;
+    }
+    this.#setState('connected');
   }
 
   async disconnect(): Promise<void> {
+    this.#cleanupConnection();
+    await this.#adapter.disconnect();
+    this.#setState('idle');
+  }
+
+  #cleanupConnection(): void {
     this.#unsubscribeAdapter?.();
     this.#unsubscribeSettled?.();
     this.#unsubscribeAdapter = undefined;
     this.#unsubscribeSettled = undefined;
-    await this.#adapter.disconnect();
-    this.#setState('idle');
+    this.#pushGrounding.cancel();
   }
 
   on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe {
@@ -205,10 +219,12 @@ export class RealtimeSession implements VoiceSession {
       case 'state':
         this.#setState(event.state);
         break;
+      case 'error':
+        this.#logger.warn('adapter error', event.error);
+        break;
       case 'transcript':
       case 'speech_started':
-      case 'error':
-        // Not part of the tested tool/grounding surface for this task.
+        // Not part of the tool/grounding surface this session drives.
         break;
     }
   }
@@ -290,7 +306,7 @@ export class RealtimeSession implements VoiceSession {
       // Barge-in: the instance throws while a prior intent is still in
       // flight. Never let that exception reach the adapter — answer
       // gracefully so the model can tell the user to wait and retry.
-      if (error instanceof Error && error.message === IN_FLIGHT_MESSAGE) {
+      if (error instanceof RequestInFlightError) {
         await this.#adapter.sendToolResult(callId, {
           ok: false,
           summary: BUSY_SUMMARY,

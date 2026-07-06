@@ -9,6 +9,13 @@ import type {
   RealtimeToolSpec,
 } from '../provider-adapter.types.js';
 import { parseOaiServerEvent } from './parse-oai-event.js';
+import {
+  INITIAL_RESPONSE_LIFECYCLE_STATE,
+  markResponseActive,
+  markResponseInactive,
+  requestResponseCreate,
+  type ResponseLifecycleState,
+} from './response-lifecycle.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 
@@ -44,9 +51,9 @@ function toOaiTool(spec: RealtimeToolSpec): unknown {
  * the `oai-events` data channel.
  *
  * The data-channel envelope → adapter-event mapping lives in
- * {@link parseOaiServerEvent}; this class is thin `RTCPeerConnection` glue
- * around it and is exercised end-to-end in the demo spike rather than
- * unit-tested.
+ * {@link parseOaiServerEvent}; this factory is thin `RTCPeerConnection` glue
+ * around it — the WebRTC transport itself is not unit-tested, but the
+ * envelope parsing and response-lifecycle bookkeeping it delegates to are.
  *
  * @example
  * ```ts
@@ -65,7 +72,17 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
   let dc: RTCDataChannel | undefined;
   let micStream: MediaStream | undefined;
   let groundingItemExists = false;
+  // Guards the window between connect() being called and `pc` being
+  // assigned — `mintToken()` is the first await, so without this a second
+  // connect() during that round-trip would pass the `pc` check too and leak
+  // its own RTCPeerConnection + mic stream.
+  let connecting = false;
+  let responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
   const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
+
+  function sendResponseCreate(): void {
+    dc?.send(JSON.stringify({ type: 'response.create' }));
+  }
 
   function emit(event: RealtimeAdapterEvent): void {
     for (const handler of handlers) handler(event);
@@ -84,6 +101,8 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
     dc = undefined;
     micStream = undefined;
     groundingItemExists = false;
+    connecting = false;
+    responseLifecycle = INITIAL_RESPONSE_LIFECYCLE_STATE;
   }
 
   function handleDataChannelMessage(raw: unknown): void {
@@ -102,6 +121,18 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
     } else {
       logger.debug('←', type, parsed);
     }
+
+    // Response-lifecycle bookkeeping is driven off the raw event type, not
+    // the parsed adapter event — `parseOaiServerEvent` has no mapping for
+    // these (and shouldn't grow one just for this internal concern).
+    if (type === 'response.created') {
+      responseLifecycle = markResponseActive(responseLifecycle);
+    } else if (type === 'response.done' || type === 'response.cancelled') {
+      const { next, flush } = markResponseInactive(responseLifecycle);
+      responseLifecycle = next;
+      if (flush) sendResponseCreate();
+    }
+
     const event = parseOaiServerEvent(parsed);
     if (event) {
       logger.debug('parsed →', event.type, event);
@@ -113,30 +144,32 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
 
   return {
     async connect(opts: AdapterConnectOptions): Promise<void> {
-      if (pc) {
+      if (pc || connecting) {
         throw new Error('OpenAI realtime adapter is already connected');
       }
-
-      const token = await mintToken();
-
-      const connection = new RTCPeerConnection();
-      pc = connection;
-
-      const audio = new Audio();
-      audio.autoplay = true;
-      connection.ontrack = (event) => {
-        audio.srcObject = event.streams[0] ?? null;
-      };
-      connection.oniceconnectionstatechange = () => {
-        if (
-          connection.iceConnectionState === 'failed' ||
-          connection.iceConnectionState === 'disconnected'
-        ) {
-          emit({ type: 'error', error: new Error(`ICE connection ${connection.iceConnectionState}`) });
-        }
-      };
+      connecting = true;
 
       try {
+        const token = await mintToken();
+
+        const connection = new RTCPeerConnection();
+        pc = connection;
+        connecting = false;
+
+        const audio = new Audio();
+        audio.autoplay = true;
+        connection.ontrack = (event) => {
+          audio.srcObject = event.streams[0] ?? null;
+        };
+        connection.oniceconnectionstatechange = () => {
+          if (
+            connection.iceConnectionState === 'failed' ||
+            connection.iceConnectionState === 'disconnected'
+          ) {
+            emit({ type: 'error', error: new Error(`ICE connection ${connection.iceConnectionState}`) });
+          }
+        };
+
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         micStream = stream;
         for (const track of stream.getTracks()) {
@@ -220,7 +253,12 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
             },
           }),
         );
-        dc.send(JSON.stringify({ type: 'response.create' }));
+        // Only one response.create may be in flight at a time — if a prior
+        // response (e.g. one still driving another tool call) hasn't
+        // finished, defer this one; `response.done` flushes it later.
+        const { next, sendNow } = requestResponseCreate(responseLifecycle);
+        responseLifecycle = next;
+        if (sendNow) sendResponseCreate();
       } catch (error) {
         emit({ type: 'error', error });
       }

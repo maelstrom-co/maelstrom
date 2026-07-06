@@ -5,20 +5,26 @@
  * the latest structural snapshot: the model should never see a burst of
  * stale grounding text for a UI state that has already moved on.
  *
+ * The returned function carries a `cancel()` so a caller tearing down the
+ * session this debounce belongs to can drop a pending trailing call —
+ * otherwise it fires on its own timer after teardown and can land as a new
+ * session's first grounding push.
+ *
  * @example
  * ```ts
  * const push = groundedDebounce((snapshot: UiStructuralSnapshot) => {
  *   adapter.injectGrounding(summarize(snapshot));
  * }, 1000);
+ * push.cancel(); // e.g. on session disconnect
  * ```
  */
 export function groundedDebounce<A extends unknown[]>(
   fn: (...args: A) => void,
   ms: number,
-): (...args: A) => void {
+): ((...args: A) => void) & { cancel(): void } {
   let handle: ReturnType<typeof setTimeout> | undefined;
   let latest: A;
-  return (...args: A) => {
+  const debounced = (...args: A) => {
     latest = args;
     if (handle) clearTimeout(handle);
     handle = setTimeout(() => {
@@ -26,4 +32,9 @@ export function groundedDebounce<A extends unknown[]>(
       fn(...latest);
     }, ms);
   };
+  debounced.cancel = () => {
+    if (handle) clearTimeout(handle);
+    handle = undefined;
+  };
+  return debounced;
 }

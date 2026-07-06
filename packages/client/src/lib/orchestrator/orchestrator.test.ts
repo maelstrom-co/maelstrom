@@ -28,6 +28,7 @@ import type {
 import type { Unsubscribe } from '../types.js';
 import { Orchestrator } from './orchestrator.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
+import { RequestInFlightError } from './request-in-flight-error.js';
 
 // ============================================================================
 // Test helpers
@@ -379,9 +380,11 @@ describe('Orchestrator', () => {
       // Start first intent — it will block on the connector
       const firstIntent = orchestrator.processIntent('first');
 
-      // Second intent while first is in-flight should throw
+      // Second intent while first is in-flight should throw the typed error
+      // so callers (e.g. realtime barge-in handling) can branch on the class
+      // rather than matching the message.
       await expect(orchestrator.processIntent('second')).rejects.toThrow(
-        /already in flight/i,
+        RequestInFlightError,
       );
 
       // Resolve first intent to clean up
