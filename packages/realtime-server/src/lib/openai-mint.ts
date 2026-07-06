@@ -40,6 +40,11 @@ interface OpenAiClientSecretResponse {
  * deployment must add an origin allowlist, a rate limit, and caller
  * authentication in front of it before going live.
  *
+ * Only handles `provider: 'openai'` requests — a `google` handler is a
+ * sibling. `sessionId` is accepted and validated but currently unused by
+ * this handler; it's reserved for the sidechannel receiver to bind the
+ * minted session to the Maelstrom session.
+ *
  * @example
  * ```ts
  * const handler = createOpenAiMintHandler({
@@ -76,6 +81,15 @@ export function createOpenAiMintHandler(
       return Response.json({ error: 'Invalid token handshake request' }, { status: 400 });
     }
 
+    if (handshake.data.provider !== 'openai') {
+      return Response.json(
+        { error: `Unsupported provider for this endpoint: ${handshake.data.provider}` },
+        { status: 400 },
+      );
+    }
+
+    const resolvedModel = handshake.data.model ?? model;
+
     let upstream: Response;
     let upstreamBody: OpenAiClientSecretResponse;
     try {
@@ -90,7 +104,7 @@ export function createOpenAiMintHandler(
         },
         body: JSON.stringify({
           expires_after: { anchor: 'created_at', seconds: 600 },
-          session: { type: 'realtime', model },
+          session: { type: 'realtime', model: resolvedModel },
         }),
       });
 
@@ -110,7 +124,7 @@ export function createOpenAiMintHandler(
       provider: 'openai',
       value: upstreamBody.value,
       expiresAt: upstreamBody.expires_at,
-      model,
+      model: resolvedModel,
     };
 
     try {

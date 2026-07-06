@@ -48,6 +48,76 @@ it('responds with a generic error and no key leakage when upstream rejects the r
   expect(JSON.stringify(body)).not.toContain('sk-secret');
 });
 
+it('rejects a provider other than openai with a 400', async () => {
+  const fakeFetch = async (): Promise<Response> => {
+    throw new Error('should not be called');
+  };
+  const handler = createOpenAiMintHandler({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+  const res = await handler(
+    new Request('http://x/api/realtime/token', {
+      method: 'POST',
+      body: JSON.stringify({ provider: 'google', sessionId: 'sess-1' }),
+    }),
+  );
+  const body = await res.json();
+  expect(res.status).toBe(400);
+  expect(typeof (body as { error: unknown }).error).toBe('string');
+});
+
+it('honors a model override in the request, in both the upstream call and the response', async () => {
+  let sentBody = '';
+  const fakeFetch = async (_url: string, init: RequestInit) => {
+    sentBody = init.body as string;
+    return new Response(
+      JSON.stringify({ value: 'ek-xyz', expires_at: 1712345678, session: { id: 's' } }),
+      { status: 200 },
+    );
+  };
+  const handler = createOpenAiMintHandler({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+  const res = await handler(
+    new Request('http://x/api/realtime/token', {
+      method: 'POST',
+      body: JSON.stringify({ provider: 'openai', sessionId: 'sess-1', model: 'gpt-realtime-override' }),
+    }),
+  );
+  const body = await res.json();
+  expect(JSON.parse(sentBody).session.model).toBe('gpt-realtime-override');
+  expect(TokenHandshakeResponseSchema.parse(body).model).toBe('gpt-realtime-override');
+});
+
+it('falls back to the server-configured model when no override is provided', async () => {
+  let sentBody = '';
+  const fakeFetch = async (_url: string, init: RequestInit) => {
+    sentBody = init.body as string;
+    return new Response(
+      JSON.stringify({ value: 'ek-xyz', expires_at: 1712345678, session: { id: 's' } }),
+      { status: 200 },
+    );
+  };
+  const handler = createOpenAiMintHandler({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+  const res = await handler(
+    new Request('http://x/api/realtime/token', {
+      method: 'POST',
+      body: JSON.stringify({ provider: 'openai', sessionId: 'sess-1' }),
+    }),
+  );
+  const body = await res.json();
+  expect(JSON.parse(sentBody).session.model).toBe('gpt-realtime-1.5');
+  expect(TokenHandshakeResponseSchema.parse(body).model).toBe('gpt-realtime-1.5');
+});
+
 it('responds with a generic error and no key leakage when the upstream fetch throws', async () => {
   const fakeFetch = async (): Promise<Response> => {
     throw new Error('network down');

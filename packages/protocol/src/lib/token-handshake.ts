@@ -44,7 +44,10 @@ export interface TokenHandshakeResponse {
   readonly value: string;
   /** Unix seconds at which `value` expires. */
   readonly expiresAt: number;
-  /** The model the token was minted for; the adapter must connect with this. */
+  /**
+   * The model the credential was minted for. Informational for the client —
+   * the credential itself is already scoped to this model upstream.
+   */
   readonly model: string;
 }
 
