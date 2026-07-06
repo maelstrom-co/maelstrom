@@ -52,6 +52,39 @@ function DemoApp() {
   );
 }
 
+// Maps a connection/voice status to its indicator dot colour. Keeps the JSX free
+// of nested ternary chains and the colour scale defined in one place.
+function statusDotColor(status: string): string {
+  switch (status) {
+    case 'connected':
+      return 'bg-green-500';
+    case 'connecting':
+      return 'bg-yellow-500';
+    case 'error':
+      return 'bg-red-500';
+    default:
+      return 'bg-gray-500';
+  }
+}
+
+// Voice pill state: off short-circuits, otherwise derive from connection status.
+function voiceIndicator(
+  enabled: boolean,
+  status: string,
+): { color: string; label: string } {
+  if (!enabled) return { color: 'bg-gray-500', label: 'Voice off' };
+  switch (status) {
+    case 'connected':
+      return { color: 'bg-green-500', label: 'Voice ready' };
+    case 'connecting':
+      return { color: 'bg-yellow-500', label: 'Connecting...' };
+    case 'error':
+      return { color: 'bg-red-500', label: 'Voice error' };
+    default:
+      return { color: 'bg-gray-500', label: 'Voice disconnected' };
+  }
+}
+
 function StatusIndicator() {
   const { connectionStatus, isProcessing } = m.useMaelstrom();
 
@@ -62,17 +95,7 @@ function StatusIndicator() {
           Processing...
         </span>
       )}
-      <div
-        className={`w-2 h-2 rounded-full ${
-          connectionStatus === 'connected'
-            ? 'bg-green-500'
-            : connectionStatus === 'connecting'
-              ? 'bg-yellow-500'
-              : connectionStatus === 'error'
-                ? 'bg-red-500'
-                : 'bg-gray-500'
-        }`}
-      />
+      <div className={`w-2 h-2 rounded-full ${statusDotColor(connectionStatus)}`} />
     </div>
   );
 }
@@ -156,6 +179,7 @@ function VoiceInput() {
     micLevel,
     enabled,
     audioBlocked,
+    errorMessage,
     setEnabled,
     startTalking,
     stopTalking,
@@ -178,7 +202,7 @@ function VoiceInput() {
   // visit waits for the explicit toggle click (gesture + consent).
   useEffect(() => {
     if (readVoicePref()) {
-      void setEnabled(true, roomName);
+      void setEnabled({ enabled: true }, roomName);
     }
   }, [setEnabled, roomName]);
 
@@ -187,28 +211,13 @@ function VoiceInput() {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(VOICE_PREF_KEY, String(next));
     }
-    void setEnabled(next, roomName);
+    void setEnabled({ enabled: next }, roomName);
   };
 
-  const statusColor = !enabled
-    ? 'bg-gray-500'
-    : status === 'connected'
-      ? 'bg-green-500'
-      : status === 'connecting'
-        ? 'bg-yellow-500'
-        : status === 'error'
-          ? 'bg-red-500'
-          : 'bg-gray-500';
-
-  const statusLabel = !enabled
-    ? 'Voice off'
-    : status === 'connected'
-      ? 'Voice ready'
-      : status === 'connecting'
-        ? 'Connecting...'
-        : status === 'error'
-          ? 'Voice error'
-          : 'Voice disconnected';
+  const { color: statusColor, label: statusLabel } = voiceIndicator(
+    enabled,
+    status,
+  );
 
   return (
     <div className="flex items-center gap-3">
@@ -230,6 +239,9 @@ function VoiceInput() {
       <div className="flex items-center gap-2 text-sm text-gray-400">
         <div className={`w-2 h-2 rounded-full ${statusColor}`} />
         <span>{statusLabel}</span>
+        {status === 'error' && errorMessage && (
+          <span className="text-red-400">— {errorMessage}</span>
+        )}
       </div>
 
       <button

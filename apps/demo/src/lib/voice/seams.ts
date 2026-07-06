@@ -16,32 +16,39 @@ import type { Orchestrator } from '@maelstrom-co/client';
  */
 export type SpeakTransport = (text: string) => Promise<void>;
 
-/**
- * Decides whether a completed response should be spoken. Kept as a standalone
- * predicate (never an inlined `if` at the speak site) so granular toggling
- * later is "swap the predicate body", same call sites.
- */
+/** Predicate deciding whether a completed response should be spoken. */
 export type ShouldSpeak = (response: MaelstromResponse) => boolean;
 
 export interface VoiceSeams {
   /** Called when the agent emits a final transcript. Default: orchestrator.processIntent */
-  onTranscript: (text: string) => unknown;
+  onTranscript: (text: string) => void | Promise<void>;
   /**
    * Called when the orchestrator finishes applying a response (read-only
    * observation — does NOT alter response application). Default: speak the
    * response's userMessage via the `speak` transport when `shouldSpeak` passes.
    */
-  onResponse: (response: MaelstromResponse) => unknown;
+  onResponse: (response: MaelstromResponse) => void | Promise<void>;
+}
+
+export function defaultShouldSpeak(response: MaelstromResponse): boolean {
+  return response.userMessage.trim().length > 0;
 }
 
 /**
- * Global speak-back predicate: speak every userMessage when voice is on,
- * regardless of input modality (typed OR spoken). The degenerate case of the
- * future granular config — when granular lands, this body grows fields, the
- * call site in `onResponse` does not move.
+ * Builds the default `onResponse` seam: speak a completed response's
+ * userMessage when `shouldSpeak` passes. `shouldSpeak` lives here as a builder
+ * argument (not a dangling sibling option) so its coupling to the default seam
+ * is structural — a caller that replaces `onResponse` wholesale doesn't inherit
+ * a `shouldSpeak` that silently does nothing.
  */
-export function defaultShouldSpeak(response: MaelstromResponse): boolean {
-  return response.userMessage.trim().length > 0;
+export function speakBackOnResponse(
+  speak: SpeakTransport,
+  shouldSpeak: ShouldSpeak = defaultShouldSpeak,
+): VoiceSeams['onResponse'] {
+  return (response) => {
+    if (!shouldSpeak(response)) return;
+    return speak(response.userMessage);
+  };
 }
 
 export function defaultSeams(
@@ -50,10 +57,9 @@ export function defaultSeams(
   shouldSpeak: ShouldSpeak = defaultShouldSpeak,
 ): VoiceSeams {
   return {
-    onTranscript: (text) => orchestrator.processIntent(text),
-    onResponse: (response) => {
-      if (!shouldSpeak(response)) return;
-      return speak(response.userMessage);
+    onTranscript: async (text) => {
+      await orchestrator.processIntent(text);
     },
+    onResponse: speakBackOnResponse(speak, shouldSpeak),
   };
 }

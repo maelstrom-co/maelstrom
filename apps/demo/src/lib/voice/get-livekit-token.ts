@@ -41,5 +41,12 @@ export async function mintLiveKitToken(
 }
 
 export const getLivekitToken = createServerFn({ method: 'GET' })
-  .inputValidator((data: LiveKitTokenInput) => data)
+  .inputValidator((data: LiveKitTokenInput) => {
+    // Guard the trust boundary: an empty/whitespace roomName would otherwise
+    // mint a valid token scoped to room "".
+    if (data.roomName.trim().length === 0) {
+      throw new Error('roomName must be a non-empty string');
+    }
+    return data;
+  })
   .handler(async ({ data }) => mintLiveKitToken(data));

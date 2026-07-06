@@ -14,21 +14,24 @@ setLogLevel('warn');
 export const SPEAK_TOPIC = 'speak';
 
 /**
- * Voice configuration. The on/off switch is a FIELD on this object (never a
- * bare boolean) so granular control later (`{ input, output, perVessel? }`) is
- * "add fields", not a breaking signature change.
+ * Voice configuration passed to `setEnabled`. The on/off switch is a field on
+ * this object (not a bare boolean) so granular control can be added later as new
+ * fields without changing the `setEnabled` signature.
  */
 export interface VoiceConfig {
   /**
-   * Master voice switch. ON = join the LiveKit room (mic affordance + speak-back;
-   * the worker auto-dispatches on join, so TTS is present even when typing).
-   * OFF = don't join → no mic, no TTS.
+   * Master voice switch. ON = join the LiveKit room (mic affordance + speak-back).
+   * OFF = leave the room → no mic, no TTS.
    */
   enabled: boolean;
 }
 
 export interface LiveKitVoiceOptions extends Partial<VoiceSeams> {
-  /** Override the global speak-back predicate (default: speak every non-empty userMessage). */
+  /**
+   * Override the speak-back predicate. Consumed ONLY by the default `onResponse`
+   * seam; if `onResponse` is also overridden, `shouldSpeak` has no effect (the
+   * override owns the decision).
+   */
   shouldSpeak?: ShouldSpeak;
 }
 
@@ -43,10 +46,10 @@ export interface VoiceAPI {
   enabled: boolean;
   /** True when the browser is blocking audio playback (needs a gesture to unlock). */
   audioBlocked: boolean;
+  /** Last connection error message (e.g. missing credentials), or null when healthy. */
+  errorMessage: string | null;
   /** Toggle the master voice switch. Enabling joins the room + unlocks audio. */
-  setEnabled: (enabled: boolean, roomName: string) => Promise<void>;
-  connect: (roomName: string) => Promise<void>;
-  disconnect: () => Promise<void>;
+  setEnabled: (config: VoiceConfig, roomName: string) => Promise<void>;
   startTalking: () => Promise<void>;
   stopTalking: () => Promise<void>;
   /** Unlock audio playback after a user gesture (the "tap to enable sound" affordance). */
@@ -88,16 +91,20 @@ export function liveKitVoice(
           const [status, setStatus] = useState<VoiceStatus>('disconnected');
           const [enabled, setEnabledState] = useState(false);
           const [audioBlocked, setAudioBlocked] = useState(false);
+          const [errorMessage, setErrorMessage] = useState<string | null>(null);
           const [currentTranscript, setCurrentTranscript] = useState('');
           const [micLevel, setMicLevel] = useState(0);
 
-          const speak = useRef<SpeakTransport>(
-            createSpeakTransport(() => roomRef.current),
-          );
+          // Create the speak transport once (lazy-init ref): its closure over
+          // roomRef never changes, so it must not be rebuilt each render.
+          const speakRef = useRef<SpeakTransport | null>(null);
+          if (speakRef.current === null) {
+            speakRef.current = createSpeakTransport(() => roomRef.current);
+          }
 
           const defaults = defaultSeams(
             orchestrator,
-            (text) => speak.current(text),
+            (text) => speakRef.current!(text),
             options.shouldSpeak,
           );
           const seams = useRef<VoiceSeams>(defaults);
@@ -115,7 +122,10 @@ export function liveKitVoice(
             const off = orchestrator.requestCoordinator.events.on(
               'processing_completed',
               (e) => {
-                void seams.current.onResponse(e.response);
+                void Promise.resolve(seams.current.onResponse(e.response)).catch(
+                  (err) =>
+                    console.error('[liveKitVoice] onResponse failed', err),
+                );
               },
             );
             return off;
@@ -137,6 +147,7 @@ export function liveKitVoice(
             const room = new Room();
             roomRef.current = room;
             setStatus('connecting');
+            setErrorMessage(null);
 
             room.on(RoomEvent.Connected, () => setStatus('connected'));
             room.on(RoomEvent.Disconnected, () => {
@@ -158,7 +169,9 @@ export function liveKitVoice(
                 .trim();
               if (!text) return;
               setCurrentTranscript(text);
-              void seams.current.onTranscript(text);
+              void Promise.resolve(seams.current.onTranscript(text)).catch(
+                (err) => console.error('[liveKitVoice] onTranscript failed', err),
+              );
             });
 
             // Attach the agent's TTS audio track to a hidden sink so it plays.
@@ -202,14 +215,20 @@ export function liveKitVoice(
               if (roomRef.current === room) {
                 roomRef.current = null;
                 setStatus('error');
+                setErrorMessage(
+                  err instanceof Error ? err.message : String(err),
+                );
               }
             }
           }, []);
 
           const disconnect = useCallback(async () => {
-            await roomRef.current?.disconnect();
-            roomRef.current = null;
-            setStatus('disconnected');
+            try {
+              await roomRef.current?.disconnect();
+            } finally {
+              roomRef.current = null;
+              setStatus('disconnected');
+            }
           }, []);
 
           const enableAudio = useCallback(async () => {
@@ -220,6 +239,9 @@ export function liveKitVoice(
               setAudioBlocked(!room.canPlaybackAudio);
             } catch (err) {
               console.error('[liveKitVoice] startAudio failed', err);
+              // Surface the "tap to enable sound" affordance so the user has a
+              // recovery path when the unlock attempt fails.
+              setAudioBlocked(true);
             }
           }, []);
 
@@ -227,12 +249,20 @@ export function liveKitVoice(
           // same user gesture (so playback is unlocked, no prompt in the normal
           // flow). Disabling leaves the room.
           const setEnabled = useCallback(
-            async (next: boolean, roomName: string) => {
-              setEnabledState(next);
-              if (next) {
+            async (config: VoiceConfig, roomName: string) => {
+              if (config.enabled) {
                 await connect(roomName);
-                await enableAudio();
+                // Flip the master switch on only once a room actually connected,
+                // so a failed connect leaves enabled=false instead of an ON
+                // toggle sitting over an 'error' status.
+                if (roomRef.current) {
+                  setEnabledState(true);
+                  await enableAudio();
+                } else {
+                  setEnabledState(false);
+                }
               } else {
+                setEnabledState(false);
                 await disconnect();
               }
             },
@@ -316,9 +346,8 @@ export function liveKitVoice(
             micLevel,
             enabled,
             audioBlocked,
+            errorMessage,
             setEnabled,
-            connect,
-            disconnect,
             startTalking,
             stopTalking,
             enableAudio,
