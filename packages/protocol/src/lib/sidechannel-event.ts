@@ -1,9 +1,15 @@
 import { z } from 'zod';
 import { SessionIdSchema } from './session.js';
 
-// Shared envelope on every sidechannel event. `at` is client unix-ms.
+// Shared envelope on every sidechannel event.
 const sidechannelBaseShape = {
   sessionId: SessionIdSchema,
+  /**
+   * Client-clock unix-ms timestamp at emission, stamped by the emitting
+   * browser. Subject to clock skew between clients, so it is suitable for
+   * intra-session ordering and latency diagnostics only — never for
+   * comparisons across clients.
+   */
   at: z.number().int().nonnegative(),
 };
 
@@ -12,6 +18,11 @@ const sidechannelBaseShape = {
  * observability (metering, recording, debugging). Intentionally carries **no
  * audio** — only transcripts, tool-call metadata, and timings. This is the
  * exact contract the cloud tier's metering later rides on, so additive-only.
+ *
+ * `at` on each event is client-clock time and drifts across clients. Any
+ * receiver that needs a trustworthy clock for cross-client ordering,
+ * metering, or billing must stamp its own receipt time on ingest and use
+ * that instead — `at` is diagnostic only.
  */
 export const SidechannelEventSchema = z.discriminatedUnion('type', [
   z.object({
