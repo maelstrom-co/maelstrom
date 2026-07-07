@@ -1,17 +1,18 @@
 import { useEffect } from 'react';
-import { describe, it, expect, afterEach, beforeAll, spyOn } from 'bun:test';
+import { describe, it, expect, afterEach, beforeAll, spyOn, mock } from 'bun:test';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
 import type {
   ChartRequestMessage,
   MaelstromResponse,
 } from '@maelstrom-co/protocol';
-import { InstanceId, VesselId, VariantName } from '@maelstrom-co/protocol';
+import { InstanceId, VesselId, VariantName, ok } from '@maelstrom-co/protocol';
 
 import { createMaelstrom } from '../create-maelstrom.js';
 import { vessel } from '../vessel.js';
 import { testVessel } from '../__tests__/test-vessel.fixture.js';
 import { createMockConnector } from '../__tests__/mock-connector.js';
 import { assertDefined } from '../__tests__/assert-defined.js';
+import type { TypedVesselProps } from '../vessel-entry-types.js';
 
 // Mock ResizeObserver (happy-dom may not implement it)
 type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;
@@ -327,6 +328,61 @@ describe('m.Chart — tiling layout', () => {
 
     expect(container.innerHTML).toContain('data-instance-id="inst-1"');
     expect(container.innerHTML).toContain('position: absolute');
+  });
+});
+
+describe('m.Chart — executeAction routing (regression)', () => {
+  // Regression: the Chart path previously sent a JSON-stringified params field
+  // (an excess property the client silently dropped), so params never reached
+  // runners. This drives the real machinery — the vessel's injected
+  // executeAction → invokeAction → CommandProcessor → ActionManager — and
+  // asserts the runner receives params.
+  it('delivers executeAction params through to the registered runner', async () => {
+    const selectOrder = mock((_params: { orderId: string }) => ok(undefined));
+
+    let capturedExecuteAction:
+      | TypedVesselProps<typeof testVessel>['executeAction']
+      | undefined;
+    function CapturingVessel(props: TypedVesselProps<typeof testVessel>) {
+      capturedExecuteAction = props.executeAction;
+      return <div>captured</div>;
+    }
+
+    const entry = vessel(testVessel, CapturingVessel);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorWithTilingLayout('inst-1', 'orders', 'list');
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      m.useActions('orders', 'inst-1', { selectOrder });
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { triggerResize(800, 600); });
+    assertDefined(processIntent);
+    const runIntent = processIntent;
+    await act(async () => { await runIntent('show orders'); });
+
+    // Chart has rendered the vessel, exposing its injected executeAction
+    assertDefined(capturedExecuteAction);
+    const executeAction = capturedExecuteAction;
+
+    await act(async () => {
+      executeAction('selectOrder', { orderId: 'order-42' });
+    });
+
+    expect(selectOrder).toHaveBeenCalledTimes(1);
+    expect(selectOrder).toHaveBeenCalledWith({ orderId: 'order-42' });
   });
 });
 
