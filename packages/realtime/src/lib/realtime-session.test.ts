@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
+import FakeTimers from '@sinonjs/fake-timers';
 import type { UiStructuralSnapshot } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
 import { InstanceId, SessionId, VariantName, VesselId } from '@maelstrom-co/protocol';
@@ -95,7 +96,15 @@ function makeMockAdapter(): MockAdapter {
 
 interface MockInstance extends RealtimeInstance {
   readonly submitted: string[];
+  /** Resolves pending waitForIdle() calls and clears the in-flight submitIntent gate — a full render settle. */
   settle(): void;
+  /**
+   * Resolves pending waitForIdle() calls WITHOUT clearing the in-flight
+   * gate — simulates the command queue going idle while the orchestrator's
+   * engine round-trip (and thus `RequestInFlightError`) is still ongoing,
+   * the exact race the barge-in retry loop is bounded against.
+   */
+  resolveIdle(): void;
 }
 
 function makeMockInstance(snapshot: UiStructuralSnapshot): MockInstance {
@@ -130,6 +139,11 @@ function makeMockInstance(snapshot: UiStructuralSnapshot): MockInstance {
       pendingResolvers = [];
       for (const resolve of resolvers) resolve();
       for (const cb of settledHandlers) cb();
+    },
+    resolveIdle() {
+      const resolvers = pendingResolvers;
+      pendingResolvers = [];
+      for (const resolve of resolvers) resolve();
     },
   };
 }
@@ -304,6 +318,92 @@ describe('RealtimeSession — grounding debounce', () => {
 });
 
 // ============================================================================
+// Behavior 3b: grounding length clamp
+// ============================================================================
+
+describe('RealtimeSession — grounding length clamp', () => {
+  it('clamps a grounding push exceeding the char budget to 400 chars ending in an ellipsis', async () => {
+    const adapter = makeMockAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const longSummary = 'x'.repeat(500);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      groundingDebounceMs: 0,
+      summarize: () => longSummary,
+    });
+    await session.connect();
+
+    instance.settle();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(adapter.groundingCalls).toHaveLength(1);
+    expect(adapter.groundingCalls[0]).toHaveLength(400);
+    expect(adapter.groundingCalls[0]).toBe(`${'x'.repeat(399)}…`);
+  });
+
+  it('passes a grounding summary within the char budget through untouched', async () => {
+    const adapter = makeMockAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const shortSummary = 'short summary';
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      groundingDebounceMs: 0,
+      summarize: () => shortSummary,
+    });
+    await session.connect();
+
+    instance.settle();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(adapter.groundingCalls).toEqual([shortSummary]);
+  });
+
+  it('warns on the first clamp and only debug-logs subsequent clamps in the same session', async () => {
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    const debugSpy = spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const adapter = makeMockAdapter();
+      const instance = makeMockInstance(emptySnapshot);
+      const longSummary = 'x'.repeat(500);
+      const session = new RealtimeSession({
+        adapter,
+        instance,
+        sessionId: testSessionId,
+        groundingDebounceMs: 0,
+        summarize: () => longSummary,
+        debug: true, // logger.debug is a no-op unless enabled
+      });
+      await session.connect();
+
+      instance.settle();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(debugSpy).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining('grounding text exceeded'),
+        expect.anything(),
+      );
+
+      instance.settle();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(warnSpy).toHaveBeenCalledTimes(1); // still just once
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining('grounding text exceeded'),
+        expect.anything(),
+      );
+    } finally {
+      warnSpy.mockRestore();
+      debugSpy.mockRestore();
+    }
+  });
+});
+
+// ============================================================================
 // Behavior 4: domain-data boundary
 // ============================================================================
 
@@ -343,12 +443,12 @@ describe('RealtimeSession — domain-data boundary', () => {
 });
 
 // ============================================================================
-// Behavior 5: barge-in serialization
+// Behavior 5: barge-in latest-wins queueing
 // ============================================================================
 
-describe('RealtimeSession — barge-in serialization', () => {
-  it('answers a concurrent update_ui gracefully instead of throwing or dropping it', async () => {
-    const { session, adapter, instance } = makeHarness();
+describe('RealtimeSession — barge-in latest-wins queueing', () => {
+  it('queues a concurrent update_ui instead of answering busy immediately, then applies it once the first settles', async () => {
+    const { session, adapter, instance, events } = makeHarness();
     await session.connect();
 
     adapter.emitToolCall({
@@ -368,20 +468,194 @@ describe('RealtimeSession — barge-in serialization', () => {
     });
     await flushMicrotasks();
 
-    // Never reached the instance — the in-flight guard fired first.
+    // Never reached the instance yet, and not answered busy — queued instead.
     expect(instance.submitted).toEqual(['show labs']);
-    // Never thrown to the adapter: answered gracefully instead.
-    const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
-    expect(c2Result?.output).toEqual({
-      ok: false,
-      summary: expect.stringContaining('try again'),
-    });
+    expect(adapter.toolResults.find((r) => r.callId === 'c2')).toBeUndefined();
 
+    // First settle finalizes c1 and lets the queued c2 make its (successful)
+    // retry attempt against the now-idle instance.
+    instance.settle();
+    await flushMicrotasks();
+    expect(instance.submitted).toEqual(['show labs', 'show revenue']);
+
+    // Second settle finalizes c2's own render.
     instance.settle();
     await flushMicrotasks();
 
     const c1Result = adapter.toolResults.find((r) => r.callId === 'c1');
+    const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
     expect(c1Result?.output).toEqual({ summary: expect.any(String) });
+    expect(c2Result?.output).toEqual({ summary: expect.any(String) });
+
+    // Exactly one sendToolResult + one tool_result sidechannel event per callId.
+    expect(adapter.toolResults.filter((r) => r.callId === 'c1')).toHaveLength(1);
+    expect(adapter.toolResults.filter((r) => r.callId === 'c2')).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'tool_result' && e.callId === 'c1')).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'tool_result' && e.callId === 'c2')).toHaveLength(1);
+  });
+
+  it('supersedes a queued call with a newer one, answering the bumped call immediately', async () => {
+    const { session, adapter, instance, events } = makeHarness();
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show revenue"}',
+    });
+    await flushMicrotasks();
+
+    // Third call arrives while c2 is still just queued (c1 hasn't settled) —
+    // c2 gets bumped and answered right away, without waiting on a settle.
+    adapter.emitToolCall({
+      callId: 'c3',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show pipeline"}',
+    });
+    await flushMicrotasks();
+
+    const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
+    expect(c2Result?.output).toEqual({
+      ok: false,
+      summary: 'Superseded by a newer request.',
+    });
+    expect(instance.submitted).toEqual(['show labs']); // neither c2 nor c3 has reached the instance yet
+
+    // Settle 1: finalizes c1, and wakes the retry loop — which discovers c2
+    // was superseded and moves on to attempt c3 fresh.
+    instance.settle();
+    await flushMicrotasks();
+    // Settle 2: lets c3's first retry attempt actually submit.
+    instance.settle();
+    await flushMicrotasks();
+    expect(instance.submitted).toEqual(['show labs', 'show pipeline']);
+    // Settle 3: finalizes c3's own render.
+    instance.settle();
+    await flushMicrotasks();
+
+    const c3Result = adapter.toolResults.find((r) => r.callId === 'c3');
+    expect(c3Result?.output).toEqual({ summary: expect.any(String) });
+
+    // Exactly one answer + one sidechannel event per callId, even for the superseded one.
+    for (const callId of ['c1', 'c2', 'c3']) {
+      expect(adapter.toolResults.filter((r) => r.callId === callId)).toHaveLength(1);
+      expect(events.filter((e) => e.type === 'tool_result' && e.callId === callId)).toHaveLength(
+        1,
+      );
+    }
+  });
+
+  it('answers busy after exhausting bounded retry attempts, without ever applying the queued intent', async () => {
+    // Simulates waitForIdle() resolving (command queue idle) while
+    // submitIntent still throws RequestInFlightError each time — the exact
+    // race the retry loop is bounded against, since the engine round-trip
+    // for the first intent never actually finishes in this scenario.
+    const clock = FakeTimers.install();
+    try {
+      const { session, adapter, instance } = makeHarness();
+      await session.connect();
+
+      adapter.emitToolCall({
+        callId: 'c1',
+        name: 'update_ui',
+        argumentsJson: '{"intent":"show labs"}',
+      });
+      await clock.tickAsync(0);
+      expect(instance.submitted).toEqual(['show labs']);
+
+      adapter.emitToolCall({
+        callId: 'c2',
+        name: 'update_ui',
+        argumentsJson: '{"intent":"show revenue"}',
+      });
+      await clock.tickAsync(0);
+
+      const maxAttempts = 5; // mirrors MAX_BARGE_IN_ATTEMPTS in realtime-session.ts
+      const retryDelayMs = 200; // mirrors BARGE_IN_RETRY_DELAY_MS in realtime-session.ts
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        instance.resolveIdle();
+        await clock.tickAsync(0);
+        if (attempt < maxAttempts) {
+          await clock.tickAsync(retryDelayMs);
+        }
+      }
+
+      const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
+      expect(c2Result?.output).toEqual({
+        ok: false,
+        summary: 'Still applying the previous change — try again in a moment.',
+      });
+      expect(instance.submitted).toEqual(['show labs']); // c2 never got through
+    } finally {
+      clock.uninstall();
+    }
+  });
+
+  it('a genuine failure during a queued retry still yields APPLY_FAILED_SUMMARY, not a busy answer', async () => {
+    // NOT the in-flight guard: c2 queues on its first attempt (busy), but its
+    // retry attempt hits a genuine pipeline error — must not be mislabeled
+    // as "try again", since that would be a non-recovering retry loop.
+    const adapter = makeMockAdapter();
+    const events: SidechannelEvent[] = [];
+    const idleResolvers: Array<() => void> = [];
+    let submitCalls = 0;
+    const instance: RealtimeInstance = {
+      submitIntent: async () => {
+        submitCalls += 1;
+        if (submitCalls === 1) return; // c1 submits fine
+        if (submitCalls === 2) throw new RequestInFlightError(); // c2's first attempt: busy, gets queued
+        throw new Error('render pipeline exploded'); // c2's retry attempt: genuine failure
+      },
+      waitForIdle: () =>
+        new Promise<void>((resolve) => {
+          idleResolvers.push(resolve);
+        }),
+      getStructuralSnapshot: () => emptySnapshot,
+      onSettled: () => () => {},
+    };
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      onEvent: (e) => events.push(e),
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show revenue"}',
+    });
+    await flushMicrotasks();
+
+    // Resolve both c1's own wait and c2's retry-loop wait.
+    for (const resolve of idleResolvers.splice(0)) resolve();
+    await flushMicrotasks();
+
+    const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
+    expect(c2Result?.output).toEqual({
+      ok: false,
+      summary: 'Something went wrong applying that change.',
+    });
+
+    const errorTiming = events.find(
+      (e) => e.type === 'timing' && e.label === 'update_ui.error',
+    );
+    expect(errorTiming).toBeDefined();
   });
 
   it('surfaces a non-busy rejection distinctly instead of mislabeling it as busy', async () => {
@@ -581,5 +855,33 @@ describe('RealtimeSession — connection lifecycle', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(adapter.groundingCalls).toEqual([]);
+  });
+
+  it('disconnect drops a pending queued intent silently instead of leaving it dangling with an unhandled rejection', async () => {
+    const { session, adapter, instance } = makeHarness();
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show revenue"}',
+    });
+    await flushMicrotasks(); // c2 is now queued, waiting on c1
+
+    await session.disconnect();
+
+    // A settle firing after disconnect must not answer the dropped call —
+    // the whole point is silent drop, not a late busy/superseded answer.
+    instance.settle();
+    await flushMicrotasks();
+
+    expect(adapter.toolResults.find((r) => r.callId === 'c2')).toBeUndefined();
   });
 });

@@ -88,6 +88,31 @@ const BUSY_SUMMARY =
 
 const APPLY_FAILED_SUMMARY = 'Something went wrong applying that change.';
 
+const SUPERSEDED_SUMMARY = 'Superseded by a newer request.';
+
+// isProcessing (guards RequestInFlightError) clears before the orchestrator's
+// response has finished dispatching to the command queue, so a retry can
+// lose the race and throw RequestInFlightError again even right after
+// waitForIdle() resolves — bound the retries rather than looping forever.
+const MAX_BARGE_IN_ATTEMPTS = 5;
+const BARGE_IN_RETRY_DELAY_MS = 200;
+
+// ~100 tokens — the design budget for a grounding push. injectGrounding is a
+// realtime-voice sidechannel, not a chat turn; an unbounded summary would
+// blow that budget silently since `summarize` is caller-injectable.
+const GROUNDING_MAX_CHARS = 400;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** A queued `update_ui` call awaiting retry once the in-flight request settles — latest-wins, so at most one exists at a time. */
+interface QueuedIntent {
+  readonly callId: string;
+  readonly intent: string;
+  readonly resolve: (ok: boolean) => void;
+}
+
 function defaultSummarize(snapshot: UiStructuralSnapshot): string {
   const count = snapshot.instances.length;
   if (count === 0) return 'The screen is empty.';
@@ -107,10 +132,18 @@ function defaultSummarize(snapshot: UiStructuralSnapshot): string {
  * mirrored onto `onEvent` as {@link SidechannelEvent}s for observability.
  *
  * Concurrent `update_ui` calls (a model can emit a second while the first is
- * still being applied) are never queued: if the instance rejects a second
- * `submitIntent` while one is in flight, the rejection is caught and turned
- * into a graceful `{ok: false}` tool result so the model can tell the user
- * to wait — the raw exception never reaches the adapter.
+ * still being applied — the natural way a voice UI corrects itself mid-request)
+ * use latest-wins queueing: if the instance rejects `submitIntent` with
+ * `RequestInFlightError` because a prior intent is still applying, the new
+ * call becomes the session's single pending queued intent instead of being
+ * answered immediately. A call that was already queued when a newer one
+ * arrives is answered right away with a "superseded" result and dropped —
+ * only the most recent barge-in survives. Once the in-flight request settles,
+ * the queued intent is retried; because a settled command queue doesn't
+ * guarantee the orchestrator is ready to accept a new intent, the retry can
+ * lose the race and is attempted a bounded number of times before the call is
+ * answered as busy instead of retried forever. The raw exception never
+ * reaches the adapter either way.
  *
  * @example
  * ```ts
@@ -140,6 +173,9 @@ export class RealtimeSession implements VoiceSession {
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   #unsubscribeAdapter: Unsubscribe | undefined;
   #unsubscribeSettled: Unsubscribe | undefined;
+  #queuedIntent: QueuedIntent | undefined;
+  #bargeInLoopRunning = false;
+  #groundingClampWarned = false;
 
   constructor(options: RealtimeSessionOptions) {
     this.#adapter = options.adapter;
@@ -149,7 +185,7 @@ export class RealtimeSession implements VoiceSession {
     this.#onEvent = options.onEvent ?? (() => {});
     this.#logger = new Logger(options.debug ?? false, 'realtime');
     this.#pushGrounding = groundedDebounce((snapshot: UiStructuralSnapshot) => {
-      this.#adapter.injectGrounding(this.#summarize(snapshot));
+      this.#adapter.injectGrounding(this.#clampGrounding(this.#summarize(snapshot)));
     }, options.groundingDebounceMs ?? DEFAULT_GROUNDING_DEBOUNCE_MS);
   }
 
@@ -195,6 +231,11 @@ export class RealtimeSession implements VoiceSession {
     this.#unsubscribeAdapter = undefined;
     this.#unsubscribeSettled = undefined;
     this.#pushGrounding.cancel();
+    // Dropped silently, not answered: the adapter this call would have
+    // replied on is going away too. The retry loop (if any is mid-wait)
+    // notices the identity mismatch on its next wake and stops on its own —
+    // the abandoned promise is left unresolved, never rejected.
+    this.#queuedIntent = undefined;
   }
 
   on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe {
@@ -299,19 +340,18 @@ export class RealtimeSession implements VoiceSession {
       await this.#instance.waitForIdle();
       this.#logger.debug('update_ui: idle (render settled)', { ms: Date.now() - renderStart });
     } catch (error) {
-      // Fires on the routine barge-in path (busy) as well as genuine
+      // Fires on the routine barge-in path (queued) as well as genuine
       // pipeline failures — kept at debug level so the expected-busy case
       // doesn't spam always-on output.
       this.#logger.debug('update_ui: submitIntent/waitForIdle rejected', error);
       // Barge-in: the instance throws while a prior intent is still in
-      // flight. Never let that exception reach the adapter — answer
-      // gracefully so the model can tell the user to wait and retry.
+      // flight. Never let that exception reach the adapter — queue this
+      // call as the latest-wins pending intent and retry once the prior
+      // request settles, instead of answering busy immediately.
       if (error instanceof RequestInFlightError) {
-        await this.#adapter.sendToolResult(callId, {
-          ok: false,
-          summary: BUSY_SUMMARY,
+        return new Promise<boolean>((resolve) => {
+          this.#enqueueBargeIn({ callId, intent, resolve });
         });
-        return false;
       }
       // Any other rejection is a genuine render/pipeline failure, not
       // busy-ness — mislabeling it as "try again" would be a non-recovery
@@ -347,11 +387,130 @@ export class RealtimeSession implements VoiceSession {
     return true;
   }
 
+  // Latest-wins: replaces whatever was queued, answering the call it bumps
+  // right away. #queuedIntent stays assigned to an entry for its whole
+  // pending lifetime (across every waitForIdle() wait, up to the point a
+  // submit attempt is actually made) so a newer call can still supersede it
+  // mid-wait — only once a submit is in flight does superseding stop making
+  // sense, since the change may already be committed.
+  #enqueueBargeIn(entry: QueuedIntent): void {
+    const superseded = this.#queuedIntent;
+    this.#queuedIntent = entry;
+    if (superseded) {
+      void this.#adapter
+        .sendToolResult(superseded.callId, { ok: false, summary: SUPERSEDED_SUMMARY })
+        .then(() => {
+          superseded.resolve(false);
+        });
+    }
+    if (!this.#bargeInLoopRunning) {
+      this.#bargeInLoopRunning = true;
+      void this.#runBargeInLoop();
+    }
+  }
+
+  // Singleton loop: only ever one running, driven purely off #queuedIntent so
+  // a newer call enqueued while this is mid-wait is picked up without a
+  // second loop starting. Each queued entry gets its own bounded attempt
+  // count — resolving one way or another (superseded/applied/failed/busy)
+  // always clears #queuedIntent first so a call arriving during the final
+  // sendToolResult await queues cleanly for the next iteration instead of
+  // being mistaken for a supersede of the entry that's finishing.
+  async #runBargeInLoop(): Promise<void> {
+    try {
+      let attempt = 0;
+      while (this.#queuedIntent) {
+        const entry = this.#queuedIntent;
+        attempt += 1;
+        await this.#instance.waitForIdle();
+        if (this.#queuedIntent !== entry) {
+          attempt = 0;
+          continue; // superseded while waiting — already answered, nothing to do
+        }
+
+        const renderStart = Date.now();
+        try {
+          await this.#instance.submitIntent(entry.intent);
+        } catch (error) {
+          if (this.#queuedIntent !== entry) {
+            attempt = 0;
+            continue; // superseded mid-submit — already answered
+          }
+          if (!(error instanceof RequestInFlightError)) {
+            this.#queuedIntent = undefined;
+            this.#emit({
+              type: 'timing',
+              sessionId: this.#sessionId,
+              at: Date.now(),
+              label: 'update_ui.error',
+              ms: Date.now() - renderStart,
+            });
+            await this.#adapter.sendToolResult(entry.callId, {
+              ok: false,
+              summary: APPLY_FAILED_SUMMARY,
+            });
+            entry.resolve(false);
+            continue;
+          }
+          if (attempt >= MAX_BARGE_IN_ATTEMPTS) {
+            this.#queuedIntent = undefined;
+            await this.#adapter.sendToolResult(entry.callId, {
+              ok: false,
+              summary: BUSY_SUMMARY,
+            });
+            entry.resolve(false);
+            attempt = 0;
+            continue;
+          }
+          await delay(BARGE_IN_RETRY_DELAY_MS);
+          continue;
+        }
+
+        if (this.#queuedIntent !== entry) {
+          attempt = 0;
+          continue; // superseded mid-submit — already answered; the change may still apply, but this call is done
+        }
+        await this.#instance.waitForIdle();
+        this.#queuedIntent = undefined;
+        this.#emit({
+          type: 'timing',
+          sessionId: this.#sessionId,
+          at: Date.now(),
+          label: 'update_ui.render',
+          ms: Date.now() - renderStart,
+        });
+        const snapshot = this.#instance.getStructuralSnapshot();
+        await this.#adapter.sendToolResult(entry.callId, {
+          summary: this.#summarize(snapshot),
+        });
+        entry.resolve(true);
+        attempt = 0;
+      }
+    } finally {
+      this.#bargeInLoopRunning = false;
+    }
+  }
+
   async #handleGetUiState(callId: string): Promise<boolean> {
     this.#logger.debug('get_ui_state: reading snapshot');
     const snapshot = this.#instance.getStructuralSnapshot();
     await this.#adapter.sendToolResult(callId, snapshot);
     return true;
+  }
+
+  // Tool-result summaries are conversational and unclamped; only grounding
+  // pushes are budget-constrained, since they're injected as ambient
+  // sidechannel context rather than a direct answer to a tool call.
+  #clampGrounding(text: string): string {
+    if (text.length <= GROUNDING_MAX_CHARS) return text;
+    const message = `grounding text exceeded ${GROUNDING_MAX_CHARS} chars, truncating`;
+    if (this.#groundingClampWarned) {
+      this.#logger.debug(message, text.length);
+    } else {
+      this.#groundingClampWarned = true;
+      this.#logger.warn(message, text.length);
+    }
+    return `${text.slice(0, GROUNDING_MAX_CHARS - 1)}…`;
   }
 
   #emit(event: SidechannelEvent): void {
