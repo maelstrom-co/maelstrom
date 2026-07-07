@@ -16,6 +16,7 @@ import {
   requestResponseCreate,
   type ResponseLifecycleState,
 } from './response-lifecycle.js';
+import { createUnexpectedEventTracker } from './unexpected-event-tracker.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 
@@ -78,6 +79,7 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
   // its own RTCPeerConnection + mic stream.
   let connecting = false;
   let responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
+  let unexpectedEvents = createUnexpectedEventTracker();
   const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
 
   function sendResponseCreate(): void {
@@ -103,6 +105,7 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
     groundingItemExists = false;
     connecting = false;
     responseLifecycle = INITIAL_RESPONSE_LIFECYCLE_STATE;
+    unexpectedEvents = createUnexpectedEventTracker();
   }
 
   function handleDataChannelMessage(raw: unknown): void {
@@ -139,6 +142,9 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
       emit(event);
     } else {
       logger.debug('unrecognized or unparsed event', type, parsed);
+      if (typeof type === 'string' && unexpectedEvents.track(type)) {
+        logger.warn('unexpected realtime event type', type);
+      }
     }
   }
 
