@@ -8,17 +8,23 @@ import {
   spyOn,
 } from 'bun:test';
 import {
+  ActionName,
   InstanceId,
   MessageId,
   SessionId,
   VariantName,
   VesselId,
+  err,
+  ok,
   type ChartRequestMessage,
   type MaelstromResponse,
   type SessionHistoryEntry,
+  type Vessel,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
+import type { ActionResult } from '../command-processor/action-result.js';
+import type { VesselInstance } from '../types.js';
 import { createMockResponse } from '../../../test-utils/mocks.js';
 import {
   createMockConnector,
@@ -46,6 +52,100 @@ function createMockPushConnector(
   } as PushConnector;
 }
 
+// A vessel whose actions exercise every invokeAction branch: `expand` and
+// `collapse` transition between variants, `ping` runs without transitioning,
+// and `collapse` lives only on `expanded` (to pin "current variant" semantics).
+const stateMachineVessel = {
+  id: 'sm',
+  name: 'State Machine',
+  description: 'a test state-machine vessel',
+  defaultVariant: 'collapsed',
+  variants: {
+    collapsed: {
+      props: {},
+      minSize: { width: 1, height: 1 },
+      actions: [
+        {
+          name: 'expand',
+          description: 'expand the vessel',
+          transitionsTo: 'expanded',
+        },
+        {
+          name: 'ping',
+          description: 'a no-transition side effect',
+          parameters: [
+            { name: 'msg', type: 'string', description: 'a message' },
+          ],
+        },
+      ],
+    },
+    expanded: {
+      props: {},
+      minSize: { width: 2, height: 2 },
+      actions: [
+        {
+          name: 'collapse',
+          description: 'collapse the vessel',
+          transitionsTo: 'collapsed',
+        },
+      ],
+    },
+  },
+} as const;
+
+// Three variants chained v1 → v2 → v3 for the last-write-wins revert test.
+const threeStateVessel = {
+  id: 'tri',
+  name: 'Tri',
+  description: 'a three-state test vessel',
+  defaultVariant: 'v1',
+  variants: {
+    v1: {
+      props: {},
+      minSize: { width: 1, height: 1 },
+      actions: [{ name: 'toV2', description: 'go to v2', transitionsTo: 'v2' }],
+    },
+    v2: {
+      props: {},
+      minSize: { width: 1, height: 1 },
+      actions: [{ name: 'toV3', description: 'go to v3', transitionsTo: 'v3' }],
+    },
+    v3: { props: {}, minSize: { width: 1, height: 1 }, actions: [] },
+  },
+} as const;
+
+function seedInstance(
+  orchestrator: Orchestrator,
+  args: { instanceId: string; vesselId: string; variant: string },
+): InstanceId {
+  const instanceId = InstanceId(args.instanceId);
+  const instance: VesselInstance = {
+    instanceId,
+    vesselId: VesselId(args.vesselId),
+    variant: VariantName(args.variant),
+    position: { column: 0, row: 0 },
+    size: { width: 1, height: 1 },
+  };
+  orchestrator.commandProcessor.store.setState((s) => ({
+    ...s,
+    instances: new Map([...s.instances, [instanceId, instance]]),
+  }));
+  return instanceId;
+}
+
+function currentVariant(
+  orchestrator: Orchestrator,
+  instanceId: InstanceId,
+): string | undefined {
+  return orchestrator.commandProcessor.store.state.instances.get(instanceId)
+    ?.variant;
+}
+
+// Drains queued microtasks (command completion + revert continuation) without
+// advancing timers past a still-pending deferred runner.
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+}
 // ============================================================================
 // Tests
 // ============================================================================
@@ -986,6 +1086,281 @@ describe('Orchestrator', () => {
         errorSpy.mockRestore();
         orchestrator.dispose();
       }
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // invokeAction — client-authoritative local action path (MAE-328)
+  // --------------------------------------------------------------------------
+
+  describe('invokeAction', () => {
+    it('transitions the store immediately (before the runner resolves) and passes params', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(stateMachineVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'sm',
+        variant: 'collapsed',
+      });
+
+      let resolveExpand: (() => void) | undefined;
+      let receivedParams: unknown;
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        expand: (...args: unknown[]) =>
+          new Promise<ActionResult>((resolve) => {
+            receivedParams = args[0];
+            resolveExpand = () => resolve(ok(undefined));
+          }),
+      });
+
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      orchestrator.invokeAction(instanceId, ActionName('expand'), {
+        foo: 1,
+      });
+
+      // Transition is synchronous — the store is authoritative and updates
+      // before the runner (still deferred) has even been invoked.
+      expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
+
+      // The engine is informed of the mutation, naming both variants.
+      expect(scheduleSpy).toHaveBeenCalledTimes(1);
+      const reason = scheduleSpy.mock.calls[0][0];
+      expect(reason.type).toBe('vessel_mutation');
+      if (reason.type === 'vessel_mutation') {
+        expect(reason.instanceId).toBe(instanceId);
+        expect(reason.changes).toContain('collapsed');
+        expect(reason.changes).toContain('expanded');
+      }
+
+      // Let the runner be invoked; it captures params but stays pending.
+      await flushMicrotasks();
+      expect(receivedParams).toEqual({ foo: 1 });
+      expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
+
+      resolveExpand?.();
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+      expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
+
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('warns and no-ops for an unknown instance', () => {
+      const { orchestrator } = createTestOrchestrator();
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      orchestrator.invokeAction(InstanceId('nope'), ActionName('expand'));
+
+      expect(scheduleSpy).not.toHaveBeenCalled();
+      const warned = warnSpy.mock.calls.some((args) =>
+        args.some(
+          (a) => typeof a === 'string' && a.includes('unknown instance'),
+        ),
+      );
+      expect(warned).toBe(true);
+
+      warnSpy.mockRestore();
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('warns and no-ops when the action is not on the current variant', () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(stateMachineVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'sm',
+        variant: 'collapsed',
+      });
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      // `collapse` exists on the vessel, but only on the `expanded` variant —
+      // the instance is currently `collapsed`, so this must be rejected.
+      orchestrator.invokeAction(instanceId, ActionName('collapse'));
+
+      expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
+      expect(scheduleSpy).not.toHaveBeenCalled();
+      const warned = warnSpy.mock.calls.some((args) =>
+        args.some(
+          (a) => typeof a === 'string' && a.includes('not available on variant'),
+        ),
+      );
+      expect(warned).toBe(true);
+
+      warnSpy.mockRestore();
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('reverts the variant when the runner fails, and emits action_error', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(stateMachineVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'sm',
+        variant: 'collapsed',
+      });
+
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        expand: () => Promise.resolve(err(new Error('boom'))),
+      });
+
+      const actionErrors: InstanceId[] = [];
+      orchestrator.commandProcessor.events.on('action_error', (e) => {
+        actionErrors.push(e.instanceId);
+      });
+
+      orchestrator.invokeAction(instanceId, ActionName('expand'));
+      expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
+
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+
+      expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
+      expect(actionErrors).toContain(instanceId);
+
+      orchestrator.dispose();
+    });
+
+    it('does not revert when a newer transition superseded this one (last-write-wins)', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(threeStateVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'tri',
+        variant: 'v1',
+      });
+
+      let failA: (() => void) | undefined;
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        toV2: () =>
+          new Promise<ActionResult>((resolve) => {
+            failA = () => resolve(err(new Error('A failed')));
+          }),
+        toV3: () => ok(undefined),
+      });
+
+      // A: v1 → v2, runner deferred (will fail).
+      orchestrator.invokeAction(instanceId, ActionName('toV2'));
+      expect(currentVariant(orchestrator, instanceId)).toBe('v2');
+
+      // B: v2 → v3, invoked before A resolves. B's runner is queued behind A.
+      orchestrator.invokeAction(instanceId, ActionName('toV3'));
+      expect(currentVariant(orchestrator, instanceId)).toBe('v3');
+
+      // Let A's deferred runner actually start (so `failA` is wired) while B
+      // waits its turn in the queue.
+      await flushMicrotasks();
+
+      // A fails now — its revert must NOT clobber v3.
+      failA?.();
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+
+      expect(currentVariant(orchestrator, instanceId)).toBe('v3');
+
+      orchestrator.dispose();
+    });
+
+    it('runs the runner without transitioning (and without an engine update) for a no-transitionsTo action', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(stateMachineVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'sm',
+        variant: 'collapsed',
+      });
+
+      let pinged: unknown;
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        ping: (...args: unknown[]) => {
+          pinged = args[0];
+          return ok(undefined);
+        },
+      });
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      orchestrator.invokeAction(instanceId, ActionName('ping'), { msg: 'hi' });
+
+      expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+
+      expect(pinged).toEqual({ msg: 'hi' });
+      expect(scheduleSpy).not.toHaveBeenCalled();
+
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('warns and runs the runner without transitioning when transitionsTo names a nonexistent variant', async () => {
+      const { orchestrator } = createTestOrchestrator();
+
+      // Bypass VesselManager validation (which would reject a dangling
+      // transitionsTo) to exercise invokeAction's defensive runtime check.
+      const ghostVessel = {
+        id: VesselId('ghost-v'),
+        name: 'Ghost',
+        description: 'a vessel with a dangling transition',
+        defaultVariant: VariantName('active'),
+        variants: {
+          active: {
+            props: {},
+            minSize: { width: 1, height: 1 },
+            actions: [
+              {
+                name: ActionName('vanish'),
+                description: 'vanish into a variant that does not exist',
+                transitionsTo: VariantName('ghost'),
+              },
+            ],
+          },
+        },
+      } as unknown as Vessel;
+      orchestrator.vesselManager.store.setState((s) => ({
+        ...s,
+        vessels: new Map([[VesselId('ghost-v'), ghostVessel]]),
+      }));
+
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'ghost-v',
+        variant: 'active',
+      });
+
+      let ran = false;
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        vanish: () => {
+          ran = true;
+          return ok(undefined);
+        },
+      });
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      orchestrator.invokeAction(instanceId, ActionName('vanish'));
+
+      expect(currentVariant(orchestrator, instanceId)).toBe('active');
+      expect(scheduleSpy).not.toHaveBeenCalled();
+
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+      expect(ran).toBe(true);
+
+      const warned = warnSpy.mock.calls.some((args) =>
+        args.some(
+          (a) => typeof a === 'string' && a.includes('unknown variant'),
+        ),
+      );
+      expect(warned).toBe(true);
+
+      warnSpy.mockRestore();
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
     });
   });
 });

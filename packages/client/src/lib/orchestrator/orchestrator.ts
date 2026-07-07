@@ -1,11 +1,15 @@
 import {
   ChartRequestMessage,
   MessageId,
+  type ActionExecution,
+  type ActionName,
   type ChartResizeReason,
+  type InstanceId,
   type MaelstromResponse,
   type SessionHistoryEntry,
   type SessionId,
   type UpdateReason,
+  type VariantName,
   type VesselMutationReason,
   toError,
 } from '@maelstrom-co/protocol';
@@ -256,6 +260,123 @@ export class Orchestrator {
   }
 
   // ==========================================================================
+  // Local action invocation
+  // ==========================================================================
+
+  /**
+   * Invoke a vessel action locally — the client-authoritative path for actions
+   * a user triggers directly in the UI (e.g. a button click), as opposed to
+   * actions the engine returns in an execution plan.
+   *
+   * WHAT it does, in order:
+   * 1. Validates that `instanceId` exists and that `action` is declared on the
+   *    instance's **current** variant. If either check fails it logs a warning
+   *    and no-ops — it never throws, so it is safe to call straight from a
+   *    render callback.
+   * 2. If the action declares a `transitionsTo` variant that exists on the
+   *    vessel, it updates the store's variant **synchronously, before the
+   *    runner runs** — the store is authoritative and the UI reflects the new
+   *    variant immediately (no optimistic-override-then-rollback dance).
+   * 3. Runs the action's registered runner through the same CommandProcessor /
+   *    ActionManager machinery as engine-plan actions (runner-readiness wait,
+   *    execution timeout, `action_error` emission).
+   * 4. If the runner fails (error result, throw, or timeout), reverts the
+   *    variant — but only if the store variant is still the one this call set,
+   *    so a newer transition or an engine layout that landed in between wins.
+   * 5. When (and only when) a transition actually happened in step 2, schedules
+   *    a `vessel_mutation` update so the engine can re-plan layout. Bursts are
+   *    coalesced by the UpdateCoordinator's debounce.
+   *
+   * WHY: vessels declare their own state machines, so a locally-invoked action
+   * with a `transitionsTo` is a fact the client already knows — applying it
+   * locally makes the client the authority instead of waiting on an engine
+   * round-trip.
+   *
+   * INVARIANTS:
+   * - Never throws; invalid input warns and no-ops.
+   * - The variant transition is applied before the runner is awaited.
+   * - A revert never clobbers a variant a later write already changed.
+   * - No transition (parameterless / no `transitionsTo`) → no engine update.
+   *
+   * @param instanceId - The instance to act on; must exist in the store.
+   * @param action - The action name; must be declared on the current variant.
+   * @param params - Optional parameter object passed to the runner verbatim.
+   *
+   * @example
+   * ```ts
+   * // In a vessel's render callback:
+   * <button onClick={() => orchestrator.invokeAction(instanceId, 'expand')}>
+   *   Expand
+   * </button>
+   * ```
+   */
+  invokeAction(
+    instanceId: InstanceId,
+    action: ActionName,
+    params?: Record<string, unknown>,
+  ): void {
+    if (this.#isDisposed) {
+      this.#logger.warn('invokeAction called after dispose; ignoring');
+      return;
+    }
+
+    const instance = this.#commandProcessor.store.state.instances.get(
+      instanceId,
+    );
+    if (!instance) {
+      this.#logger.warn(`invokeAction: unknown instance "${instanceId}"`);
+      return;
+    }
+
+    const vessel = this.#vesselManager.get(instance.vesselId);
+    if (!vessel) {
+      this.#logger.warn(
+        `invokeAction: no vessel definition for "${instance.vesselId}"`,
+      );
+      return;
+    }
+
+    const currentVariant = instance.variant;
+    const actionDef = vessel.variants[currentVariant]?.actions.find(
+      (a) => a.name === action,
+    );
+    if (!actionDef) {
+      this.#logger.warn(
+        `invokeAction: action "${action}" is not available on variant "${currentVariant}" of instance "${instanceId}"`,
+      );
+      return;
+    }
+
+    // Transition first: apply the declared variant change locally so the UI
+    // updates before the (async) runner runs.
+    let transition: { from: VariantName; to: VariantName } | null = null;
+    const target = actionDef.transitionsTo;
+    if (target !== undefined) {
+      if (!Object.hasOwn(vessel.variants, target)) {
+        this.#logger.warn(
+          `invokeAction: action "${action}" transitionsTo unknown variant "${target}"; running without transition`,
+        );
+      } else if (
+        this.#commandProcessor.setVariantIfCurrent(
+          instanceId,
+          currentVariant,
+          target,
+        )
+      ) {
+        transition = { from: currentVariant, to: target };
+        this.scheduleUpdate({
+          type: 'vessel_mutation',
+          instanceId,
+          changes: `user invoked "${action}": variant ${currentVariant} → ${target}`,
+        });
+      }
+    }
+
+    const execution: ActionExecution = { instanceId, action, params };
+    void this.#runLocalAction(execution, transition);
+  }
+
+  // ==========================================================================
   // Connection lifecycle
   // ==========================================================================
 
@@ -420,6 +541,21 @@ export class Orchestrator {
         },
       );
       this.#unsubscribers.push(unsubPush);
+    }
+  }
+
+  async #runLocalAction(
+    execution: ActionExecution,
+    transition: { from: VariantName; to: VariantName } | null,
+  ): Promise<void> {
+    const outcome = await this.#commandProcessor.runLocalAction(execution);
+    if (outcome === 'failed' && transition) {
+      // Guarded revert: only undo when our transition still stands.
+      this.#commandProcessor.setVariantIfCurrent(
+        execution.instanceId,
+        transition.to,
+        transition.from,
+      );
     }
   }
 
