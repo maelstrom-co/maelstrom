@@ -5,9 +5,9 @@ import type {
 } from '@maelstrom-co/protocol';
 import {
   err,
-  GridResponseSchema,
+  type GridResponseSchema,
   ok,
-  TilingResponseSchema,
+  type TilingResponseSchema,
 } from '@maelstrom-co/protocol';
 import { chat } from '@tanstack/ai';
 

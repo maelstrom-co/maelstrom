@@ -1,6 +1,6 @@
 import {
   ChartRequestMessage,
-  MessageId,
+  type MessageId,
   SessionId,
   type ChartRequest,
   type ChartRequestMessage as ChartRequestMessageType,

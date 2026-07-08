@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 import {
   InstanceId,
-  SessionId,
+  type SessionId,
   VariantName,
   VesselId,
   type MaelstromResponse,

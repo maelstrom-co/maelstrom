@@ -3,7 +3,7 @@ import {
   ActionName,
   InstanceId,
   MessageId,
-  SessionId,
+  type SessionId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 

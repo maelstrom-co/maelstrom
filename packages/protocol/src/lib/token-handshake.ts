@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { SessionIdSchema, type SessionId } from './session.js';
-import { type Mutable } from './_drift-guards.js';
+import type { Mutable } from './_drift-guards.js';
 
 // --- provider ---
 
