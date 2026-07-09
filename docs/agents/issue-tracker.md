@@ -1,15 +1,16 @@
 # Issue tracker: Linear
 
-Issues and PRDs for this repo live in **Linear**, not GitHub Issues. Tickets are identified as `MAE-XXX` (team key `MAE`). Drive Linear through the connected Linear MCP tools (`mcp__*_linear__*` / `mcp__*_Linear__*`); load their schemas via `ToolSearch` (query `linear`) when they aren't already available.
+Issues and specs for this repo live in **Linear**, not GitHub Issues. Tickets are identified as `MAE-XXX` (team key `MAE`). Drive Linear through the connected Linear MCP tools (`mcp__*_linear__*` / `mcp__*_Linear__*`); load their schemas via `ToolSearch` (query `linear`) when they aren't already available.
 
 ## Conventions
 
-- **Create an issue / PRD**: create a Linear issue on the `MAE` team. Put the spec in the description; use the relevant project (e.g. the current release project) when known.
+- **Create an issue / spec**: create a Linear issue on the `MAE` team. Put the body in the description; use the relevant project (e.g. the current release project) when known.
 - **Read a ticket**: fetch the Linear issue by its `MAE-XXX` identifier, including comments and its current workflow state.
 - **List issues**: query Linear filtered by team `MAE`, state, and/or label.
 - **Comment on a ticket**: add a Linear comment to `MAE-XXX`.
 - **Apply / remove labels**: edit the Linear issue's labels (see `triage-labels.md` for the role → label mapping).
 - **Change state**: move the issue between workflow states (Backlog → Todo → In Progress → In Review → Done, or the team's actual states).
+- **Blocking**: express a dependency as Linear's native **blocked-by** relation, never as text in the description — that is the canonical, UI-visible representation, so blocked and unblocked tickets render in Linear itself. A ticket is unblocked when every issue blocking it is closed, i.e. in any terminal state (`Done`, `Canceled`, or `Duplicate`). Skills that emit tickets with dependency edges (`to-tickets`, `/wayfinder`) must write these relations.
 
 ## Picking up a ticket (repo rule)
 
@@ -34,7 +35,7 @@ How `/wayfinder`'s map, tickets, blocking, and frontier physically live on Linea
 - **Map**: a Linear issue on the `MAE` team, labelled `wayfinder:map`. Its body holds the `## Notes` / `## Decisions so far` / `## Fog` sections.
 - **Ticket**: a Linear **sub-issue** of the map (its parent is the map issue), body a single `## Question` section, carrying one `wayfinder:<type>` label — `wayfinder:research` / `wayfinder:prototype` / `wayfinder:grilling` / `wayfinder:task`. These labels are created on first use.
 - **Claim**: **assign the sub-issue to yourself** (the dev driving the map) before any work. The assignee *is* the claim — an open, unassigned sub-issue is unclaimed. Do not use a `claimed` label.
-- **Blocking**: use Linear's native **blocked-by** relation, so the frontier renders in Linear's own UI. A ticket is unblocked when every issue blocking it is closed — any terminal state (`Done`, `Canceled`, or `Duplicate`).
+- **Blocking**: Linear's native **blocked-by** relation, exactly as in [Conventions](#conventions) above — so the frontier renders in Linear's own UI.
 - **Frontier**: the map's open sub-issues that are unblocked and unassigned; take the first in order.
 - **Resolve**: post the answer as a **comment** on the sub-issue, move it to `Done`, then append a one-line gist + link to the map issue's `## Decisions so far`.
 

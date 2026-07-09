@@ -150,7 +150,7 @@ When picking up a Linear ticket (MAE-XXX) to start work on it, immediately move 
 
 ### Issue tracker
 
-Issues and PRDs live in **Linear** (`MAE-XXX`, team `MAE`), driven via the Linear MCP tools — not GitHub Issues. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+Issues and specs live in **Linear** (`MAE-XXX`, team `MAE`), driven via the Linear MCP tools — not GitHub Issues. Dependencies use Linear's native blocked-by relation. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
