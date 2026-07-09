@@ -3,6 +3,7 @@ import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
 import type { ToolCallId, TokenHandshakeResponse } from '@maelstrom-co/protocol';
 
 import type {
+  AdapterAudioStreams,
   AdapterConnectOptions,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
@@ -63,6 +64,8 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   #pc: RTCPeerConnection | undefined;
   #dc: RTCDataChannel | undefined;
   #micStream: MediaStream | undefined;
+  #playbackStream: MediaStream | undefined;
+  #audioEl: HTMLAudioElement | undefined;
   #groundingItemExists = false;
   // Guards the window between connect() being called and `#pc` being
   // assigned — `mintToken()` is the first await, so without this a second
@@ -121,6 +124,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
 
   async disconnect(): Promise<void> {
     this.#teardown();
+  }
+
+  getAudioStreams(): AdapterAudioStreams {
+    return { mic: this.#micStream, playback: this.#playbackStream };
   }
 
   async sendToolResult(callId: ToolCallId, output: unknown): Promise<void> {
@@ -197,7 +204,9 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   #wireConnectionEvents(connection: RTCPeerConnection): void {
     const audio = new Audio();
     audio.autoplay = true;
+    this.#audioEl = audio;
     connection.ontrack = (event) => {
+      this.#playbackStream = event.streams[0];
       audio.srcObject = event.streams[0] ?? null;
     };
     connection.oniceconnectionstatechange = () => {
@@ -311,6 +320,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   }
 
   #teardown(): void {
+    this.#audioEl?.pause();
+    if (this.#audioEl) this.#audioEl.srcObject = null;
+    this.#audioEl = undefined;
+    this.#playbackStream = undefined;
     this.#dc?.close();
     if (this.#pc) {
       for (const sender of this.#pc.getSenders()) {

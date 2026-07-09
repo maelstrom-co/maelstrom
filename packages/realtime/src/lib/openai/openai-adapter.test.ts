@@ -114,8 +114,28 @@ class FakeRTCPeerConnection {
 }
 
 class FakeAudio {
+  static instances: FakeAudio[] = [];
+
   autoplay = false;
-  srcObject: unknown = null;
+  paused = true;
+  #srcObject: unknown = null;
+
+  constructor() {
+    FakeAudio.instances.push(this);
+  }
+
+  get srcObject(): unknown {
+    return this.#srcObject;
+  }
+
+  set srcObject(value: unknown) {
+    this.#srcObject = value;
+    if (value && this.autoplay) this.paused = false;
+  }
+
+  pause(): void {
+    this.paused = true;
+  }
 }
 
 // ============================================================================
@@ -167,6 +187,7 @@ function restoreGlobal(key: string, original: unknown): void {
 beforeEach(() => {
   FakeRTCPeerConnection.instances = [];
   FakeMediaStream.instances = [];
+  FakeAudio.instances = [];
   getUserMediaImpl = async () => new FakeMediaStream(1);
   fetchImpl = async () => ({
     ok: true,
@@ -204,14 +225,15 @@ beforeEach(() => {
 async function connectWithChannel(): Promise<{
   adapter: RealtimeProviderAdapter;
   channel: FakeDataChannel;
+  connection: FakeRTCPeerConnection;
 }> {
   const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
   await adapter.connect(connectOpts);
   const pc = FakeRTCPeerConnection.instances[0];
   const channel = pc?.dataChannel;
-  if (!channel) throw new Error('connectWithChannel: no data channel created');
+  if (!channel || !pc) throw new Error('connectWithChannel: no data channel created');
   channel.triggerOpen();
-  return { adapter, channel };
+  return { adapter, channel, connection: pc };
 }
 
 afterEach(() => {
@@ -462,5 +484,33 @@ describe('OpenAIAdapter — voice activity state', () => {
     channel.receive({ type: 'input_audio_buffer.speech_started' });
     channel.receive({ type: 'input_audio_buffer.speech_started' });
     expect(states).toEqual(['listening']);
+  });
+});
+
+// ============================================================================
+// Audio streams
+// ============================================================================
+
+describe('OpenAIAdapter — audio streams', () => {
+  it('exposes mic and playback streams while connected and clears them on disconnect', async () => {
+    const { adapter, connection } = await connectWithChannel();
+    // simulate the remote track arriving:
+    const remote = new FakeMediaStream();
+    connection.ontrack?.({ streams: [remote] } as unknown as RTCTrackEvent);
+
+    const streams = adapter.getAudioStreams();
+    expect(streams.mic).toBeDefined();
+    expect(streams.playback).toBe(remote as unknown as MediaStream);
+
+    await adapter.disconnect();
+    expect(adapter.getAudioStreams()).toEqual({ mic: undefined, playback: undefined });
+  });
+
+  it('pauses and detaches the playback audio element on teardown', async () => {
+    const { adapter } = await connectWithChannel();
+    const audio = FakeAudio.instances.at(-1);
+    await adapter.disconnect();
+    expect(audio?.paused).toBe(true);
+    expect(audio?.srcObject).toBeNull();
   });
 });

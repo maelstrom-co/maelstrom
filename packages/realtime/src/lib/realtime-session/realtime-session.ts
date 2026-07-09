@@ -10,6 +10,7 @@ import type { SessionId, SidechannelEvent, ToolCallId } from '@maelstrom-co/prot
 
 import { groundedDebounce } from './grounding-debounce.js';
 import type {
+  AdapterAudioStreams,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
@@ -247,6 +248,14 @@ export class RealtimeSession implements VoiceSession {
     this.#cleanupConnection();
     await this.#adapter.disconnect();
     this.#setState('idle');
+  }
+
+  /**
+   * Live audio streams for UI metering (voice orbs, level meters). Delegates
+   * to the provider adapter; see `AdapterAudioStreams` for absence semantics.
+   */
+  getAudioStreams(): AdapterAudioStreams {
+    return this.#adapter.getAudioStreams();
   }
 
   #cleanupConnection(): void {

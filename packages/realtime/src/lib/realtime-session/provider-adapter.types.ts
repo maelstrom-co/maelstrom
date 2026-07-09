@@ -43,6 +43,17 @@ export type RealtimeAdapterEvent =
   | { readonly type: 'error'; readonly error: unknown };
 
 /**
+ * Live audio streams a provider session is currently using, for UI metering
+ * (voice orbs, level indicators). Fields are undefined before connect, after
+ * disconnect, and — for `playback` — until the provider attaches its remote
+ * audio track.
+ */
+export interface AdapterAudioStreams {
+  readonly mic?: MediaStream;
+  readonly playback?: MediaStream;
+}
+
+/**
  * Provider-agnostic seam a realtime voice transport (OpenAI WebRTC, Google
  * Live API, …) implements. `RealtimeSession` drives every provider through
  * this interface only — it never branches on provider identity. Concrete
@@ -57,6 +68,8 @@ export interface RealtimeProviderAdapter {
    */
   connect(opts: AdapterConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
+  /** Streams for UI metering. Never throws; absent streams are undefined. */
+  getAudioStreams(): AdapterAudioStreams;
   /** Sends a tool call's result back to the model. */
   sendToolResult(callId: ToolCallId, output: unknown): Promise<void>;
   /**

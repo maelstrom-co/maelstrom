@@ -18,6 +18,7 @@ export type {
 export { RealtimeSession } from './lib/realtime-session/realtime-session.js';
 
 export type {
+  AdapterAudioStreams,
   AdapterConnectOptions,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,

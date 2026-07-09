@@ -13,6 +13,7 @@ import {
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
 
 import type {
+  AdapterAudioStreams,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
@@ -44,6 +45,8 @@ interface MockAdapter extends RealtimeProviderAdapter {
   emitToolCall(call: { callId: string; name: string; argumentsJson: string }): void;
   emitError(error: unknown): void;
   emitTranscript(t: { role: 'user' | 'assistant'; text: string; final: boolean }): void;
+  /** Sentinel returned by `getAudioStreams()` — identity-compared by tests. */
+  readonly lastAudioStreams: AdapterAudioStreams;
 }
 
 function makeMockAdapter(): MockAdapter {
@@ -54,10 +57,13 @@ function makeMockAdapter(): MockAdapter {
   let lastConnectTools: readonly RealtimeToolSpec[] | undefined;
   let shouldFailNextConnect = false;
   let gate: Promise<void> | undefined;
+  const lastAudioStreams: AdapterAudioStreams = {};
 
   return {
     toolResults,
     groundingCalls,
+    lastAudioStreams,
+    getAudioStreams: () => lastAudioStreams,
     get connectCalls() {
       return connectCalls;
     },
@@ -1222,5 +1228,17 @@ describe('RealtimeSession — transcript subscription', () => {
       final: true,
     });
     expect((transcriptEvents[0] as { at: number }).at).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// Behavior 10: audio streams delegation
+// ============================================================================
+
+describe('RealtimeSession — audio streams', () => {
+  it('delegates getAudioStreams to the adapter', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    expect(session.getAudioStreams()).toBe(adapter.lastAudioStreams);
   });
 });
