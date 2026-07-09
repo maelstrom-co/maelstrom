@@ -1,4 +1,5 @@
 import type {
+  TranscriptEntry,
   UIStructuralSnapshot,
   Unsubscribe,
   VoiceSession,
@@ -166,6 +167,7 @@ export class RealtimeSession implements VoiceSession {
 
   #state: VoiceSessionState = 'idle';
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
+  readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   #unsubscribeAdapter: Unsubscribe | undefined;
   #unsubscribeSettled: Unsubscribe | undefined;
   #queuedIntent: QueuedIntent | undefined;
@@ -263,10 +265,23 @@ export class RealtimeSession implements VoiceSession {
     this.#queuedIntent = undefined;
   }
 
-  on(_event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe {
-    this.#stateHandlers.add(handler);
+  on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe;
+  on(event: 'transcript', handler: (t: TranscriptEntry) => void): Unsubscribe;
+  on(
+    event: 'state' | 'transcript',
+    handler: ((s: VoiceSessionState) => void) | ((t: TranscriptEntry) => void),
+  ): Unsubscribe {
+    if (event === 'transcript') {
+      const h = handler as (t: TranscriptEntry) => void;
+      this.#transcriptHandlers.add(h);
+      return () => {
+        this.#transcriptHandlers.delete(h);
+      };
+    }
+    const h = handler as (s: VoiceSessionState) => void;
+    this.#stateHandlers.add(h);
     return () => {
-      this.#stateHandlers.delete(handler);
+      this.#stateHandlers.delete(h);
     };
   }
 
@@ -293,9 +308,25 @@ export class RealtimeSession implements VoiceSession {
           this.#setState('error');
         }
         break;
-      case 'transcript':
+      case 'transcript': {
+        const entry: TranscriptEntry = {
+          role: event.role,
+          text: event.text,
+          final: event.final,
+        };
+        for (const handler of this.#transcriptHandlers) handler(entry);
+        this.#emit({
+          type: 'transcript',
+          sessionId: this.#sessionId,
+          at: Date.now(),
+          role: event.role,
+          text: event.text,
+          final: event.final,
+        });
+        break;
+      }
       case 'speech_started':
-        // Not part of the tool/grounding surface this session drives.
+        // Activity state is derived provider-side; nothing to do here.
         break;
       default: {
         const _exhaustive: never = event;

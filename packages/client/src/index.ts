@@ -143,6 +143,7 @@ export { readStructuralSnapshot } from './lib/voice-session/ui-structural-snapsh
 export type {
   GroundingUpdate,
   SpeakableResult,
+  TranscriptEntry,
   VoiceSession,
   VoiceSessionState,
 } from './lib/voice-session/voice-session.types.js';

@@ -43,6 +43,7 @@ interface MockAdapter extends RealtimeProviderAdapter {
   gateConnect(): () => void;
   emitToolCall(call: { callId: string; name: string; argumentsJson: string }): void;
   emitError(error: unknown): void;
+  emitTranscript(t: { role: 'user' | 'assistant'; text: string; final: boolean }): void;
 }
 
 function makeMockAdapter(): MockAdapter {
@@ -108,6 +109,9 @@ function makeMockAdapter(): MockAdapter {
     },
     emitError(error) {
       for (const h of handlers) h({ type: 'error', error });
+    },
+    emitTranscript(t) {
+      for (const h of handlers) h({ type: 'transcript', ...t });
     },
   };
 }
@@ -1169,5 +1173,54 @@ describe('RealtimeSession — error surfacing', () => {
     // Exactly one tool_result — a leaked handler from the errored session
     // would have produced two.
     expect(adapter.toolResults).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// Behavior 9: transcript subscription
+// ============================================================================
+
+describe('RealtimeSession — transcript subscription', () => {
+  it('forwards adapter transcripts to on(transcript) subscribers', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    const seen: Array<{ role: string; text: string; final: boolean }> = [];
+    session.on('transcript', (t) => seen.push(t));
+
+    adapter.emitTranscript({ role: 'assistant', text: 'On it — ', final: false });
+    adapter.emitTranscript({ role: 'assistant', text: 'On it — done.', final: true });
+
+    expect(seen).toEqual([
+      { role: 'assistant', text: 'On it — ', final: false },
+      { role: 'assistant', text: 'On it — done.', final: true },
+    ]);
+  });
+
+  it('unsubscribe stops delivery', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    const seen: unknown[] = [];
+    const off = session.on('transcript', (t) => seen.push(t));
+    off();
+    adapter.emitTranscript({ role: 'user', text: 'hello', final: true });
+    expect(seen).toEqual([]);
+  });
+
+  it('mirrors transcripts onto the sidechannel with session id and timestamp', async () => {
+    const { session, adapter, events } = makeHarness();
+    await session.connect();
+
+    adapter.emitTranscript({ role: 'user', text: 'show my day', final: true });
+
+    const transcriptEvents = events.filter((e) => e.type === 'transcript');
+    expect(transcriptEvents).toHaveLength(1);
+    expect(transcriptEvents[0]).toMatchObject({
+      type: 'transcript',
+      sessionId: testSessionId,
+      role: 'user',
+      text: 'show my day',
+      final: true,
+    });
+    expect((transcriptEvents[0] as { at: number }).at).toBeGreaterThan(0);
   });
 });
