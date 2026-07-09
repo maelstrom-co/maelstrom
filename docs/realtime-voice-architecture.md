@@ -194,7 +194,7 @@ Tracked in Linear, all under Soft Preview Release:
 - **[MAE-333](https://linear.app/maelstrom-vortex/issue/MAE-333)** — docs reconciliation across the voice packages.
 - **[MAE-334](https://linear.app/maelstrom-vortex/issue/MAE-334)** — acoustic false barge-in (noise triggering `speech_started`).
 - **[MAE-335](https://linear.app/maelstrom-vortex/issue/MAE-335)** — the sidechannel *receiver*: wire `onEvent` to a transport and a storage-agnostic server handler.
-- **[MAE-336](https://linear.app/maelstrom-vortex/issue/MAE-336)** — latest-wins barge-in queueing is now implemented in `RealtimeSession`; what remains is live re-validation of both the queue and the `response.create` deferral against real traffic, and extracting the shared queue mechanism with MAE-330's cascade track.
+- **[MAE-336](https://linear.app/maelstrom-vortex/issue/MAE-336)** *(done)* — latest-wins barge-in queueing implemented and live-validated along with the `response.create` deferral; the optional shared-queue extraction rides with MAE-330's cascade work.
 - **[MAE-337](https://linear.app/maelstrom-vortex/issue/MAE-337)** — harden the mint endpoint (origin allowlist, rate limit, auth hook).
 - **[MAE-338](https://linear.app/maelstrom-vortex/issue/MAE-338)** — unify voice and typed conversation history via the orchestrator (`addAssistantMessage`).
 - **[MAE-339](https://linear.app/maelstrom-vortex/issue/MAE-339)** — inject a compact vessel-capability catalog on the slow channel (the second half of D6: the model currently knows what's on screen, not what the app *can* do).
@@ -210,7 +210,8 @@ Of the seven judgments this section originally flagged, five have since been imp
 - **Grounding length clamp** — the ~100-token budget is enforced, not conventional; see *Grounding*.
 - **Sidechannel clock semantics** — the schema contract now states `at` is skew-prone client time and receivers must stamp receipt time for metering.
 
-Two remain open, deliberately:
+- **Live validation of the `response.create` deferral and barge-in queue** — done 2026-07-09 against real `gpt-realtime-2` traffic: the deferral flushed on `response.done` with no "active response" errors, and mid-request corrections applied latest-wins (MAE-336, closed).
 
-1. **The `response.create` deferral and the barge-in queue are the least-proven load-bearing pieces.** Both are pure and unit-tested, but their premises — the exact sequencing of `response.created`/`response.done` around multi-tool responses, and queue behavior under a real model's barge-in cadence — were inferred, not observed. Until the live re-validation in MAE-336 happens, treat this as the most likely place for a live-traffic surprise.
-2. **`VoiceSession` shipped thinner than its exports suggest.** `SpeakableResult` and `GroundingUpdate` are exported but unreferenced by the interface — reserved names for a contract not yet settled. That's honest (the JSDoc says so), but it's also API surface consumers can import and misread as functional. Settle the full seam shape with the cascade track (MAE-330/332) sooner rather than later, before external code grows around the placeholder types. This is a joint design decision, not a unilateral code change.
+One remains open, deliberately:
+
+1. **`VoiceSession` shipped thinner than its exports suggest.** `SpeakableResult` and `GroundingUpdate` are exported but unreferenced by the interface — reserved names for a contract not yet settled. That's honest (the JSDoc says so), but it's also API surface consumers can import and misread as functional. Settle the full seam shape with the cascade track (MAE-330/332) sooner rather than later, before external code grows around the placeholder types. This is a joint design decision, not a unilateral code change.
