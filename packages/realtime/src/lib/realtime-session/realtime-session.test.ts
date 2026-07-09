@@ -19,6 +19,7 @@ import type {
 } from './provider-adapter.types.js';
 import type { RealtimeInstance } from './realtime-session.types.js';
 import { RealtimeSession } from './realtime-session.js';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -41,6 +42,7 @@ interface MockAdapter extends RealtimeProviderAdapter {
   /** Makes `connect()` block until the returned function is called. */
   gateConnect(): () => void;
   emitToolCall(call: { callId: string; name: string; argumentsJson: string }): void;
+  emitError(error: unknown): void;
 }
 
 function makeMockAdapter(): MockAdapter {
@@ -103,6 +105,9 @@ function makeMockAdapter(): MockAdapter {
       for (const h of handlers) {
         h({ type: 'tool_call', ...call, callId: ToolCallId(call.callId) });
       }
+    },
+    emitError(error) {
+      for (const h of handlers) h({ type: 'error', error });
     },
   };
 }
@@ -1107,5 +1112,41 @@ describe('RealtimeSession — connection lifecycle', () => {
     // No sendToolResult for the abandoned call either way — teardown drops
     // it silently rather than answering it (the adapter is gone too).
     expect(adapter.toolResults.find((r) => r.callId === 'c2')).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// Behavior 8: error surfacing
+// ============================================================================
+
+describe('RealtimeSession — error surfacing', () => {
+  it('transitions to error and records lastError on a fatal adapter error', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+
+    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    adapter.emitError(fatal);
+
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(fatal);
+  });
+
+  it('stays connected on a non-fatal adapter error', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+
+    adapter.emitError(new Error('malformed frame'));
+
+    expect(session.state).toBe('connected');
+    expect(session.lastError).toBeUndefined();
+  });
+
+  it('records lastError when connect() itself rejects', async () => {
+    const { session, adapter } = makeHarness();
+    adapter.failNextConnect();
+
+    await expect(session.connect()).rejects.toThrow();
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBeDefined();
   });
 });

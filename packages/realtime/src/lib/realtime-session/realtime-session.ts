@@ -18,6 +18,7 @@ import type {
   RealtimeSessionOptions,
   SummarizeFn,
 } from './realtime-session.types.js';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
 
 // Single source of truth for tool names — the `tools` array passed to the
 // adapter and the dispatch table below are both keyed off this union, so a
@@ -170,6 +171,7 @@ export class RealtimeSession implements VoiceSession {
   #queuedIntent: QueuedIntent | undefined;
   #bargeInLoopRunning = false;
   #groundingClampWarned = false;
+  #lastError: unknown;
 
   readonly #toolHandlers: Record<
     ToolName,
@@ -199,12 +201,22 @@ export class RealtimeSession implements VoiceSession {
     return this.#state;
   }
 
+  /**
+   * The failure behind the most recent `error` state, if any. Cleared on the
+   * next successful `connect()`. Typed failures are `RealtimeVoiceError` —
+   * switch on `.code` for recovery UX.
+   */
+  get lastError(): unknown {
+    return this.#lastError;
+  }
+
   async connect(): Promise<void> {
     // Re-entry guard: without it, a second connect() before the first
     // resolves would stack a second set of subscriptions on top of the
     // first's (only the last unsubscribe would ever be reachable).
     if (this.#state === 'connected' || this.#state === 'connecting') return;
 
+    this.#lastError = undefined;
     this.#setState('connecting');
     this.#unsubscribeAdapter = this.#adapter.on((event) => {
       this.#handleAdapterEvent(event);
@@ -216,6 +228,7 @@ export class RealtimeSession implements VoiceSession {
       });
     } catch (error) {
       this.#cleanupConnection();
+      this.#lastError = error;
       this.#setState('error');
       throw error;
     }
@@ -274,6 +287,10 @@ export class RealtimeSession implements VoiceSession {
         break;
       case 'error':
         this.#logger.warn('adapter error', event.error);
+        if (event.error instanceof RealtimeVoiceError) {
+          this.#lastError = event.error;
+          this.#setState('error');
+        }
         break;
       case 'transcript':
       case 'speech_started':
