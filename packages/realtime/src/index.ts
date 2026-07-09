@@ -25,3 +25,6 @@ export type {
 } from './lib/realtime-session/provider-adapter.types.js';
 
 export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
+
+export type { RealtimeVoiceErrorCode } from './lib/realtime-voice-error.js';
+export { RealtimeVoiceError } from './lib/realtime-voice-error.js';

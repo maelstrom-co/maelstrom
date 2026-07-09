@@ -4,6 +4,7 @@ import type { TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol
 
 import type { AdapterConnectOptions } from '../realtime-session/provider-adapter.types.js';
 import { OpenAIAdapter } from './openai-adapter.js';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
 
 // ============================================================================
 // Fakes
@@ -222,7 +223,9 @@ describe('OpenAIAdapter — mintToken failure', () => {
       },
     });
 
-    await expect(adapter.connect(connectOpts)).rejects.toThrow('mint failed');
+    await expect(adapter.connect(connectOpts)).rejects.toThrow(
+      'Failed to mint an ephemeral realtime token',
+    );
     expect(FakeRTCPeerConnection.instances).toHaveLength(0);
 
     // The `connecting` guard must have been reset by teardown() — otherwise
@@ -243,7 +246,9 @@ describe('OpenAIAdapter — getUserMedia failure', () => {
       throw new Error('mic denied');
     };
 
-    await expect(adapter.connect(connectOpts)).rejects.toThrow('mic denied');
+    await expect(adapter.connect(connectOpts)).rejects.toThrow(
+      'Failed to acquire the microphone',
+    );
     expect(FakeRTCPeerConnection.instances).toHaveLength(1);
     expect(FakeRTCPeerConnection.instances[0]?.closed).toBe(true);
 
@@ -371,5 +376,39 @@ describe('OpenAIAdapter — successful connect then disconnect', () => {
     expect(stream?.tracks.every((track) => track.stopped)).toBe(true);
     expect(pc?.closed).toBe(true);
     expect(dc?.closed).toBe(true);
+  });
+});
+
+// ============================================================================
+// Typed errors
+// ============================================================================
+
+describe('OpenAIAdapter — typed errors', () => {
+  it('throws ALREADY_CONNECTED on double connect', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    await adapter.connect(connectOpts);
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('ALREADY_CONNECTED');
+  });
+
+  it('wraps a mint rejection as TOKEN_MINT_FAILED with cause preserved', async () => {
+    const boom = new Error('mint 500');
+    const adapter = new OpenAIAdapter({ mintToken: () => Promise.reject(boom) });
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('TOKEN_MINT_FAILED');
+    expect((err as RealtimeVoiceError).cause).toBe(boom);
+  });
+
+  it('maps getUserMedia NotAllowedError to MIC_PERMISSION_DENIED', async () => {
+    const denied = Object.assign(new Error('denied'), { name: 'NotAllowedError' });
+    getUserMediaImpl = async () => {
+      throw denied;
+    };
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('MIC_PERMISSION_DENIED');
   });
 });

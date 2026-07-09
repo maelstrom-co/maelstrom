@@ -9,6 +9,7 @@ import type {
   RealtimeToolSpec,
 } from '../realtime-session/provider-adapter.types.js';
 import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import { asString, isRecord, parseOpenAIServerEvent } from './parse-openai-event.js';
 import {
   INITIAL_RESPONSE_LIFECYCLE_STATE,
@@ -77,7 +78,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
 
   async connect(opts: AdapterConnectOptions): Promise<void> {
     if (this.#pc || this.#connecting) {
-      throw new Error('OpenAI realtime adapter is already connected');
+      throw new RealtimeVoiceError('ALREADY_CONNECTED', 'OpenAI realtime adapter is already connected');
     }
     this.#connecting = true;
     // Captured by the data channel's onopen closure below so a slow ICE/DTLS
@@ -86,7 +87,16 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     const connectStart = Date.now();
 
     try {
-      const token = await this.#mintToken();
+      let token: TokenHandshakeResponse;
+      try {
+        token = await this.#mintToken();
+      } catch (error) {
+        throw new RealtimeVoiceError(
+          'TOKEN_MINT_FAILED',
+          'Failed to mint an ephemeral realtime token',
+          error,
+        );
+      }
       this.#logger.debug('connect timing', { step: 'mint', ms: Date.now() - connectStart });
 
       const connection = new RTCPeerConnection();
@@ -195,14 +205,25 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       ) {
         this.#emit({
           type: 'error',
-          error: new Error(`ICE connection ${connection.iceConnectionState}`),
+          error: new RealtimeVoiceError(
+            'CONNECTION_FAILED',
+            `ICE connection ${connection.iceConnectionState}`,
+          ),
         });
       }
     };
   }
 
   async #attachMicrophone(connection: RTCPeerConnection, connectStart: number): Promise<void> {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      const name = (error as { name?: unknown } | null)?.name;
+      throw name === 'NotAllowedError' || name === 'PermissionDeniedError'
+        ? new RealtimeVoiceError('MIC_PERMISSION_DENIED', 'Microphone permission was denied', error)
+        : new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to acquire the microphone', error);
+    }
     this.#logger.debug('connect timing', { step: 'getUserMedia', ms: Date.now() - connectStart });
     this.#micStream = stream;
     for (const track of stream.getTracks()) {
@@ -234,7 +255,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       this.#handleDataChannelMessage(event.data as unknown);
     };
     channel.onerror = () => {
-      this.#emit({ type: 'error', error: new Error('OpenAI realtime data channel error') });
+      this.#emit({
+        type: 'error',
+        error: new RealtimeVoiceError('DATA_CHANNEL_ERROR', 'OpenAI realtime data channel error'),
+      });
     };
   }
 
@@ -248,7 +272,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
 
     const sdp = connection.localDescription?.sdp;
     if (!sdp) {
-      throw new Error('Failed to create a local SDP offer');
+      throw new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to create a local SDP offer');
     }
 
     const response = await fetch(REALTIME_CALLS_URL, {
@@ -261,7 +285,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI realtime call setup failed with status ${response.status}`);
+      throw new RealtimeVoiceError(
+        'CONNECTION_FAILED',
+        `OpenAI realtime call setup failed with status ${response.status}`,
+      );
     }
 
     const answerSdp = await response.text();
