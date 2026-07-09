@@ -1149,4 +1149,25 @@ describe('RealtimeSession — error surfacing', () => {
     expect(session.state).toBe('error');
     expect(session.lastError).toBeDefined();
   });
+
+  it('cleans up the dead subscription on a fatal adapter error so a reconnect does not stack a second one', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    expect(adapter.listenerCount).toBe(1);
+
+    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    adapter.emitError(fatal);
+    expect(session.state).toBe('error');
+
+    await session.connect(); // retry after the fatal error
+    expect(session.state).toBe('connected');
+    expect(adapter.listenerCount).toBe(1); // not 2 — the dead subscription was torn down
+
+    adapter.emitToolCall({ callId: 'c1', name: 'get_ui_state', argumentsJson: '{}' });
+    await flushMicrotasks();
+
+    // Exactly one tool_result — a leaked handler from the errored session
+    // would have produced two.
+    expect(adapter.toolResults).toHaveLength(1);
+  });
 });

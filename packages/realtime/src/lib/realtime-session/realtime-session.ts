@@ -202,9 +202,9 @@ export class RealtimeSession implements VoiceSession {
   }
 
   /**
-   * The failure behind the most recent `error` state, if any. Cleared on the
-   * next successful `connect()`. Typed failures are `RealtimeVoiceError` —
-   * switch on `.code` for recovery UX.
+   * The failure behind the most recent `error` state, if any. Cleared at the
+   * start of the next `connect()` attempt. Typed failures are
+   * `RealtimeVoiceError` — switch on `.code` for recovery UX.
    */
   get lastError(): unknown {
     return this.#lastError;
@@ -288,6 +288,7 @@ export class RealtimeSession implements VoiceSession {
       case 'error':
         this.#logger.warn('adapter error', event.error);
         if (event.error instanceof RealtimeVoiceError) {
+          this.#cleanupConnection();
           this.#lastError = event.error;
           this.#setState('error');
         }
