@@ -138,3 +138,113 @@ it('responds with a generic error and no key leakage when the upstream fetch thr
   expect(typeof (body as { error: unknown }).error).toBe('string');
   expect(JSON.stringify(body)).not.toContain('sk-secret');
 });
+
+it('rejects a malformed JSON body with a 400 and never calls upstream fetch', async () => {
+  let fetchCalled = false;
+  const fakeFetch = async (): Promise<Response> => {
+    fetchCalled = true;
+    throw new Error('should not be called');
+  };
+  const handler = createOpenAiMintHandler({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+  const res = await handler(
+    new Request('http://x/api/realtime/token', {
+      method: 'POST',
+      body: '{not valid json',
+    }),
+  );
+  const body = await res.json();
+  expect(res.status).toBe(400);
+  expect(typeof (body as { error: unknown }).error).toBe('string');
+  expect(fetchCalled).toBe(false);
+});
+
+it('rejects a structurally invalid handshake with a 400 and never calls upstream fetch', async () => {
+  let fetchCalled = false;
+  const fakeFetch = async (): Promise<Response> => {
+    fetchCalled = true;
+    throw new Error('should not be called');
+  };
+  const handler = createOpenAiMintHandler({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+  const res = await handler(
+    new Request('http://x/api/realtime/token', {
+      method: 'POST',
+      body: JSON.stringify({ provider: 'openai' }),
+    }),
+  );
+  const body = await res.json();
+  expect(res.status).toBe(400);
+  expect(typeof (body as { error: unknown }).error).toBe('string');
+  expect(fetchCalled).toBe(false);
+});
+
+it('rejects a handshake with a wrong-typed provider with a 400 and never calls upstream fetch', async () => {
+  let fetchCalled = false;
+  const fakeFetch = async (): Promise<Response> => {
+    fetchCalled = true;
+    throw new Error('should not be called');
+  };
+  const handler = createOpenAiMintHandler({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+  const res = await handler(
+    new Request('http://x/api/realtime/token', {
+      method: 'POST',
+      body: JSON.stringify({ provider: 123, sessionId: 'sess-1' }),
+    }),
+  );
+  const body = await res.json();
+  expect(res.status).toBe(400);
+  expect(typeof (body as { error: unknown }).error).toBe('string');
+  expect(fetchCalled).toBe(false);
+});
+
+it('returns 500 and never calls upstream fetch when the handler holds no api key', async () => {
+  let fetchCalled = false;
+  const fakeFetch = async (): Promise<Response> => {
+    fetchCalled = true;
+    throw new Error('should not be called');
+  };
+  const handler = createOpenAiMintHandler({
+    apiKey: '',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+  const res = await handler(
+    new Request('http://x/api/realtime/token', {
+      method: 'POST',
+      body: JSON.stringify({ provider: 'openai', sessionId: 'sess-1' }),
+    }),
+  );
+  const body = await res.json();
+  expect(res.status).toBe(500);
+  expect(typeof (body as { error: unknown }).error).toBe('string');
+  expect(fetchCalled).toBe(false);
+});
+
+it('rejects a non-POST method with a 400 and never calls upstream fetch', async () => {
+  let fetchCalled = false;
+  const fakeFetch = async (): Promise<Response> => {
+    fetchCalled = true;
+    throw new Error('should not be called');
+  };
+  const handler = createOpenAiMintHandler({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+  const res = await handler(new Request('http://x/api/realtime/token', { method: 'GET' }));
+  const body = await res.json();
+  expect(res.status).toBe(400);
+  expect(typeof (body as { error: unknown }).error).toBe('string');
+  expect(fetchCalled).toBe(false);
+});

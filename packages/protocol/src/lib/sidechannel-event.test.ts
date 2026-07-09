@@ -45,4 +45,29 @@ describe('SidechannelEventSchema', () => {
       }),
     ).toThrow();
   });
+
+  // Default (strip) mode is deliberate: the contract is additive-only, so old
+  // receivers must tolerate new fields. Unknown fields must still be dropped
+  // on parse, or an accidental addition (e.g. a raw payload) would silently
+  // leak through instead of being caught at the schema boundary.
+  it('strips unknown fields from a transcript event instead of preserving them', () => {
+    const e = SidechannelEventSchema.parse({
+      ...base, type: 'transcript', role: 'user', text: 'show labs', final: true,
+      requestId: 'req-123', rawPayload: { audio: 'base64...' }, extras: { foo: 'bar' },
+    });
+    expect(Object.keys(e).sort()).toEqual(
+      ['at', 'final', 'role', 'sessionId', 'text', 'type'].sort(),
+    );
+  });
+
+  it('strips unknown fields from a tool_call event instead of preserving them', () => {
+    const e = SidechannelEventSchema.parse({
+      ...base, type: 'tool_call', name: 'update_ui', callId: 'call_1',
+      argumentsJson: '{"intent":"show labs"}',
+      requestId: 'req-123', rawPayload: { audio: 'base64...' }, extras: { foo: 'bar' },
+    });
+    expect(Object.keys(e).sort()).toEqual(
+      ['argumentsJson', 'at', 'callId', 'name', 'sessionId', 'type'].sort(),
+    );
+  });
 });
