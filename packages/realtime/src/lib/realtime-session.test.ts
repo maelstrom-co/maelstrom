@@ -736,7 +736,7 @@ describe('RealtimeSession — sidechannel events', () => {
 
 describe('RealtimeSession — connection lifecycle', () => {
   it('transitions connecting -> connected on success, and connected -> idle on disconnect', async () => {
-    const { session, adapter } = makeHarness();
+    const { session } = makeHarness();
     const states: string[] = [];
     session.on('state', (s) => states.push(s));
 

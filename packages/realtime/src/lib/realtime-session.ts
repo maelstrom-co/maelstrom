@@ -238,7 +238,7 @@ export class RealtimeSession implements VoiceSession {
     this.#queuedIntent = undefined;
   }
 
-  on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe {
+  on(_event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe {
     this.#stateHandlers.add(handler);
     return () => {
       this.#stateHandlers.delete(handler);

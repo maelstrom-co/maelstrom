@@ -98,7 +98,9 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
       }
       pc.close();
     }
-    micStream?.getTracks().forEach((track) => track.stop());
+    micStream?.getTracks().forEach((track) => {
+      track.stop();
+    });
     pc = undefined;
     dc = undefined;
     micStream = undefined;
