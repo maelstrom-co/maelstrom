@@ -507,8 +507,12 @@ describe('OpenAIAdapter — audio streams', () => {
   });
 
   it('pauses and detaches the playback audio element on teardown', async () => {
-    const { adapter } = await connectWithChannel();
+    const { adapter, connection } = await connectWithChannel();
+    connection.ontrack?.({ streams: [new FakeMediaStream()] } as unknown as RTCTrackEvent);
     const audio = FakeAudio.instances.at(-1);
+    expect(audio?.paused).toBe(false);
+    expect(audio?.srcObject).not.toBeNull();
+
     await adapter.disconnect();
     expect(audio?.paused).toBe(true);
     expect(audio?.srcObject).toBeNull();
