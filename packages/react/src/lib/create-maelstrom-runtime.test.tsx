@@ -5,6 +5,7 @@ import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
+import { assertDefined } from './__tests__/assert-defined.js';
 
 const entry = vessel(testVessel, () => null);
 
@@ -15,7 +16,7 @@ describe('m.Provider', () => {
     const connector = createMockConnector();
     const m = createMaelstrom({ vessels: [entry] });
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -24,7 +25,7 @@ describe('m.Provider', () => {
       ));
     });
 
-    expect(container!.innerHTML).toContain('hello');
+    expect(container.innerHTML).toContain('hello');
   });
 
   it('throws when useMaelstrom is called outside Provider', () => {
@@ -80,11 +81,12 @@ describe('m.useMaelstrom()', () => {
     });
 
     expect(result).toBeDefined();
-    expect(result!.isProcessing).toBe(false);
-    expect(result!.lastError).toBeNull();
-    expect(result!.connectionError).toBeNull();
-    expect(typeof result!.processIntent).toBe('function');
-    expect(typeof result!.sessionId).toBe('string');
+    assertDefined(result);
+    expect(result.isProcessing).toBe(false);
+    expect(result.lastError).toBeNull();
+    expect(result.connectionError).toBeNull();
+    expect(typeof result.processIntent).toBe('function');
+    expect(typeof result.sessionId).toBe('string');
   });
 
   it('processIntent does not reject on error', async () => {
@@ -110,12 +112,16 @@ describe('m.useMaelstrom()', () => {
     });
 
     // processIntent should not throw
+    assertDefined(state);
+    const stateAfterMount = state;
     await act(async () => {
-      await state!.processIntent('test');
+      await stateAfterMount.processIntent('test');
     });
 
-    expect(state!.lastError).toBeInstanceOf(Error);
-    expect(state!.lastError!.message).toContain('engine down');
+    assertDefined(state);
+    expect(state.lastError).toBeInstanceOf(Error);
+    assertDefined(state.lastError);
+    expect(state.lastError.message).toContain('engine down');
   });
 
   it('lastError auto-clears on next processIntent call', async () => {
@@ -151,16 +157,22 @@ describe('m.useMaelstrom()', () => {
     });
 
     // First call fails
+    assertDefined(state);
+    const stateBeforeFail = state;
     await act(async () => {
-      await state!.processIntent('fail');
+      await stateBeforeFail.processIntent('fail');
     });
-    expect(state!.lastError).toBeInstanceOf(Error);
+    assertDefined(state);
+    expect(state.lastError).toBeInstanceOf(Error);
 
     // Second call succeeds — lastError should clear
+    assertDefined(state);
+    const stateBeforeSucceed = state;
     await act(async () => {
-      await state!.processIntent('succeed');
+      await stateBeforeSucceed.processIntent('succeed');
     });
-    expect(state!.lastError).toBeNull();
+    assertDefined(state);
+    expect(state.lastError).toBeNull();
   });
 
   it('onError callback fires on processIntent failure', async () => {
@@ -186,8 +198,10 @@ describe('m.useMaelstrom()', () => {
       );
     });
 
+    assertDefined(state);
+    const stateAfterMount = state;
     await act(async () => {
-      await state!.processIntent('test');
+      await stateAfterMount.processIntent('test');
     });
 
     expect(errors).toHaveLength(1);

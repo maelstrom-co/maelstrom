@@ -172,7 +172,9 @@ function mergeDuplicateTiles(tiles: ComputedTile[]): ComputedTile[] {
 
   for (const [instanceId, instanceTiles] of instanceMap) {
     if (instanceTiles.length === 1) {
-      merged.push(instanceTiles[0]!);
+      const tile = instanceTiles[0];
+      if (!tile) throw new Error('instanceTiles must contain an element when length is 1');
+      merged.push(tile);
     } else {
       const boundingBox = computeBoundingBox(instanceTiles.map((t) => t.rect));
       merged.push({ instanceId, rect: boundingBox });

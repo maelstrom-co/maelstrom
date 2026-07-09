@@ -18,6 +18,11 @@ export function useStoreSelector<T, S>(stores: Subscribable[], buildSnapshot: ()
 export function useStoreSelector<T, S>(
   stores: Subscribable[],
   buildSnapshot: () => T,
+  selector: ((snapshot: T) => S) | undefined,
+): T | S;
+export function useStoreSelector<T, S>(
+  stores: Subscribable[],
+  buildSnapshot: () => T,
   selector?: (snapshot: T) => S,
 ): T | S {
   const selectorRef = useRef<((snapshot: T) => S) | undefined>(selector);
@@ -31,18 +36,24 @@ export function useStoreSelector<T, S>(
           unsubs.push(s.subscribe(onStoreChange));
         }
       } catch (err) {
-        unsubs.forEach((u) => u.unsubscribe());
+        unsubs.forEach((u) => {
+          u.unsubscribe();
+        });
         throw err;
       }
-      return () => unsubs.forEach((u) => u.unsubscribe());
+      return () => {
+        unsubs.forEach((u) => {
+          u.unsubscribe();
+        });
+      };
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stores identity is stable per orchestrator
-    stores,
+    [stores],
   );
 
   // Sentinel distinguishes "no cached value yet" from a selector that returns undefined/null/false.
   const cachedRef = useRef<T | S | symbol>(UNINITIALIZED);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: buildSnapshot isn't listed on purpose — callers pass a fresh closure each render that proxies all reactive reads through refs, so an older captured buildSnapshot behaves identically to the latest one. `stores` (memoized per-orchestrator by the caller) is the real signal this callback must be recreated on, since buildSnapshot may otherwise close over a stale `orchestrator` captured on an earlier render.
   const getSnapshot = useCallback(() => {
     const snapshot = buildSnapshot();
     const sel = selectorRef.current;
@@ -61,8 +72,7 @@ export function useStoreSelector<T, S>(
     }
     cachedRef.current = selected;
     return selected;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildSnapshot reads refs, no stale closure risk
-  }, stores);
+  }, [stores]);
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

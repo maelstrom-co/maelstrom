@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { MessageId, defineVessel } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
+import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
@@ -48,12 +49,13 @@ describe('useMaelstrom', () => {
       });
 
       expect(state).toBeDefined();
-      expect(typeof state!.processIntent).toBe('function');
-      expect(state!.connectionStatus).toBeDefined();
-      expect(state!.connectionError).toBeNull();
-      expect(typeof state!.isProcessing).toBe('boolean');
-      expect(state!.lastError).toBeNull();
-      expect(typeof state!.sessionId).toBe('string');
+      assertDefined(state);
+      expect(typeof state.processIntent).toBe('function');
+      expect(state.connectionStatus).toBeDefined();
+      expect(state.connectionError).toBeNull();
+      expect(typeof state.isProcessing).toBe('boolean');
+      expect(state.lastError).toBeNull();
+      expect(typeof state.sessionId).toBe('string');
     });
   });
 
@@ -103,8 +105,9 @@ describe('useMaelstrom', () => {
       });
 
       expect(selected).toBeDefined();
-      expect(selected!.processing).toBe(false);
-      expect(Object.keys(selected!)).toEqual(['processing']);
+      assertDefined(selected);
+      expect(selected.processing).toBe(false);
+      expect(Object.keys(selected)).toEqual(['processing']);
     });
   });
 
@@ -199,8 +202,10 @@ describe('useMaelstrom', () => {
       const renderCountAfterMount = selectorRenderCount;
 
       // Trigger processIntent which toggles isProcessing to true
+      assertDefined(state);
+      const stateForProcess = state;
       await act(async () => {
-        state!.processIntent('test');
+        stateForProcess.processIntent('test');
       });
 
       // isProcessing changed to true — selector component should re-render
@@ -235,14 +240,18 @@ describe('useMaelstrom', () => {
         );
       });
 
-      expect(state!.lastError).toBeNull();
+      assertDefined(state);
+      expect(state.lastError).toBeNull();
 
+      const stateSnapshot = state;
       await act(async () => {
-        await state!.processIntent('fail');
+        await stateSnapshot.processIntent('fail');
       });
 
-      expect(state!.lastError).toBeInstanceOf(Error);
-      expect(state!.lastError!.message).toBe('boom');
+      assertDefined(state);
+      expect(state.lastError).toBeInstanceOf(Error);
+      assertDefined(state.lastError);
+      expect(state.lastError.message).toBe('boom');
     });
 
     it('derived object selector does not re-render when shallow-equal', async () => {

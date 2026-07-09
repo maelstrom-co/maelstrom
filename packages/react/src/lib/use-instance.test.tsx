@@ -11,6 +11,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
@@ -108,15 +109,18 @@ describe('m.useInstance()', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
     expect(props).not.toBeNull();
-    expect(props!.instanceId).toBe(InstanceId('inst-1'));
-    expect(props!.vesselId).toBe(VesselId('orders'));
-    expect(props!.variantProps.variant).toBe(VariantName('list'));
-    expect(typeof props!.executeAction).toBe('function');
+    assertDefined(props);
+    expect(props.instanceId).toBe(InstanceId('inst-1'));
+    expect(props.vesselId).toBe(VesselId('orders'));
+    expect(props.variantProps.variant).toBe(VariantName('list'));
+    expect(typeof props.executeAction).toBe('function');
   });
 
   it('returns props for any vessel type (no vesselId filtering)', async () => {
@@ -169,12 +173,16 @@ describe('m.useInstance()', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show all');
+      await stateSnapshot.processIntent('show all');
     });
 
-    expect(orderProps!.vesselId).toBe(VesselId('orders'));
-    expect(weatherProps!.vesselId).toBe(VesselId('weather'));
+    assertDefined(orderProps);
+    assertDefined(weatherProps);
+    expect(orderProps.vesselId).toBe(VesselId('orders'));
+    expect(weatherProps.vesselId).toBe(VesselId('weather'));
   });
 
   it('executeAction dispatches to command processor', async () => {
@@ -200,16 +208,21 @@ describe('m.useInstance()', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
     // executeAction with transitionsTo triggers optimistic transition
+    assertDefined(props);
+    const propsSnapshot = props;
     await act(async () => {
-      props!.executeAction(ActionName('viewDetail'));
+      propsSnapshot.executeAction(ActionName('viewDetail'));
     });
 
-    expect(props!.variantProps.variant).toBe(VariantName('detail'));
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe(VariantName('detail'));
   });
 
   it('returns null when instance is removed', async () => {
@@ -241,13 +254,17 @@ describe('m.useInstance()', () => {
       );
     });
 
+    assertDefined(state);
+    const stateForShow = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateForShow.processIntent('show orders');
     });
     expect(props).not.toBeNull();
 
+    assertDefined(state);
+    const stateForRemove = state;
     await act(async () => {
-      await state!.processIntent('remove orders');
+      await stateForRemove.processIntent('remove orders');
     });
     expect(props).toBeNull();
   });

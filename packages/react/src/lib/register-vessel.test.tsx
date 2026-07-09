@@ -17,6 +17,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { ok } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
+import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
@@ -156,6 +157,7 @@ describe('m.registerVessel()', () => {
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: executeAction's real signature is an overloaded, vessel-specific tuple; function params are contravariant, so `unknown[]` rejects assignment from the real (narrower) executeAction — only `any[]` can widen this ad-hoc structural type to accept it.
     let widgetProps: { executeAction: (...args: any[]) => void } | null = null;
 
     function App() {
@@ -200,10 +202,8 @@ describe('m.registerVessel()', () => {
     const m = createMaelstrom({ vessels: [orderEntry] });
     const widgetEntry = vessel(widgetVessel, () => null);
 
-    let callCount = 0;
     const connector = createMockConnector({
       process: async () => {
-        callCount++;
         // First call: widget instance present; second call: same response
         return makeResponse([
           {
@@ -338,7 +338,7 @@ describe('m.registerVessel()', () => {
     const runnerB: ActionRunner<typeof widgetVessel> = { activate: handlerB };
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
-    let setShowA: (v: boolean) => void;
+    let setShowA!: (v: boolean) => void;
 
     // Shared handle ref — assigned in App, read by children
     let handle: ReturnType<typeof m.registerVessel<typeof widgetVessel>>;
@@ -374,16 +374,20 @@ describe('m.registerVessel()', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshotShowWidget = state;
     await act(async () => {
-      await state!.processIntent('show widget');
+      await stateSnapshotShowWidget.processIntent('show widget');
     });
 
     // Unmount ComponentA — its disposer should NOT remove ComponentB's runner
-    await act(() => setShowA!(false));
+    await act(() => setShowA(false));
 
     // Trigger action — ComponentB's handler should still work
+    assertDefined(state);
+    const stateSnapshotActivate = state;
     await act(async () => {
-      await state!.processIntent('activate widget');
+      await stateSnapshotActivate.processIntent('activate widget');
     });
 
     expect(handlerA).not.toHaveBeenCalled();
@@ -525,7 +529,7 @@ describe('m.registerVessel() — lazy loader registry', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -536,9 +540,11 @@ describe('m.registerVessel() — lazy loader registry', () => {
     });
 
     await act(async () => { triggerResize(800, 600); });
-    await act(async () => { await processIntent!('show widget'); });
+    assertDefined(processIntent);
+    const processIntentSnapshot = processIntent;
+    await act(async () => { await processIntentSnapshot('show widget'); });
 
-    expect(container!.innerHTML).toContain('dynamic lazy content');
+    expect(container.innerHTML).toContain('dynamic lazy content');
     expect(warnSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('No component registered for vessel "widget"'),
     );
@@ -564,7 +570,7 @@ describe('m.registerVessel() — lazy loader registry', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -575,20 +581,26 @@ describe('m.registerVessel() — lazy loader registry', () => {
     });
 
     await act(async () => { triggerResize(800, 600); });
-    await act(async () => { await processIntent!('show widget'); });
+    assertDefined(processIntent);
+    const processIntentSnapshot = processIntent;
+    await act(async () => { await processIntentSnapshot('show widget'); });
 
     // Sanity: lazy vessel rendered first time round.
-    expect(container!.innerHTML).toContain('dynamic lazy content');
+    expect(container.innerHTML).toContain('dynamic lazy content');
     warnSpy.mockClear();
 
     // Unregister, then trigger a re-render via another processIntent.
-    await act(async () => { handle!.unregister(); });
-    await act(async () => { await processIntent!('show widget again'); });
+    assertDefined(handle);
+    const handleSnapshot = handle;
+    await act(async () => { handleSnapshot.unregister(); });
+    assertDefined(processIntent);
+    const processIntentSnapshotAgain = processIntent;
+    await act(async () => { await processIntentSnapshotAgain('show widget again'); });
 
     // After unregister: nothing renders for that vessel id, and the negative
     // warning fires — confirms lazyLoaderRegistry.delete cleared the entry
     // (and that the existing diagnostic still works for genuinely-absent vessels).
-    expect(container!.innerHTML).not.toContain('dynamic lazy content');
+    expect(container.innerHTML).not.toContain('dynamic lazy content');
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('No component registered for vessel "widget"'),
     );
@@ -623,7 +635,7 @@ describe('m.registerVessel() — lazy loader registry', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -634,18 +646,20 @@ describe('m.registerVessel() — lazy loader registry', () => {
     });
 
     await act(async () => { triggerResize(800, 600); });
-    await act(async () => { await processIntent!('show widget'); });
+    assertDefined(processIntent);
+    const processIntentSnapshot = processIntent;
+    await act(async () => { await processIntentSnapshot('show widget'); });
 
     // Second loader wins — chart shows its content, not the first one's.
-    expect(container!.innerHTML).toContain('second content');
-    expect(container!.innerHTML).not.toContain('first content');
+    expect(container.innerHTML).toContain('second content');
+    expect(container.innerHTML).not.toContain('first content');
   });
 
   it('dynamic eager register: chart renders eagerly with no Suspense fallback, even if the id was previously lazy', async () => {
     // Loader that never resolves — if the chart still routes through the lazy
     // path after the eager re-register, the loading skeleton would stick
     // forever and the eager content would never appear.
-    const neverResolves: () => Promise<{ default: any }> = () => new Promise(() => {});
+    const neverResolves: () => Promise<{ default: never }> = () => new Promise(() => {});
     const stuckLazyEntry = vessel(
       widgetVessel,
       neverResolves,
@@ -671,7 +685,7 @@ describe('m.registerVessel() — lazy loader registry', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -682,13 +696,15 @@ describe('m.registerVessel() — lazy loader registry', () => {
     });
 
     await act(async () => { triggerResize(800, 600); });
-    await act(async () => { await processIntent!('show widget'); });
+    assertDefined(processIntent);
+    const processIntentSnapshot = processIntent;
+    await act(async () => { await processIntentSnapshot('show widget'); });
 
     // Eager component renders directly — proves lazyVesselIds was cleared.
-    expect(container!.innerHTML).toContain('eager dynamic content');
+    expect(container.innerHTML).toContain('eager dynamic content');
     // Loading skeleton from the previous lazy entry must not appear —
     // proves the chart did not route through the stale lazy loader.
-    expect(container!.innerHTML).not.toContain('stuck loading');
+    expect(container.innerHTML).not.toContain('stuck loading');
     expect(warnSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('No component registered for vessel "widget"'),
     );
@@ -718,7 +734,7 @@ describe('m.registerVessel() — lazy loader registry', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <StrictMode>
@@ -731,9 +747,11 @@ describe('m.registerVessel() — lazy loader registry', () => {
     });
 
     await act(async () => { triggerResize(800, 600); });
-    await act(async () => { await processIntent!('show widget'); });
+    assertDefined(processIntent);
+    const processIntentSnapshot = processIntent;
+    await act(async () => { await processIntentSnapshot('show widget'); });
 
-    expect(container!.innerHTML).toContain('dynamic lazy content');
+    expect(container.innerHTML).toContain('dynamic lazy content');
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('vessel "widget" is already registered. Overwriting.'),
     );

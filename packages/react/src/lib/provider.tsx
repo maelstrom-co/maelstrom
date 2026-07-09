@@ -98,6 +98,7 @@ export function createProvider(
     // StrictMode safe: cleanup disposes the first instance, second setup creates a new one.
     const [orchestrator, setOrchestrator] = useState<InstanceType<typeof Orchestrator> | null>(null);
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: onErrorRef is a useLatestRef (stable identity, .current always fresh) — listing onErrorRef.current would re-create the Orchestrator whenever the onError callback prop's identity changes, defeating the ref's purpose of avoiding that.
     useEffect(() => {
       let instance: Orchestrator;
       try {
@@ -147,7 +148,7 @@ export function createProvider(
         lazyLoaderRegistry,
         chartMountedRef,
       };
-    }, [orchestrator, connector, config, componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry]);
+    }, [orchestrator, connector, config, onErrorRef, componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry]);
 
     // Keep contextRef in sync for non-hook access (registerVessel).
     // Set synchronously during render so registerVessel works inside useMemo.
@@ -178,9 +179,11 @@ export function createProvider(
  * this internally.
  */
 function buildRegistries(entries: readonly AnyVesselEntry[]) {
+  // biome-ignore lint/suspicious/noExplicitAny: registry holds components for heterogeneous vessel definitions; ComponentType's props are contravariant, so `unknown` fails both the VesselDefinition constraint and JSX call sites in chart.tsx — see context.ts's MaelstromContextValue.componentRegistry for the same constraint.
   const componentRegistry = new Map<VesselId, ComponentType<TypedVesselProps<any>>>();
   const loadingRegistry = new Map<VesselId, ComponentType<{ vesselId: VesselId }>>();
   const lazyVesselIds = new Set<VesselId>();
+  // biome-ignore lint/suspicious/noExplicitAny: same erasure requirement as componentRegistry above.
   const lazyLoaderRegistry = new Map<VesselId, LazyVesselComponentLoader<any>>();
 
   for (const entry of entries) {

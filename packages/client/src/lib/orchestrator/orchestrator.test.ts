@@ -166,7 +166,11 @@ describe('Orchestrator', () => {
       await orchestrator.processIntent('test');
 
       expect(capturedViewState).not.toBeNull();
-      expect(capturedViewState!.isProcessing).toBe(true);
+      const resolvedViewState = capturedViewState as ReturnType<
+        typeof orchestrator.getViewState
+      > | null;
+      if (!resolvedViewState) throw new Error('expected captured view state');
+      expect(resolvedViewState.isProcessing).toBe(true);
 
       // After completion, isProcessing is false
       expect(orchestrator.getViewState().isProcessing).toBe(false);

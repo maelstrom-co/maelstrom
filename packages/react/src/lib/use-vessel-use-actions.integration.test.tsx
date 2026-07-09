@@ -25,6 +25,7 @@ import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
+import { assertDefined } from './__tests__/assert-defined.js';
 
 const orderVessel = defineVessel({
   id: 'orders',
@@ -122,15 +123,20 @@ describe('useVessel + useActions integration', () => {
       render(<m.Provider connector={connector}><App /></m.Provider>);
     });
 
+    assertDefined(state);
+    const stateAfterMount = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateAfterMount.processIntent('show orders');
     });
 
     expect(props).not.toBeNull();
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
 
+    assertDefined(state);
+    const stateAfterList = state;
     await act(async () => {
-      await state!.processIntent('view order 99');
+      await stateAfterList.processIntent('view order 99');
     });
 
     expect(viewDetailHandler).toHaveBeenCalledTimes(1);
@@ -160,19 +166,25 @@ describe('useVessel + useActions integration', () => {
       render(<m.Provider connector={connector}><App /></m.Provider>);
     });
 
+    assertDefined(state);
+    const stateAfterMount = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateAfterMount.processIntent('show orders');
     });
 
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
 
     // User calls executeAction — optimistic transition fires immediately
     // ActionManager also notified (runner fires)
+    assertDefined(props);
+    const propsAfterList = props;
     await act(async () => {
-      props!.executeAction('viewDetail', { orderId: 'order-1' });
+      propsAfterList.executeAction('viewDetail', { orderId: 'order-1' });
     });
 
-    expect(props!.variantProps.variant).toBe('detail');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('detail');
     expect(viewDetailHandler).toHaveBeenCalledTimes(1);
     expect(viewDetailHandler).toHaveBeenCalledWith({ orderId: 'order-1' });
   });

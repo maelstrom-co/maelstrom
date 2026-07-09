@@ -96,7 +96,8 @@ describe('computeTilingLayout', () => {
   });
 
   it('returns one tile for a single leaf', () => {
-    const tree = parseTilingTree([InstanceId('inst-1')])!;
+    const tree = parseTilingTree([InstanceId('inst-1')]);
+    if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(1);
     expect(tiles[0].instanceId).toBe(InstanceId('inst-1'));
@@ -104,13 +105,15 @@ describe('computeTilingLayout', () => {
   });
 
   it('skips null leaf nodes', () => {
-    const tree = parseTilingTree([null])!;
+    const tree = parseTilingTree([null]);
+    if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(0);
   });
 
   it('applies padding to tile rects', () => {
-    const tree = parseTilingTree([InstanceId('inst-1')])!;
+    const tree = parseTilingTree([InstanceId('inst-1')]);
+    if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 8);
     expect(tiles[0].rect).toEqual({ x: 4, y: 4, width: 792, height: 592 });
   });
@@ -120,10 +123,12 @@ describe('computeTilingLayout', () => {
       'H',
       InstanceId('top'),
       InstanceId('bottom'),
-    ])!;
+    ]);
+    if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
-    const top = tiles.find((t) => t.instanceId === 'top')!;
-    const bottom = tiles.find((t) => t.instanceId === 'bottom')!;
+    const top = tiles.find((t) => t.instanceId === 'top');
+    const bottom = tiles.find((t) => t.instanceId === 'bottom');
+    if (!top || !bottom) throw new Error('expected top and bottom tiles');
     expect(top.rect.y).toBe(0);
     expect(top.rect.height).toBe(300);
     expect(bottom.rect.y).toBe(300);
@@ -135,10 +140,12 @@ describe('computeTilingLayout', () => {
       'V',
       InstanceId('left'),
       InstanceId('right'),
-    ])!;
+    ]);
+    if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
-    const left = tiles.find((t) => t.instanceId === 'left')!;
-    const right = tiles.find((t) => t.instanceId === 'right')!;
+    const left = tiles.find((t) => t.instanceId === 'left');
+    const right = tiles.find((t) => t.instanceId === 'right');
+    if (!left || !right) throw new Error('expected left and right tiles');
     expect(left.rect.x).toBe(0);
     expect(left.rect.width).toBe(400);
     expect(right.rect.x).toBe(400);
@@ -151,7 +158,8 @@ describe('computeTilingLayout', () => {
       'V',
       InstanceId('inst-1'),
       InstanceId('inst-1'),
-    ])!;
+    ]);
+    if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(1);
     expect(tiles[0].instanceId).toBe(InstanceId('inst-1'));

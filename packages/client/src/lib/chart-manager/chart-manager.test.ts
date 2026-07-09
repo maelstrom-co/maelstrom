@@ -122,9 +122,10 @@ describe('ChartManager', () => {
 
       const pending = manager.getPendingResize();
       expect(pending).not.toBeNull();
-      expect(pending!.type).toBe('chart_resize');
-      if (pending!.type === 'chart_resize') {
-        expect(pending!.current).toEqual({ columns: 3, rows: 2 });
+      if (!pending) throw new Error('expected pending resize');
+      expect(pending.type).toBe('chart_resize');
+      if (pending.type === 'chart_resize') {
+        expect(pending.current).toEqual({ columns: 3, rows: 2 });
       }
     });
 

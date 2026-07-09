@@ -29,7 +29,7 @@ import { toError } from '@maelstrom-co/protocol';export function createUseMaelst
           onErrorRef.current?.(error);
         }
       },
-      [orchestrator, onErrorRef],
+      [orchestrator, onErrorRef, config.debug],
     );
 
     // Keep refs for values managed by React state (not external stores)
@@ -57,8 +57,7 @@ import { toError } from '@maelstrom-co/protocol';export function createUseMaelst
       };
     };
 
-    if (selector) return useStoreSelector(stores, buildSnapshot, selector);
-    return useStoreSelector(stores, buildSnapshot);
+    return useStoreSelector(stores, buildSnapshot, selector);
   }
 
   return useMaelstrom;

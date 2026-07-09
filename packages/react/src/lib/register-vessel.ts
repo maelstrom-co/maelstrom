@@ -121,6 +121,7 @@ function addToRegistries(ctx: MaelstromContextValue, entry: AnyVesselEntry) {
   if (isLazyEntry(entry)) {
     ctx.componentRegistry.set(
       vesselId,
+      // biome-ignore lint/suspicious/noExplicitAny: must match componentRegistry's declared value type in context.ts (Map<VesselId, ComponentType<TypedVesselProps<any>>>) — that `any` is load-bearing for the same erasure reason documented there.
       lazy(entry.component) as ComponentType<TypedVesselProps<any>>,
     );
     ctx.loadingRegistry.set(vesselId, entry.loadingComponent);
@@ -129,6 +130,7 @@ function addToRegistries(ctx: MaelstromContextValue, entry: AnyVesselEntry) {
   } else {
     ctx.componentRegistry.set(
       vesselId,
+      // biome-ignore lint/suspicious/noExplicitAny: same as the lazy branch above — must match componentRegistry's declared value type.
       entry.component as ComponentType<TypedVesselProps<any>>,
     );
     ctx.loadingRegistry.delete(vesselId);

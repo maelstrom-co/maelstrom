@@ -17,6 +17,7 @@ import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
+import { assertDefined } from './__tests__/assert-defined.js';
 
 const orderVessel = defineVessel({
   id: 'orders',
@@ -108,8 +109,10 @@ describe('m.useActions()', () => {
       render(<m.Provider connector={connector}><App /></m.Provider>);
     });
 
+    assertDefined(state);
+    const stateAfterMount = state;
     await act(async () => {
-      await state!.processIntent('refresh orders');
+      await stateAfterMount.processIntent('refresh orders');
     });
 
     expect(refreshHandler).toHaveBeenCalledTimes(1);
@@ -140,8 +143,10 @@ describe('m.useActions()', () => {
       render(<m.Provider connector={connector}><App /></m.Provider>);
     });
 
+    assertDefined(state);
+    const stateAfterMount = state;
     await act(async () => {
-      await state!.processIntent('select order 42');
+      await stateAfterMount.processIntent('select order 42');
     });
 
     expect(selectOrderHandler).toHaveBeenCalledTimes(1);
@@ -158,7 +163,7 @@ describe('m.useActions()', () => {
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
-    let hideChild: () => void;
+    let hideChild!: () => void;
 
     function Child() {
       m.useActions('orders', 'inst-1', runner);
@@ -178,12 +183,14 @@ describe('m.useActions()', () => {
 
     // Unmount only the child that calls useActions — provider stays alive
     await act(async () => {
-      hideChild!();
+      hideChild();
     });
 
     // Runner was unregistered — handler should NOT be called
+    assertDefined(state);
+    const stateAfterHide = state;
     await act(async () => {
-      await state!.processIntent('refresh after unmount');
+      await stateAfterHide.processIntent('refresh after unmount');
     });
 
     expect(refreshHandler).not.toHaveBeenCalled();
@@ -215,8 +222,10 @@ describe('m.useActions()', () => {
       render(<m.Provider connector={connector}><App /></m.Provider>);
     });
 
+    assertDefined(state);
+    const stateAfterMount = state;
     await act(async () => {
-      await state!.processIntent('refresh inst-2');
+      await stateAfterMount.processIntent('refresh inst-2');
     });
 
     // Handler not called — it's for inst-1, not inst-2

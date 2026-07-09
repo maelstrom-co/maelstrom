@@ -52,6 +52,7 @@ const TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME = false as boolean;
 describe('MaelstromInstance.useActions inference', () => {
   it('infers typed params for parameterized actions', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // biome-ignore lint/correctness/useHookAtTopLevel: type-level assertion only — this it() body never executes (guarded by a statically-false flag), it exists purely so tsc checks the call's inferred types.
       m.useActions('orders', 'inst-1', {
         selectOrder: async (params) => {
           const _id: string = params.orderId;
@@ -64,6 +65,7 @@ describe('MaelstromInstance.useActions inference', () => {
 
   it('infers typed params from destructured arguments', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // biome-ignore lint/correctness/useHookAtTopLevel: type-level assertion only — never executes at runtime, see comment above the first test in this file.
       m.useActions('orders', 'inst-1', {
         selectOrder: async ({ orderId }) => {
           const _id: string = orderId;
@@ -76,6 +78,7 @@ describe('MaelstromInstance.useActions inference', () => {
 
   it('allows parameterless actions as zero-arg handlers', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // biome-ignore lint/correctness/useHookAtTopLevel: type-level assertion only — never executes at runtime, see comment above the first test in this file.
       m.useActions('orders', 'inst-1', {
         refresh: async () => ok(undefined),
         close: async () => ok(undefined),
@@ -85,6 +88,7 @@ describe('MaelstromInstance.useActions inference', () => {
 
   it('rejects unknown action names in runner', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
+      // biome-ignore lint/correctness/useHookAtTopLevel: type-level assertion only — never executes at runtime, see comment above the first test in this file.
       m.useActions('orders', 'inst-1', {
         // @ts-expect-error - 'bogus' is not an action on the orders vessel
         bogus: async () => ok(undefined),
@@ -95,6 +99,7 @@ describe('MaelstromInstance.useActions inference', () => {
   it('rejects wrong vessel ID', () => {
     if (TYPECHECK_ONLY_WILL_THROW_AT_RUNTIME) {
       // @ts-expect-error - 'nope' is not a registered vessel ID
+      // biome-ignore lint/correctness/useHookAtTopLevel: type-level assertion only — never executes at runtime, see comment above the first test in this file.
       m.useActions('nope', 'inst-1', {});
     }
   });

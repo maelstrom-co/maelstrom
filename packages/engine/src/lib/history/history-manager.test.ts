@@ -344,7 +344,7 @@ describe('HistoryManager.recordTurn', () => {
     const { store, calls } = recordingStore();
     // Make append visibly span multiple microtask ticks so overlap is observable.
     const slowAppend = async (
-      sid: ReturnType<typeof SessionId>,
+      _sid: ReturnType<typeof SessionId>,
       entry: HistoryEntry,
     ) => {
       calls.push(`start:${entry.input.id}`);
@@ -374,10 +374,10 @@ describe('HistoryManager.recordTurn', () => {
     ]);
 
     expect(calls).toEqual([
-      'start:' + MessageId('a'),
-      'end:' + MessageId('a'),
-      'start:' + MessageId('b'),
-      'end:' + MessageId('b'),
+      `start:${MessageId('a')}`,
+      `end:${MessageId('a')}`,
+      `start:${MessageId('b')}`,
+      `end:${MessageId('b')}`,
     ]);
   });
 
@@ -412,10 +412,10 @@ describe('HistoryManager.recordTurn', () => {
 
     // With parallel sessions the two starts come first, then the two ends.
     expect(order.slice(0, 2).sort()).toEqual(
-      ['start:' + MessageId('x'), 'start:' + MessageId('y')].sort(),
+      [`start:${MessageId('x')}`, `start:${MessageId('y')}`].sort(),
     );
     expect(order.slice(2).sort()).toEqual(
-      ['end:' + MessageId('x'), 'end:' + MessageId('y')].sort(),
+      [`end:${MessageId('x')}`, `end:${MessageId('y')}`].sort(),
     );
   });
 });

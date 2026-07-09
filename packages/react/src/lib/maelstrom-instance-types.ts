@@ -49,7 +49,7 @@ type ExtensionRejectsReserved<NewExt extends ExtensionOutput> =
  */
 export interface MaelstromInstanceCore<
   T extends readonly AnyVesselEntry[],
-  Ext extends ExtensionOutput = {},
+  Ext extends ExtensionOutput = object,
 > {
   vessels: T;
   Provider: ComponentType<MaelstromProviderProps>;
@@ -167,5 +167,5 @@ export interface MaelstromInstanceCore<
 /** Return type of createMaelstrom() — core fields plus any applied extensions. */
 export type MaelstromInstance<
   T extends readonly AnyVesselEntry[],
-  Ext extends ExtensionOutput = {},
+  Ext extends ExtensionOutput = object,
 > = MaelstromInstanceCore<T, Ext> & Ext;

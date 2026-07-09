@@ -18,6 +18,7 @@ import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { resetWarnings } from './warn-once.js';
+import { assertDefined } from './__tests__/assert-defined.js';
 
 const orderVessel = defineVessel({
   id: 'orders',
@@ -103,7 +104,7 @@ describe('useActions vesselId validation', () => {
       debug: true,
     });
 
-    const warnSpy = mock(() => {});
+    const warnSpy = mock((..._args: unknown[]) => {});
     const originalWarn = console.warn;
     console.warn = warnSpy;
 
@@ -134,13 +135,15 @@ describe('useActions vesselId validation', () => {
       });
 
       // Trigger a response so the instance appears in the store
+      assertDefined(state);
+      const stateAfterMount = state;
       await act(async () => {
-        await state!.processIntent('show orders');
+        await stateAfterMount.processIntent('show orders');
       });
 
-      const warnCalls = warnSpy.mock.calls.map((c: any) => c[0]);
+      const warnCalls = warnSpy.mock.calls.map((c) => c[0]);
       const mismatchWarning = warnCalls.find(
-        (msg: string) =>
+        (msg: unknown) =>
           typeof msg === 'string' &&
           msg.includes('belongs to vessel "orders"') &&
           msg.includes('not "calendar"'),
@@ -178,7 +181,8 @@ describe('useActions vesselId validation', () => {
     function App() {
       state = m.useMaelstrom();
       // Pass 'calendar' for vesselId but register handler for 'orders' actions
-      m.useActions('calendar' as any, 'inst-1', runner);
+      // @ts-expect-error - runner is shaped for 'orders' actions, not 'calendar'
+      m.useActions('calendar', 'inst-1', runner);
       return null;
     }
 
@@ -192,8 +196,10 @@ describe('useActions vesselId validation', () => {
       });
 
       // Trigger action execution
+      assertDefined(state);
+      const stateAfterMount = state;
       await act(async () => {
-        await state!.processIntent('refresh orders');
+        await stateAfterMount.processIntent('refresh orders');
       });
 
       // Runner should have been registered and called despite vesselId mismatch
@@ -231,7 +237,7 @@ describe('useActions disposer identity check', () => {
     const runnerB: ActionRunner<typeof orderVessel> = { refresh: handlerB };
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
-    let setShowA: (v: boolean) => void;
+    let setShowA!: (v: boolean) => void;
 
     function ComponentA() {
       m.useActions('orders', 'inst-1', runnerA);
@@ -264,16 +270,20 @@ describe('useActions disposer identity check', () => {
     });
 
     // Register the instance in the store
+    assertDefined(state);
+    const stateAfterMount = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateAfterMount.processIntent('show orders');
     });
 
     // Unmount ComponentA — its disposer should NOT remove ComponentB's runner
-    await act(() => setShowA!(false));
+    await act(() => setShowA(false));
 
     // Trigger an action — ComponentB's handler should still be registered
+    assertDefined(state);
+    const stateAfterUnmount = state;
     await act(async () => {
-      await state!.processIntent('refresh orders');
+      await stateAfterUnmount.processIntent('refresh orders');
     });
 
     expect(handlerA).not.toHaveBeenCalled();

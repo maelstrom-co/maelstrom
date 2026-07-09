@@ -13,6 +13,7 @@ import { err, ok } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { type ReactNode, useMemo } from 'react';
+import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { useOptimisticVariant } from './use-optimistic-variant.js';
@@ -159,8 +160,10 @@ describe('m.useVessel() — basic', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
     // inst-1 belongs to 'orders', not 'weather'
@@ -190,17 +193,20 @@ describe('m.useVessel() — basic', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
     expect(props).not.toBeNull();
-    expect(props!.instanceId).toBe(InstanceId('inst-1'));
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.instanceId).toBe(InstanceId('inst-1'));
+    expect(props.variantProps.variant).toBe('list');
     expect(
-      (props!.variantProps as { variant: 'list'; view: string }).view,
+      (props.variantProps as { variant: 'list'; view: string }).view,
     ).toBe('list');
-    expect(typeof props!.executeAction).toBe('function');
+    expect(typeof props.executeAction).toBe('function');
   });
 
   it('returns null when instance is removed from store', async () => {
@@ -233,13 +239,17 @@ describe('m.useVessel() — basic', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
     expect(props).not.toBeNull();
 
+    assertDefined(state);
+    const stateSnapshot2 = state;
     await act(async () => {
-      await state!.processIntent('remove orders');
+      await stateSnapshot2.processIntent('remove orders');
     });
     expect(props).toBeNull();
   });
@@ -271,18 +281,23 @@ describe('m.useVessel() — optimistic transitions', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
+    const propsSnapshot = props;
 
     // viewDetail has transitionsTo: 'detail' — should be immediate
     await act(async () => {
-      props!.executeAction('viewDetail');
+      propsSnapshot.executeAction('viewDetail');
     });
 
-    expect(props!.variantProps.variant).toBe('detail');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('detail');
   });
 
   it('executeAction without transitionsTo does not change variant', async () => {
@@ -308,18 +323,23 @@ describe('m.useVessel() — optimistic transitions', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
+    const propsSnapshot = props;
 
     // 'refresh' has no transitionsTo
     await act(async () => {
-      props!.executeAction('refresh');
+      propsSnapshot.executeAction('refresh');
     });
 
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
   });
 
   it('optimistic variant is cleared when engine updates the store variant', async () => {
@@ -351,23 +371,31 @@ describe('m.useVessel() — optimistic transitions', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
+    const propsSnapshot = props;
 
     // Optimistic transition to 'detail'
     await act(async () => {
-      props!.executeAction('viewDetail');
+      propsSnapshot.executeAction('viewDetail');
     });
-    expect(props!.variantProps.variant).toBe('detail');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('detail');
 
     // Engine confirms 'detail' — optimistic state clears, store drives
+    assertDefined(state);
+    const stateSnapshot2 = state;
     await act(async () => {
-      await state!.processIntent('engine confirms');
+      await stateSnapshot2.processIntent('engine confirms');
     });
-    expect(props!.variantProps.variant).toBe('detail');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('detail');
   });
 
   it('variantProps reflects the correct props for the optimistically transitioned variant', async () => {
@@ -393,24 +421,29 @@ describe('m.useVessel() — optimistic transitions', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
     // Before: list variant props
+    assertDefined(props);
     expect(
-      (props!.variantProps as { variant: 'list'; view: string }).view,
+      (props.variantProps as { variant: 'list'; view: string }).view,
     ).toBe('list');
+    const propsSnapshot = props;
 
     // Transition to detail
     await act(async () => {
-      props!.executeAction('viewDetail');
+      propsSnapshot.executeAction('viewDetail');
     });
 
     // After: detail variant props
-    expect(props!.variantProps.variant).toBe('detail');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('detail');
     expect(
-      (props!.variantProps as { variant: 'detail'; view: string }).view,
+      (props.variantProps as { variant: 'detail'; view: string }).view,
     ).toBe('detail');
   });
 
@@ -445,8 +478,10 @@ describe('m.useVessel() — optimistic transitions', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
     // Baseline: renders caused by the first processIntent (store subscriptions)
@@ -455,8 +490,10 @@ describe('m.useVessel() — optimistic transitions', () => {
     // Position-only update — should cause the same number of renders, no extras
     // from the optimistic clearing effect firing setOptimisticVariant(null) when already null
     renderCount = 0;
+    assertDefined(state);
+    const stateSnapshot2 = state;
     await act(async () => {
-      await state!.processIntent('move orders');
+      await stateSnapshot2.processIntent('move orders');
     });
 
     const rendersForPositionUpdate = renderCount;
@@ -466,11 +503,9 @@ describe('m.useVessel() — optimistic transitions', () => {
   });
 
   it('optimistic variant is cleared when engine rejects the transition (same variant)', async () => {
-    let callCount = 0;
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
       process: async () => {
-        callCount++;
         // Both responses return variant: 'list' — engine rejects the optimistic 'detail'
         return makeResponse([makeInstance({ variant: VariantName('list') })]);
       },
@@ -501,25 +536,33 @@ describe('m.useVessel() — optimistic transitions', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
+    const propsSnapshot = props;
 
     // Optimistic transition to 'detail'
     await act(async () => {
-      props!.executeAction('viewDetail');
+      propsSnapshot.executeAction('viewDetail');
     });
-    expect(props!.variantProps.variant).toBe('detail');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('detail');
 
     // Engine responds but keeps variant at 'list' — rejects the transition
+    assertDefined(state);
+    const stateSnapshot2 = state;
     await act(async () => {
-      await state!.processIntent('engine rejects');
+      await stateSnapshot2.processIntent('engine rejects');
     });
 
     // Optimistic variant should be cleared, falling back to store's 'list'
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
   });
 
   it('optimistic variant clears after command queue drains when no runner is registered', async () => {
@@ -549,27 +592,35 @@ describe('m.useVessel() — optimistic transitions', () => {
         );
       });
 
+      assertDefined(state);
+      const stateSnapshot = state;
       await act(async () => {
-        await state!.processIntent('show orders');
+        await stateSnapshot.processIntent('show orders');
         // Drain the command queue (set_layout + execute_actions with empty plan)
         await clock.tickAsync(0);
       });
 
-      expect(props!.variantProps.variant).toBe('list');
+      assertDefined(props);
+      expect(props.variantProps.variant).toBe('list');
+      const propsSnapshot = props;
 
       // Optimistic transition — no runner, so execute_actions blocks on waitForReady
       await act(async () => {
-        props!.executeAction('viewDetail');
+        propsSnapshot.executeAction('viewDetail');
       });
-      expect(props!.variantProps.variant).toBe('detail');
+      assertDefined(props);
+      expect(props.variantProps.variant).toBe('detail');
 
       // Engine responds while command queue is still blocked
+      assertDefined(state);
+      const stateSnapshot2 = state;
       await act(async () => {
-        await state!.processIntent('engine rejects');
+        await stateSnapshot2.processIntent('engine rejects');
       });
 
       // Optimistic still active — engine response is queued behind the blocked command
-      expect(props!.variantProps.variant).toBe('detail');
+      assertDefined(props);
+      expect(props.variantProps.variant).toBe('detail');
 
       // Advance past the 500ms waitForReady timeout to unblock the queue
       await act(async () => {
@@ -577,7 +628,8 @@ describe('m.useVessel() — optimistic transitions', () => {
       });
 
       // Queue drained: engine response processed, optimistic cleared
-      expect(props!.variantProps.variant).toBe('list');
+      assertDefined(props);
+      expect(props.variantProps.variant).toBe('list');
     } finally {
       clock.uninstall();
     }
@@ -613,19 +665,24 @@ describe('m.useVessel() — optimistic transitions', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
+    const propsSnapshot = props;
 
     // executeAction sets optimistic to 'detail', but the runner returns Failure
     await act(async () => {
-      props!.executeAction('viewDetail');
+      propsSnapshot.executeAction('viewDetail');
     });
 
     // Optimistic should be rolled back since the action failed
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
   });
 
   it('optimistic variant is rolled back when action runner throws', async () => {
@@ -660,19 +717,24 @@ describe('m.useVessel() — optimistic transitions', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show orders');
+      await stateSnapshot.processIntent('show orders');
     });
 
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
+    const propsSnapshot = props;
 
     // executeAction sets optimistic to 'detail', but the runner throws
     await act(async () => {
-      props!.executeAction('viewDetail');
+      propsSnapshot.executeAction('viewDetail');
     });
 
     // Optimistic should be rolled back since the action threw
-    expect(props!.variantProps.variant).toBe('list');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('list');
   });
 
   it('does not set optimistic variant when transitionsTo references a non-existent variant', () => {
@@ -800,18 +862,23 @@ describe('m.useVessel() — optimistic transitions', () => {
       );
     });
 
+    assertDefined(state);
+    const stateSnapshot = state;
     await act(async () => {
-      await state!.processIntent('show panel');
+      await stateSnapshot.processIntent('show panel');
     });
 
     // Instance is on 'expanded' variant
-    expect(props!.variantProps.variant).toBe('expanded');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('expanded');
+    const propsSnapshot = props;
 
     // 'toggle' on expanded should transition to 'collapsed', not 'expanded'
     await act(async () => {
-      props!.executeAction('toggle');
+      propsSnapshot.executeAction('toggle');
     });
 
-    expect(props!.variantProps.variant).toBe('collapsed');
+    assertDefined(props);
+    expect(props.variantProps.variant).toBe('collapsed');
   });
 });
