@@ -71,6 +71,12 @@ export function parseOpenAIServerEvent(raw: unknown): RealtimeAdapterEvent | nul
       return { type: 'transcript', role: 'user', text: transcript, final: true };
     }
 
+    case 'conversation.item.input_audio_transcription.delta': {
+      const delta = asString(raw.delta);
+      if (delta === undefined) return null;
+      return { type: 'transcript', role: 'user', text: delta, final: false };
+    }
+
     case 'input_audio_buffer.speech_started':
       return { type: 'speech_started' };
 
