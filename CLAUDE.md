@@ -27,9 +27,17 @@ nx test @maelstrom-co/react
 # Type check all packages
 nx run-many -t typecheck
 
+# Lint all projects (Biome) — treat warnings as errors, like CI does
+nx run-many -t lint --error-on-warnings
+
+# Auto-apply safe lint fixes
+nx run-many -t lint --error-on-warnings --fix
+
 # Build dependencies before testing (required for tests)
 # Tests depend on ^build - packages must be built first
 ```
+
+Before declaring any change done, run typecheck, tests, AND lint (with `--error-on-warnings`) for the affected packages. CI's lint step fails only on Biome errors; warnings-as-errors is the local bar, so a change that merely typechecks is not done if it introduces lint warnings.
 
 ## Environment Setup
 
@@ -117,7 +125,7 @@ The `@maelstrom-co/*` packages are published to external consumers, so the comme
 ## Nx Workspace Notes
 
 - Uses inferred targets via plugins (`@nx/js/typescript`, `@nx/vite/plugin`, `@nx/vitest`)
-- No ESLint configured (linter: none)
+- Linting is Biome (no ESLint): `nx run-many -t lint --error-on-warnings`; suppressions use `// biome-ignore <rule>: <why>` comments stating the invariant
 - Tests depend on built packages (`"dependsOn": ["^build"]`)
 
 ## Linear Workflow
