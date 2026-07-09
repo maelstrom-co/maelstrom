@@ -298,6 +298,46 @@ describe('createOpenAiAdapter — double connect during mint', () => {
 });
 
 // ============================================================================
+// Droppable grounding vs. error-worthy tool results on a closed channel
+// ============================================================================
+
+describe('createOpenAiAdapter — closed data channel', () => {
+  it('injectGrounding on a non-open channel drops silently, without emitting an error or sending anything', async () => {
+    const adapter = createOpenAiAdapter({ mintToken: async () => fakeToken });
+    await adapter.connect(connectOpts);
+    // Data channel never opened (triggerOpen() not called) — readyState stays 'connecting'.
+    const pc = FakeRTCPeerConnection.instances[0];
+    const dc = pc?.dataChannel;
+    expect(dc?.readyState).toBe('connecting');
+
+    const events: unknown[] = [];
+    adapter.on((event) => events.push(event));
+
+    adapter.injectGrounding('4 vessels on screen');
+
+    expect(events).toEqual([]); // no error emitted — grounding is droppable
+    expect(dc?.sent).toEqual([]); // nothing sent on the closed channel
+  });
+
+  it('sendToolResult on a non-open channel still emits an error', async () => {
+    const adapter = createOpenAiAdapter({ mintToken: async () => fakeToken });
+    await adapter.connect(connectOpts);
+    const pc = FakeRTCPeerConnection.instances[0];
+    const dc = pc?.dataChannel;
+    expect(dc?.readyState).toBe('connecting');
+
+    const events: Array<{ type: string; error?: unknown }> = [];
+    adapter.on((event) => events.push(event as { type: string; error?: unknown }));
+
+    await adapter.sendToolResult('call-1', { ok: true, summary: 'done' });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe('error');
+    expect((events[0]?.error as Error)?.message).toContain('data channel not open');
+  });
+});
+
+// ============================================================================
 // Successful connect then disconnect
 // ============================================================================
 

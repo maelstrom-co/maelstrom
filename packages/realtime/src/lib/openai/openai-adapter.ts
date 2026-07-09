@@ -156,9 +156,14 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
         throw new Error('OpenAI realtime adapter is already connected');
       }
       connecting = true;
+      // Captured by the data channel's onopen closure below so a slow ICE/DTLS
+      // establishment (the gap between SDP exchange and channel open) is
+      // attributable rather than folded into an opaque "connect() was slow".
+      const connectStart = Date.now();
 
       try {
         const token = await mintToken();
+        logger.debug('connect timing', { step: 'mint', ms: Date.now() - connectStart });
 
         const connection = new RTCPeerConnection();
         pc = connection;
@@ -179,6 +184,7 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
         };
 
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        logger.debug('connect timing', { step: 'getUserMedia', ms: Date.now() - connectStart });
         micStream = stream;
         for (const track of stream.getTracks()) {
           connection.addTrack(track, stream);
@@ -187,6 +193,7 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
         const channel = connection.createDataChannel('oai-events');
         dc = channel;
         channel.onopen = () => {
+          logger.debug('connect timing', { step: 'dataChannelOpen', ms: Date.now() - connectStart });
           const sessionUpdate = {
             type: 'session.update',
             session: {
@@ -227,7 +234,9 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
         }
 
         const answerSdp = await response.text();
+        logger.debug('connect timing', { step: 'sdpExchange', ms: Date.now() - connectStart });
         await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+        logger.debug('connect timing', { step: 'setRemoteDescription', ms: Date.now() - connectStart });
       } catch (error) {
         // Handshake failed partway through — tear down whatever was already
         // opened (mic stream, data channel, peer connection) so a retry
@@ -273,8 +282,13 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
     },
 
     injectGrounding(text: string): void {
+      // Droppable, unlike sendToolResult below: grounding is latest-wins
+      // sidechannel context, so a push landing on a closed channel (e.g.
+      // mid-handshake) is a benign race — the next settle re-pushes fresher
+      // state anyway. A lost tool result, by contrast, wedges the model
+      // conversation and must surface as an error.
       if (!dc || dc.readyState !== 'open') {
-        emit({ type: 'error', error: new Error('injectGrounding: data channel not open') });
+        logger.debug('injectGrounding: data channel not open, dropping');
         return;
       }
       try {

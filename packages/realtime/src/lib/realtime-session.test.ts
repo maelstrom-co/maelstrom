@@ -318,6 +318,43 @@ describe('RealtimeSession — grounding debounce', () => {
 });
 
 // ============================================================================
+// Behavior 3a: grounding only subscribed once connected
+// ============================================================================
+
+describe('RealtimeSession — grounding subscription timing', () => {
+  it('never grounds on a settle fired during the connect() handshake, but does ground on a settle after connect resolves', async () => {
+    const adapter = makeMockAdapter();
+    const instance = makeMockInstance(populatedSnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      groundingDebounceMs: 0,
+    });
+
+    const release = adapter.gateConnect();
+    const connectPromise = session.connect();
+    await flushMicrotasks();
+    expect(session.state).toBe('connecting');
+
+    // Settle fires mid-handshake — the data channel would still be closed at
+    // this point in the real adapter, so this push must never be scheduled.
+    instance.settle();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(adapter.groundingCalls).toEqual([]);
+
+    release();
+    await connectPromise;
+    expect(session.state).toBe('connected');
+
+    // A settle after connect resolves must ground normally.
+    instance.settle();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(adapter.groundingCalls).toHaveLength(1);
+  });
+});
+
+// ============================================================================
 // Behavior 3b: grounding length clamp
 // ============================================================================
 

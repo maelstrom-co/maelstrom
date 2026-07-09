@@ -203,9 +203,6 @@ export class RealtimeSession implements VoiceSession {
     this.#unsubscribeAdapter = this.#adapter.on((event) => {
       this.#handleAdapterEvent(event);
     });
-    this.#unsubscribeSettled = this.#instance.onSettled(() => {
-      this.#pushGrounding(this.#instance.getStructuralSnapshot());
-    });
     try {
       await this.#adapter.connect({
         tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL],
@@ -216,6 +213,12 @@ export class RealtimeSession implements VoiceSession {
       this.#setState('error');
       throw error;
     }
+    // Grounding only makes sense once the data channel is actually up — a UI
+    // settle mid-handshake would otherwise schedule a debounced push that
+    // fires against a still-closed channel.
+    this.#unsubscribeSettled = this.#instance.onSettled(() => {
+      this.#pushGrounding(this.#instance.getStructuralSnapshot());
+    });
     this.#setState('connected');
   }
 
