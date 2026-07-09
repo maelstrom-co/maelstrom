@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import type { TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol';
 
-import type { AdapterConnectOptions } from '../realtime-session/provider-adapter.types.js';
+import type { AdapterConnectOptions, RealtimeProviderAdapter } from '../realtime-session/provider-adapter.types.js';
 import { OpenAIAdapter } from './openai-adapter.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 
@@ -51,6 +51,10 @@ class FakeDataChannel {
   triggerOpen(): void {
     this.readyState = 'open';
     this.onopen?.();
+  }
+
+  receive(payload: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(payload) });
   }
 }
 
@@ -196,6 +200,19 @@ beforeEach(() => {
     writable: true,
   });
 });
+
+async function connectWithChannel(): Promise<{
+  adapter: RealtimeProviderAdapter;
+  channel: FakeDataChannel;
+}> {
+  const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+  await adapter.connect(connectOpts);
+  const pc = FakeRTCPeerConnection.instances[0];
+  const channel = pc?.dataChannel;
+  if (!channel) throw new Error('connectWithChannel: no data channel created');
+  channel.triggerOpen();
+  return { adapter, channel };
+}
 
 afterEach(() => {
   restoreGlobal('RTCPeerConnection', originalRTCPeerConnection);
@@ -410,5 +427,40 @@ describe('OpenAIAdapter — typed errors', () => {
     const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RealtimeVoiceError);
     expect((err as RealtimeVoiceError).code).toBe('MIC_PERMISSION_DENIED');
+  });
+});
+
+// ============================================================================
+// Voice activity state
+// ============================================================================
+
+describe('OpenAIAdapter — voice activity state', () => {
+  it('emits listening/thinking/speaking/connected across a full turn', async () => {
+    const { adapter, channel } = await connectWithChannel();
+    const states: string[] = [];
+    adapter.on((e) => {
+      if (e.type === 'state') states.push(e.state);
+    });
+
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    channel.receive({ type: 'input_audio_buffer.speech_stopped' });
+    channel.receive({ type: 'response.created' });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.receive({ type: 'response.done' });
+    channel.receive({ type: 'output_audio_buffer.stopped' });
+
+    expect(states).toEqual(['listening', 'thinking', 'speaking', 'connected']);
+  });
+
+  it('does not re-emit an unchanged state', async () => {
+    const { adapter, channel } = await connectWithChannel();
+    const states: string[] = [];
+    adapter.on((e) => {
+      if (e.type === 'state') states.push(e.state);
+    });
+
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    expect(states).toEqual(['listening']);
   });
 });

@@ -1,5 +1,5 @@
 import { Logger } from '@maelstrom-co/client';
-import type { Unsubscribe } from '@maelstrom-co/client';
+import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
 import type { ToolCallId, TokenHandshakeResponse } from '@maelstrom-co/protocol';
 
 import type {
@@ -19,6 +19,7 @@ import {
   type ResponseLifecycleState,
 } from './response-lifecycle.js';
 import { createUnexpectedEventTracker, type UnexpectedEventTracker } from './unexpected-event-tracker.js';
+import { deriveVoiceActivity } from './voice-activity.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 
@@ -69,6 +70,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   // its own RTCPeerConnection + mic stream.
   #connecting = false;
   #responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
+  #voiceActivity: VoiceSessionState = 'connected';
   #unexpectedEvents: UnexpectedEventTracker = createUnexpectedEventTracker();
 
   constructor(options: OpenAIAdapterOptions) {
@@ -325,6 +327,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     this.#groundingItemExists = false;
     this.#connecting = false;
     this.#responseLifecycle = INITIAL_RESPONSE_LIFECYCLE_STATE;
+    this.#voiceActivity = 'connected';
     this.#unexpectedEvents = createUnexpectedEventTracker();
   }
 
@@ -357,6 +360,14 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       const { next, flush } = markResponseInactive(this.#responseLifecycle);
       this.#responseLifecycle = next;
       if (flush) this.#sendResponseCreate();
+    }
+
+    if (type !== undefined) {
+      const nextActivity = deriveVoiceActivity(this.#voiceActivity, type);
+      if (nextActivity !== null && nextActivity !== this.#voiceActivity) {
+        this.#voiceActivity = nextActivity;
+        this.#emit({ type: 'state', state: nextActivity });
+      }
     }
 
     const event = parseOpenAIServerEvent(parsed);
