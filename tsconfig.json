@@ -29,6 +29,9 @@
     },
     {
       "path": "./packages/realtime-server"
+    },
+    {
+      "path": "./packages/react-realtime"
     }
   ]
 }
