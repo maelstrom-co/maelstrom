@@ -1,6 +1,7 @@
+import type { VoiceSessionState } from '@maelstrom-co/client';
 import { m } from '../lib/maelstrom';
 
-const STATE_LABEL: Record<string, string> = {
+const STATE_LABEL: Record<VoiceSessionState, string> = {
   idle: 'Start voice',
   connecting: 'Connecting…',
   connected: 'Voice on',
@@ -11,7 +12,12 @@ const STATE_LABEL: Record<string, string> = {
 };
 
 // Every state where the transport is live — mic on, session up.
-const CONNECTED_STATES = new Set(['connected', 'listening', 'thinking', 'speaking']);
+const CONNECTED_STATES: ReadonlySet<VoiceSessionState> = new Set([
+  'connected',
+  'listening',
+  'thinking',
+  'speaking',
+]);
 
 /**
  * Mic toggle for the realtime voice spike. Calls
@@ -44,7 +50,7 @@ export function MicToggle() {
             : 'bg-gray-700 hover:bg-gray-600'
       }`}
     >
-      {STATE_LABEL[state] ?? state}
+      {STATE_LABEL[state]}
     </button>
   );
 }
