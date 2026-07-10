@@ -38,8 +38,16 @@ class FakePopup {
   }
 }
 
+const mapInstances: FakeMap[] = [];
+
 class FakeMap {
   #handlers = new Map<string, Array<() => void>>();
+  resizeCallCount = 0;
+  removed = false;
+
+  constructor(_options?: unknown) {
+    mapInstances.push(this);
+  }
 
   on(event: string, handler: () => void) {
     const list = this.#handlers.get(event) ?? [];
@@ -62,8 +70,12 @@ class FakeMap {
   }
   fitBounds() {}
   flyTo() {}
-  resize() {}
-  remove() {}
+  resize() {
+    this.resizeCallCount += 1;
+  }
+  remove() {
+    this.removed = true;
+  }
 }
 
 vi.mock('maplibre-gl', () => ({
@@ -75,10 +87,32 @@ vi.mock('maplibre-gl', () => ({
   },
 }));
 
-// jsdom/happy-dom don't implement ResizeObserver.
+// jsdom/happy-dom don't implement ResizeObserver — this fake records the
+// observed target and exposes `trigger()` so tests can simulate a resize
+// without a real layout engine.
+const resizeObserverInstances: FakeResizeObserver[] = [];
+
 class FakeResizeObserver {
-  observe() {}
-  disconnect() {}
+  #callback: () => void;
+  target: Element | null = null;
+  disconnected = false;
+
+  constructor(callback: () => void) {
+    this.#callback = callback;
+    resizeObserverInstances.push(this);
+  }
+
+  observe(target: Element) {
+    this.target = target;
+  }
+
+  disconnect() {
+    this.disconnected = true;
+  }
+
+  trigger() {
+    this.#callback();
+  }
 }
 vi.stubGlobal('ResizeObserver', FakeResizeObserver);
 
@@ -97,6 +131,8 @@ function props(): TypedVesselProps<typeof mapVessel> {
 
 beforeEach(() => {
   mapActions.showOverview();
+  mapInstances.length = 0;
+  resizeObserverInstances.length = 0;
 });
 
 afterEach(cleanup);
@@ -176,5 +212,44 @@ describe('MapComponent smoke render', () => {
     );
 
     expect(container.textContent).toContain('places');
+  });
+});
+
+describe('MapComponent resize handling', () => {
+  // The orchestrator resizes vessel containers constantly (grid moves,
+  // variant transitions). MapLibre's own trackResize only follows window
+  // resizes, so the canvas goes stale unless the container itself is
+  // observed and map.resize() is called on every observed change.
+  it('observes the map container with a ResizeObserver and calls map.resize() when it fires', () => {
+    const { container } = render(<MapComponent {...props()} />);
+
+    expect(resizeObserverInstances).toHaveLength(1);
+    const observer = resizeObserverInstances[0];
+    const map = mapInstances[0];
+    expect(observer.target).toBe(container.querySelector('.absolute.inset-0'));
+
+    expect(map.resizeCallCount).toBe(0);
+    observer.trigger();
+    expect(map.resizeCallCount).toBe(1);
+
+    observer.trigger();
+    observer.trigger();
+    expect(map.resizeCallCount).toBe(3);
+  });
+
+  it('disconnects the ResizeObserver on unmount and ignores a stray callback after the map is removed', () => {
+    const { unmount } = render(<MapComponent {...props()} />);
+
+    const observer = resizeObserverInstances[0];
+    const map = mapInstances[0];
+    unmount();
+
+    expect(observer.disconnected).toBe(true);
+    expect(map.removed).toBe(true);
+
+    // Guards against a ResizeObserver notification that was already queued
+    // before disconnect() took effect — must not throw or resize a removed map.
+    expect(() => observer.trigger()).not.toThrow();
+    expect(map.resizeCallCount).toBe(0);
   });
 });
