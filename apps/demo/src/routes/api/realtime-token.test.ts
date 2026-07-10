@@ -1,4 +1,5 @@
 import { expect, it, mock } from 'bun:test';
+import type { UnixSeconds } from '@maelstrom-co/protocol';
 import type { MintFailureReason, MintResult } from '@maelstrom-co/realtime-server';
 
 // Regression test for the error-precedence bug: with no OPENAI_API_KEY
@@ -96,7 +97,12 @@ it('reports a 500 misconfiguration status for a malformed JSON body when the key
 it('passes the parsed body to the minter and returns its response on success', async () => {
   mintResult = {
     ok: true,
-    value: { provider: 'openai', value: 'ek-xyz', expiresAt: 1712345678, model: 'gpt-realtime-2' },
+    value: {
+      provider: 'openai',
+      value: 'ek-xyz',
+      expiresAt: 1712345678 as UnixSeconds,
+      model: 'gpt-realtime-2',
+    },
   };
   const res = await handleRealtimeTokenRequest(
     new Request('http://x/api/realtime-token', {

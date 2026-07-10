@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import type { TokenHandshakeResponse } from '@maelstrom-co/protocol';
+import type { TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol';
 
 import type { AdapterConnectOptions } from '../realtime-session/provider-adapter.types.js';
 import { OpenAIAdapter } from './openai-adapter.js';
@@ -119,7 +119,7 @@ class FakeAudio {
 const fakeToken: TokenHandshakeResponse = {
   provider: 'openai',
   value: 'ek-test-secret',
-  expiresAt: Math.floor(Date.now() / 1000) + 60,
+  expiresAt: (Math.floor(Date.now() / 1000) + 60) as UnixSeconds,
   model: 'gpt-realtime',
 };
 

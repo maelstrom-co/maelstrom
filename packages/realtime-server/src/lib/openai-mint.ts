@@ -1,4 +1,4 @@
-import type { Result, TokenHandshakeResponse } from '@maelstrom-co/protocol';
+import type { Result, TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol';
 import {
   err,
   ok,
@@ -181,7 +181,7 @@ export function createOpenAIMinter(
     const response: TokenHandshakeResponse = {
       provider: 'openai',
       value: upstreamBody.value,
-      expiresAt: upstreamBody.expires_at,
+      expiresAt: upstreamBody.expires_at as UnixSeconds,
       model: resolvedModel,
     };
 

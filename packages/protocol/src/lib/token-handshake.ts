@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SessionIdSchema, type SessionId } from './session.js';
+import { UnixSecondsSchema, type UnixSeconds } from './unix-seconds.js';
 import type { Mutable } from './_drift-guards.js';
 
 // --- provider ---
@@ -42,8 +43,8 @@ export const TokenHandshakeRequestSchema = z.object({
 export interface TokenHandshakeResponse {
   readonly provider: RealtimeProvider;
   readonly value: string;
-  /** Unix seconds at which `value` expires. */
-  readonly expiresAt: number;
+  /** Absolute Unix-epoch second at which `value` expires. */
+  readonly expiresAt: UnixSeconds;
   /**
    * The model the credential was minted for. Informational for the client —
    * the credential itself is already scoped to this model upstream.
@@ -55,7 +56,7 @@ export interface TokenHandshakeResponse {
 export const TokenHandshakeResponseSchema = z.object({
   provider: RealtimeProviderSchema,
   value: z.string().min(1),
-  expiresAt: z.number().int().positive(),
+  expiresAt: UnixSecondsSchema,
   model: z.string().min(1),
 });
 

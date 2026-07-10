@@ -5,6 +5,8 @@ export type { Brand } from './lib/brand.js';
 export { SessionId, SessionIdSchema } from './lib/session.js';
 export { ToolCallId, ToolCallIdSchema } from './lib/tool-call-id.js';
 export { MessageId, MessageIdSchema } from './lib/message.js';
+export type { UnixSeconds } from './lib/unix-seconds.js';
+export { UnixSecondsSchema } from './lib/unix-seconds.js';
 export { InstanceId } from './lib/instance.js';
 export { VesselId } from './lib/vessel-id.js';
 export { VariantName } from './lib/variant-name.js';
