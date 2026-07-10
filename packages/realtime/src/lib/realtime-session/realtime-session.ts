@@ -10,7 +10,18 @@ import type {
 } from './provider-adapter.types.js';
 import type { RealtimeInstance, RealtimeSessionOptions, SummarizeFn } from './realtime-session.types.js';
 
-const UPDATE_UI_TOOL: RealtimeToolSpec = {
+// Single source of truth for tool names — the `tools` array passed to the
+// adapter and the dispatch table below are both keyed off this union, so a
+// missing or mistyped case is a compile error instead of a silent
+// "Unknown tool" at runtime.
+const TOOL_NAMES = ['update_ui', 'get_ui_state', 'get_capabilities'] as const;
+type ToolName = (typeof TOOL_NAMES)[number];
+
+function isToolName(name: string): name is ToolName {
+  return (TOOL_NAMES as readonly string[]).includes(name);
+}
+
+const UPDATE_UI_TOOL = {
   name: 'update_ui',
   description:
     'Apply a natural-language UI intent (e.g. "show labs") and update the on-screen layout accordingly. The result is withheld until the change has rendered.',
@@ -20,9 +31,9 @@ const UPDATE_UI_TOOL: RealtimeToolSpec = {
     required: ['intent'],
     additionalProperties: false,
   },
-};
+} satisfies RealtimeToolSpec & { name: ToolName };
 
-const GET_UI_STATE_TOOL: RealtimeToolSpec = {
+const GET_UI_STATE_TOOL = {
   name: 'get_ui_state',
   description:
     'Read the current structural UI state (what is on screen and its layout) without changing anything.',
@@ -31,9 +42,9 @@ const GET_UI_STATE_TOOL: RealtimeToolSpec = {
     properties: {},
     additionalProperties: false,
   },
-};
+} satisfies RealtimeToolSpec & { name: ToolName };
 
-const GET_CAPABILITIES_TOOL: RealtimeToolSpec = {
+const GET_CAPABILITIES_TOOL = {
   name: 'get_capabilities',
   description:
     'List every view this UI can show — each vessel, its purpose, its available variants, and the actions that can transform it. Call this when the user asks what you can do or show.',
@@ -42,7 +53,7 @@ const GET_CAPABILITIES_TOOL: RealtimeToolSpec = {
     properties: {},
     additionalProperties: false,
   },
-};
+} satisfies RealtimeToolSpec & { name: ToolName };
 
 const DEFAULT_INSTRUCTIONS =
   "You are the voice interface for a Maelstrom-powered UI. Call update_ui with a short natural-language instruction to change what's on screen, and get_ui_state to check what's currently shown. Call get_capabilities when the user asks what you can do or show. Only narrate a UI change after update_ui's result confirms it rendered.";
@@ -144,6 +155,12 @@ export class RealtimeSession implements VoiceSession {
   #queuedIntent: QueuedIntent | undefined;
   #bargeInLoopRunning = false;
   #groundingClampWarned = false;
+
+  readonly #toolHandlers: Record<ToolName, (callId: string, argumentsJson: string) => Promise<boolean>> = {
+    update_ui: (callId, argumentsJson) => this.#handleUpdateUI(callId, argumentsJson),
+    get_ui_state: (callId) => this.#handleGetUIState(callId),
+    get_capabilities: (callId) => this.#handleGetCapabilities(callId),
+  };
 
   constructor(options: RealtimeSessionOptions) {
     this.#adapter = options.adapter;
@@ -258,22 +275,14 @@ export class RealtimeSession implements VoiceSession {
     });
 
     let ok: boolean;
-    switch (call.name) {
-      case 'update_ui':
-        ok = await this.#handleUpdateUI(call.callId, call.argumentsJson);
-        break;
-      case 'get_ui_state':
-        ok = await this.#handleGetUIState(call.callId);
-        break;
-      case 'get_capabilities':
-        ok = await this.#handleGetCapabilities(call.callId);
-        break;
-      default:
-        await this.#adapter.sendToolResult(call.callId, {
-          ok: false,
-          summary: `Unknown tool "${call.name}".`,
-        });
-        ok = false;
+    if (isToolName(call.name)) {
+      ok = await this.#toolHandlers[call.name](call.callId, call.argumentsJson);
+    } else {
+      await this.#adapter.sendToolResult(call.callId, {
+        ok: false,
+        summary: `Unknown tool "${call.name}".`,
+      });
+      ok = false;
     }
 
     this.#emit({
