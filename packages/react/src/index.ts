@@ -35,6 +35,7 @@ export type { MaelstromState } from './lib/maelstrom-state-types.js';
 export type { MaelstromProviderProps } from './lib/provider.js';
 export type { CreateMaelstromConfig } from './lib/create-maelstrom.js';
 export type { ChartProps } from './lib/chart/chart.js';
+export type { ChartMotionConfig } from './lib/chart/motion/motion-config.js';
 
 // Types — extension API (for extension package authors)
 export type {

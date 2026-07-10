@@ -1,0 +1,45 @@
+/**
+ * Choreography settings for Chart layout changes. All motion honors
+ * `prefers-reduced-motion: reduce` regardless of these values — the media
+ * preference always wins over configuration.
+ */
+export interface ChartMotionConfig {
+  /** Move/resize + enter/exit duration in ms. Default 350. */
+  readonly durationMs?: number;
+  /** CSS easing for all chart animations. Default 'cubic-bezier(0.22, 1, 0.36, 1)'. */
+  readonly easing?: string;
+  /** Per-vessel delay in reading order for enter/move waves. Default 30. */
+  readonly staggerMs?: number;
+  /** Disables all chart motion when true. Default false. */
+  readonly disabled?: boolean;
+}
+
+export interface ResolvedChartMotionConfig {
+  readonly durationMs: number;
+  readonly easing: string;
+  readonly staggerMs: number;
+  readonly disabled: boolean;
+}
+
+export const DEFAULT_MOTION: ResolvedChartMotionConfig = {
+  durationMs: 350,
+  easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  staggerMs: 30,
+  disabled: false,
+};
+
+export function resolveMotionConfig(config: ChartMotionConfig | undefined): ResolvedChartMotionConfig {
+  return {
+    durationMs: config?.durationMs ?? DEFAULT_MOTION.durationMs,
+    easing: config?.easing ?? DEFAULT_MOTION.easing,
+    staggerMs: config?.staggerMs ?? DEFAULT_MOTION.staggerMs,
+    disabled: config?.disabled ?? DEFAULT_MOTION.disabled,
+  };
+}
+
+/** True when motion must not run: disabled by config or by the user's OS preference. */
+export function motionSuppressed(resolved: ResolvedChartMotionConfig): boolean {
+  if (resolved.disabled) return true;
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
