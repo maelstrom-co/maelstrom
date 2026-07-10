@@ -6,8 +6,8 @@ import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
  * session-config wire format wants (OpenAI's `tools[]`, Google's
  * `functionDeclarations`, …).
  */
-export interface RealtimeToolSpec {
-  readonly name: string;
+export interface RealtimeToolSpec<Name extends string = string> {
+  readonly name: Name;
   readonly description: string;
   /** JSON Schema for the tool's arguments object. */
   readonly parametersJsonSchema: unknown;

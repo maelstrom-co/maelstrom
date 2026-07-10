@@ -1,5 +1,10 @@
+import type {
+  UIStructuralSnapshot,
+  Unsubscribe,
+  VoiceSession,
+  VoiceSessionState,
+} from '@maelstrom-co/client';
 import { Logger, RequestInFlightError } from '@maelstrom-co/client';
-import type { UIStructuralSnapshot, Unsubscribe, VoiceSession, VoiceSessionState } from '@maelstrom-co/client';
 import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
 
 import { groundedDebounce } from './grounding-debounce.js';
@@ -8,7 +13,11 @@ import type {
   RealtimeProviderAdapter,
   RealtimeToolSpec,
 } from './provider-adapter.types.js';
-import type { RealtimeInstance, RealtimeSessionOptions, SummarizeFn } from './realtime-session.types.js';
+import type {
+  RealtimeInstance,
+  RealtimeSessionOptions,
+  SummarizeFn,
+} from './realtime-session.types.js';
 
 // Single source of truth for tool names — the `tools` array passed to the
 // adapter and the dispatch table below are both keyed off this union, so a
@@ -31,7 +40,7 @@ const UPDATE_UI_TOOL = {
     required: ['intent'],
     additionalProperties: false,
   },
-} satisfies RealtimeToolSpec & { name: ToolName };
+} satisfies RealtimeToolSpec<ToolName>;
 
 const GET_UI_STATE_TOOL = {
   name: 'get_ui_state',
@@ -42,7 +51,7 @@ const GET_UI_STATE_TOOL = {
     properties: {},
     additionalProperties: false,
   },
-} satisfies RealtimeToolSpec & { name: ToolName };
+} satisfies RealtimeToolSpec<ToolName>;
 
 const GET_CAPABILITIES_TOOL = {
   name: 'get_capabilities',
@@ -53,7 +62,7 @@ const GET_CAPABILITIES_TOOL = {
     properties: {},
     additionalProperties: false,
   },
-} satisfies RealtimeToolSpec & { name: ToolName };
+} satisfies RealtimeToolSpec<ToolName>;
 
 const DEFAULT_INSTRUCTIONS =
   "You are the voice interface for a Maelstrom-powered UI. Call update_ui with a short natural-language instruction to change what's on screen, and get_ui_state to check what's currently shown. Call get_capabilities when the user asks what you can do or show. Only narrate a UI change after update_ui's result confirms it rendered.";
@@ -145,7 +154,9 @@ export class RealtimeSession implements VoiceSession {
   readonly #sessionId: SessionId;
   readonly #summarize: SummarizeFn;
   readonly #onEvent: (event: SidechannelEvent) => void;
-  readonly #pushGrounding: ((snapshot: UIStructuralSnapshot) => void) & { cancel(): void };
+  readonly #pushGrounding: ((snapshot: UIStructuralSnapshot) => void) & {
+    cancel(): void;
+  };
   readonly #logger: Logger;
 
   #state: VoiceSessionState = 'idle';
@@ -156,8 +167,12 @@ export class RealtimeSession implements VoiceSession {
   #bargeInLoopRunning = false;
   #groundingClampWarned = false;
 
-  readonly #toolHandlers: Record<ToolName, (callId: string, argumentsJson: string) => Promise<boolean>> = {
-    update_ui: (callId, argumentsJson) => this.#handleUpdateUI(callId, argumentsJson),
+  readonly #toolHandlers: Record<
+    ToolName,
+    (callId: string, argumentsJson: string) => Promise<boolean>
+  > = {
+    update_ui: (callId, argumentsJson) =>
+      this.#handleUpdateUI(callId, argumentsJson),
     get_ui_state: (callId) => this.#handleGetUIState(callId),
     get_capabilities: (callId) => this.#handleGetCapabilities(callId),
   };
@@ -170,7 +185,9 @@ export class RealtimeSession implements VoiceSession {
     this.#onEvent = options.onEvent ?? (() => {});
     this.#logger = new Logger(options.debug ?? false, 'RealtimeSession');
     this.#pushGrounding = groundedDebounce((snapshot: UIStructuralSnapshot) => {
-      this.#adapter.injectGrounding(this.#clampGrounding(this.#summarize(snapshot)));
+      this.#adapter.injectGrounding(
+        this.#clampGrounding(this.#summarize(snapshot)),
+      );
     }, options.groundingDebounceMs ?? DEFAULT_GROUNDING_DEBOUNCE_MS);
   }
 
@@ -296,7 +313,10 @@ export class RealtimeSession implements VoiceSession {
   }
 
   /** Returns whether the update applied successfully (for the sidechannel result event). */
-  async #handleUpdateUI(callId: string, argumentsJson: string): Promise<boolean> {
+  async #handleUpdateUI(
+    callId: string,
+    argumentsJson: string,
+  ): Promise<boolean> {
     this.#logger.debug('update_ui: parsing arguments', argumentsJson);
     let intent: string;
     try {
@@ -321,7 +341,9 @@ export class RealtimeSession implements VoiceSession {
       await this.#instance.submitIntent(intent);
       this.#logger.debug('update_ui: submitIntent resolved, awaiting idle');
       await this.#instance.waitForIdle();
-      this.#logger.debug('update_ui: idle (render settled)', { ms: Date.now() - renderStart });
+      this.#logger.debug('update_ui: idle (render settled)', {
+        ms: Date.now() - renderStart,
+      });
     } catch (error) {
       // Fires on the routine barge-in path (queued) as well as genuine
       // pipeline failures — kept at debug level so the expected-busy case
@@ -381,7 +403,10 @@ export class RealtimeSession implements VoiceSession {
     this.#queuedIntent = entry;
     if (superseded) {
       void this.#adapter
-        .sendToolResult(superseded.callId, { ok: false, summary: SUPERSEDED_SUMMARY })
+        .sendToolResult(superseded.callId, {
+          ok: false,
+          summary: SUPERSEDED_SUMMARY,
+        })
         .then(() => {
           superseded.resolve(false);
         });
