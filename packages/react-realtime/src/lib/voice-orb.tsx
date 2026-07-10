@@ -77,7 +77,14 @@ export function createVoiceOrb(useVoice: () => UseVoiceResult) {
         aria-label={live ? 'Stop voice' : 'Start voice'}
         className={className}
         style={style}
+        disabled={state === 'connecting'}
         onClick={() => {
+          // Guards the same race the `disabled` attribute already blocks in a
+          // real browser: `RealtimeSession.disconnect()` has no re-entry
+          // guard, so calling it while `adapter.connect()` is still in flight
+          // can resurrect the session once the handshake resolves and calls
+          // `#setState('connected')` after disconnect already ran.
+          if (state === 'connecting') return;
           void (live ? disconnect() : connect()).catch(() => {});
         }}
       />

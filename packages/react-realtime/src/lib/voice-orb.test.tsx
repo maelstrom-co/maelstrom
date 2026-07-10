@@ -19,14 +19,28 @@ class FakeRealtimeSession {
   disconnectCalls = 0;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
+  #resolveConnect: (() => void) | undefined;
 
   constructor(readonly options: unknown) {
     FakeRealtimeSession.instances.push(this);
   }
 
+  // Mirrors the real RealtimeSession.connect() shape: emits 'connecting'
+  // synchronously, then parks on the in-flight handshake until the test
+  // calls resolveConnect() — needed to exercise the click-while-connecting
+  // race a synchronous fake can't otherwise reproduce.
   async connect(): Promise<void> {
     this.connectCalls += 1;
+    this.emitState('connecting');
+    await new Promise<void>((resolve) => {
+      this.#resolveConnect = resolve;
+    });
     this.emitState('connected');
+  }
+
+  resolveConnect(): void {
+    this.#resolveConnect?.();
+    this.#resolveConnect = undefined;
   }
 
   async disconnect(): Promise<void> {
@@ -85,7 +99,9 @@ function must<T>(value: T | undefined): T {
 // its root, so container.firstChild reaches it without going through the
 // broken selector engine.
 function getButton(container: HTMLElement): HTMLButtonElement {
-  return must(container.firstChild as HTMLButtonElement | null | undefined);
+  const button = must(container.firstChild as HTMLButtonElement | null | undefined);
+  expect(button.tagName).toBe('BUTTON');
+  return button;
 }
 
 function setup() {
@@ -119,12 +135,46 @@ describe('VoiceOrb', () => {
 
     const button = getButton(container);
     expect(button.dataset.state).toBe('idle');
+    expect(button.getAttribute('aria-label')).toBe('Start voice');
 
     await act(async () => {
       fireEvent.click(button);
     });
 
     expect(must(FakeRealtimeSession.instances[0]).connectCalls).toBe(1);
+  });
+
+  it('disables the button and ignores a second click while connecting, avoiding the disconnect race', async () => {
+    const { m, connector } = setup();
+
+    const { container } = await act(async () => {
+      return render(
+        <m.Provider connector={connector}>
+          <m.VoiceOrb />
+        </m.Provider>,
+      );
+    });
+
+    const button = getButton(container);
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+
+    const session = must(FakeRealtimeSession.instances[0]);
+    expect(session.state).toBe('connecting');
+    expect(button.dataset.state).toBe('connecting');
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+
+    // RealtimeSession.disconnect() has no re-entry guard against an
+    // in-flight connect() — calling it mid-handshake can silently resurrect
+    // the session once the handshake resolves. The button must not let a
+    // click reach disconnect() while connecting.
+    expect(session.disconnectCalls).toBe(0);
+    expect(button.disabled).toBe(true);
   });
 
   it('stops voice on click while connected', async () => {
@@ -144,6 +194,7 @@ describe('VoiceOrb', () => {
     });
 
     const button = getButton(container);
+    expect(button.getAttribute('aria-label')).toBe('Stop voice');
     await act(async () => {
       fireEvent.click(button);
     });
@@ -169,6 +220,7 @@ describe('VoiceOrb', () => {
 
     const button = getButton(container);
     expect(button.dataset.state).toBe('speaking');
+    expect(button.getAttribute('aria-label')).toBe('Stop voice');
   });
 
   it('retries connect on click from error state', async () => {
@@ -189,6 +241,7 @@ describe('VoiceOrb', () => {
 
     const button = getButton(container);
     expect(button.dataset.state).toBe('error');
+    expect(button.getAttribute('aria-label')).toBe('Start voice');
 
     await act(async () => {
       fireEvent.click(button);
