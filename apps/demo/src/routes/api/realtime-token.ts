@@ -1,6 +1,6 @@
-import { createFileRoute } from '@tanstack/react-router';
 import { isOk } from '@maelstrom-co/protocol';
 import { createOpenAIMinter, mintFailureHttpStatus } from '@maelstrom-co/realtime-server';
+import { createFileRoute } from '@tanstack/react-router';
 
 /**
  * Mints ephemeral OpenAI realtime client secrets on behalf of the browser.
@@ -11,7 +11,7 @@ import { createOpenAIMinter, mintFailureHttpStatus } from '@maelstrom-co/realtim
  */
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY ?? '',
-  model: 'gpt-realtime-2',
+  model: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime-2',
 });
 
 export async function handleRealtimeTokenRequest(request: Request): Promise<Response> {

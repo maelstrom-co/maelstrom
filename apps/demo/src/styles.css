@@ -52,3 +52,38 @@ body {
 .animate-scribe-pulse {
   animation: scribe-pulse 1.5s ease-in-out infinite;
 }
+
+/* Voice orb state ring */
+@keyframes voice-orb-connecting-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.6); }
+  50% { box-shadow: 0 0 0 8px rgba(250, 204, 21, 0); }
+}
+
+.voice-orb {
+  transition: box-shadow 0.2s ease-out;
+}
+
+.voice-orb[data-state='idle'] {
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.4);
+}
+
+.voice-orb[data-state='connecting'] {
+  animation: voice-orb-connecting-pulse 1.2s ease-in-out infinite;
+}
+
+.voice-orb[data-state='connected'],
+.voice-orb[data-state='listening'] {
+  box-shadow: 0 0 16px 4px var(--color-cyan-accent);
+}
+
+.voice-orb[data-state='thinking'] {
+  box-shadow: 0 0 16px 4px var(--color-violet-accent);
+}
+
+.voice-orb[data-state='speaking'] {
+  box-shadow: 0 0 16px 4px var(--color-seafoam-accent);
+}
+
+.voice-orb[data-state='error'] {
+  box-shadow: 0 0 16px 4px #ef4444;
+}
