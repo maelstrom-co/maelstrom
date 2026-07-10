@@ -8,6 +8,7 @@ import {
   Suspense,
   lazy,
   memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -19,6 +20,12 @@ import type { MaelstromContextPair } from '../context.js';
 import { warnOnce } from '../warn-once.js';
 import { ErrorBoundary } from './error-boundary.js';
 import { VesselLoadError, VesselLoadingSkeleton } from './loading.js';
+import type { MotionRect } from './motion/flip.js';
+import { exitKeyframes } from './motion/flip.js';
+import type { ResolvedChartMotionConfig } from './motion/motion-config.js';
+import { useChartMotion } from './motion/use-chart-motion.js';
+import type { ExitingEntry } from './motion/use-exiting-instances.js';
+import { useExitingInstances } from './motion/use-exiting-instances.js';
 
 /** Props for the `m.Chart` layout component. */
 export interface ChartProps {
@@ -142,6 +149,41 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     }
     return true;
   });
+
+  // ─── ExitingVessel ──────────────────────────────────────────────────────────
+
+  interface ExitingVesselProps {
+    entry: ExitingEntry<VesselInstance>;
+    motion: ResolvedChartMotionConfig;
+  }
+
+  function ExitingVessel({ entry, motion }: ExitingVesselProps) {
+    const style: CSSProperties = {
+      position: 'absolute',
+      left: entry.rect.x,
+      top: entry.rect.y,
+      width: entry.rect.width,
+      height: entry.rect.height,
+      pointerEvents: 'none',
+      zIndex: 0,
+      overflow: 'hidden',
+    };
+
+    return (
+      <div
+        style={style}
+        ref={(node) => {
+          if (!node || typeof node.animate !== 'function') return;
+          node.animate(exitKeyframes(), {
+            duration: motion.durationMs,
+            easing: motion.easing,
+          });
+        }}
+      >
+        <VesselRenderer instance={entry.item} style={{ width: '100%', height: '100%' }} />
+      </div>
+    );
+  }
 
   // ─── Grid debug overlay ─────────────────────────────────────────────────────
 
@@ -269,6 +311,74 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
       return () => observer.disconnect();
     }, [orchestrator, config.cellSizePx]);
 
+    // Tiling layout computed once per render — reused by both the
+    // layoutSignature below and the tiling render branch.
+    const tilingComputed = useMemo<ComputedTile[] | null>(() => {
+      if (!layout || layout.type !== 'tiling') return null;
+      const tree = parseTilingTree(layout.tree);
+      return computeTilingLayout(tree, containerRect, config.tilingPaddingPx);
+    }, [layout, containerRect, config.tilingPaddingPx]);
+
+    // Container pixel size must be part of the signature: grid mode uses
+    // `1fr` tracks, so a resize changes every rendered rect without changing
+    // any logical position — omitting it leaves FLIP's rect map stale.
+    const sizeKey = `${Math.round(containerRect.width)}x${Math.round(containerRect.height)}`;
+
+    const layoutSignature = useMemo(() => {
+      if (!layout || layout.type === 'grid') {
+        const positions = layout?.positions ?? [];
+        const key = positions
+          .map((p) => `${p.instanceId}:${p.position.row}:${p.position.column}:${p.size.width}:${p.size.height}`)
+          .join('|');
+        return `grid:${sizeKey}:${key}`;
+      }
+      if (layout.type === 'tiling') {
+        const tiles = tilingComputed ?? [];
+        const key = tiles
+          .map((t) => `${t.instanceId}:${t.rect.x}:${t.rect.y}:${t.rect.width}:${t.rect.height}`)
+          .join('|');
+        return `tiling:${sizeKey}:${key}`;
+      }
+      return `unknown:${sizeKey}`;
+    }, [layout, tilingComputed, sizeKey]);
+
+    useChartMotion(containerRef, layoutSignature, config.motion);
+
+    // Instances currently rendered, keyed by instanceId — feeds exit tracking
+    // so a instance dropped from the next layout response gets an exit entry.
+    const currentInstanceEntries = useMemo<ReadonlyArray<readonly [string, VesselInstance]>>(() => {
+      const out: Array<readonly [string, VesselInstance]> = [];
+      if (!layout || layout.type === 'grid') {
+        for (const pos of layout?.positions ?? []) {
+          const instance = instances.get(pos.instanceId);
+          if (instance) out.push([pos.instanceId, instance]);
+        }
+      } else if (layout.type === 'tiling') {
+        for (const tile of tilingComputed ?? []) {
+          const instance = instances.get(tile.instanceId);
+          if (instance) out.push([tile.instanceId, instance]);
+        }
+      }
+      return out;
+    }, [layout, instances, tilingComputed]);
+
+    // Children-walk instead of an attribute-selector querySelector, which
+    // throws under this repo's bun+happy-dom test combo.
+    const measureRect = useCallback((id: string): MotionRect | null => {
+      const container = containerRef.current;
+      if (!container) return null;
+      const containerBox = container.getBoundingClientRect();
+      for (const child of Array.from(container.children)) {
+        const node = child as HTMLElement;
+        if (node.getAttribute('data-instance-id') !== id) continue;
+        const r = node.getBoundingClientRect();
+        return { x: r.x - containerBox.x, y: r.y - containerBox.y, width: r.width, height: r.height };
+      }
+      return null;
+    }, []);
+
+    const exiting = useExitingInstances(currentInstanceEntries, measureRect, config.motion, layoutSignature);
+
     // ── Guard: duplicate Chart ────────────────────────────────────────────────
 
     if (isDuplicate) {
@@ -332,7 +442,6 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
               gridColumn: `${colStart} / ${colStart + pos.size.width}`,
               gridRow: `${rowStart} / ${rowStart + pos.size.height}`,
               zIndex: 1,
-              transition: 'all 0.3s ease-out',
               minWidth: 0,
               minHeight: 0,
             };
@@ -344,6 +453,9 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
               />
             );
           })}
+          {exiting.map((entry) => (
+            <ExitingVessel key={`exit-${entry.id}`} entry={entry} motion={config.motion} />
+          ))}
           {children}
         </div>
       );
@@ -360,8 +472,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
         overflow: 'hidden',
       };
 
-      const tree = parseTilingTree(layout.tree);
-      const computedTiles = computeTilingLayout(tree, containerRect, config.tilingPaddingPx);
+      const computedTiles = tilingComputed ?? [];
 
       const tilesToRender = computedTiles
         .map((tile) => {
@@ -384,7 +495,6 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
               top: tile.rect.y,
               width: tile.rect.width,
               height: tile.rect.height,
-              transition: 'all 0.3s ease-out',
               overflow: 'hidden',
             };
             return (
@@ -395,6 +505,9 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
               />
             );
           })}
+          {exiting.map((entry) => (
+            <ExitingVessel key={`exit-${entry.id}`} entry={entry} motion={config.motion} />
+          ))}
           {config.debug && <TilingDebugOverlay tiles={computedTiles} />}
           {children}
         </div>
