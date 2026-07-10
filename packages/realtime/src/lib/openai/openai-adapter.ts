@@ -7,7 +7,7 @@ import type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
-} from '../provider-adapter.types.js';
+} from '../realtime-session/provider-adapter.types.js';
 import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
 import { parseOAIServerEvent } from './parse-oai-event.js';
 import {
@@ -72,7 +72,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
 
   constructor(options: OpenAIAdapterOptions) {
     this.#mintToken = options.mintToken;
-    this.#logger = new Logger(options.debug ?? false, 'realtime');
+    this.#logger = new Logger(options.debug ?? false, 'OpenAIAdapter');
   }
 
   async connect(opts: AdapterConnectOptions): Promise<void> {

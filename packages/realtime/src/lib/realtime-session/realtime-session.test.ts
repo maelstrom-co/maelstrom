@@ -9,7 +9,7 @@ import type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
 } from './provider-adapter.types.js';
-import type { RealtimeInstance } from './realtime-session.js';
+import type { RealtimeInstance } from './realtime-session.types.js';
 import { RealtimeSession } from './realtime-session.js';
 
 function flushMicrotasks(): Promise<void> {

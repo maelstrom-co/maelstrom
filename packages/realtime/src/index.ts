@@ -14,14 +14,14 @@ export type {
   RealtimeInstance,
   RealtimeSessionOptions,
   SummarizeFn,
-} from './lib/realtime-session.js';
-export { RealtimeSession } from './lib/realtime-session.js';
+} from './lib/realtime-session/realtime-session.types.js';
+export { RealtimeSession } from './lib/realtime-session/realtime-session.js';
 
 export type {
   AdapterConnectOptions,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
-} from './lib/provider-adapter.types.js';
+} from './lib/realtime-session/provider-adapter.types.js';
 
-export { groundedDebounce } from './lib/grounding-debounce.js';
+export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';

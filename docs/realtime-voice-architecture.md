@@ -91,7 +91,7 @@ The model is given exactly two tools, defined in `RealtimeSession`:
 - **`update_ui { intent: string }`** — "change what's on screen." The only write path.
 - **`get_ui_state {}`** — "what's on screen right now?" A read-only pull for when the model needs certainty.
 
-An `update_ui` round-trip (`packages/realtime/src/lib/realtime-session.ts`):
+An `update_ui` round-trip (`packages/realtime/src/lib/realtime-session/realtime-session.ts`):
 
 1. The model emits a `function_call` over the WebRTC data channel. `OpenAIAdapter` parses the raw envelope (`parseOAIServerEvent`, a pure function) into a provider-neutral `tool_call` event.
 2. `RealtimeSession` extracts the intent string — **only the plain string crosses this boundary** — and submits it through the `RealtimeInstance` bridge: `submitIntent(intent)` → `Orchestrator.processIntent`. From here it is an ordinary Maelstrom request: the client snapshots its own state into a `ChartRequest`, the engine plans, the client applies layout + actions in the standard strict order.

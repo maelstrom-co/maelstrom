@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { TokenHandshakeResponse } from '@maelstrom-co/protocol';
 
-import type { AdapterConnectOptions } from '../provider-adapter.types.js';
+import type { AdapterConnectOptions } from '../realtime-session/provider-adapter.types.js';
 import { OpenAIAdapter } from './openai-adapter.js';
 
 // ============================================================================

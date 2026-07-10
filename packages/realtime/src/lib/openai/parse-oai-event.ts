@@ -1,4 +1,4 @@
-import type { RealtimeAdapterEvent } from '../provider-adapter.types.js';
+import type { RealtimeAdapterEvent } from '../realtime-session/provider-adapter.types.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
