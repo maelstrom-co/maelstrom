@@ -3,6 +3,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isErr, isOk, type Result } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { ACCENT_HEX, CALENDAR_EVENT_ACCENTS } from '../lib/design-tokens';
 import type { calendarVessel } from './calendar.vessel';
 
 vi.mock('../lib/maelstrom', () => ({
@@ -211,6 +212,28 @@ describe('CalendarComponent day view rendering', () => {
       await handlers.removeEvent({ title: 'Sprint planning' });
     });
     expect(container.textContent).toContain('Nothing scheduled');
+  });
+
+  it('cycles each event sliver accent by store index through CALENDAR_EVENT_ACCENTS', () => {
+    // Normalize both sides through the DOM's own CSSStyleDeclaration so the
+    // comparison doesn't depend on how the engine serializes a hex color.
+    function borderLeftFor(hex: string): string {
+      const probe = document.createElement('div');
+      probe.style.borderLeft = `2px solid ${hex}`;
+      return probe.style.borderLeft;
+    }
+
+    const { getByText } = render(<CalendarComponent {...props('day')} />);
+    const titlesInStoreOrder = [
+      'Gym',
+      'Design review — Studio Vortex HQ',
+      'Sprint planning',
+    ];
+    titlesInStoreOrder.forEach((title, i) => {
+      const accent = CALENDAR_EVENT_ACCENTS[i % CALENDAR_EVENT_ACCENTS.length];
+      const sliver = getByText(title).parentElement as HTMLElement;
+      expect(sliver.style.borderLeft).toBe(borderLeftFor(ACCENT_HEX[accent]));
+    });
   });
 });
 

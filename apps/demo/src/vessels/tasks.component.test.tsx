@@ -8,7 +8,7 @@ vi.mock('../lib/maelstrom', () => ({
   m: { useActions: vi.fn() },
 }));
 
-const { tasksActions } = await import('./tasks.store');
+const { getTasksSnapshot, tasksActions } = await import('./tasks.store');
 const TasksComponent = (await import('./tasks.component')).default;
 
 function props(): TypedVesselProps<typeof tasksVessel> {
@@ -45,5 +45,20 @@ describe('TasksComponent empty state', () => {
     tasksActions.checkTask('Write the launch post');
     const { container } = render(<TasksComponent {...props()} />);
     expect(container.querySelector('.task-check--done svg')).not.toBeNull();
+  });
+
+  it('sets the progress tube fill width to the done/total percentage', () => {
+    // Earlier tests in this file only clear the seeded titles in beforeEach,
+    // not tasks they add themselves, so drain the singleton store first —
+    // otherwise the percentage below depends on test execution order.
+    for (const task of getTasksSnapshot().tasks) {
+      tasksActions.removeTask(task.title);
+    }
+    tasksActions.addTask('Write the launch post');
+    tasksActions.addTask('Fix the flaky test');
+    tasksActions.checkTask('Write the launch post');
+    const { container } = render(<TasksComponent {...props()} />);
+    const fill = container.querySelector('.task-tube-fill') as HTMLElement;
+    expect(fill.style.width).toBe('50%');
   });
 });

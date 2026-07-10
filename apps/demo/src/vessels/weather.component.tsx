@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { Wind } from 'lucide-react';
 import { VesselCard } from '../components/vessel-card';
 import { HOME } from '../lib/locations';
 import {
@@ -9,7 +10,6 @@ import {
   weatherCodeToSkyClass,
   type LiveWeather,
 } from '../lib/weather-data';
-import { Wind } from 'lucide-react';
 import type { weatherVessel } from './weather.vessel';
 
 function useLiveWeather(): LiveWeather {

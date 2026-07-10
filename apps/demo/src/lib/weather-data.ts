@@ -278,9 +278,9 @@ export function weatherCodeToIcon(code: number): LucideIcon {
 
 export type SkyClass = 'clear' | 'cloud' | 'fog' | 'rain';
 
-// Coarser than CODE_ICON — the sky-wash material moment only has 4 variants
-// (spec §4), so every precipitation code (drizzle/rain/snow/thunder) folds
-// into 'rain'.
+// Coarser than CODE_ICON — the sky-wash background only renders 4 distinct
+// washes, so every precipitation code (drizzle/rain/snow/thunder) shares the
+// 'rain' wash rather than each getting its own.
 const CODE_SKY_CLASS: Record<number, SkyClass> = {
   0: 'clear',
   1: 'cloud',
