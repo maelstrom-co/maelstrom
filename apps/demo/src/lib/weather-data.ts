@@ -1,3 +1,13 @@
+import {
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  Sun,
+  type LucideIcon,
+} from 'lucide-react';
 import { withFetchTimeout } from './fetch-timeout';
 
 export interface LiveWeather {
@@ -227,45 +237,61 @@ export async function fetchLiveWeather(
   return mapResponse(data);
 }
 
-const DEFAULT_EMOJI = '🌡️';
-
-// WMO weather codes (https://open-meteo.com/en/docs) mapped onto the
-// component's existing emoji vocabulary; codes not covered by today's demo
-// (fog/drizzle/snow/thunder) get a sensible addition in the same style.
-const CODE_EMOJI: Record<number, string> = {
-  0: '☀️',
-  1: '🌤️',
-  2: '🌤️',
-  3: '🌤️',
-  45: '🌫️',
-  48: '🌫️',
-  51: '🌦️',
-  53: '🌦️',
-  55: '🌦️',
-  56: '🌦️',
-  57: '🌦️',
-  61: '🌧️',
-  63: '🌧️',
-  65: '🌧️',
-  66: '🌧️',
-  67: '🌧️',
-  80: '🌧️',
-  81: '🌧️',
-  82: '🌧️',
-  71: '🌨️',
-  73: '🌨️',
-  75: '🌨️',
-  77: '🌨️',
-  85: '🌨️',
-  86: '🌨️',
-  95: '⛈️',
-  96: '⛈️',
-  99: '⛈️',
+// WMO weather codes (https://open-meteo.com/en/docs) mapped onto lucide
+// icons; codes not covered by today's demo (fog/drizzle/snow/thunder) get a
+// sensible icon in the same family the old emoji table used.
+const CODE_ICON: Record<number, LucideIcon> = {
+  0: Sun,
+  1: Cloud,
+  2: Cloud,
+  3: Cloud,
+  45: CloudFog,
+  48: CloudFog,
+  51: CloudDrizzle,
+  53: CloudDrizzle,
+  55: CloudDrizzle,
+  56: CloudDrizzle,
+  57: CloudDrizzle,
+  61: CloudRain,
+  63: CloudRain,
+  65: CloudRain,
+  66: CloudRain,
+  67: CloudRain,
+  80: CloudRain,
+  81: CloudRain,
+  82: CloudRain,
+  71: CloudSnow,
+  73: CloudSnow,
+  75: CloudSnow,
+  77: CloudSnow,
+  85: CloudSnow,
+  86: CloudSnow,
+  95: CloudLightning,
+  96: CloudLightning,
+  99: CloudLightning,
 };
 
-/** Maps a WMO weather code (Open-Meteo's `weather_code`) to a display emoji. */
-export function weatherCodeToEmoji(code: number): string {
-  return CODE_EMOJI[code] ?? DEFAULT_EMOJI;
+/** Maps a WMO weather code (Open-Meteo's `weather_code`) to a lucide icon component. */
+export function weatherCodeToIcon(code: number): LucideIcon {
+  return CODE_ICON[code] ?? Cloud;
+}
+
+export type SkyClass = 'clear' | 'cloud' | 'fog' | 'rain';
+
+// Coarser than CODE_ICON — the sky-wash material moment only has 4 variants
+// (spec §4), so every precipitation code (drizzle/rain/snow/thunder) folds
+// into 'rain'.
+const CODE_SKY_CLASS: Record<number, SkyClass> = {
+  0: 'clear',
+  1: 'cloud',
+  2: 'cloud',
+  3: 'cloud',
+  45: 'fog',
+  48: 'fog',
+};
+
+export function weatherCodeToSkyClass(code: number): SkyClass {
+  return CODE_SKY_CLASS[code] ?? (code >= 51 ? 'rain' : 'cloud');
 }
 
 /**
