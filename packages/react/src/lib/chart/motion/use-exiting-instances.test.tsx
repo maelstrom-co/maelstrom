@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { act, cleanup, render } from '@testing-library/react';
 import FakeTimers from '@sinonjs/fake-timers';
 import { useRef } from 'react';
@@ -15,6 +15,10 @@ interface Item {
   id: string;
   label: string;
   rect: MotionRect;
+}
+
+function signatureOf(items: Item[]): string {
+  return items.map((item) => `${item.id}:${item.rect.x},${item.rect.y},${item.rect.width},${item.rect.height}`).join('|');
 }
 
 function stubRect(node: HTMLElement, rect: MotionRect) {
@@ -37,6 +41,12 @@ function stubRect(node: HTMLElement, rect: MotionRect) {
 const rect = (x: number, y: number, width: number, height: number): MotionRect => ({ x, y, width, height });
 
 let capturedEntries: ReadonlyArray<ExitingEntry<Item>> = [];
+let measureCallCount = 0;
+
+beforeEach(() => {
+  capturedEntries = [];
+  measureCallCount = 0;
+});
 
 // Walks container.children + hasAttribute instead of an attribute-selector
 // querySelectorAll, which throws under this repo's bun+happy-dom combo
@@ -45,6 +55,7 @@ function Harness({ items, motion }: { items: Item[]; motion: ResolvedChartMotion
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const measureRect = (id: string): MotionRect | null => {
+    measureCallCount += 1;
     const container = containerRef.current;
     if (!container) return null;
     const containerRect = container.getBoundingClientRect();
@@ -58,7 +69,7 @@ function Harness({ items, motion }: { items: Item[]; motion: ResolvedChartMotion
   };
 
   const current = items.map((item) => [item.id, item] as const);
-  capturedEntries = useExitingInstances(current, measureRect, motion);
+  capturedEntries = useExitingInstances(current, measureRect, motion, signatureOf(items));
 
   return (
     <div ref={containerRef}>
@@ -191,5 +202,63 @@ describe('useExitingInstances', () => {
       rerender(<Harness items={second} motion={disabled} />);
     });
     expect(capturedEntries).toHaveLength(0);
+  });
+
+  it('preserves the pre-suppression rect for an id removed right after unsuppression', () => {
+    const disabled: ResolvedChartMotionConfig = { ...DEFAULT_MOTION, disabled: true };
+    const first: Item[] = [
+      { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+      { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
+    ];
+    const withoutB: Item[] = [{ id: 'a', label: 'A', rect: rect(0, 0, 100, 100) }];
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+    });
+
+    // Suppress motion while both ids are still present -- a snapshot exists for b.
+    act(() => {
+      rerender(<Harness items={first} motion={disabled} />);
+    });
+    expect(capturedEntries).toHaveLength(0);
+
+    // Same transition back to active motion also removes b: there is no live
+    // node left to measure, so the entry must come from the pre-suppression
+    // snapshot rather than being dropped.
+    act(() => {
+      rerender(<Harness items={withoutB} motion={DEFAULT_MOTION} />);
+    });
+
+    expect(capturedEntries).toHaveLength(1);
+    const entry = capturedEntries[0]!;
+    expect(entry.id).toBe('b');
+    expect(entry.rect).toEqual(rect(100, 0, 100, 100));
+  });
+
+  it('does not re-measure when re-rendering with an identical layout signature', () => {
+    const first: Item[] = [
+      { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+      { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
+    ];
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+    });
+    expect(measureCallCount).toBeGreaterThan(0);
+    measureCallCount = 0;
+
+    // A brand-new `items`/`current` array with the identical ids and rects --
+    // same signature -- must not re-trigger the measuring pass.
+    const sameShape: Item[] = [
+      { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+      { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
+    ];
+    act(() => {
+      rerender(<Harness items={sameShape} motion={DEFAULT_MOTION} />);
+    });
+
+    expect(measureCallCount).toBe(0);
   });
 });

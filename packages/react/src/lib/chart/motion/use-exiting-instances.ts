@@ -10,15 +10,24 @@ export interface ExitingEntry<T> {
   readonly rect: MotionRect;
 }
 
+// `current`/`measureRect` are read through refs updated every render so the
+// effect can key on `signature` alone (mirroring useChartMotion's
+// layoutSignature contract) without either re-firing on every render for
+// callers that build `current` inline, or closing over stale values.
 export function useExitingInstances<T>(
   current: ReadonlyArray<readonly [string, T]>,
   measureRect: (id: string) => MotionRect | null,
   motion: ResolvedChartMotionConfig,
+  signature: string,
 ): ReadonlyArray<ExitingEntry<T>> {
   const [entries, setEntries] = useState<ReadonlyArray<ExitingEntry<T>>>([]);
   const prevItemsRef = useRef<Map<string, T>>(new Map());
   const lastRectsRef = useRef<Map<string, MotionRect>>(new Map());
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const currentRef = useRef(current);
+  currentRef.current = current;
+  const measureRectRef = useRef(measureRect);
+  measureRectRef.current = measureRect;
 
   // Clear timers on unmount only -- the main effect below re-runs on every
   // pass and must NOT sweep timers that are still counting down for entries
@@ -32,11 +41,16 @@ export function useExitingInstances<T>(
   }, []);
 
   useLayoutEffect(() => {
+    const current = currentRef.current;
+    const measureRect = measureRectRef.current;
+
     if (motionSuppressed(motion)) {
+      // Deliberately do NOT reset lastRectsRef here: an id that disappears on
+      // the first active pass after unsuppression has no live node to
+      // measure, so the pre-suppression snapshot is its only rect.
       for (const timer of timersRef.current.values()) clearTimeout(timer);
       timersRef.current.clear();
       prevItemsRef.current = new Map(current);
-      lastRectsRef.current = new Map();
       setEntries((prev) => (prev.length > 0 ? [] : prev));
       return;
     }
@@ -88,7 +102,7 @@ export function useExitingInstances<T>(
     }
     lastRectsRef.current = nextRects;
     prevItemsRef.current = new Map(current);
-  }, [current, motion]);
+  }, [signature, motion]);
 
   return entries;
 }
