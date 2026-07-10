@@ -7,12 +7,6 @@
 @import '@fontsource/jetbrains-mono/500.css';
 
 @theme {
-  /* deprecated neon palette — kept as aliases until every consumer migrates (removed in Task 7) */
-  --color-cyan-accent: #00f0ff;
-  --color-blue-accent: #0066ff;
-  --color-seafoam-accent: #00ffa3;
-  --color-violet-accent: #6b00ff;
-
   /* brand */
   --color-brand: #0091ff;
   --color-brand-2: #00c2ff;
