@@ -17,6 +17,31 @@ body {
     Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
 }
 
+/* Dark scrollbars — macOS overlay scrollbars default to a light track,
+   which reads as a stray white strip against this dark theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #374151 #111827;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #111827;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #374151;
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #4b5563;
+}
+
 /* Vessel animations */
 .vessel-wrapper {
   transition: transform 0.3s ease-out, width 0.3s ease-out, height 0.3s ease-out;
