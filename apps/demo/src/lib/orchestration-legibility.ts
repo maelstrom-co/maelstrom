@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import type { MaelstromExtension, MaelstromExtensionContext } from '@maelstrom-co/react';
-import { useTouchedInstances } from './use-touched-instances';
+import { DEFAULT_CLEAR_AFTER_MS, useTouchedInstances } from './use-touched-instances';
 
 /**
  * Hooks the demo needs to make orchestration legible (shimmer, action
@@ -23,7 +23,11 @@ export const orchestrationLegibility: MaelstromExtension<OrchestrationLegibility
 ) => ({
   useTouchedInstances: () => {
     const { orchestrator } = ctx.useMaelstromContext();
-    return useTouchedInstances(orchestrator.commandProcessor.store);
+    return useTouchedInstances(
+      orchestrator.commandProcessor.store,
+      DEFAULT_CLEAR_AFTER_MS,
+      orchestrator.commandProcessor.events,
+    );
   },
   useInstanceCount: () => {
     const { orchestrator } = ctx.useMaelstromContext();

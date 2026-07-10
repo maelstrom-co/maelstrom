@@ -21,6 +21,23 @@ export interface InstancesStoreLike {
   subscribe(listener: (value: InstancesStoreState) => void): { unsubscribe(): void };
 }
 
+interface ExecutedAction {
+  readonly instanceId: string;
+}
+
+interface ExecuteActionsCommandLike {
+  readonly kind: string;
+  readonly executionPlan?: readonly ExecutedAction[];
+}
+
+/** Minimal shape this hook needs from `orchestrator.commandProcessor.events` — kept narrow so tests can pass a fake emitter instead of a real CommandProcessor. */
+export interface CommandEventsLike {
+  on(
+    event: 'command_complete',
+    cb: (payload: { readonly command: ExecuteActionsCommandLike }) => void,
+  ): () => void;
+}
+
 function snapshotOf(instances: ReadonlyMap<string, TouchableInstance>): Map<string, TouchableInstance> {
   return new Map(instances);
 }
@@ -53,31 +70,49 @@ function diff(
 }
 
 /**
- * Tracks which instanceIds changed `{variant, position, size}` in the most
- * recent store settle, clearing back to empty ~`clearAfterMs` after each
- * change so the caller can drive a one-shot "the assistant just touched
- * this" flash. Diffs by value (not object identity) — the store re-notifies
- * on every command in a batch (status transitions, etc.), most of which
- * leave `instances` unchanged, so those notifications produce an empty
- * diff and are silently ignored rather than clobbering the reported set.
+ * Tracks which instanceIds changed `{variant, position, size}` — or were the
+ * target of an executed action — in the most recent store settle, clearing
+ * back to empty ~`clearAfterMs` after each change so the caller can drive a
+ * one-shot "the assistant just touched this" flash. Diffs by value (not
+ * object identity) — the store re-notifies on every command in a batch
+ * (status transitions, etc.), most of which leave `instances` unchanged, so
+ * those notifications produce an empty diff and are silently ignored rather
+ * than clobbering the reported set.
+ *
+ * `events` (optional) covers content-only mutations: an executed action can
+ * change a vessel's own data (e.g. add a calendar event) without touching
+ * `{variant, position, size}` at all, which the shape diff alone would miss.
+ * When provided, `command_complete` events for `execute_actions` commands
+ * add their `executionPlan` instanceIds to the next settle's changed set —
+ * still excluding instances that weren't already on the board, same as the
+ * shape diff's "entering" rule.
  */
 export function useTouchedInstances(
   store: InstancesStoreLike,
   clearAfterMs = DEFAULT_CLEAR_AFTER_MS,
+  events?: CommandEventsLike,
 ): ReadonlySet<string> {
   const [touched, setTouched] = useState<ReadonlySet<string>>(EMPTY_SET);
   const snapshotRef = useRef<Map<string, TouchableInstance> | null>(null);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pendingActionTargetsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     // Fresh baseline on (re)subscribe — a swapped store must not report its
     // entire initial instance set as "just touched".
     snapshotRef.current = snapshotOf(store.state.instances);
+    pendingActionTargetsRef.current = new Set();
 
     const subscription = store.subscribe((next) => {
       const nextSnapshot = snapshotOf(next.instances);
       const prevSnapshot = snapshotRef.current ?? new Map();
       const changed = diff(prevSnapshot, nextSnapshot);
+
+      for (const id of pendingActionTargetsRef.current) {
+        if (prevSnapshot.has(id) && nextSnapshot.has(id)) changed.add(id);
+      }
+      pendingActionTargetsRef.current.clear();
+
       snapshotRef.current = nextSnapshot;
 
       if (changed.size === 0) return;
@@ -87,11 +122,19 @@ export function useTouchedInstances(
       clearTimerRef.current = setTimeout(() => setTouched(EMPTY_SET), clearAfterMs);
     });
 
+    const unsubscribeEvents = events?.on('command_complete', ({ command }) => {
+      if (command.kind !== 'execute_actions' || !command.executionPlan) return;
+      for (const { instanceId } of command.executionPlan) {
+        pendingActionTargetsRef.current.add(instanceId);
+      }
+    });
+
     return () => {
       subscription.unsubscribe();
+      unsubscribeEvents?.();
       clearTimeout(clearTimerRef.current);
     };
-  }, [store, clearAfterMs]);
+  }, [store, clearAfterMs, events]);
 
   return touched;
 }

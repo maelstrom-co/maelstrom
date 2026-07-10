@@ -2,8 +2,16 @@
 
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { InstancesStoreLike, InstancesStoreState } from './use-touched-instances';
-import { useFlashInstances, useTouchedInstances } from './use-touched-instances';
+import type {
+  CommandEventsLike,
+  InstancesStoreLike,
+  InstancesStoreState,
+} from './use-touched-instances';
+import {
+  DEFAULT_CLEAR_AFTER_MS,
+  useFlashInstances,
+  useTouchedInstances,
+} from './use-touched-instances';
 
 interface FakeInstance {
   variant: string;
@@ -36,6 +44,23 @@ function createFakeStore(initial: InstancesStoreState): InstancesStoreLike & {
     setState(next) {
       state = next;
       for (const listener of listeners) listener(next);
+    },
+  };
+}
+
+type CommandCompleteHandler = Parameters<CommandEventsLike['on']>[1];
+
+function createFakeEvents(): CommandEventsLike & {
+  emitCommandComplete: (payload: Parameters<CommandCompleteHandler>[0]) => void;
+} {
+  const listeners = new Set<CommandCompleteHandler>();
+  return {
+    on(_event, cb) {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    emitCommandComplete(payload) {
+      for (const listener of listeners) listener(payload);
     },
   };
 }
@@ -152,6 +177,70 @@ describe('useTouchedInstances', () => {
     act(() => {
       vi.advanceTimersByTime(1);
     });
+    expect(result.current).toEqual(new Set());
+  });
+
+  it('flags an instance targeted by an executed action even when its shape is unchanged', () => {
+    // The interruption beat ("skip the gym, add coffee at 9") mutates
+    // calendar events via an executed action — no {variant, position, size}
+    // change — so the shape diff alone reports nothing.
+    const store = createFakeStore({
+      instances: new Map([['a', makeInstance()]]),
+    });
+    const events = createFakeEvents();
+    const { result } = renderHook(() =>
+      useTouchedInstances(store, DEFAULT_CLEAR_AFTER_MS, events),
+    );
+
+    act(() => {
+      events.emitCommandComplete({
+        command: {
+          kind: 'execute_actions',
+          executionPlan: [{ instanceId: 'a' }],
+        },
+      });
+      store.setState({ instances: new Map([['a', makeInstance()]]) });
+    });
+
+    expect(result.current).toEqual(new Set(['a']));
+  });
+
+  it('does not flag an action target that entered the board in the same settle', () => {
+    const store = createFakeStore({ instances: new Map() });
+    const events = createFakeEvents();
+    const { result } = renderHook(() =>
+      useTouchedInstances(store, DEFAULT_CLEAR_AFTER_MS, events),
+    );
+
+    act(() => {
+      events.emitCommandComplete({
+        command: {
+          kind: 'execute_actions',
+          executionPlan: [{ instanceId: 'b' }],
+        },
+      });
+      store.setState({ instances: new Map([['b', makeInstance()]]) });
+    });
+
+    expect(result.current).toEqual(new Set());
+  });
+
+  it('ignores command_complete events for set_layout commands', () => {
+    const store = createFakeStore({
+      instances: new Map([['a', makeInstance()]]),
+    });
+    const events = createFakeEvents();
+    const { result } = renderHook(() =>
+      useTouchedInstances(store, DEFAULT_CLEAR_AFTER_MS, events),
+    );
+
+    act(() => {
+      events.emitCommandComplete({
+        command: { kind: 'set_layout' },
+      });
+      store.setState({ instances: new Map([['a', makeInstance()]]) });
+    });
+
     expect(result.current).toEqual(new Set());
   });
 });
