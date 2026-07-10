@@ -1,54 +1,34 @@
+import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
+import { m } from '../lib/maelstrom';
+import {
+  calendarActions,
+  getCalendarSnapshot,
+  useCalendarStore,
+  type CalendarEvent,
+} from './calendar.store';
 import type { calendarVessel } from './calendar.vessel';
 
 const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+// Display-only fixtures for non-today days in the week view — never
+// mutated by actions, unlike today's events (see `calendar.store.ts`).
 const EVENTS: Record<
   string,
-  { time: string; title: string; duration: string; color: string }[]
+  { time: string; title: string; color: string }[]
 > = {
-  Mon: [
-    { time: '9:00', title: 'Team standup', duration: '30m', color: '#0066ff' },
-  ],
+  Mon: [{ time: '9:00', title: 'Team standup', color: '#0066ff' }],
   Tue: [],
   Wed: [
-    { time: '14:00', title: 'Design review', duration: '1h', color: '#00f0ff' },
-    {
-      time: '16:00',
-      title: 'Sprint planning',
-      duration: '45m',
-      color: '#6b00ff',
-    },
+    { time: '14:00', title: 'Design review', color: '#00f0ff' },
+    { time: '16:00', title: 'Sprint planning', color: '#6b00ff' },
   ],
-  Thu: [
-    {
-      time: '10:00',
-      title: '1:1 with lead',
-      duration: '30m',
-      color: '#0066ff',
-    },
-  ],
-  Fri: [{ time: '15:00', title: 'Demo day', duration: '1h', color: '#00f0ff' }],
+  Thu: [{ time: '10:00', title: '1:1 with lead', color: '#0066ff' }],
+  Fri: [{ time: '15:00', title: 'Demo day', color: '#00f0ff' }],
   Sat: [],
   Sun: [],
 };
-
-const TODAY_EVENTS = [
-  { time: '7:30', title: 'Gym', duration: '45m', color: '#0066ff' },
-  {
-    time: '10:00',
-    title: 'Design review — Studio Vortex HQ',
-    duration: '1h',
-    color: '#00f0ff',
-  },
-  {
-    time: '16:00',
-    title: 'Sprint planning',
-    duration: '45m',
-    color: '#6b00ff',
-  },
-];
 
 const DAY_HOURS = [
   '7:30',
@@ -64,10 +44,45 @@ const DAY_HOURS = [
   '17:00',
 ];
 
+const EVENT_COLORS = ['#0066ff', '#00f0ff', '#6b00ff'];
+
+function noMatchError(title: string): Error {
+  const available = getCalendarSnapshot()
+    .events.map((e) => `"${e.title}"`)
+    .join(', ');
+  return new Error(`No event matches "${title}". Available: ${available}`);
+}
+
+function eventLabel(event: CalendarEvent): string {
+  return event.location ? `${event.title} — ${event.location}` : event.title;
+}
+
 export default function CalendarComponent({
+  instanceId,
   variantProps,
 }: TypedVesselProps<typeof calendarVessel>) {
   const variant = variantProps.variant;
+  const { events } = useCalendarStore();
+  const eventColors = new Map(
+    events.map((e, i) => [e.id, EVENT_COLORS[i % EVENT_COLORS.length]]),
+  );
+
+  m.useActions('calendar', instanceId, {
+    addEvent: async ({ title, time }) => {
+      calendarActions.addEvent(title, time);
+      return ok(undefined);
+    },
+    removeEvent: async ({ title }) => {
+      if (!calendarActions.removeEvent(title)) return err(noMatchError(title));
+      return ok(undefined);
+    },
+    moveEvent: async ({ title, time }) => {
+      if (!calendarActions.moveEvent(title, time)) {
+        return err(noMatchError(title));
+      }
+      return ok(undefined);
+    },
+  });
 
   if (variant === 'week') {
     const todayIdx = new Date().getDay();
@@ -78,8 +93,17 @@ export default function CalendarComponent({
       <VesselCard accent="blue" label="Week View" meta="This Week">
         <div className="flex-1 grid grid-cols-7 gap-1.5">
           {WEEK_DAYS.map((day, i) => {
-            const dayEvents = EVENTS[day] ?? [];
             const isToday = i === todayMonIdx;
+            // Today's column mirrors the same events store the day view
+            // reads from, so an add/remove/move shows up consistently
+            // across both views. Other days stay on the static fixture.
+            const dayEvents = isToday
+              ? events.map((e) => ({
+                  time: e.time,
+                  title: eventLabel(e),
+                  color: eventColors.get(e.id) ?? EVENT_COLORS[0],
+                }))
+              : (EVENTS[day] ?? []);
             return (
               <div key={day} className="flex flex-col gap-1.5 min-w-0">
                 <div
@@ -129,7 +153,7 @@ export default function CalendarComponent({
       <VesselCard accent="blue" label="Day View" meta="Today">
         <div className="flex-1 overflow-y-auto space-y-0.5">
           {DAY_HOURS.map((hour) => {
-            const event = TODAY_EVENTS.find((e) => e.time === hour);
+            const event = events.find((e) => e.time === hour);
             return (
               <div key={hour} className="flex items-center gap-3 py-1.5">
                 <span className="text-xs text-gray-500 font-mono w-[44px] shrink-0 text-right">
@@ -139,13 +163,12 @@ export default function CalendarComponent({
                   <div
                     className="flex-1 px-3 py-2 rounded-lg"
                     style={{
-                      background: `${event.color}12`,
-                      borderLeft: `2px solid ${event.color}60`,
+                      background: `${eventColors.get(event.id) ?? EVENT_COLORS[0]}12`,
+                      borderLeft: `2px solid ${eventColors.get(event.id) ?? EVENT_COLORS[0]}60`,
                     }}
                   >
-                    <div className="text-sm text-white/80">{event.title}</div>
-                    <div className="text-xs text-gray-500 font-mono mt-0.5">
-                      {event.duration}
+                    <div className="text-sm text-white/80">
+                      {eventLabel(event)}
                     </div>
                   </div>
                 ) : (
