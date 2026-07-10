@@ -12,6 +12,7 @@ import { mapEntry } from '../vessels/map.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
 import { mintOpenAIToken } from './mint-token';
+import { orchestrationLegibility } from './orchestration-legibility';
 import { getLivekitToken } from './voice/get-livekit-token';
 
 const vessels = [
@@ -24,7 +25,9 @@ const vessels = [
 
 export const m = createMaelstrom({
   vessels,
-}).with(maelstromRealtime({ createAdapter, debug: true }));
+})
+  .with(maelstromRealtime({ createAdapter, debug: true }))
+  .with(orchestrationLegibility);
 
 // Provider is chosen at build time by VITE_VOICE_PROVIDER: `livekit` selects the
 // cascaded LiveKit transport (push-to-talk), anything else the speech-native

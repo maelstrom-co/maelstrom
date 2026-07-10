@@ -97,3 +97,68 @@ body {
 .caption-line--faded {
   opacity: 0;
 }
+
+/* Thinking shimmer: a slow gradient sweep on the chart's edge while a
+   request is in flight — no spinner, no overlay blocking content. */
+.chart-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.chart-wrapper[data-thinking='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  padding: 2px;
+  background: linear-gradient(
+    120deg,
+    var(--color-cyan-accent),
+    var(--color-violet-accent),
+    var(--color-seafoam-accent),
+    var(--color-cyan-accent)
+  );
+  background-size: 300% 300%;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: thinking-shimmer-sweep 3s linear infinite;
+}
+
+@keyframes thinking-shimmer-sweep {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 300% 50%;
+  }
+}
+
+/* Action flash: a one-shot accent outline pulse on vessels the assistant
+   just changed. Plays once (animation, not transition) — the touched-id
+   timer removes the data-flash attribute shortly after this finishes. */
+@keyframes action-flash-pulse {
+  0% {
+    outline-color: transparent;
+    outline-offset: 0;
+  }
+  25% {
+    outline-color: var(--color-cyan-accent);
+    outline-offset: 2px;
+  }
+  100% {
+    outline-color: transparent;
+    outline-offset: 8px;
+  }
+}
+
+[data-flash='true'] {
+  outline: 2px solid transparent;
+  outline-offset: 0;
+  border-radius: 4px;
+  animation: action-flash-pulse 1.2s ease-out 1;
+}

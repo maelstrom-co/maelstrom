@@ -1,10 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { Captions } from '../components/captions';
+import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
 import { VoiceErrorNote } from '../components/voice-error-note';
 import { createDemoConnector } from '../lib/connector';
 import { m } from '../lib/maelstrom';
 import { VoiceControl } from '../components/voice-control';
+import { useFlashInstances } from '../lib/use-touched-instances';
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -21,6 +23,10 @@ function HomePage() {
 }
 
 function DemoApp() {
+  const { isProcessing } = m.useMaelstrom();
+  const { state: voiceState } = m.useVoice();
+  const thinking = isProcessing || voiceState === 'thinking';
+
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
@@ -39,7 +45,11 @@ function DemoApp() {
 
       {/* Main content */}
       <main className="flex-1 relative">
-        <m.Chart />
+        <div className="chart-wrapper" data-thinking={thinking ? 'true' : undefined}>
+          <m.Chart />
+        </div>
+        <FirstRunHint />
+        <ActionFlash />
         <Captions />
       </main>
 
@@ -47,6 +57,17 @@ function DemoApp() {
       <IntentInput />
     </div>
   );
+}
+
+/**
+ * Renders nothing — subscribes to the last-settled instance diff and flags
+ * the corresponding `[data-instance-id]` DOM wrappers with `data-flash`
+ * directly (Chart owns that DOM, not this component's React tree).
+ */
+function ActionFlash() {
+  const touched = m.useTouchedInstances();
+  useFlashInstances(touched);
+  return null;
 }
 
 function StatusIndicator() {
@@ -86,13 +107,6 @@ function IntentInput() {
     setIntent('');
   };
 
-  const suggestions = [
-    "Expand the weather forecast and show me today's calendar",
-    'Start a journal entry about the sprint retro and take notes',
-    "Add 'Deploy v2.0' to my tasks and check off 'Setup CI'",
-    'Clear the board and just show the weekly weather',
-  ];
-
   return (
     <div className="bg-gray-800 border-t border-gray-700 p-4">
       <VoiceErrorNote />
@@ -126,7 +140,7 @@ function IntentInput() {
 
         {/* Suggestions */}
         <div className="mt-3 flex flex-wrap gap-2">
-          {suggestions.map((suggestion) => (
+          {FIRST_RUN_EXAMPLES.map((suggestion) => (
             <button
               key={suggestion}
               type="button"
