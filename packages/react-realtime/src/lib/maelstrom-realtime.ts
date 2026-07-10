@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { Orchestrator, TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
 import type { MaelstromExtension, MaelstromExtensionContext } from '@maelstrom-co/react';
 import type { RealtimeInstance, RealtimeProviderAdapter, SummarizeFn } from '@maelstrom-co/realtime';
 import { RealtimeSession } from '@maelstrom-co/realtime';
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
+
+import { createVoiceOrb, type VoiceOrbProps } from './voice-orb.js';
 
 /** Options for {@link maelstromRealtime}. */
 export interface MaelstromRealtimeOptions {
@@ -63,7 +65,10 @@ function createBridge(orchestrator: Orchestrator): RealtimeInstance {
  */
 export function maelstromRealtime(
   options: MaelstromRealtimeOptions,
-): MaelstromExtension<{ useVoice: () => UseVoiceResult }> {
+): MaelstromExtension<{
+  useVoice: () => UseVoiceResult;
+  VoiceOrb: (props: VoiceOrbProps) => ReactElement;
+}> {
   // The extension factory runs once, outside React, before any component
   // renders, and the only handle it gets on the orchestrator is the
   // `useMaelstromContext` hook — so the session can't be built here. Instead
@@ -91,8 +96,8 @@ export function maelstromRealtime(
     return session;
   }
 
-  return (ctx: MaelstromExtensionContext) => ({
-    useVoice: (): UseVoiceResult => {
+  return (ctx: MaelstromExtensionContext) => {
+    const useVoice = (): UseVoiceResult => {
       const { orchestrator } = ctx.useMaelstromContext();
       const session = getOrCreateSession(orchestrator);
 
@@ -157,6 +162,8 @@ export function maelstromRealtime(
         connect,
         disconnect,
       };
-    },
-  });
+    };
+
+    return { useVoice, VoiceOrb: createVoiceOrb(useVoice) };
+  };
 }
