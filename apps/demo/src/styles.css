@@ -87,3 +87,13 @@ body {
 .voice-orb[data-state='error'] {
   box-shadow: 0 0 16px 4px #ef4444;
 }
+
+/* Voice caption fade */
+.caption-line {
+  opacity: 1;
+  transition: opacity 0.4s ease-out;
+}
+
+.caption-line--faded {
+  opacity: 0;
+}

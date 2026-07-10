@@ -1,5 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
+import { Captions } from '../components/captions';
+import { VoiceErrorNote } from '../components/voice-error-note';
 import { createDemoConnector } from '../lib/connector';
 import { m } from '../lib/maelstrom';
 import { VoiceControl } from '../components/voice-control';
@@ -38,6 +40,7 @@ function DemoApp() {
       {/* Main content */}
       <main className="flex-1 relative">
         <m.Chart />
+        <Captions />
       </main>
 
       {/* Intent input */}
@@ -92,6 +95,10 @@ function IntentInput() {
 
   return (
     <div className="bg-gray-800 border-t border-gray-700 p-4">
+      <VoiceErrorNote />
+      <div className="flex justify-center mb-3">
+        <m.VoiceOrb size={56} className="voice-orb" />
+      </div>
       <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
         <div className="flex gap-2">
           <input
