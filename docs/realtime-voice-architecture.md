@@ -72,6 +72,11 @@ Three facts to hold onto:
   RealtimeSession (root)
   OpenAIAdapter (/openai subpath)
   (/google subpath — reserved stub)
+        ▲
+        │
+@maelstrom-co/react-realtime
+  maelstromRealtime() .with() extension
+  useVoice() / VoiceOrb
 ```
 
 ### Why three packages instead of one or two
@@ -80,7 +85,7 @@ Three facts to hold onto:
 - **`realtime` vs `realtime-server`**: these run on opposite sides of an HTTP boundary and must never share code, only wire schemas. `realtime-server` has **no dependency edge to `realtime`** — both depend only on `protocol`. This makes key custody a *package boundary*, not a convention: the only code that can read `OPENAI_API_KEY` is `realtime-server`, and it only ever writes the key into the upstream `Authorization` header.
 - **Provider adapters as subpath exports** (`@maelstrom-co/realtime/openai`, future `/google`): importing one provider doesn't pull the other's SDK weight, and the root package stays provider-neutral.
 
-A fourth package, `@maelstrom-co/react-realtime` (the `.with()` extension), is deliberately deferred — the demo uses a local spike extension until the shared React layer is designed once for both voice tracks (MAE-332).
+A fourth package, `@maelstrom-co/react-realtime`, now ships the realtime track's React layer: `maelstromRealtime()` is a `.with()` extension adding a shared `useVoice()` hook (one `RealtimeSession` per Maelstrom instance, refcounted across every consumer under a Provider) and a `VoiceOrb` component that meters the session's live mic/playback streams for an audio-reactive indicator. It replaces the demo's local spike extension (`apps/demo/src/lib/voice-spike.ts`) for the realtime track; migrating the demo onto it, and generalizing it into a single `maelstromVoice(sessionFactory)` extension shared with the cascade track, is MAE-332.
 
 ---
 
@@ -133,13 +138,13 @@ Five deliberate seams, ordered from innermost out:
 
 **1. `RealtimeInstance`** (`realtime`) — the five-method bridge (`submitIntent`, `waitForIdle`, `getStructuralSnapshot`, `getCapabilitySnapshot`, `onSettled`) that is *all* the voice core knows about Maelstrom. `Orchestrator` maps onto it with a small wrapper (see `apps/demo/src/lib/voice-spike.ts`). This keeps `realtime` off the full `Orchestrator` surface and makes the session trivially testable with a fake instance.
 
-**2. `RealtimeProviderAdapter`** (`realtime`) — the provider seam: `connect(tools, instructions)`, `disconnect()`, `sendToolResult()`, `injectGrounding()`, and an inbound event union (`tool_call | transcript | speech_started | state | error`). Everything provider-shaped — WebRTC vs WebSocket, envelope formats, token handshakes, response pacing — lives *below* this line; `RealtimeSession` never branches on provider identity. A Gemini Live adapter is one new file under a `/google` subpath (MAE-311).
+**2. `RealtimeProviderAdapter`** (`realtime`) — the provider seam: `connect(tools, instructions)`, `disconnect()`, `getAudioStreams()`, `sendToolResult()`, `injectGrounding()`, and an inbound event union (`tool_call | transcript | speech_started | state | error`). `getAudioStreams()` exposes the adapter's live mic/playback `MediaStream`s for UI metering (voice orbs, level meters); the OpenAI adapter derives real `listening`/`thinking`/`speaking` `state` events from raw session events (internal `voice-activity.ts`) rather than passing through a flat connected/disconnected signal. Everything provider-shaped — WebRTC vs WebSocket, envelope formats, token handshakes, response pacing — lives *below* this line; `RealtimeSession` never branches on provider identity. A Gemini Live adapter is one new file under a `/google` subpath (MAE-311).
 
-**3. `VoiceSession`** (`client`) — the capability seam both voice tracks implement: `state`, `connect()`, `disconnect()`, `on('state')`. Deliberately minimal in v1; the fuller shape (intent-emission surface, speakable results, grounding flow) is to be settled jointly with the cascade track before the contract ossifies. `SpeakableResult` and `GroundingUpdate` types are exported ahead of that.
+**3. `VoiceSession`** (`client`) — the capability seam both voice tracks implement: `state`, `connect()`, `disconnect()`, `on('state')`, and `on('transcript')` (a `TranscriptEntry` stream of user/assistant utterance fragments, driving live captions directly off the session — no sidechannel receiver required). Deliberately minimal in v1; the fuller shape (intent-emission surface, speakable results, grounding flow) is to be settled jointly with the cascade track before the contract ossifies. `SpeakableResult` and `GroundingUpdate` types are exported ahead of that.
 
 **4. `TokenHandshakeRequest/Response`** (`protocol`) — the browser↔mint-endpoint wire contract, provider-tagged (`'openai' | 'google'`) with an opaque credential `value`, so one schema serves every provider. Zod-validated on both ends, with compile-time drift guards pinning the interfaces to the schemas.
 
-**5. `SidechannelEvent`** (`protocol`) — the observability stream (`transcript | tool_call | tool_result | timing`), stamped with `sessionId` and client-clock time (skew-prone by contract: receivers must stamp their own receipt time for anything cross-client, like metering), carrying **no audio**. `RealtimeSession` mirrors every tool round-trip onto its `onEvent` callback. This schema is the contract a future cloud tier's metering rides on, so it is additive-only. Only the emitter side ships; the receiver is MAE-335.
+**5. `SidechannelEvent`** (`protocol`) — the observability stream (`transcript | tool_call | tool_result | timing`), stamped with `sessionId` and client-clock time (skew-prone by contract: receivers must stamp their own receipt time for anything cross-client, like metering), carrying **no audio**. `RealtimeSession` mirrors every tool round-trip onto its `onEvent` callback. This schema is the contract a future cloud tier's metering rides on, so it is additive-only. Live captions no longer depend on this stream: `RealtimeSession.on('transcript')` (and `VoiceSession.on('transcript')` on the `client` seam) is a first-class subscription apps can consume directly, so a UI can render captions without standing up a sidechannel receiver. `SidechannelEvent`'s own receiver — wiring `onEvent` to a transport and a storage-agnostic server handler, for telemetry/analytics rather than captions — remains emitter-only and is tracked as MAE-335.
 
 ---
 
@@ -183,7 +188,7 @@ The seam between shell and core is explicit: the adapter is "thin RTCPeerConnect
 | D5 — speak-after-render | tool result withheld until `waitForIdle()` |
 | D6 — debounced latest-wins grounding + pull tool | `groundedDebounce` + stable-ID grounding item + `get_ui_state` |
 | D7 — thin in-house provider adapter | `RealtimeProviderAdapter` + `/openai` subpath |
-| D8 — three packages | `realtime` / `realtime-server` / (deferred) `react-realtime` |
+| D8 — three packages plus the realtime track's React layer | `realtime` / `realtime-server` / `react-realtime` |
 
 ---
 
@@ -193,7 +198,7 @@ Tracked in Linear, all under Soft Preview Release:
 
 - **[MAE-311](https://linear.app/maelstrom-vortex/issue/MAE-311)** — Gemini Live adapter (`/google` subpath), the seam's first real pressure test, plus its minter.
 - **[MAE-330](https://linear.app/maelstrom-vortex/issue/MAE-330) / [MAE-331](https://linear.app/maelstrom-vortex/issue/MAE-331)** — rebase the LiveKit cascade voice track onto the `VoiceSession` seam and the token-handshake contract.
-- **[MAE-332](https://linear.app/maelstrom-vortex/issue/MAE-332)** — the shared React layer (`maelstromVoice()` `.with()` extension), designed once for both tracks; session ownership moves out of component state.
+- **[MAE-332](https://linear.app/maelstrom-vortex/issue/MAE-332)** — generalize `@maelstrom-co/react-realtime`'s `maelstromRealtime()` extension (shipped for the realtime track; session ownership already lives in the extension closure, out of component state) into a single `maelstromVoice(sessionFactory)` extension shared with the cascade track, and migrate the demo off its local spike extension.
 - **[MAE-333](https://linear.app/maelstrom-vortex/issue/MAE-333)** — docs reconciliation across the voice packages.
 - **[MAE-334](https://linear.app/maelstrom-vortex/issue/MAE-334)** — acoustic false barge-in (noise triggering `speech_started`).
 - **[MAE-335](https://linear.app/maelstrom-vortex/issue/MAE-335)** — the sidechannel *receiver*: wire `onEvent` to a transport and a storage-agnostic server handler.
@@ -207,7 +212,7 @@ Tracked in Linear, all under Soft Preview Release:
 
 Of the seven judgments this section originally flagged, five have since been implemented (2026-07-07) and folded into the body above:
 
-- **Session ownership in the demo spike** — the session now lives in the extension closure (`WeakMap` keyed by orchestrator, subscriber refcount), not a `useState` initializer; hooks only subscribe. The real extension (MAE-332) should inherit this shape.
+- **Session ownership in the demo spike** — the session now lives in the extension closure (`WeakMap` keyed by orchestrator, subscriber refcount), not a `useState` initializer; hooks only subscribe. `@maelstrom-co/react-realtime`'s `maelstromRealtime()` already inherits this exact shape; MAE-332 still needs to generalize it across both voice tracks.
 - **Latest-wins barge-in queueing** — the "try again in a moment" busy answer is gone; see *Concurrency and lifecycle*.
 - **Parser drift visibility** — unexpected event types now warn once per distinct type; see *Testing strategy*.
 - **Grounding length clamp** — the ~100-token budget is enforced, not conventional; see *Grounding*.
