@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { isOk } from '@maelstrom-co/protocol';
-import { createOpenAIMinter, type MintFailureReason } from '@maelstrom-co/realtime-server';
+import { isErr, isOk } from '@maelstrom-co/protocol';
+import { createOpenAIMinter, mintFailureHttpStatus } from '@maelstrom-co/realtime-server';
 
 /**
  * Mints ephemeral OpenAI realtime client secrets on behalf of the browser.
@@ -14,13 +14,6 @@ const mint = createOpenAIMinter({
   model: 'gpt-realtime-2',
 });
 
-const FAILURE_STATUS: Record<MintFailureReason, number> = {
-  'invalid-request': 400,
-  'unsupported-provider': 400,
-  'missing-api-key': 500,
-  'upstream-failure': 502,
-};
-
 export async function handleRealtimeTokenRequest(request: Request): Promise<Response> {
   if (request.method !== 'POST') {
     return Response.json({ error: 'Method not allowed' }, { status: 400 });
@@ -30,6 +23,16 @@ export async function handleRealtimeTokenRequest(request: Request): Promise<Resp
   try {
     body = await request.json();
   } catch {
+    // A malformed body can't be distinguished from a client error until we
+    // rule out server misconfiguration first — `undefined` never validates,
+    // so this reuses the minter's own apiKey check instead of duplicating it.
+    const misconfigured = await mint(undefined);
+    if (isErr(misconfigured) && misconfigured.error.reason === 'missing-api-key') {
+      return Response.json(
+        { error: misconfigured.error.reason },
+        { status: mintFailureHttpStatus(misconfigured.error.reason) },
+      );
+    }
     return Response.json({ error: 'Malformed request body' }, { status: 400 });
   }
 
@@ -45,7 +48,7 @@ export async function handleRealtimeTokenRequest(request: Request): Promise<Resp
         upstreamStatus: result.error.upstreamStatus,
       }),
     },
-    { status: FAILURE_STATUS[result.error.reason] },
+    { status: mintFailureHttpStatus(result.error.reason) },
   );
 }
 
