@@ -58,7 +58,7 @@ export default function JournalComponent({
   if (isEntryView) {
     if (!activeEntry) {
       return (
-        <VesselCard accent="seafoam" label="Journal" meta="Entry">
+        <VesselCard accent="green" label="Journal" meta="Entry">
           <div className="flex-1 flex flex-col items-center justify-center text-center gap-2">
             <div className="text-sm text-white/70">No entry selected.</div>
             <div className="text-xs text-gray-500 max-w-xs">
@@ -70,7 +70,7 @@ export default function JournalComponent({
     }
 
     return (
-      <VesselCard accent="seafoam" label="Journal" meta="Entry">
+      <VesselCard accent="green" label="Journal" meta="Entry">
         <div className="flex-1 flex flex-col">
           <h2 className="text-lg font-semibold text-white/90 mb-1">
             {activeEntry.title}
@@ -97,7 +97,7 @@ export default function JournalComponent({
   // List view (default)
   return (
     <VesselCard
-      accent="seafoam"
+      accent="green"
       label="Journal"
       meta={`${entries.length} entries`}
     >

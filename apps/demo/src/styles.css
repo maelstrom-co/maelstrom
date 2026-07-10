@@ -247,8 +247,40 @@ body {
   animation: action-flash-pulse 1.2s ease-out 1;
 }
 
+/* VesselCard glass chassis — www's `.surface` recipe with per-instance
+   accent delivered through --accent/--edge/--glow instead of a class map. */
+.vessel-card {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01));
+  backdrop-filter: blur(8px);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 24px 60px -28px rgba(0, 0, 0, 0.8);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.vessel-card:hover {
+  border-color: var(--line-strong);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 24px 60px -28px rgba(0, 0, 0, 0.8),
+    0 30px 80px -30px var(--glow);
+}
+
+.vessel-card-edge {
+  background: linear-gradient(90deg, transparent, var(--edge), transparent);
+}
+
+.vessel-card-dot {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+}
+
+/* Keep this last: it must override the animation/transition declarations above. */
 @media (prefers-reduced-motion: reduce) {
-  .voice-orb {
+  .voice-orb,
+  .vessel-card {
     transition: none;
   }
 

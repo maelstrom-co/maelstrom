@@ -67,7 +67,7 @@ export default function TasksComponent({
 
   return (
     <VesselCard
-      accent="violet"
+      accent="amber"
       label="Tasks"
       meta={`${doneCount}/${totalCount}`}
     >

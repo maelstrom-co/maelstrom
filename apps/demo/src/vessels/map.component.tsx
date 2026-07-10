@@ -233,7 +233,7 @@ export default function MapComponent({
 
   return (
     <VesselCard
-      accent="violet"
+      accent="brand-3"
       label="Map"
       meta={metaFor(effectiveVariant, state)}
     >

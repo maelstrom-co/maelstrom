@@ -120,7 +120,7 @@ export default function CalendarComponent({
     const todayMonIdx = todayIdx === 0 ? 6 : todayIdx - 1;
 
     return (
-      <VesselCard accent="blue" label="Week View" meta="This Week">
+      <VesselCard accent="brand" label="Week View" meta="This Week">
         <div className="flex-1 grid grid-cols-7 gap-1.5">
           {WEEK_DAYS.map((day, i) => {
             const isToday = i === todayMonIdx;
@@ -193,7 +193,7 @@ export default function CalendarComponent({
 
   if (variant === 'day') {
     return (
-      <VesselCard accent="blue" label="Day View" meta="Today">
+      <VesselCard accent="brand" label="Day View" meta="Today">
         <div className="flex-1 overflow-y-auto space-y-0.5">
           {DAY_HOURS.map((hour) => {
             const slotEvents = sortByTime(
@@ -265,7 +265,7 @@ export default function CalendarComponent({
 
   return (
     <VesselCard
-      accent="blue"
+      accent="brand"
       label={`${monthNames[today.getMonth()]} ${today.getFullYear()}`}
       meta="Calendar"
     >

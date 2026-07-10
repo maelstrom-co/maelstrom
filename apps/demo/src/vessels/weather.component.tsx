@@ -45,7 +45,7 @@ export default function WeatherComponent({
     const hourlyTempRange = Math.max(1, hourlyMaxTemp - hourlyMinTemp);
 
     return (
-      <VesselCard accent="cyan" label="Hourly Forecast" meta="San Francisco">
+      <VesselCard accent="brand-2" label="Hourly Forecast" meta="San Francisco">
         <div className="flex items-baseline gap-1 mb-4">
           <span
             className="text-5xl font-bold tracking-tight"
@@ -97,7 +97,7 @@ export default function WeatherComponent({
 
   if (variant === 'weekly') {
     return (
-      <VesselCard accent="cyan" label="Weekly Forecast" meta="San Francisco">
+      <VesselCard accent="brand-2" label="Weekly Forecast" meta="San Francisco">
         <div className="flex-1 grid grid-cols-7 gap-2">
           {weather.daily.map((d) => (
             <div
@@ -120,7 +120,7 @@ export default function WeatherComponent({
   // Current (default)
   const today = weather.daily[0];
   return (
-    <VesselCard accent="cyan" label="Weather" meta="San Francisco">
+    <VesselCard accent="brand-2" label="Weather" meta="San Francisco">
       <div className="flex-1 flex flex-col items-center justify-center">
         <div className="text-5xl mb-3">
           {weatherCodeToEmoji(weather.current.weatherCode)}
