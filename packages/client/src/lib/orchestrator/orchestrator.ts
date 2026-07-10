@@ -23,6 +23,10 @@ import { UpdateCoordinator } from '../update-coordination/update-coordinator.js'
 import { Logger } from '../utils/logger.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
 import {
+  readCapabilitySnapshot,
+  type CapabilitySnapshot,
+} from '../voice-session/capability-snapshot.js';
+import {
   readStructuralSnapshot,
   type UIStructuralSnapshot,
 } from '../voice-session/ui-structural-snapshot.js';
@@ -151,6 +155,11 @@ export class Orchestrator {
   /** Structural-only UI snapshot for grounding + `get_ui_state` pulls. */
   getStructuralSnapshot(): UIStructuralSnapshot {
     return readStructuralSnapshot(this);
+  }
+
+  /** Capability catalog (vessels, variants, actions) for `get_capabilities` pulls. */
+  getCapabilitySnapshot(): CapabilitySnapshot {
+    return readCapabilitySnapshot(this.#vesselManager.getAll());
   }
 
   /**

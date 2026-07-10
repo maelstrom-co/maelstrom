@@ -130,6 +130,13 @@ export {
 } from './lib/vessel-management/vessel-manager.state.js';
 export type { VesselManagerOptions } from './lib/vessel-management/vessel-manager.types.js';
 // Voice Session
+export type {
+  CapabilitySnapshot,
+  VesselCapability,
+  VesselCapabilityAction,
+  VesselCapabilityVariant,
+} from './lib/voice-session/capability-snapshot.js';
+export { readCapabilitySnapshot } from './lib/voice-session/capability-snapshot.js';
 export type { UIStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
 export { readStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
 export type {
