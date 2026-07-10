@@ -99,6 +99,10 @@ interface QueuedIntent {
   readonly resolve: (ok: boolean) => void;
 }
 
+type UpdateUiToolResult =
+  | { readonly ok: true; readonly summary: string }
+  | { readonly ok: false; readonly summary: string };
+
 function defaultSummarize(snapshot: UIStructuralSnapshot): string {
   const count = snapshot.instances.length;
   if (count === 0) return 'The screen is empty.';
@@ -272,14 +276,16 @@ export class RealtimeSession implements VoiceSession {
       case 'speech_started':
         // Not part of the tool/grounding surface this session drives.
         break;
+      default: {
+        const _exhaustive: never = event;
+        void _exhaustive;
+      }
     }
   }
 
-  async #handleToolCall(call: {
-    callId: string;
-    name: string;
-    argumentsJson: string;
-  }): Promise<void> {
+  async #handleToolCall(
+    call: Extract<RealtimeAdapterEvent, { type: 'tool_call' }>,
+  ): Promise<void> {
     this.#logger.debug('session: tool_call received', call);
     const startedAt = Date.now();
     this.#emit({
@@ -321,13 +327,18 @@ export class RealtimeSession implements VoiceSession {
     let intent: string;
     try {
       const parsed: unknown = JSON.parse(argumentsJson);
-      intent = (parsed as { intent?: unknown }).intent as string;
-      if (typeof intent !== 'string' || intent.length === 0) {
+      const raw = parsed as Record<string, unknown>;
+      const value =
+        typeof raw.intent === 'string' && raw.intent.length > 0
+          ? raw.intent
+          : undefined;
+      if (value === undefined) {
         throw new Error('missing "intent" string');
       }
+      intent = value;
     } catch (error) {
       this.#logger.warn('update_ui: bad arguments', argumentsJson, error);
-      await this.#adapter.sendToolResult(callId, {
+      await this.#sendUpdateUiResult(callId, {
         ok: false,
         summary: 'Could not understand that request.',
       });
@@ -369,7 +380,7 @@ export class RealtimeSession implements VoiceSession {
         label: 'update_ui.error',
         ms: Date.now() - renderStart,
       });
-      await this.#adapter.sendToolResult(callId, {
+      await this.#sendUpdateUiResult(callId, {
         ok: false,
         summary: APPLY_FAILED_SUMMARY,
       });
@@ -386,10 +397,18 @@ export class RealtimeSession implements VoiceSession {
 
     // speak-after-render: summary is derived from the POST-settle snapshot.
     const snapshot = this.#instance.getStructuralSnapshot();
-    await this.#adapter.sendToolResult(callId, {
+    await this.#sendUpdateUiResult(callId, {
+      ok: true,
       summary: this.#summarize(snapshot),
     });
     return true;
+  }
+
+  #sendUpdateUiResult(
+    callId: string,
+    result: UpdateUiToolResult,
+  ): Promise<void> {
+    return this.#adapter.sendToolResult(callId, result);
   }
 
   // Latest-wins: replaces whatever was queued, answering the call it bumps
@@ -402,14 +421,12 @@ export class RealtimeSession implements VoiceSession {
     const superseded = this.#queuedIntent;
     this.#queuedIntent = entry;
     if (superseded) {
-      void this.#adapter
-        .sendToolResult(superseded.callId, {
-          ok: false,
-          summary: SUPERSEDED_SUMMARY,
-        })
-        .then(() => {
-          superseded.resolve(false);
-        });
+      void this.#sendUpdateUiResult(superseded.callId, {
+        ok: false,
+        summary: SUPERSEDED_SUMMARY,
+      }).then(() => {
+        superseded.resolve(false);
+      });
     }
     if (!this.#bargeInLoopRunning) {
       this.#bargeInLoopRunning = true;
@@ -453,7 +470,7 @@ export class RealtimeSession implements VoiceSession {
               label: 'update_ui.error',
               ms: Date.now() - renderStart,
             });
-            await this.#adapter.sendToolResult(entry.callId, {
+            await this.#sendUpdateUiResult(entry.callId, {
               ok: false,
               summary: APPLY_FAILED_SUMMARY,
             });
@@ -462,7 +479,7 @@ export class RealtimeSession implements VoiceSession {
           }
           if (attempt >= MAX_BARGE_IN_ATTEMPTS) {
             this.#queuedIntent = undefined;
-            await this.#adapter.sendToolResult(entry.callId, {
+            await this.#sendUpdateUiResult(entry.callId, {
               ok: false,
               summary: BUSY_SUMMARY,
             });
@@ -488,7 +505,8 @@ export class RealtimeSession implements VoiceSession {
           ms: Date.now() - renderStart,
         });
         const snapshot = this.#instance.getStructuralSnapshot();
-        await this.#adapter.sendToolResult(entry.callId, {
+        await this.#sendUpdateUiResult(entry.callId, {
+          ok: true,
           summary: this.#summarize(snapshot),
         });
         entry.resolve(true);

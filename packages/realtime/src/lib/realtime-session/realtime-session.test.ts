@@ -253,6 +253,7 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
     expect(adapter.toolResults).toHaveLength(1);
     expect(adapter.toolResults[0].callId).toBe('c1');
     expect(adapter.toolResults[0].output).toEqual({
+      ok: true,
       summary: expect.any(String),
     });
   });
@@ -287,6 +288,7 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
     await flushMicrotasks();
 
     expect(adapter.toolResults[0].output).toEqual({
+      ok: true,
       summary: expect.stringContaining('labs-chart'),
     });
   });
@@ -593,8 +595,8 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
 
     const c1Result = adapter.toolResults.find((r) => r.callId === 'c1');
     const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
-    expect(c1Result?.output).toEqual({ summary: expect.any(String) });
-    expect(c2Result?.output).toEqual({ summary: expect.any(String) });
+    expect(c1Result?.output).toEqual({ ok: true, summary: expect.any(String) });
+    expect(c2Result?.output).toEqual({ ok: true, summary: expect.any(String) });
 
     // Exactly one sendToolResult + one tool_result sidechannel event per callId.
     expect(adapter.toolResults.filter((r) => r.callId === 'c1')).toHaveLength(1);
@@ -650,7 +652,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
     await flushMicrotasks();
 
     const c3Result = adapter.toolResults.find((r) => r.callId === 'c3');
-    expect(c3Result?.output).toEqual({ summary: expect.any(String) });
+    expect(c3Result?.output).toEqual({ ok: true, summary: expect.any(String) });
 
     // Exactly one answer + one sidechannel event per callId, even for the superseded one.
     for (const callId of ['c1', 'c2', 'c3']) {
