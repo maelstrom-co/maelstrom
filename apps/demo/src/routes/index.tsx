@@ -5,6 +5,7 @@ import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
 import { VoiceErrorNote } from '../components/voice-error-note';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
+import { STATUS_COLORS } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import { VoiceControl } from '../components/voice-control';
 import { useFlashInstances } from '../lib/use-touched-instances';
@@ -32,11 +33,14 @@ function DemoApp() {
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
+      <header
+        className="border-b px-6 py-4"
+        style={{ background: 'var(--color-bg-1)', borderColor: 'var(--line)' }}
+      >
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-white">Maelstrom Demo</h1>
-            <p className="text-sm text-gray-400">AI-Orchestrated Dynamic UI</p>
+            <h1 className="eyebrow">Maelstrom Demo</h1>
+            <p className="text-sm text-ink-2 mt-1">AI-Orchestrated Dynamic UI</p>
           </div>
           <div className="flex items-center gap-3">
             <VoiceControl showOrb={false} />
@@ -74,25 +78,20 @@ function ActionFlash() {
 
 function StatusIndicator() {
   const { connectionStatus } = m.useMaelstrom();
+  const color = STATUS_COLORS[connectionStatus];
 
   return (
     <div
-      className="flex items-center gap-2"
+      className="status-pill flex items-center gap-2 rounded-full px-3 py-1 font-mono text-xs uppercase tracking-[.1em] text-ink-2"
       role="status"
       aria-label={`Connection status: ${connectionStatus}`}
     >
-      <div
+      <span
         aria-hidden="true"
-        className={`w-2 h-2 rounded-full ${
-          connectionStatus === 'connected'
-            ? 'bg-green-500'
-            : connectionStatus === 'connecting'
-              ? 'bg-yellow-500'
-              : connectionStatus === 'error'
-                ? 'bg-red-500'
-                : 'bg-gray-500'
-        }`}
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ background: color, boxShadow: `0 0 8px ${color}` }}
       />
+      {connectionStatus}
     </div>
   );
 }
@@ -110,7 +109,10 @@ function IntentInput() {
   };
 
   return (
-    <div className="bg-gray-800 border-t border-gray-700 p-4">
+    <div
+      className="border-t p-4"
+      style={{ background: 'var(--color-bg-1)', borderColor: 'var(--line)' }}
+    >
       <VoiceErrorNote />
       <div className="flex justify-center mb-3">
         <m.VoiceOrb size={56} className="voice-orb" />
@@ -122,20 +124,20 @@ function IntentInput() {
             value={intent}
             onChange={(e) => setIntent(e.target.value)}
             placeholder="Tell Maelstrom what you want to do..."
-            className="intent-input flex-1"
+            className="intent-pill flex-1 px-4 py-3"
             disabled={isProcessing}
           />
           <button
             type="submit"
             disabled={isProcessing || !intent.trim()}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-6 py-3 rounded-lg font-medium transition-colors"
+            className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isProcessing ? 'Processing...' : 'Send'}
           </button>
         </div>
 
         {lastError && (
-          <div className="mt-2 text-sm text-red-400">
+          <div className="mt-2 text-sm text-pink">
             Error: {lastError.message}
           </div>
         )}
@@ -147,7 +149,7 @@ function IntentInput() {
               key={suggestion}
               type="button"
               onClick={() => setIntent(suggestion)}
-              className="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-full text-gray-300 transition-colors"
+              className="btn btn-ghost text-xs px-3 py-1.5"
             >
               {suggestion}
             </button>

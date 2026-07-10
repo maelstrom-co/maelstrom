@@ -89,7 +89,8 @@ describe('Captions', () => {
 
     let line = must(container.querySelector('[data-role="assistant"]'));
     expect(line.textContent).toBe('On ');
-    expect(line.className).toContain('text-cyan-accent');
+    expect(line.className).toContain('text-ink');
+    expect(line.querySelector('.caption-dot')).not.toBeNull();
 
     await act(async () => {
       session.emitTranscript({ role: 'assistant', text: 'it', final: false });
@@ -109,7 +110,7 @@ describe('Captions', () => {
     const line = must(container.querySelector('[data-role="user"]'));
     expect(line.textContent).toBe('show labs');
     expect(line.className).toContain('text-right');
-    expect(line.className).toContain('text-gray-400');
+    expect(line.className).toContain('text-ink-3');
   });
 
   it('keeps a finalized caption visible for ~3.5s then marks it faded', async () => {

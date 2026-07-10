@@ -103,11 +103,6 @@ body {
   transition: transform 0.3s ease-out, width 0.3s ease-out, height 0.3s ease-out;
 }
 
-/* Intent input styling */
-.intent-input {
-  @apply bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
-}
-
 /* Fade in animation for new items */
 @keyframes fade-in {
   from {
@@ -134,10 +129,10 @@ body {
   animation: scribe-pulse 1.5s ease-in-out infinite;
 }
 
-/* Voice orb state ring */
+/* Voice orb state ring — colors match design-tokens.ts's STATUS_COLORS table by hand (CSS cannot import it). */
 @keyframes voice-orb-connecting-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.6); }
-  50% { box-shadow: 0 0 0 8px rgba(250, 204, 21, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 165, 36, 0.6); }
+  50% { box-shadow: 0 0 0 8px rgba(245, 165, 36, 0); }
 }
 
 .voice-orb {
@@ -145,7 +140,7 @@ body {
 }
 
 .voice-orb[data-state='idle'] {
-  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.4);
+  box-shadow: 0 0 0 2px var(--color-ink-3);
 }
 
 .voice-orb[data-state='connecting'] {
@@ -154,19 +149,19 @@ body {
 
 .voice-orb[data-state='connected'],
 .voice-orb[data-state='listening'] {
-  box-shadow: 0 0 16px 4px var(--color-cyan-accent);
+  box-shadow: 0 0 16px 4px var(--color-brand-2);
 }
 
 .voice-orb[data-state='thinking'] {
-  box-shadow: 0 0 16px 4px var(--color-violet-accent);
+  box-shadow: 0 0 16px 4px var(--color-brand-3);
 }
 
 .voice-orb[data-state='speaking'] {
-  box-shadow: 0 0 16px 4px var(--color-seafoam-accent);
+  box-shadow: 0 0 16px 4px var(--color-green);
 }
 
 .voice-orb[data-state='error'] {
-  box-shadow: 0 0 16px 4px #ef4444;
+  box-shadow: 0 0 16px 4px var(--color-pink);
 }
 
 /* Voice caption fade */
@@ -194,13 +189,7 @@ body {
   z-index: 2;
   pointer-events: none;
   padding: 2px;
-  background: linear-gradient(
-    120deg,
-    var(--color-cyan-accent),
-    var(--color-violet-accent),
-    var(--color-seafoam-accent),
-    var(--color-cyan-accent)
-  );
+  background: linear-gradient(120deg, var(--color-brand), var(--color-brand-2), var(--color-brand));
   background-size: 300% 300%;
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
@@ -231,7 +220,7 @@ body {
     outline-offset: 0;
   }
   25% {
-    outline-color: var(--color-cyan-accent);
+    outline-color: var(--color-brand);
     outline-offset: 2px;
   }
   100% {
@@ -275,6 +264,98 @@ body {
 .vessel-card-dot {
   background: var(--accent);
   box-shadow: 0 0 10px var(--accent);
+}
+
+/* Shell chrome — copied verbatim from apps/www's global.css .eyebrow, .btn, .surface,
+   plus the demo-specific .intent-pill and .status-pill. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-brand);
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.eyebrow::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-brand);
+  box-shadow: 0 0 12px var(--color-brand);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 20px;
+  border-radius: 999px;
+  font-size: 14.5px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  transition:
+    transform 120ms ease,
+    background 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+  white-space: nowrap;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn-primary {
+  background: var(--color-brand);
+  color: white;
+  box-shadow:
+    0 8px 24px -8px rgba(0, 145, 255, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.btn-primary:hover {
+  background: #1a9eff;
+  box-shadow:
+    0 14px 36px -10px rgba(0, 145, 255, 0.8),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-ink);
+  border: 1px solid var(--line-2);
+  backdrop-filter: blur(10px);
+}
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--line-strong);
+}
+
+.surface {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.01));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(8px);
+}
+
+.intent-pill {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line-2);
+  backdrop-filter: blur(10px);
+  color: var(--color-ink);
+}
+.intent-pill::placeholder {
+  color: var(--color-ink-3);
+}
+.intent-pill:focus {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.status-pill {
+  border: 1px solid var(--line-2);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 /* Keep this last: it must override the animation/transition declarations above. */

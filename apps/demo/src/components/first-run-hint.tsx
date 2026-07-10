@@ -27,16 +27,16 @@ export function FirstRunHint() {
       data-testid="first-run-hint"
       className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
     >
-      <div className="max-w-md rounded-2xl border border-gray-700 bg-gray-800/60 px-8 py-6 text-center backdrop-blur-sm">
-        <p className="text-sm font-medium text-gray-400">Try saying…</p>
+      <div className="surface max-w-md px-8 py-6 text-center">
+        <p className="text-sm font-medium text-ink-2">Try saying…</p>
         <ul className="mt-3 space-y-2">
           {FIRST_RUN_EXAMPLES.map((example) => (
-            <li key={example} className="text-sm text-gray-200">
+            <li key={example} className="text-sm text-ink">
               &ldquo;{example}&rdquo;
             </li>
           ))}
         </ul>
-        <p className="mt-4 text-xs text-gray-500">
+        <p className="mt-4 text-xs text-ink-3">
           Type below, press Enter, or tap the orb to speak
         </p>
       </div>

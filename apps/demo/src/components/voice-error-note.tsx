@@ -35,7 +35,7 @@ export function VoiceErrorNote() {
   return (
     <div
       role="alert"
-      className="voice-error-note mx-auto mb-2 max-w-md rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-center text-xs text-red-300"
+      className="voice-error-note mx-auto mb-2 max-w-md rounded-md border border-pink/30 bg-pink/10 px-3 py-1.5 text-center text-xs text-pink"
     >
       {message}
     </div>
