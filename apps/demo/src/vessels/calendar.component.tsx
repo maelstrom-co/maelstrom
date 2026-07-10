@@ -35,8 +35,13 @@ const EVENTS: Record<
 };
 
 const TODAY_EVENTS = [
-  { time: '9:00', title: 'Team standup', duration: '30m', color: '#0066ff' },
-  { time: '14:00', title: 'Design review', duration: '1h', color: '#00f0ff' },
+  { time: '7:30', title: 'Gym', duration: '45m', color: '#0066ff' },
+  {
+    time: '10:00',
+    title: 'Design review — Studio Vortex HQ',
+    duration: '1h',
+    color: '#00f0ff',
+  },
   {
     time: '16:00',
     title: 'Sprint planning',
@@ -46,6 +51,7 @@ const TODAY_EVENTS = [
 ];
 
 const DAY_HOURS = [
+  '7:30',
   '8:00',
   '9:00',
   '10:00',

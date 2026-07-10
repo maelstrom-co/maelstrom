@@ -21,8 +21,8 @@ interface TasksState {
 
 const SEED_TASKS: Task[] = [
   { id: '1', title: 'Setup CI pipeline', done: true, subtasks: [] },
-  { id: '2', title: 'Write API docs', done: false, subtasks: [] },
-  { id: '3', title: 'Ship v0.1', done: false, subtasks: [] },
+  { id: '2', title: 'Prep design review notes', done: false, subtasks: [] },
+  { id: '3', title: 'Ship this sprint', done: false, subtasks: [] },
 ];
 
 let state: TasksState = { tasks: SEED_TASKS };
