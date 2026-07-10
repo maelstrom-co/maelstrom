@@ -20,8 +20,11 @@ function props(): TypedVesselProps<typeof tasksVessel> {
 }
 
 beforeEach(() => {
-  for (const task of ['Setup CI pipeline', 'Prep design review notes', 'Ship this sprint']) {
-    tasksActions.removeTask(task);
+  // Drain the whole singleton store, not just the seeded titles — otherwise
+  // tasks left behind by an earlier test in this file leak into the next
+  // one's percentage/count assertions.
+  for (const task of getTasksSnapshot().tasks) {
+    tasksActions.removeTask(task.title);
   }
 });
 
@@ -48,12 +51,6 @@ describe('TasksComponent empty state', () => {
   });
 
   it('sets the progress tube fill width to the done/total percentage', () => {
-    // Earlier tests in this file only clear the seeded titles in beforeEach,
-    // not tasks they add themselves, so drain the singleton store first —
-    // otherwise the percentage below depends on test execution order.
-    for (const task of getTasksSnapshot().tasks) {
-      tasksActions.removeTask(task.title);
-    }
     tasksActions.addTask('Write the launch post');
     tasksActions.addTask('Fix the flaky test');
     tasksActions.checkTask('Write the launch post');

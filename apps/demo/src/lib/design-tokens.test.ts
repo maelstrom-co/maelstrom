@@ -39,7 +39,7 @@ describe('VESSEL_ACCENTS', () => {
     }
   });
 
-  it('matches the spec §3 accent table', () => {
+  it('assigns each vessel its own accent', () => {
     expect(VESSEL_ACCENTS.calendar).toBe('brand');
     expect(VESSEL_ACCENTS.weather).toBe('brand-2');
     expect(VESSEL_ACCENTS.map).toBe('brand-3');
@@ -65,7 +65,7 @@ describe('STATUS_COLORS', () => {
     }
   });
 
-  it('matches the spec §6 status vocabulary table', () => {
+  it('maps every status key to its designated color token', () => {
     expect(STATUS_COLORS.idle).toBe('var(--color-ink-3)');
     expect(STATUS_COLORS.disconnected).toBe('var(--color-ink-3)');
     expect(STATUS_COLORS.connecting).toBe('var(--color-amber)');

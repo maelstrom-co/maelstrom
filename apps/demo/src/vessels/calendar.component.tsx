@@ -188,8 +188,11 @@ export default function CalendarComponent({
                     </div>
                   ))}
                   {isToday && dayEvents.length === 0 && (
-                    <div className="text-xs text-ink-3 text-center py-2">
-                      Nothing scheduled
+                    <div className="flex flex-col items-center gap-0.5 text-center py-2">
+                      <p className="text-xs text-ink-3">Nothing scheduled</p>
+                      <p className="text-xs font-mono text-ink-3 truncate w-full">
+                        Try: &ldquo;Add an event&rdquo;
+                      </p>
                     </div>
                   )}
                 </div>

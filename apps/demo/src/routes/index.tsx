@@ -34,8 +34,8 @@ function DemoApp() {
     <div className="h-screen flex flex-col">
       {/* Header */}
       <header
-        className="border-b px-6 py-4"
-        style={{ background: 'var(--color-bg-1)', borderColor: 'var(--line)' }}
+        className="border-b px-6 py-4 bg-bg-1"
+        style={{ borderColor: 'var(--line)' }}
       >
         <div className="flex items-center justify-between">
           <div>
@@ -110,8 +110,8 @@ function IntentInput() {
 
   return (
     <div
-      className="border-t p-4"
-      style={{ background: 'var(--color-bg-1)', borderColor: 'var(--line)' }}
+      className="border-t p-4 bg-bg-1"
+      style={{ borderColor: 'var(--line)' }}
     >
       <VoiceErrorNote />
       <div className="flex justify-center mb-3">

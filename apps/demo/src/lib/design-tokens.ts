@@ -34,12 +34,11 @@ export const CALENDAR_EVENT_ACCENTS: readonly AccentToken[] = [
 ];
 
 /**
- * Shared status vocabulary (spec §6): `ConnectionStatus`
- * (`@maelstrom-co/client`) and `VoiceSessionState` collapse onto one color
- * per state. Consumed by `StatusIndicator` (inline style) and
- * `.voice-orb[data-state]` (CSS) — CSS cannot import this module, so the
- * `[data-state]` rules in `styles.css` are kept in sync with this table by
- * hand.
+ * Shared status vocabulary: `ConnectionStatus` (`@maelstrom-co/client`) and
+ * `VoiceSessionState` collapse onto one color per state. Consumed by
+ * `StatusIndicator` (inline style) and `.voice-orb[data-state]` (CSS) — CSS
+ * cannot import this module, so the `[data-state]` rules in `styles.css` are
+ * kept in sync with this table by hand.
  */
 export type StatusKey =
   | 'idle'
