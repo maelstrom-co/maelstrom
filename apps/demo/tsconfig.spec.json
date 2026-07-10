@@ -10,6 +10,7 @@
       "vite/client",
       "node",
       "vitest",
+      "geojson",
       "@nx/react/typings/cssmodule.d.ts",
       "@nx/react/typings/image.d.ts"
     ],

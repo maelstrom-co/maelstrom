@@ -8,6 +8,7 @@ import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';
 import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
 import { calendarEntry } from '../vessels/calendar.vessel';
 import { journalEntry } from '../vessels/journal.vessel';
+import { mapEntry } from '../vessels/map.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
 import { mintOpenAIToken } from './mint-token';
@@ -18,6 +19,7 @@ const vessels = [
   weatherEntry,
   journalEntry,
   tasksEntry,
+  mapEntry,
 ] as const;
 
 export const m = createMaelstrom({
