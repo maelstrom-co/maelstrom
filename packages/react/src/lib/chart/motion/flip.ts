@@ -53,6 +53,8 @@ export function exitKeyframes(): Keyframe[] {
   ];
 }
 
+// Stagger reads as a wave when it follows reading order; row-major with a
+// tolerance band keeps grid rows that differ by sub-cell pixels together.
 export function staggerOrder(rects: ReadonlyArray<readonly [string, MotionRect]>): string[] {
   return [...rects]
     .sort(([, a], [, b]) => {
