@@ -4,11 +4,11 @@ import type { Mutable } from './_drift-guards.js';
 
 // --- provider ---
 
-/** Realtime providers Maelstrom can mint a client-direct session token for. */
-export type RealtimeProvider = 'openai' | 'google';
-
-/** Wire schema for {@link RealtimeProvider}. */
+/** Wire schema for the realtime providers Maelstrom can mint a client-direct session token for. */
 export const RealtimeProviderSchema = z.enum(['openai', 'google']);
+
+/** Realtime providers Maelstrom can mint a client-direct session token for. */
+export type RealtimeProvider = z.infer<typeof RealtimeProviderSchema>;
 
 // --- mint request (browser -> mint endpoint) ---
 
