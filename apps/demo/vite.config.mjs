@@ -26,6 +26,21 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
     },
+    // Workspace packages' `exports` maps put source behind a
+    // "@maelstrom-co/source" custom condition (dist/ is otherwise the
+    // default), same condition tsconfig.base.json's `customConditions`
+    // already resolves for typecheck — without it here, dev/build/test all
+    // bundle each package's built dist instead of its current source. SSR
+    // has its own resolver in Vite, so it needs the condition set
+    // separately.
+    resolve: {
+      conditions: ['@maelstrom-co/source'],
+    },
+    ssr: {
+      resolve: {
+        conditions: ['@maelstrom-co/source'],
+      },
+    },
     plugins: [
       tsConfigPaths({
         root: '../..',
