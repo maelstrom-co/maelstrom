@@ -28,6 +28,10 @@ export interface CreateMaelstromConfig<T extends readonly AnyVesselEntry[]> {
   cellSizePx?: number;
   tilingPaddingPx?: number;
   debug?: boolean;
+  /**
+   * Chart motion/choreography settings. A `motion` prop on the Provider
+   * overrides this as a whole object (no per-field merge).
+   */
   motion?: ChartMotionConfig;
 }
 

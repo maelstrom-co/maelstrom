@@ -31,7 +31,13 @@ export interface MaelstromProviderProps {
   tilingPaddingPx?: number;
   /** Enable debug logging. Overrides the factory default. */
   debug?: boolean;
-  /** Chart motion/choreography settings. Overrides the factory default. */
+  /**
+   * Chart motion/choreography settings. Overrides the factory default as a
+   * whole object — when provided, the factory's `motion` is ignored entirely
+   * rather than merged per-field. Pass a stable reference (hoist or memoize
+   * it): a new object identity on every render re-resolves the config and
+   * re-renders all Maelstrom consumers.
+   */
   motion?: ChartMotionConfig;
   /** Called on Orchestrator startup failures, connection failures, processIntent failures, and executeAction failures. Errors also surface via useMaelstrom(). */
   onError?: (error: Error) => void;
