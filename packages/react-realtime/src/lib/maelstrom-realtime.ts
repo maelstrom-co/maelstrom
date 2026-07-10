@@ -36,7 +36,11 @@ export interface UseVoiceResult {
   readonly userTranscript: TranscriptEntry | undefined;
   /** Latest assistant utterance (accumulated fragments until final). */
   readonly assistantTranscript: TranscriptEntry | undefined;
-  /** Escape hatch for advanced consumers (audio streams, sidechannel). */
+  /**
+   * Escape hatch for advanced consumers (audio streams, sidechannel).
+   * Concrete `RealtimeSession` today; a future release may narrow this to
+   * the `VoiceSession` seam instead.
+   */
   readonly session: RealtimeSession;
   /** Connects the shared session. Safe to call from any consumer under the same Provider. */
   readonly connect: () => Promise<void>;
