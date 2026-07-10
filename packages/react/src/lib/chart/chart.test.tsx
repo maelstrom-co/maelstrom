@@ -915,6 +915,45 @@ describe('m.Chart — motion', () => {
     }
   });
 
+  it('exit animation holds its end state with fill: "forwards"', async () => {
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a', 'b']),
+      gridLayout([
+        { id: 'a', column: 0, row: 0, width: 2, height: 2 },
+        { id: 'b', column: 8, row: 0, width: 2, height: 2 },
+      ]),
+      gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+
+    animateCalls = [];
+    await act(async () => { await processIntent!('layout2'); });
+
+    // ExitingVessel's outer wrapper carries no data-instance-id.
+    const exitShapedCalls = animateCalls.filter((c) => c.id === null);
+    expect(exitShapedCalls.length).toBe(1);
+    expect(exitShapedCalls[0]!.options.fill).toBe('forwards');
+  });
+
   it('exit animation does not re-fire on an unrelated layout update', async () => {
     // Regression: ExitingVessel started its exit animation via an inline
     // callback ref. Since the component isn't memoized, any Chart re-render

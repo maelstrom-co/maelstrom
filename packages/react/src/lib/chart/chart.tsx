@@ -166,6 +166,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
       node.animate(exitKeyframes(), {
         duration: motion.durationMs,
         easing: motion.easing,
+        fill: 'forwards',
       });
       // Runs once per mount — the exiting entry's identity is stable for its
       // whole lifetime, so re-running this on every Chart re-render would
@@ -318,7 +319,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
     // Tiling layout computed once per render — reused by both the
     // layoutKey below and the tiling render branch.
-    const tilingComputed = useMemo<ComputedTile[] | null>(() => {
+    const tilingComputed = useMemo<readonly ComputedTile[] | null>(() => {
       if (!layout || layout.type !== 'tiling') return null;
       const tree = parseTilingTree(layout.tree);
       return computeTilingLayout(tree, containerRect, config.tilingPaddingPx);
