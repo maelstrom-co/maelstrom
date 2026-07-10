@@ -193,6 +193,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@maelstrom-co/client": "0.0.0",
+        "@maelstrom-co/protocol": "0.0.0",
         "@maelstrom-co/react": "0.0.0",
         "@maelstrom-co/realtime": "0.0.0",
       },

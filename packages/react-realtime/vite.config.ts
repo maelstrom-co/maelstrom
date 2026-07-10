@@ -33,6 +33,7 @@ export default defineConfig(() => ({
         'react-dom',
         'react/jsx-runtime',
         '@maelstrom-co/client',
+        '@maelstrom-co/protocol',
         '@maelstrom-co/react',
         '@maelstrom-co/realtime',
       ],

@@ -44,6 +44,9 @@
       "path": "../react/tsconfig.lib.json"
     },
     {
+      "path": "../protocol/tsconfig.lib.json"
+    },
+    {
       "path": "../client/tsconfig.lib.json"
     }
   ]
