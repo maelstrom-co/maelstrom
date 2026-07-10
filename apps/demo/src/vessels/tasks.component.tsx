@@ -1,6 +1,8 @@
+import { Check } from 'lucide-react';
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
+import { cn } from '../lib/cn';
 import { m } from '../lib/maelstrom';
 import { getTasksSnapshot, tasksActions, useTasksStore } from './tasks.store';
 import type { tasksVessel } from './tasks.vessel';
@@ -10,24 +12,6 @@ function noMatchError(title: string): Error {
     .tasks.map((t) => `"${t.title}"`)
     .join(', ');
   return new Error(`No task matches "${title}". Available: ${available}`);
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width="10"
-      height="10"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="rgba(107, 0, 255, 0.7)"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M20 6L9 17l-5-5" />
-    </svg>
-  );
 }
 
 export default function TasksComponent({
@@ -71,77 +55,59 @@ export default function TasksComponent({
       label="Tasks"
       meta={`${doneCount}/${totalCount}`}
     >
-      {/* Progress bar */}
-      <div className="h-1 w-full rounded-full bg-violet-accent/8 mb-3">
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{
-            width: `${progress}%`,
-            background:
-              'linear-gradient(90deg, rgba(107, 0, 255, 0.4), rgba(107, 0, 255, 0.7))',
-            boxShadow: '0 0 8px rgba(107, 0, 255, 0.3)',
-          }}
-        />
+      {/* Progress bar — the vessel's one material moment: a liquid glass tube */}
+      <div className="task-tube mb-3">
+        <div className="task-tube-fill" style={{ width: `${progress}%` }} />
       </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto">
-        {tasks.map((task) => (
-          <div key={task.id}>
-            {/* Task */}
-            <div className="flex items-center gap-2.5">
-              <div
-                className={
-                  task.done
-                    ? 'w-4 h-4 rounded shrink-0 flex items-center justify-center border-[1.5px] border-violet-accent/50 bg-violet-accent/15'
-                    : 'w-4 h-4 rounded shrink-0 flex items-center justify-center border-[1.5px] border-violet-accent/25'
-                }
-              >
-                {task.done && <CheckIcon />}
+      {tasks.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center gap-1">
+          <p className="text-sm text-ink-3">No tasks yet</p>
+          <p className="text-xs font-mono text-ink-3">
+            Try: &ldquo;Add a task to prep the design review&rdquo;
+          </p>
+        </div>
+      ) : (
+        <div className="flex-1 space-y-2 overflow-y-auto">
+          {tasks.map((task) => (
+            <div key={task.id}>
+              {/* Task */}
+              <div className="flex items-center gap-2.5">
+                <div className={cn('task-check shrink-0', task.done && 'task-check--done')}>
+                  {task.done && <Check size={10} strokeWidth={1.75} className="text-white" />}
+                </div>
+                <span className={task.done ? 'text-sm text-ink-3 line-through' : 'text-sm text-ink'}>
+                  {task.title}
+                </span>
               </div>
-              <span
-                className={
-                  task.done
-                    ? 'text-sm text-gray-500 line-through'
-                    : 'text-sm text-white/80'
-                }
-              >
-                {task.title}
-              </span>
-            </div>
 
-            {/* Subtasks */}
-            {task.subtasks.length > 0 && (
-              <div className="ml-6 mt-1 space-y-1.5">
-                {task.subtasks.map((sub) => (
-                  <div
-                    key={sub.id}
-                    className="flex items-center gap-2 animate-fade-in"
-                  >
+              {/* Subtasks */}
+              {task.subtasks.length > 0 && (
+                <div className="ml-6 mt-1 space-y-1.5">
+                  {task.subtasks.map((sub) => (
                     <div
-                      className={
-                        sub.done
-                          ? 'w-3 h-3 rounded-sm shrink-0 flex items-center justify-center border border-violet-accent/50 bg-violet-accent/15'
-                          : 'w-3 h-3 rounded-sm shrink-0 flex items-center justify-center border border-violet-accent/25'
-                      }
+                      key={sub.id}
+                      className="flex items-center gap-2 animate-fade-in"
                     >
-                      {sub.done && <CheckIcon />}
+                      <div
+                        className={cn(
+                          'task-check task-check-sub shrink-0',
+                          sub.done && 'task-check--done',
+                        )}
+                      >
+                        {sub.done && <Check size={9} strokeWidth={1.75} className="text-white" />}
+                      </div>
+                      <span className={sub.done ? 'text-xs text-ink-3 line-through' : 'text-xs text-ink-2'}>
+                        {sub.title}
+                      </span>
                     </div>
-                    <span
-                      className={
-                        sub.done
-                          ? 'text-xs text-gray-500 line-through'
-                          : 'text-xs text-white/70'
-                      }
-                    >
-                      {sub.title}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </VesselCard>
   );
 }

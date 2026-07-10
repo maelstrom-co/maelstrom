@@ -398,6 +398,78 @@ body {
     background-clip: text;
     color: transparent;
   }
+
+  /* Tasks' one material moment: a liquid glass progress tube. */
+  .task-tube {
+    height: 12px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--line-2);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .task-tube-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ffc85c, #d98a10);
+    box-shadow: 0 0 10px var(--glow);
+    position: relative;
+    transition: width 500ms ease;
+  }
+
+  .task-tube-fill::after {
+    content: '';
+    position: absolute;
+    inset: 1px 1px auto 1px;
+    height: 3px;
+    border-radius: 999px 999px 0 0;
+    background: rgba(255, 255, 255, 0.45);
+  }
+
+  /* Extruded glass checkbox — looks pressable (inset highlight/lowlight)
+     without any new click handler; checked state fills with the vessel
+     accent. */
+  .task-check {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid var(--line-2);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.12));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 150ms ease, border-color 150ms ease;
+  }
+
+  .task-check-sub {
+    width: 13px;
+    height: 13px;
+    border-radius: 3px;
+  }
+
+  .task-check--done {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 0 8px var(--glow);
+  }
+
+  /* Journal's one material moment: a ruled-paper field (26px repeating
+     lines). The accent-tinted line color is computed per-render from
+     design-tokens.ts (accentAlpha) and set inline via backgroundImage — this
+     class only owns the parts that don't depend on the accent. */
+  .ruled-paper {
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius-sm);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    padding: 12px 14px;
+  }
 }
 
 /* Keep this last: it must override the animation/transition declarations above. */

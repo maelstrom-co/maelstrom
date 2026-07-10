@@ -1,6 +1,7 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
+import { ACCENT_HEX, accentAlpha } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import {
   getJournalSnapshot,
@@ -8,6 +9,8 @@ import {
   useJournalStore,
 } from './journal.store';
 import type { journalVessel } from './journal.vessel';
+
+const RULE_COLOR = accentAlpha(ACCENT_HEX.green, 0.1);
 
 export default function JournalComponent({
   instanceId,
@@ -60,8 +63,8 @@ export default function JournalComponent({
       return (
         <VesselCard accent="green" label="Journal" meta="Entry">
           <div className="flex-1 flex flex-col items-center justify-center text-center gap-2">
-            <div className="text-sm text-white/70">No entry selected.</div>
-            <div className="text-xs text-gray-500 max-w-xs">
+            <div className="text-sm text-ink">No entry selected.</div>
+            <div className="text-xs text-ink-3 max-w-xs">
               Ask the assistant to open an entry by title, or create a new one.
             </div>
           </div>
@@ -72,21 +75,29 @@ export default function JournalComponent({
     return (
       <VesselCard accent="green" label="Journal" meta="Entry">
         <div className="flex-1 flex flex-col">
-          <h2 className="text-lg font-semibold text-white/90 mb-1">
+          <h2 className="text-base font-medium text-ink mb-1">
             {activeEntry.title}
           </h2>
-          <div className="text-xs text-gray-500 font-mono mb-4">
+          <div className="text-xs text-ink-3 font-mono mb-4">
             {activeEntry.date}
           </div>
-          <div className="flex-1 text-sm text-white/70 leading-relaxed whitespace-pre-wrap">
+          <div
+            className="ruled-paper flex-1 text-sm text-ink-2 leading-relaxed whitespace-pre-wrap"
+            style={{
+              backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent 25px, ${RULE_COLOR} 25px, ${RULE_COLOR} 26px)`,
+            }}
+          >
             {activeEntry.content || (
-              <span className="text-gray-600 italic">
+              <span className="text-ink-3 italic">
                 Waiting for content...
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 mt-3 text-xs text-seafoam-accent/50 font-mono">
-            <span className="w-1.5 h-1.5 rounded-full bg-seafoam-accent/50 animate-scribe-pulse" />
+          <div className="flex items-center gap-1.5 mt-3 text-xs text-green font-mono">
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-green animate-scribe-pulse"
+              style={{ boxShadow: '0 0 8px var(--color-green)' }}
+            />
             Scribe active
           </div>
         </div>
@@ -105,16 +116,16 @@ export default function JournalComponent({
         {entries.map((entry) => (
           <div
             key={entry.id}
-            className="py-2.5 border-b border-seafoam-accent/6"
+            className="py-2.5 border-b border-white/[0.06]"
           >
-            <div className="text-sm font-medium text-white/85">
+            <div className="text-sm font-medium text-ink">
               {entry.title}
             </div>
-            <div className="text-xs text-gray-500 font-mono mt-0.5">
+            <div className="text-xs text-ink-3 font-mono mt-0.5">
               {entry.date}
             </div>
             {entry.content && (
-              <div className="text-xs text-gray-500 mt-1 line-clamp-2">
+              <div className="text-xs text-ink-3 mt-1 line-clamp-2">
                 {entry.content}
               </div>
             )}
