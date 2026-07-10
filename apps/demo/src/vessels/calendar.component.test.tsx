@@ -139,4 +139,15 @@ describe('CalendarComponent day view rendering', () => {
 
     expect(container.textContent).not.toContain('Gym');
   });
+
+  it('renders an event at a non-slot time inside its hour block, with its exact time visible', async () => {
+    const { container } = render(<CalendarComponent {...props('day')} />);
+    const handlers = latestHandlers();
+    await act(async () => {
+      await handlers.addEvent({ title: 'Coffee with Sam', time: '9:30' });
+    });
+
+    expect(container.textContent).toContain('Coffee with Sam');
+    expect(container.textContent).toContain('9:30');
+  });
 });

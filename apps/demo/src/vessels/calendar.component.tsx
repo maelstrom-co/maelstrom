@@ -57,6 +57,14 @@ function eventLabel(event: CalendarEvent): string {
   return event.location ? `${event.title} — ${event.location}` : event.title;
 }
 
+// DAY_HOURS are fixed slot labels ('7:30', '8:00', '9:00', ...), but actions
+// accept any "H:MM" time (the vessel description advertises "14:30"). Slot by
+// hour so an event at "9:30" still renders — in the "9:00" block — rather
+// than being silently dropped by an exact-string match against the slots.
+function hourOf(time: string): number {
+  return Number(time.split(':')[0]);
+}
+
 export default function CalendarComponent({
   instanceId,
   variantProps,
@@ -153,23 +161,31 @@ export default function CalendarComponent({
       <VesselCard accent="blue" label="Day View" meta="Today">
         <div className="flex-1 overflow-y-auto space-y-0.5">
           {DAY_HOURS.map((hour) => {
-            const event = events.find((e) => e.time === hour);
+            const slotEvents = events.filter((e) => hourOf(e.time) === hourOf(hour));
             return (
               <div key={hour} className="flex items-center gap-3 py-1.5">
                 <span className="text-xs text-gray-500 font-mono w-[44px] shrink-0 text-right">
                   {hour}
                 </span>
-                {event ? (
-                  <div
-                    className="flex-1 px-3 py-2 rounded-lg"
-                    style={{
-                      background: `${eventColors.get(event.id) ?? EVENT_COLORS[0]}12`,
-                      borderLeft: `2px solid ${eventColors.get(event.id) ?? EVENT_COLORS[0]}60`,
-                    }}
-                  >
-                    <div className="text-sm text-white/80">
-                      {eventLabel(event)}
-                    </div>
+                {slotEvents.length > 0 ? (
+                  <div className="flex-1 space-y-1">
+                    {slotEvents.map((event) => (
+                      <div
+                        key={event.id}
+                        className="px-3 py-2 rounded-lg"
+                        style={{
+                          background: `${eventColors.get(event.id) ?? EVENT_COLORS[0]}12`,
+                          borderLeft: `2px solid ${eventColors.get(event.id) ?? EVENT_COLORS[0]}60`,
+                        }}
+                      >
+                        <div className="text-sm text-white/80">
+                          {eventLabel(event)}
+                        </div>
+                        <div className="text-[10px] text-gray-500 font-mono">
+                          {event.time}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="flex-1 h-px bg-white/5" />
