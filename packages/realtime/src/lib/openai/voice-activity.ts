@@ -19,10 +19,13 @@ export function deriveVoiceActivity(
       return 'speaking';
     case 'output_audio_buffer.stopped':
     case 'output_audio_buffer.cleared':
-      return 'connected';
+      // During a barge-in these fire while the user is still talking
+      // (speech_started already moved state to 'listening') — only
+      // speech_stopped may end a listening turn.
+      return prev === 'listening' ? null : 'connected';
     case 'response.done':
     case 'response.cancelled':
-      return prev === 'speaking' ? null : 'connected';
+      return prev === 'speaking' || prev === 'listening' ? null : 'connected';
     default:
       return null;
   }

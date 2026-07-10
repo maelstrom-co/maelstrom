@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import type { VoiceSessionState } from '@maelstrom-co/client';
 import { deriveVoiceActivity } from './voice-activity.js';
 
 describe('deriveVoiceActivity', () => {
@@ -26,6 +27,36 @@ describe('deriveVoiceActivity', () => {
 
   it('settles on output buffer cleared (barge-in cancellation path)', () => {
     expect(deriveVoiceActivity('speaking', 'output_audio_buffer.cleared')).toBe('connected');
+  });
+
+  it('stays listening through a full barge-in interruption sequence instead of getting stomped back to connected', () => {
+    // Realistic OpenAI barge-in: the user starts talking over playback
+    // (speech_started -> listening), which cancels the in-flight response
+    // (response.cancelled) and clears the output audio buffer
+    // (output_audio_buffer.cleared) — both settle events, but the user is
+    // still mid-utterance the whole time, so neither may force 'connected'.
+    let state: VoiceSessionState = 'speaking';
+
+    state = deriveVoiceActivity(state, 'input_audio_buffer.speech_started') ?? state;
+    expect(state).toBe('listening');
+
+    state = deriveVoiceActivity(state, 'response.cancelled') ?? state;
+    expect(state).toBe('listening');
+
+    state = deriveVoiceActivity(state, 'output_audio_buffer.cleared') ?? state;
+    expect(state).toBe('listening');
+  });
+
+  it('returns null for every settle event while listening, leaving speech_stopped as the only way out', () => {
+    for (const settleEvent of [
+      'output_audio_buffer.stopped',
+      'output_audio_buffer.cleared',
+      'response.done',
+      'response.cancelled',
+    ]) {
+      expect(deriveVoiceActivity('listening', settleEvent)).toBeNull();
+    }
+    expect(deriveVoiceActivity('listening', 'input_audio_buffer.speech_stopped')).toBe('thinking');
   });
 
   it('returns null for events that carry no activity meaning', () => {
