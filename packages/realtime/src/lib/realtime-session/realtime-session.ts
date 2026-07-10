@@ -5,7 +5,7 @@ import type {
   VoiceSessionState,
 } from '@maelstrom-co/client';
 import { Logger, RequestInFlightError } from '@maelstrom-co/client';
-import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
+import type { SessionId, SidechannelEvent, ToolCallId } from '@maelstrom-co/protocol';
 
 import { groundedDebounce } from './grounding-debounce.js';
 import type {
@@ -94,7 +94,7 @@ function delay(ms: number): Promise<void> {
 
 /** A queued `update_ui` call awaiting retry once the in-flight request settles — latest-wins, so at most one exists at a time. */
 interface QueuedIntent {
-  readonly callId: string;
+  readonly callId: ToolCallId;
   readonly intent: string;
   readonly resolve: (ok: boolean) => void;
 }
@@ -173,7 +173,7 @@ export class RealtimeSession implements VoiceSession {
 
   readonly #toolHandlers: Record<
     ToolName,
-    (callId: string, argumentsJson: string) => Promise<boolean>
+    (callId: ToolCallId, argumentsJson: string) => Promise<boolean>
   > = {
     update_ui: (callId, argumentsJson) =>
       this.#handleUpdateUI(callId, argumentsJson),
@@ -320,7 +320,7 @@ export class RealtimeSession implements VoiceSession {
 
   /** Returns whether the update applied successfully (for the sidechannel result event). */
   async #handleUpdateUI(
-    callId: string,
+    callId: ToolCallId,
     argumentsJson: string,
   ): Promise<boolean> {
     this.#logger.debug('update_ui: parsing arguments', argumentsJson);
@@ -405,7 +405,7 @@ export class RealtimeSession implements VoiceSession {
   }
 
   #sendUpdateUiResult(
-    callId: string,
+    callId: ToolCallId,
     result: UpdateUiToolResult,
   ): Promise<void> {
     return this.#adapter.sendToolResult(callId, result);
@@ -517,14 +517,14 @@ export class RealtimeSession implements VoiceSession {
     }
   }
 
-  async #handleGetUIState(callId: string): Promise<boolean> {
+  async #handleGetUIState(callId: ToolCallId): Promise<boolean> {
     this.#logger.debug('get_ui_state: reading snapshot');
     const snapshot = this.#instance.getStructuralSnapshot();
     await this.#adapter.sendToolResult(callId, snapshot);
     return true;
   }
 
-  async #handleGetCapabilities(callId: string): Promise<boolean> {
+  async #handleGetCapabilities(callId: ToolCallId): Promise<boolean> {
     this.#logger.debug('get_capabilities: reading snapshot');
     const snapshot = this.#instance.getCapabilitySnapshot();
     await this.#adapter.sendToolResult(callId, snapshot);

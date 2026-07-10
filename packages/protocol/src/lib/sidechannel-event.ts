@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SessionIdSchema } from './session.js';
+import { ToolCallIdSchema } from './tool-call-id.js';
 
 // Shared envelope on every sidechannel event.
 const sidechannelBaseShape = {
@@ -36,13 +37,13 @@ export const SidechannelEventSchema = z.discriminatedUnion('type', [
     ...sidechannelBaseShape,
     type: z.literal('tool_call'),
     name: z.string(),
-    callId: z.string(),
+    callId: ToolCallIdSchema,
     argumentsJson: z.string(),
   }),
   z.object({
     ...sidechannelBaseShape,
     type: z.literal('tool_result'),
-    callId: z.string(),
+    callId: ToolCallIdSchema,
     ok: z.boolean(),
     latencyMs: z.number().nonnegative(),
   }),

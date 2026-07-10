@@ -1,3 +1,5 @@
+import { ToolCallId } from '@maelstrom-co/protocol';
+
 import type { RealtimeAdapterEvent } from '../realtime-session/provider-adapter.types.js';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,10 +38,19 @@ export function parseOAIServerEvent(raw: unknown): RealtimeAdapterEvent | null {
       const callId = asString(raw.call_id);
       const name = asString(raw.name);
       const argumentsJson = asString(raw.arguments);
-      if (callId === undefined || name === undefined || argumentsJson === undefined) {
+      // Explicit length check, not just the throwing ToolCallId constructor:
+      // parseOAIServerEvent's contract is graceful null on malformed events,
+      // so an empty call_id must be rejected here rather than reaching the
+      // constructor and throwing.
+      if (
+        callId === undefined ||
+        callId.length === 0 ||
+        name === undefined ||
+        argumentsJson === undefined
+      ) {
         return null;
       }
-      return { type: 'tool_call', callId, name, argumentsJson };
+      return { type: 'tool_call', callId: ToolCallId(callId), name, argumentsJson };
     }
 
     case 'response.audio_transcript.delta': {

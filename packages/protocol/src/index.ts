@@ -3,6 +3,7 @@ export { ok, err, isOk, isErr, unwrap } from './lib/result.js';
 export { toError } from './lib/to-error.js';
 export type { Brand } from './lib/brand.js';
 export { SessionId, SessionIdSchema } from './lib/session.js';
+export { ToolCallId, ToolCallIdSchema } from './lib/tool-call-id.js';
 export { MessageId, MessageIdSchema } from './lib/message.js';
 export { InstanceId } from './lib/instance.js';
 export { VesselId } from './lib/vessel-id.js';

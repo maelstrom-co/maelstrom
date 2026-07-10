@@ -1,4 +1,5 @@
 import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
+import type { ToolCallId } from '@maelstrom-co/protocol';
 
 /**
  * A single tool exposed to the realtime model, in provider-neutral form.
@@ -27,7 +28,7 @@ export interface AdapterConnectOptions {
 export type RealtimeAdapterEvent =
   | {
       readonly type: 'tool_call';
-      readonly callId: string;
+      readonly callId: ToolCallId;
       readonly name: string;
       readonly argumentsJson: string;
     }
@@ -57,7 +58,7 @@ export interface RealtimeProviderAdapter {
   connect(opts: AdapterConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
   /** Sends a tool call's result back to the model. */
-  sendToolResult(callId: string, output: unknown): Promise<void>;
+  sendToolResult(callId: ToolCallId, output: unknown): Promise<void>;
   /**
    * Pushes a terse grounding string into the model's context. The adapter
    * owns whatever latest-wins mechanics apply at the wire/session level

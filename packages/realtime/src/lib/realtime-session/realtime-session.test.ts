@@ -2,7 +2,14 @@ import { describe, expect, it, spyOn } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
 import type { CapabilitySnapshot, UIStructuralSnapshot } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
-import { ActionName, InstanceId, SessionId, VariantName, VesselId } from '@maelstrom-co/protocol';
+import {
+  ActionName,
+  InstanceId,
+  SessionId,
+  ToolCallId,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
 
 import type {
@@ -93,7 +100,9 @@ function makeMockAdapter(): MockAdapter {
       };
     },
     emitToolCall(call) {
-      for (const h of handlers) h({ type: 'tool_call', ...call });
+      for (const h of handlers) {
+        h({ type: 'tool_call', ...call, callId: ToolCallId(call.callId) });
+      }
     },
   };
 }
