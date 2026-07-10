@@ -74,11 +74,11 @@ export type CircuitStatus = 'closed' | 'open' | 'half_open';
  */
 export interface ConnectorCapabilities {
   /** Whether the connector supports voice/audio streaming */
-  voice: boolean;
+  readonly voice: boolean;
   /** Whether the connector supports bidirectional streaming */
-  streaming: boolean;
+  readonly streaming: boolean;
   /** Whether the connector maintains a persistent connection (WebSocket vs HTTP) */
-  stateful: boolean;
+  readonly stateful: boolean;
 }
 
 // ============================================================================
@@ -436,7 +436,7 @@ export interface PushConnector extends EngineConnector {
  */
 export interface AssistantMessage {
   /** Unique message identifier. Used for deduplication and history correlation. */
-  id: MessageId;
+  readonly id: MessageId;
   /** Message content */
-  message: string;
+  readonly message: string;
 }

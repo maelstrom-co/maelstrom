@@ -183,7 +183,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
   // ─── Tiling debug overlay ────────────────────────────────────────────────────
 
-  function TilingDebugOverlay({ tiles }: { tiles: ComputedTile[] }) {
+  function TilingDebugOverlay({ tiles }: { tiles: readonly ComputedTile[] }) {
     return (
       <div
         style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 9999 }}
