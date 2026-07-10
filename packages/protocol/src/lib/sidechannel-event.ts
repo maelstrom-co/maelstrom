@@ -52,7 +52,7 @@ export const SidechannelEventSchema = z.discriminatedUnion('type', [
     label: z.string(),
     ms: z.number().nonnegative(),
   }),
-]);
+]).readonly();
 
 /** A single sidechannel event. See {@link SidechannelEventSchema}. */
 export type SidechannelEvent = z.infer<typeof SidechannelEventSchema>;
