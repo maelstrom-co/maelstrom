@@ -88,8 +88,8 @@ const testVessel = defineVessel({
   },
 });
 
-function must<T>(value: T | undefined): T {
-  if (value === undefined) throw new Error('expected value to be defined');
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error('expected value to be defined');
   return value;
 }
 

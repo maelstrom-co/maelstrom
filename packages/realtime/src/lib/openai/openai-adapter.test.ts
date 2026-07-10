@@ -70,7 +70,7 @@ class FakeRTCPeerConnection {
   static instances: FakeRTCPeerConnection[] = [];
 
   closed = false;
-  ontrack: ((event: { streams: unknown[] }) => void) | null = null;
+  ontrack: ((event: { streams: readonly unknown[] }) => void) | null = null;
   oniceconnectionstatechange: (() => void) | null = null;
   iceConnectionState = 'new';
   localDescription: { type: string; sdp: string } | undefined;

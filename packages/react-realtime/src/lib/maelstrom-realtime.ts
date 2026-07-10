@@ -53,6 +53,7 @@ function createBridge(orchestrator: Orchestrator): RealtimeInstance {
     submitIntent: (intent) => orchestrator.processIntent(intent).then(() => {}),
     waitForIdle: () => orchestrator.commandProcessor.waitForIdle(),
     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
+    getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
     onSettled: (cb) => orchestrator.onSettled(cb),
   };
 }
@@ -64,7 +65,7 @@ function createBridge(orchestrator: Orchestrator): RealtimeInstance {
  *
  * @example
  * const m = createMaelstrom({ vessels }).with(
- *   maelstromRealtime({ createAdapter: () => createOpenAiAdapter({ mintToken }) }),
+ *   maelstromRealtime({ createAdapter: () => new OpenAIAdapter({ mintToken }) }),
  * );
  */
 export function maelstromRealtime(
