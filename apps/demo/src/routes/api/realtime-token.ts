@@ -44,7 +44,7 @@ export async function handleRealtimeTokenRequest(request: Request): Promise<Resp
   return Response.json(
     {
       error: result.error.reason,
-      ...(result.error.upstreamStatus !== undefined && {
+      ...(result.error.reason === 'upstream-failure' && {
         upstreamStatus: result.error.upstreamStatus,
       }),
     },

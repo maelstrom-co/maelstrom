@@ -5,6 +5,7 @@ import {
   TokenHandshakeRequestSchema,
   TokenHandshakeResponseSchema,
 } from '@maelstrom-co/protocol';
+import { z } from 'zod';
 
 /** Options for {@link createOpenAIMinter}. */
 export interface CreateOpenAIMinterOptions {
@@ -20,11 +21,11 @@ export interface CreateOpenAIMinterOptions {
 }
 
 /** Shape of OpenAI's `POST /v1/realtime/client_secrets` response. */
-interface OpenAIClientSecretResponse {
-  readonly value: string;
-  readonly expires_at: number;
-  readonly session?: unknown;
-}
+const OpenAIClientSecretResponseSchema = z.object({
+  value: z.string(),
+  expires_at: z.number(),
+  session: z.unknown().optional(),
+});
 
 /**
  * Why a mint attempt failed. Callers map each reason to their own transport
@@ -46,13 +47,13 @@ export type MintFailureReason =
 
 /**
  * Failure detail for a {@link createOpenAIMinter} call. `upstreamStatus` is
- * present only when `reason` is `upstream-failure` and OpenAI returned an
- * HTTP response (absent when the upstream `fetch` itself threw).
+ * only ever present when `reason` is `upstream-failure`, and even then only
+ * when OpenAI returned an HTTP response (it's absent when the upstream
+ * `fetch` itself threw, e.g. a network error).
  */
-export interface MintFailure {
-  readonly reason: MintFailureReason;
-  readonly upstreamStatus?: number;
-}
+export type MintFailure =
+  | { readonly reason: Exclude<MintFailureReason, 'upstream-failure'> }
+  | { readonly reason: 'upstream-failure'; readonly upstreamStatus?: number };
 
 /** Outcome of a {@link createOpenAIMinter} call. */
 export type MintResult = Result<TokenHandshakeResponse, MintFailure>;
@@ -147,7 +148,7 @@ export function createOpenAIMinter(
     const resolvedModel = handshake.data.model ?? model;
 
     let upstream: Response;
-    let upstreamBody: OpenAIClientSecretResponse;
+    let upstreamBody: z.infer<typeof OpenAIClientSecretResponseSchema>;
     try {
       // `/v1/realtime/client_secrets` nests the model under `session`, not at
       // top level (top-level `model` is rejected as unknown_parameter). Send the
@@ -168,7 +169,11 @@ export function createOpenAIMinter(
         return err({ reason: 'upstream-failure', upstreamStatus: upstream.status });
       }
 
-      upstreamBody = (await upstream.json()) as OpenAIClientSecretResponse;
+      const parsedBody = OpenAIClientSecretResponseSchema.safeParse(await upstream.json());
+      if (!parsedBody.success) {
+        return err({ reason: 'upstream-failure', upstreamStatus: upstream.status });
+      }
+      upstreamBody = parsedBody.data;
     } catch {
       return err({ reason: 'upstream-failure' });
     }

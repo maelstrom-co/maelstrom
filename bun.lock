@@ -200,6 +200,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@maelstrom-co/protocol": "0.0.0",
+        "zod": "catalog:",
       },
     },
     "tools/astro-plugin": {

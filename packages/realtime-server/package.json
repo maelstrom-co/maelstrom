@@ -28,7 +28,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.0.0"
+    "@maelstrom-co/protocol": "0.0.0",
+    "zod": "catalog:"
   },
   "nx": {
     "targets": {

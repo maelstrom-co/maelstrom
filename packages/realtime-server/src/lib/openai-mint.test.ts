@@ -43,6 +43,20 @@ it('reports upstream-failure with the upstream status when upstream rejects the 
   expect(JSON.stringify(result)).not.toContain('sk-secret');
 });
 
+it('reports upstream-failure when upstream returns 200 with a null body, instead of throwing', async () => {
+  const fakeFetch = async (_url: string, _init: RequestInit) =>
+    new Response('null', { status: 200 });
+  const mint = createOpenAIMinter({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+  const result = await mint({ provider: 'openai', sessionId: 'sess-1' });
+  expect(isErr(result)).toBe(true);
+  if (!isErr(result)) throw new Error('expected err result');
+  expect(result.error).toEqual({ reason: 'upstream-failure', upstreamStatus: 200 });
+});
+
 it('rejects a provider other than openai with unsupported-provider and never calls upstream fetch', async () => {
   let fetchCalled = false;
   const fakeFetch = async (): Promise<Response> => {
