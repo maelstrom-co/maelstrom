@@ -9,7 +9,7 @@ import type {
   RealtimeToolSpec,
 } from '../realtime-session/provider-adapter.types.js';
 import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
-import { parseOAIServerEvent } from './parse-oai-event.js';
+import { asString, isRecord, parseOAIServerEvent } from './parse-oai-event.js';
 import {
   INITIAL_RESPONSE_LIFECYCLE_STATE,
   markResponseActive,
@@ -310,7 +310,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       this.#emit({ type: 'error', error });
       return;
     }
-    const type = (parsed as { type?: unknown })?.type;
+    const type = isRecord(parsed) ? asString(parsed.type) : undefined;
     // Noisy transcript deltas flood the console — log only their type.
     if (type === 'response.audio_transcript.delta') {
       this.#logger.debug('←', type);
@@ -335,7 +335,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       this.#emit(event);
     } else {
       this.#logger.debug('unrecognized or unparsed event', type, parsed);
-      if (typeof type === 'string' && this.#unexpectedEvents.track(type)) {
+      if (type !== undefined && this.#unexpectedEvents.track(type)) {
         this.#logger.warn('unexpected realtime event type', type);
       }
     }

@@ -1,10 +1,10 @@
 import type { RealtimeAdapterEvent } from '../realtime-session/provider-adapter.types.js';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function asString(value: unknown): string | undefined {
+export function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 

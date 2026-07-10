@@ -11,47 +11,46 @@ describe('requestResponseCreate', () => {
   it('sends immediately when no response is active', () => {
     const { next, sendNow } = requestResponseCreate(INITIAL_RESPONSE_LIFECYCLE_STATE);
     expect(sendNow).toBe(true);
-    expect(next).toEqual({ active: true, pending: false });
+    expect(next).toEqual({ status: 'active' });
   });
 
   it('defers when a response is already active, without sending', () => {
-    const active = { active: true, pending: false };
+    const active = { status: 'active' as const };
     const { next, sendNow } = requestResponseCreate(active);
     expect(sendNow).toBe(false);
-    expect(next).toEqual({ active: true, pending: true });
+    expect(next).toEqual({ status: 'active-pending' });
   });
 
   it('collapses a second deferred request into the same single pending slot', () => {
-    const alreadyPending = { active: true, pending: true };
+    const alreadyPending = { status: 'active-pending' as const };
     const { next, sendNow } = requestResponseCreate(alreadyPending);
     expect(sendNow).toBe(false);
-    expect(next).toEqual({ active: true, pending: true });
+    expect(next).toEqual({ status: 'active-pending' });
   });
 });
 
 describe('markResponseActive', () => {
-  it('marks active while preserving any pending flag', () => {
-    expect(markResponseActive({ active: false, pending: false })).toEqual({
-      active: true,
-      pending: false,
-    });
-    expect(markResponseActive({ active: false, pending: true })).toEqual({
-      active: true,
-      pending: true,
+  it('marks idle as active', () => {
+    expect(markResponseActive({ status: 'idle' })).toEqual({ status: 'active' });
+  });
+
+  it('leaves an already-active-pending response as active-pending', () => {
+    expect(markResponseActive({ status: 'active-pending' })).toEqual({
+      status: 'active-pending',
     });
   });
 });
 
 describe('markResponseInactive', () => {
   it('goes idle with nothing to flush when no response.create was deferred', () => {
-    const { next, flush } = markResponseInactive({ active: true, pending: false });
+    const { next, flush } = markResponseInactive({ status: 'active' });
     expect(flush).toBe(false);
-    expect(next).toEqual({ active: false, pending: false });
+    expect(next).toEqual({ status: 'idle' });
   });
 
   it('flushes exactly one deferred response.create, re-entering the active state', () => {
-    const { next, flush } = markResponseInactive({ active: true, pending: true });
+    const { next, flush } = markResponseInactive({ status: 'active-pending' });
     expect(flush).toBe(true);
-    expect(next).toEqual({ active: true, pending: false });
+    expect(next).toEqual({ status: 'active' });
   });
 });

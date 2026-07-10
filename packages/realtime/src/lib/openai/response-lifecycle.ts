@@ -9,14 +9,13 @@
  * `update_ui` waits for render-settle, so a naive one-`response.create`-per-
  * tool-result policy races the still-active first response.
  */
-export interface ResponseLifecycleState {
-  readonly active: boolean;
-  readonly pending: boolean;
-}
+export type ResponseLifecycleState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'active' }
+  | { readonly status: 'active-pending' };
 
 export const INITIAL_RESPONSE_LIFECYCLE_STATE: ResponseLifecycleState = {
-  active: false,
-  pending: false,
+  status: 'idle',
 };
 
 /**
@@ -28,17 +27,26 @@ export const INITIAL_RESPONSE_LIFECYCLE_STATE: ResponseLifecycleState = {
 export function requestResponseCreate(
   state: ResponseLifecycleState,
 ): { readonly next: ResponseLifecycleState; readonly sendNow: boolean } {
-  if (state.active) {
-    return { next: { active: true, pending: true }, sendNow: false };
+  switch (state.status) {
+    case 'idle':
+      return { next: { status: 'active' }, sendNow: true };
+    case 'active':
+    case 'active-pending':
+      return { next: { status: 'active-pending' }, sendNow: false };
   }
-  return { next: { active: true, pending: false }, sendNow: true };
 }
 
 /** A raw `response.created` event was observed on the data channel. */
 export function markResponseActive(
   state: ResponseLifecycleState,
 ): ResponseLifecycleState {
-  return { active: true, pending: state.pending };
+  switch (state.status) {
+    case 'idle':
+      return { status: 'active' };
+    case 'active':
+    case 'active-pending':
+      return state;
+  }
 }
 
 /**
@@ -50,8 +58,11 @@ export function markResponseActive(
 export function markResponseInactive(
   state: ResponseLifecycleState,
 ): { readonly next: ResponseLifecycleState; readonly flush: boolean } {
-  if (state.pending) {
-    return { next: { active: true, pending: false }, flush: true };
+  switch (state.status) {
+    case 'active-pending':
+      return { next: { status: 'active' }, flush: true };
+    case 'active':
+    case 'idle':
+      return { next: { status: 'idle' }, flush: false };
   }
-  return { next: { active: false, pending: false }, flush: false };
 }
