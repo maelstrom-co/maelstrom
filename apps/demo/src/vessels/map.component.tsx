@@ -217,7 +217,13 @@ export default function MapComponent({
       meta={metaFor(effectiveVariant, state)}
     >
       <div className="relative flex-1 rounded-lg overflow-hidden">
-        <div ref={containerRef} className="absolute inset-0" />
+        {/* Sized with h-full/w-full, not absolute inset-0: MapLibre adds its
+            own .maplibregl-map class (position: relative) to this div, and
+            its stylesheet loads after Tailwind's utilities, so at equal
+            specificity it overrides `absolute` — collapsing an inset-sized
+            box to zero height and clipping the canvas invisible. Height-based
+            sizing doesn't depend on `position`, so the override is harmless. */}
+        <div ref={containerRef} className="h-full w-full" />
         {effectiveVariant === 'route' && state.route && (
           <div className="absolute bottom-2 left-2 right-2 rounded-md bg-black/70 backdrop-blur px-3 py-1.5 text-sm text-white/90 font-mono">
             {state.route.durationMin} min ·{' '}

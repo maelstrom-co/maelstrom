@@ -28,7 +28,7 @@ vi.mock('@maelstrom-co/realtime', () => ({
 }));
 
 vi.mock('@maelstrom-co/realtime/openai', () => ({
-  createOpenAiAdapter: () => ({}),
+  OpenAIAdapter: class {},
 }));
 
 vi.mock('./mint-token', () => ({

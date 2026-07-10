@@ -226,7 +226,8 @@ describe('MapComponent resize handling', () => {
     expect(resizeObserverInstances).toHaveLength(1);
     const observer = resizeObserverInstances[0];
     const map = mapInstances[0];
-    expect(observer.target).toBe(container.querySelector('.absolute.inset-0'));
+    expect(observer.target).not.toBeNull();
+    expect(container.contains(observer.target)).toBe(true);
 
     expect(map.resizeCallCount).toBe(0);
     observer.trigger();

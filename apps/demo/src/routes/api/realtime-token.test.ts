@@ -1,11 +1,11 @@
-import { expect, it, mock } from 'bun:test';
+import { expect, it, vi } from 'vitest';
 import type { UnixSeconds } from '@maelstrom-co/realtime';
 import type { MintFailureReason, MintResult } from '@maelstrom-co/realtime-server';
 
 // Regression test for the error-precedence bug: with no OPENAI_API_KEY
 // configured, a malformed request body must still surface as a server
 // misconfiguration (500), not a client error (400) — otherwise 5xx
-// alerting never fires. This import must happen before `mock.module` below
+// alerting never fires. This import must happen before `vi.doMock` below
 // runs, so the route's minter singleton binds to the REAL createOpenAIMinter
 // rather than the mock the rest of this file installs. An empty apiKey
 // short-circuits before any upstream fetch, so this is network-safe.
@@ -26,7 +26,8 @@ it('reports a 500 for a malformed body when no API key is configured (real minte
 // controls the minter's result without touching real OpenAI credentials or
 // network. Re-imported below under a distinct specifier so this picks up a
 // fresh module instance bound to the mock, independent of the real-minter
-// import above.
+// import above. `vi.doMock` (unlike `vi.mock`) is not hoisted, matching
+// Bun's `mock.module` runtime-application semantics this test relies on.
 let mintResult: MintResult = { ok: false, error: { reason: 'invalid-request' } };
 let lastMintInput: unknown;
 let mintCallCount = 0;
@@ -39,7 +40,7 @@ const STATUS: Record<MintFailureReason, number> = {
   'upstream-failure': 502,
 };
 
-mock.module('@maelstrom-co/realtime-server', () => ({
+vi.doMock('@maelstrom-co/realtime-server', () => ({
   createOpenAIMinter: () => (input: unknown) => {
     lastMintInput = input;
     mintCallCount += 1;
