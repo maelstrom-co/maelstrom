@@ -55,8 +55,11 @@ export default function WeatherComponent({
         </div>
         <div className="flex-1 flex items-end gap-3">
           {weather.hourly.map((h) => {
-            const pct =
-              ((h.temperatureF - hourlyMinTemp) / hourlyTempRange) * 100;
+            // Floor keeps bars visible on a flat curve (all pct would be 0).
+            const pct = Math.max(
+              ((h.temperatureF - hourlyMinTemp) / hourlyTempRange) * 100,
+              8,
+            );
             const isMax = h.temperatureF === hourlyMaxTemp;
             return (
               <div
@@ -134,8 +137,8 @@ export default function WeatherComponent({
             H: {today.highF}° L: {today.lowF}°
           </div>
         )}
-        <div className="flex gap-6 mt-4 text-sm text-gray-400">
-          <span>💨 {weather.current.windMph} mph</span>
+        <div className="mt-4 text-sm text-gray-400">
+          💨 {weather.current.windMph} mph
         </div>
       </div>
     </VesselCard>
