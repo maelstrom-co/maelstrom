@@ -28,7 +28,7 @@ A second constraint shaped the packaging: voice is one *capability* with two fut
 │   OpenAI gpt-realtime ◄──── WebRTC (audio) + data channel ────┐    │
 │                                                               │    │
 │   ┌──────────────────────── @maelstrom-co/realtime ───────────┴─┐  │
-│   │  createOpenAiAdapter()          RealtimeSession             │  │
+│   │  createOpenAIAdapter()          RealtimeSession             │  │
 │   │  (transport, envelopes,   ◄──►  (tool routing, speak-after- │  │
 │   │   response pacing)               render, grounding cadence) │  │
 │   └───────────────────────────────────────────┬─────────────────┘  │
@@ -63,14 +63,14 @@ Three facts to hold onto:
    ┌────┴────────────────────────────┐
    ▼                                 ▼
 @maelstrom-co/client        @maelstrom-co/realtime-server
-  VoiceSession seam           createOpenAiMintHandler
-  UiStructuralSnapshot        (framework-agnostic (req) => Response)
+  VoiceSession seam           createOpenAIMintHandler
+  UIStructuralSnapshot        (framework-agnostic (req) => Response)
   Orchestrator additions
         ▲
         │
 @maelstrom-co/realtime
   RealtimeSession (root)
-  createOpenAiAdapter (/openai subpath)
+  createOpenAIAdapter (/openai subpath)
   (/google subpath — reserved stub)
 ```
 
@@ -93,7 +93,7 @@ The model is given exactly two tools, defined in `RealtimeSession`:
 
 An `update_ui` round-trip (`packages/realtime/src/lib/realtime-session.ts`):
 
-1. The model emits a `function_call` over the WebRTC data channel. `createOpenAiAdapter` parses the raw envelope (`parseOaiServerEvent`, a pure function) into a provider-neutral `tool_call` event.
+1. The model emits a `function_call` over the WebRTC data channel. `createOpenAIAdapter` parses the raw envelope (`parseOAIServerEvent`, a pure function) into a provider-neutral `tool_call` event.
 2. `RealtimeSession` extracts the intent string — **only the plain string crosses this boundary** — and submits it through the `RealtimeInstance` bridge: `submitIntent(intent)` → `Orchestrator.processIntent`. From here it is an ordinary Maelstrom request: the client snapshots its own state into a `ChartRequest`, the engine plans, the client applies layout + actions in the standard strict order.
 3. The session then awaits `waitForIdle()` — the command queue draining back to idle, i.e. the render has settled.
 4. **Only now** does the session send the tool result, containing a terse summary derived from the *post-settle* snapshot.
@@ -120,7 +120,7 @@ The model needs *some* picture of the screen or its conversation drifts. But rea
 
 ### The structural boundary
 
-`UiStructuralSnapshot` (in `client`) projects each instance to `{instanceId, vesselId, variant}` plus layout, layout mode, and chart dimensions. **Vessel domain data — props, contents — never reaches the realtime model**, for the same reason it never reaches the engine: both plan/ground on structure. A test enforces this projection; adding a data field breaks it.
+`UIStructuralSnapshot` (in `client`) projects each instance to `{instanceId, vesselId, variant}` plus layout, layout mode, and chart dimensions. **Vessel domain data — props, contents — never reaches the realtime model**, for the same reason it never reaches the engine: both plan/ground on structure. A test enforces this projection; adding a data field breaks it.
 
 ---
 
@@ -156,16 +156,16 @@ Voice is the first intent source that can fire *while a request is in flight* �
 
 - **Custody**: `OPENAI_API_KEY` exists only in `@maelstrom-co/realtime-server`'s mint handler and only in the upstream `Authorization` header. Verified absent from the demo's built client bundle.
 - **Ephemeral credentials**: the mint requests a client secret with a 600s expiry, scoped to one model. The browser uses it once, for the SDP exchange.
-- **Adapter owns the credential**: `mintToken` is injected into `createOpenAiAdapter`; `RealtimeSession` never sees a token, so no session-layer code path can leak one.
+- **Adapter owns the credential**: `mintToken` is injected into `createOpenAIAdapter`; `RealtimeSession` never sees a token, so no session-layer code path can leak one.
 - **Known gap, by design**: the mint endpoint is an **unauthenticated bootstrap** — anyone who can reach it can mint a short-lived credential. The handler's JSDoc says so explicitly; origin allowlist, rate limiting, and an auth hook are required before any real deployment (MAE-337).
 
 ---
 
 ## Testing strategy
 
-The strategy is **pure cores, live shell**. Everything that can be made a pure function was, and is unit-tested exhaustively: envelope parsing (`parseOaiServerEvent`), response pacing (`response-lifecycle.ts`), grounding debounce, the structural-snapshot projection (including the domain-data-leak guard), speak-after-render ordering, barge-in handling, connection lifecycle transitions, and the mint handler's request/response mapping (with an injected `fetch`). The impure shell — `RTCPeerConnection`, mic capture, the data channel — is deliberately not unit-tested; it's validated by running the demo against the real API. That live run already earned its keep: it corrected the model ID, the streamed function-call event shape, and the mint request's body nesting — three things no mock would have caught.
+The strategy is **pure cores, live shell**. Everything that can be made a pure function was, and is unit-tested exhaustively: envelope parsing (`parseOAIServerEvent`), response pacing (`response-lifecycle.ts`), grounding debounce, the structural-snapshot projection (including the domain-data-leak guard), speak-after-render ordering, barge-in handling, connection lifecycle transitions, and the mint handler's request/response mapping (with an injected `fetch`). The impure shell — `RTCPeerConnection`, mic capture, the data channel — is deliberately not unit-tested; it's validated by running the demo against the real API. That live run already earned its keep: it corrected the model ID, the streamed function-call event shape, and the mint request's body nesting — three things no mock would have caught.
 
-The seam between shell and core is explicit: the adapter is "thin RTCPeerConnection glue" around parse + pacing, and the event mappings OpenAI doesn't document (transcripts, speech-started) are isolated in `parseOaiServerEvent` with comments marking them as best-known shapes, cheap to correct as real traffic teaches us. Shape drift is not silent: event types the parser doesn't map and that aren't on an explicit known-benign allowlist are warned once per distinct type (`unexpected-event-tracker.ts`, itself a tested pure core), so a provider-side rename shows up as a console warning instead of a quietly missing feature.
+The seam between shell and core is explicit: the adapter is "thin RTCPeerConnection glue" around parse + pacing, and the event mappings OpenAI doesn't document (transcripts, speech-started) are isolated in `parseOAIServerEvent` with comments marking them as best-known shapes, cheap to correct as real traffic teaches us. Shape drift is not silent: event types the parser doesn't map and that aren't on an explicit known-benign allowlist are warned once per distinct type (`unexpected-event-tracker.ts`, itself a tested pure core), so a provider-side rename shows up as a console warning instead of a quietly missing feature.
 
 ---
 
@@ -175,7 +175,7 @@ The seam between shell and core is explicit: the adapter is "thin RTCPeerConnect
 |---|---|
 | D1 — realtime + cascade are siblings behind one seam | `VoiceSession` in `client` |
 | D2 — OSS-first; cloud = same seam, hosted URL | mint handler is `(req) => Response`, framework-agnostic |
-| D3 — client-direct session, server-minted tokens, sidechannel | `createOpenAiAdapter` + `createOpenAiMintHandler` + `SidechannelEvent` |
+| D3 — client-direct session, server-minted tokens, sidechannel | `createOpenAIAdapter` + `createOpenAIMintHandler` + `SidechannelEvent` |
 | D4 — client-built requests, M1 context, engine unchanged | `submitIntent` → `processIntent`; no engine diff |
 | D5 — speak-after-render | tool result withheld until `waitForIdle()` |
 | D6 — debounced latest-wins grounding + pull tool | `groundedDebounce` + stable-ID grounding item + `get_ui_state` |

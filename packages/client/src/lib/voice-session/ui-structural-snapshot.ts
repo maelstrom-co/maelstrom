@@ -13,7 +13,7 @@ import type { Orchestrator } from '../orchestrator/orchestrator.js';
  * vessel domain data: the engine plans structurally and the model grounds on
  * shape, never contents.
  */
-export interface UiStructuralSnapshot {
+export interface UIStructuralSnapshot {
   readonly instances: readonly VesselInstanceSnapshot[];
   /** Current positions; null before the first layout applies. */
   readonly layout: GridLayout | TilingLayout | null;
@@ -24,7 +24,7 @@ export interface UiStructuralSnapshot {
 /** Pure read of the Orchestrator's microkernel stores into a snapshot. */
 export function readStructuralSnapshot(
   orchestrator: Orchestrator,
-): UiStructuralSnapshot {
+): UIStructuralSnapshot {
   const { instances, layout } = orchestrator.commandProcessor.store.state;
   return {
     // Branded ids flow through unchanged — no casts.

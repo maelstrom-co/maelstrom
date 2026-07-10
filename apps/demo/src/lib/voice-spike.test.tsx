@@ -54,12 +54,12 @@ mock.module('@maelstrom-co/realtime', () => ({
 }));
 
 mock.module('@maelstrom-co/realtime/openai', () => ({
-  createOpenAiAdapter: () => ({}),
+  createOpenAIAdapter: () => ({}),
 }));
 
 mock.module('./mint-token', () => ({
-  mintOpenAiToken: async () => {
-    throw new Error('mintOpenAiToken should not be called in tests');
+  mintOpenAIToken: async () => {
+    throw new Error('mintOpenAIToken should not be called in tests');
   },
 }));
 

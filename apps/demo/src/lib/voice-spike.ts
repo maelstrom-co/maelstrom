@@ -5,9 +5,9 @@ import {
   RealtimeSession,
   type RealtimeInstance,
 } from '@maelstrom-co/realtime';
-import { createOpenAiAdapter } from '@maelstrom-co/realtime/openai';
+import { createOpenAIAdapter } from '@maelstrom-co/realtime/openai';
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
-import { mintOpenAiToken } from './mint-token';
+import { mintOpenAIToken } from './mint-token';
 
 export interface VoiceSpikeApi {
   readonly state: VoiceSessionState;
@@ -29,8 +29,8 @@ function createSession(orchestrator: Orchestrator): RealtimeSession {
   // path only, independent of the instance's global debug.
   const debug = true;
 
-  const adapter = createOpenAiAdapter({
-    mintToken: () => mintOpenAiToken(orchestrator.getConfig().sessionId),
+  const adapter = createOpenAIAdapter({
+    mintToken: () => mintOpenAIToken(orchestrator.getConfig().sessionId),
     debug,
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
-import type { UiStructuralSnapshot } from '@maelstrom-co/client';
+import type { UIStructuralSnapshot } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
 import { InstanceId, SessionId, VariantName, VesselId } from '@maelstrom-co/protocol';
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
@@ -107,7 +107,7 @@ interface MockInstance extends RealtimeInstance {
   resolveIdle(): void;
 }
 
-function makeMockInstance(snapshot: UiStructuralSnapshot): MockInstance {
+function makeMockInstance(snapshot: UIStructuralSnapshot): MockInstance {
   const submitted: string[] = [];
   const settledHandlers = new Set<() => void>();
   let pendingResolvers: Array<() => void> = [];
@@ -150,14 +150,14 @@ function makeMockInstance(snapshot: UiStructuralSnapshot): MockInstance {
 
 const testSessionId = SessionId('sess-test-1');
 
-const emptySnapshot: UiStructuralSnapshot = {
+const emptySnapshot: UIStructuralSnapshot = {
   instances: [],
   layout: null,
   layoutMode: 'grid',
   chartDimensions: { rows: 8, columns: 12 },
 };
 
-const populatedSnapshot: UiStructuralSnapshot = {
+const populatedSnapshot: UIStructuralSnapshot = {
   instances: [
     {
       instanceId: InstanceId('inst-1'),
@@ -170,7 +170,7 @@ const populatedSnapshot: UiStructuralSnapshot = {
   chartDimensions: { rows: 8, columns: 12 },
 };
 
-function makeHarness(snapshot: UiStructuralSnapshot = emptySnapshot) {
+function makeHarness(snapshot: UIStructuralSnapshot = emptySnapshot) {
   const adapter = makeMockAdapter();
   const instance = makeMockInstance(snapshot);
   const events: SidechannelEvent[] = [];
@@ -295,7 +295,7 @@ describe('RealtimeSession — grounding debounce', () => {
     // The final settle's snapshot must be distinguishable from the middle
     // one (both otherwise contain 'labs-chart') so the assertion below
     // proves latest-wins rather than coincidentally matching either.
-    const finalSnapshot: UiStructuralSnapshot = {
+    const finalSnapshot: UIStructuralSnapshot = {
       ...populatedSnapshot,
       layoutMode: 'tiling',
     };
@@ -467,7 +467,7 @@ describe('RealtimeSession — domain-data boundary', () => {
     adapter.emitToolCall({ callId: 'c2', name: 'get_ui_state', argumentsJson: '{}' });
     await flushMicrotasks();
 
-    const output = adapter.toolResults[0].output as UiStructuralSnapshot;
+    const output = adapter.toolResults[0].output as UIStructuralSnapshot;
     expect(Object.keys(output).sort()).toEqual(
       ['chartDimensions', 'instances', 'layout', 'layoutMode'].sort(),
     );

@@ -1,6 +1,6 @@
 import { Logger, RequestInFlightError } from '@maelstrom-co/client';
 import type {
-  UiStructuralSnapshot,
+  UIStructuralSnapshot,
   Unsubscribe,
   VoiceSession,
   VoiceSessionState,
@@ -24,7 +24,7 @@ import type {
 export interface RealtimeInstance {
   submitIntent(intent: string): Promise<void>;
   waitForIdle(): Promise<void>;
-  getStructuralSnapshot(): UiStructuralSnapshot;
+  getStructuralSnapshot(): UIStructuralSnapshot;
   onSettled(cb: () => void): Unsubscribe;
 }
 
@@ -35,7 +35,7 @@ export interface RealtimeInstance {
  * logic; the default is deterministic and O(1) — grounding must never
  * involve a model call.
  */
-export type SummarizeFn = (snapshot: UiStructuralSnapshot) => string;
+export type SummarizeFn = (snapshot: UIStructuralSnapshot) => string;
 
 /** Options for constructing a {@link RealtimeSession}. */
 export interface RealtimeSessionOptions {
@@ -113,7 +113,7 @@ interface QueuedIntent {
   readonly resolve: (ok: boolean) => void;
 }
 
-function defaultSummarize(snapshot: UiStructuralSnapshot): string {
+function defaultSummarize(snapshot: UIStructuralSnapshot): string {
   const count = snapshot.instances.length;
   if (count === 0) return 'The screen is empty.';
   const parts = snapshot.instances
@@ -166,7 +166,7 @@ export class RealtimeSession implements VoiceSession {
   readonly #sessionId: SessionId;
   readonly #summarize: SummarizeFn;
   readonly #onEvent: (event: SidechannelEvent) => void;
-  readonly #pushGrounding: ((snapshot: UiStructuralSnapshot) => void) & { cancel(): void };
+  readonly #pushGrounding: ((snapshot: UIStructuralSnapshot) => void) & { cancel(): void };
   readonly #logger: Logger;
 
   #state: VoiceSessionState = 'idle';
@@ -184,7 +184,7 @@ export class RealtimeSession implements VoiceSession {
     this.#summarize = options.summarize ?? defaultSummarize;
     this.#onEvent = options.onEvent ?? (() => {});
     this.#logger = new Logger(options.debug ?? false, 'realtime');
-    this.#pushGrounding = groundedDebounce((snapshot: UiStructuralSnapshot) => {
+    this.#pushGrounding = groundedDebounce((snapshot: UIStructuralSnapshot) => {
       this.#adapter.injectGrounding(this.#clampGrounding(this.#summarize(snapshot)));
     }, options.groundingDebounceMs ?? DEFAULT_GROUNDING_DEBOUNCE_MS);
   }
@@ -292,10 +292,10 @@ export class RealtimeSession implements VoiceSession {
     let ok: boolean;
     switch (call.name) {
       case 'update_ui':
-        ok = await this.#handleUpdateUi(call.callId, call.argumentsJson);
+        ok = await this.#handleUpdateUI(call.callId, call.argumentsJson);
         break;
       case 'get_ui_state':
-        ok = await this.#handleGetUiState(call.callId);
+        ok = await this.#handleGetUIState(call.callId);
         break;
       default:
         await this.#adapter.sendToolResult(call.callId, {
@@ -316,7 +316,7 @@ export class RealtimeSession implements VoiceSession {
   }
 
   /** Returns whether the update applied successfully (for the sidechannel result event). */
-  async #handleUpdateUi(callId: string, argumentsJson: string): Promise<boolean> {
+  async #handleUpdateUI(callId: string, argumentsJson: string): Promise<boolean> {
     this.#logger.debug('update_ui: parsing arguments', argumentsJson);
     let intent: string;
     try {
@@ -494,7 +494,7 @@ export class RealtimeSession implements VoiceSession {
     }
   }
 
-  async #handleGetUiState(callId: string): Promise<boolean> {
+  async #handleGetUIState(callId: string): Promise<boolean> {
     this.#logger.debug('get_ui_state: reading snapshot');
     const snapshot = this.#instance.getStructuralSnapshot();
     await this.#adapter.sendToolResult(callId, snapshot);

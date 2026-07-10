@@ -21,7 +21,7 @@ function asString(value: unknown): string | undefined {
  * shapes from prior Realtime API versions, isolated here so they're cheap to
  * correct once real traffic is observed.
  */
-export function parseOaiServerEvent(raw: unknown): RealtimeAdapterEvent | null {
+export function parseOAIServerEvent(raw: unknown): RealtimeAdapterEvent | null {
   if (!isRecord(raw)) return null;
   const type = asString(raw.type);
   if (type === undefined) return null;

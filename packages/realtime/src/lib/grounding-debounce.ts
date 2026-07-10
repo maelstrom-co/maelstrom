@@ -12,7 +12,7 @@
  *
  * @example
  * ```ts
- * const push = groundedDebounce((snapshot: UiStructuralSnapshot) => {
+ * const push = groundedDebounce((snapshot: UIStructuralSnapshot) => {
  *   adapter.injectGrounding(summarize(snapshot));
  * }, 1000);
  * push.cancel(); // e.g. on session disconnect

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
-import { parseOaiServerEvent } from './parse-oai-event.js';
+import { parseOAIServerEvent } from './parse-oai-event.js';
 
-describe('parseOaiServerEvent — tool calls', () => {
+describe('parseOAIServerEvent — tool calls', () => {
   it('maps a function_call event to a tool_call adapter event', () => {
     const raw = {
       type: 'function_call',
@@ -11,7 +11,7 @@ describe('parseOaiServerEvent — tool calls', () => {
       call_id: 'call_abc123',
     };
 
-    expect(parseOaiServerEvent(raw)).toEqual({
+    expect(parseOAIServerEvent(raw)).toEqual({
       type: 'tool_call',
       callId: 'call_abc123',
       name: 'update_ui',
@@ -21,11 +21,11 @@ describe('parseOaiServerEvent — tool calls', () => {
 
   it('returns null when a function_call event is missing a required field', () => {
     const raw = { type: 'function_call', name: 'update_ui', call_id: 'call_1' };
-    expect(parseOaiServerEvent(raw)).toBeNull();
+    expect(parseOAIServerEvent(raw)).toBeNull();
   });
 });
 
-describe('parseOaiServerEvent — transcript', () => {
+describe('parseOAIServerEvent — transcript', () => {
   it('maps an assistant transcript delta to a non-final transcript event', () => {
     const raw = {
       type: 'response.audio_transcript.delta',
@@ -33,7 +33,7 @@ describe('parseOaiServerEvent — transcript', () => {
       delta: 'Pulling that up',
     };
 
-    expect(parseOaiServerEvent(raw)).toEqual({
+    expect(parseOAIServerEvent(raw)).toEqual({
       type: 'transcript',
       role: 'assistant',
       text: 'Pulling that up',
@@ -48,7 +48,7 @@ describe('parseOaiServerEvent — transcript', () => {
       transcript: 'Pulling that up for you now.',
     };
 
-    expect(parseOaiServerEvent(raw)).toEqual({
+    expect(parseOAIServerEvent(raw)).toEqual({
       type: 'transcript',
       role: 'assistant',
       text: 'Pulling that up for you now.',
@@ -63,7 +63,7 @@ describe('parseOaiServerEvent — transcript', () => {
       transcript: 'show me the labs',
     };
 
-    expect(parseOaiServerEvent(raw)).toEqual({
+    expect(parseOAIServerEvent(raw)).toEqual({
       type: 'transcript',
       role: 'user',
       text: 'show me the labs',
@@ -72,35 +72,35 @@ describe('parseOaiServerEvent — transcript', () => {
   });
 });
 
-describe('parseOaiServerEvent — speech and error', () => {
+describe('parseOAIServerEvent — speech and error', () => {
   it('maps input_audio_buffer.speech_started to a speech_started event', () => {
-    expect(parseOaiServerEvent({ type: 'input_audio_buffer.speech_started' })).toEqual({
+    expect(parseOAIServerEvent({ type: 'input_audio_buffer.speech_started' })).toEqual({
       type: 'speech_started',
     });
   });
 
   it('maps an error event to an error adapter event', () => {
     const raw = { type: 'error', error: { message: 'boom', code: 'invalid_request' } };
-    expect(parseOaiServerEvent(raw)).toEqual({
+    expect(parseOAIServerEvent(raw)).toEqual({
       type: 'error',
       error: { message: 'boom', code: 'invalid_request' },
     });
   });
 });
 
-describe('parseOaiServerEvent — unknown / malformed input', () => {
+describe('parseOAIServerEvent — unknown / malformed input', () => {
   it('returns null for an unrecognized event type', () => {
-    expect(parseOaiServerEvent({ type: 'session.updated' })).toBeNull();
+    expect(parseOAIServerEvent({ type: 'session.updated' })).toBeNull();
   });
 
   it('returns null for non-object input', () => {
-    expect(parseOaiServerEvent('not an object')).toBeNull();
-    expect(parseOaiServerEvent(null)).toBeNull();
-    expect(parseOaiServerEvent(undefined)).toBeNull();
+    expect(parseOAIServerEvent('not an object')).toBeNull();
+    expect(parseOAIServerEvent(null)).toBeNull();
+    expect(parseOAIServerEvent(undefined)).toBeNull();
   });
 
   it('returns null when type is missing or not a string', () => {
-    expect(parseOaiServerEvent({})).toBeNull();
-    expect(parseOaiServerEvent({ type: 42 })).toBeNull();
+    expect(parseOAIServerEvent({})).toBeNull();
+    expect(parseOAIServerEvent({ type: 42 })).toBeNull();
   });
 });

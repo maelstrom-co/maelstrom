@@ -9,7 +9,7 @@ import {
  * route. The browser never sees OPENAI_API_KEY — only this short-lived
  * token, scoped and expired server-side.
  */
-export async function mintOpenAiToken(
+export async function mintOpenAIToken(
   sessionId: SessionId,
 ): Promise<TokenHandshakeResponse> {
   const res = await fetch('/api/realtime-token', {

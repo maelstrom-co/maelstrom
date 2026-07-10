@@ -1,6 +1,6 @@
 import { expect, it } from 'bun:test';
 import { TokenHandshakeResponseSchema } from '@maelstrom-co/protocol';
-import { createOpenAiMintHandler } from './openai-mint.js';
+import { createOpenAIMintHandler } from './openai-mint.js';
 
 it('mints an ephemeral secret without leaking the api key', async () => {
   let sentAuth = '';
@@ -11,7 +11,7 @@ it('mints an ephemeral secret without leaking the api key', async () => {
       { status: 200 },
     );
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -31,7 +31,7 @@ it('mints an ephemeral secret without leaking the api key', async () => {
 it('responds with a generic error and no key leakage when upstream rejects the request', async () => {
   const fakeFetch = async (_url: string, _init: RequestInit) =>
     new Response(JSON.stringify({ error: { message: 'bad key' } }), { status: 401 });
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -52,7 +52,7 @@ it('rejects a provider other than openai with a 400', async () => {
   const fakeFetch = async (): Promise<Response> => {
     throw new Error('should not be called');
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -77,7 +77,7 @@ it('honors a model override in the request, in both the upstream call and the re
       { status: 200 },
     );
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -102,7 +102,7 @@ it('falls back to the server-configured model when no override is provided', asy
       { status: 200 },
     );
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -122,7 +122,7 @@ it('responds with a generic error and no key leakage when the upstream fetch thr
   const fakeFetch = async (): Promise<Response> => {
     throw new Error('network down');
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -145,7 +145,7 @@ it('rejects a malformed JSON body with a 400 and never calls upstream fetch', as
     fetchCalled = true;
     throw new Error('should not be called');
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -168,7 +168,7 @@ it('rejects a structurally invalid handshake with a 400 and never calls upstream
     fetchCalled = true;
     throw new Error('should not be called');
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -191,7 +191,7 @@ it('rejects a handshake with a wrong-typed provider with a 400 and never calls u
     fetchCalled = true;
     throw new Error('should not be called');
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -214,7 +214,7 @@ it('returns 500 and never calls upstream fetch when the handler holds no api key
     fetchCalled = true;
     throw new Error('should not be called');
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: '',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,
@@ -237,7 +237,7 @@ it('rejects a non-POST method with a 400 and never calls upstream fetch', async 
     fetchCalled = true;
     throw new Error('should not be called');
   };
-  const handler = createOpenAiMintHandler({
+  const handler = createOpenAIMintHandler({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
     fetch: fakeFetch,

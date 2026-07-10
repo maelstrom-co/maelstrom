@@ -1,5 +1,5 @@
 import type { Unsubscribe } from '../types.js';
-import type { UiStructuralSnapshot } from './ui-structural-snapshot.js';
+import type { UIStructuralSnapshot } from './ui-structural-snapshot.js';
 
 /**
  * UI-facing lifecycle state common to every voice implementation. `idle` is
@@ -25,7 +25,7 @@ export interface SpeakableResult {
 /** A terse, latest-wins grounding push to the model. O(1) context budget. */
 export interface GroundingUpdate {
   readonly text: string;
-  readonly snapshot: UiStructuralSnapshot;
+  readonly snapshot: UIStructuralSnapshot;
 }
 
 /**

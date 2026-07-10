@@ -8,7 +8,7 @@ import type {
   RealtimeProviderAdapter,
   RealtimeToolSpec,
 } from '../provider-adapter.types.js';
-import { parseOaiServerEvent } from './parse-oai-event.js';
+import { parseOAIServerEvent } from './parse-oai-event.js';
 import {
   INITIAL_RESPONSE_LIFECYCLE_STATE,
   markResponseActive,
@@ -23,8 +23,8 @@ const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 /** Stable id for the single latest-wins grounding context item. */
 const GROUNDING_ITEM_ID = 'maelstrom-grounding';
 
-/** Options for {@link createOpenAiAdapter}. */
-export interface CreateOpenAiAdapterOptions {
+/** Options for {@link createOpenAIAdapter}. */
+export interface CreateOpenAIAdapterOptions {
   /**
    * Mints the ephemeral OpenAI realtime client secret this adapter connects
    * with. Called once per `connect()`. The token handshake is assigned to
@@ -35,7 +35,7 @@ export interface CreateOpenAiAdapterOptions {
   readonly debug?: boolean;
 }
 
-function toOaiTool(spec: RealtimeToolSpec): unknown {
+function toOAITool(spec: RealtimeToolSpec): unknown {
   return {
     type: 'function',
     name: spec.name,
@@ -52,20 +52,20 @@ function toOaiTool(spec: RealtimeToolSpec): unknown {
  * the `oai-events` data channel.
  *
  * The data-channel envelope → adapter-event mapping lives in
- * {@link parseOaiServerEvent}; this factory is thin `RTCPeerConnection` glue
+ * {@link parseOAIServerEvent}; this factory is thin `RTCPeerConnection` glue
  * around it — the WebRTC transport itself is not unit-tested, but the
  * envelope parsing and response-lifecycle bookkeeping it delegates to are.
  *
  * @example
  * ```ts
- * const adapter = createOpenAiAdapter({
+ * const adapter = createOpenAIAdapter({
  *   mintToken: () => fetch('/api/realtime/mint', { method: 'POST', ... }).then(r => r.json()),
  * });
  * const session = new RealtimeSession({ adapter, instance, sessionId });
  * await session.connect();
  * ```
  */
-export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): RealtimeProviderAdapter {
+export function createOpenAIAdapter(options: CreateOpenAIAdapterOptions): RealtimeProviderAdapter {
   const { mintToken } = options;
   const logger = new Logger(options.debug ?? false, 'realtime');
 
@@ -128,7 +128,7 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
     }
 
     // Response-lifecycle bookkeeping is driven off the raw event type, not
-    // the parsed adapter event — `parseOaiServerEvent` has no mapping for
+    // the parsed adapter event — `parseOAIServerEvent` has no mapping for
     // these (and shouldn't grow one just for this internal concern).
     if (type === 'response.created') {
       responseLifecycle = markResponseActive(responseLifecycle);
@@ -138,7 +138,7 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
       if (flush) sendResponseCreate();
     }
 
-    const event = parseOaiServerEvent(parsed);
+    const event = parseOAIServerEvent(parsed);
     if (event) {
       logger.debug('parsed →', event.type, event);
       emit(event);
@@ -198,7 +198,7 @@ export function createOpenAiAdapter(options: CreateOpenAiAdapterOptions): Realti
             type: 'session.update',
             session: {
               type: 'realtime',
-              tools: opts.tools.map(toOaiTool),
+              tools: opts.tools.map(toOAITool),
               instructions: opts.instructions,
             },
           };

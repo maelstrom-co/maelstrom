@@ -4,8 +4,8 @@ import {
   type TokenHandshakeResponse,
 } from '@maelstrom-co/protocol';
 
-/** Options for {@link createOpenAiMintHandler}. */
-export interface CreateOpenAiMintHandlerOptions {
+/** Options for {@link createOpenAIMintHandler}. */
+export interface CreateOpenAIMintHandlerOptions {
   /** Server-held OpenAI API key. Never forwarded to the caller. */
   readonly apiKey: string;
   /** Realtime model the minted client secret is scoped to. */
@@ -18,7 +18,7 @@ export interface CreateOpenAiMintHandlerOptions {
 }
 
 /** Shape of OpenAI's `POST /v1/realtime/client_secrets` response. */
-interface OpenAiClientSecretResponse {
+interface OpenAIClientSecretResponse {
   readonly value: string;
   readonly expires_at: number;
   readonly session?: unknown;
@@ -47,15 +47,15 @@ interface OpenAiClientSecretResponse {
  *
  * @example
  * ```ts
- * const handler = createOpenAiMintHandler({
+ * const handler = createOpenAIMintHandler({
  *   apiKey: process.env.OPENAI_API_KEY!,
  *   model: 'gpt-realtime-2',
  * });
  * export const POST = handler; // wire into your framework's fetch adapter
  * ```
  */
-export function createOpenAiMintHandler(
-  options: CreateOpenAiMintHandlerOptions,
+export function createOpenAIMintHandler(
+  options: CreateOpenAIMintHandlerOptions,
 ): (req: Request) => Promise<Response> {
   const { apiKey, model, fetch: injectedFetch } = options;
   const doFetch = injectedFetch ?? fetch;
@@ -91,7 +91,7 @@ export function createOpenAiMintHandler(
     const resolvedModel = handshake.data.model ?? model;
 
     let upstream: Response;
-    let upstreamBody: OpenAiClientSecretResponse;
+    let upstreamBody: OpenAIClientSecretResponse;
     try {
       // `/v1/realtime/client_secrets` nests the model under `session`, not at
       // top level (top-level `model` is rejected as unknown_parameter). Send the
@@ -115,7 +115,7 @@ export function createOpenAiMintHandler(
         );
       }
 
-      upstreamBody = (await upstream.json()) as OpenAiClientSecretResponse;
+      upstreamBody = (await upstream.json()) as OpenAIClientSecretResponse;
     } catch {
       return Response.json({ error: 'Token mint request failed' }, { status: 502 });
     }

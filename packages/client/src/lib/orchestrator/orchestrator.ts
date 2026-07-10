@@ -24,7 +24,7 @@ import { Logger } from '../utils/logger.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
 import {
   readStructuralSnapshot,
-  type UiStructuralSnapshot,
+  type UIStructuralSnapshot,
 } from '../voice-session/ui-structural-snapshot.js';
 import { buildChartRequest } from './build-chart-request.js';
 import type {
@@ -149,7 +149,7 @@ export class Orchestrator {
   }
 
   /** Structural-only UI snapshot for grounding + `get_ui_state` pulls. */
-  getStructuralSnapshot(): UiStructuralSnapshot {
+  getStructuralSnapshot(): UIStructuralSnapshot {
     return readStructuralSnapshot(this);
   }
 
