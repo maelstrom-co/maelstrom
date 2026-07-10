@@ -317,35 +317,40 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     }, [orchestrator, config.cellSizePx]);
 
     // Tiling layout computed once per render — reused by both the
-    // layoutSignature below and the tiling render branch.
+    // layoutKey below and the tiling render branch.
     const tilingComputed = useMemo<ComputedTile[] | null>(() => {
       if (!layout || layout.type !== 'tiling') return null;
       const tree = parseTilingTree(layout.tree);
       return computeTilingLayout(tree, containerRect, config.tilingPaddingPx);
     }, [layout, containerRect, config.tilingPaddingPx]);
 
-    // Container pixel size must be part of the signature: grid mode uses
-    // `1fr` tracks, so a resize changes every rendered rect without changing
-    // any logical position — omitting it leaves FLIP's rect map stale.
+    // The logical layout (layoutKey) and the container pixel size (sizeKey)
+    // are kept as separate keys: useChartMotion animates only on layoutKey
+    // changes and silently re-measures on size-only changes, while exit
+    // tracking must re-snapshot on both — so it receives the combined
+    // signature. Note tiling's layoutKey is built from computed pixel rects,
+    // so a container resize changes it there by construction.
     const sizeKey = `${Math.round(containerRect.width)}x${Math.round(containerRect.height)}`;
 
-    const layoutSignature = useMemo(() => {
+    const layoutKey = useMemo(() => {
       if (!layout || layout.type === 'grid') {
         const positions = layout?.positions ?? [];
         const key = positions
           .map((p) => `${p.instanceId}:${p.position.row}:${p.position.column}:${p.size.width}:${p.size.height}`)
           .join('|');
-        return `grid:${sizeKey}:${key}`;
+        return `grid:${key}`;
       }
       if (layout.type === 'tiling') {
         const tiles = tilingComputed ?? [];
         const key = tiles
           .map((t) => `${t.instanceId}:${t.rect.x}:${t.rect.y}:${t.rect.width}:${t.rect.height}`)
           .join('|');
-        return `tiling:${sizeKey}:${key}`;
+        return `tiling:${key}`;
       }
-      return `unknown:${sizeKey}`;
-    }, [layout, tilingComputed, sizeKey]);
+      return 'unknown';
+    }, [layout, tilingComputed]);
+
+    const layoutSignature = `${layoutKey}@${sizeKey}`;
 
     // Instances currently rendered, keyed by instanceId — feeds exit tracking
     // so a instance dropped from the next layout response gets an exit entry.
@@ -388,7 +393,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     // ghost at a stale position.
     const exiting = useExitingInstances(currentInstanceEntries, measureRect, config.motion, layoutSignature);
 
-    useChartMotion(containerRef, layoutSignature, config.motion);
+    useChartMotion(containerRef, layoutKey, sizeKey, config.motion);
 
     // ── Guard: duplicate Chart ────────────────────────────────────────────────
 
