@@ -33,8 +33,19 @@ const GET_UI_STATE_TOOL: RealtimeToolSpec = {
   },
 };
 
+const GET_CAPABILITIES_TOOL: RealtimeToolSpec = {
+  name: 'get_capabilities',
+  description:
+    'List every view this UI can show — each vessel, its purpose, its available variants, and the actions that can transform it. Call this when the user asks what you can do or show.',
+  parametersJsonSchema: {
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  },
+};
+
 const DEFAULT_INSTRUCTIONS =
-  "You are the voice interface for a Maelstrom-powered UI. Call update_ui with a short natural-language instruction to change what's on screen, and get_ui_state to check what's currently shown. Only narrate a UI change after update_ui's result confirms it rendered.";
+  "You are the voice interface for a Maelstrom-powered UI. Call update_ui with a short natural-language instruction to change what's on screen, and get_ui_state to check what's currently shown. Call get_capabilities when the user asks what you can do or show. Only narrate a UI change after update_ui's result confirms it rendered.";
 
 const DEFAULT_GROUNDING_DEBOUNCE_MS = 1000;
 
@@ -82,8 +93,9 @@ function defaultSummarize(snapshot: UIStructuralSnapshot): string {
  * {@link RealtimeProviderAdapter}'s tool calls to a Maelstrom instance:
  * `update_ui` submits an intent and withholds its tool result until the
  * resulting render settles (speak-after-render); `get_ui_state` answers
- * immediately from a structural snapshot; render-settle events push a
- * debounced, latest-wins grounding string; and every tool round-trip is
+ * immediately from a structural snapshot; `get_capabilities` answers
+ * immediately from the vessel capability catalog; render-settle events push
+ * a debounced, latest-wins grounding string; and every tool round-trip is
  * mirrored onto `onEvent` as {@link SidechannelEvent}s for observability.
  *
  * Concurrent `update_ui` calls (a model can emit a second while the first is
@@ -108,6 +120,7 @@ function defaultSummarize(snapshot: UIStructuralSnapshot): string {
  *     submitIntent: (intent) => orchestrator.processIntent(intent).then(() => {}),
  *     waitForIdle: () => orchestrator.commandProcessor.waitForIdle(),
  *     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
+ *     getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
  *     onSettled: (cb) => orchestrator.onSettled(cb),
  *   },
  *   // …other options…
@@ -160,7 +173,7 @@ export class RealtimeSession implements VoiceSession {
     });
     try {
       await this.#adapter.connect({
-        tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL],
+        tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL, GET_CAPABILITIES_TOOL],
         instructions: DEFAULT_INSTRUCTIONS,
       });
     } catch (error) {
@@ -251,6 +264,9 @@ export class RealtimeSession implements VoiceSession {
         break;
       case 'get_ui_state':
         ok = await this.#handleGetUIState(call.callId);
+        break;
+      case 'get_capabilities':
+        ok = await this.#handleGetCapabilities(call.callId);
         break;
       default:
         await this.#adapter.sendToolResult(call.callId, {
@@ -452,6 +468,13 @@ export class RealtimeSession implements VoiceSession {
   async #handleGetUIState(callId: string): Promise<boolean> {
     this.#logger.debug('get_ui_state: reading snapshot');
     const snapshot = this.#instance.getStructuralSnapshot();
+    await this.#adapter.sendToolResult(callId, snapshot);
+    return true;
+  }
+
+  async #handleGetCapabilities(callId: string): Promise<boolean> {
+    this.#logger.debug('get_capabilities: reading snapshot');
+    const snapshot = this.#instance.getCapabilitySnapshot();
     await this.#adapter.sendToolResult(callId, snapshot);
     return true;
   }

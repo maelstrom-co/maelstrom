@@ -21,6 +21,7 @@ function createSession(orchestrator: Orchestrator): RealtimeSession {
       orchestrator.processIntent(intent).then(() => {}),
     waitForIdle: () => orchestrator.commandProcessor.waitForIdle(),
     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
+    getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
     onSettled: (cb) => orchestrator.onSettled(cb),
   };
 

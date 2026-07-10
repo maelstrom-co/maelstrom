@@ -86,10 +86,11 @@ A fourth package, `@maelstrom-co/react-realtime` (the `.with()` extension), is d
 
 ## The runtime loop
 
-The model is given exactly two tools, defined in `RealtimeSession`:
+The model is given exactly three tools, defined in `RealtimeSession`:
 
 - **`update_ui { intent: string }`** — "change what's on screen." The only write path.
 - **`get_ui_state {}`** — "what's on screen right now?" A read-only pull for when the model needs certainty.
+- **`get_capabilities {}`** — "what can you show me?" A read-only pull over the vessel registry (purpose, variants, actions) for when the model needs discoverability.
 
 An `update_ui` round-trip (`packages/realtime/src/lib/realtime-session/realtime-session.ts`):
 
@@ -116,7 +117,7 @@ The model needs *some* picture of the screen or its conversation drifts. But rea
 - Pushes are **clamped to 400 chars** (~100 tokens) before reaching the adapter. `summarize` is injectable, so without the clamp a consumer's verbose summary would silently eat the realtime context budget; the first clamp per session logs a warning.
 - On the wire, the OpenAI adapter keeps grounding at **O(1) context**: it maintains a single conversation item with a stable ID (`maelstrom-grounding`), deleting the previous one before inserting the replacement — the context holds exactly one grounding message at all times, never an accumulating log.
 - The summary function is injectable (`SummarizeFn`) but must stay **deterministic and model-free** — grounding may never involve a model call.
-- When looseness isn't good enough (the model is about to make a claim), it pulls truth via `get_ui_state`, answered synchronously from the snapshot.
+- When looseness isn't good enough (the model is about to make a claim), it pulls truth via `get_ui_state`, answered synchronously from the snapshot. `get_capabilities` covers the complementary gap — discoverability, what CAN be shown — rather than what IS currently shown.
 
 ### The structural boundary
 
@@ -128,7 +129,7 @@ The model needs *some* picture of the screen or its conversation drifts. But rea
 
 Five deliberate seams, ordered from innermost out:
 
-**1. `RealtimeInstance`** (`realtime`) — the four-method bridge (`submitIntent`, `waitForIdle`, `getStructuralSnapshot`, `onSettled`) that is *all* the voice core knows about Maelstrom. `Orchestrator` maps onto it with a five-line wrapper (see `apps/demo/src/lib/voice-spike.ts`). This keeps `realtime` off the full `Orchestrator` surface and makes the session trivially testable with a fake instance.
+**1. `RealtimeInstance`** (`realtime`) — the five-method bridge (`submitIntent`, `waitForIdle`, `getStructuralSnapshot`, `getCapabilitySnapshot`, `onSettled`) that is *all* the voice core knows about Maelstrom. `Orchestrator` maps onto it with a small wrapper (see `apps/demo/src/lib/voice-spike.ts`). This keeps `realtime` off the full `Orchestrator` surface and makes the session trivially testable with a fake instance.
 
 **2. `RealtimeProviderAdapter`** (`realtime`) — the provider seam: `connect(tools, instructions)`, `disconnect()`, `sendToolResult()`, `injectGrounding()`, and an inbound event union (`tool_call | transcript | speech_started | state | error`). Everything provider-shaped — WebRTC vs WebSocket, envelope formats, token handshakes, response pacing — lives *below* this line; `RealtimeSession` never branches on provider identity. A Gemini Live adapter is one new file under a `/google` subpath (MAE-311).
 

@@ -1,13 +1,14 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
-import type { UIStructuralSnapshot } from '@maelstrom-co/client';
+import type { CapabilitySnapshot, UIStructuralSnapshot } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
-import { InstanceId, SessionId, VariantName, VesselId } from '@maelstrom-co/protocol';
+import { ActionName, InstanceId, SessionId, VariantName, VesselId } from '@maelstrom-co/protocol';
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
 
 import type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
+  RealtimeToolSpec,
 } from './provider-adapter.types.js';
 import type { RealtimeInstance } from './realtime-session.types.js';
 import { RealtimeSession } from './realtime-session.js';
@@ -24,6 +25,8 @@ interface MockAdapter extends RealtimeProviderAdapter {
   readonly toolResults: Array<{ callId: string; output: unknown }>;
   readonly groundingCalls: string[];
   readonly connectCalls: number;
+  /** Tools passed to the most recent `connect()` call. */
+  readonly lastConnectTools: readonly RealtimeToolSpec[] | undefined;
   /** Number of adapter-event handlers currently subscribed via `on()` — a leaked subscription shows up here. */
   readonly listenerCount: number;
   /** Makes the next `connect()` call reject instead of resolving. */
@@ -38,6 +41,7 @@ function makeMockAdapter(): MockAdapter {
   const groundingCalls: string[] = [];
   const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
   let connectCalls = 0;
+  let lastConnectTools: readonly RealtimeToolSpec[] | undefined;
   let shouldFailNextConnect = false;
   let gate: Promise<void> | undefined;
 
@@ -46,6 +50,9 @@ function makeMockAdapter(): MockAdapter {
     groundingCalls,
     get connectCalls() {
       return connectCalls;
+    },
+    get lastConnectTools() {
+      return lastConnectTools;
     },
     get listenerCount() {
       return handlers.size;
@@ -60,8 +67,9 @@ function makeMockAdapter(): MockAdapter {
       });
       return release;
     },
-    connect: async () => {
+    connect: async (opts) => {
       connectCalls += 1;
+      lastConnectTools = opts.tools;
       if (gate) {
         await gate;
         gate = undefined;
@@ -94,6 +102,8 @@ function makeMockAdapter(): MockAdapter {
 // Mock instance
 // ============================================================================
 
+const emptyCapabilitySnapshot: CapabilitySnapshot = { vessels: [] };
+
 interface MockInstance extends RealtimeInstance {
   readonly submitted: string[];
   /** Resolves pending waitForIdle() calls and clears the in-flight submitIntent gate — a full render settle. */
@@ -107,7 +117,10 @@ interface MockInstance extends RealtimeInstance {
   resolveIdle(): void;
 }
 
-function makeMockInstance(snapshot: UIStructuralSnapshot): MockInstance {
+function makeMockInstance(
+  snapshot: UIStructuralSnapshot,
+  capabilitySnapshot: CapabilitySnapshot = emptyCapabilitySnapshot,
+): MockInstance {
   const submitted: string[] = [];
   const settledHandlers = new Set<() => void>();
   let pendingResolvers: Array<() => void> = [];
@@ -127,6 +140,7 @@ function makeMockInstance(snapshot: UIStructuralSnapshot): MockInstance {
         pendingResolvers.push(resolve);
       }),
     getStructuralSnapshot: () => snapshot,
+    getCapabilitySnapshot: () => capabilitySnapshot,
     onSettled: (cb) => {
       settledHandlers.add(cb);
       return () => {
@@ -170,9 +184,23 @@ const populatedSnapshot: UIStructuralSnapshot = {
   chartDimensions: { rows: 8, columns: 12 },
 };
 
-function makeHarness(snapshot: UIStructuralSnapshot = emptySnapshot) {
+const populatedCapabilitySnapshot: CapabilitySnapshot = {
+  vessels: [
+    {
+      vesselId: VesselId('labs-chart'),
+      description: 'A chart of lab results over time',
+      variants: [{ name: VariantName('default'), description: 'Standard view' }],
+      actions: [{ name: ActionName('zoom'), description: 'Zoom into a date range' }],
+    },
+  ],
+};
+
+function makeHarness(
+  snapshot: UIStructuralSnapshot = emptySnapshot,
+  capabilitySnapshot: CapabilitySnapshot = emptyCapabilitySnapshot,
+) {
   const adapter = makeMockAdapter();
-  const instance = makeMockInstance(snapshot);
+  const instance = makeMockInstance(snapshot, capabilitySnapshot);
   const events: SidechannelEvent[] = [];
   const session = new RealtimeSession({
     adapter,
@@ -182,6 +210,23 @@ function makeHarness(snapshot: UIStructuralSnapshot = emptySnapshot) {
   });
   return { session, adapter, instance, events };
 }
+
+// ============================================================================
+// Behavior 0: tool registration
+// ============================================================================
+
+describe('RealtimeSession — tool registration', () => {
+  it('passes update_ui, get_ui_state, and get_capabilities to the adapter on connect', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+
+    expect(adapter.lastConnectTools?.map((t) => t.name)).toEqual([
+      'update_ui',
+      'get_ui_state',
+      'get_capabilities',
+    ]);
+  });
+});
 
 // ============================================================================
 // Behavior 1: speak-after-render (withhold tool result until settle)
@@ -264,6 +309,33 @@ describe('RealtimeSession — get_ui_state', () => {
     expect(adapter.toolResults[0]).toEqual({
       callId: 'c2',
       output: populatedSnapshot,
+    });
+  });
+});
+
+// ============================================================================
+// Behavior 2a: get_capabilities answers immediately
+// ============================================================================
+
+describe('RealtimeSession — get_capabilities', () => {
+  it('answers immediately with the capability snapshot, no intent involved', async () => {
+    const { session, adapter, instance } = makeHarness(
+      emptySnapshot,
+      populatedCapabilitySnapshot,
+    );
+    await session.connect();
+
+    adapter.emitToolCall({ callId: 'c3', name: 'get_capabilities', argumentsJson: '{}' });
+    await flushMicrotasks();
+
+    // Pure read: neither an engine round-trip nor a wait on the barge-in
+    // queue — if the handler awaited waitForIdle() it would hang forever
+    // here, since nothing in this test calls settle()/resolveIdle().
+    expect(instance.submitted).toEqual([]);
+    expect(adapter.toolResults).toHaveLength(1);
+    expect(adapter.toolResults[0]).toEqual({
+      callId: 'c3',
+      output: populatedCapabilitySnapshot,
     });
   });
 });
@@ -655,6 +727,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
           idleResolvers.push(resolve);
         }),
       getStructuralSnapshot: () => emptySnapshot,
+      getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
     };
     const session = new RealtimeSession({
@@ -707,6 +780,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
       },
       waitForIdle: async () => {},
       getStructuralSnapshot: () => emptySnapshot,
+      getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
     };
     const session = new RealtimeSession({

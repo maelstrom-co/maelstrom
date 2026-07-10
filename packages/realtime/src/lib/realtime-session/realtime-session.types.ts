@@ -1,4 +1,5 @@
 import type {
+  CapabilitySnapshot,
   UIStructuralSnapshot,
   Unsubscribe,
 } from '@maelstrom-co/client';
@@ -11,12 +12,15 @@ import type { RealtimeProviderAdapter } from './provider-adapter.types.js';
  * `Orchestrator` maps onto this via a small wrapper (`submitIntent` ->
  * `processIntent`, `waitForIdle` -> `commandProcessor.waitForIdle`) — this
  * interface exists so the realtime package depends on a narrow seam rather
- * than the whole `Orchestrator` surface.
+ * than the whole `Orchestrator` surface. `getStructuralSnapshot` backs the
+ * `get_ui_state` pull (what's on screen); `getCapabilitySnapshot` backs the
+ * `get_capabilities` pull (what CAN be shown).
  */
 export interface RealtimeInstance {
   submitIntent(intent: string): Promise<void>;
   waitForIdle(): Promise<void>;
   getStructuralSnapshot(): UIStructuralSnapshot;
+  getCapabilitySnapshot(): CapabilitySnapshot;
   onSettled(cb: () => void): Unsubscribe;
 }
 
