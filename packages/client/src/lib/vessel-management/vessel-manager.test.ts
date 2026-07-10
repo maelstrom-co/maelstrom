@@ -1,48 +1,13 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 
-import type { Vessel, VesselDefinition } from '@maelstrom-co/protocol';
 import { VesselId } from '@maelstrom-co/protocol';
 
+import { createTestVessel } from '../../../test-utils/vessel-fixtures.js';
 import type { VesselManagerEvents } from './vessel-manager.js';
 import { VesselManager } from './vessel-manager.js';
 
 type VesselRegisteredEvent = VesselManagerEvents['vessel_registered'];
 type VesselUnregisteredEvent = VesselManagerEvents['vessel_unregistered'];
-
-// Pre-validation author shape (raw strings); cast to `Vessel` at the
-// `registerVessel` boundary so the fixture stays readable while the manager's
-// API still receives the branded post-validation type.
-function createValidVessel(overrides?: Partial<VesselDefinition>): Vessel {
-  const vessel: VesselDefinition = {
-    id: 'test-vessel',
-    name: 'Test Vessel',
-    description: 'A test vessel for validation',
-    defaultVariant: 'default',
-    variants: {
-      default: {
-        description: 'Default variant',
-        props: {},
-        minSize: { width: 1, height: 1 },
-        actions: [
-          {
-            name: 'testAction',
-            description: 'Test action',
-            parameters: [
-              {
-                name: 'param1',
-                type: 'string',
-                description: 'A string parameter',
-                required: true,
-              },
-            ],
-          },
-        ],
-      },
-    },
-    ...overrides,
-  };
-  return vessel as Vessel;
-}
 
 describe('VesselManager', () => {
   let manager: VesselManager;
@@ -57,7 +22,7 @@ describe('VesselManager', () => {
     });
 
     it('should accept custom initial state', () => {
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
       const custom = new VesselManager({
         initialState: {
           vessels: new Map([[VesselId('test-vessel'), vessel]]),
@@ -70,7 +35,7 @@ describe('VesselManager', () => {
 
   describe('registerVessel', () => {
     it('should register a valid vessel', () => {
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(true);
@@ -78,7 +43,7 @@ describe('VesselManager', () => {
     });
 
     it('should emit vessel_registered event on registration', () => {
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
       const events: VesselRegisteredEvent[] = [];
       manager.events.on('vessel_registered', (e) => {
         events.push(e);
@@ -92,8 +57,8 @@ describe('VesselManager', () => {
     });
 
     it('should emit vessel_registered event when re-registering same vessel', () => {
-      const vessel1 = createValidVessel({ name: 'Vessel 1' });
-      const vessel2 = createValidVessel({ name: 'Vessel 2' });
+      const vessel1 = createTestVessel({ name: 'Vessel 1' });
+      const vessel2 = createTestVessel({ name: 'Vessel 2' });
       const events: VesselRegisteredEvent[] = [];
       manager.events.on('vessel_registered', (e) => {
         events.push(e);
@@ -107,8 +72,8 @@ describe('VesselManager', () => {
     });
 
     it('should overwrite existing vessel with same id', () => {
-      const vessel1 = createValidVessel({ name: 'Vessel 1' });
-      const vessel2 = createValidVessel({ name: 'Vessel 2' });
+      const vessel1 = createTestVessel({ name: 'Vessel 1' });
+      const vessel2 = createTestVessel({ name: 'Vessel 2' });
 
       manager.registerVessel(vessel1);
       manager.registerVessel(vessel2);
@@ -118,7 +83,7 @@ describe('VesselManager', () => {
     });
 
     it('should fail validation for vessel without id', () => {
-      const vessel = createValidVessel({ id: '' });
+      const vessel = createTestVessel({ id: '' });
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
@@ -128,7 +93,7 @@ describe('VesselManager', () => {
     });
 
     it('should fail validation for vessel without name', () => {
-      const vessel = createValidVessel({ name: '' });
+      const vessel = createTestVessel({ name: '' });
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
@@ -137,7 +102,7 @@ describe('VesselManager', () => {
     });
 
     it('should fail validation for vessel without description', () => {
-      const vessel = createValidVessel({ description: '' });
+      const vessel = createTestVessel({ description: '' });
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
@@ -146,7 +111,7 @@ describe('VesselManager', () => {
     });
 
     it('should fail validation for vessel with empty variants', () => {
-      const vessel = createValidVessel({ variants: {} });
+      const vessel = createTestVessel({ variants: {} });
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
@@ -155,7 +120,7 @@ describe('VesselManager', () => {
     });
 
     it('should fail validation when defaultVariant does not exist', () => {
-      const vessel = createValidVessel({ defaultVariant: 'nonexistent' });
+      const vessel = createTestVessel({ defaultVariant: 'nonexistent' });
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
@@ -166,7 +131,7 @@ describe('VesselManager', () => {
     it('should throw after dispose', () => {
       manager.dispose();
 
-      expect(() => manager.registerVessel(createValidVessel())).toThrow(
+      expect(() => manager.registerVessel(createTestVessel())).toThrow(
         'VesselManager is disposed',
       );
     });
@@ -174,7 +139,7 @@ describe('VesselManager', () => {
 
   describe('unregisterVessel', () => {
     it('should unregister an existing vessel', () => {
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
       manager.registerVessel(vessel);
 
       const removed = manager.unregisterVessel(vessel.id);
@@ -201,7 +166,7 @@ describe('VesselManager', () => {
     });
 
     it('should emit vessel_unregistered event', () => {
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
       manager.registerVessel(vessel);
       const events: VesselUnregisteredEvent[] = [];
       manager.events.on('vessel_unregistered', (e) => {
@@ -216,8 +181,8 @@ describe('VesselManager', () => {
     });
 
     it('should keep other vessels when unregistering one', () => {
-      const vesselA = createValidVessel({ id: 'vessel-a' });
-      const vesselB = createValidVessel({ id: 'vessel-b' });
+      const vesselA = createTestVessel({ id: 'vessel-a' });
+      const vesselB = createTestVessel({ id: 'vessel-b' });
       manager.registerVessel(vesselA);
       manager.registerVessel(vesselB);
 
@@ -239,14 +204,14 @@ describe('VesselManager', () => {
 
   describe('get', () => {
     it('should return vessel by id', () => {
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
       manager.registerVessel(vessel);
 
       expect(manager.get(vessel.id)).toEqual(vessel);
     });
 
     it('should return a structurally equal vessel', () => {
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
       manager.registerVessel(vessel);
 
       // VesselManager stores the post-parse branded shape; the parsed object
@@ -265,8 +230,8 @@ describe('VesselManager', () => {
     });
 
     it('should return all registered vessels', () => {
-      const vessel1 = createValidVessel({ id: 'vessel-1' });
-      const vessel2 = createValidVessel({ id: 'vessel-2' });
+      const vessel1 = createTestVessel({ id: 'vessel-1' });
+      const vessel2 = createTestVessel({ id: 'vessel-2' });
       manager.registerVessel(vessel1);
       manager.registerVessel(vessel2);
 
@@ -278,7 +243,7 @@ describe('VesselManager', () => {
     });
 
     it('should return a new array (mutation safety)', () => {
-      manager.registerVessel(createValidVessel());
+      manager.registerVessel(createTestVessel());
 
       const result1 = manager.getAll();
       const result2 = manager.getAll();
@@ -290,7 +255,7 @@ describe('VesselManager', () => {
 
   describe('has', () => {
     it('should return true for registered vessel', () => {
-      manager.registerVessel(createValidVessel());
+      manager.registerVessel(createTestVessel());
       expect(manager.has('test-vessel')).toBe(true);
     });
 
@@ -305,15 +270,15 @@ describe('VesselManager', () => {
     });
 
     it('should return correct count after registrations', () => {
-      manager.registerVessel(createValidVessel({ id: 'v-1' }));
-      manager.registerVessel(createValidVessel({ id: 'v-2' }));
+      manager.registerVessel(createTestVessel({ id: 'v-1' }));
+      manager.registerVessel(createTestVessel({ id: 'v-2' }));
 
       expect(manager.size).toBe(2);
     });
 
     it('should decrease after unregister', () => {
-      manager.registerVessel(createValidVessel({ id: 'v-1' }));
-      manager.registerVessel(createValidVessel({ id: 'v-2' }));
+      manager.registerVessel(createTestVessel({ id: 'v-1' }));
+      manager.registerVessel(createTestVessel({ id: 'v-2' }));
       manager.unregisterVessel('v-1');
 
       expect(manager.size).toBe(1);
@@ -326,8 +291,8 @@ describe('VesselManager', () => {
     });
 
     it('should return all registered vessel ids', () => {
-      manager.registerVessel(createValidVessel({ id: 'vessel-1' }));
-      manager.registerVessel(createValidVessel({ id: 'vessel-2' }));
+      manager.registerVessel(createTestVessel({ id: 'vessel-1' }));
+      manager.registerVessel(createTestVessel({ id: 'vessel-2' }));
 
       const result = manager.getRegisteredIds();
 
@@ -339,7 +304,7 @@ describe('VesselManager', () => {
 
   describe('invalid vessel rejection', () => {
     it('should not store the vessel and should return valid: false when validation fails', () => {
-      const vessel = createValidVessel({ id: '' });
+      const vessel = createTestVessel({ id: '' });
       const result = manager.registerVessel(vessel);
 
       expect(result.valid).toBe(false);
@@ -353,7 +318,7 @@ describe('VesselManager', () => {
         events.push(e);
       });
 
-      manager.registerVessel(createValidVessel({ id: '' }));
+      manager.registerVessel(createTestVessel({ id: '' }));
 
       expect(events).toHaveLength(0);
     });
@@ -361,7 +326,7 @@ describe('VesselManager', () => {
 
   describe('events', () => {
     it('should fire vessel_registered with correct payload', () => {
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
       let receivedEvent: VesselRegisteredEvent | undefined;
 
       manager.events.on('vessel_registered', (e) => {
@@ -375,7 +340,7 @@ describe('VesselManager', () => {
     });
 
     it('should fire vessel_unregistered with correct payload', () => {
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
       manager.registerVessel(vessel);
       let receivedEvent: VesselUnregisteredEvent | undefined;
 
@@ -393,7 +358,7 @@ describe('VesselManager', () => {
 
   describe('dispose', () => {
     it('should clear all listeners and state', () => {
-      manager.registerVessel(createValidVessel());
+      manager.registerVessel(createTestVessel());
 
       manager.dispose();
 
@@ -424,7 +389,7 @@ describe('VesselManager', () => {
   describe('debug mode', () => {
     it('should not throw when debug is enabled', () => {
       const debugManager = new VesselManager({ debug: true });
-      const vessel = createValidVessel();
+      const vessel = createTestVessel();
 
       expect(() => debugManager.registerVessel(vessel)).not.toThrow();
       expect(debugManager.has(vessel.id)).toBe(true);

@@ -1,88 +1,45 @@
-import { describe, expect, it, mock } from 'bun:test';
-import type {
-  SessionId,
-  MaelstromResponse,
-  Vessel,
-  VesselDefinition,
-} from '@maelstrom-co/protocol';
+import { describe, expect, it } from 'bun:test';
 
-import type {
-  ConnectorEvent,
-  EngineConnector,
-} from '../connection-manager/connector.types.js';
-import type { Unsubscribe } from '../types.js';
-import { Orchestrator } from '../orchestrator/orchestrator.js';
+import { createTestOrchestrator } from '../../../test-utils/connector-mocks.js';
+import { createTestVessel } from '../../../test-utils/vessel-fixtures.js';
 import { readCapabilitySnapshot } from './capability-snapshot.js';
-
-// ============================================================================
-// Test helpers (mirrors ui-structural-snapshot.test.ts)
-// ============================================================================
-
-function createMockConnector(
-  overrides: Partial<EngineConnector> = {},
-): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: mock((_sessionId: SessionId) => Promise.resolve()),
-    disconnect: mock(() => Promise.resolve()),
-    process: mock(() => Promise.resolve({} as MaelstromResponse)),
-    subscribe: mock(
-      (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
-        () => {},
-    ),
-    addAssistantMessage: mock(() => Promise.resolve()),
-    getHistory: mock(() => Promise.resolve([])),
-    ...overrides,
-  };
-}
-
-function createTestOrchestrator() {
-  return new Orchestrator(createMockConnector(), {});
-}
-
-// Pre-validation author shape (raw strings); cast to `Vessel` at the
-// boundary so fixtures stay readable while the projection under test still
-// receives the branded post-validation type (mirrors vessel-manager.test.ts).
-function createTestVessel(overrides?: Partial<VesselDefinition>): Vessel {
-  const vessel: VesselDefinition = {
-    id: 'weather',
-    name: 'Weather',
-    description: 'Shows current weather conditions',
-    defaultVariant: 'compact',
-    variants: {
-      compact: {
-        description: 'Small tile with temperature only',
-        props: {},
-        minSize: { width: 1, height: 1 },
-        actions: [
-          {
-            name: 'expand',
-            description: 'Expand to the detailed forecast view',
-            transitionsTo: 'detailed',
-          },
-        ],
-      },
-      detailed: {
-        description: 'Full forecast with hourly breakdown',
-        props: {},
-        minSize: { width: 2, height: 2 },
-        actions: [
-          {
-            name: 'collapse',
-            description: 'Collapse back to the compact tile',
-            transitionsTo: 'compact',
-          },
-        ],
-      },
-    },
-    ...overrides,
-  };
-  return vessel as Vessel;
-}
 
 describe('readCapabilitySnapshot', () => {
   it('projects vessel purpose, variants, and actions', () => {
-    const snapshot = readCapabilitySnapshot([createTestVessel()]);
+    const snapshot = readCapabilitySnapshot([
+      createTestVessel({
+        id: 'weather',
+        name: 'Weather',
+        description: 'Shows current weather conditions',
+        defaultVariant: 'compact',
+        variants: {
+          compact: {
+            description: 'Small tile with temperature only',
+            props: {},
+            minSize: { width: 1, height: 1 },
+            actions: [
+              {
+                name: 'expand',
+                description: 'Expand to the detailed forecast view',
+                transitionsTo: 'detailed',
+              },
+            ],
+          },
+          detailed: {
+            description: 'Full forecast with hourly breakdown',
+            props: {},
+            minSize: { width: 2, height: 2 },
+            actions: [
+              {
+                name: 'collapse',
+                description: 'Collapse back to the compact tile',
+                transitionsTo: 'compact',
+              },
+            ],
+          },
+        },
+      }),
+    ]);
 
     expect(snapshot.vessels).toHaveLength(1);
     const [capability] = snapshot.vessels;
@@ -205,7 +162,7 @@ describe('readCapabilitySnapshot', () => {
   });
 
   it('is exposed via Orchestrator.getCapabilitySnapshot()', () => {
-    const orchestrator = createTestOrchestrator();
+    const { orchestrator } = createTestOrchestrator();
     orchestrator.vesselManager.registerVessel(createTestVessel());
 
     expect(orchestrator.getCapabilitySnapshot()).toEqual(

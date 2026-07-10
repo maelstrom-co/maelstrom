@@ -20,41 +20,18 @@ import {
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { createMockResponse } from '../../../test-utils/mocks.js';
-import type {
-  ConnectorEvent,
-  EngineConnector,
-  PushConnector,
-} from '../connection-manager/connector.types.js';
+import {
+  createMockConnector,
+  createTestOrchestrator,
+} from '../../../test-utils/connector-mocks.js';
+import type { PushConnector } from '../connection-manager/connector.types.js';
 import type { Unsubscribe } from '../types.js';
-import { Orchestrator } from './orchestrator.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
 import { RequestInFlightError } from './request-in-flight-error.js';
 
 // ============================================================================
 // Test helpers
 // ============================================================================
-
-function createMockConnector(
-  overrides: Partial<EngineConnector> = {},
-): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: mock((_sessionId: SessionId) => Promise.resolve()),
-    disconnect: mock(() => Promise.resolve()),
-    process: mock(() =>
-      Promise.resolve(
-        createMockResponse(MessageId('req-1'), 'instance-1', 'show'),
-      ),
-    ),
-    subscribe: mock(
-      (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
-        () => {},
-    ),
-    addAssistantMessage: mock(() => Promise.resolve()),
-    getHistory: mock(() => Promise.resolve([])),
-    ...overrides,
-  };
-}
 
 function createMockPushConnector(
   overrides: Partial<PushConnector> = {},
@@ -67,15 +44,6 @@ function createMockPushConnector(
     ),
     ...overrides,
   } as PushConnector;
-}
-
-function createTestOrchestrator(
-  connector?: EngineConnector,
-  options: { debug?: boolean; layoutMode?: 'tiling' | 'grid' } = {},
-) {
-  const conn = connector ?? createMockConnector();
-  const orchestrator = new Orchestrator(conn, options);
-  return { connector: conn, orchestrator };
 }
 
 // ============================================================================

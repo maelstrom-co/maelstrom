@@ -1,49 +1,12 @@
-import { describe, expect, it, mock } from 'bun:test';
-import {
-  InstanceId,
-  type SessionId,
-  VariantName,
-  VesselId,
-  type MaelstromResponse,
-} from '@maelstrom-co/protocol';
+import { describe, expect, it } from 'bun:test';
+import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
 
-import type {
-  ConnectorEvent,
-  EngineConnector,
-} from '../connection-manager/connector.types.js';
-import type { Unsubscribe } from '../types.js';
-import { Orchestrator } from '../orchestrator/orchestrator.js';
+import { createTestOrchestrator } from '../../../test-utils/connector-mocks.js';
 import { readStructuralSnapshot } from './ui-structural-snapshot.js';
-
-// ============================================================================
-// Test helpers (mirrors packages/client/src/lib/orchestrator/orchestrator.test.ts)
-// ============================================================================
-
-function createMockConnector(
-  overrides: Partial<EngineConnector> = {},
-): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: mock((_sessionId: SessionId) => Promise.resolve()),
-    disconnect: mock(() => Promise.resolve()),
-    process: mock(() => Promise.resolve({} as MaelstromResponse)),
-    subscribe: mock(
-      (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
-        () => {},
-    ),
-    addAssistantMessage: mock(() => Promise.resolve()),
-    getHistory: mock(() => Promise.resolve([])),
-    ...overrides,
-  };
-}
-
-function createTestOrchestrator() {
-  return new Orchestrator(createMockConnector(), {});
-}
 
 describe('readStructuralSnapshot', () => {
   it('returns structural fields only (no vessel domain data)', () => {
-    const orchestrator = createTestOrchestrator();
+    const { orchestrator } = createTestOrchestrator();
 
     orchestrator.commandProcessor.store.setState((s) => ({
       ...s,
@@ -80,7 +43,7 @@ describe('readStructuralSnapshot', () => {
   });
 
   it('is exposed via Orchestrator.getStructuralSnapshot()', () => {
-    const orchestrator = createTestOrchestrator();
+    const { orchestrator } = createTestOrchestrator();
 
     expect(orchestrator.getStructuralSnapshot()).toEqual(
       readStructuralSnapshot(orchestrator),

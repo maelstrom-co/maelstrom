@@ -1,50 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import {
-  ActionName,
-  InstanceId,
-  MessageId,
-  type SessionId,
-} from '@maelstrom-co/protocol';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { ActionName, InstanceId } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
-import { createMockResponse } from '../../../test-utils/mocks.js';
-import type {
-  ConnectorEvent,
-  EngineConnector,
-} from '../connection-manager/connector.types.js';
-import type { Unsubscribe } from '../types.js';
-import { Orchestrator } from '../orchestrator/orchestrator.js';
-
-// ============================================================================
-// Test helpers (mirrors orchestrator.test.ts's connector-mock preamble)
-// ============================================================================
-
-function createMockConnector(
-  overrides: Partial<EngineConnector> = {},
-): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: mock((_sessionId: SessionId) => Promise.resolve()),
-    disconnect: mock(() => Promise.resolve()),
-    process: mock(() =>
-      Promise.resolve(
-        createMockResponse(MessageId('req-1'), 'instance-1', 'show'),
-      ),
-    ),
-    subscribe: mock(
-      (_handler: (event: ConnectorEvent) => void): Unsubscribe => () => {},
-    ),
-    addAssistantMessage: mock(() => Promise.resolve()),
-    getHistory: mock(() => Promise.resolve([])),
-    ...overrides,
-  };
-}
-
-function createTestOrchestrator(connector?: EngineConnector) {
-  const conn = connector ?? createMockConnector();
-  const orchestrator = new Orchestrator(conn, {});
-  return { connector: conn, orchestrator };
-}
+import { createTestOrchestrator } from '../../../test-utils/connector-mocks.js';
 
 // ============================================================================
 // Tests
