@@ -15,27 +15,40 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-server @maelst
 
 ## What it does
 
-- `createOpenAiMintHandler` — a framework-agnostic `(Request) => Promise<Response>`
+- `createOpenAIMinter` — a transport-agnostic `(input: unknown) => Promise<MintResult>`
   that exchanges a server-held `OPENAI_API_KEY` for a short-lived client
   secret via OpenAI's `client_secrets` endpoint, so the browser never sees
-  the long-lived key.
+  the long-lived key. `input` is the already-parsed request body; wiring it
+  into an HTTP route (method checks, JSON parsing, status codes) is your
+  transport's job.
 
 ## Quick example
 
 ```ts
-import { createOpenAiMintHandler } from '@maelstrom-co/realtime-server';
+import { createOpenAIMinter, type MintFailureReason } from '@maelstrom-co/realtime-server';
 
-const handler = createOpenAiMintHandler({
+const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY!,
   model: 'gpt-realtime-2',
 });
 
-// Wire into your framework of choice, e.g. a Request/Response fetch handler.
-export const POST = handler;
+const STATUS: Record<MintFailureReason, number> = {
+  'invalid-request': 400,
+  'unsupported-provider': 400,
+  'missing-api-key': 500,
+  'upstream-failure': 502,
+};
+
+// Wire into your framework of choice, e.g. a Request/Response fetch route.
+export async function POST(req: Request): Promise<Response> {
+  const result = await mint(await req.json());
+  if (result.ok) return Response.json(result.response);
+  return Response.json({ error: result.reason }, { status: STATUS[result.reason] });
+}
 ```
 
-This mint endpoint is an unauthenticated bootstrap by design — see the
-`createOpenAiMintHandler` JSDoc for what a real deployment must add.
+This mint operation is an unauthenticated bootstrap by design — see the
+`createOpenAIMinter` JSDoc for what a real deployment must add.
 
 ## Docs
 

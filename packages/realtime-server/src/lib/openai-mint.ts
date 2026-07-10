@@ -4,8 +4,8 @@ import {
   type TokenHandshakeResponse,
 } from '@maelstrom-co/protocol';
 
-/** Options for {@link createOpenAIMintHandler}. */
-export interface CreateOpenAIMintHandlerOptions {
+/** Options for {@link createOpenAIMinter}. */
+export interface CreateOpenAIMinterOptions {
   /** Server-held OpenAI API key. Never forwarded to the caller. */
   readonly apiKey: string;
   /** Realtime model the minted client secret is scoped to. */
@@ -25,67 +25,99 @@ interface OpenAIClientSecretResponse {
 }
 
 /**
- * Creates a framework-agnostic handler that mints an OpenAI realtime
- * ephemeral client secret on behalf of the browser, so the browser never
- * sees `OPENAI_API_KEY`.
+ * Why a mint attempt failed. Callers map each reason to their own transport
+ * status — see the {@link createOpenAIMinter} `@example`.
  *
- * The handler validates the incoming {@link TokenHandshakeRequest}, calls
+ * - `invalid-request` — `input` failed {@link TokenHandshakeRequestSchema}.
+ * - `unsupported-provider` — the handshake targeted a provider other than
+ *   `openai`.
+ * - `missing-api-key` — the minter was constructed without an API key.
+ * - `upstream-failure` — OpenAI's `client_secrets` endpoint was unreachable,
+ *   rejected the request, or returned a response that failed
+ *   {@link TokenHandshakeResponseSchema}.
+ */
+export type MintFailureReason =
+  | 'invalid-request'
+  | 'unsupported-provider'
+  | 'missing-api-key'
+  | 'upstream-failure';
+
+/**
+ * Outcome of a {@link createOpenAIMinter} call. On failure, `upstreamStatus`
+ * is present only when the failure is `upstream-failure` and OpenAI returned
+ * an HTTP response (absent when the upstream `fetch` itself threw).
+ */
+export type MintResult =
+  | { readonly ok: true; readonly response: TokenHandshakeResponse }
+  | {
+      readonly ok: false;
+      readonly reason: MintFailureReason;
+      readonly upstreamStatus?: number;
+    };
+
+/**
+ * Creates a transport-agnostic minter that exchanges a server-held OpenAI
+ * API key for a short-lived realtime client secret on behalf of the
+ * browser, so the browser never sees `OPENAI_API_KEY`.
+ *
+ * The minter validates `input` against {@link TokenHandshakeRequest}, calls
  * OpenAI's `client_secrets` endpoint with the server-held key in the
  * `Authorization` header, and maps the upstream response to a
  * {@link TokenHandshakeResponse}. The API key is only ever sent upstream —
- * it is never echoed back in the response body.
+ * it is never echoed back in the result. Callers own all transport
+ * concerns: parsing the request body into `input`, and mapping
+ * {@link MintResult} to a status code / response body.
  *
- * This mint endpoint is an **unauthenticated bootstrap**: anyone who can
- * reach it can mint a short-lived OpenAI realtime credential. A real
+ * This mint operation is an **unauthenticated bootstrap**: anyone who can
+ * invoke it can mint a short-lived OpenAI realtime credential. A real
  * deployment must add an origin allowlist, a rate limit, and caller
- * authentication in front of it before going live.
+ * authentication in the transport layer in front of it before going live.
  *
- * Only handles `provider: 'openai'` requests — a `google` handler is a
+ * Only handles `provider: 'openai'` requests — a `google` minter is a
  * sibling. `sessionId` is accepted and validated but currently unused by
- * this handler; it's reserved for the sidechannel receiver to bind the
+ * this minter; it's reserved for the sidechannel receiver to bind the
  * minted session to the Maelstrom session.
  *
  * @example
  * ```ts
- * const handler = createOpenAIMintHandler({
+ * const mint = createOpenAIMinter({
  *   apiKey: process.env.OPENAI_API_KEY!,
  *   model: 'gpt-realtime-2',
  * });
- * export const POST = handler; // wire into your framework's fetch adapter
+ *
+ * // Wire into a fetch-style route:
+ * export async function POST(req: Request): Promise<Response> {
+ *   const result = await mint(await req.json());
+ *   if (result.ok) return Response.json(result.response);
+ *
+ *   const status: Record<MintFailureReason, number> = {
+ *     'invalid-request': 400,
+ *     'unsupported-provider': 400,
+ *     'missing-api-key': 500,
+ *     'upstream-failure': 502,
+ *   };
+ *   return Response.json({ error: result.reason }, { status: status[result.reason] });
+ * }
  * ```
  */
-export function createOpenAIMintHandler(
-  options: CreateOpenAIMintHandlerOptions,
-): (req: Request) => Promise<Response> {
+export function createOpenAIMinter(
+  options: CreateOpenAIMinterOptions,
+): (input: unknown) => Promise<MintResult> {
   const { apiKey, model, fetch: injectedFetch } = options;
   const doFetch = injectedFetch ?? fetch;
 
-  return async (req: Request): Promise<Response> => {
-    if (req.method !== 'POST') {
-      return Response.json({ error: 'Method not allowed' }, { status: 400 });
-    }
-
+  return async (input: unknown): Promise<MintResult> => {
     if (!apiKey) {
-      return Response.json({ error: 'Missing OpenAI API key' }, { status: 500 });
+      return { ok: false, reason: 'missing-api-key' };
     }
 
-    let parsedBody: unknown;
-    try {
-      parsedBody = await req.json();
-    } catch {
-      return Response.json({ error: 'Malformed request body' }, { status: 400 });
-    }
-
-    const handshake = TokenHandshakeRequestSchema.safeParse(parsedBody);
+    const handshake = TokenHandshakeRequestSchema.safeParse(input);
     if (!handshake.success) {
-      return Response.json({ error: 'Invalid token handshake request' }, { status: 400 });
+      return { ok: false, reason: 'invalid-request' };
     }
 
     if (handshake.data.provider !== 'openai') {
-      return Response.json(
-        { error: `Unsupported provider for this endpoint: ${handshake.data.provider}` },
-        { status: 400 },
-      );
+      return { ok: false, reason: 'unsupported-provider' };
     }
 
     const resolvedModel = handshake.data.model ?? model;
@@ -109,15 +141,12 @@ export function createOpenAIMintHandler(
       });
 
       if (!upstream.ok) {
-        return Response.json(
-          { error: 'Token mint failed upstream', upstreamStatus: upstream.status },
-          { status: 502 },
-        );
+        return { ok: false, reason: 'upstream-failure', upstreamStatus: upstream.status };
       }
 
       upstreamBody = (await upstream.json()) as OpenAIClientSecretResponse;
     } catch {
-      return Response.json({ error: 'Token mint request failed' }, { status: 502 });
+      return { ok: false, reason: 'upstream-failure' };
     }
 
     const response: TokenHandshakeResponse = {
@@ -130,9 +159,9 @@ export function createOpenAIMintHandler(
     try {
       TokenHandshakeResponseSchema.parse(response);
     } catch {
-      return Response.json({ error: 'Token mint request failed' }, { status: 502 });
+      return { ok: false, reason: 'upstream-failure' };
     }
 
-    return Response.json(response);
+    return { ok: true, response };
   };
 }
