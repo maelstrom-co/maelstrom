@@ -27,6 +27,16 @@ describe('isFirstRunHintVisible', () => {
   });
 });
 
+describe('FIRST_RUN_EXAMPLES', () => {
+  it('matches the video-script beats verbatim', () => {
+    expect(FIRST_RUN_EXAMPLES).toEqual([
+      'Clear all this — just show me today',
+      'Actually skip the gym, add coffee with Sam at 9',
+      "Start a journal entry about today's plan and jot down the key points",
+    ]);
+  });
+});
+
 describe('FirstRunHint', () => {
   it('renders the spoken-style examples on an empty, idle chart', () => {
     const connector = createMockConnector();

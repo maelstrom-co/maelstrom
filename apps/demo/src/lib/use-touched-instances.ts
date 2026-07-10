@@ -42,7 +42,10 @@ function diff(
   const changed = new Set<string>();
   for (const [id, nextInstance] of next) {
     const prevInstance = prev.get(id);
-    if (!prevInstance || !isSameShape(prevInstance, nextInstance)) {
+    // Entering vessels are deliberately excluded: the motion system already
+    // gives them an enter animation, and the flash means "the assistant
+    // changed something that was already on the board".
+    if (prevInstance && !isSameShape(prevInstance, nextInstance)) {
       changed.add(id);
     }
   }

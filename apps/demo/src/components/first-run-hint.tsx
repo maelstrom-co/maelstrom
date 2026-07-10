@@ -1,10 +1,10 @@
 import { m } from '../lib/maelstrom';
 
-/** Spoken-style examples shown in the first-run hint and echoed as suggestion chips, so text and voice paths teach the same vocabulary. */
+/** Verbatim video-script beats, shown in the first-run hint and echoed as suggestion chips so text and voice paths teach the same vocabulary. */
 export const FIRST_RUN_EXAMPLES = [
   'Clear all this — just show me today',
-  "What's my morning look like? I need to be at the design review by 10",
-  'Start a journal entry about today’s plan',
+  'Actually skip the gym, add coffee with Sam at 9',
+  "Start a journal entry about today's plan and jot down the key points",
 ] as const;
 
 /** Pure so the empty-chart threshold can be unit-tested without mounting a Provider. */

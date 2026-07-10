@@ -91,6 +91,24 @@ describe('useTouchedInstances', () => {
     expect(result.current).toEqual(new Set());
   });
 
+  it('does not report a newly-added instance (enter animation covers it)', () => {
+    const store = createFakeStore({
+      instances: new Map([['a', makeInstance()]]),
+    });
+    const { result } = renderHook(() => useTouchedInstances(store));
+
+    act(() => {
+      store.setState({
+        instances: new Map([
+          ['a', makeInstance()],
+          ['b', makeInstance({ variant: 'expanded' })],
+        ]),
+      });
+    });
+
+    expect(result.current).toEqual(new Set());
+  });
+
   it('does not report an untouched sibling instance', () => {
     const store = createFakeStore({
       instances: new Map([

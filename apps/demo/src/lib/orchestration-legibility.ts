@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import type { MaelstromExtension, MaelstromExtensionContext } from '@maelstrom-co/react';
 import { useTouchedInstances } from './use-touched-instances';
 
@@ -27,9 +27,17 @@ export const orchestrationLegibility: MaelstromExtension<OrchestrationLegibility
   },
   useInstanceCount: () => {
     const { orchestrator } = ctx.useMaelstromContext();
-    return useSyncExternalStore(
-      (onChange) => orchestrator.commandProcessor.store.subscribe(onChange).unsubscribe,
-      () => orchestrator.commandProcessor.store.state.instances.size,
+    // Stable per orchestrator — a fresh subscribe closure every render would
+    // make useSyncExternalStore resubscribe on each one.
+    const subscribe = useCallback(
+      (onChange: () => void) =>
+        orchestrator.commandProcessor.store.subscribe(onChange).unsubscribe,
+      [orchestrator],
     );
+    const getSnapshot = useCallback(
+      () => orchestrator.commandProcessor.store.state.instances.size,
+      [orchestrator],
+    );
+    return useSyncExternalStore(subscribe, getSnapshot);
   },
 });
