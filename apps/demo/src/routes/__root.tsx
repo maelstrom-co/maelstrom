@@ -36,7 +36,8 @@ function RootDocument({ children }: { children: ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body className="min-h-screen bg-gray-900 text-white">
+      <body className="min-h-screen">
+        <div className="noise" aria-hidden="true" />
         {children}
         <Scripts />
       </body>
