@@ -20,7 +20,11 @@ beforeEach(() => {
   animateCalls = [];
   // happy-dom's Window is rebuilt per test (see __tests__/setup.ts) and isn't
   // spliced onto the Node global scope, so `Element` must come from `window`.
-  window.Element.prototype.animate = function (this: Element, keyframes, options) {
+  window.Element.prototype.animate = function (
+    this: Element,
+    keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+    options?: number | KeyframeAnimationOptions,
+  ) {
     animateCalls.push({
       id: this.getAttribute('data-instance-id'),
       keyframes: keyframes as Keyframe[],

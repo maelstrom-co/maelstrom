@@ -603,8 +603,8 @@ describe('m.Chart — motion', () => {
     // `window` per test and doesn't splice it onto the Node global scope.
     window.Element.prototype.animate = function (
       this: Element,
-      keyframes,
-      options,
+      keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+      options?: number | KeyframeAnimationOptions,
     ) {
       animateCalls.push({
         id: this.getAttribute('data-instance-id'),
