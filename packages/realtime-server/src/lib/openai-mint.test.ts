@@ -1,4 +1,7 @@
 import { expect, it } from 'bun:test';
+
+import { isErr, isOk } from '@maelstrom-co/protocol';
+
 import { createOpenAIMinter } from './openai-mint.js';
 
 it('mints an ephemeral secret without leaking the api key', async () => {
@@ -16,11 +19,11 @@ it('mints an ephemeral secret without leaking the api key', async () => {
     fetch: fakeFetch,
   });
   const result = await mint({ provider: 'openai', sessionId: 'sess-1' });
-  expect(result.ok).toBe(true);
-  if (!result.ok) throw new Error('expected ok result');
-  expect(result.response.value).toBe('ek-xyz');
-  expect(result.response.expiresAt).toBe(1712345678);
-  expect(result.response.model).toBe('gpt-realtime-1.5');
+  expect(isOk(result)).toBe(true);
+  if (!isOk(result)) throw new Error('expected ok result');
+  expect(result.value.value).toBe('ek-xyz');
+  expect(result.value.expiresAt).toBe(1712345678);
+  expect(result.value.model).toBe('gpt-realtime-1.5');
   expect(sentAuth).toBe('Bearer sk-secret');
   expect(JSON.stringify(result)).not.toContain('sk-secret');
 });
@@ -34,7 +37,9 @@ it('reports upstream-failure with the upstream status when upstream rejects the 
     fetch: fakeFetch,
   });
   const result = await mint({ provider: 'openai', sessionId: 'sess-1' });
-  expect(result).toEqual({ ok: false, reason: 'upstream-failure', upstreamStatus: 401 });
+  expect(isErr(result)).toBe(true);
+  if (!isErr(result)) throw new Error('expected err result');
+  expect(result.error).toEqual({ reason: 'upstream-failure', upstreamStatus: 401 });
   expect(JSON.stringify(result)).not.toContain('sk-secret');
 });
 
@@ -50,7 +55,9 @@ it('rejects a provider other than openai with unsupported-provider and never cal
     fetch: fakeFetch,
   });
   const result = await mint({ provider: 'google', sessionId: 'sess-1' });
-  expect(result).toEqual({ ok: false, reason: 'unsupported-provider' });
+  expect(isErr(result)).toBe(true);
+  if (!isErr(result)) throw new Error('expected err result');
+  expect(result.error).toEqual({ reason: 'unsupported-provider' });
   expect(fetchCalled).toBe(false);
 });
 
@@ -74,9 +81,9 @@ it('honors a model override in the request, in both the upstream call and the re
     model: 'gpt-realtime-override',
   });
   expect(JSON.parse(sentBody).session.model).toBe('gpt-realtime-override');
-  expect(result.ok).toBe(true);
-  if (!result.ok) throw new Error('expected ok result');
-  expect(result.response.model).toBe('gpt-realtime-override');
+  expect(isOk(result)).toBe(true);
+  if (!isOk(result)) throw new Error('expected ok result');
+  expect(result.value.model).toBe('gpt-realtime-override');
 });
 
 it('falls back to the server-configured model when no override is provided', async () => {
@@ -95,9 +102,9 @@ it('falls back to the server-configured model when no override is provided', asy
   });
   const result = await mint({ provider: 'openai', sessionId: 'sess-1' });
   expect(JSON.parse(sentBody).session.model).toBe('gpt-realtime-1.5');
-  expect(result.ok).toBe(true);
-  if (!result.ok) throw new Error('expected ok result');
-  expect(result.response.model).toBe('gpt-realtime-1.5');
+  expect(isOk(result)).toBe(true);
+  if (!isOk(result)) throw new Error('expected ok result');
+  expect(result.value.model).toBe('gpt-realtime-1.5');
 });
 
 it('reports upstream-failure with no upstream status when the upstream fetch throws', async () => {
@@ -110,7 +117,9 @@ it('reports upstream-failure with no upstream status when the upstream fetch thr
     fetch: fakeFetch,
   });
   const result = await mint({ provider: 'openai', sessionId: 'sess-1' });
-  expect(result).toEqual({ ok: false, reason: 'upstream-failure' });
+  expect(isErr(result)).toBe(true);
+  if (!isErr(result)) throw new Error('expected err result');
+  expect(result.error).toEqual({ reason: 'upstream-failure' });
   expect(JSON.stringify(result)).not.toContain('sk-secret');
 });
 
@@ -126,7 +135,9 @@ it('rejects a structurally invalid handshake with invalid-request and never call
     fetch: fakeFetch,
   });
   const result = await mint({ provider: 'openai' });
-  expect(result).toEqual({ ok: false, reason: 'invalid-request' });
+  expect(isErr(result)).toBe(true);
+  if (!isErr(result)) throw new Error('expected err result');
+  expect(result.error).toEqual({ reason: 'invalid-request' });
   expect(fetchCalled).toBe(false);
 });
 
@@ -142,7 +153,9 @@ it('rejects a handshake with a wrong-typed provider with invalid-request and nev
     fetch: fakeFetch,
   });
   const result = await mint({ provider: 123, sessionId: 'sess-1' });
-  expect(result).toEqual({ ok: false, reason: 'invalid-request' });
+  expect(isErr(result)).toBe(true);
+  if (!isErr(result)) throw new Error('expected err result');
+  expect(result.error).toEqual({ reason: 'invalid-request' });
   expect(fetchCalled).toBe(false);
 });
 
@@ -158,7 +171,9 @@ it('rejects non-object input with invalid-request and never calls upstream fetch
     fetch: fakeFetch,
   });
   const result = await mint('not an object');
-  expect(result).toEqual({ ok: false, reason: 'invalid-request' });
+  expect(isErr(result)).toBe(true);
+  if (!isErr(result)) throw new Error('expected err result');
+  expect(result.error).toEqual({ reason: 'invalid-request' });
   expect(fetchCalled).toBe(false);
 });
 
@@ -174,6 +189,8 @@ it('returns missing-api-key and never calls upstream fetch when the minter holds
     fetch: fakeFetch,
   });
   const result = await mint({ provider: 'openai', sessionId: 'sess-1' });
-  expect(result).toEqual({ ok: false, reason: 'missing-api-key' });
+  expect(isErr(result)).toBe(true);
+  if (!isErr(result)) throw new Error('expected err result');
+  expect(result.error).toEqual({ reason: 'missing-api-key' });
   expect(fetchCalled).toBe(false);
 });

@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { isOk } from '@maelstrom-co/protocol';
 import { createOpenAIMinter, type MintFailureReason } from '@maelstrom-co/realtime-server';
 
 /**
@@ -33,16 +34,18 @@ export async function handleRealtimeTokenRequest(request: Request): Promise<Resp
   }
 
   const result = await mint(body);
-  if (result.ok) {
-    return Response.json(result.response);
+  if (isOk(result)) {
+    return Response.json(result.value);
   }
 
   return Response.json(
     {
-      error: result.reason,
-      ...(result.upstreamStatus !== undefined && { upstreamStatus: result.upstreamStatus }),
+      error: result.error.reason,
+      ...(result.error.upstreamStatus !== undefined && {
+        upstreamStatus: result.error.upstreamStatus,
+      }),
     },
-    { status: FAILURE_STATUS[result.reason] },
+    { status: FAILURE_STATUS[result.error.reason] },
   );
 }
 

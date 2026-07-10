@@ -11,6 +11,7 @@
  */
 export type {
   CreateOpenAIMinterOptions,
+  MintFailure,
   MintFailureReason,
   MintResult,
 } from './lib/openai-mint.js';

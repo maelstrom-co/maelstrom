@@ -1,7 +1,9 @@
+import type { Result, TokenHandshakeResponse } from '@maelstrom-co/protocol';
 import {
+  err,
+  ok,
   TokenHandshakeRequestSchema,
   TokenHandshakeResponseSchema,
-  type TokenHandshakeResponse,
 } from '@maelstrom-co/protocol';
 
 /** Options for {@link createOpenAIMinter}. */
@@ -43,17 +45,17 @@ export type MintFailureReason =
   | 'upstream-failure';
 
 /**
- * Outcome of a {@link createOpenAIMinter} call. On failure, `upstreamStatus`
- * is present only when the failure is `upstream-failure` and OpenAI returned
- * an HTTP response (absent when the upstream `fetch` itself threw).
+ * Failure detail for a {@link createOpenAIMinter} call. `upstreamStatus` is
+ * present only when `reason` is `upstream-failure` and OpenAI returned an
+ * HTTP response (absent when the upstream `fetch` itself threw).
  */
-export type MintResult =
-  | { readonly ok: true; readonly response: TokenHandshakeResponse }
-  | {
-      readonly ok: false;
-      readonly reason: MintFailureReason;
-      readonly upstreamStatus?: number;
-    };
+export interface MintFailure {
+  readonly reason: MintFailureReason;
+  readonly upstreamStatus?: number;
+}
+
+/** Outcome of a {@link createOpenAIMinter} call. */
+export type MintResult = Result<TokenHandshakeResponse, MintFailure>;
 
 /**
  * Creates a transport-agnostic minter that exchanges a server-held OpenAI
@@ -88,7 +90,7 @@ export type MintResult =
  * // Wire into a fetch-style route:
  * export async function POST(req: Request): Promise<Response> {
  *   const result = await mint(await req.json());
- *   if (result.ok) return Response.json(result.response);
+ *   if (isOk(result)) return Response.json(result.value);
  *
  *   const status: Record<MintFailureReason, number> = {
  *     'invalid-request': 400,
@@ -96,7 +98,10 @@ export type MintResult =
  *     'missing-api-key': 500,
  *     'upstream-failure': 502,
  *   };
- *   return Response.json({ error: result.reason }, { status: status[result.reason] });
+ *   return Response.json(
+ *     { error: result.error.reason },
+ *     { status: status[result.error.reason] },
+ *   );
  * }
  * ```
  */
@@ -108,16 +113,16 @@ export function createOpenAIMinter(
 
   return async (input: unknown): Promise<MintResult> => {
     if (!apiKey) {
-      return { ok: false, reason: 'missing-api-key' };
+      return err({ reason: 'missing-api-key' });
     }
 
     const handshake = TokenHandshakeRequestSchema.safeParse(input);
     if (!handshake.success) {
-      return { ok: false, reason: 'invalid-request' };
+      return err({ reason: 'invalid-request' });
     }
 
     if (handshake.data.provider !== 'openai') {
-      return { ok: false, reason: 'unsupported-provider' };
+      return err({ reason: 'unsupported-provider' });
     }
 
     const resolvedModel = handshake.data.model ?? model;
@@ -141,12 +146,12 @@ export function createOpenAIMinter(
       });
 
       if (!upstream.ok) {
-        return { ok: false, reason: 'upstream-failure', upstreamStatus: upstream.status };
+        return err({ reason: 'upstream-failure', upstreamStatus: upstream.status });
       }
 
       upstreamBody = (await upstream.json()) as OpenAIClientSecretResponse;
     } catch {
-      return { ok: false, reason: 'upstream-failure' };
+      return err({ reason: 'upstream-failure' });
     }
 
     const response: TokenHandshakeResponse = {
@@ -159,9 +164,9 @@ export function createOpenAIMinter(
     try {
       TokenHandshakeResponseSchema.parse(response);
     } catch {
-      return { ok: false, reason: 'upstream-failure' };
+      return err({ reason: 'upstream-failure' });
     }
 
-    return { ok: true, response };
+    return ok(response);
   };
 }

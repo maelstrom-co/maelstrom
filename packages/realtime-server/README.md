@@ -25,6 +25,7 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-server @maelst
 ## Quick example
 
 ```ts
+import { isOk } from '@maelstrom-co/protocol';
 import { createOpenAIMinter, type MintFailureReason } from '@maelstrom-co/realtime-server';
 
 const mint = createOpenAIMinter({
@@ -42,8 +43,8 @@ const STATUS: Record<MintFailureReason, number> = {
 // Wire into your framework of choice, e.g. a Request/Response fetch route.
 export async function POST(req: Request): Promise<Response> {
   const result = await mint(await req.json());
-  if (result.ok) return Response.json(result.response);
-  return Response.json({ error: result.reason }, { status: STATUS[result.reason] });
+  if (isOk(result)) return Response.json(result.value);
+  return Response.json({ error: result.error.reason }, { status: STATUS[result.error.reason] });
 }
 ```
 
