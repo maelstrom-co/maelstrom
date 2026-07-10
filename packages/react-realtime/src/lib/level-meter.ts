@@ -1,3 +1,4 @@
+/** A live audio level reader returned by {@link createLevelMeter}. */
 export interface LevelMeter {
   /** Instantaneous level in [0, 1] (RMS of the current analyser frame). */
   read(): number;
