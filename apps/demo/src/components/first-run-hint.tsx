@@ -1,9 +1,9 @@
 import { m } from '../lib/maelstrom';
 
-/** Verbatim video-script beats, shown in the first-run hint and echoed as suggestion chips so text and voice paths teach the same vocabulary. */
+/** Hand-picked example prompts, shown in the first-run hint and echoed as suggestion chips so text and voice paths teach the same vocabulary. */
 export const FIRST_RUN_EXAMPLES = [
   'Clear all this — just show me today',
-  'Actually skip the gym, add coffee with Sam at 9',
+  "What's my morning look like? I need to be at the design review by 10",
   "Start a journal entry about today's plan and jot down the key points",
 ] as const;
 

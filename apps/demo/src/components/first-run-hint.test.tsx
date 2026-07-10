@@ -28,10 +28,10 @@ describe('isFirstRunHintVisible', () => {
 });
 
 describe('FIRST_RUN_EXAMPLES', () => {
-  it('matches the video-script beats verbatim', () => {
+  it('pins the chosen example prompts', () => {
     expect(FIRST_RUN_EXAMPLES).toEqual([
       'Clear all this — just show me today',
-      'Actually skip the gym, add coffee with Sam at 9',
+      "What's my morning look like? I need to be at the design review by 10",
       "Start a journal entry about today's plan and jot down the key points",
     ]);
   });

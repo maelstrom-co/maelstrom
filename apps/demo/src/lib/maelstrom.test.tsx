@@ -1,19 +1,9 @@
 // @vitest-environment happy-dom
 
-import type {
-  AssistantMessage,
-  ConnectorCapabilities,
-  ConnectorEvent,
-  EngineConnector,
-  Unsubscribe,
-  VoiceSessionState,
-} from '@maelstrom-co/client';
-import type {
-  ChartRequestMessage,
-  MaelstromResponse,
-} from '@maelstrom-co/protocol';
+import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createMockConnector } from './__tests__/mock-connector';
 
 // Fakes the module boundary maelstrom.ts wires against — RealtimeSession is
 // never real here, so this test observes only that the demo applies the
@@ -48,59 +38,6 @@ vi.mock('./mint-token', () => ({
 }));
 
 const { m } = await import('./maelstrom');
-
-function createMockConnector(): EngineConnector {
-  const subscribers: Array<(event: ConnectorEvent) => void> = [];
-
-  return {
-    capabilities: {
-      voice: false,
-      streaming: false,
-      stateful: false,
-    } satisfies ConnectorCapabilities,
-
-    async connect() {
-      // no-op
-    },
-
-    async disconnect() {
-      for (const handler of subscribers) {
-        handler({
-          type: 'disconnected',
-          clean: true,
-          message: 'test disconnect',
-        });
-      }
-    },
-
-    async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
-      return {
-        type: 'maelstrom_response',
-        requestId: message.id,
-        userMessage: '',
-        rationale: '',
-        executionPlan: [],
-        layout: { type: 'grid', positions: [] },
-      };
-    },
-
-    subscribe(handler: (event: ConnectorEvent) => void): Unsubscribe {
-      subscribers.push(handler);
-      return () => {
-        const idx = subscribers.indexOf(handler);
-        if (idx >= 0) subscribers.splice(idx, 1);
-      };
-    },
-
-    async addAssistantMessage(_message: AssistantMessage): Promise<void> {
-      // no-op
-    },
-
-    async getHistory() {
-      return [];
-    },
-  };
-}
 
 afterEach(cleanup);
 
