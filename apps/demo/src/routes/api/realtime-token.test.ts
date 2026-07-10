@@ -46,7 +46,13 @@ mock.module('@maelstrom-co/realtime-server', () => ({
   mintFailureHttpStatus: (reason: MintFailureReason) => STATUS[reason],
 }));
 
-const { handleRealtimeTokenRequest } = await import('./realtime-token.js?mocked');
+// Built at runtime (not a string literal) so tsc treats the specifier as
+// opaque instead of statically resolving it — a literal `?mocked` suffix
+// fails module resolution (TS2307) even though Bun resolves it fine at
+// runtime. The `typeof import(...)` cast restores type-checking on the
+// result.
+const mockedRouteSpecifier = './realtime-token.js' + '?mocked';
+const { handleRealtimeTokenRequest } = (await import(mockedRouteSpecifier)) as typeof import('./realtime-token.js');
 
 it('rejects a non-POST method with a 400 and never calls the minter', async () => {
   mintCallCount = 0;
