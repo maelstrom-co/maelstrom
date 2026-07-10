@@ -20,6 +20,11 @@ export function useChartMotion(
 ): void {
   const prevRectsRef = useRef<Map<string, MotionRect>>(new Map());
   const prevLayoutKeyRef = useRef<string | null>(null);
+  // Tracks "has a non-empty board ever been measured", distinct from
+  // prevRects.size: a board that empties and then repopulates must still
+  // fire enter animations, whereas map emptiness alone would reset motion
+  // to first-pass (silent) behavior.
+  const hasMeasuredRef = useRef(false);
 
   // Deps are the two keys only — unlike useExitingInstances, which keys its
   // effect on `[signature, motion]`, `motion` here is read from the latest
@@ -32,7 +37,11 @@ export function useChartMotion(
     prevLayoutKeyRef.current = layoutKey;
 
     if (motionSuppressed(motion)) {
+      // Also drop the measured flag so the first pass after unsuppression
+      // rebuilds a fresh baseline silently instead of enter-animating
+      // everything against the cleared map.
       prevRectsRef.current = new Map();
+      hasMeasuredRef.current = false;
       return;
     }
 
@@ -40,7 +49,7 @@ export function useChartMotion(
     if (!container) return;
 
     const prevRects = prevRectsRef.current;
-    const isFirstPass = prevRects.size === 0;
+    const isFirstPass = !hasMeasuredRef.current;
     const containerRect = container.getBoundingClientRect();
 
     const nextRects = new Map<string, MotionRect>();
@@ -60,6 +69,7 @@ export function useChartMotion(
     }
 
     prevRectsRef.current = nextRects;
+    if (nextRects.size > 0) hasMeasuredRef.current = true;
 
     // Size-only pass: the map refresh above keeps the next layout change
     // FLIPping from post-resize positions, but nothing animates now.

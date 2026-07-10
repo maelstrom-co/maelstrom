@@ -246,6 +246,36 @@ describe('useChartMotion', () => {
     expect(call.keyframes).not.toEqual(flipKeyframes(deltaFromStaleBaseline!));
   });
 
+  it('fires enter animations when an emptied board repopulates', () => {
+    // "Never measured" and "board currently empty" are different states: a
+    // cleared board must not reset motion to first-pass behavior, or the
+    // vessels of the next layout appear with no enter animation.
+    const populated: Item[] = [{ id: 'a', rect: rect(0, 0, 100, 100) }];
+    const empty: Item[] = [];
+    const repopulated: Item[] = [
+      { id: 'b', rect: rect(0, 0, 100, 100) },
+      { id: 'c', rect: rect(100, 0, 100, 100) },
+    ];
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(<Harness items={populated} motion={DEFAULT_MOTION} />));
+    });
+    act(() => {
+      rerender(<Harness items={empty} motion={DEFAULT_MOTION} />);
+    });
+    expect(animateCalls).toHaveLength(0);
+
+    act(() => {
+      rerender(<Harness items={repopulated} motion={DEFAULT_MOTION} />);
+    });
+
+    expect(animateCalls).toHaveLength(2);
+    for (const call of animateCalls) {
+      expect(call.keyframes).toEqual(enterKeyframes());
+    }
+  });
+
   it('re-measures without animating on a size-only change, then FLIPs from the post-resize rect', () => {
     // A window drag: the browser instantly reflows `1fr` tracks, so rects
     // change while the logical layout (layoutKey) stays the same. Animating
