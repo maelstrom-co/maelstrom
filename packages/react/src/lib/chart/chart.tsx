@@ -158,6 +158,20 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
   }
 
   function ExitingVessel({ entry, motion }: ExitingVesselProps) {
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      const node = ref.current;
+      if (!node || typeof node.animate !== 'function') return;
+      node.animate(exitKeyframes(), {
+        duration: motion.durationMs,
+        easing: motion.easing,
+      });
+      // Runs once per mount — the exiting entry's identity is stable for its
+      // whole lifetime, so re-running this on every Chart re-render would
+      // restart the fade mid-flight.
+    }, []);
+
     const style: CSSProperties = {
       position: 'absolute',
       left: entry.rect.x,
@@ -170,16 +184,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     };
 
     return (
-      <div
-        style={style}
-        ref={(node) => {
-          if (!node || typeof node.animate !== 'function') return;
-          node.animate(exitKeyframes(), {
-            duration: motion.durationMs,
-            easing: motion.easing,
-          });
-        }}
-      >
+      <div style={style} ref={ref}>
         <VesselRenderer instance={entry.item} style={{ width: '100%', height: '100%' }} />
       </div>
     );
@@ -495,6 +500,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
               top: tile.rect.y,
               width: tile.rect.width,
               height: tile.rect.height,
+              zIndex: 1,
               overflow: 'hidden',
             };
             return (

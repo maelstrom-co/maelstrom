@@ -851,6 +851,55 @@ describe('m.Chart — motion', () => {
     }
   });
 
+  it('exit animation does not re-fire on an unrelated layout update', async () => {
+    // Regression: ExitingVessel started its exit animation via an inline
+    // callback ref. Since the component isn't memoized, any Chart re-render
+    // creates a new ref-callback identity; React re-invokes it on the
+    // already-mounted node, calling `element.animate()` a second time and
+    // visually restarting the fade mid-flight — even though nothing about
+    // the exiting instance changed.
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a', 'b']),
+      gridLayout([
+        { id: 'a', column: 0, row: 0, width: 2, height: 2 },
+        { id: 'b', column: 8, row: 0, width: 2, height: 2 },
+      ]),
+      gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+      gridLayout([{ id: 'a', column: 14, row: 0, width: 2, height: 2 }]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+    // Removing 'b' starts its exit animation.
+    await act(async () => { await processIntent!('removeB'); });
+
+    animateCalls = [];
+    // Unrelated layout update: 'a' moves, 'b' stays removed/exiting.
+    await act(async () => { await processIntent!('moveA'); });
+
+    // ExitingVessel's outer wrapper carries no data-instance-id, so a
+    // re-fired exit animate call shows up here as an id-less entry.
+    const exitShapedCalls = animateCalls.filter((c) => c.id === null);
+    expect(exitShapedCalls.length).toBe(0);
+  });
+
   it('(d) motion: { disabled: true } produces zero animate calls and instant removal', async () => {
     const entry = vessel(testVessel, () => <div>content</div>);
     const m = createMaelstrom({ vessels: [entry] });
