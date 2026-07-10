@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
+import { ACCENT_HEX } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import { DEMO_LOCATIONS, findLocationByFuzzyName, HOME } from '../lib/locations';
 import { fetchRoute } from '../lib/osrm';
@@ -40,8 +41,9 @@ export const mapActionRunner = {
 
 const ROUTE_SOURCE_ID = 'map-vessel-route';
 const ROUTE_LAYER_ID = 'map-vessel-route-line';
-// Matches VesselCard's violet accent (--color-violet-accent in styles.css).
-const ACCENT_COLOR = '#6b00ff';
+// Matches VesselCard's brand-3 accent so the route line and markers read as
+// the same material as the chassis.
+const ACCENT_COLOR = ACCENT_HEX['brand-3'];
 
 type MapVariant = 'overview' | 'route' | 'compact';
 
@@ -246,7 +248,7 @@ export default function MapComponent({
             sizing doesn't depend on `position`, so the override is harmless. */}
         <div ref={containerRef} className="h-full w-full" />
         {effectiveVariant === 'route' && state.route && (
-          <div className="absolute bottom-2 left-2 right-2 rounded-md bg-black/70 backdrop-blur px-3 py-1.5 text-sm text-white/90 font-mono">
+          <div className="eta-chip absolute bottom-2 left-2 right-2 rounded-[var(--radius-sm)] px-3 py-1.5 text-sm text-ink font-mono">
             {state.route.durationMin} min ·{' '}
             {state.route.distanceMi.toFixed(1)} mi
           </div>

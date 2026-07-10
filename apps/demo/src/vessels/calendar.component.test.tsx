@@ -201,6 +201,17 @@ describe('CalendarComponent day view rendering', () => {
     expect(laterIdx).toBeGreaterThanOrEqual(0);
     expect(earlierIdx).toBeLessThan(laterIdx);
   });
+
+  it('shows an empty state on the day view with zero events', async () => {
+    const { container } = render(<CalendarComponent {...props('day')} />);
+    const handlers = latestHandlers();
+    await act(async () => {
+      await handlers.removeEvent({ title: 'Gym' });
+      await handlers.removeEvent({ title: 'Design review' });
+      await handlers.removeEvent({ title: 'Sprint planning' });
+    });
+    expect(container.textContent).toContain('Nothing scheduled');
+  });
 });
 
 describe('CalendarComponent week view rendering', () => {

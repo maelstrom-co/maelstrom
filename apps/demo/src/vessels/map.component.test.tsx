@@ -341,3 +341,12 @@ describe('MapComponent style-ready latch', () => {
     ]);
   });
 });
+
+describe('MapComponent container sizing (cascade-collapse guard)', () => {
+  it('sizes the map container with h-full/w-full, never absolute', () => {
+    const { container } = render(<MapComponent {...props()} />);
+    const mapContainer = container.querySelector('.h-full.w-full');
+    expect(mapContainer).not.toBeNull();
+    expect(mapContainer?.className).not.toContain('absolute');
+  });
+});
