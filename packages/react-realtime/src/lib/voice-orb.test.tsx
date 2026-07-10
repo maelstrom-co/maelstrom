@@ -169,10 +169,10 @@ describe('VoiceOrb', () => {
       fireEvent.click(button);
     });
 
-    // RealtimeSession.disconnect() has no re-entry guard against an
-    // in-flight connect() — calling it mid-handshake can silently resurrect
-    // the session once the handshake resolves. The button must not let a
-    // click reach disconnect() while connecting.
+    // RealtimeSession itself now guards a disconnect() racing an in-flight
+    // connect() (an epoch check) — this UX-level disable is a second,
+    // belt-and-suspenders defense, not the only one: the button must still
+    // not let a click reach disconnect() while connecting.
     expect(session.disconnectCalls).toBe(0);
     expect(button.disabled).toBe(true);
   });
@@ -220,6 +220,27 @@ describe('VoiceOrb', () => {
 
     const button = getButton(container);
     expect(button.dataset.state).toBe('speaking');
+    expect(button.getAttribute('aria-label')).toBe('Stop voice');
+  });
+
+  it('renders a distinct thinking state instead of falling back to idle styling', async () => {
+    const { m, connector } = setup();
+
+    const { container } = await act(async () => {
+      return render(
+        <m.Provider connector={connector}>
+          <m.VoiceOrb />
+        </m.Provider>,
+      );
+    });
+
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      session.emitState('thinking');
+    });
+
+    const button = getButton(container);
+    expect(button.dataset.state).toBe('thinking');
     expect(button.getAttribute('aria-label')).toBe('Stop voice');
   });
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type ReactElement } from 'react';
+import type { VoiceSessionState } from '@maelstrom-co/client';
 
 import { createLevelMeter } from './level-meter.js';
 import type { UseVoiceResult } from './maelstrom-realtime.js';
@@ -11,11 +12,12 @@ export interface VoiceOrbProps {
   readonly className?: string;
 }
 
-const STATE_COLORS: Record<string, string> = {
+const STATE_COLORS: Record<VoiceSessionState, string> = {
   idle: '#94a3b8',
   connecting: '#facc15',
   connected: '#38bdf8',
   listening: '#22c55e',
+  thinking: '#f97316',
   speaking: '#a855f7',
   error: '#ef4444',
 };
@@ -57,7 +59,7 @@ export function createVoiceOrb(useVoice: () => UseVoiceResult) {
     }, [state, session]);
 
     const live = state !== 'idle' && state !== 'error';
-    const color = STATE_COLORS[state] ?? STATE_COLORS.idle;
+    const color = STATE_COLORS[state];
     const style: CSSProperties & { '--maelstrom-orb-color'?: string } = {
       width: size,
       height: size,
@@ -79,11 +81,10 @@ export function createVoiceOrb(useVoice: () => UseVoiceResult) {
         style={style}
         disabled={state === 'connecting'}
         onClick={() => {
-          // Guards the same race the `disabled` attribute already blocks in a
-          // real browser: `RealtimeSession.disconnect()` has no re-entry
-          // guard, so calling it while `adapter.connect()` is still in flight
-          // can resurrect the session once the handshake resolves and calls
-          // `#setState('connected')` after disconnect already ran.
+          // RealtimeSession now guards a disconnect() racing an in-flight
+          // connect() at the source (an epoch check), so this is a UX
+          // affordance rather than the only defense: it just keeps a click
+          // mid-handshake from doing nothing instead of visibly disabling.
           if (state === 'connecting') return;
           void (live ? disconnect() : connect()).catch(() => {});
         }}
