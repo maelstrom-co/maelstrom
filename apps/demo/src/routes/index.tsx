@@ -16,7 +16,7 @@ function HomePage() {
   const connector = useMemo(() => createDemoConnector(), []);
 
   return (
-    <m.Provider connector={connector} debug>
+    <m.Provider connector={connector} debug={import.meta.env.DEV}>
       <DemoApp />
     </m.Provider>
   );
@@ -71,15 +71,10 @@ function ActionFlash() {
 }
 
 function StatusIndicator() {
-  const { connectionStatus, isProcessing } = m.useMaelstrom();
+  const { connectionStatus } = m.useMaelstrom();
 
   return (
     <div className="flex items-center gap-2">
-      {isProcessing && (
-        <span className="text-sm text-blue-400 animate-pulse">
-          Processing...
-        </span>
-      )}
       <div
         className={`w-2 h-2 rounded-full ${
           connectionStatus === 'connected'
