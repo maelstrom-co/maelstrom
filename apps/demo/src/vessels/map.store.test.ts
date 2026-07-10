@@ -12,20 +12,19 @@ const OFFICE = mustFind('office');
 const GYM = mustFind('gym');
 
 describe('mapActions', () => {
-  it('starts in overview mode', () => {
-    expect(getMapSnapshot()).toEqual({ mode: 'overview' });
+  it('starts with no data', () => {
+    expect(getMapSnapshot()).toEqual({});
   });
 
-  it('showRoute transitions to route mode with the destination and no route yet', () => {
+  it('showRoute sets the destination with no route yet', () => {
     mapActions.showOverview();
     mapActions.showRoute(OFFICE);
     expect(getMapSnapshot()).toEqual({
-      mode: 'route',
       destination: OFFICE,
     });
   });
 
-  it('setRoute attaches route info when still in route mode for that destination', () => {
+  it('setRoute attaches route info while the destination is still set', () => {
     mapActions.showOverview();
     mapActions.showRoute(OFFICE);
     const route = {
@@ -35,13 +34,12 @@ describe('mapActions', () => {
     };
     mapActions.setRoute(route);
     expect(getMapSnapshot()).toEqual({
-      mode: 'route',
       destination: OFFICE,
       route,
     });
   });
 
-  it('setRoute is a no-op if the mode moved away from route before the fetch resolved', () => {
+  it('setRoute is a no-op if the destination was cleared before the fetch resolved', () => {
     mapActions.showOverview();
     mapActions.showRoute(OFFICE);
     mapActions.showOverview();
@@ -50,18 +48,18 @@ describe('mapActions', () => {
       distanceMi: 1,
       geometry: { type: 'LineString', coordinates: [] },
     });
-    expect(getMapSnapshot()).toEqual({ mode: 'overview' });
+    expect(getMapSnapshot()).toEqual({});
   });
 
-  it('focusLocation transitions to focus mode with the location', () => {
+  it('focusLocation sets the focused location', () => {
     mapActions.showOverview();
     mapActions.focusLocation(GYM);
-    expect(getMapSnapshot()).toEqual({ mode: 'focus', location: GYM });
+    expect(getMapSnapshot()).toEqual({ focused: GYM });
   });
 
-  it('showOverview resets to overview mode from any other mode', () => {
+  it('showOverview clears all data', () => {
     mapActions.focusLocation(GYM);
     mapActions.showOverview();
-    expect(getMapSnapshot()).toEqual({ mode: 'overview' });
+    expect(getMapSnapshot()).toEqual({});
   });
 });

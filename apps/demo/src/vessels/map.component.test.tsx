@@ -102,11 +102,10 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('mapActionRunner', () => {
-  it('showRoute fuzzy-matches a destination and enters route mode', async () => {
+  it('showRoute fuzzy-matches a destination and sets it', async () => {
     const result = await mapActionRunner.showRoute({ destination: 'vortex' });
     expect(isOk(result)).toBe(true);
     expect(getMapSnapshot()).toEqual({
-      mode: 'route',
       destination: DEMO_LOCATIONS.find((loc) => loc.id === 'office'),
     });
   });
@@ -126,12 +125,11 @@ describe('mapActionRunner', () => {
     }
   });
 
-  it('focusLocation fuzzy-matches a name and enters focus mode', async () => {
+  it('focusLocation fuzzy-matches a name and sets the focused location', async () => {
     const result = await mapActionRunner.focusLocation({ name: 'gym' });
     expect(isOk(result)).toBe(true);
     expect(getMapSnapshot()).toEqual({
-      mode: 'focus',
-      location: DEMO_LOCATIONS.find((loc) => loc.id === 'gym'),
+      focused: DEMO_LOCATIONS.find((loc) => loc.id === 'gym'),
     });
   });
 
@@ -143,17 +141,40 @@ describe('mapActionRunner', () => {
     }
   });
 
-  it('showOverview resets to overview mode', async () => {
+  it('showOverview clears all data', async () => {
     await mapActionRunner.focusLocation({ name: 'gym' });
     const result = await mapActionRunner.showOverview();
     expect(isOk(result)).toBe(true);
-    expect(getMapSnapshot()).toEqual({ mode: 'overview' });
+    expect(getMapSnapshot()).toEqual({});
   });
 });
 
 describe('MapComponent smoke render', () => {
   it('mounts without crashing with maplibre-gl mocked', () => {
     const { container } = render(<MapComponent {...props()} />);
+    expect(container.textContent).toContain('places');
+  });
+
+  it('renders overview content for variant=overview even when the store holds stale route data', () => {
+    const office = DEMO_LOCATIONS.find((loc) => loc.id === 'office');
+    if (!office) throw new Error('fixture location "office" not found');
+    mapActions.showRoute(office);
+
+    const { container } = render(
+      <MapComponent {...props()} variantProps={{ variant: 'overview' }} />,
+    );
+
+    expect(container.textContent).toContain('places');
+    expect(container.textContent).not.toContain(office.name);
+  });
+
+  it('falls back to overview content for variant=route when the store has no destination', () => {
+    mapActions.showOverview();
+
+    const { container } = render(
+      <MapComponent {...props()} variantProps={{ variant: 'route' }} />,
+    );
+
     expect(container.textContent).toContain('places');
   });
 });

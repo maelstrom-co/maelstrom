@@ -2,12 +2,23 @@ import { useSyncExternalStore } from 'react';
 import type { DemoLocation } from '../lib/locations';
 import type { RouteResult } from '../lib/osrm';
 
-export type MapState =
-  | { mode: 'overview' }
-  | { mode: 'route'; destination: DemoLocation; route?: RouteResult }
-  | { mode: 'focus'; location: DemoLocation };
+/**
+ * Data the map vessel keeps between renders. This store carries data only —
+ * which layout to render is owned by the framework via `variantProps.variant`
+ * (driven by each action's `transitionsTo`). An instance can be dropped and
+ * re-added (tiling mode), which resets the framework's variant back to the
+ * vessel's default while this module-singleton store keeps whatever it last
+ * held, so the two can disagree; components must treat `destination`/`focused`
+ * as data to render *if* the variant calls for it, not as the source of truth
+ * for which variant is active.
+ */
+export interface MapState {
+  destination?: DemoLocation;
+  route?: RouteResult;
+  focused?: DemoLocation;
+}
 
-let state: MapState = { mode: 'overview' };
+let state: MapState = {};
 
 const listeners = new Set<() => void>();
 
@@ -35,18 +46,19 @@ export function getMapSnapshot(): MapState {
 
 export const mapActions = {
   showOverview(): void {
-    setState({ mode: 'overview' });
+    setState({});
   },
   showRoute(destination: DemoLocation): void {
-    setState({ mode: 'route', destination });
+    setState({ destination });
   },
-  // Ignored once the mode has moved on (e.g. showOverview fired before the
-  // OSRM fetch resolved) — a stale route must not resurrect route mode.
+  // Ignored once the destination has moved on (e.g. showOverview or a
+  // different showRoute fired before the OSRM fetch resolved) — a stale
+  // route must not resurrect a destination that's no longer current.
   setRoute(route: RouteResult): void {
-    if (state.mode !== 'route') return;
+    if (!state.destination) return;
     setState({ ...state, route });
   },
   focusLocation(location: DemoLocation): void {
-    setState({ mode: 'focus', location });
+    setState({ focused: location });
   },
 };
