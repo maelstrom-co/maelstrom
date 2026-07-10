@@ -6,7 +6,7 @@ export const mapVessel = defineVessel({
   id: 'map',
   name: 'Map',
   description:
-    'City map showing saved places and routes. Overview shows all locations; route shows directions and travel time to a destination; compact shows a single place card.',
+    'City map showing saved places and routes. Use this whenever the user asks about getting somewhere, travel time, or directions — including "I need to be at X by Y", "how do I get to X", "when should I leave", or any time an appointment\'s location matters for planning the trip there. Overview shows all locations; route shows directions and travel time to a destination; compact shows a single place card.',
   defaultVariant: 'overview',
   variants: {
     overview: {

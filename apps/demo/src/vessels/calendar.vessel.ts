@@ -6,7 +6,7 @@ export const calendarVessel = defineVessel({
   id: 'calendar',
   name: 'Calendar',
   description:
-    'Calendar widget for viewing dates and scheduling. Supports month view, week view, and day view with hourly time blocks.',
+    "Calendar widget for viewing dates and scheduling. Supports month view, week view, and day view with hourly time blocks. Today's day view includes a 10:00 AM \"Design review — Studio Vortex HQ\". When the user asks about getting somewhere or being there by a time, pair with the map vessel's showRoute action, passing the event's location (e.g. \"Studio Vortex HQ\") as the destination.",
   defaultVariant: 'month',
   variants: {
     month: {
