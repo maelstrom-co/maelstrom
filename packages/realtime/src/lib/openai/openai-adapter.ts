@@ -9,7 +9,7 @@ import type {
   RealtimeToolSpec,
 } from '../realtime-session/provider-adapter.types.js';
 import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
-import { asString, isRecord, parseOAIServerEvent } from './parse-oai-event.js';
+import { asString, isRecord, parseOpenAIServerEvent } from './parse-openai-event.js';
 import {
   INITIAL_RESPONSE_LIFECYCLE_STATE,
   markResponseActive,
@@ -24,7 +24,7 @@ const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 /** Stable id for the single latest-wins grounding context item. */
 const GROUNDING_ITEM_ID = 'maelstrom-grounding';
 
-function toOAITool(spec: RealtimeToolSpec): unknown {
+function toOpenAITool(spec: RealtimeToolSpec): unknown {
   return {
     type: 'function',
     name: spec.name,
@@ -40,7 +40,7 @@ function toOAITool(spec: RealtimeToolSpec): unknown {
  * drives tool calls / grounding pushes over the `oai-events` data channel.
  *
  * The data-channel envelope → adapter-event mapping lives in
- * {@link parseOAIServerEvent}; this class is thin `RTCPeerConnection` glue
+ * {@link parseOpenAIServerEvent}; this class is thin `RTCPeerConnection` glue
  * around it — the WebRTC transport itself is not unit-tested, but the
  * envelope parsing and response-lifecycle bookkeeping it delegates to are.
  *
@@ -223,7 +223,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
         type: 'session.update',
         session: {
           type: 'realtime',
-          tools: opts.tools.map(toOAITool),
+          tools: opts.tools.map(toOpenAITool),
           instructions: opts.instructions,
         },
       };
@@ -319,7 +319,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     }
 
     // Response-lifecycle bookkeeping is driven off the raw event type, not
-    // the parsed adapter event — `parseOAIServerEvent` has no mapping for
+    // the parsed adapter event — `parseOpenAIServerEvent` has no mapping for
     // these (and shouldn't grow one just for this internal concern).
     if (type === 'response.created') {
       this.#responseLifecycle = markResponseActive(this.#responseLifecycle);
@@ -329,7 +329,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       if (flush) this.#sendResponseCreate();
     }
 
-    const event = parseOAIServerEvent(parsed);
+    const event = parseOpenAIServerEvent(parsed);
     if (event) {
       this.#logger.debug('parsed →', event.type, event);
       this.#emit(event);

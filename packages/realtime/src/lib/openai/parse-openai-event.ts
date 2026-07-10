@@ -23,7 +23,7 @@ export function asString(value: unknown): string | undefined {
  * shapes from prior Realtime API versions, isolated here so they're cheap to
  * correct once real traffic is observed.
  */
-export function parseOAIServerEvent(raw: unknown): RealtimeAdapterEvent | null {
+export function parseOpenAIServerEvent(raw: unknown): RealtimeAdapterEvent | null {
   if (!isRecord(raw)) return null;
   const type = asString(raw.type);
   if (type === undefined) return null;
@@ -39,7 +39,7 @@ export function parseOAIServerEvent(raw: unknown): RealtimeAdapterEvent | null {
       const name = asString(raw.name);
       const argumentsJson = asString(raw.arguments);
       // Explicit length check, not just the throwing ToolCallId constructor:
-      // parseOAIServerEvent's contract is graceful null on malformed events,
+      // parseOpenAIServerEvent's contract is graceful null on malformed events,
       // so an empty call_id must be rejected here rather than reaching the
       // constructor and throwing.
       if (
