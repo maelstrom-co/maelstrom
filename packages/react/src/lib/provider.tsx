@@ -5,8 +5,9 @@ import { toError } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ResolvedMaelstromConfig } from './config-types.js';
+import type { ConfigOverrides } from './config-types.js';
 import { resolveConfig } from './config-types.js';
+import type { ChartMotionConfig } from './chart/motion/motion-config.js';
 import { useLatestRef } from './use-latest-ref.js';
 import type { MaelstromContextPair, MaelstromContextValue } from './context.js';
 import type {
@@ -30,6 +31,8 @@ export interface MaelstromProviderProps {
   tilingPaddingPx?: number;
   /** Enable debug logging. Overrides the factory default. */
   debug?: boolean;
+  /** Chart motion/choreography settings. Overrides the factory default. */
+  motion?: ChartMotionConfig;
   /** Called on Orchestrator startup failures, connection failures, processIntent failures, and executeAction failures. Errors also surface via useMaelstrom(). */
   onError?: (error: Error) => void;
   children: ReactNode;
@@ -38,7 +41,7 @@ export interface MaelstromProviderProps {
 export function createProvider(
   contextPair: MaelstromContextPair,
   vesselEntries: readonly AnyVesselEntry[],
-  factoryConfig: Partial<ResolvedMaelstromConfig>,
+  factoryConfig: ConfigOverrides,
 ) {
   const { Context } = contextPair;
 
@@ -49,13 +52,14 @@ export function createProvider(
     cellSizePx,
     tilingPaddingPx,
     debug,
+    motion,
     onError,
     children,
   }: MaelstromProviderProps) {
     // Resolve config: Provider overrides → factory defaults → hardcoded defaults
     const config = useMemo(
-      () => resolveConfig(factoryConfig, { cellSizePx, tilingPaddingPx, debug }),
-      [cellSizePx, tilingPaddingPx, debug],
+      () => resolveConfig(factoryConfig, { cellSizePx, tilingPaddingPx, debug, motion }),
+      [cellSizePx, tilingPaddingPx, debug, motion],
     );
 
     // Build registries once from static entries
