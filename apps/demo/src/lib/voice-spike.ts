@@ -5,7 +5,7 @@ import {
   RealtimeSession,
   type RealtimeInstance,
 } from '@maelstrom-co/realtime';
-import { createOpenAIAdapter } from '@maelstrom-co/realtime/openai';
+import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
 import { mintOpenAIToken } from './mint-token';
 
@@ -29,7 +29,7 @@ function createSession(orchestrator: Orchestrator): RealtimeSession {
   // path only, independent of the instance's global debug.
   const debug = true;
 
-  const adapter = createOpenAIAdapter({
+  const adapter = new OpenAIAdapter({
     mintToken: () => mintOpenAIToken(orchestrator.getConfig().sessionId),
     debug,
   });

@@ -8,6 +8,7 @@ import type {
   RealtimeProviderAdapter,
   RealtimeToolSpec,
 } from '../provider-adapter.types.js';
+import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
 import { parseOAIServerEvent } from './parse-oai-event.js';
 import {
   INITIAL_RESPONSE_LIFECYCLE_STATE,
@@ -16,24 +17,12 @@ import {
   requestResponseCreate,
   type ResponseLifecycleState,
 } from './response-lifecycle.js';
-import { createUnexpectedEventTracker } from './unexpected-event-tracker.js';
+import { createUnexpectedEventTracker, type UnexpectedEventTracker } from './unexpected-event-tracker.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 
 /** Stable id for the single latest-wins grounding context item. */
 const GROUNDING_ITEM_ID = 'maelstrom-grounding';
-
-/** Options for {@link createOpenAIAdapter}. */
-export interface CreateOpenAIAdapterOptions {
-  /**
-   * Mints the ephemeral OpenAI realtime client secret this adapter connects
-   * with. Called once per `connect()`. The token handshake is assigned to
-   * the adapter — `RealtimeSession` never sees a credential.
-   */
-  readonly mintToken: () => Promise<TokenHandshakeResponse>;
-  /** Enable verbose debug tracing (default false). */
-  readonly debug?: boolean;
-}
 
 function toOAITool(spec: RealtimeToolSpec): unknown {
   return {
@@ -45,278 +34,310 @@ function toOAITool(spec: RealtimeToolSpec): unknown {
 }
 
 /**
- * Creates a {@link RealtimeProviderAdapter} that connects the browser
- * directly to OpenAI `gpt-realtime` over WebRTC: mints an ephemeral client
- * secret via the injected `mintToken`, exchanges SDP with
- * `POST /v1/realtime/calls`, and drives tool calls / grounding pushes over
- * the `oai-events` data channel.
+ * A {@link RealtimeProviderAdapter} that connects the browser directly to
+ * OpenAI `gpt-realtime` over WebRTC: mints an ephemeral client secret via the
+ * injected `mintToken`, exchanges SDP with `POST /v1/realtime/calls`, and
+ * drives tool calls / grounding pushes over the `oai-events` data channel.
  *
  * The data-channel envelope → adapter-event mapping lives in
- * {@link parseOAIServerEvent}; this factory is thin `RTCPeerConnection` glue
+ * {@link parseOAIServerEvent}; this class is thin `RTCPeerConnection` glue
  * around it — the WebRTC transport itself is not unit-tested, but the
  * envelope parsing and response-lifecycle bookkeeping it delegates to are.
  *
  * @example
  * ```ts
- * const adapter = createOpenAIAdapter({
+ * const adapter = new OpenAIAdapter({
  *   mintToken: () => fetch('/api/realtime/mint', { method: 'POST', ... }).then(r => r.json()),
  * });
  * const session = new RealtimeSession({ adapter, instance, sessionId });
  * await session.connect();
  * ```
  */
-export function createOpenAIAdapter(options: CreateOpenAIAdapterOptions): RealtimeProviderAdapter {
-  const { mintToken } = options;
-  const logger = new Logger(options.debug ?? false, 'realtime');
+export class OpenAIAdapter implements RealtimeProviderAdapter {
+  readonly #mintToken: () => Promise<TokenHandshakeResponse>;
+  readonly #logger: Logger;
+  readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
 
-  let pc: RTCPeerConnection | undefined;
-  let dc: RTCDataChannel | undefined;
-  let micStream: MediaStream | undefined;
-  let groundingItemExists = false;
-  // Guards the window between connect() being called and `pc` being
+  #pc: RTCPeerConnection | undefined;
+  #dc: RTCDataChannel | undefined;
+  #micStream: MediaStream | undefined;
+  #groundingItemExists = false;
+  // Guards the window between connect() being called and `#pc` being
   // assigned — `mintToken()` is the first await, so without this a second
-  // connect() during that round-trip would pass the `pc` check too and leak
+  // connect() during that round-trip would pass the `#pc` check too and leak
   // its own RTCPeerConnection + mic stream.
-  let connecting = false;
-  let responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
-  let unexpectedEvents = createUnexpectedEventTracker();
-  const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
+  #connecting = false;
+  #responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
+  #unexpectedEvents: UnexpectedEventTracker = createUnexpectedEventTracker();
 
-  function sendResponseCreate(): void {
-    dc?.send(JSON.stringify({ type: 'response.create' }));
+  constructor(options: OpenAIAdapterOptions) {
+    this.#mintToken = options.mintToken;
+    this.#logger = new Logger(options.debug ?? false, 'realtime');
   }
 
-  function emit(event: RealtimeAdapterEvent): void {
-    for (const handler of handlers) handler(event);
+  async connect(opts: AdapterConnectOptions): Promise<void> {
+    if (this.#pc || this.#connecting) {
+      throw new Error('OpenAI realtime adapter is already connected');
+    }
+    this.#connecting = true;
+    // Captured by the data channel's onopen closure below so a slow ICE/DTLS
+    // establishment (the gap between SDP exchange and channel open) is
+    // attributable rather than folded into an opaque "connect() was slow".
+    const connectStart = Date.now();
+
+    try {
+      const token = await this.#mintToken();
+      this.#logger.debug('connect timing', { step: 'mint', ms: Date.now() - connectStart });
+
+      const connection = new RTCPeerConnection();
+      this.#pc = connection;
+      this.#connecting = false;
+      this.#wireConnectionEvents(connection);
+
+      await this.#attachMicrophone(connection, connectStart);
+      this.#openDataChannel(connection, opts, connectStart);
+
+      await this.#exchangeSdp(connection, token, connectStart);
+    } catch (error) {
+      // Handshake failed partway through — tear down whatever was already
+      // opened (mic stream, data channel, peer connection) so a retry
+      // doesn't leak them, then let the caller's `connect()` await reject.
+      this.#teardown();
+      throw error;
+    }
   }
 
-  function teardown(): void {
-    dc?.close();
-    if (pc) {
-      for (const sender of pc.getSenders()) {
+  async disconnect(): Promise<void> {
+    this.#teardown();
+  }
+
+  async sendToolResult(callId: string, output: unknown): Promise<void> {
+    this.#logger.debug('→ sendToolResult', { callId, output });
+    if (!this.#dc || this.#dc.readyState !== 'open') {
+      this.#emit({
+        type: 'error',
+        error: new Error(`sendToolResult: data channel not open (callId=${callId})`),
+      });
+      return;
+    }
+    try {
+      this.#dc.send(
+        JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            type: 'function_call_output',
+            call_id: callId,
+            output: JSON.stringify(output),
+          },
+        }),
+      );
+      // Only one response.create may be in flight at a time — if a prior
+      // response (e.g. one still driving another tool call) hasn't
+      // finished, defer this one; `response.done` flushes it later.
+      const { next, sendNow } = requestResponseCreate(this.#responseLifecycle);
+      this.#responseLifecycle = next;
+      if (sendNow) this.#sendResponseCreate();
+    } catch (error) {
+      this.#emit({ type: 'error', error });
+    }
+  }
+
+  injectGrounding(text: string): void {
+    // Droppable, unlike sendToolResult above: grounding is latest-wins
+    // sidechannel context, so a push landing on a closed channel (e.g.
+    // mid-handshake) is a benign race — the next settle re-pushes fresher
+    // state anyway. A lost tool result, by contrast, wedges the model
+    // conversation and must surface as an error.
+    if (!this.#dc || this.#dc.readyState !== 'open') {
+      this.#logger.debug('injectGrounding: data channel not open, dropping');
+      return;
+    }
+    try {
+      if (this.#groundingItemExists) {
+        this.#dc.send(
+          JSON.stringify({ type: 'conversation.item.delete', item_id: GROUNDING_ITEM_ID }),
+        );
+      }
+      this.#dc.send(
+        JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            id: GROUNDING_ITEM_ID,
+            type: 'message',
+            role: 'system',
+            content: [{ type: 'input_text', text }],
+          },
+        }),
+      );
+      this.#groundingItemExists = true;
+    } catch (error) {
+      this.#emit({ type: 'error', error });
+    }
+  }
+
+  on(handler: (event: RealtimeAdapterEvent) => void): Unsubscribe {
+    this.#handlers.add(handler);
+    return () => {
+      this.#handlers.delete(handler);
+    };
+  }
+
+  #wireConnectionEvents(connection: RTCPeerConnection): void {
+    const audio = new Audio();
+    audio.autoplay = true;
+    connection.ontrack = (event) => {
+      audio.srcObject = event.streams[0] ?? null;
+    };
+    connection.oniceconnectionstatechange = () => {
+      if (
+        connection.iceConnectionState === 'failed' ||
+        connection.iceConnectionState === 'disconnected'
+      ) {
+        this.#emit({
+          type: 'error',
+          error: new Error(`ICE connection ${connection.iceConnectionState}`),
+        });
+      }
+    };
+  }
+
+  async #attachMicrophone(connection: RTCPeerConnection, connectStart: number): Promise<void> {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.#logger.debug('connect timing', { step: 'getUserMedia', ms: Date.now() - connectStart });
+    this.#micStream = stream;
+    for (const track of stream.getTracks()) {
+      connection.addTrack(track, stream);
+    }
+  }
+
+  #openDataChannel(
+    connection: RTCPeerConnection,
+    opts: AdapterConnectOptions,
+    connectStart: number,
+  ): void {
+    const channel = connection.createDataChannel('oai-events');
+    this.#dc = channel;
+    channel.onopen = () => {
+      this.#logger.debug('connect timing', { step: 'dataChannelOpen', ms: Date.now() - connectStart });
+      const sessionUpdate = {
+        type: 'session.update',
+        session: {
+          type: 'realtime',
+          tools: opts.tools.map(toOAITool),
+          instructions: opts.instructions,
+        },
+      };
+      this.#logger.debug('→ session.update', sessionUpdate);
+      channel.send(JSON.stringify(sessionUpdate));
+    };
+    channel.onmessage = (event: MessageEvent) => {
+      this.#handleDataChannelMessage(event.data as unknown);
+    };
+    channel.onerror = () => {
+      this.#emit({ type: 'error', error: new Error('OpenAI realtime data channel error') });
+    };
+  }
+
+  async #exchangeSdp(
+    connection: RTCPeerConnection,
+    token: TokenHandshakeResponse,
+    connectStart: number,
+  ): Promise<void> {
+    const offer = await connection.createOffer();
+    await connection.setLocalDescription(offer);
+
+    const sdp = connection.localDescription?.sdp;
+    if (!sdp) {
+      throw new Error('Failed to create a local SDP offer');
+    }
+
+    const response = await fetch(REALTIME_CALLS_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.value}`,
+        'Content-Type': 'application/sdp',
+      },
+      body: sdp,
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI realtime call setup failed with status ${response.status}`);
+    }
+
+    const answerSdp = await response.text();
+    this.#logger.debug('connect timing', { step: 'sdpExchange', ms: Date.now() - connectStart });
+    await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    this.#logger.debug('connect timing', {
+      step: 'setRemoteDescription',
+      ms: Date.now() - connectStart,
+    });
+  }
+
+  #sendResponseCreate(): void {
+    this.#dc?.send(JSON.stringify({ type: 'response.create' }));
+  }
+
+  #emit(event: RealtimeAdapterEvent): void {
+    for (const handler of this.#handlers) handler(event);
+  }
+
+  #teardown(): void {
+    this.#dc?.close();
+    if (this.#pc) {
+      for (const sender of this.#pc.getSenders()) {
         sender.track?.stop();
       }
-      pc.close();
+      this.#pc.close();
     }
-    micStream?.getTracks().forEach((track) => {
+    this.#micStream?.getTracks().forEach((track) => {
       track.stop();
     });
-    pc = undefined;
-    dc = undefined;
-    micStream = undefined;
-    groundingItemExists = false;
-    connecting = false;
-    responseLifecycle = INITIAL_RESPONSE_LIFECYCLE_STATE;
-    unexpectedEvents = createUnexpectedEventTracker();
+    this.#pc = undefined;
+    this.#dc = undefined;
+    this.#micStream = undefined;
+    this.#groundingItemExists = false;
+    this.#connecting = false;
+    this.#responseLifecycle = INITIAL_RESPONSE_LIFECYCLE_STATE;
+    this.#unexpectedEvents = createUnexpectedEventTracker();
   }
 
-  function handleDataChannelMessage(raw: unknown): void {
+  #handleDataChannelMessage(raw: unknown): void {
     let parsed: unknown;
     try {
       parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     } catch (error) {
-      logger.error('← data-channel parse error', raw, error);
-      emit({ type: 'error', error });
+      this.#logger.error('← data-channel parse error', raw, error);
+      this.#emit({ type: 'error', error });
       return;
     }
     const type = (parsed as { type?: unknown })?.type;
     // Noisy transcript deltas flood the console — log only their type.
     if (type === 'response.audio_transcript.delta') {
-      logger.debug('←', type);
+      this.#logger.debug('←', type);
     } else {
-      logger.debug('←', type, parsed);
+      this.#logger.debug('←', type, parsed);
     }
 
     // Response-lifecycle bookkeeping is driven off the raw event type, not
     // the parsed adapter event — `parseOAIServerEvent` has no mapping for
     // these (and shouldn't grow one just for this internal concern).
     if (type === 'response.created') {
-      responseLifecycle = markResponseActive(responseLifecycle);
+      this.#responseLifecycle = markResponseActive(this.#responseLifecycle);
     } else if (type === 'response.done' || type === 'response.cancelled') {
-      const { next, flush } = markResponseInactive(responseLifecycle);
-      responseLifecycle = next;
-      if (flush) sendResponseCreate();
+      const { next, flush } = markResponseInactive(this.#responseLifecycle);
+      this.#responseLifecycle = next;
+      if (flush) this.#sendResponseCreate();
     }
 
     const event = parseOAIServerEvent(parsed);
     if (event) {
-      logger.debug('parsed →', event.type, event);
-      emit(event);
+      this.#logger.debug('parsed →', event.type, event);
+      this.#emit(event);
     } else {
-      logger.debug('unrecognized or unparsed event', type, parsed);
-      if (typeof type === 'string' && unexpectedEvents.track(type)) {
-        logger.warn('unexpected realtime event type', type);
+      this.#logger.debug('unrecognized or unparsed event', type, parsed);
+      if (typeof type === 'string' && this.#unexpectedEvents.track(type)) {
+        this.#logger.warn('unexpected realtime event type', type);
       }
     }
   }
-
-  return {
-    async connect(opts: AdapterConnectOptions): Promise<void> {
-      if (pc || connecting) {
-        throw new Error('OpenAI realtime adapter is already connected');
-      }
-      connecting = true;
-      // Captured by the data channel's onopen closure below so a slow ICE/DTLS
-      // establishment (the gap between SDP exchange and channel open) is
-      // attributable rather than folded into an opaque "connect() was slow".
-      const connectStart = Date.now();
-
-      try {
-        const token = await mintToken();
-        logger.debug('connect timing', { step: 'mint', ms: Date.now() - connectStart });
-
-        const connection = new RTCPeerConnection();
-        pc = connection;
-        connecting = false;
-
-        const audio = new Audio();
-        audio.autoplay = true;
-        connection.ontrack = (event) => {
-          audio.srcObject = event.streams[0] ?? null;
-        };
-        connection.oniceconnectionstatechange = () => {
-          if (
-            connection.iceConnectionState === 'failed' ||
-            connection.iceConnectionState === 'disconnected'
-          ) {
-            emit({ type: 'error', error: new Error(`ICE connection ${connection.iceConnectionState}`) });
-          }
-        };
-
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        logger.debug('connect timing', { step: 'getUserMedia', ms: Date.now() - connectStart });
-        micStream = stream;
-        for (const track of stream.getTracks()) {
-          connection.addTrack(track, stream);
-        }
-
-        const channel = connection.createDataChannel('oai-events');
-        dc = channel;
-        channel.onopen = () => {
-          logger.debug('connect timing', { step: 'dataChannelOpen', ms: Date.now() - connectStart });
-          const sessionUpdate = {
-            type: 'session.update',
-            session: {
-              type: 'realtime',
-              tools: opts.tools.map(toOAITool),
-              instructions: opts.instructions,
-            },
-          };
-          logger.debug('→ session.update', sessionUpdate);
-          channel.send(JSON.stringify(sessionUpdate));
-        };
-        channel.onmessage = (event: MessageEvent) => {
-          handleDataChannelMessage(event.data as unknown);
-        };
-        channel.onerror = () => {
-          emit({ type: 'error', error: new Error('OpenAI realtime data channel error') });
-        };
-
-        const offer = await connection.createOffer();
-        await connection.setLocalDescription(offer);
-
-        const sdp = connection.localDescription?.sdp;
-        if (!sdp) {
-          throw new Error('Failed to create a local SDP offer');
-        }
-
-        const response = await fetch(REALTIME_CALLS_URL, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token.value}`,
-            'Content-Type': 'application/sdp',
-          },
-          body: sdp,
-        });
-
-        if (!response.ok) {
-          throw new Error(`OpenAI realtime call setup failed with status ${response.status}`);
-        }
-
-        const answerSdp = await response.text();
-        logger.debug('connect timing', { step: 'sdpExchange', ms: Date.now() - connectStart });
-        await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-        logger.debug('connect timing', { step: 'setRemoteDescription', ms: Date.now() - connectStart });
-      } catch (error) {
-        // Handshake failed partway through — tear down whatever was already
-        // opened (mic stream, data channel, peer connection) so a retry
-        // doesn't leak them, then let the caller's `connect()` await reject.
-        teardown();
-        throw error;
-      }
-    },
-
-    async disconnect(): Promise<void> {
-      teardown();
-    },
-
-    async sendToolResult(callId: string, output: unknown): Promise<void> {
-      logger.debug('→ sendToolResult', { callId, output });
-      if (!dc || dc.readyState !== 'open') {
-        emit({
-          type: 'error',
-          error: new Error(`sendToolResult: data channel not open (callId=${callId})`),
-        });
-        return;
-      }
-      try {
-        dc.send(
-          JSON.stringify({
-            type: 'conversation.item.create',
-            item: {
-              type: 'function_call_output',
-              call_id: callId,
-              output: JSON.stringify(output),
-            },
-          }),
-        );
-        // Only one response.create may be in flight at a time — if a prior
-        // response (e.g. one still driving another tool call) hasn't
-        // finished, defer this one; `response.done` flushes it later.
-        const { next, sendNow } = requestResponseCreate(responseLifecycle);
-        responseLifecycle = next;
-        if (sendNow) sendResponseCreate();
-      } catch (error) {
-        emit({ type: 'error', error });
-      }
-    },
-
-    injectGrounding(text: string): void {
-      // Droppable, unlike sendToolResult below: grounding is latest-wins
-      // sidechannel context, so a push landing on a closed channel (e.g.
-      // mid-handshake) is a benign race — the next settle re-pushes fresher
-      // state anyway. A lost tool result, by contrast, wedges the model
-      // conversation and must surface as an error.
-      if (!dc || dc.readyState !== 'open') {
-        logger.debug('injectGrounding: data channel not open, dropping');
-        return;
-      }
-      try {
-        if (groundingItemExists) {
-          dc.send(JSON.stringify({ type: 'conversation.item.delete', item_id: GROUNDING_ITEM_ID }));
-        }
-        dc.send(
-          JSON.stringify({
-            type: 'conversation.item.create',
-            item: {
-              id: GROUNDING_ITEM_ID,
-              type: 'message',
-              role: 'system',
-              content: [{ type: 'input_text', text }],
-            },
-          }),
-        );
-        groundingItemExists = true;
-      } catch (error) {
-        emit({ type: 'error', error });
-      }
-    },
-
-    on(handler: (event: RealtimeAdapterEvent) => void): Unsubscribe {
-      handlers.add(handler);
-      return () => {
-        handlers.delete(handler);
-      };
-    },
-  };
 }

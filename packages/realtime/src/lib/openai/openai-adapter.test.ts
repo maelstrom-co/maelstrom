@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { TokenHandshakeResponse } from '@maelstrom-co/protocol';
 
 import type { AdapterConnectOptions } from '../provider-adapter.types.js';
-import { createOpenAIAdapter } from './openai-adapter.js';
+import { OpenAIAdapter } from './openai-adapter.js';
 
 // ============================================================================
 // Fakes
@@ -210,10 +210,10 @@ afterEach(() => {
 // Mint failure
 // ============================================================================
 
-describe('createOpenAIAdapter — mintToken failure', () => {
+describe('OpenAIAdapter — mintToken failure', () => {
   it('rejects connect without constructing an RTCPeerConnection, and resets the connecting guard for a clean retry', async () => {
     let attempt = 0;
-    const adapter = createOpenAIAdapter({
+    const adapter = new OpenAIAdapter({
       mintToken: async () => {
         attempt += 1;
         if (attempt === 1) throw new Error('mint failed');
@@ -235,9 +235,9 @@ describe('createOpenAIAdapter — mintToken failure', () => {
 // getUserMedia failure
 // ============================================================================
 
-describe('createOpenAIAdapter — getUserMedia failure', () => {
+describe('OpenAIAdapter — getUserMedia failure', () => {
   it('rejects connect, closes the peer connection, and resets the connecting guard for a clean retry', async () => {
-    const adapter = createOpenAIAdapter({ mintToken: async () => fakeToken });
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
     getUserMediaImpl = async () => {
       throw new Error('mic denied');
     };
@@ -257,9 +257,9 @@ describe('createOpenAIAdapter — getUserMedia failure', () => {
 // Failed SDP exchange
 // ============================================================================
 
-describe('createOpenAIAdapter — failed SDP exchange', () => {
+describe('OpenAIAdapter — failed SDP exchange', () => {
   it('rejects connect and tears down mic tracks, data channel, and peer connection', async () => {
-    const adapter = createOpenAIAdapter({ mintToken: async () => fakeToken });
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
     fetchImpl = async () => ({ ok: false, status: 500, text: async () => '' });
 
     await expect(adapter.connect(connectOpts)).rejects.toThrow('status 500');
@@ -276,13 +276,13 @@ describe('createOpenAIAdapter — failed SDP exchange', () => {
 // Double connect during mint
 // ============================================================================
 
-describe('createOpenAIAdapter — double connect during mint', () => {
+describe('OpenAIAdapter — double connect during mint', () => {
   it('rejects a second connect() started while the first is still awaiting mintToken, and only one RTCPeerConnection/mic stream ever exists', async () => {
     let resolveMint!: (token: TokenHandshakeResponse) => void;
     const mintPromise = new Promise<TokenHandshakeResponse>((resolve) => {
       resolveMint = resolve;
     });
-    const adapter = createOpenAIAdapter({ mintToken: () => mintPromise });
+    const adapter = new OpenAIAdapter({ mintToken: () => mintPromise });
 
     const first = adapter.connect(connectOpts);
     await expect(adapter.connect(connectOpts)).rejects.toThrow(
@@ -301,9 +301,9 @@ describe('createOpenAIAdapter — double connect during mint', () => {
 // Droppable grounding vs. error-worthy tool results on a closed channel
 // ============================================================================
 
-describe('createOpenAIAdapter — closed data channel', () => {
+describe('OpenAIAdapter — closed data channel', () => {
   it('injectGrounding on a non-open channel drops silently, without emitting an error or sending anything', async () => {
-    const adapter = createOpenAIAdapter({ mintToken: async () => fakeToken });
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
     await adapter.connect(connectOpts);
     // Data channel never opened (triggerOpen() not called) — readyState stays 'connecting'.
     const pc = FakeRTCPeerConnection.instances[0];
@@ -320,7 +320,7 @@ describe('createOpenAIAdapter — closed data channel', () => {
   });
 
   it('sendToolResult on a non-open channel still emits an error', async () => {
-    const adapter = createOpenAIAdapter({ mintToken: async () => fakeToken });
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
     await adapter.connect(connectOpts);
     const pc = FakeRTCPeerConnection.instances[0];
     const dc = pc?.dataChannel;
@@ -341,9 +341,9 @@ describe('createOpenAIAdapter — closed data channel', () => {
 // Successful connect then disconnect
 // ============================================================================
 
-describe('createOpenAIAdapter — successful connect then disconnect', () => {
+describe('OpenAIAdapter — successful connect then disconnect', () => {
   it('sends session.update with tools and instructions on channel open, then disconnect tears everything down', async () => {
-    const adapter = createOpenAIAdapter({ mintToken: async () => fakeToken });
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
     await adapter.connect(connectOpts);
 
     const pc = FakeRTCPeerConnection.instances[0];

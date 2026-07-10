@@ -54,7 +54,7 @@ mock.module('@maelstrom-co/realtime', () => ({
 }));
 
 mock.module('@maelstrom-co/realtime/openai', () => ({
-  createOpenAIAdapter: () => ({}),
+  OpenAIAdapter: class {},
 }));
 
 mock.module('./mint-token', () => ({
