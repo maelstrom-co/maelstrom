@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/server/ws-server.ts & vite dev --port 3000",
-    "dev-livekit": "bun run src/server/ws-server.ts & bun run dev-agent & vite dev --port 3000 --mode livekit",
-    "dev:ws": "bun run src/server/ws-server.ts",
+    "dev": "bun --env-file=../../.env run src/server/ws-server.ts & vite dev --port 3000",
+    "dev-livekit": "bun --env-file=../../.env run src/server/ws-server.ts & bun run dev-agent & vite dev --port 3000 --mode livekit",
+    "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
     "dev:client": "vite dev --port 3000",
     "dev-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start",
     "build": "vite build",
