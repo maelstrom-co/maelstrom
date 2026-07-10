@@ -57,6 +57,31 @@ export interface MintFailure {
 /** Outcome of a {@link createOpenAIMinter} call. */
 export type MintResult = Result<TokenHandshakeResponse, MintFailure>;
 
+const MINT_FAILURE_HTTP_STATUS: Record<MintFailureReason, number> = {
+  'invalid-request': 400,
+  'unsupported-provider': 400,
+  'missing-api-key': 500,
+  'upstream-failure': 502,
+};
+
+/**
+ * Suggested HTTP status for a {@link MintFailureReason}, for callers wiring
+ * a minter into an HTTP transport. This package stays transport-agnostic —
+ * nothing requires using this mapping; a caller with different status-code
+ * conventions is free to write its own.
+ *
+ * @example
+ * ```ts
+ * return Response.json(
+ *   { error: result.error.reason },
+ *   { status: mintFailureHttpStatus(result.error.reason) },
+ * );
+ * ```
+ */
+export function mintFailureHttpStatus(reason: MintFailureReason): number {
+  return MINT_FAILURE_HTTP_STATUS[reason];
+}
+
 /**
  * Creates a transport-agnostic minter that exchanges a server-held OpenAI
  * API key for a short-lived realtime client secret on behalf of the
@@ -92,15 +117,9 @@ export type MintResult = Result<TokenHandshakeResponse, MintFailure>;
  *   const result = await mint(await req.json());
  *   if (isOk(result)) return Response.json(result.value);
  *
- *   const status: Record<MintFailureReason, number> = {
- *     'invalid-request': 400,
- *     'unsupported-provider': 400,
- *     'missing-api-key': 500,
- *     'upstream-failure': 502,
- *   };
  *   return Response.json(
  *     { error: result.error.reason },
- *     { status: status[result.error.reason] },
+ *     { status: mintFailureHttpStatus(result.error.reason) },
  *   );
  * }
  * ```

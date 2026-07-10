@@ -2,7 +2,7 @@ import { expect, it } from 'bun:test';
 
 import { isErr, isOk } from '@maelstrom-co/protocol';
 
-import { createOpenAIMinter } from './openai-mint.js';
+import { createOpenAIMinter, mintFailureHttpStatus, type MintFailureReason } from './openai-mint.js';
 
 it('mints an ephemeral secret without leaking the api key', async () => {
   let sentAuth = '';
@@ -193,4 +193,20 @@ it('returns missing-api-key and never calls upstream fetch when the minter holds
   if (!isErr(result)) throw new Error('expected err result');
   expect(result.error).toEqual({ reason: 'missing-api-key' });
   expect(fetchCalled).toBe(false);
+});
+
+it('maps every MintFailureReason to its suggested HTTP status', () => {
+  // The internal Record<MintFailureReason, number> makes the compiler
+  // enforce exhaustiveness (a missing reason fails to compile); this locks
+  // in the actual mapped values.
+  const expected: Record<MintFailureReason, number> = {
+    'invalid-request': 400,
+    'unsupported-provider': 400,
+    'missing-api-key': 500,
+    'upstream-failure': 502,
+  };
+
+  for (const [reason, status] of Object.entries(expected) as Array<[MintFailureReason, number]>) {
+    expect(mintFailureHttpStatus(reason)).toBe(status);
+  }
 });

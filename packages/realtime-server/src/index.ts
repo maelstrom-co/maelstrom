@@ -15,4 +15,4 @@ export type {
   MintFailureReason,
   MintResult,
 } from './lib/openai-mint.js';
-export { createOpenAIMinter } from './lib/openai-mint.js';
+export { createOpenAIMinter, mintFailureHttpStatus } from './lib/openai-mint.js';

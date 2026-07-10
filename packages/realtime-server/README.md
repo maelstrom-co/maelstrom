@@ -21,30 +21,29 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-server @maelst
   the long-lived key. `input` is the already-parsed request body; wiring it
   into an HTTP route (method checks, JSON parsing, status codes) is your
   transport's job.
+- `mintFailureHttpStatus` — a suggested `MintFailureReason -> HTTP status`
+  mapping for transports that don't want to hand-roll one. Optional: this
+  package stays transport-agnostic, so nothing requires using it.
 
 ## Quick example
 
 ```ts
 import { isOk } from '@maelstrom-co/protocol';
-import { createOpenAIMinter, type MintFailureReason } from '@maelstrom-co/realtime-server';
+import { createOpenAIMinter, mintFailureHttpStatus } from '@maelstrom-co/realtime-server';
 
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY!,
   model: 'gpt-realtime-2',
 });
 
-const STATUS: Record<MintFailureReason, number> = {
-  'invalid-request': 400,
-  'unsupported-provider': 400,
-  'missing-api-key': 500,
-  'upstream-failure': 502,
-};
-
 // Wire into your framework of choice, e.g. a Request/Response fetch route.
 export async function POST(req: Request): Promise<Response> {
   const result = await mint(await req.json());
   if (isOk(result)) return Response.json(result.value);
-  return Response.json({ error: result.error.reason }, { status: STATUS[result.error.reason] });
+  return Response.json(
+    { error: result.error.reason },
+    { status: mintFailureHttpStatus(result.error.reason) },
+  );
 }
 ```
 
