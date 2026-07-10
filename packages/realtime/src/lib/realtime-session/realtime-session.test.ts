@@ -34,6 +34,7 @@ interface MockAdapter extends RealtimeProviderAdapter {
   readonly toolResults: Array<{ callId: string; output: unknown }>;
   readonly groundingCalls: string[];
   readonly connectCalls: number;
+  readonly disconnectCalls: number;
   /** Tools passed to the most recent `connect()` call. */
   readonly lastConnectTools: readonly RealtimeToolSpec[] | undefined;
   /** Number of adapter-event handlers currently subscribed via `on()` — a leaked subscription shows up here. */
@@ -54,6 +55,7 @@ function makeMockAdapter(): MockAdapter {
   const groundingCalls: string[] = [];
   const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
   let connectCalls = 0;
+  let disconnectCalls = 0;
   let lastConnectTools: readonly RealtimeToolSpec[] | undefined;
   let shouldFailNextConnect = false;
   let gate: Promise<void> | undefined;
@@ -66,6 +68,9 @@ function makeMockAdapter(): MockAdapter {
     getAudioStreams: () => lastAudioStreams,
     get connectCalls() {
       return connectCalls;
+    },
+    get disconnectCalls() {
+      return disconnectCalls;
     },
     get lastConnectTools() {
       return lastConnectTools;
@@ -95,7 +100,9 @@ function makeMockAdapter(): MockAdapter {
         throw new Error('adapter connect failed');
       }
     },
-    disconnect: async () => {},
+    disconnect: async () => {
+      disconnectCalls += 1;
+    },
     sendToolResult: async (callId, output) => {
       toolResults.push({ callId, output });
     },
@@ -139,6 +146,8 @@ interface MockInstance extends RealtimeInstance {
    * the exact race the barge-in retry loop is bounded against.
    */
   resolveIdle(): void;
+  /** Number of onSettled subscribers currently registered — a leaked subscription shows up here. */
+  readonly settledSubscriberCount: number;
 }
 
 function makeMockInstance(
@@ -152,6 +161,9 @@ function makeMockInstance(
 
   return {
     submitted,
+    get settledSubscriberCount() {
+      return settledHandlers.size;
+    },
     submitIntent: async (intent: string) => {
       if (inFlight) {
         throw new RequestInFlightError();
@@ -1123,6 +1135,39 @@ describe('RealtimeSession — connection lifecycle', () => {
     // it silently rather than answering it (the adapter is gone too).
     expect(adapter.toolResults.find((r) => r.callId === 'c2')).toBeUndefined();
   });
+
+  it('disconnecting while connect() is still in flight lands idle instead of resurrecting the session once the handshake resolves', async () => {
+    const { session, adapter, instance } = makeHarness();
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+    const release = adapter.gateConnect();
+
+    const connectPromise = session.connect();
+    await flushMicrotasks();
+    expect(session.state).toBe('connecting');
+
+    // The last consumer unmounts mid-handshake (e.g. a token-mint round
+    // trip) and calls disconnect() before adapter.connect() has resolved.
+    const disconnectPromise = session.disconnect();
+    await flushMicrotasks();
+    expect(session.state).toBe('idle');
+    expect(adapter.disconnectCalls).toBe(1);
+
+    // Now the gated handshake resolves — without the epoch guard this would
+    // subscribe onSettled and flip the state back to 'connected'.
+    release();
+    await connectPromise;
+    await disconnectPromise;
+
+    expect(session.state).toBe('idle');
+    expect(states).not.toContain('connected');
+    // The stale connect() attempt must tear itself back down rather than
+    // leaving a second live adapter subscription, a hot connection, or a
+    // dangling onSettled subscription behind.
+    expect(adapter.listenerCount).toBe(0);
+    expect(adapter.disconnectCalls).toBe(2);
+    expect(instance.settledSubscriberCount).toBe(0);
+  });
 });
 
 // ============================================================================
@@ -1158,6 +1203,21 @@ describe('RealtimeSession — error surfacing', () => {
     await expect(session.connect()).rejects.toThrow();
     expect(session.state).toBe('error');
     expect(session.lastError).toBeDefined();
+  });
+
+  it('disconnect clears lastError, keeping "populated when state is error" truthful', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+
+    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    adapter.emitError(fatal);
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(fatal);
+
+    await session.disconnect();
+
+    expect(session.state).toBe('idle');
+    expect(session.lastError).toBeUndefined();
   });
 
   it('cleans up the dead subscription on a fatal adapter error so a reconnect does not stack a second one', async () => {

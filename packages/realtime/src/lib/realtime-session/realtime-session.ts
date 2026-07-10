@@ -175,6 +175,13 @@ export class RealtimeSession implements VoiceSession {
   #bargeInLoopRunning = false;
   #groundingClampWarned = false;
   #lastError: unknown;
+  // Bumped by disconnect() and at the start of every connect() attempt so a
+  // connect() whose adapter.connect() is still in flight when disconnect()
+  // runs can tell, once it resumes, that it's stale — without this a
+  // disconnect() racing an in-flight connect() would have its cleanup
+  // clobbered when the handshake resolves and the connect() call resumes
+  // into 'connected' with a hot mic and zero consumers.
+  #connectEpoch = 0;
 
   readonly #toolHandlers: Record<
     ToolName,
@@ -219,6 +226,7 @@ export class RealtimeSession implements VoiceSession {
     // first's (only the last unsubscribe would ever be reachable).
     if (this.#state === 'connected' || this.#state === 'connecting') return;
 
+    const epoch = ++this.#connectEpoch;
     this.#lastError = undefined;
     this.#setState('connecting');
     this.#unsubscribeAdapter = this.#adapter.on((event) => {
@@ -230,10 +238,23 @@ export class RealtimeSession implements VoiceSession {
         instructions: DEFAULT_INSTRUCTIONS,
       });
     } catch (error) {
-      this.#cleanupConnection();
-      this.#lastError = error;
-      this.#setState('error');
+      // A disconnect() that raced this attempt already reset state/cleanup —
+      // don't stomp its 'idle' back to 'error'.
+      if (epoch === this.#connectEpoch) {
+        this.#cleanupConnection();
+        this.#lastError = error;
+        this.#setState('error');
+      }
       throw error;
+    }
+    if (epoch !== this.#connectEpoch) {
+      // disconnect() ran while adapter.connect() was still in flight — the
+      // handshake succeeded, but nothing is listening for it anymore. Tear
+      // the now-live adapter back down instead of resurrecting the session
+      // into 'connected' with a hot mic and zero consumers.
+      this.#cleanupConnection();
+      void this.#adapter.disconnect();
+      return;
     }
     // Grounding only makes sense once the data channel is actually up — a UI
     // settle mid-handshake would otherwise schedule a debounced push that
@@ -245,8 +266,10 @@ export class RealtimeSession implements VoiceSession {
   }
 
   async disconnect(): Promise<void> {
+    this.#connectEpoch++;
     this.#cleanupConnection();
     await this.#adapter.disconnect();
+    this.#lastError = undefined;
     this.#setState('idle');
   }
 
@@ -313,6 +336,12 @@ export class RealtimeSession implements VoiceSession {
         this.#logger.warn('adapter error', event.error);
         if (event.error instanceof RealtimeVoiceError) {
           this.#cleanupConnection();
+          // The adapter itself is still "connected" from its own point of
+          // view (mic track live, peer connection open) — teardown() is
+          // idempotent, so tearing it down here is safe even if the caller
+          // also calls disconnect() later. Without this, a retry connect()
+          // throws ALREADY_CONNECTED against the still-live adapter.
+          void this.#adapter.disconnect();
           this.#lastError = event.error;
           this.#setState('error');
         }

@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import type { TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol';
+import { SessionId } from '@maelstrom-co/protocol';
+import type { CapabilitySnapshot, UIStructuralSnapshot } from '@maelstrom-co/client';
 
 import type { AdapterConnectOptions, RealtimeProviderAdapter } from '../realtime-session/provider-adapter.types.js';
 import { OpenAIAdapter } from './openai-adapter.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
+import type { RealtimeInstance } from '../realtime-session/realtime-session.types.js';
+import { RealtimeSession } from '../realtime-session/realtime-session.js';
 
 // ============================================================================
 // Fakes
@@ -516,5 +520,81 @@ describe('OpenAIAdapter — audio streams', () => {
     await adapter.disconnect();
     expect(audio?.paused).toBe(true);
     expect(audio?.srcObject).toBeNull();
+  });
+});
+
+// ============================================================================
+// Composed: RealtimeSession + real OpenAIAdapter over the WebRTC fakes
+// ============================================================================
+
+function makeInertInstance(): RealtimeInstance {
+  const snapshot: UIStructuralSnapshot = {
+    instances: [],
+    layout: null,
+    layoutMode: 'grid',
+    chartDimensions: { rows: 8, columns: 12 },
+  };
+  const capabilitySnapshot: CapabilitySnapshot = { vessels: [] };
+  return {
+    submitIntent: async () => {},
+    waitForIdle: async () => {},
+    getStructuralSnapshot: () => snapshot,
+    getCapabilitySnapshot: () => capabilitySnapshot,
+    onSettled: () => () => {},
+  };
+}
+
+describe('RealtimeSession + OpenAIAdapter — fatal in-session error recovery', () => {
+  it('tears down the adapter on a fatal ICE error (mic goes cold) so a retry connect() succeeds instead of throwing ALREADY_CONNECTED', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+
+    // Tracks live `on()` subscriptions against the real adapter so we can
+    // assert the reconnect doesn't stack a second one on top of the dead
+    // subscription from the errored session.
+    let liveSubscriptions = 0;
+    const rawOn = adapter.on.bind(adapter);
+    adapter.on = (handler) => {
+      liveSubscriptions += 1;
+      const unsubscribe = rawOn(handler);
+      return () => {
+        liveSubscriptions -= 1;
+        unsubscribe();
+      };
+    };
+
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeInertInstance(),
+      sessionId: SessionId('sess-fatal-ice'),
+    });
+
+    await session.connect();
+    expect(session.state).toBe('connected');
+
+    const pc = FakeRTCPeerConnection.instances[0];
+    const micStream = FakeMediaStream.instances[0];
+    if (!pc || !micStream) throw new Error('expected a peer connection and mic stream');
+
+    // Simulate an ICE failure mid-session — the fatal-error path the real
+    // adapter takes for a dropped WebRTC connection.
+    pc.iceConnectionState = 'failed';
+    pc.oniceconnectionstatechange?.();
+
+    expect(session.state).toBe('error');
+    // The mic must go cold immediately — leaving it hot after a fatal error
+    // is the bug: the adapter was never torn down, only the session's own
+    // subscriptions were.
+    expect(micStream.tracks.every((track) => track.stopped)).toBe(true);
+    expect(pc.closed).toBe(true);
+    expect(liveSubscriptions).toBe(0);
+
+    // Retry: without tearing down the adapter, this would throw
+    // ALREADY_CONNECTED (the adapter still thinks it's connected) and
+    // clobber lastError instead of establishing a fresh connection.
+    await session.connect();
+
+    expect(session.state).toBe('connected');
+    expect(session.lastError).toBeUndefined();
+    expect(liveSubscriptions).toBe(1);
   });
 });
