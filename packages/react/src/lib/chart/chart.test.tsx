@@ -758,6 +758,70 @@ describe('m.Chart — motion', () => {
     expect(aCalls[0]!.keyframes[0]!.transform).toContain('translate');
   });
 
+  // Ordering guard for the exit-snapshot invariant: useExitingInstances must
+  // measure BEFORE useChartMotion starts any WAAPI animation, because a
+  // freshly-created animation applies its first (inverted, old-position)
+  // keyframe to computed style immediately — a snapshot taken after that
+  // captures a pre-move rect. happy-dom has no layout engine, so a faithful
+  // "ghost placed at stale position" test can't fail here; instead this
+  // instruments both hooks' shared primitives and asserts that within the
+  // commit no instance measurement happens after an animation has started.
+  it('takes all exit-snapshot measurements before any animation starts in the same commit', async () => {
+    const events: string[] = [];
+    const baseRect = window.Element.prototype.getBoundingClientRect;
+    const baseAnimate = window.Element.prototype.animate;
+    window.Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this.hasAttribute('data-instance-id')) events.push('measure:' + this.getAttribute('data-instance-id'));
+      return baseRect.call(this);
+    } as never;
+    window.Element.prototype.animate = function (
+      this: Element,
+      keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+      options?: number | KeyframeAnimationOptions,
+    ) {
+      events.push('animate:' + this.getAttribute('data-instance-id'));
+      return baseAnimate.call(this, keyframes as Keyframe[], options);
+    } as never;
+
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a', 'b']),
+      gridLayout([
+        { id: 'a', column: 0, row: 0, width: 2, height: 2 },
+        { id: 'b', column: 8, row: 0, width: 2, height: 2 },
+      ]),
+      // 'a' moves (FLIPs) and 'b' is removed (needs an exit snapshot).
+      gridLayout([{ id: 'a', column: 14, row: 0, width: 2, height: 2 }]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+
+    events.length = 0;
+    await act(async () => { await processIntent!('layout2'); });
+
+    const firstAnimate = events.findIndex((e) => e.startsWith('animate'));
+    expect(firstAnimate).toBeGreaterThan(-1);
+    const measuresAfterAnimate = events.slice(firstAnimate).filter((e) => e.startsWith('measure'));
+    expect(measuresAfterAnimate).toEqual([]);
+  });
+
   it('(b) new instance triggers enter keyframes', async () => {
     // Tiling mode: `instances` always lists both ids (so 'b' is a known
     // instance the whole time) while `tree` controls what actually renders.

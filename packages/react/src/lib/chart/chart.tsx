@@ -347,8 +347,6 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
       return `unknown:${sizeKey}`;
     }, [layout, tilingComputed, sizeKey]);
 
-    useChartMotion(containerRef, layoutSignature, config.motion);
-
     // Instances currently rendered, keyed by instanceId — feeds exit tracking
     // so a instance dropped from the next layout response gets an exit entry.
     const currentInstanceEntries = useMemo<ReadonlyArray<readonly [string, VesselInstance]>>(() => {
@@ -382,7 +380,15 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
       return null;
     }, []);
 
+    // Ordering invariant: useExitingInstances MUST run before useChartMotion.
+    // Layout effects fire in hook call order, and a freshly-created WAAPI
+    // animation applies its first (inverted, old-position) keyframe to
+    // computed style immediately — exit snapshots taken after useChartMotion
+    // starts animating would capture pre-move rects and place a later exit
+    // ghost at a stale position.
     const exiting = useExitingInstances(currentInstanceEntries, measureRect, config.motion, layoutSignature);
+
+    useChartMotion(containerRef, layoutSignature, config.motion);
 
     // ── Guard: duplicate Chart ────────────────────────────────────────────────
 
