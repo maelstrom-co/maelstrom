@@ -4,6 +4,7 @@ import { Captions } from '../components/captions';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
 import { VoiceErrorNote } from '../components/voice-error-note';
 import { createDemoConnector } from '../lib/connector';
+import { isDebugRequested } from '../lib/debug-mode';
 import { m } from '../lib/maelstrom';
 import { VoiceControl } from '../components/voice-control';
 import { useFlashInstances } from '../lib/use-touched-instances';
@@ -14,9 +15,10 @@ export const Route = createFileRoute('/')({
 
 function HomePage() {
   const connector = useMemo(() => createDemoConnector(), []);
+  const debug = useMemo(() => import.meta.env.DEV && isDebugRequested(), []);
 
   return (
-    <m.Provider connector={connector} debug={import.meta.env.DEV}>
+    <m.Provider connector={connector} debug={debug}>
       <DemoApp />
     </m.Provider>
   );

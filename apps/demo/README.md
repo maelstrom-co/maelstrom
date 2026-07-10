@@ -78,6 +78,12 @@ Type these into the input, or say them to the orb:
 
 The browser holds the OpenAI realtime session directly, authenticated by a short-lived token minted by `/api/realtime-token` — `OPENAI_API_KEY` never leaves the server. The model has one write path: an `update_ui` tool call carrying a plain-text intent, which flows through the same path as typed input — the engine plans against the app's own state, never the model's beliefs about the screen. The model only narrates a change after the render has settled, so it never talks ahead of what you see. Full design: [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md).
 
+## Debug overlays
+
+Append `?debug` to the URL (e.g. `http://localhost:3000/?debug`) to show the grid/tiling overlay and instance-id/size labels on every vessel. Off by default, so a plain `nx dev demo` renders clean.
+
+**Recording tip:** macOS's "Reduce Motion" setting (System Settings → Accessibility → Display) disables all of the demo's choreography via `prefers-reduced-motion` — turn it off before recording the launch video.
+
 ## Troubleshooting
 
 - **Mic blocked** — allow microphone access for this site in your browser's site settings, then click the orb to retry.
