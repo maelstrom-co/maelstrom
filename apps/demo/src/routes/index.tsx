@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useStore } from '@tanstack/react-store';
-import { useEffect, useMemo, useState } from 'react';
+import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Captions } from '../components/captions';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
 import { KeyDrawer } from '../components/key-drawer';
@@ -45,6 +46,17 @@ export function HomePage() {
   const [intent, setIntent] = useState('');
   const [resumeIntent, setResumeIntent] = useState(false);
 
+  // Populated when a voice mint fails in hosted mode, so the reopened
+  // drawer explains why rather than looking like an unprompted reappearance.
+  const [keyErrorMessage, setKeyErrorMessage] = useState<string | null>(null);
+  // Stable across renders — passed as an effect dependency in DemoApp, and an
+  // unstable reference there would re-fire that effect on every render while
+  // voice state sits in 'error'.
+  const handleMintError = useCallback((message: string) => {
+    setKeyErrorMessage(message);
+    setDrawerOpen(true);
+  }, []);
+
   const connector = useMemo(
     () =>
       createDemoConnector({ getApiKey: () => playgroundKeyStore.state.apiKey }),
@@ -57,6 +69,7 @@ export function HomePage() {
       <m.Provider key={keyEpoch} connector={connector} debug={debug}>
         <DemoApp
           onRequireKey={() => setDrawerOpen(true)}
+          onMintError={handleMintError}
           intent={intent}
           onIntentChange={setIntent}
           resumeIntent={resumeIntent}
@@ -66,13 +79,18 @@ export function HomePage() {
       {hosted && (
         <KeyDrawer
           isOpen={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
+          onClose={() => {
+            setDrawerOpen(false);
+            setKeyErrorMessage(null);
+          }}
           onSave={(key, remember) => {
             setPlaygroundKey(key, remember);
             setDrawerOpen(false);
+            setKeyErrorMessage(null);
             setResumeIntent(intent.trim().length > 0);
             setKeyEpoch((e) => e + 1);
           }}
+          errorMessage={keyErrorMessage}
         />
       )}
     </>
@@ -81,6 +99,7 @@ export function HomePage() {
 
 interface DemoAppProps {
   readonly onRequireKey: () => void;
+  readonly onMintError: (message: string) => void;
   readonly intent: string;
   readonly onIntentChange: (intent: string) => void;
   readonly resumeIntent: boolean;
@@ -89,14 +108,34 @@ interface DemoAppProps {
 
 function DemoApp({
   onRequireKey,
+  onMintError,
   intent,
   onIntentChange,
   resumeIntent,
   onResumeIntentHandled,
 }: DemoAppProps) {
   const { isProcessing } = m.useMaelstrom();
-  const { state: voiceState } = m.useVoice();
+  const { state: voiceState, error: voiceError } = m.useVoice();
   const thinking = isProcessing || voiceState === 'thinking';
+  const hosted = import.meta.env.VITE_HOSTED === '1';
+
+  // In hosted/BYOK mode a mint failure means the visitor's key is missing or
+  // rejected, not a server misconfiguration — reopen the drawer with the
+  // mint layer's own safe error text (never the key, never raw upstream
+  // text) instead of leaving VoiceErrorNote's server-env copy as the only
+  // signal, since that copy doesn't apply once there's no server-side key.
+  useEffect(() => {
+    if (!hosted || voiceState !== 'error') return;
+    if (!(voiceError instanceof RealtimeVoiceError) || voiceError.code !== 'TOKEN_MINT_FAILED') {
+      return;
+    }
+    const { cause } = voiceError;
+    onMintError(
+      cause instanceof Error
+        ? cause.message
+        : "Voice couldn't start with that key. Check it and try again.",
+    );
+  }, [hosted, voiceState, voiceError, onMintError]);
 
   return (
     <div className="h-screen flex flex-col relative z-[2]">

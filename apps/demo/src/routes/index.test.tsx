@@ -1,28 +1,21 @@
 // @vitest-environment happy-dom
 
-import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 
-// Same seam as lib/maelstrom.test.tsx — RealtimeSession/OpenAIAdapter/mintToken
-// are never real here, this only needs the module graph to evaluate cleanly.
-class FakeRealtimeSession {
-  state: VoiceSessionState = 'idle';
-  constructor(readonly options: unknown) {}
-  on(): Unsubscribe {
-    return () => {};
-  }
-  async connect(): Promise<void> {}
-  async disconnect(): Promise<void> {}
-  getAudioStreams() {
-    return {};
-  }
-}
-
-vi.mock('@maelstrom-co/realtime', () => ({
-  RealtimeSession: FakeRealtimeSession,
-}));
+// Keeps RealtimeVoiceError real (the drawer-reopen effect's `instanceof`
+// check must hold against the actual class) while swapping only
+// RealtimeSession for the fake — same split voice-error-note.test.tsx uses.
+vi.mock('@maelstrom-co/realtime', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@maelstrom-co/realtime')>();
+  return {
+    ...actual,
+    RealtimeSession: FakeRealtimeSession,
+  };
+});
 
 vi.mock('@maelstrom-co/realtime/openai', () => ({
   OpenAIAdapter: class {},
@@ -30,6 +23,9 @@ vi.mock('@maelstrom-co/realtime/openai', () => ({
 
 vi.mock('../lib/mint-token', () => ({
   mintToken: async () => {
+    throw new Error('mintToken should not be called in tests');
+  },
+  createBrowserMintToken: () => async () => {
     throw new Error('mintToken should not be called in tests');
   },
 }));
@@ -40,8 +36,15 @@ vi.mock('../lib/connector', () => ({
   createDemoConnector: () => createMockConnector(),
 }));
 
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined)
+    throw new Error('expected value to be defined');
+  return value;
+}
+
 beforeEach(() => {
   vi.stubEnv('VITE_HOSTED', '1');
+  FakeRealtimeSession.instances = [];
 });
 
 afterEach(() => {
@@ -71,5 +74,47 @@ describe('key drawer gating (hosted, no key)', () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/api key/i)).toBeTruthy();
     });
+  });
+});
+
+describe('voice mint failures (hosted)', () => {
+  it('reopens the drawer with an actionable message on a token-mint failure', async () => {
+    const { HomePage } = await import('./index');
+    const { RealtimeVoiceError } = await import('@maelstrom-co/realtime');
+    render(<HomePage />);
+
+    expect(screen.queryByLabelText(/api key/i)).toBeNull();
+
+    const session = must(FakeRealtimeSession.instances[0]);
+    session.lastError = new RealtimeVoiceError(
+      'TOKEN_MINT_FAILED',
+      'Failed to mint an ephemeral realtime token',
+      new Error('Invalid API key.'),
+    );
+    await act(async () => {
+      session.emitState('error');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/api key/i)).toBeTruthy();
+    });
+    expect(screen.getByText('Invalid API key.')).toBeTruthy();
+  });
+
+  it('does not reopen the drawer for a non-mint voice error', async () => {
+    const { HomePage } = await import('./index');
+    const { RealtimeVoiceError } = await import('@maelstrom-co/realtime');
+    render(<HomePage />);
+
+    const session = must(FakeRealtimeSession.instances[0]);
+    session.lastError = new RealtimeVoiceError(
+      'MIC_PERMISSION_DENIED',
+      'boom',
+    );
+    await act(async () => {
+      session.emitState('error');
+    });
+
+    expect(screen.queryByLabelText(/api key/i)).toBeNull();
   });
 });
