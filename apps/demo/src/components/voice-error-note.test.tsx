@@ -123,6 +123,25 @@ describe('VoiceErrorNote', () => {
     );
   });
 
+  it('shows the hosted-aware TOKEN_MINT_FAILED message in hosted mode instead of the server-env copy', async () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    try {
+      const { container, session } = renderNote();
+      session.lastError = new RealtimeVoiceError('TOKEN_MINT_FAILED', 'boom');
+      await act(async () => {
+        session.emitState('error');
+      });
+
+      const text = container.querySelector('[role="alert"]')?.textContent;
+      expect(text).toBe(
+        "Voice couldn't start with that key. Check it in the key drawer and try again.",
+      );
+      expect(text).not.toMatch(/OPENAI_API_KEY/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('dismisses once state leaves error', async () => {
     const { container, session } = renderNote();
     session.lastError = new RealtimeVoiceError('MIC_PERMISSION_DENIED', 'boom');

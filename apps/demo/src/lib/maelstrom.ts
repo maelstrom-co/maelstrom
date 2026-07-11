@@ -12,9 +12,11 @@ import { mapEntry } from '../vessels/map.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
 import { isDebugRequested } from './debug-mode';
+import { isHosted } from './hosted-mode';
 import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 import { orchestrationLegibility } from './orchestration-legibility';
 import { playgroundKeyStore } from './playground-key-store';
+import { DEFAULT_REALTIME_MODEL } from './realtime-model';
 import { getLivekitToken } from './voice/get-livekit-token';
 
 const vessels = [
@@ -25,14 +27,11 @@ const vessels = [
   mapEntry,
 ] as const;
 
-const HOSTED = import.meta.env.VITE_HOSTED === '1';
-// Matches the local mint route's default (routes/api/realtime-token.ts) so
-// hosted and local mode mint the same model.
-const REALTIME_MODEL = 'gpt-realtime-2';
+const HOSTED = isHosted();
 
 const hostedMintToken = createBrowserMintToken(
   () => playgroundKeyStore.state.apiKey,
-  REALTIME_MODEL,
+  DEFAULT_REALTIME_MODEL,
 );
 
 export const m = createMaelstrom({

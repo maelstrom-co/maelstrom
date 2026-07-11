@@ -1,32 +1,51 @@
 import { useState } from 'react';
+import { useStore } from '@tanstack/react-store';
+import { playgroundKeyStore } from '../lib/playground-key-store';
 
 export interface KeyDrawerProps {
   readonly isOpen: boolean;
   readonly onClose: () => void;
   readonly onSave: (apiKey: string, remember: boolean) => void;
+  readonly onRemove?: () => void;
   readonly errorMessage?: string | null;
 }
 
 /**
  * BYOK key entry drawer, shown before the first Send/mic press in hosted
- * mode when no visitor key is on hand. Custody copy and the "remember"
- * opt-in are load-bearing — the key only touches localStorage if the
- * visitor explicitly asks for it (`setPlaygroundKey`'s `remember` flag).
+ * mode when no visitor key is on hand, or on demand via the header "API
+ * key" affordance. Custody copy and the "remember" opt-in are load-bearing
+ * — the key only touches localStorage if the visitor explicitly asks for
+ * it (`setPlaygroundKey`'s `remember` flag), and a stored key is never
+ * rendered back into the input.
  */
 export function KeyDrawer({
   isOpen,
   onClose,
   onSave,
+  onRemove,
   errorMessage,
 }: KeyDrawerProps) {
   const [apiKey, setApiKey] = useState('');
   const [remember, setRemember] = useState(false);
+  const storedKey = useStore(playgroundKeyStore, (state) => state.apiKey);
 
   if (!isOpen) return null;
 
   const handleSave = () => {
     if (!apiKey.trim()) return;
     onSave(apiKey.trim(), remember);
+    setApiKey('');
+    setRemember(false);
+  };
+
+  const handleClose = () => {
+    setApiKey('');
+    onClose();
+  };
+
+  const handleRemove = () => {
+    setApiKey('');
+    onRemove?.();
   };
 
   return (
@@ -48,7 +67,7 @@ export function KeyDrawer({
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-..."
+          placeholder={storedKey ? 'saved on this device' : 'sk-...'}
           autoComplete="off"
           className="mt-1 w-full rounded-md border px-3 py-2 text-sm text-ink"
           style={{
@@ -91,9 +110,18 @@ export function KeyDrawer({
             run it locally instead
           </a>
           <div className="flex gap-2">
+            {storedKey && (
+              <button
+                type="button"
+                onClick={handleRemove}
+                className="btn btn-ghost px-4 py-2 text-sm text-pink"
+              >
+                Remove key
+              </button>
+            )}
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="btn btn-ghost px-4 py-2 text-sm"
             >
               Cancel

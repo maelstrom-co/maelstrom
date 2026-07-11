@@ -7,8 +7,8 @@
     "directory": "./dist/client",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Only /ws needs the Worker in front of it -- the CORS spike found
-    // browser-direct OpenAI minting works, so there is no /api/mint route.
+    // Only /ws needs the Worker in front of it -- voice token minting is
+    // browser-direct OpenAI (see worker/index.ts), so there is no /api/mint route.
     "run_worker_first": ["/ws"]
   },
   "containers": [
@@ -25,7 +25,9 @@
     }
   ],
   "durable_objects": {
-    "bindings": [{ "name": "PLAYGROUND_SERVER", "class_name": "PlaygroundServer" }]
+    "bindings": [
+      { "name": "PLAYGROUND_SERVER", "class_name": "PlaygroundServer" }
+    ]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PlaygroundServer"] }],
   "observability": {

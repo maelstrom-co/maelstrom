@@ -5,6 +5,24 @@ import {
 } from '@maelstrom-co/realtime/openai';
 
 /**
+ * Narrows OpenAI's client_secrets response just enough to read `value` and
+ * `expires_at` safely — mirrors the local mint route's unknown-then-parse
+ * idiom instead of asserting a shape the network response never promised.
+ */
+function readOpenaiClientSecret(body: unknown): { value: string; expiresAt: number } {
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    typeof (body as { value?: unknown }).value !== 'string' ||
+    typeof (body as { expires_at?: unknown }).expires_at !== 'number'
+  ) {
+    throw new Error('Unexpected response shape from OpenAI client_secrets.');
+  }
+  const { value, expires_at } = body as { value: string; expires_at: number };
+  return { value, expiresAt: expires_at };
+}
+
+/**
  * Fetches an ephemeral OpenAI realtime credential from the demo's mint
  * route. The browser never sees OPENAI_API_KEY — only this short-lived
  * token, scoped and expired server-side.
@@ -40,14 +58,23 @@ export function createBrowserMintToken(
       throw new Error('No API key set — open the key drawer to add one.');
     }
 
-    const res = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ session: { type: 'realtime', model } }),
-    });
+    let res: Response;
+    try {
+      res = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ session: { type: 'realtime', model } }),
+      });
+    } catch {
+      // A rejected fetch (offline, DNS, a proxy blocking api.openai.com)
+      // surfaces a raw 'Failed to fetch' otherwise — that reads as "your key
+      // is bad" once it lands in the key drawer's error slot, which sends
+      // visitors to replace a perfectly good key.
+      throw new Error('Could not reach OpenAI — check your connection and try again.');
+    }
 
     if (!res.ok) {
       if (res.status === 401) {
@@ -56,46 +83,12 @@ export function createBrowserMintToken(
       throw new Error(`Failed to mint a realtime token (status ${res.status}).`);
     }
 
-    const data = (await res.json()) as { value: string; expires_at: number };
+    const data = readOpenaiClientSecret(await res.json());
     return OpenAITokenGrantSchema.parse({
       provider: 'openai',
       value: data.value,
-      expiresAt: data.expires_at,
+      expiresAt: data.expiresAt,
       model,
     });
-  };
-}
-
-/**
- * Proxy branch: posts to the Worker's stateless /api/mint route, which
- * forwards the visitor's key to OpenAI server-side and returns the mapped
- * token without storing or logging it. Kept as a tested fallback in case
- * Cloudflare's CORS posture toward api.openai.com changes and the
- * direct-mint branch stops working.
- */
-export function createProxyMintToken(
-  getApiKey: () => string | null,
-  model: string,
-): () => Promise<OpenAITokenGrant> {
-  return async () => {
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      throw new Error('No API key set — open the key drawer to add one.');
-    }
-
-    const res = await fetch('/api/mint', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiKey, model }),
-    });
-
-    if (!res.ok) {
-      if (res.status === 401) {
-        throw new Error('Invalid API key.');
-      }
-      throw new Error(`Failed to mint a realtime token (status ${res.status}).`);
-    }
-
-    return OpenAITokenGrantSchema.parse(await res.json());
   };
 }

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearPlaygroundKey,
   playgroundKeyStore,
@@ -39,5 +39,50 @@ describe('playgroundKeyStore', () => {
     clearPlaygroundKey();
     expect(playgroundKeyStore.state.apiKey).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('setPlaygroundKey still updates state when localStorage.setItem throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    try {
+      expect(() => setPlaygroundKey('sk-abc', true)).not.toThrow();
+      expect(playgroundKeyStore.state.apiKey).toBe('sk-abc');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('clearPlaygroundKey still clears state when localStorage.removeItem throws', () => {
+    setPlaygroundKey('sk-abc', true);
+    const spy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    try {
+      expect(() => clearPlaygroundKey()).not.toThrow();
+      expect(playgroundKeyStore.state.apiKey).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('module init when localStorage access throws', () => {
+  it('starts with no key instead of crashing the module', async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('blocked', 'SecurityError');
+      },
+    });
+    vi.resetModules();
+    try {
+      const fresh = await import('./playground-key-store');
+      expect(fresh.playgroundKeyStore.state.apiKey).toBeNull();
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'localStorage', original);
+      vi.resetModules();
+    }
   });
 });

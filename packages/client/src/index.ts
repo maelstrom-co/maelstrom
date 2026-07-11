@@ -95,6 +95,12 @@ export { WireEngineError } from './lib/connection-manager/connector.types.js';
 export type { HttpConnectorOptions } from './lib/connection-manager/connectors/http-connector.js';
 // Connectors
 export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';
+export {
+  HEARTBEAT_PING_FRAME,
+  HEARTBEAT_PONG_FRAME,
+  isHeartbeatPingFrame,
+  isHeartbeatPongFrame,
+} from './lib/connection-manager/connectors/heartbeat-frame.js';
 export type { WebSocketConnectorOptions } from './lib/connection-manager/connectors/web-socket-connector.js';
 export { WebSocketConnector } from './lib/connection-manager/connectors/web-socket-connector.js';
 // Orchestrator

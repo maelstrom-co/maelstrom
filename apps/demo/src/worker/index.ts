@@ -2,9 +2,9 @@
 /**
  * Cloudflare Worker entry for the hosted playground. Routes /ws to the
  * PlaygroundServer container (ws-server.ts, HOSTED=1) and everything else
- * to the static SPA build. The CORS spike found OpenAI's client_secrets
- * endpoint answers browser-direct requests, so there is no /api/mint
- * route here -- voice token minting happens entirely client-side.
+ * to the static SPA build. OpenAI's client_secrets endpoint answers
+ * browser-direct requests, so voice token minting happens entirely
+ * client-side and there is no /api/mint route here.
  */
 import { Container, getContainer } from '@cloudflare/containers';
 

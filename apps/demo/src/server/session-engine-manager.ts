@@ -1,5 +1,6 @@
-import { createEngine, createInMemoryStore, type Engine } from '@maelstrom-co/engine';
+import { consoleLogger, createEngine, createInMemoryStore, type Engine, type Logger } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
+import { redactSecrets } from './redact';
 
 export interface SessionEngineManagerOptions {
   readonly maxSessions: number;
@@ -10,6 +11,7 @@ export interface SessionEngineManagerOptions {
 
 interface SessionEntry {
   engine: Engine;
+  apiKey: string;
   lastUsedAt: number;
   ttlTimer: ReturnType<typeof setTimeout>;
 }
@@ -17,12 +19,61 @@ interface SessionEntry {
 /**
  * Redacts an apiKey out of an error's message so it can never reach a log
  * line or a wire error payload — key custody is a hosted-mode invariant,
- * not just a nicety.
+ * not just a nicety. Delegates to redactSecrets (exact-match pass +
+ * sk-*-shaped pattern pass) so this is the same scrub every other outbound
+ * path uses, not a second hand-rolled copy of it.
  */
 function redact(err: unknown, apiKey: string): Error {
   const message = err instanceof Error ? err.message : String(err);
-  const safeMessage = message.split(apiKey).join('[redacted]');
-  return new Error(safeMessage);
+  return new Error(redactSecrets(message, apiKey));
+}
+
+function redactUnknown(value: unknown, apiKey: string): unknown {
+  if (typeof value === 'string') return redactSecrets(value, apiKey);
+  if (value instanceof Error) {
+    const clone = new Error(redactSecrets(value.message, apiKey));
+    clone.name = value.name;
+    if (value.stack) clone.stack = redactSecrets(value.stack, apiKey);
+    return clone;
+  }
+  if (value === undefined || value === null) return value;
+  try {
+    return redactSecrets(JSON.stringify(value), apiKey);
+  } catch {
+    return '[unloggable value]';
+  }
+}
+
+function redactData(
+  data: Record<string, unknown> | undefined,
+  apiKey: string,
+): Record<string, unknown> | undefined {
+  if (!data) return data;
+  return Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [key, redactUnknown(value, apiKey)]),
+  );
+}
+
+/**
+ * A Logger that scrubs the session's apiKey (and any sk-*-shaped string) out
+ * of every argument before delegating to consoleLogger. createEngine's
+ * default logger is consoleLogger, which writes provider SDK errors —
+ * including OpenAI's own 401 key echo — straight to stdout; hosted mode's
+ * container observability persists that. Every SessionEngineManager engine
+ * must be built with one of these instead of the default.
+ */
+function createRedactingLogger(apiKey: string): Logger {
+  return {
+    debug: (message, data) => consoleLogger.debug(redactSecrets(message, apiKey), redactData(data, apiKey)),
+    info: (message, data) => consoleLogger.info(redactSecrets(message, apiKey), redactData(data, apiKey)),
+    warn: (message, data) => consoleLogger.warn(redactSecrets(message, apiKey), redactData(data, apiKey)),
+    error: (message, error, data) =>
+      consoleLogger.error(
+        redactSecrets(message, apiKey),
+        redactUnknown(error, apiKey),
+        redactData(data, apiKey),
+      ),
+  };
 }
 
 export class SessionEngineManager {
@@ -39,12 +90,28 @@ export class SessionEngineManager {
     this.#createAdapter = options.createAdapter;
   }
 
-  /** Returns the existing engine for sessionId if present (touches its TTL/LRU), else builds one from apiKey. */
+  /**
+   * Returns the existing engine for sessionId if present and the offered
+   * apiKey matches the one it was built with (touches its TTL/LRU), else
+   * builds a fresh one from apiKey.
+   *
+   * A sessionId is correlation data, not a secret (nanoid entropy makes it
+   * unguessable, but it can still be observed — a shared machine, a
+   * screenshot, a future log line). Key custody must not rest on sessionId
+   * secrecy alone: if a different key is offered for an existing session,
+   * that session's engine is evicted and rebuilt scoped to the newly
+   * offered key rather than handed to whoever presented it. This also covers
+   * the legitimate case — a visitor rotates their key and reconnects on the
+   * same sessionId — with the same code path.
+   */
   getOrCreate(sessionId: string, apiKey: string): Engine {
     const existing = this.#sessions.get(sessionId);
     if (existing) {
-      this.#touch(sessionId, existing);
-      return existing.engine;
+      if (existing.apiKey === apiKey) {
+        this.#touch(sessionId, existing);
+        return existing.engine;
+      }
+      this.evict(sessionId);
     }
 
     let engine: Engine;
@@ -54,6 +121,7 @@ export class SessionEngineManager {
         maxRetries: 2,
         history: { store: createInMemoryStore(), maxEntries: 20 },
         prompt: { system: { rules: { append: this.#systemRules } } },
+        logger: createRedactingLogger(apiKey),
       });
     } catch (err) {
       // Never let a construction failure (bad key, adapter error) surface
@@ -64,8 +132,14 @@ export class SessionEngineManager {
     this.#evictLruIfFull();
 
     const ttlTimer = setTimeout(() => this.evict(sessionId), this.#idleTtlMs);
-    this.#sessions.set(sessionId, { engine, lastUsedAt: Date.now(), ttlTimer });
+    this.#sessions.set(sessionId, { engine, apiKey, lastUsedAt: Date.now(), ttlTimer });
     return engine;
+  }
+
+  /** Resets sessionId's idle TTL and LRU recency. No-op if the session isn't tracked (already evicted, or never existed). */
+  touch(sessionId: string): void {
+    const entry = this.#sessions.get(sessionId);
+    if (entry) this.#touch(sessionId, entry);
   }
 
   evict(sessionId: string): void {

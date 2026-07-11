@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserMintToken, createProxyMintToken } from './mint-token';
+import { createBrowserMintToken } from './mint-token';
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {
@@ -58,22 +58,33 @@ describe('createBrowserMintToken', () => {
     await expect(mintToken()).rejects.toThrow(/key/i);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
-});
 
-describe('createProxyMintToken', () => {
-  it('posts to /api/mint and maps the response the same way', async () => {
-    let capturedUrl: string | undefined;
-    globalThis.fetch = vi.fn(async (url: string) => {
-      capturedUrl = url;
-      return new Response(
-        JSON.stringify({ provider: 'openai', value: 'ek_abc', expiresAt: 42, model: 'gpt-realtime' }),
-        { status: 200 },
-      );
+  it('throws a stable, actionable message when the network request itself fails', async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
     }) as unknown as typeof fetch;
 
-    const result = await createProxyMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
+    const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
+    let error: unknown;
+    try {
+      await mintToken();
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toMatch(/could not reach openai/i);
+    // Never blame the key for a network failure, and never let the key leak
+    // into the error surfaced to the drawer.
+    expect(message).not.toContain('sk-visitor-key');
+  });
 
-    expect(capturedUrl).toBe('/api/mint');
-    expect(result).toEqual({ provider: 'openai', value: 'ek_abc', expiresAt: 42, model: 'gpt-realtime' });
+  it('throws a status-scoped message on a non-401 error response', async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response('server error', { status: 500 }),
+    ) as unknown as typeof fetch;
+
+    const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
+    await expect(mintToken()).rejects.toThrow(/status 500/i);
   });
 });

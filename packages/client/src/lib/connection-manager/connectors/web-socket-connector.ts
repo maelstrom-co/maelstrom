@@ -24,6 +24,7 @@ import {
   type EngineConnector,
   WireEngineError,
 } from '../connector.types.js';
+import { HEARTBEAT_PING_FRAME, isHeartbeatPongFrame } from './heartbeat-frame.js';
 
 /**
  * Configuration options for WebSocket connector.
@@ -38,15 +39,19 @@ export interface WebSocketConnectorOptions {
   /**
    * Invoked once, synchronously, right after the socket opens and before
    * connect() resolves. Lets a consumer send a transport-level frame ahead
-   * of the first protocol message. `send` bypasses envelope encoding —
-   * callers must produce valid JSON text.
+   * of the first protocol message (e.g. a host-specific auth handshake).
+   * `send` bypasses envelope encoding — callers must produce valid JSON
+   * text. Omitted entirely for consumers that don't need one; the connector
+   * behaves exactly as it does today with no `onOpen` configured.
    */
   onOpen?: (send: (data: string) => void, sessionId: SessionId) => void;
   /**
    * If set, sends `{"type":"heartbeat.ping"}` on this interval while
    * connected. Needed for transports (e.g. Cloudflare Containers) that only
    * renew their idle timeout on socket traffic, not on an open-but-silent
-   * connection. Omitted: no heartbeat is sent (local dev default).
+   * connection. Omitted: no heartbeat is sent (local dev default). The
+   * connector consumes the server's `heartbeat.pong` replies itself — they
+   * never reach subscribers or the envelope decode path.
    */
   heartbeatIntervalMs?: number;
 }
@@ -258,7 +263,7 @@ export class WebSocketConnector implements EngineConnector {
     this.#stopHeartbeat();
     this.#heartbeatTimer = setInterval(() => {
       if (this.#ws?.readyState === WebSocket.OPEN) {
-        this.#ws.send(JSON.stringify({ type: 'heartbeat.ping' }));
+        this.#ws.send(HEARTBEAT_PING_FRAME);
       }
     }, this.#heartbeatIntervalMs);
   }
@@ -303,6 +308,17 @@ export class WebSocketConnector implements EngineConnector {
   }
 
   #handleMessage(event: MessageEvent): void {
+    // heartbeat.pong is transport-level, not part of the protocol envelope
+    // union by design — decodeServerEnvelope would reject it as undecodable.
+    // Only intercept it when the heartbeat option is active, so a stray pong
+    // with heartbeat disabled still falls through to the normal (warning) path.
+    if (
+      this.#heartbeatIntervalMs !== undefined &&
+      this.#isHeartbeatPong(event.data)
+    ) {
+      return;
+    }
+
     // The codec owns parse + schema validation: a malformed JSON string or a
     // frame that violates the ServerEnvelope contract comes back as an Err
     // instead of throwing, so there is no outer try/catch here.
@@ -397,6 +413,18 @@ export class WebSocketConnector implements EngineConnector {
       console.warn(
         `[WebSocketConnector] undecodable frame with no pending request: requestId=${requestId}: ${error.message}`,
       );
+    }
+  }
+
+  // Minimal, best-effort check — text frames only, mirroring #recoverRequestId's
+  // style. A non-string payload (Blob/ArrayBuffer) or non-JSON text simply
+  // isn't a heartbeat frame and falls through to the normal decode path.
+  #isHeartbeatPong(raw: unknown): boolean {
+    if (typeof raw !== 'string') return false;
+    try {
+      return isHeartbeatPongFrame(JSON.parse(raw));
+    } catch {
+      return false;
     }
   }
 

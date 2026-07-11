@@ -18,6 +18,7 @@
  * @maelstrom-co/engine and @maelstrom-co/protocol once a session has an
  * engine.
  */
+import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/client';
 import {
   createEngine,
   createInMemoryStore,
@@ -32,11 +33,11 @@ import {
   isErr,
 } from '@maelstrom-co/protocol';
 import { geminiText } from '@tanstack/ai-gemini';
-// 2.1 branch: @tanstack/ai-openai@0.15.10 exports an explicit-key
-// constructor (createOpenaiChat(model, apiKey, config?)) equivalent to
-// ai-gemini's createGeminiChat, so no wrapper adapter file is needed.
+// createOpenaiChat takes an explicit key (createOpenaiChat(model, apiKey,
+// config?)), equivalent to ai-gemini's createGeminiChat, so no wrapper
+// adapter file is needed to hand each session its own visitor key.
 import { createOpenaiChat } from '@tanstack/ai-openai';
-import { isHeartbeatPing, isPlaygroundHello } from './playground-frames';
+import { classifyIncomingFrame, resolvePreHelloDispatch } from './playground-frames';
 import { redactSecrets } from './redact';
 import { SessionEngineManager } from './session-engine-manager';
 
@@ -118,56 +119,76 @@ const server = Bun.serve<SocketData>({
   },
   websocket: {
     async message(ws, raw) {
-      // Hosted mode: gate every connection on a playground.hello handshake
-      // before any envelope traffic. Demo-layer frame — not the protocol
-      // envelope union.
-      if (HOSTED && !ws.data.helloReceived) {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(String(raw));
-        } catch {
-          ws.close(1008, 'invalid handshake frame');
-          return;
-        }
-        if (!isPlaygroundHello(parsed)) {
+      // Parsed once and routed through classifyIncomingFrame so the
+      // heartbeat check always runs before the hello gate below — see that
+      // function's doc comment for why ordering matters. Non-JSON frames
+      // classify as undefined, which the gate treats as 'hello-rejected'
+      // pre-hello and as 'dispatch' post-hello (matching the previous
+      // behavior: malformed post-hello frames fall through to
+      // handleEnvelope, whose decodeClientEnvelope path replies with a
+      // correlated engine.error instead of being dropped).
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(String(raw));
+      } catch {
+        parsed = undefined;
+      }
+
+      // ws.data.helloReceived starts true in local mode (set at upgrade
+      // time below), so this already resolves to 'dispatch' there without
+      // any HOSTED check here.
+      const decision = classifyIncomingFrame(parsed, ws.data.helloReceived);
+
+      if (decision.kind === 'heartbeat') {
+        send(ws, HEARTBEAT_PONG_FRAME);
+        return;
+      }
+
+      if (decision.kind === 'hello-rejected') {
+        // A keyless hosted visitor never sends playground.hello (there's no
+        // key to offer), but the real client still emits protocol traffic
+        // before then — a ResizeObserver-triggered chart_resize fires the
+        // moment the socket opens, regardless of whether a key is set. See
+        // resolvePreHelloDispatch's doc comment for why that frame gets a
+        // reply instead of a close.
+        const outcome = resolvePreHelloDispatch(raw);
+        if (outcome.kind === 'close') {
           ws.close(1008, 'expected playground.hello as the first frame');
           return;
         }
+        send(ws, encodeEnvelope(outcome.message));
+        return;
+      }
+
+      if (decision.kind === 'hello') {
+        const { frame } = decision;
         if (!sessionEngines) {
           ws.close(1011, 'session engine unavailable');
           return;
         }
         try {
-          ws.data.engine = sessionEngines.getOrCreate(parsed.sessionId, parsed.apiKey);
+          ws.data.engine = sessionEngines.getOrCreate(frame.sessionId, frame.apiKey);
         } catch (err) {
-          // redact() already stripped the exact key inside SessionEngineManager;
-          // redactSecrets' sk-* pattern pass additionally catches masked/partial
-          // echoes that don't match the stored key byte-for-byte, so this close
-          // reason (sent to the client and logged) is doubly covered.
+          // redact() inside SessionEngineManager already scrubs the message
+          // (exact-key pass + sk-* pattern pass), so this close reason (sent
+          // to the client and logged) needs no second pass here.
           const message = err instanceof Error ? err.message : 'engine unavailable';
-          const safeMessage = redactSecrets(message, parsed.apiKey);
-          console.warn(`[demo ws] session engine init failed: ${safeMessage}`);
-          ws.close(1011, safeMessage);
+          console.warn(`[demo ws] session engine init failed: ${message}`);
+          ws.close(1011, message);
           return;
         }
         ws.data.helloReceived = true;
-        ws.data.sessionId = parsed.sessionId;
-        ws.data.apiKey = parsed.apiKey;
+        ws.data.sessionId = frame.sessionId;
+        ws.data.apiKey = frame.apiKey;
         return;
       }
 
-      // Malformed/non-JSON frames are not intercepted here — they fall
-      // through to handleEnvelope below, whose own decodeClientEnvelope path
-      // replies with a correlated engine.error instead of being dropped.
-      let msg: unknown;
-      try {
-        msg = JSON.parse(String(raw));
-      } catch {
-        msg = undefined;
-      }
-      if (isHeartbeatPing(msg)) {
-        send(ws, JSON.stringify({ type: 'heartbeat.pong' }));
-        return;
+      // Every dispatched frame in hosted mode proves the session is still
+      // active — touch resets the idle TTL and LRU recency here, not just
+      // at hello, so a session mid-conversation past the TTL window doesn't
+      // get evicted out from under a socket that's still working.
+      if (HOSTED && sessionEngines && ws.data.sessionId) {
+        sessionEngines.touch(ws.data.sessionId);
       }
 
       const engine = HOSTED ? ws.data.engine : sharedEngine;

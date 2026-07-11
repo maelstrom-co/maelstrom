@@ -657,6 +657,67 @@ describe('WebSocketConnector heartbeat', () => {
     await connectAndOpen(connector);
     await connector.disconnect();
   });
+
+  test('swallows a heartbeat.pong frame silently when heartbeat is enabled', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10_000,
+    });
+    const ws = await connectAndOpen(connector);
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // Must never reach decodeServerEnvelope: a pong is demo-layer and would
+      // otherwise be logged as an undecodable frame every heartbeat tick.
+      ws.emitJson({ type: 'heartbeat.pong' });
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+      await connector.disconnect();
+    }
+  });
+
+  test('a heartbeat.pong frame follows the normal (undecodable-frame) path when heartbeat is disabled', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      ws.emitJson({ type: 'heartbeat.pong' });
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        '[WebSocketConnector] undecodable frame',
+      );
+    } finally {
+      warnSpy.mockRestore();
+      await connector.disconnect();
+    }
+  });
+
+  test('normal envelopes still flow when heartbeat is enabled', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10_000,
+    });
+    const ws = await connectAndOpen(connector);
+
+    const envelope = buildEnvelope(MessageId('heartbeat-coexist-1'));
+    const promise = connector.process(envelope);
+
+    emitServer(
+      ws,
+      MaelstromResponseMessage({
+        requestId: envelope.id,
+        response: buildResponse(envelope.id, { userMessage: 'ok' }),
+      }),
+    );
+
+    const response = await promise;
+    expect(response.userMessage).toBe('ok');
+    await connector.disconnect();
+  });
 });
 
 describe('WebSocketConnector cross-correlator isolation', () => {

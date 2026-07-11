@@ -2,7 +2,7 @@
 # Build context is the repo root, not apps/demo -- see wrangler.jsonc's
 # containers[0].image_build_context. For a manual `docker build`, run it
 # from the repo root: `docker build -f apps/demo/Dockerfile .`
-FROM oven/bun:1-slim
+FROM --platform=linux/amd64 oven/bun:1-slim
 WORKDIR /app
 
 # Copy manifests first for layer caching. `bun install --frozen-lockfile`

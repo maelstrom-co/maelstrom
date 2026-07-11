@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useStore } from '@tanstack/react-store';
+import { WireEngineError } from '@maelstrom-co/client';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Captions } from '../components/captions';
@@ -10,9 +11,27 @@ import { VoiceErrorNote } from '../components/voice-error-note';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { STATUS_COLORS } from '../lib/design-tokens';
+import { isHosted } from '../lib/hosted-mode';
 import { m } from '../lib/maelstrom';
-import { playgroundKeyStore, setPlaygroundKey } from '../lib/playground-key-store';
+import {
+  clearPlaygroundKey,
+  playgroundKeyStore,
+  setPlaygroundKey,
+} from '../lib/playground-key-store';
 import { useFlashInstances } from '../lib/use-touched-instances';
+
+/**
+ * True for a text-path (chart_request) failure caused by a rejected OpenAI
+ * key — the hosted-mode analogue of the voice path's TOKEN_MINT_FAILED. The
+ * wire error's `code` is the engine's `ProviderError._tag`, which covers
+ * every LLM-adapter failure (network, rate limit, bad key); the message
+ * text is what actually narrows it to a rejected key.
+ */
+function isInvalidKeyError(error: Error): boolean {
+  const code = error instanceof WireEngineError ? error.code : undefined;
+  if (code !== 'ProviderError') return false;
+  return /\b401\b|invalid api key|incorrect api key/i.test(error.message);
+}
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -25,7 +44,7 @@ export const Route = createFileRoute('/')({
 // a component test). This is the only route in the app, so opting it out
 // of TanStack Router's per-route code-splitting costs nothing here.
 export function HomePage() {
-  const hosted = import.meta.env.VITE_HOSTED === '1';
+  const hosted = isHosted();
   // Bumping this forces a fresh <m.Provider key={keyEpoch}>, which remounts
   // the connector/session cleanly. useMaelstrom() exposes no public
   // disconnect(), so remount-by-key is the supported way to force a clean
@@ -90,6 +109,12 @@ export function HomePage() {
             setResumeIntent(intent.trim().length > 0);
             setKeyEpoch((e) => e + 1);
           }}
+          onRemove={() => {
+            clearPlaygroundKey();
+            setDrawerOpen(false);
+            setKeyErrorMessage(null);
+            setKeyEpoch((e) => e + 1);
+          }}
           errorMessage={keyErrorMessage}
         />
       )}
@@ -117,7 +142,7 @@ function DemoApp({
   const { isProcessing } = m.useMaelstrom();
   const { state: voiceState, error: voiceError } = m.useVoice();
   const thinking = isProcessing || voiceState === 'thinking';
-  const hosted = import.meta.env.VITE_HOSTED === '1';
+  const hosted = isHosted();
 
   // In hosted/BYOK mode a mint failure means the visitor's key is missing or
   // rejected, not a server misconfiguration — reopen the drawer with the
@@ -153,6 +178,15 @@ function DemoApp({
           </div>
           <div className="flex items-center gap-3">
             <VoiceControl showOrb={false} />
+            {hosted && (
+              <button
+                type="button"
+                onClick={onRequireKey}
+                className="status-pill flex items-center gap-2 rounded-full px-3 py-1 font-mono text-xs uppercase tracking-[.1em] text-ink-2"
+              >
+                API key
+              </button>
+            )}
             <StatusIndicator />
           </div>
         </div>
@@ -174,6 +208,7 @@ function DemoApp({
       {/* Intent input */}
       <IntentInput
         onRequireKey={onRequireKey}
+        onMintError={onMintError}
         intent={intent}
         onIntentChange={onIntentChange}
         resumeIntent={resumeIntent}
@@ -216,6 +251,7 @@ function StatusIndicator() {
 
 interface IntentInputProps {
   readonly onRequireKey: () => void;
+  readonly onMintError: (message: string) => void;
   readonly intent: string;
   readonly onIntentChange: (intent: string) => void;
   readonly resumeIntent: boolean;
@@ -224,13 +260,14 @@ interface IntentInputProps {
 
 function IntentInput({
   onRequireKey,
+  onMintError,
   intent,
   onIntentChange,
   resumeIntent,
   onResumeIntentHandled,
 }: IntentInputProps) {
   const { processIntent, isProcessing, lastError, connectionStatus } = m.useMaelstrom();
-  const hosted = import.meta.env.VITE_HOSTED === '1';
+  const hosted = isHosted();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const needsKey = hosted && !apiKey;
 
@@ -242,8 +279,26 @@ function IntentInput({
     if (!resumeIntent || connectionStatus !== 'connected') return;
     onResumeIntentHandled();
     if (!intent.trim() || isProcessing) return;
-    void processIntent(intent).then(() => onIntentChange(''));
+    // processIntent() never rejects (errors surface via lastError instead —
+    // see useMaelstrom's contract), but a floating promise still needs a
+    // .catch() as a backstop against that contract changing silently.
+    void processIntent(intent)
+      .then(() => onIntentChange(''))
+      .catch(() => undefined);
   }, [resumeIntent, connectionStatus]);
+
+  // Text-path analogue of DemoApp's voice-mint-failure effect: a
+  // chart_request that failed because OpenAI rejected the visitor's key
+  // should reopen the drawer with the same actionable message the voice
+  // path gets, not just leave the raw (redacted) engine error sitting under
+  // the intent input. `lastError` is this hook call's own local state (see
+  // useMaelstrom's contract), so this effect has to live wherever
+  // processIntent() is actually called — a sibling component's lastError is
+  // a different piece of state.
+  useEffect(() => {
+    if (!hosted || !lastError || !isInvalidKeyError(lastError)) return;
+    onMintError('Invalid API key.');
+  }, [hosted, lastError, onMintError]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

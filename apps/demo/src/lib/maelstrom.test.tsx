@@ -40,9 +40,6 @@ vi.mock('./mint-token', () => ({
   createBrowserMintToken: () => async () => {
     throw new Error('mintOpenAIToken should not be called in tests');
   },
-  createBrowserMintToken: () => async () => {
-    throw new Error('mintToken should not be called in tests');
-  },
 }));
 
 const { m } = await import('./maelstrom');
