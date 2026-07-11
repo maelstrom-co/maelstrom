@@ -1,9 +1,8 @@
 import { WebSocketConnector } from '@maelstrom-co/client';
-
-const STORAGE_KEY = 'maelstrom-playground-key';
+import { STORAGE_KEY } from './playground-key-store';
 
 export interface CreateDemoConnectorOptions {
-  /** Defaults to reading localStorage directly; Task 4 supplies the real key-store-backed getter. */
+  /** Defaults to reading localStorage directly; the app composition root supplies the key-store-backed getter. */
   readonly getApiKey?: () => string | null;
 }
 
@@ -29,8 +28,8 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
     onOpen: hosted
       ? (send, sessionId) => {
           const apiKey = getApiKey();
-          // No key yet: don't send a malformed handshake. The orchestrator
-          // layer (Task 4) is responsible for prompting the key drawer
+          // No key yet: don't send a malformed handshake. The app
+          // composition root is responsible for prompting the key drawer
           // before the first Send/mic press when no key is set — this
           // function only guards against sending garbage over the wire.
           if (!apiKey) return;

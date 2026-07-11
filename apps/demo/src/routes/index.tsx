@@ -1,31 +1,99 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useMemo, useState } from 'react';
+import { useStore } from '@tanstack/react-store';
+import { useEffect, useMemo, useState } from 'react';
 import { Captions } from '../components/captions';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
+import { KeyDrawer } from '../components/key-drawer';
 import { VoiceControl } from '../components/voice-control';
 import { VoiceErrorNote } from '../components/voice-error-note';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { STATUS_COLORS } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
+import { playgroundKeyStore, setPlaygroundKey } from '../lib/playground-key-store';
 import { useFlashInstances } from '../lib/use-touched-instances';
 
 export const Route = createFileRoute('/')({
   component: HomePage,
 });
 
-function HomePage() {
-  const connector = useMemo(() => createDemoConnector(), []);
+// Exported (in addition to `Route`) so index.test.tsx can mount the real
+// component directly — `Route.options.component` only resolves inside an
+// actual router match (TanStack Start's root layout renders a full
+// html/head/body document via <Outlet>, which isn't practical to drive in
+// a component test). This is the only route in the app, so opting it out
+// of TanStack Router's per-route code-splitting costs nothing here.
+export function HomePage() {
+  const hosted = import.meta.env.VITE_HOSTED === '1';
+  // Bumping this forces a fresh <m.Provider key={keyEpoch}>, which remounts
+  // the connector/session cleanly. useMaelstrom() exposes no public
+  // disconnect(), so remount-by-key is the supported way to force a clean
+  // session boundary from outside the provider tree — needed both when the
+  // key drawer saves a key (the Provider already connected once on mount
+  // without one, so that handshake skipped the playground.hello frame) and
+  // when it's cleared.
+  const [keyEpoch, setKeyEpoch] = useState(0);
+  // Starts closed even when hosted and keyless — the playground renders
+  // keyless by design. It only opens via onRequireKey, when a Send/mic press
+  // actually needs a key that isn't there yet.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Lifted above <m.Provider key={keyEpoch}> so a key-save remount doesn't
+  // wipe whatever the visitor already typed while the drawer was blocking
+  // them — resumeIntent then carries it through to an auto-submit once the
+  // fresh connection is up.
+  const [intent, setIntent] = useState('');
+  const [resumeIntent, setResumeIntent] = useState(false);
+
+  const connector = useMemo(
+    () =>
+      createDemoConnector({ getApiKey: () => playgroundKeyStore.state.apiKey }),
+    [keyEpoch],
+  );
   const debug = useMemo(() => isDebugRequested(), []);
 
   return (
-    <m.Provider connector={connector} debug={debug}>
-      <DemoApp />
-    </m.Provider>
+    <>
+      <m.Provider key={keyEpoch} connector={connector} debug={debug}>
+        <DemoApp
+          onRequireKey={() => setDrawerOpen(true)}
+          intent={intent}
+          onIntentChange={setIntent}
+          resumeIntent={resumeIntent}
+          onResumeIntentHandled={() => setResumeIntent(false)}
+        />
+      </m.Provider>
+      {hosted && (
+        <KeyDrawer
+          isOpen={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          onSave={(key, remember) => {
+            setPlaygroundKey(key, remember);
+            setDrawerOpen(false);
+            setResumeIntent(intent.trim().length > 0);
+            setKeyEpoch((e) => e + 1);
+          }}
+        />
+      )}
+    </>
   );
 }
 
-function DemoApp() {
+interface DemoAppProps {
+  readonly onRequireKey: () => void;
+  readonly intent: string;
+  readonly onIntentChange: (intent: string) => void;
+  readonly resumeIntent: boolean;
+  readonly onResumeIntentHandled: () => void;
+}
+
+function DemoApp({
+  onRequireKey,
+  intent,
+  onIntentChange,
+  resumeIntent,
+  onResumeIntentHandled,
+}: DemoAppProps) {
   const { isProcessing } = m.useMaelstrom();
   const { state: voiceState } = m.useVoice();
   const thinking = isProcessing || voiceState === 'thinking';
@@ -65,7 +133,13 @@ function DemoApp() {
       </main>
 
       {/* Intent input */}
-      <IntentInput />
+      <IntentInput
+        onRequireKey={onRequireKey}
+        intent={intent}
+        onIntentChange={onIntentChange}
+        resumeIntent={resumeIntent}
+        onResumeIntentHandled={onResumeIntentHandled}
+      />
     </div>
   );
 }
@@ -101,16 +175,57 @@ function StatusIndicator() {
   );
 }
 
-function IntentInput() {
-  const [intent, setIntent] = useState('');
-  const { processIntent, isProcessing, lastError } = m.useMaelstrom();
+interface IntentInputProps {
+  readonly onRequireKey: () => void;
+  readonly intent: string;
+  readonly onIntentChange: (intent: string) => void;
+  readonly resumeIntent: boolean;
+  readonly onResumeIntentHandled: () => void;
+}
+
+function IntentInput({
+  onRequireKey,
+  intent,
+  onIntentChange,
+  resumeIntent,
+  onResumeIntentHandled,
+}: IntentInputProps) {
+  const { processIntent, isProcessing, lastError, connectionStatus } = m.useMaelstrom();
+  const hosted = import.meta.env.VITE_HOSTED === '1';
+  const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
+  const needsKey = hosted && !apiKey;
+
+  // Continues the intent the visitor already typed before the key drawer
+  // interrupted them, once the post-save reconnect actually lands —
+  // processIntent() throws if the socket isn't OPEN yet, so this can't fire
+  // on the mere presence of a key, only once the connection reports 'connected'.
+  useEffect(() => {
+    if (!resumeIntent || connectionStatus !== 'connected') return;
+    onResumeIntentHandled();
+    if (!intent.trim() || isProcessing) return;
+    void processIntent(intent).then(() => onIntentChange(''));
+  }, [resumeIntent, connectionStatus]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!intent.trim() || isProcessing) return;
+    if (needsKey) {
+      onRequireKey();
+      return;
+    }
 
     await processIntent(intent);
-    setIntent('');
+    onIntentChange('');
+  };
+
+  // VoiceOrb owns its own click handler internally (no onClick prop) — a
+  // capture-phase listener on the wrapper intercepts the click before it
+  // reaches the orb's button when no key is on hand yet.
+  const handleOrbClickCapture = (e: React.MouseEvent) => {
+    if (!needsKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onRequireKey();
   };
 
   return (
@@ -119,7 +234,10 @@ function IntentInput() {
       style={{ borderColor: 'var(--line)' }}
     >
       <VoiceErrorNote />
-      <div className="flex justify-center mb-3">
+      <div
+        className="flex justify-center mb-3"
+        onClickCapture={handleOrbClickCapture}
+      >
         <m.VoiceOrb size={56} className="voice-orb" />
       </div>
       <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
@@ -127,7 +245,7 @@ function IntentInput() {
           <input
             type="text"
             value={intent}
-            onChange={(e) => setIntent(e.target.value)}
+            onChange={(e) => onIntentChange(e.target.value)}
             placeholder="Tell Maelstrom what you want to do..."
             className="intent-pill flex-1 px-4 py-3"
             disabled={isProcessing}
@@ -153,7 +271,7 @@ function IntentInput() {
             <button
               key={suggestion}
               type="button"
-              onClick={() => setIntent(suggestion)}
+              onClick={() => onIntentChange(suggestion)}
               className="btn btn-ghost text-xs px-3 py-1.5"
             >
               {suggestion}

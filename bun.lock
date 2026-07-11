@@ -71,6 +71,8 @@
         "@tanstack/ai-openai": "catalog:",
         "@tanstack/react-router": "catalog:",
         "@tanstack/react-start": "catalog:",
+        "@tanstack/react-store": "catalog:",
+        "@tanstack/store": "catalog:",
         "clsx": "^2.1.1",
         "hono": "catalog:",
         "livekit-client": "^2.13.1",
