@@ -28,6 +28,7 @@
     "@maelstrom-co/realtime-server": "workspace:*",
     "livekit-client": "^2.13.1",
     "@tanstack/ai-gemini": "catalog:",
+    "@tanstack/ai-openai": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
     "clsx": "^2.1.1",
