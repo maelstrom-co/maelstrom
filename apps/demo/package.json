@@ -11,9 +11,11 @@
     "dev-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "deploy": "vite build && wrangler deploy"
   },
   "dependencies": {
+    "@cloudflare/containers": "^0.3.7",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@maelstrom-co/client": "workspace:*",
@@ -45,6 +47,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260317.1",
     "@testing-library/react": "catalog:",
     "@types/geojson": "^7946.0.16",
     "@types/react": "catalog:",
