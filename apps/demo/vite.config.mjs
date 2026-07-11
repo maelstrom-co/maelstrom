@@ -57,7 +57,16 @@ export default defineConfig(({ mode }) => {
         root: '../..',
       }),
       tailwindcss(),
-      tanstackStart(),
+      tanstackStart({
+        spa: {
+          enabled: true,
+          // outputPath is the SPA shell's filename mask (relative to the
+          // client output dir), not an output directory — '/index' resolves
+          // to index.html at the root of dist/client so it can be served
+          // standalone as the SPA entry point.
+          prerender: { enabled: true, outputPath: '/index', crawlLinks: true, retryCount: 3 },
+        },
+      }),
       // React's vite plugin must come after start's vite plugin
       react(),
     ],
