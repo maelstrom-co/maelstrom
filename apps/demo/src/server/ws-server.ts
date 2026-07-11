@@ -78,6 +78,15 @@ const sessionEngines = HOSTED
       idleTtlMs: IDLE_TTL_MS,
       systemRules: SYSTEM_RULES,
       createAdapter: (apiKey) => createOpenaiChat('gpt-4o-mini', apiKey),
+      // gpt-4o-mini's own ceiling (see @tanstack/ai-openai's model-meta).
+      // Explicit and generous so a verbose layout response for a large
+      // vessel/instance set can never hit OpenAI's `response.incomplete`
+      // (max_output_tokens) truncation — @tanstack/ai's structured-output
+      // finalization currently swallows that truncation into a generic
+      // "structured output finalization produced no result" error instead
+      // of surfacing it (confirmed against live gpt-4o-mini/0.40.0; upstream
+      // bug, not fixed by this cap alone).
+      modelOptions: { max_output_tokens: 16384 },
     })
   : null;
 

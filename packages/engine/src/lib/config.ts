@@ -26,6 +26,13 @@ export interface EngineConfig {
    * See the README's Retry section for the full policy.
    */
   readonly maxRetries?: number;
+  /**
+   * Provider-specific options forwarded verbatim to every `chat()` call
+   * (e.g. `{ max_output_tokens: 16384 }` for an OpenAI adapter). The engine
+   * is provider-agnostic, so this is an untyped passthrough — consult the
+   * configured adapter's provider-options type for the accepted shape.
+   */
+  readonly modelOptions?: Record<string, unknown>;
 }
 
 export interface ResolvedEngineConfig {
@@ -34,6 +41,7 @@ export interface ResolvedEngineConfig {
   readonly prompt: PromptOptions;
   readonly history: HistoryConfig | undefined;
   readonly maxRetries: number;
+  readonly modelOptions: Record<string, unknown> | undefined;
 }
 
 const DEFAULT_MAX_RETRIES = 1;
@@ -45,5 +53,6 @@ export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
     prompt: config.prompt ?? {},
     history: config.history,
     maxRetries: config.maxRetries ?? DEFAULT_MAX_RETRIES,
+    modelOptions: config.modelOptions,
   };
 }

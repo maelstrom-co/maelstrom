@@ -7,6 +7,8 @@ export interface SessionEngineManagerOptions {
   readonly idleTtlMs: number;
   readonly systemRules: string;
   readonly createAdapter: (apiKey: string) => AnyTextAdapter;
+  /** Forwarded verbatim to every session engine's `EngineConfig.modelOptions`. */
+  readonly modelOptions?: Record<string, unknown>;
 }
 
 interface SessionEntry {
@@ -82,12 +84,14 @@ export class SessionEngineManager {
   readonly #idleTtlMs: number;
   readonly #systemRules: string;
   readonly #createAdapter: (apiKey: string) => AnyTextAdapter;
+  readonly #modelOptions: Record<string, unknown> | undefined;
 
   constructor(options: SessionEngineManagerOptions) {
     this.#maxSessions = options.maxSessions;
     this.#idleTtlMs = options.idleTtlMs;
     this.#systemRules = options.systemRules;
     this.#createAdapter = options.createAdapter;
+    this.#modelOptions = options.modelOptions;
   }
 
   /**
@@ -122,6 +126,7 @@ export class SessionEngineManager {
         history: { store: createInMemoryStore(), maxEntries: 20 },
         prompt: { system: { rules: { append: this.#systemRules } } },
         logger: createRedactingLogger(apiKey),
+        modelOptions: this.#modelOptions,
       });
     } catch (err) {
       // Never let a construction failure (bad key, adapter error) surface
