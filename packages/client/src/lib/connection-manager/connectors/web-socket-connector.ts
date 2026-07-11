@@ -35,6 +35,13 @@ export interface WebSocketConnectorOptions {
   timeout?: number;
   /** Connection establishment timeout in milliseconds (default: 10000) */
   connectTimeoutMs?: number;
+  /**
+   * Invoked once, synchronously, right after the socket opens and before
+   * connect() resolves. Lets a consumer send a transport-level frame ahead
+   * of the first protocol message. `send` bypasses envelope encoding —
+   * callers must produce valid JSON text.
+   */
+  onOpen?: (send: (data: string) => void, sessionId: SessionId) => void;
 }
 
 /**
@@ -64,6 +71,7 @@ export class WebSocketConnector implements EngineConnector {
   readonly #url: string;
   readonly #timeout: number;
   readonly #connectTimeoutMs: number;
+  readonly #onOpen: ((send: (data: string) => void, sessionId: SessionId) => void) | undefined;
 
   readonly capabilities: ConnectorCapabilities = {
     voice: false,
@@ -84,6 +92,7 @@ export class WebSocketConnector implements EngineConnector {
     this.#url = options.url;
     this.#timeout = options.timeout ?? 30000;
     this.#connectTimeoutMs = options.connectTimeoutMs ?? 10_000;
+    this.#onOpen = options.onOpen;
   }
 
   /**
@@ -109,6 +118,7 @@ export class WebSocketConnector implements EngineConnector {
 
         const onOpen = () => {
           cleanup();
+          this.#onOpen?.((data) => this.#ws?.send(data), sessionId);
           this.#setupEventHandlers();
           resolve();
         };

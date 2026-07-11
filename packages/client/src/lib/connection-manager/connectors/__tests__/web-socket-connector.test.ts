@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import {
   ActionName,
   decodeClientEnvelope,
@@ -19,7 +19,7 @@ import {
 import { WireEngineError } from '../../connector.types.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
-import { type FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
+import { FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
 
 let teardown: (() => void) | null = null;
 
@@ -53,6 +53,40 @@ const buildResponse = (
   executionPlan: [],
   layout: { type: 'grid', positions: [] },
   ...overrides,
+});
+
+describe('WebSocketConnector onOpen hook', () => {
+  test('invokes onOpen with a send function and the connecting sessionId before connect() resolves', async () => {
+    const sent: string[] = [];
+    const onOpen = mock((send: (data: string) => void, sessionId: SessionId) => {
+      send(JSON.stringify({ type: 'test.hello', sessionId }));
+    });
+
+    const connector = new WebSocketConnector({ url: 'ws://test', onOpen });
+
+    const connectPromise = connector.connect(SessionId('session-onopen-test'));
+    await Promise.resolve();
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error('FakeWebSocket was not constructed');
+    ws.emitOpen();
+    if (typeof ws.sent[0] === 'string') sent.push(ws.sent[0]);
+    await connectPromise;
+
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0] as string)).toMatchObject({
+      type: 'test.hello',
+      sessionId: 'session-onopen-test',
+    });
+
+    await connector.disconnect();
+  });
+
+  test('does not require onOpen to be provided (default WebSocketConnectorOptions unaffected)', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    await connectAndOpen(connector);
+    await connector.disconnect();
+  });
 });
 
 describe('WebSocketConnector wire contract', () => {
