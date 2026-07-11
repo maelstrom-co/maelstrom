@@ -622,6 +622,43 @@ describe('WebSocketConnector getHistory', () => {
   });
 });
 
+describe('WebSocketConnector heartbeat', () => {
+  test('sends a frame every heartbeatIntervalMs while connected', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10,
+    });
+    const ws = await connectAndOpen(connector);
+
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    await connector.disconnect();
+
+    const heartbeats = ws.sent.filter(
+      (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
+    );
+    expect(heartbeats.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('stops sending heartbeats after disconnect', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10,
+    });
+    const ws = await connectAndOpen(connector);
+    await connector.disconnect();
+    const countAtDisconnect = ws.sent.length;
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(ws.sent.length).toBe(countAtDisconnect);
+  });
+
+  test('does not start a heartbeat timer when heartbeatIntervalMs is omitted', async () => {
+    // No assertion beyond "doesn't throw" — omission must be a true no-op.
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    await connectAndOpen(connector);
+    await connector.disconnect();
+  });
+});
+
 describe('WebSocketConnector cross-correlator isolation', () => {
   test('engine.history.response with a chart-request id does not resolve process()', async () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });

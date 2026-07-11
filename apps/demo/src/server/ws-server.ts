@@ -36,7 +36,7 @@ import { geminiText } from '@tanstack/ai-gemini';
 // constructor (createOpenaiChat(model, apiKey, config?)) equivalent to
 // ai-gemini's createGeminiChat, so no wrapper adapter file is needed.
 import { createOpenaiChat } from '@tanstack/ai-openai';
-import { isPlaygroundHello } from './playground-frames';
+import { isHeartbeatPing, isPlaygroundHello } from './playground-frames';
 import { redactSecrets } from './redact';
 import { SessionEngineManager } from './session-engine-manager';
 
@@ -44,7 +44,6 @@ const PORT = Number(process.env.WS_PORT ?? 3001);
 const HOSTED = process.env.HOSTED === '1';
 const MAX_SESSIONS = 50;
 const IDLE_TTL_MS = 30 * 60 * 1000;
-const HEARTBEAT_TYPES = new Set(['heartbeat.ping']);
 
 const SYSTEM_RULES = `
 - Try to always keep at least one vessel visible on the chart
@@ -166,11 +165,7 @@ const server = Bun.serve<SocketData>({
       } catch {
         msg = undefined;
       }
-      if (
-        typeof msg === 'object' &&
-        msg !== null &&
-        HEARTBEAT_TYPES.has((msg as { type?: unknown }).type as string)
-      ) {
+      if (isHeartbeatPing(msg)) {
         send(ws, JSON.stringify({ type: 'heartbeat.pong' }));
         return;
       }

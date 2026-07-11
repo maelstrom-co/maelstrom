@@ -13,3 +13,9 @@ export function isPlaygroundHello(value: unknown): value is PlaygroundHelloFrame
     typeof (value as { apiKey?: unknown }).apiKey === 'string'
   );
 }
+
+export function isHeartbeatPing(value: unknown): value is { type: 'heartbeat.ping' } {
+  return (
+    typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'heartbeat.ping'
+  );
+}

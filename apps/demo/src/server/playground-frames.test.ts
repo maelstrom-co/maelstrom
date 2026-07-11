@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPlaygroundHello } from './playground-frames';
+import { isHeartbeatPing, isPlaygroundHello } from './playground-frames';
 
 describe('isPlaygroundHello', () => {
   it('accepts a well-formed handshake frame', () => {
@@ -21,5 +21,15 @@ describe('isPlaygroundHello', () => {
   it('rejects non-object input', () => {
     expect(isPlaygroundHello('playground.hello')).toBe(false);
     expect(isPlaygroundHello(null)).toBe(false);
+  });
+});
+
+describe('isHeartbeatPing', () => {
+  it('accepts a heartbeat.ping frame', () => {
+    expect(isHeartbeatPing({ type: 'heartbeat.ping' })).toBe(true);
+  });
+  it('rejects other frame types', () => {
+    expect(isHeartbeatPing({ type: 'playground.hello' })).toBe(false);
+    expect(isHeartbeatPing(null)).toBe(false);
   });
 });

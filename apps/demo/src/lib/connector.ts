@@ -25,6 +25,10 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
 
   return new WebSocketConnector({
     url: `${wsUrl}/ws`,
+    // Cloudflare Containers only renew their idle timeout on socket traffic,
+    // not on an open-but-silent connection — local dev has no such timeout,
+    // so the heartbeat only runs in hosted mode.
+    heartbeatIntervalMs: hosted ? 30_000 : undefined,
     onOpen: hosted
       ? (send, sessionId) => {
           const apiKey = getApiKey();

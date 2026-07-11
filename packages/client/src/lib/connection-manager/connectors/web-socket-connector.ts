@@ -42,6 +42,13 @@ export interface WebSocketConnectorOptions {
    * callers must produce valid JSON text.
    */
   onOpen?: (send: (data: string) => void, sessionId: SessionId) => void;
+  /**
+   * If set, sends `{"type":"heartbeat.ping"}` on this interval while
+   * connected. Needed for transports (e.g. Cloudflare Containers) that only
+   * renew their idle timeout on socket traffic, not on an open-but-silent
+   * connection. Omitted: no heartbeat is sent (local dev default).
+   */
+  heartbeatIntervalMs?: number;
 }
 
 /**
@@ -72,6 +79,7 @@ export class WebSocketConnector implements EngineConnector {
   readonly #timeout: number;
   readonly #connectTimeoutMs: number;
   readonly #onOpen: ((send: (data: string) => void, sessionId: SessionId) => void) | undefined;
+  readonly #heartbeatIntervalMs: number | undefined;
 
   readonly capabilities: ConnectorCapabilities = {
     voice: false,
@@ -87,12 +95,14 @@ export class WebSocketConnector implements EngineConnector {
   // shared MessageId space, and so each correlator stays strongly typed.
   #historyCorrelator = new RequestCorrelator<readonly SessionHistoryEntry[]>();
   #handlers = new Set<(event: ConnectorEvent) => void>();
+  #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: WebSocketConnectorOptions) {
     this.#url = options.url;
     this.#timeout = options.timeout ?? 30000;
     this.#connectTimeoutMs = options.connectTimeoutMs ?? 10_000;
     this.#onOpen = options.onOpen;
+    this.#heartbeatIntervalMs = options.heartbeatIntervalMs;
   }
 
   /**
@@ -120,6 +130,7 @@ export class WebSocketConnector implements EngineConnector {
           cleanup();
           this.#onOpen?.((data) => this.#ws?.send(data), sessionId);
           this.#setupEventHandlers();
+          this.#startHeartbeat();
           resolve();
         };
 
@@ -153,6 +164,7 @@ export class WebSocketConnector implements EngineConnector {
    * Closes the WebSocket connection and rejects all pending requests.
    */
   async disconnect(): Promise<void> {
+    this.#stopHeartbeat();
     const disconnected = new Error('Disconnected');
     this.#correlator.rejectAll(disconnected);
     this.#historyCorrelator.rejectAll(disconnected);
@@ -241,6 +253,23 @@ export class WebSocketConnector implements EngineConnector {
     return promise;
   }
 
+  #startHeartbeat(): void {
+    if (this.#heartbeatIntervalMs === undefined) return;
+    this.#stopHeartbeat();
+    this.#heartbeatTimer = setInterval(() => {
+      if (this.#ws?.readyState === WebSocket.OPEN) {
+        this.#ws.send(JSON.stringify({ type: 'heartbeat.ping' }));
+      }
+    }, this.#heartbeatIntervalMs);
+  }
+
+  #stopHeartbeat(): void {
+    if (this.#heartbeatTimer) {
+      clearInterval(this.#heartbeatTimer);
+      this.#heartbeatTimer = null;
+    }
+  }
+
   #setupEventHandlers(): void {
     if (!this.#ws) return;
 
@@ -249,6 +278,10 @@ export class WebSocketConnector implements EngineConnector {
     };
 
     this.#ws.onclose = (event) => {
+      // An unexpected close leaves ConnectionManager's auto-reconnect
+      // pending; stop here so the timer doesn't keep firing sends at a
+      // socket that's already gone.
+      this.#stopHeartbeat();
       const closed = new Error('WebSocket closed');
       this.#correlator.rejectAll(closed);
       this.#historyCorrelator.rejectAll(closed);
