@@ -779,6 +779,71 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
     expect(errorTiming).toBeDefined();
   });
 
+  it('queues a barge-in when the instance throws a duck-typed request_in_flight error, not just a real RequestInFlightError instance', async () => {
+    // Dual-package hazard: an external consumer with a mismatched
+    // @maelstrom-co/client copy would have `instanceof RequestInFlightError`
+    // silently false even for a genuine in-flight rejection. The session
+    // must also recognize a plain object carrying the stable `code`.
+    const adapter = makeMockAdapter();
+    const events: SidechannelEvent[] = [];
+    const idleResolvers: Array<() => void> = [];
+    let submitCalls = 0;
+    const instance: RealtimeInstance = {
+      submitIntent: async () => {
+        submitCalls += 1;
+        if (submitCalls === 1) return; // c1 submits fine
+        if (submitCalls === 2) {
+          // NOT `instanceof RequestInFlightError` — a duck-typed lookalike,
+          // as would cross a mismatched package boundary.
+          throw { code: 'request_in_flight' };
+        }
+        return; // c2's retry succeeds
+      },
+      waitForIdle: () =>
+        new Promise<void>((resolve) => {
+          idleResolvers.push(resolve);
+        }),
+      getStructuralSnapshot: () => populatedSnapshot,
+      getCapabilitySnapshot: () => emptyCapabilitySnapshot,
+      onSettled: () => () => {},
+    };
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      onEvent: (e) => events.push(e),
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show revenue"}',
+    });
+    await flushMicrotasks();
+
+    // Not answered yet — queued as a barge-in, exactly as a real
+    // RequestInFlightError would be.
+    expect(adapter.toolResults.find((r) => r.callId === 'c2')).toBeUndefined();
+
+    // Resolve c1's own wait and c2's retry-loop wait.
+    for (const resolve of idleResolvers.splice(0)) resolve();
+    await flushMicrotasks();
+    // Resolve c2's post-submit wait for its own render to settle.
+    for (const resolve of idleResolvers.splice(0)) resolve();
+    await flushMicrotasks();
+
+    const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
+    expect(c2Result?.output).toEqual({ ok: true, summary: expect.any(String) });
+  });
+
   it('surfaces a non-busy rejection distinctly instead of mislabeling it as busy', async () => {
     // A genuine render/pipeline failure — NOT the in-flight guard — must not
     // be reported with BUSY_SUMMARY, since that would tell the model to
@@ -1004,6 +1069,43 @@ describe('RealtimeSession — connection lifecycle', () => {
     instance.settle();
     await flushMicrotasks();
 
+    expect(adapter.toolResults.find((r) => r.callId === 'c2')).toBeUndefined();
+  });
+
+  it('resolves the abandoned queued-intent promise to false on teardown instead of leaving it hanging forever', async () => {
+    const { session, adapter, events } = makeHarness();
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show revenue"}',
+    });
+    await flushMicrotasks(); // c2 is now queued: #queuedIntent set, its resolve() pending forever without the fix
+
+    await session.disconnect();
+    await flushMicrotasks();
+
+    // #handleToolCall awaits #handleUpdateUI's returned promise to compute
+    // `ok` for this event — if teardown left #queuedIntent's resolve
+    // uncalled, that promise dangles forever and this event never fires.
+    const c2ToolResult = events.find(
+      (e) => e.type === 'tool_result' && e.callId === 'c2',
+    );
+    expect(c2ToolResult).toBeDefined();
+    if (c2ToolResult?.type === 'tool_result') {
+      expect(c2ToolResult.ok).toBe(false);
+    }
+
+    // No sendToolResult for the abandoned call either way — teardown drops
+    // it silently rather than answering it (the adapter is gone too).
     expect(adapter.toolResults.find((r) => r.callId === 'c2')).toBeUndefined();
   });
 });

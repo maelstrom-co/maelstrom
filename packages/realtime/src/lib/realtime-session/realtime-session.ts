@@ -242,8 +242,11 @@ export class RealtimeSession implements VoiceSession {
     this.#pushGrounding.cancel();
     // Dropped silently, not answered: the adapter this call would have
     // replied on is going away too. The retry loop (if any is mid-wait)
-    // notices the identity mismatch on its next wake and stops on its own —
-    // the abandoned promise is left unresolved, never rejected.
+    // notices the identity mismatch on its next wake and stops on its own.
+    // We can't sendToolResult — the adapter is going away — but the local
+    // promise still must settle, or any awaiter of it hangs forever; resolve
+    // it `false` before clearing.
+    this.#queuedIntent?.resolve(false);
     this.#queuedIntent = undefined;
   }
 
@@ -364,7 +367,18 @@ export class RealtimeSession implements VoiceSession {
       // flight. Never let that exception reach the adapter — queue this
       // call as the latest-wins pending intent and retry once the prior
       // request settles, instead of answering busy immediately.
-      if (error instanceof RequestInFlightError) {
+      // Also match the stable duck-typed code, not just `instanceof`: an
+      // external consumer whose @maelstrom-co/client copy diverges from
+      // this package's (a dual-package hazard) would have `instanceof`
+      // silently false for a genuine in-flight rejection, turning every
+      // barge-in into a hard failure instead of a queued retry.
+      if (
+        error instanceof RequestInFlightError ||
+        (error !== null &&
+          typeof error === 'object' &&
+          'code' in error &&
+          (error as { code?: unknown }).code === 'request_in_flight')
+      ) {
         return new Promise<boolean>((resolve) => {
           this.#enqueueBargeIn({ callId, intent, resolve });
         });
