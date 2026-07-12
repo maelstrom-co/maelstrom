@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { ToolCallId } from '@maelstrom-co/protocol';
 import type { TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol';
 
 import type { AdapterConnectOptions } from '../realtime-session/provider-adapter.types.js';
@@ -329,7 +330,7 @@ describe('OpenAIAdapter — closed data channel', () => {
     const events: Array<{ type: string; error?: unknown }> = [];
     adapter.on((event) => events.push(event as { type: string; error?: unknown }));
 
-    await adapter.sendToolResult('call-1', { ok: true, summary: 'done' });
+    await adapter.sendToolResult(ToolCallId('call-1'), { ok: true, summary: 'done' });
 
     expect(events).toHaveLength(1);
     expect(events[0]?.type).toBe('error');

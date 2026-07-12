@@ -1,6 +1,6 @@
 import { Logger } from '@maelstrom-co/client';
 import type { Unsubscribe } from '@maelstrom-co/client';
-import type { TokenHandshakeResponse } from '@maelstrom-co/protocol';
+import type { ToolCallId, TokenHandshakeResponse } from '@maelstrom-co/protocol';
 
 import type {
   AdapterConnectOptions,
@@ -111,7 +111,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     this.#teardown();
   }
 
-  async sendToolResult(callId: string, output: unknown): Promise<void> {
+  async sendToolResult(callId: ToolCallId, output: unknown): Promise<void> {
     this.#logger.debug('→ sendToolResult', { callId, output });
     if (!this.#dc || this.#dc.readyState !== 'open') {
       this.#emit({
@@ -321,9 +321,12 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     // Response-lifecycle bookkeeping is driven off the raw event type, not
     // the parsed adapter event — `parseOpenAIServerEvent` has no mapping for
     // these (and shouldn't grow one just for this internal concern).
+    // `response.done` is terminal for every outcome (its `response.status`
+    // field carries completed/cancelled/failed/incomplete) — there is no
+    // separate `response.cancelled` server event.
     if (type === 'response.created') {
       this.#responseLifecycle = markResponseActive(this.#responseLifecycle);
-    } else if (type === 'response.done' || type === 'response.cancelled') {
+    } else if (type === 'response.done') {
       const { next, flush } = markResponseInactive(this.#responseLifecycle);
       this.#responseLifecycle = next;
       if (flush) this.#sendResponseCreate();
