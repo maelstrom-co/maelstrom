@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { isErr, isOk } from '@maelstrom-co/protocol';
+import { isOk } from '@maelstrom-co/protocol';
 import { createOpenAIMinter, mintFailureHttpStatus } from '@maelstrom-co/realtime-server';
 
 /**
@@ -20,30 +20,29 @@ export async function handleRealtimeTokenRequest(request: Request): Promise<Resp
   }
 
   let body: unknown;
+  let malformed = false;
   try {
     body = await request.json();
   } catch {
-    // A malformed body can't be distinguished from a client error until we
-    // rule out server misconfiguration first — `undefined` never validates,
-    // so this reuses the minter's own apiKey check instead of duplicating it.
-    const misconfigured = await mint(undefined);
-    if (isErr(misconfigured) && misconfigured.error.reason === 'missing-api-key') {
-      return Response.json(
-        { error: misconfigured.error.reason },
-        { status: mintFailureHttpStatus(misconfigured.error.reason) },
-      );
-    }
-    return Response.json({ error: 'Malformed request body' }, { status: 400 });
+    malformed = true;
   }
 
+  // The minter checks the API key before validating input, so a single mint
+  // call already gives missing-api-key precedence over a malformed body —
+  // no need to probe with a throwaway mint(undefined) first.
   const result = await mint(body);
   if (isOk(result)) {
     return Response.json(result.value);
   }
 
+  const error =
+    malformed && result.error.reason === 'invalid-request'
+      ? 'Malformed request body'
+      : result.error.reason;
+
   return Response.json(
     {
-      error: result.error.reason,
+      error,
       ...(result.error.reason === 'upstream-failure' && {
         upstreamStatus: result.error.upstreamStatus,
       }),
