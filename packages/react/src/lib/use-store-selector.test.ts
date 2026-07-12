@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { cleanup, renderHook, act } from '@testing-library/react';
 import { useStoreSelector } from './use-store-selector.js';
+import { assertDefined } from './__tests__/assert-defined.js';
 
 interface MockStore<T> {
   state: T;
@@ -18,7 +19,9 @@ function createMockStore<T>(initial: T): MockStore<T> {
     },
     setState(value: T) {
       this.state = value;
-      listeners.forEach((cb) => cb());
+      listeners.forEach((cb) => {
+        cb();
+      });
     },
   };
 }
@@ -137,12 +140,14 @@ describe('useStoreSelector', () => {
       );
 
       expect(result.current).toBeInstanceOf(Error);
-      expect(result.current!.message).toBe('first');
+      assertDefined(result.current);
+      expect(result.current.message).toBe('first');
 
       act(() => store.setState({ error: new Error('second') }));
 
       expect(result.current).toBeInstanceOf(Error);
-      expect(result.current!.message).toBe('second');
+      assertDefined(result.current);
+      expect(result.current.message).toBe('second');
     });
 
     it('treats distinct Date instances as not equal', () => {
@@ -158,7 +163,8 @@ describe('useStoreSelector', () => {
       act(() => store.setState({ ts: new Date('2026-06-15') }));
 
       expect(result.current).not.toBe(first);
-      expect(result.current!.toISOString()).toContain('2026-06-15');
+      assertDefined(result.current);
+      expect(result.current.toISOString()).toContain('2026-06-15');
     });
 
     it('treats distinct Map instances as not equal', () => {

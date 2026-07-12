@@ -42,15 +42,15 @@ describe('TypedVesselProps', () => {
 
   it('rejects invalid action names in executeAction', () => {
     // @ts-expect-error - 'badAction' is not a valid action name
-    const _fn: TypedVesselProps<TestVessel>['executeAction'] = (name: 'badAction') => {};
+    const _fn: TypedVesselProps<TestVessel>['executeAction'] = (_name: 'badAction') => {};
     void _fn;
   });
 
   it('constrains executeAction name to ActionNames<V>', () => {
     // @ts-expect-error - empty string is not a valid action name
-    const _fn1: TypedVesselProps<TestVessel>['executeAction'] = (name: '') => {};
+    const _fn1: TypedVesselProps<TestVessel>['executeAction'] = (_name: '') => {};
     // @ts-expect-error - arbitrary string is not a valid action name
-    const _fn2: TypedVesselProps<TestVessel>['executeAction'] = (name: 'nonExistent') => {};
+    const _fn2: TypedVesselProps<TestVessel>['executeAction'] = (_name: 'nonExistent') => {};
     void [_fn1, _fn2];
   });
 

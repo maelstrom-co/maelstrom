@@ -1,0 +1,60 @@
+import { createFileRoute } from '@tanstack/react-router';
+import { isOk } from '@maelstrom-co/protocol';
+import { createOpenAIMinter, mintFailureHttpStatus } from '@maelstrom-co/realtime-server';
+
+/**
+ * Mints ephemeral OpenAI realtime client secrets on behalf of the browser.
+ * OPENAI_API_KEY never leaves this server-only minter — see
+ * createOpenAIMinter for the mint contract. This route owns the HTTP
+ * transport concerns (method check, body parsing, status mapping) that the
+ * minter itself is agnostic to.
+ */
+const mint = createOpenAIMinter({
+  apiKey: process.env.OPENAI_API_KEY ?? '',
+  model: 'gpt-realtime-2',
+});
+
+export async function handleRealtimeTokenRequest(request: Request): Promise<Response> {
+  if (request.method !== 'POST') {
+    return Response.json({ error: 'Method not allowed' }, { status: 400 });
+  }
+
+  let body: unknown;
+  let malformed = false;
+  try {
+    body = await request.json();
+  } catch {
+    malformed = true;
+  }
+
+  // The minter checks the API key before validating input, so a single mint
+  // call already gives missing-api-key precedence over a malformed body —
+  // no need to probe with a throwaway mint(undefined) first.
+  const result = await mint(body);
+  if (isOk(result)) {
+    return Response.json(result.value);
+  }
+
+  const error =
+    malformed && result.error.reason === 'invalid-request'
+      ? 'Malformed request body'
+      : result.error.reason;
+
+  return Response.json(
+    {
+      error,
+      ...(result.error.reason === 'upstream-failure' && {
+        upstreamStatus: result.error.upstreamStatus,
+      }),
+    },
+    { status: mintFailureHttpStatus(result.error.reason) },
+  );
+}
+
+export const Route = createFileRoute('/api/realtime-token')({
+  server: {
+    handlers: {
+      POST: ({ request }) => handleRealtimeTokenRequest(request),
+    },
+  },
+});

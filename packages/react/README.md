@@ -22,7 +22,7 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react`
   - `useMaelstrom` — intent submission and connection status
   - `useVessel` and `useActions` — vessel-level state
   - `useInstance` — raw access to the Maelstrom instance
-- **`.with(extension)`** — builder for optional extensions (e.g. `maelstromVoice()` from `@maelstrom-co/react-voice`)
+- **`.with(extension)`** — builder for optional extensions
 
 ## Quick example
 

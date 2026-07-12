@@ -78,11 +78,9 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     // by incrementing lazyRetryKey, producing a fresh lazy() instance.
     const [lazyRetryKey, setLazyRetryKey] = useState(0);
     const lazyLoader = isLazy ? lazyLoaderRegistry.get(instance.vesselId) : undefined;
+    // biome-ignore lint/correctness/useExhaustiveDependencies: lazyRetryKey is intentionally in deps though unused in the body — incrementing it produces a fresh React.lazy() instance, busting the cached rejected Promise on retry.
     const LazyComponent = useMemo(
       () => (lazyLoader ? lazy(lazyLoader) : null),
-      // lazyRetryKey is intentionally in deps: incrementing it produces a fresh
-      // React.lazy() instance, busting the cached rejected Promise on retry.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
       [lazyLoader, lazyRetryKey],
     );
 
@@ -185,7 +183,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
   // ─── Tiling debug overlay ────────────────────────────────────────────────────
 
-  function TilingDebugOverlay({ tiles }: { tiles: ComputedTile[] }) {
+  function TilingDebugOverlay({ tiles }: { tiles: readonly ComputedTile[] }) {
     return (
       <div
         style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 9999 }}

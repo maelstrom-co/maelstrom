@@ -11,6 +11,7 @@ import { createMaelstrom } from '../create-maelstrom.js';
 import { vessel } from '../vessel.js';
 import { testVessel } from '../__tests__/test-vessel.fixture.js';
 import { createMockConnector } from '../__tests__/mock-connector.js';
+import { assertDefined } from '../__tests__/assert-defined.js';
 
 // Mock ResizeObserver (happy-dom may not implement it)
 type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;
@@ -115,7 +116,7 @@ describe('m.Chart — render structure', () => {
     const entry = vessel(testVessel, () => <div>hi</div>);
     const m = createMaelstrom({ vessels: [entry] });
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={createMockConnector()}>
@@ -125,14 +126,14 @@ describe('m.Chart — render structure', () => {
     });
 
     // Container renders but no vessel instances
-    expect(container!.innerHTML).not.toContain('data-instance-id');
+    expect(container.innerHTML).not.toContain('data-instance-id');
   });
 
   it('accepts className and style props', async () => {
     const entry = vessel(testVessel, () => null);
     const m = createMaelstrom({ vessels: [entry] });
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={createMockConnector()}>
@@ -141,7 +142,7 @@ describe('m.Chart — render structure', () => {
       ));
     });
 
-    const chartEl = container!.firstElementChild as HTMLElement;
+    const chartEl = container.firstElementChild as HTMLElement;
     expect(chartEl.className).toBe('my-chart');
     expect(chartEl.style.background).toBe('red');
   });
@@ -150,7 +151,7 @@ describe('m.Chart — render structure', () => {
     const entry = vessel(testVessel, () => null);
     const m = createMaelstrom({ vessels: [entry] });
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={createMockConnector()}>
@@ -161,7 +162,7 @@ describe('m.Chart — render structure', () => {
       ));
     });
 
-    expect(container!.innerHTML).toContain('slot content');
+    expect(container.innerHTML).toContain('slot content');
   });
 });
 
@@ -226,7 +227,7 @@ describe('m.Chart — grid layout', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -237,12 +238,16 @@ describe('m.Chart — grid layout', () => {
     });
 
     // First intent: tiling layout registers instance
-    await act(async () => { await processIntent!('show orders'); });
+    assertDefined(processIntent);
+    const processTilingIntent = processIntent;
+    await act(async () => { await processTilingIntent('show orders'); });
     // Second intent: grid layout positions instance
-    await act(async () => { await processIntent!('layout as grid'); });
+    assertDefined(processIntent);
+    const processGridIntent = processIntent;
+    await act(async () => { await processGridIntent('layout as grid'); });
 
     // The vessel instance wrapper should appear in the DOM
-    expect(container!.innerHTML).toContain('data-instance-id="inst-1"');
+    expect(container.innerHTML).toContain('data-instance-id="inst-1"');
   });
 
   it('applies CSS grid positioning from GridLayout.positions', async () => {
@@ -258,7 +263,7 @@ describe('m.Chart — grid layout', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -269,15 +274,19 @@ describe('m.Chart — grid layout', () => {
     });
 
     // First intent: tiling layout registers instance
-    await act(async () => { await processIntent!('x'); });
+    assertDefined(processIntent);
+    const processTilingIntent = processIntent;
+    await act(async () => { await processTilingIntent('x'); });
     // Second intent: grid layout positions instance
-    await act(async () => { await processIntent!('grid'); });
+    assertDefined(processIntent);
+    const processGridIntent = processIntent;
+    await act(async () => { await processGridIntent('grid'); });
 
-    expect(container!.innerHTML).toContain('data-instance-id="inst-1"');
+    expect(container.innerHTML).toContain('data-instance-id="inst-1"');
     // column=2 → gridColumnStart=3, width=3 → gridColumnEnd=6
-    expect(container!.innerHTML).toContain('grid-column: 3 / 6');
+    expect(container.innerHTML).toContain('grid-column: 3 / 6');
     // row=1 → gridRowStart=2, height=2 → gridRowEnd=4
-    expect(container!.innerHTML).toContain('grid-row: 2 / 4');
+    expect(container.innerHTML).toContain('grid-row: 2 / 4');
   });
 });
 
@@ -295,7 +304,7 @@ describe('m.Chart — tiling layout', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -310,12 +319,14 @@ describe('m.Chart — tiling layout', () => {
       triggerResize(800, 600);
     });
 
+    assertDefined(processIntent);
+    const processIntentSnapshot = processIntent;
     await act(async () => {
-      await processIntent!('x');
+      await processIntentSnapshot('x');
     });
 
-    expect(container!.innerHTML).toContain('data-instance-id="inst-1"');
-    expect(container!.innerHTML).toContain('position: absolute');
+    expect(container.innerHTML).toContain('data-instance-id="inst-1"');
+    expect(container.innerHTML).toContain('position: absolute');
   });
 });
 
@@ -324,7 +335,7 @@ describe('m.Chart — debug overlay', () => {
     const entry = vessel(testVessel, () => null);
     const m = createMaelstrom({ vessels: [entry], debug: true });
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={createMockConnector()}>
@@ -334,14 +345,14 @@ describe('m.Chart — debug overlay', () => {
     });
 
     // Debug overlay is rendered when debug config is true
-    expect(container!.innerHTML).toContain('data-chart-debug');
+    expect(container.innerHTML).toContain('data-chart-debug');
   });
 
   it('does not show debug overlay when debug=false', async () => {
     const entry = vessel(testVessel, () => null);
     const m = createMaelstrom({ vessels: [entry], debug: false });
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={createMockConnector()}>
@@ -350,7 +361,7 @@ describe('m.Chart — debug overlay', () => {
       ));
     });
 
-    expect(container!.innerHTML).not.toContain('data-chart-debug');
+    expect(container.innerHTML).not.toContain('data-chart-debug');
   });
 });
 
@@ -369,7 +380,7 @@ describe('m.Chart — lazy vessel retry', () => {
 
     const entry = vessel(
       testVessel,
-      loader as any,
+      loader,
       () => <div>loading...</div>,
     );
     const m = createMaelstrom({ vessels: [entry] });
@@ -381,7 +392,7 @@ describe('m.Chart — lazy vessel retry', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -392,20 +403,23 @@ describe('m.Chart — lazy vessel retry', () => {
     });
 
     await act(async () => { triggerResize(800, 600); });
-    await act(async () => { await processIntent!('show orders'); });
+    assertDefined(processIntent);
+    const processIntentSnapshot = processIntent;
+    await act(async () => { await processIntentSnapshot('show orders'); });
 
     // First load attempt failed — error UI should appear
-    expect(container!.innerHTML).toContain('data-vessel-error="orders"');
+    expect(container.innerHTML).toContain('data-vessel-error="orders"');
     expect(loadAttempt).toBe(1);
 
     // Click retry button
-    const retryButton = container!.getElementsByTagName('button')[0]!;
+    const retryButton = container.getElementsByTagName('button')[0];
+    assertDefined(retryButton);
     await act(async () => { fireEvent.click(retryButton); });
 
     // Second load attempt should succeed
     expect(loadAttempt).toBe(2);
-    expect(container!.innerHTML).toContain('loaded');
-    expect(container!.innerHTML).not.toContain('data-vessel-error');
+    expect(container.innerHTML).toContain('loaded');
+    expect(container.innerHTML).not.toContain('data-vessel-error');
   });
 
   // Regression: dynamic-register × retry is where the original bug hid — lazy
@@ -426,7 +440,7 @@ describe('m.Chart — lazy vessel retry', () => {
 
     const dynamicLazyEntry = vessel(
       testVessel,
-      loader as any,
+      loader,
       () => <div>loading...</div>,
     );
 
@@ -444,7 +458,7 @@ describe('m.Chart — lazy vessel retry', () => {
       return null;
     }
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={connector}>
@@ -455,20 +469,23 @@ describe('m.Chart — lazy vessel retry', () => {
     });
 
     await act(async () => { triggerResize(800, 600); });
-    await act(async () => { await processIntent!('show orders'); });
+    assertDefined(processIntent);
+    const processIntentSnapshot = processIntent;
+    await act(async () => { await processIntentSnapshot('show orders'); });
 
     // First load attempt failed — error UI should appear (proves the dynamic
     // entry was actually wired into lazyLoaderRegistry; otherwise the chart
     // would render null with no error boundary trigger).
-    expect(container!.innerHTML).toContain('data-vessel-error="orders"');
+    expect(container.innerHTML).toContain('data-vessel-error="orders"');
     expect(loadAttempt).toBe(1);
 
-    const retryButton = container!.getElementsByTagName('button')[0]!;
+    const retryButton = container.getElementsByTagName('button')[0];
+    assertDefined(retryButton);
     await act(async () => { fireEvent.click(retryButton); });
 
     expect(loadAttempt).toBe(2);
-    expect(container!.innerHTML).toContain('dynamic loaded');
-    expect(container!.innerHTML).not.toContain('data-vessel-error');
+    expect(container.innerHTML).toContain('dynamic loaded');
+    expect(container.innerHTML).not.toContain('data-vessel-error');
   });
 });
 
@@ -478,7 +495,7 @@ describe('m.Chart — duplicate chart guard', () => {
     const entry = vessel(testVessel, () => <div>content</div>);
     const m = createMaelstrom({ vessels: [entry] });
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={createMockConnector()}>
@@ -489,7 +506,7 @@ describe('m.Chart — duplicate chart guard', () => {
     });
 
     // One Chart renders normally, the other shows the duplicate error
-    expect(container!.innerHTML).toContain('Only one');
+    expect(container.innerHTML).toContain('Only one');
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Only one <Chart>'),
     );
@@ -500,7 +517,7 @@ describe('m.Chart — duplicate chart guard', () => {
     const entry = vessel(testVessel, () => <div>content</div>);
     const m = createMaelstrom({ vessels: [entry] });
 
-    let container: HTMLElement;
+    let container!: HTMLElement;
     await act(async () => {
       ({ container } = render(
         <m.Provider connector={createMockConnector()}>
@@ -509,6 +526,6 @@ describe('m.Chart — duplicate chart guard', () => {
       ));
     });
 
-    expect(container!.innerHTML).not.toContain('Only one');
+    expect(container.innerHTML).not.toContain('Only one');
   });
 });

@@ -51,7 +51,7 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     registerVessel: createRegisterVessel(contextPair),
   };
 
-  return makeWithable<T, {}>(base, contextPair);
+  return makeWithable<T, object>(base, contextPair);
 }
 
 function makeWithable<

@@ -62,11 +62,11 @@ export interface LazyVesselEntry<V extends VesselDefinition> {
   loadingComponent: ComponentType<{ vesselId: VesselId }>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: default erases T for heterogeneous entry arrays (readonly AnyVesselEntry[] holding many distinct vessel defs); `unknown` doesn't satisfy the `VesselDefinition` constraint, so downstream generics (ExtractVesselByIdFromEntries, VesselIds, ActionRunnerLookup) fail to resolve.
 export type AnyVesselEntry<T extends VesselDefinition = any> = VesselEntry<T> | LazyVesselEntry<T>;
 
 /** Discriminant: lazy entries carry a loadingComponent, eager ones don't. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: same erasure as AnyVesselEntry's default above — `unknown` doesn't satisfy the VesselDefinition constraint.
 export function isLazyEntry(entry: AnyVesselEntry): entry is LazyVesselEntry<any> {
   return 'loadingComponent' in entry;
 }

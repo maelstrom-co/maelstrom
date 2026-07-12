@@ -20,40 +20,18 @@ import {
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { createMockResponse } from '../../../test-utils/mocks.js';
-import type {
-  ConnectorEvent,
-  EngineConnector,
-  PushConnector,
-} from '../connection-manager/connector.types.js';
+import {
+  createMockConnector,
+  createTestOrchestrator,
+} from '../../../test-utils/connector-mocks.js';
+import type { PushConnector } from '../connection-manager/connector.types.js';
 import type { Unsubscribe } from '../types.js';
-import { Orchestrator } from './orchestrator.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
+import { RequestInFlightError } from './request-in-flight-error.js';
 
 // ============================================================================
 // Test helpers
 // ============================================================================
-
-function createMockConnector(
-  overrides: Partial<EngineConnector> = {},
-): EngineConnector {
-  return {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: mock((_sessionId: SessionId) => Promise.resolve()),
-    disconnect: mock(() => Promise.resolve()),
-    process: mock(() =>
-      Promise.resolve(
-        createMockResponse(MessageId('req-1'), 'instance-1', 'show'),
-      ),
-    ),
-    subscribe: mock(
-      (_handler: (event: ConnectorEvent) => void): Unsubscribe =>
-        () => {},
-    ),
-    addAssistantMessage: mock(() => Promise.resolve()),
-    getHistory: mock(() => Promise.resolve([])),
-    ...overrides,
-  };
-}
 
 function createMockPushConnector(
   overrides: Partial<PushConnector> = {},
@@ -66,15 +44,6 @@ function createMockPushConnector(
     ),
     ...overrides,
   } as PushConnector;
-}
-
-function createTestOrchestrator(
-  connector?: EngineConnector,
-  options: { debug?: boolean; layoutMode?: 'tiling' | 'grid' } = {},
-) {
-  const conn = connector ?? createMockConnector();
-  const orchestrator = new Orchestrator(conn, options);
-  return { connector: conn, orchestrator };
 }
 
 // ============================================================================
@@ -165,7 +134,11 @@ describe('Orchestrator', () => {
       await orchestrator.processIntent('test');
 
       expect(capturedViewState).not.toBeNull();
-      expect(capturedViewState!.isProcessing).toBe(true);
+      const resolvedViewState = capturedViewState as ReturnType<
+        typeof orchestrator.getViewState
+      > | null;
+      if (!resolvedViewState) throw new Error('expected captured view state');
+      expect(resolvedViewState.isProcessing).toBe(true);
 
       // After completion, isProcessing is false
       expect(orchestrator.getViewState().isProcessing).toBe(false);
@@ -379,9 +352,11 @@ describe('Orchestrator', () => {
       // Start first intent — it will block on the connector
       const firstIntent = orchestrator.processIntent('first');
 
-      // Second intent while first is in-flight should throw
+      // Second intent while first is in-flight should throw the typed error
+      // so callers (e.g. realtime barge-in handling) can branch on the class
+      // rather than matching the message.
       await expect(orchestrator.processIntent('second')).rejects.toThrow(
-        /already in flight/i,
+        RequestInFlightError,
       );
 
       // Resolve first intent to clean up

@@ -38,9 +38,17 @@ nx test @maelstrom-co/react
 # Type check all packages
 nx run-many -t typecheck
 
+# Lint all projects (Biome) — treat warnings as errors, like CI does
+nx run-many -t lint --error-on-warnings
+
+# Auto-apply safe lint fixes
+nx run-many -t lint --error-on-warnings --fix
+
 # Build dependencies before testing (required for tests)
 # Tests depend on ^build - packages must be built first
 ```
+
+Before declaring any change done, run typecheck, tests, AND lint (with `--error-on-warnings`) for the affected packages. CI's lint step fails only on Biome errors; warnings-as-errors is the local bar, so a change that merely typechecks is not done if it introduces lint warnings.
 
 ## Environment Setup
 
@@ -56,20 +64,15 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 ```
 @maelstrom-co/protocol  (foundation: shared types, zod schemas, message contract)
          │
-    ┌────┴────┐
-    ▼         ▼
-@maelstrom-co/client   @maelstrom-co/engine
-(framework-agnostic) (LLM decision core: @tanstack/ai)
+    ┌────┼───────────────┐
+    ▼    ▼               ▼
+@maelstrom-co/client  @maelstrom-co/engine  @maelstrom-co/realtime-server
+(framework-agnostic)  (LLM decision core: @tanstack/ai)  (mints ephemeral realtime tokens)
     │
-    ├────────────┐
-    ▼            ▼
-@maelstrom-co/react  @maelstrom-co/voice
-(React bindings)  (audio capture/playback, VAD)
-    │            │
-    └─────┬──────┘
-          ▼
-@maelstrom-co/react-voice
-(React voice extension via .with(maelstromVoice()))
+    ├──────────┐
+    ▼          ▼
+@maelstrom-co/react  @maelstrom-co/realtime
+(React bindings)     (browser realtime-voice core)
 ```
 
 ### Package Locations
@@ -80,8 +83,8 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 | `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Message Processor, Orchestrator |
 | `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
-| `@maelstrom-co/voice` | `packages/voice/` | Client-side audio: capture, playback, VAD (Silero via onnxruntime-web), voice sessions |
-| `@maelstrom-co/react-voice` | `packages/react-voice/` | Optional React voice extension: `maelstromVoice()` factory adding `useVoice` and `VoiceOrb` to a Maelstrom instance via `.with()` |
+| `@maelstrom-co/realtime` | `packages/realtime/` | Browser realtime-voice core: RealtimeSession, RealtimeProviderAdapter seam, OpenAI adapter via `/openai` subpath (ephemeral tokens only — never holds provider keys) |
+| `@maelstrom-co/realtime-server` | `packages/realtime-server/` | Server-side mint of ephemeral realtime tokens; the only package that touches provider API keys |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts
@@ -117,7 +120,7 @@ is only CSS `overflow: hidden`; there is no resolver.
 - **Frontend**: React 19, TanStack Router/Start
 - **Styling**: Tailwind CSS
 - **LLM**: @tanstack/ai with @tanstack/ai-gemini, Effect for functional composition
-- **Voice**: Deepgram (STT), Cartesia (TTS), Silero VAD via onnxruntime-web
+- **Voice/Realtime**: OpenAI gpt-realtime over WebRTC (client-direct, ephemeral tokens)
 
 ## Coding Conventions
 
@@ -139,7 +142,7 @@ The `@maelstrom-co/*` packages are published to external consumers, so the comme
 ## Nx Workspace Notes
 
 - Uses inferred targets via plugins (`@nx/js/typescript`, `@nx/vite/plugin`, `@nx/vitest`)
-- No ESLint configured (linter: none)
+- Linting is Biome (no ESLint): `nx run-many -t lint --error-on-warnings`; suppressions use `// biome-ignore <rule>: <why>` comments stating the invariant
 - Tests depend on built packages (`"dependsOn": ["^build"]`)
 
 ## Linear Workflow

@@ -429,7 +429,7 @@ export class ActionManager {
   ): Promise<T> {
     if (this.#executionTimeoutMs <= 0) return promise;
 
-    let timeoutId: ReturnType<typeof setTimeout>;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
         reject(
@@ -443,7 +443,7 @@ export class ActionManager {
     try {
       return await Promise.race([promise, timeoutPromise]);
     } finally {
-      clearTimeout(timeoutId!);
+      clearTimeout(timeoutId);
     }
   }
 }

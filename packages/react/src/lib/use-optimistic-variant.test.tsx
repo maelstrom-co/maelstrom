@@ -9,6 +9,7 @@ import {
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, renderHook } from '@testing-library/react';
+import { assertDefined } from './__tests__/assert-defined.js';
 import { useOptimisticVariant } from './use-optimistic-variant.js';
 
 const vCollapsed = VariantName('collapsed');
@@ -198,7 +199,9 @@ describe('useOptimisticVariant', () => {
     act(() => result.current.applyTransition('expand'));
     expect(result.current.current).toBe(vExpanded);
 
-    act(() => errorHandler!());
+    assertDefined(errorHandler);
+    const handler = errorHandler;
+    act(() => handler());
     expect(result.current.current).toBeNull();
   });
 

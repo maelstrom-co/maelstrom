@@ -23,6 +23,12 @@
     },
     {
       "path": "./packages/engine"
+    },
+    {
+      "path": "./packages/realtime"
+    },
+    {
+      "path": "./packages/realtime-server"
     }
   ]
 }

@@ -110,6 +110,7 @@ export type {
 } from './lib/orchestrator/request-coordinator.js';
 export { RequestCoordinator } from './lib/orchestrator/request-coordinator.js';
 export type { RequestCoordinatorOptions } from './lib/orchestrator/request-coordinator.types.js';
+export { RequestInFlightError } from './lib/orchestrator/request-in-flight-error.js';
 // Types
 export type { Unsubscribe, VesselInstance } from './lib/types.js';
 export type { UpdateCoordinatorEvents } from './lib/update-coordination/update-coordinator.js';
@@ -128,3 +129,19 @@ export {
   type VesselManagerState,
 } from './lib/vessel-management/vessel-manager.state.js';
 export type { VesselManagerOptions } from './lib/vessel-management/vessel-manager.types.js';
+// Voice Session
+export type {
+  CapabilitySnapshot,
+  VesselCapability,
+  VesselCapabilityAction,
+  VesselCapabilityVariant,
+} from './lib/voice-session/capability-snapshot.js';
+export { readCapabilitySnapshot } from './lib/voice-session/capability-snapshot.js';
+export type { UIStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
+export { readStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
+export type {
+  GroundingUpdate,
+  SpeakableResult,
+  VoiceSession,
+  VoiceSessionState,
+} from './lib/voice-session/voice-session.types.js';

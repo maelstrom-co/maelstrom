@@ -74,6 +74,7 @@ export function parseTree(
   // missing child slot.
   let pending: Ast | null = root;
   while (stack.length > 0) {
+    // biome-ignore lint/style/noNonNullAssertion: stack.length > 0 is the loop condition
     const frame = stack.pop()!;
     if (frame.kind === 'await-right') {
       if (pending === null) {

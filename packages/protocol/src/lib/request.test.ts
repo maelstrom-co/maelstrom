@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { z } from 'zod';
+import type { z } from 'zod';
 
 import { ActionName } from './action-name.js';
 import { InstanceId } from './instance.js';
@@ -12,7 +12,7 @@ import {
   UserIntentReasonSchema,
   VesselMutationReasonSchema,
 } from './request.js';
-import { VesselInstanceSnapshotSchema } from './schemas.js';
+import type { VesselInstanceSnapshotSchema } from './schemas.js';
 import { VariantName } from './variant-name.js';
 import { VesselId } from './vessel-id.js';
 

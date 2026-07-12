@@ -6,29 +6,29 @@ import {
 } from '@maelstrom-co/protocol';
 
 export interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 export type TilingTreeNode = TilingSplitNode | TilingLeafNode;
 
 export interface TilingSplitNode {
-  type: 'split';
-  direction: TilingSplit;
-  left?: TilingTreeNode | undefined;
-  right?: TilingTreeNode | undefined;
+  readonly type: 'split';
+  readonly direction: TilingSplit;
+  readonly left?: TilingTreeNode | undefined;
+  readonly right?: TilingTreeNode | undefined;
 }
 
 export interface TilingLeafNode {
-  type: 'leaf';
-  instanceId: InstanceId | null;
+  readonly type: 'leaf';
+  readonly instanceId: InstanceId | null;
 }
 
 export interface ComputedTile {
-  instanceId: InstanceId;
-  rect: Rect;
+  readonly instanceId: InstanceId;
+  readonly rect: Rect;
 }
 
 export function parseTilingTree(
@@ -85,7 +85,7 @@ export function computeTilingLayout(
   tree: TilingTreeNode | null,
   containerRect: Rect,
   padding: number,
-): ComputedTile[] {
+): readonly ComputedTile[] {
   if (!tree) {
     return [];
   }
@@ -172,7 +172,9 @@ function mergeDuplicateTiles(tiles: ComputedTile[]): ComputedTile[] {
 
   for (const [instanceId, instanceTiles] of instanceMap) {
     if (instanceTiles.length === 1) {
-      merged.push(instanceTiles[0]!);
+      const tile = instanceTiles[0];
+      if (!tile) throw new Error('instanceTiles must contain an element when length is 1');
+      merged.push(tile);
     } else {
       const boundingBox = computeBoundingBox(instanceTiles.map((t) => t.rect));
       merged.push({ instanceId, rect: boundingBox });

@@ -495,12 +495,14 @@ describe('ActionManager', () => {
       await clock.tickAsync(50);
 
       expect(result).not.toBeNull();
-      expect(result!.failureCount).toBe(1);
-      expect(result!.allSucceeded).toBe(false);
-      expect(result!.actions[0].result.ok).toBe(false);
+      const resolvedResult = result as BatchExecutionResult | null;
+      if (!resolvedResult) throw new Error('expected result');
+      expect(resolvedResult.failureCount).toBe(1);
+      expect(resolvedResult.allSucceeded).toBe(false);
+      expect(resolvedResult.actions[0].result.ok).toBe(false);
       expect(
-        isErr(result!.actions[0].result) &&
-          result!.actions[0].result.error.message,
+        isErr(resolvedResult.actions[0].result) &&
+          resolvedResult.actions[0].result.error.message,
       ).toContain('timed out after 50ms');
     });
 
@@ -524,8 +526,10 @@ describe('ActionManager', () => {
       await clock.tickAsync(0);
 
       expect(result).not.toBeNull();
-      expect(result!.successCount).toBe(1);
-      expect(result!.allSucceeded).toBe(true);
+      const resolvedResult = result as BatchExecutionResult | null;
+      if (!resolvedResult) throw new Error('expected result');
+      expect(resolvedResult.successCount).toBe(1);
+      expect(resolvedResult.allSucceeded).toBe(true);
     });
 
     it('should not timeout actions that complete within the limit', async () => {
@@ -551,8 +555,10 @@ describe('ActionManager', () => {
       await clock.tickAsync(10);
 
       expect(result).not.toBeNull();
-      expect(result!.successCount).toBe(1);
-      expect(result!.allSucceeded).toBe(true);
+      const resolvedResult = result as BatchExecutionResult | null;
+      if (!resolvedResult) throw new Error('expected result');
+      expect(resolvedResult.successCount).toBe(1);
+      expect(resolvedResult.allSucceeded).toBe(true);
     });
   });
 

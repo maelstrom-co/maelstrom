@@ -14,6 +14,7 @@ export interface MaelstromContextValue {
   /** Ref to onError callback from Provider props — allows hook to call it without re-renders */
   onErrorRef: MutableRefObject<((error: Error) => void) | undefined>;
   /** Maps vessel ID → React component */
+  // biome-ignore lint/suspicious/noExplicitAny: registry holds components for heterogeneous vessel definitions; ComponentType's props are contravariant, so `unknown` fails both the VesselDefinition constraint and JSX call sites in chart.tsx — only `any` can erase per-vessel prop types here.
   componentRegistry: Map<VesselId, ComponentType<TypedVesselProps<any>>>;
   /** Maps vessel ID → loading skeleton (for lazy vessels) */
   loadingRegistry: Map<VesselId, ComponentType<{ vesselId: VesselId }>>;
@@ -24,6 +25,7 @@ export interface MaelstromContextValue {
    * each render keyed by a retry counter, so the retry path can bust the
    * cached rejected Promise. Mirrors lazyVesselIds — invariant: ids match.
    */
+  // biome-ignore lint/suspicious/noExplicitAny: same erasure requirement as componentRegistry above — `unknown` doesn't satisfy the VesselDefinition constraint on LazyVesselComponentLoader.
   lazyLoaderRegistry: Map<VesselId, LazyVesselComponentLoader<any>>;
   /** Guard: only one Chart may be mounted per Provider */
   chartMountedRef: MutableRefObject<boolean>;

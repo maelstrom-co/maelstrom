@@ -24,9 +24,15 @@ export function pruneAst(
   const results: TilingNode[][] = [];
 
   while (work.length > 0) {
+    // biome-ignore lint/style/noNonNullAssertion: work.length > 0 is the loop condition
     const task = work.pop()!;
     if (task.op === 'combine') {
+      // A 'split' always pushes combine, then visit(right), then visit(left)
+      // (LIFO), so left resolves first and its result sits below right's on
+      // the results stack — both are guaranteed present here.
+      // biome-ignore lint/style/noNonNullAssertion: paired visit(right) result guaranteed pushed before this combine runs
       const right = results.pop()!;
+      // biome-ignore lint/style/noNonNullAssertion: paired visit(left) result guaranteed pushed before this combine runs
       const left = results.pop()!;
       if (left.length === 0 && right.length === 0) {
         results.push([]);
@@ -69,10 +75,11 @@ export function pruneAst(
     }
   }
 
-  if (results.length !== 1) {
+  const result = results[0];
+  if (results.length !== 1 || result === undefined) {
     throw new Error(
       `pruneAst invariant violation: expected 1 result, got ${results.length}`,
     );
   }
-  return results[0]!;
+  return result;
 }

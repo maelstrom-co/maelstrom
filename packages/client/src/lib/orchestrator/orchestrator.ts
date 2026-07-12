@@ -18,9 +18,18 @@ import type {
   PushConnector,
 } from '../connection-manager/connector.types.js';
 import { CommandProcessor } from '../command-processor/command-processor.js';
+import type { Unsubscribe } from '../types.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
+import {
+  readCapabilitySnapshot,
+  type CapabilitySnapshot,
+} from '../voice-session/capability-snapshot.js';
+import {
+  readStructuralSnapshot,
+  type UIStructuralSnapshot,
+} from '../voice-session/ui-structural-snapshot.js';
 import { buildChartRequest } from './build-chart-request.js';
 import type {
   OrchestratorOptions,
@@ -29,6 +38,7 @@ import type {
 } from './orchestrator.types.js';
 import { resolveOrchestratorOptions } from './orchestrator.types.js';
 import { RequestCoordinator } from './request-coordinator.js';
+import { RequestInFlightError } from './request-in-flight-error.js';
 
 /**
  * Composition root that creates, wires, and coordinates all microkernels.
@@ -142,6 +152,55 @@ export class Orchestrator {
     };
   }
 
+  /** Structural-only UI snapshot for grounding + `get_ui_state` pulls. */
+  getStructuralSnapshot(): UIStructuralSnapshot {
+    return readStructuralSnapshot(this);
+  }
+
+  /** Capability catalog (vessels, variants, actions) for `get_capabilities` pulls. */
+  getCapabilitySnapshot(): CapabilitySnapshot {
+    return readCapabilitySnapshot(this.#vesselManager.getAll());
+  }
+
+  /**
+   * Subscribe to the render-settled signal.
+   *
+   * Fires whenever the CommandProcessor's command queue drains back to
+   * idle — the moment a batch of layout + action commands has fully
+   * applied. Both settle sources required by grounding reach this
+   * transition: an engine response dispatched via `processIntent` /
+   * `flushUpdates` (`set_layout` + `execute_actions` as one atomic batch),
+   * and direct manipulation (a user click / variant change, which reaches
+   * the processor through `commandProcessor.executeActions()` the same way
+   * a React `executeAction` call does). Neither path bypasses the queue, so
+   * a single subscription to the queue-idle transition grounds both.
+   *
+   * This is the grounding-push trigger only — it is NOT how speak-after-render
+   * is sequenced. That flow awaits a specific intent's own
+   * `commandProcessor.waitForIdle()` after `processIntent` resolves, so it
+   * correlates to that intent's response rather than racing this global signal.
+   *
+   * May fire more than once per logical settle (each queue-drain-to-idle
+   * transition invokes it); downstream consumers that only want the latest
+   * state should debounce.
+   */
+  onSettled(cb: () => void): Unsubscribe {
+    const isIdle = () =>
+      this.#commandProcessor.store.state.status === 'idle' &&
+      this.#commandProcessor.queueLength === 0;
+
+    let wasIdle = isIdle();
+    const subscription = this.#commandProcessor.store.subscribe(() => {
+      const idleNow = isIdle();
+      if (idleNow && !wasIdle) {
+        cb();
+      }
+      wasIdle = idleNow;
+    });
+
+    return () => subscription.unsubscribe();
+  }
+
   // ==========================================================================
   // Request lifecycle (sequencing only — no state)
   // ==========================================================================
@@ -151,7 +210,7 @@ export class Orchestrator {
       throw new Error('Orchestrator is disposed');
     }
     if (this.#requestCoordinator.isProcessing) {
-      throw new Error('A request is already in flight');
+      throw new RequestInFlightError();
     }
 
     const pendingUpdates = this.#updateCoordinator.takeCoalesced();

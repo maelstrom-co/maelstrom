@@ -233,9 +233,9 @@ describe('validateVessel', () => {
     });
     if (result.valid) throw new Error('expected invalid result');
     const issue = result.issues.find((i) => /Default variant/.test(i.message));
-    expect(issue).toBeDefined();
-    expect(issue!.path).toContain('defaultVariant');
-    expect(typeof issue!.code).toBe('string');
+    if (!issue) throw new Error('expected issue for defaultVariant');
+    expect(issue.path).toContain('defaultVariant');
+    expect(typeof issue.code).toBe('string');
   });
 });
 
