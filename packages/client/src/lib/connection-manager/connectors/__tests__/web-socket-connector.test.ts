@@ -19,7 +19,7 @@ import {
 import { WireEngineError } from '../../connector.types.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
-import { FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
+import { type FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
 
 let teardown: (() => void) | null = null;
 

@@ -21,6 +21,7 @@ import {
   createEngine,
   createInMemoryStore,
   handleEnvelope,
+  recoverCorrelation,
   type Engine,
 } from '@maelstrom-co/engine';
 import {
@@ -77,7 +78,7 @@ const server = Bun.serve({
         ws.send(
           encodeEnvelope(
             isErr(decoded)
-              ? EngineErrorMessage({ error })
+              ? EngineErrorMessage({ error, ...recoverCorrelation(raw) })
               : EngineErrorMessage({
                   error,
                   requestId: decoded.value.id,

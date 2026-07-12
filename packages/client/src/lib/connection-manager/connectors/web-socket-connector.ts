@@ -185,7 +185,9 @@ export class WebSocketConnector implements EngineConnector {
    * frame goes through the same codec as every other send. The smart
    * constructor stamps a `Date.now()` epoch timestamp — the previous bespoke
    * frame used `performance.now()` (a monotonic clock offset from an arbitrary
-   * origin), which is not a wall-clock time.
+   * origin), which is not a wall-clock time. Injection failures may arrive as
+   * unsolicited `engine.error` frames; this method does not await or reject
+   * on them.
    */
   async addAssistantMessage(message: AssistantMessage): Promise<void> {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {

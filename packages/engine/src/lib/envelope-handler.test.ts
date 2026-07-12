@@ -104,14 +104,15 @@ describe('handleEnvelope — chart_request', () => {
     expect(reply.response).toBe(response);
   });
 
-  test('returns null for a non-chart_response Ok output', async () => {
+  test('maps a non-chart_response Ok output to engine.error (UnexpectedOutput)', async () => {
     const sessionId = SessionId('sess-1');
+    const messageId = MessageId('req-1');
     const engine = stubEngine({
       handle: async () =>
         okOutput({
           type: 'assistant_message_result',
           sessionId,
-          id: MessageId('req-1'),
+          id: MessageId('other-id'),
           outcome: 'inserted',
         }),
     });
@@ -120,11 +121,16 @@ describe('handleEnvelope — chart_request', () => {
       engine,
       ChartRequestMessage({
         sessionId,
-        id: MessageId('req-1'),
+        id: messageId,
         request: validChartRequest(),
       }),
     );
-    expect(reply).toBeNull();
+
+    expect(reply?.type).toBe('engine.error');
+    if (reply?.type !== 'engine.error') return;
+    expect(reply.code).toBe('UnexpectedOutput');
+    expect(reply.requestId).toBe(messageId);
+    expect(reply.sessionId).toBe(sessionId);
   });
 
   test.each([
@@ -339,6 +345,20 @@ describe('handleEnvelope — decode failures', () => {
       type: 'totally.unknown',
       id: '',
       sessionId: '',
+    });
+
+    expect(reply?.type).toBe('engine.error');
+    if (reply?.type !== 'engine.error') return;
+    expect(reply.code).toBe('invalid_envelope');
+    expect(reply.requestId).toBeUndefined();
+    expect(reply.sessionId).toBeUndefined();
+  });
+
+  test('whitespace-only id → no requestId, does not reject on branding', async () => {
+    const reply = await handleEnvelope(neverCalled, {
+      type: 'totally.unknown',
+      id: '   ',
+      sessionId: '   ',
     });
 
     expect(reply?.type).toBe('engine.error');

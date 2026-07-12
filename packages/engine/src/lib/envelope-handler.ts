@@ -22,11 +22,12 @@ import type { Engine } from './engine.js';
  *
  * A malformed frame has no typed envelope, but its raw JSON may still carry an
  * `id` / `sessionId` the client is awaiting. Extracting them lets the host
- * reject the pending promise instead of leaving the client to time out. Empty
- * strings are skipped because the branding constructors reject them (and an
- * empty id correlates to nothing anyway).
+ * reject the pending promise instead of leaving the client to time out.
+ * Blank (empty or whitespace-only) strings are skipped since they correlate
+ * to nothing, and branding is defensively guarded so recovery can never
+ * throw. Returns `{}` when nothing could be recovered.
  */
-const recoverCorrelation = (
+export const recoverCorrelation = (
   raw: unknown,
 ): { requestId?: MessageId; sessionId?: SessionId } => {
   let value: unknown = raw;
@@ -48,11 +49,22 @@ const recoverCorrelation = (
   const record = value as Record<string, unknown>;
 
   const recovered: { requestId?: MessageId; sessionId?: SessionId } = {};
-  if (typeof record.id === 'string' && record.id.length > 0) {
-    recovered.requestId = brandMessageId(record.id);
+  if (typeof record.id === 'string' && record.id.trim().length > 0) {
+    try {
+      recovered.requestId = brandMessageId(record.id);
+    } catch {
+      // unbrandable — leave uncorrelated rather than throw
+    }
   }
-  if (typeof record.sessionId === 'string' && record.sessionId.length > 0) {
-    recovered.sessionId = brandSessionId(record.sessionId);
+  if (
+    typeof record.sessionId === 'string' &&
+    record.sessionId.trim().length > 0
+  ) {
+    try {
+      recovered.sessionId = brandSessionId(record.sessionId);
+    } catch {
+      // unbrandable — leave uncorrelated rather than throw
+    }
   }
   return recovered;
 };
@@ -74,7 +86,8 @@ const recoverCorrelation = (
  * - **`chart_request`** → `engine.handle`; an engine `Err` maps to
  *   `engine.error` (the {@link import('./errors.js').EngineError} `_tag` as
  *   `code`), an `Ok` `chart_response` to `engine.maelstrom.response`, any other
- *   `Ok` output to `null`.
+ *   `Ok` output to `engine.error` with `code: 'UnexpectedOutput'` (a
+ *   contract violation, not a case that should strand the client silently).
  * - **`assistant_message`** → `engine.handle` fire-and-forget: `Ok` → `null`,
  *   `Err` → `engine.error`. Failures are surfaced (not swallowed) so a
  *   misconfiguration such as history-not-configured is visible to the client.
@@ -123,11 +136,16 @@ export async function handleEnvelope(
         }
         return result.value.type === 'chart_response'
           ? MaelstromResponseMessage({
-              requestId: result.value.id,
+              requestId: envelope.id,
               sessionId: envelope.sessionId,
               response: result.value.response,
             })
-          : null;
+          : EngineErrorMessage({
+              requestId: envelope.id,
+              sessionId: envelope.sessionId,
+              error: `engine returned unexpected output type "${result.value.type}" for chart_request`,
+              code: 'UnexpectedOutput',
+            });
       }
 
       case 'assistant_message': {
