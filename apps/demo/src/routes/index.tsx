@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { createDemoConnector } from '../lib/connector';
 import { m } from '../lib/maelstrom';
 import { MicToggle } from '../components/mic-toggle';
+import { LiveKitMic } from '../components/livekit-mic';
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -30,6 +31,7 @@ function DemoApp() {
           </div>
           <div className="flex items-center gap-3">
             <MicToggle />
+            <LiveKitMic />
             <StatusIndicator />
           </div>
         </div>
