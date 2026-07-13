@@ -29,6 +29,18 @@
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
   "references": [
     {
+      "path": "../../packages/realtime-server/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/realtime-livekit-agent/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/realtime-livekit/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/realtime/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/react/tsconfig.lib.json"
     },
     {
@@ -39,12 +51,6 @@
     },
     {
       "path": "../../packages/client/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/realtime/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/realtime-server/tsconfig.lib.json"
     }
   ]
 }
