@@ -32,6 +32,7 @@ import {
 } from '../../../test-utils/connector-mocks.js';
 import type { PushConnector } from '../connection-manager/connector.types.js';
 import type { Unsubscribe } from '../types.js';
+import type { Orchestrator } from './orchestrator.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
 import { RequestInFlightError } from './request-in-flight-error.js';
 
@@ -1102,6 +1103,13 @@ describe('Orchestrator', () => {
         vesselId: 'sm',
         variant: 'collapsed',
       });
+      // A user click implies a live session — the mutation is only
+      // scheduled immediately (rather than held pending reconnect) when
+      // connected. See MAE-328 fix C.
+      orchestrator.connectionManager.store.setState((s) => ({
+        ...s,
+        connectionStatus: 'connected' as const,
+      }));
 
       let resolveExpand: (() => void) | undefined;
       let receivedParams: unknown;
@@ -1116,14 +1124,16 @@ describe('Orchestrator', () => {
       const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
 
       orchestrator.invokeAction(instanceId, ActionName('expand'), {
-        foo: 1,
+        orderId: 'order-42',
       });
 
       // Transition is synchronous — the store is authoritative and updates
       // before the runner (still deferred) has even been invoked.
       expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
 
-      // The engine is informed of the mutation, naming both variants.
+      // The engine is informed of the mutation, naming both variants and
+      // including the params (MAE-328 fix D) so the engine can tell which
+      // item drove the mutation.
       expect(scheduleSpy).toHaveBeenCalledTimes(1);
       const reason = scheduleSpy.mock.calls[0][0];
       expect(reason.type).toBe('vessel_mutation');
@@ -1131,11 +1141,12 @@ describe('Orchestrator', () => {
         expect(reason.instanceId).toBe(instanceId);
         expect(reason.changes).toContain('collapsed');
         expect(reason.changes).toContain('expanded');
+        expect(reason.changes).toContain('order-42');
       }
 
       // Let the runner be invoked; it captures params but stays pending.
       await flushMicrotasks();
-      expect(receivedParams).toEqual({ foo: 1 });
+      expect(receivedParams).toEqual({ orderId: 'order-42' });
       expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
 
       resolveExpand?.();
@@ -1359,6 +1370,231 @@ describe('Orchestrator', () => {
       expect(warned).toBe(true);
 
       warnSpy.mockRestore();
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Bug regression: compensating vessel_mutation on reverted failure (MAE-328 fix A)
+  // If the debounce already flushed the original transition mutation before a
+  // slow runner fails and reverts, the engine keeps the stale target variant
+  // unless told about the rollback.
+  // --------------------------------------------------------------------------
+
+  describe('invokeAction compensating revert mutation (MAE-328 fix A)', () => {
+    it('schedules a second vessel_mutation announcing the revert once the original mutation already flushed', async () => {
+      const instanceId = InstanceId('i-1');
+      // A custom response (not createMockResponse, which only ever includes
+      // a single hardcoded 'instance-1' entry) whose layout echoes back
+      // `i-1` still in its post-transition 'expanded' variant — a
+      // `set_layout` dispatch replaces the whole instances map, so a
+      // response that omitted `i-1` would wipe it out and hide the bug
+      // this test is targeting.
+      const mockResponse: MaelstromResponse = {
+        type: 'maelstrom_response',
+        requestId: MessageId('req-1'),
+        userMessage: 'ok',
+        rationale: 'test',
+        executionPlan: [],
+        layout: {
+          type: 'tiling',
+          tree: [],
+          instances: [
+            {
+              instanceId,
+              vesselId: VesselId('sm'),
+              variant: VariantName('expanded'),
+            },
+          ],
+        },
+      };
+      const connector = createMockConnector({
+        process: mock(() => Promise.resolve(mockResponse)),
+      });
+      const { orchestrator } = createTestOrchestrator(connector);
+      orchestrator.vesselManager.registerVessel(stateMachineVessel);
+      seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'sm',
+        variant: 'collapsed',
+      });
+      orchestrator.connectionManager.store.setState((s) => ({
+        ...s,
+        connectionStatus: 'connected' as const,
+      }));
+
+      let resolveExpand: ((result: ActionResult) => void) | undefined;
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        expand: () =>
+          new Promise<ActionResult>((resolve) => {
+            resolveExpand = resolve;
+          }),
+      });
+
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      orchestrator.invokeAction(instanceId, ActionName('expand'));
+      expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
+      expect(scheduleSpy).toHaveBeenCalledTimes(1);
+
+      // Let the deferred runner actually start (wiring `resolveExpand`)
+      // before advancing the clock.
+      await flushMicrotasks();
+
+      // Advance past the debounce delay so the ORIGINAL mutation flushes to
+      // the engine — the runner is still pending at this point.
+      await clock.tickAsync(350);
+      expect(connector.process).toHaveBeenCalledTimes(1);
+
+      // The slow runner now fails, well after its mutation already shipped.
+      resolveExpand?.(err(new Error('boom')));
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+
+      // The guarded revert restored the local store...
+      expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
+
+      // ...and a SECOND vessel_mutation was scheduled so the engine learns
+      // about the rollback instead of keeping the stale target variant.
+      expect(scheduleSpy).toHaveBeenCalledTimes(2);
+      const revertReason = scheduleSpy.mock.calls[1][0];
+      expect(revertReason.type).toBe('vessel_mutation');
+      if (revertReason.type === 'vessel_mutation') {
+        expect(revertReason.instanceId).toBe(instanceId);
+        expect(revertReason.changes).toContain('expanded');
+        expect(revertReason.changes).toContain('collapsed');
+        expect(revertReason.changes).toContain('reverted');
+      }
+
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Bug regression: updates_flushed must requeue when a request is already
+  // in flight (MAE-328 fix B). UpdateCoordinator.flush() clears its buffer
+  // before emitting, so an early return without requeueing loses the update.
+  // --------------------------------------------------------------------------
+
+  describe('updates_flushed requeues on in-flight request (MAE-328 fix B)', () => {
+    it('does not drop a mutation flushed while a request is already in flight', async () => {
+      let resolveFirst: ((v: MaelstromResponse) => void) | undefined;
+      const mockResponse = createMockResponse(
+        MessageId('req-1'),
+        'instance-1',
+        'show',
+      );
+      const connector = createMockConnector({
+        process: mock(
+          () =>
+            new Promise<MaelstromResponse>((resolve) => {
+              resolveFirst = resolve;
+            }),
+        ),
+      });
+      const { orchestrator } = createTestOrchestrator(connector);
+      orchestrator.connectionManager.store.setState((s) => ({
+        ...s,
+        connectionStatus: 'connected' as const,
+      }));
+
+      // Start a request that stays in flight.
+      const intentPromise = orchestrator.processIntent('first');
+      expect(orchestrator.requestCoordinator.isProcessing).toBe(true);
+
+      // Schedule a mutation while that request is in flight.
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'dropped-without-fix',
+      });
+
+      // Advance past the debounce delay: 'updates_flushed' fires while
+      // isProcessing is still true. Before the fix, the early-return branch
+      // dropped `event.updates` on the floor (UpdateCoordinator.flush()
+      // already cleared its own buffer before emitting) — no second send
+      // happens here either way, but the update must survive for later.
+      await clock.tickAsync(350);
+      expect(connector.process).toHaveBeenCalledTimes(1);
+
+      // Resolve the in-flight request.
+      resolveFirst?.(mockResponse);
+      await intentPromise;
+      expect(orchestrator.requestCoordinator.isProcessing).toBe(false);
+
+      // A fresh debounce cycle (started by the requeue) should now deliver
+      // the previously-scheduled mutation.
+      await clock.tickAsync(400);
+      expect(connector.process).toHaveBeenCalledTimes(2);
+
+      const secondEnvelope = (connector.process as ReturnType<typeof mock>)
+        .mock.calls[1][0] as ChartRequestMessage;
+      const updateReasons = secondEnvelope.request.context.updateReasons;
+      expect(
+        updateReasons.some(
+          (r) =>
+            r.type === 'vessel_mutation' && r.changes === 'dropped-without-fix',
+        ),
+      ).toBe(true);
+
+      resolveFirst?.(mockResponse);
+      await flushMicrotasks();
+      orchestrator.dispose();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Bug regression: mutations invoked while disconnected/reconnecting must
+  // be preserved and replayed on reconnect (MAE-328 fix C). Mirrors the
+  // existing pendingResize pattern.
+  // --------------------------------------------------------------------------
+
+  describe('invokeAction mutations held while disconnected, replayed on reconnect (MAE-328 fix C)', () => {
+    it('holds the vessel_mutation while disconnected and replays it once reconnected', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(stateMachineVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'sm',
+        variant: 'collapsed',
+      });
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        expand: () => ok(undefined),
+      });
+
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      // createTestOrchestrator leaves connectionStatus 'disconnected' — a
+      // click here must not flush into a closed connector.
+      orchestrator.invokeAction(instanceId, ActionName('expand'));
+
+      // The transition still applies locally...
+      expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
+      // ...but the engine notification is held rather than scheduled
+      // immediately, since there's no live session to receive it.
+      expect(scheduleSpy).not.toHaveBeenCalled();
+
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+
+      // Drive the same reconnect flow the codebase uses: connect() takes the
+      // ConnectionManager through 'connecting' -> 'connected', emitting a
+      // genuine 'connection_status_changed' event — unlike directly poking
+      // connectionManager.store.setState (which bypasses the emitter and so
+      // wouldn't exercise the replay handler at all).
+      await orchestrator.connect();
+
+      expect(scheduleSpy).toHaveBeenCalledTimes(1);
+      const reason = scheduleSpy.mock.calls[0][0];
+      expect(reason.type).toBe('vessel_mutation');
+      if (reason.type === 'vessel_mutation') {
+        expect(reason.instanceId).toBe(instanceId);
+        expect(reason.changes).toContain('collapsed');
+        expect(reason.changes).toContain('expanded');
+      }
+
       scheduleSpy.mockRestore();
       orchestrator.dispose();
     });

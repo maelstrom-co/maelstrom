@@ -80,6 +80,11 @@ export class Orchestrator {
   #isDisposed = false;
   #unsubscribers: (() => void)[] = [];
   #requestCounter = 0;
+  // Vessel mutations invoked while disconnected/reconnecting are held here
+  // instead of flushed into a closed connector; replayed once
+  // 'connection_status_changed' reports 'connected' (mirrors ChartManager's
+  // pendingResize pattern).
+  #pendingMutations: VesselMutationReason[] = [];
 
   constructor(connector: EngineConnector, options: OrchestratorOptions = {}) {
     this.#connector = connector;
@@ -364,10 +369,21 @@ export class Orchestrator {
         )
       ) {
         transition = { from: currentVariant, to: target };
-        this.scheduleUpdate({
+        let paramsSuffix = '';
+        if (params && Object.keys(params).length > 0) {
+          try {
+            paramsSuffix = ` with ${JSON.stringify(params)}`;
+          } catch {
+            // params may be circular or contain a BigInt — fall back to no
+            // suffix rather than let JSON.stringify throw and abort the
+            // (already-applied) transition.
+            paramsSuffix = '';
+          }
+        }
+        this.#scheduleMutation({
           type: 'vessel_mutation',
           instanceId,
-          changes: `user invoked "${action}": variant ${currentVariant} → ${target}`,
+          changes: `user invoked "${action}"${paramsSuffix}: variant ${currentVariant} → ${target}`,
         });
       }
     }
@@ -444,6 +460,7 @@ export class Orchestrator {
     this.#updateCoordinator.dispose();
     this.#commandProcessor.dispose();
     this.#requestCoordinator.dispose();
+    this.#pendingMutations = [];
   }
 
   // ==========================================================================
@@ -474,6 +491,12 @@ export class Orchestrator {
             this.scheduleUpdate(pendingResize);
             this.#chartManager.clearPendingResize();
           }
+
+          if (this.#pendingMutations.length > 0) {
+            const drained = this.#pendingMutations;
+            this.#pendingMutations = [];
+            for (const m of drained) this.scheduleUpdate(m);
+          }
         }
       },
     );
@@ -487,7 +510,13 @@ export class Orchestrator {
 
         if (this.#requestCoordinator.isProcessing) {
           // A request is already in flight; its completion will
-          // handle any queued flush promises.
+          // handle any queued flush promises. UpdateCoordinator.flush()
+          // already cleared its buffer before emitting this event, so
+          // requeue the updates here or they're lost for good — mirrors
+          // flushUpdates().
+          for (const update of event.updates) {
+            this.#updateCoordinator.schedule(update);
+          }
           return;
         }
 
@@ -551,11 +580,33 @@ export class Orchestrator {
     const outcome = await this.#commandProcessor.runLocalAction(execution);
     if (outcome === 'failed' && transition) {
       // Guarded revert: only undo when our transition still stands.
-      this.#commandProcessor.setVariantIfCurrent(
+      const reverted = this.#commandProcessor.setVariantIfCurrent(
         execution.instanceId,
         transition.to,
         transition.from,
       );
+      if (reverted) {
+        // The original transition mutation may have already flushed to the
+        // engine before this (slow) runner failed — tell it about the
+        // rollback too, or it keeps believing the stale target variant.
+        this.#scheduleMutation({
+          type: 'vessel_mutation',
+          instanceId: execution.instanceId,
+          changes: `action "${execution.action}" failed; reverted variant ${transition.to} → ${transition.from}`,
+        });
+      }
+    }
+  }
+
+  // Routes a vessel_mutation through the live engine notification path when
+  // connected, or holds it when disconnected/reconnecting so a click against
+  // a closed connector isn't silently lost (mirrors ChartManager's
+  // pendingResize pattern for chart_resize).
+  #scheduleMutation(reason: VesselMutationReason): void {
+    if (this.#connectionManager.store.state.connectionStatus === 'connected') {
+      this.scheduleUpdate(reason);
+    } else {
+      this.#pendingMutations.push(reason);
     }
   }
 
