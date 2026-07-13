@@ -1,0 +1,289 @@
+import { test, expect, mock, beforeEach, describe } from 'bun:test';
+import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
+
+// --- Mocks for livekit-client ---
+
+const mockRoomConnect = mock(async () => {});
+const mockRoomDisconnect = mock(async () => {});
+const mockPublishData = mock(async () => {});
+const mockSetMicrophoneEnabled = mock(async () => undefined);
+const mockSendText = mock(async (_text: string, _opts?: unknown) => ({}));
+const mockStartAudio = mock(async () => {});
+
+const mockLocalParticipant = {
+  setMicrophoneEnabled: mockSetMicrophoneEnabled,
+  publishData: mockPublishData,
+  sendText: mockSendText,
+  startAudio: mockStartAudio,
+};
+
+function makeMockRoom() {
+  const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
+  return {
+    on: mock((event: string, handler: (...args: unknown[]) => void) => {
+      if (!handlers[event]) handlers[event] = [];
+      handlers[event].push(handler);
+    }),
+    off: mock(() => {}),
+    connect: mockRoomConnect,
+    disconnect: mockRoomDisconnect,
+    startAudio: mockStartAudio,
+    localParticipant: mockLocalParticipant,
+    _emit: (event: string, ...args: unknown[]) => {
+      handlers[event]?.forEach((h) => {
+        h(...args);
+      });
+    },
+  };
+}
+
+let currentRoom = makeMockRoom();
+
+mock.module('livekit-client', () => ({
+  Room: class {
+    on = currentRoom.on;
+    off = currentRoom.off;
+    connect = currentRoom.connect;
+    disconnect = currentRoom.disconnect;
+    startAudio = currentRoom.startAudio;
+    localParticipant = currentRoom.localParticipant;
+  },
+  RoomEvent: {
+    TranscriptionReceived: 'transcriptionReceived',
+    Disconnected: 'disconnected',
+    TrackSubscribed: 'trackSubscribed',
+    DataReceived: 'dataReceived',
+  },
+  Track: { Kind: { Audio: 'audio' } },
+  setLogLevel: mock(() => {}),
+}));
+
+const { LiveKitAdapter } = await import('./livekit-adapter');
+const { SPEAK_TOPIC, TURN_TOPIC, TTS_TOPIC } = await import('./protocol');
+
+const DEFAULT_GRANT = { token: 'test-token', url: 'ws://localhost:7880' };
+
+function makeAdapter(
+  getToken: (roomName: string) => Promise<{ token: string; url: string }> = async () =>
+    DEFAULT_GRANT,
+) {
+  const events: RealtimeAdapterEvent[] = [];
+  const adapter = new LiveKitAdapter({ getToken, roomName: 'room-1' });
+  adapter.on((e) => events.push(e));
+  return { adapter, events };
+}
+
+function states(events: RealtimeAdapterEvent[]): string[] {
+  return events
+    .filter((e): e is Extract<RealtimeAdapterEvent, { type: 'state' }> => e.type === 'state')
+    .map((e) => e.state);
+}
+
+// ---
+
+describe('LiveKitAdapter connect', () => {
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockRoomConnect.mockReset();
+    mockSetMicrophoneEnabled.mockReset();
+  });
+
+  test('emits connecting → connected and publishes+mutes the mic', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(states(events)).toEqual(['connecting', 'connected']);
+    expect(mockRoomConnect).toHaveBeenCalledWith('ws://localhost:7880', 'test-token');
+    // publish (true) then mute (false) — the hold-to-talk flip precondition.
+    expect(mockSetMicrophoneEnabled.mock.calls.map((c) => c[0])).toEqual([true, false]);
+  });
+
+  test('a token failure tears down and ends in error state', async () => {
+    const { adapter, events } = makeAdapter(async () => {
+      throw new Error('LiveKit credentials not configured');
+    });
+
+    await expect(adapter.connect({ tools: [], instructions: '' })).rejects.toThrow(
+      'LiveKit credentials not configured',
+    );
+    expect(states(events)).toEqual(['connecting', 'error']);
+  });
+
+  test('rejects a second concurrent connect', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    await expect(adapter.connect({ tools: [], instructions: '' })).rejects.toThrow(
+      'already connected',
+    );
+  });
+});
+
+describe('LiveKitAdapter transcript → tool_call synthesis', () => {
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockSetMicrophoneEnabled.mockReset();
+  });
+
+  test('a final transcript emits a transcript event then an update_ui tool call', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    currentRoom._emit('transcriptionReceived', [
+      { text: 'show', final: true },
+      { text: 'the weather', final: true },
+      { text: 'ignored', final: false },
+    ]);
+
+    const transcript = events.find((e) => e.type === 'transcript');
+    expect(transcript).toEqual({
+      type: 'transcript',
+      role: 'user',
+      text: 'show the weather',
+      final: true,
+    });
+
+    const toolCall = events.find((e) => e.type === 'tool_call');
+    expect(toolCall).toMatchObject({ type: 'tool_call', name: 'update_ui' });
+    if (toolCall?.type !== 'tool_call') throw new Error('expected tool_call');
+    expect(JSON.parse(toolCall.argumentsJson)).toEqual({ intent: 'show the weather' });
+    // ToolCallId brands a non-empty string.
+    expect(typeof toolCall.callId).toBe('string');
+    expect((toolCall.callId as string).length).toBeGreaterThan(0);
+  });
+
+  test('synthesized tool calls get distinct call ids', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    currentRoom._emit('transcriptionReceived', [{ text: 'one', final: true }]);
+    currentRoom._emit('transcriptionReceived', [{ text: 'two', final: true }]);
+
+    const ids = events
+      .filter((e): e is Extract<RealtimeAdapterEvent, { type: 'tool_call' }> => e.type === 'tool_call')
+      .map((e) => e.callId as string);
+    expect(ids.length).toBe(2);
+    expect(ids[0]).not.toBe(ids[1]);
+  });
+
+  test('an empty or non-final transcription emits nothing', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const before = events.length;
+
+    currentRoom._emit('transcriptionReceived', [{ text: '   ', final: true }]);
+    currentRoom._emit('transcriptionReceived', [{ text: 'partial', final: false }]);
+
+    expect(events.length).toBe(before);
+  });
+});
+
+describe('LiveKitAdapter sendToolResult → speak topic', () => {
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockSendText.mockReset();
+    mockSetMicrophoneEnabled.mockReset();
+  });
+
+  test('sends the update_ui summary over the speak text stream', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Weather is on screen.',
+    });
+
+    expect(mockSendText).toHaveBeenCalledWith('Weather is on screen.', {
+      topic: SPEAK_TOPIC,
+    });
+    // speaking is announced, then collapses back to connected on hand-off.
+    expect(states(events).slice(-2)).toEqual(['speaking', 'connected']);
+  });
+
+  test('accepts a bare string output', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.sendToolResult('call-2' as never, 'plain text');
+    expect(mockSendText).toHaveBeenCalledWith('plain text', { topic: SPEAK_TOPIC });
+  });
+
+  test('falls back to JSON when there is no summary field', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.sendToolResult('call-3' as never, { instances: [] });
+    expect(mockSendText).toHaveBeenCalledWith('{"instances":[]}', {
+      topic: SPEAK_TOPIC,
+    });
+  });
+});
+
+describe('LiveKitAdapter hold-to-talk state mapping', () => {
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockSetMicrophoneEnabled.mockReset();
+    mockPublishData.mockReset();
+  });
+
+  test('startTalking unmutes and emits speech_started + listening', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockSetMicrophoneEnabled.mockReset();
+
+    await adapter.startTalking();
+
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
+    expect(events.some((e) => e.type === 'speech_started')).toBe(true);
+    expect(states(events).at(-1)).toBe('listening');
+  });
+
+  test('stopTalking publishes turn_end on the turn topic, mutes, emits thinking', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockSetMicrophoneEnabled.mockReset();
+
+    await adapter.stopTalking();
+
+    const [payload, opts] = mockPublishData.mock.calls.at(-1) as unknown as [
+      Uint8Array,
+      { reliable: boolean; topic: string },
+    ];
+    expect(opts).toEqual({ reliable: true, topic: TURN_TOPIC });
+    expect(JSON.parse(new TextDecoder().decode(payload))).toEqual({ type: 'turn_end' });
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(false);
+    expect(states(events).at(-1)).toBe('thinking');
+  });
+});
+
+describe('LiveKitAdapter misc surface', () => {
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockSetMicrophoneEnabled.mockReset();
+  });
+
+  test('a worker TTS_TOPIC data packet surfaces an error event', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    currentRoom._emit('dataReceived', new Uint8Array(), undefined, undefined, TTS_TOPIC);
+
+    expect(events.some((e) => e.type === 'error')).toBe(true);
+  });
+
+  test('injectGrounding is a no-op and never throws', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(() => adapter.injectGrounding('anything')).not.toThrow();
+  });
+
+  test('on() returns an unsubscribe that stops delivery', async () => {
+    const { adapter } = makeAdapter();
+    const received: RealtimeAdapterEvent[] = [];
+    const off = adapter.on((e) => received.push(e));
+    off();
+
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(received.length).toBe(0);
+  });
+});
