@@ -1,0 +1,54 @@
+{
+  "name": "@maelstrom-co/realtime-livekit-agent",
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/realtime-livekit-agent"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.4.8",
+    "@livekit/agents-plugin-cartesia": "^1.4.8",
+    "@livekit/agents-plugin-deepgram": "^1.4.8",
+    "@livekit/rtc-node": "^0.13.29",
+    "@maelstrom-co/realtime-livekit": "0.0.0"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun test --pass-with-no-tests",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}
