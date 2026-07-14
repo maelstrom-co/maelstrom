@@ -82,7 +82,11 @@ describe('handleEnvelope — chart_request', () => {
         okOutput({
           type: 'chart_response',
           sessionId,
-          id: messageId,
+          // Deliberately distinct from the request id: the client awaits the
+          // request's id, so correlation must key off the envelope, not the
+          // engine's echoed output id. Regressing to `result.value.id` fails
+          // the requestId assertion below.
+          id: MessageId('engine-echoed-different-id'),
           response,
         }),
     });
