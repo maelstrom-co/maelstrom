@@ -110,3 +110,24 @@ export {
   TilingTreeSchema,
   VesselInstanceSnapshotSchema,
 } from './lib/schemas.js';
+export type {
+  ClientEnvelope,
+  EnvelopeErrorKind,
+  ServerEnvelope,
+} from './lib/envelope.js';
+export {
+  ClientEnvelopeSchema,
+  decodeClientEnvelope,
+  decodeServerEnvelope,
+  encodeEnvelope,
+  EngineErrorMessage,
+  EngineErrorMessageSchema,
+  EnvelopeError,
+  HistoryGetMessage,
+  HistoryGetMessageSchema,
+  HistoryResponseMessage,
+  HistoryResponseMessageSchema,
+  MaelstromResponseMessage,
+  MaelstromResponseMessageSchema,
+  ServerEnvelopeSchema,
+} from './lib/envelope.js';

@@ -1,23 +1,29 @@
 import type {
   ChartRequestMessage,
+  EnvelopeError,
   MaelstromResponse,
+  MessageId as MessageIdType,
   SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
 import {
+  AssistantInjectionMessage,
+  decodeServerEnvelope,
+  encodeEnvelope,
+  HistoryGetMessage,
+  isErr,
   MessageId,
-  SessionHistoryEntryArraySchema,
   toError,
 } from '@maelstrom-co/protocol';
 import type { Unsubscribe } from '../../types.js';
 import { RequestCorrelator } from '../../utils/request-correlator.js';
-import type {
-  AssistantMessage,
-  ConnectorCapabilities,
-  ConnectorEvent,
-  EngineConnector,
+import {
+  type AssistantMessage,
+  type ConnectorCapabilities,
+  type ConnectorEvent,
+  type EngineConnector,
+  WireEngineError,
 } from '../connector.types.js';
-import { isCorrelatableId } from './utils.js';
 
 /**
  * Configuration options for WebSocket connector.
@@ -165,7 +171,7 @@ export class WebSocketConnector implements EngineConnector {
     }
 
     const promise = this.#correlator.create(message.id, this.#timeout);
-    this.#ws.send(JSON.stringify(message));
+    this.#ws.send(encodeEnvelope(message));
     return promise;
   }
 
@@ -173,6 +179,15 @@ export class WebSocketConnector implements EngineConnector {
    * Sends an assistant message to the server.
    * Fire-and-forget — the server does not send an ack for this message type.
    * Throws if the WebSocket is not connected.
+   *
+   * Translates the connector-facing {@link AssistantMessage} into the real
+   * `assistant_message` envelope via {@link AssistantInjectionMessage} so the
+   * frame goes through the same codec as every other send. The smart
+   * constructor stamps a `Date.now()` epoch timestamp — the previous bespoke
+   * frame used `performance.now()` (a monotonic clock offset from an arbitrary
+   * origin), which is not a wall-clock time. Injection failures may arrive as
+   * unsolicited `engine.error` frames; this method does not await or reject
+   * on them.
    */
   async addAssistantMessage(message: AssistantMessage): Promise<void> {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
@@ -185,13 +200,13 @@ export class WebSocketConnector implements EngineConnector {
     }
 
     this.#ws.send(
-      JSON.stringify({
-        type: 'client.history.add_assistant_message',
-        timestamp: performance.now(),
-        sessionId: this.#sessionId,
-        id: message.id,
-        message: message.message,
-      }),
+      encodeEnvelope(
+        AssistantInjectionMessage({
+          sessionId: this.#sessionId,
+          content: message.message,
+          id: message.id,
+        }),
+      ),
     );
   }
 
@@ -210,13 +225,7 @@ export class WebSocketConnector implements EngineConnector {
     }
     const requestId = MessageId();
     const promise = this.#historyCorrelator.create(requestId, this.#timeout);
-    this.#ws.send(
-      JSON.stringify({
-        type: 'client.history.get',
-        id: requestId,
-        sessionId,
-      }),
-    );
+    this.#ws.send(encodeEnvelope(HistoryGetMessage({ sessionId, id: requestId })));
     return promise;
   }
 
@@ -249,84 +258,127 @@ export class WebSocketConnector implements EngineConnector {
   }
 
   #handleMessage(event: MessageEvent): void {
-    try {
-      const data = JSON.parse(event.data);
-      if (
-        data.type === 'engine.maelstrom.response' &&
-        isCorrelatableId(data.requestId)
-      ) {
-        const requestId = MessageId(data.requestId);
-        const resolved = this.#correlator.resolve(requestId, data.response);
-        if (!resolved) {
-          console.warn(
-            `[WebSocketConnector] engine.maelstrom.response with no pending request: requestId=${data.requestId}`,
-          );
-        }
-      } else if (
-        data.type === 'engine.history.response' &&
-        isCorrelatableId(data.requestId)
-      ) {
-        const requestId = MessageId(data.requestId);
-        // safeParse at the wire boundary — a malformed payload (server bug,
-        // schema drift, proxy that mangled the body) rejects the awaiting
-        // caller with a useful error rather than resolving with a silently
-        // coerced empty array.
-        const parsed = SessionHistoryEntryArraySchema.safeParse(data.entries);
-        if (!parsed.success) {
-          const rejected = this.#historyCorrelator.reject(
-            requestId,
-            new Error(
-              `engine.history.response: malformed entries (${parsed.error.issues[0]?.message ?? 'schema mismatch'})`,
-            ),
-          );
-          if (!rejected) {
-            // Stale id (timed out client-side, server replied late) AND the
-            // payload was malformed — without this warn the contract violation
-            // is silently swallowed.
-            console.warn(
-              `[WebSocketConnector] engine.history.response with malformed entries and no pending request: requestId=${data.requestId}`,
-            );
-          }
-          return;
-        }
-        const resolved = this.#historyCorrelator.resolve(
-          requestId,
-          parsed.data,
+    // The codec owns parse + schema validation: a malformed JSON string or a
+    // frame that violates the ServerEnvelope contract comes back as an Err
+    // instead of throwing, so there is no outer try/catch here.
+    const decoded = decodeServerEnvelope(event.data);
+    if (isErr(decoded)) {
+      this.#handleDecodeFailure(event.data, decoded.error);
+      return;
+    }
+
+    const envelope = decoded.value;
+    switch (envelope.type) {
+      case 'engine.maelstrom.response': {
+        // requestId is already a branded MessageId from the codec, and the
+        // response is schema-validated — the first point in the client where
+        // a MaelstromResponse is guaranteed well-formed before it resolves.
+        const resolved = this.#correlator.resolve(
+          envelope.requestId,
+          envelope.response,
         );
         if (!resolved) {
           console.warn(
-            `[WebSocketConnector] engine.history.response with no pending request: requestId=${data.requestId}`,
+            `[WebSocketConnector] engine.maelstrom.response with no pending request: requestId=${envelope.requestId}`,
           );
         }
-      } else if (
-        data.type === 'engine.error' &&
-        isCorrelatableId(data.requestId)
-      ) {
+        return;
+      }
+
+      case 'engine.history.response': {
+        const resolved = this.#historyCorrelator.resolve(
+          envelope.requestId,
+          envelope.entries,
+        );
+        if (!resolved) {
+          console.warn(
+            `[WebSocketConnector] engine.history.response with no pending request: requestId=${envelope.requestId}`,
+          );
+        }
+        return;
+      }
+
+      case 'engine.error': {
+        if (envelope.requestId === undefined) {
+          // A stream-level fault the host could not correlate to a request
+          // (e.g. it failed before recovering an id). Nothing to reject.
+          console.warn(
+            `[WebSocketConnector] engine.error with no requestId: error=${envelope.error}`,
+          );
+          return;
+        }
         // engine.error is shared across response types — reject both
         // correlators unconditionally so that if a request id happens to be
         // pending in both (the typed-isolation rationale of #historyCorrelator
         // assumes such collisions are possible), each caller observes the
         // error rather than silently waiting until its own timeout fires.
         // reject() is a no-op for unknown ids, so the redundant call is free.
-        const requestId = MessageId(data.requestId);
-        const error = new Error(data.error || data.message || 'Engine error');
-        const inChart = this.#correlator.reject(requestId, error);
-        const inHistory = this.#historyCorrelator.reject(requestId, error);
+        const error = new WireEngineError(envelope.error, envelope.code);
+        const inChart = this.#correlator.reject(envelope.requestId, error);
+        const inHistory = this.#historyCorrelator.reject(
+          envelope.requestId,
+          error,
+        );
         if (!inChart && !inHistory) {
           // Most likely cause: post-timeout server failure delivery. The
           // chart/history paths warn on the same condition; symmetry here
           // keeps a real diagnostic from being silently swallowed.
           console.warn(
-            `[WebSocketConnector] engine.error with no pending request: requestId=${data.requestId} error=${error.message}`,
+            `[WebSocketConnector] engine.error with no pending request: requestId=${envelope.requestId} error=${error.message}`,
           );
         }
+        return;
       }
-    } catch (err) {
-      console.error(
-        '[WebSocketConnector] Failed to parse message:',
-        err,
-        event.data,
+    }
+  }
+
+  /**
+   * A frame that failed to decode used to be trusted silently. Now it rejects
+   * the pending request it correlates to: a malformed `engine.maelstrom.response`
+   * fails the pending `process()` promise with the {@link EnvelopeError} rather
+   * than stranding it until timeout. The id is recovered directly from the raw
+   * frame because the typed envelope — the normal source of `requestId` — is
+   * exactly what could not be produced.
+   */
+  #handleDecodeFailure(raw: unknown, error: EnvelopeError): void {
+    const requestId = this.#recoverRequestId(raw);
+    if (requestId === undefined) {
+      console.warn(`[WebSocketConnector] undecodable frame: ${error.message}`);
+      return;
+    }
+    const inChart = this.#correlator.reject(requestId, error);
+    const inHistory = this.#historyCorrelator.reject(requestId, error);
+    if (!inChart && !inHistory) {
+      console.warn(
+        `[WebSocketConnector] undecodable frame with no pending request: requestId=${requestId}: ${error.message}`,
       );
     }
+  }
+
+  // Best-effort correlation recovery for a frame the codec rejected. Server
+  // envelopes carry `requestId` (not `id`); a whitespace-only value is skipped
+  // because the MessageId brand rejects it and it correlates to nothing.
+  #recoverRequestId(raw: unknown): MessageIdType | undefined {
+    let value: unknown = raw;
+    if (typeof raw === 'string') {
+      try {
+        value = JSON.parse(raw);
+      } catch {
+        return undefined;
+      }
+    } else if (raw instanceof Uint8Array) {
+      try {
+        value = JSON.parse(new TextDecoder().decode(raw));
+      } catch {
+        return undefined;
+      }
+    }
+
+    if (typeof value !== 'object' || value === null) return undefined;
+    const requestId = (value as Record<string, unknown>).requestId;
+    if (typeof requestId === 'string' && requestId.trim().length > 0) {
+      return MessageId(requestId);
+    }
+    return undefined;
   }
 }
