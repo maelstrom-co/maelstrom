@@ -332,11 +332,8 @@ describe('m.Chart — tiling layout', () => {
 });
 
 describe('m.Chart — executeAction routing (regression)', () => {
-  // Regression: the Chart path previously sent a JSON-stringified params field
-  // (an excess property the client silently dropped), so params never reached
-  // runners. This drives the real machinery — the vessel's injected
-  // executeAction → invokeAction → CommandProcessor → ActionManager — and
-  // asserts the runner receives params.
+  // Injected actions must forward the exact params object through to the
+  // registered runner.
   it('delivers executeAction params through to the registered runner', async () => {
     const selectOrder = mock((_params: { orderId: string }) => ok(undefined));
 

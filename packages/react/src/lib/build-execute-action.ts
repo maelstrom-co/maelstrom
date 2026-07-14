@@ -4,9 +4,8 @@ import type { InstanceId } from '@maelstrom-co/protocol';
 import type { MutableRefObject } from 'react';
 
 /**
- * Builds the `executeAction` callback injected into vessel components. Shared by
- * the Chart renderer and useVesselCore so both take the identical
- * client-authoritative path through `Orchestrator.invokeAction`.
+ * Builds the `executeAction` callback injected into vessel components — a
+ * client-authoritative dispatch through `Orchestrator.invokeAction`.
  */
 export function buildExecuteAction(
   orchestrator: Orchestrator,

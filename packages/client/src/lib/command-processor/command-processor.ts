@@ -200,11 +200,13 @@ export class CommandProcessor {
     this.dispatch({ kind: 'execute_actions', executionPlan });
   }
 
-  // Last-write-wins variant swap. Applies `next` only if the instance still
-  // exists and its variant is exactly `expected`; returns whether it applied.
-  // The guard is what makes an optimistic-transition revert safe: a newer
-  // local invocation or an engine layout landing in between must not be
-  // clobbered.
+  /**
+   * Last-write-wins variant swap. Applies `next` only if the instance still
+   * exists and its variant is exactly `expected`; returns whether it applied.
+   * The guard is what makes an optimistic-transition revert safe: a newer
+   * local invocation or an engine layout landing in between must not be
+   * clobbered.
+   */
   setVariantIfCurrent(
     instanceId: InstanceId,
     expected: VariantName,
@@ -222,10 +224,12 @@ export class CommandProcessor {
     return applied;
   }
 
-  // Runs a single action through the same queue + ActionManager machinery as
-  // an engine execution plan (readiness wait, execution timeout, action_error
-  // emission) and resolves with that action's outcome so a caller can arbitrate
-  // an optimistic-transition revert. Does not throw.
+  /**
+   * Runs a single action through the same queue + ActionManager machinery as
+   * an engine execution plan (readiness wait, execution timeout, action_error
+   * emission) and resolves with that action's outcome so a caller can arbitrate
+   * an optimistic-transition revert. Does not throw.
+   */
   runLocalAction(execution: ActionExecution): Promise<ActionInvocationOutcome> {
     if (this.#emitter.disposed) return Promise.resolve('failed');
 

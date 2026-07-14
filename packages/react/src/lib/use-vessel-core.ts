@@ -22,9 +22,8 @@ export interface VesselCoreResult {
  * Factory that creates a useVesselCore hook bound to a specific Maelstrom context.
  *
  * The returned hook subscribes to a vessel instance from the client store.
- * Used by useVessel, useInstance, and dynamic handle hooks. Variant transitions
- * are owned by the client (see `Orchestrator.invokeAction`), so this hook simply
- * reflects the store's authoritative variant.
+ * Variant transitions are owned by the client (see `Orchestrator.invokeAction`),
+ * so this hook simply reflects the store's authoritative variant.
  */
 export function createUseVesselCore(contextPair: MaelstromContextPair) {
   const { useMaelstromContext } = contextPair;

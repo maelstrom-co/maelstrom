@@ -147,6 +147,17 @@ function currentVariant(
 async function flushMicrotasks(): Promise<void> {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
+
+// Polls until `predicate` holds, yielding microtasks between checks (without
+// advancing timers past a still-pending deferred runner). Fails loudly rather
+// than coupling assertions to a fixed microtask-hop count.
+async function waitFor(predicate: () => boolean, maxTicks = 100): Promise<void> {
+  for (let i = 0; i < maxTicks; i++) {
+    if (predicate()) return;
+    await Promise.resolve();
+  }
+  throw new Error('waitFor: condition did not settle');
+}
 // ============================================================================
 // Tests
 // ============================================================================
@@ -1229,7 +1240,7 @@ describe('Orchestrator', () => {
       expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
 
       await orchestrator.commandProcessor.waitForIdle();
-      await flushMicrotasks();
+      await waitFor(() => currentVariant(orchestrator, instanceId) === 'collapsed');
 
       expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
       expect(actionErrors).toContain(instanceId);
@@ -1270,7 +1281,7 @@ describe('Orchestrator', () => {
       // A fails now — its revert must NOT clobber v3.
       failA?.();
       await orchestrator.commandProcessor.waitForIdle();
-      await flushMicrotasks();
+      await waitFor(() => currentVariant(orchestrator, instanceId) === 'v3');
 
       expect(currentVariant(orchestrator, instanceId)).toBe('v3');
 
@@ -1450,7 +1461,7 @@ describe('Orchestrator', () => {
       // The slow runner now fails, well after its mutation already shipped.
       resolveExpand?.(err(new Error('boom')));
       await orchestrator.commandProcessor.waitForIdle();
-      await flushMicrotasks();
+      await waitFor(() => currentVariant(orchestrator, instanceId) === 'collapsed');
 
       // The guarded revert restored the local store...
       expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
@@ -1593,6 +1604,67 @@ describe('Orchestrator', () => {
         expect(reason.instanceId).toBe(instanceId);
         expect(reason.changes).toContain('collapsed');
         expect(reason.changes).toContain('expanded');
+      }
+
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Bug regression: disconnect() must not discard a vessel_mutation that was
+  // scheduled into the UpdateCoordinator while connected but hasn't flushed
+  // yet. Reconnect only replays #pendingMutations (mutations scheduled while
+  // disconnected), so a mutation still sitting in the coordinator's debounce
+  // buffer at disconnect time was previously lost forever.
+  // --------------------------------------------------------------------------
+
+  describe('disconnect preserves an unflushed vessel_mutation across reconnect', () => {
+    it('replays exactly once, after reconnect, a vessel_mutation still buffered in the coordinator at disconnect time', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(stateMachineVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'sm',
+        variant: 'collapsed',
+      });
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        expand: () => ok(undefined),
+      });
+
+      // Simulate connected state so invokeAction schedules the mutation
+      // straight into the UpdateCoordinator (not into #pendingMutations).
+      orchestrator.connectionManager.store.setState((s) => ({
+        ...s,
+        connectionStatus: 'connected' as const,
+      }));
+
+      // Invoke a transitionsTo action — schedules a vessel_mutation into the
+      // coordinator's debounce buffer. Do NOT advance the clock past the
+      // debounce, so it is still unflushed at this point.
+      orchestrator.invokeAction(instanceId, ActionName('expand'));
+      expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
+
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      // Disconnect while the mutation is still unflushed in the coordinator.
+      await orchestrator.disconnect();
+
+      // Reconnect through the real ConnectionManager flow (genuine
+      // 'connection_status_changed' → 'connected' emission) — the same
+      // mechanism the existing pendingMutations replay test above uses,
+      // since poking connectionManager.store.setState directly bypasses the
+      // emitter and wouldn't exercise the replay handler at all.
+      await orchestrator.connect();
+
+      expect(scheduleSpy).toHaveBeenCalledTimes(1);
+      const reason = scheduleSpy.mock.calls[0][0];
+      expect(reason.type).toBe('vessel_mutation');
+      if (reason.type === 'vessel_mutation') {
+        expect(reason.instanceId).toBe(instanceId);
       }
 
       scheduleSpy.mockRestore();

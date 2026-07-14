@@ -401,7 +401,13 @@ export class Orchestrator {
   }
 
   async disconnect(): Promise<void> {
-    this.#updateCoordinator.clear();
+    // Preserve unflushed vessel_mutations across the disconnect so a click that
+    // hasn't reached the wire replays on reconnect instead of vanishing.
+    // takeCoalesced() drains + clears the coordinator (buffer + timers) like
+    // clear() did, but returns the pending updates so mutations can be retained.
+    for (const update of this.#updateCoordinator.takeCoalesced()) {
+      if (update.type === 'vessel_mutation') this.#pendingMutations.push(update);
+    }
     await this.#connectionManager.disconnect();
   }
 
@@ -578,6 +584,9 @@ export class Orchestrator {
     transition: { from: VariantName; to: VariantName } | null,
   ): Promise<void> {
     const outcome = await this.#commandProcessor.runLocalAction(execution);
+    // Only a failed runner reverts. 'succeeded' keeps the transition; 'skipped'
+    // (no runner ready within the readiness window) also keeps it — a pure
+    // transition has nothing to run or undo.
     if (outcome === 'failed' && transition) {
       // Guarded revert: only undo when our transition still stands.
       const reverted = this.#commandProcessor.setVariantIfCurrent(

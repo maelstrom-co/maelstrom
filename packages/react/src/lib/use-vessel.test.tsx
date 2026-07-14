@@ -254,9 +254,8 @@ describe('m.useVessel() — basic', () => {
 });
 
 // ─── Store-authoritative transitions ─────────────────────────────────────────
-// executeAction now routes through Orchestrator.invokeAction: the client applies
-// a `transitionsTo` variant to its store synchronously, so the observable "instant
-// flip" survives — its mechanism moved from React optimistic state to the store.
+// executeAction applies a vessel's `transitionsTo` variant to the client store
+// synchronously, so the observable instant flip happens client-side.
 
 describe('m.useVessel() — store-authoritative transitions', () => {
   it('executeAction with transitionsTo immediately updates variantProps.variant', async () => {
