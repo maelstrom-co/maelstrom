@@ -55,7 +55,8 @@ function createMockPushConnector(
 
 // A vessel whose actions exercise every invokeAction branch: `expand` and
 // `collapse` transition between variants, `ping` runs without transitioning,
-// and `collapse` lives only on `expanded` (to pin "current variant" semantics).
+// `refresh` self-transitions (transitionsTo names its own variant), and
+// `collapse` lives only on `expanded` (to pin "current variant" semantics).
 const stateMachineVessel = {
   id: 'sm',
   name: 'State Machine',
@@ -77,6 +78,11 @@ const stateMachineVessel = {
           parameters: [
             { name: 'msg', type: 'string', description: 'a message' },
           ],
+        },
+        {
+          name: 'refresh',
+          description: 'a self-transition back to the same variant',
+          transitionsTo: 'collapsed',
         },
       ],
     },
@@ -1381,6 +1387,82 @@ describe('Orchestrator', () => {
       expect(warned).toBe(true);
 
       warnSpy.mockRestore();
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('runs the runner without transitioning (and without an engine update) for a self-transitioning action', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(stateMachineVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'sm',
+        variant: 'collapsed',
+      });
+      orchestrator.connectionManager.store.setState((s) => ({
+        ...s,
+        connectionStatus: 'connected' as const,
+      }));
+
+      let refreshed = false;
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        refresh: () => {
+          refreshed = true;
+          return ok(undefined);
+        },
+      });
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      orchestrator.invokeAction(instanceId, ActionName('refresh'));
+
+      // A self-transition (transitionsTo === current variant) is not a real
+      // change — the variant must stay put immediately, and no engine update
+      // is due once the runner has run.
+      expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
+
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
+
+      expect(refreshed).toBe(true);
+      expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
+      expect(scheduleSpy).not.toHaveBeenCalled();
+
+      scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('truncates an oversized serialized params blob in the scheduled vessel_mutation', () => {
+      const { orchestrator } = createTestOrchestrator();
+      orchestrator.vesselManager.registerVessel(stateMachineVessel);
+      const instanceId = seedInstance(orchestrator, {
+        instanceId: 'i-1',
+        vesselId: 'sm',
+        variant: 'collapsed',
+      });
+      orchestrator.connectionManager.store.setState((s) => ({
+        ...s,
+        connectionStatus: 'connected' as const,
+      }));
+
+      orchestrator.commandProcessor.registerRunner(instanceId, {
+        expand: () => ok(undefined),
+      });
+      const scheduleSpy = spyOn(orchestrator, 'scheduleUpdate');
+
+      orchestrator.invokeAction(instanceId, ActionName('expand'), {
+        blob: 'x'.repeat(500),
+      });
+
+      expect(scheduleSpy).toHaveBeenCalledTimes(1);
+      const reason = scheduleSpy.mock.calls[0][0];
+      expect(reason.type).toBe('vessel_mutation');
+      if (reason.type === 'vessel_mutation') {
+        // Truncated: bounded well under the ~500-char untruncated blob, and
+        // carries the truncation marker so it's recognizable as cut off.
+        expect(reason.changes).toContain('…');
+        expect(reason.changes.length).toBeLessThan(300);
+      }
+
       scheduleSpy.mockRestore();
       orchestrator.dispose();
     });

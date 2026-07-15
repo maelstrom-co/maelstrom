@@ -301,7 +301,7 @@ export class Orchestrator {
    * - Never throws; invalid input warns and no-ops.
    * - The variant transition is applied before the runner is awaited.
    * - A revert never clobbers a variant a later write already changed.
-   * - No transition (parameterless / no `transitionsTo`) → no engine update.
+   * - No `transitionsTo`, or no effective variant change → no engine update.
    *
    * @param instanceId - The instance to act on; must exist in the store.
    * @param action - The action name; must be declared on the current variant.
@@ -356,7 +356,7 @@ export class Orchestrator {
     // updates before the (async) runner runs.
     let transition: { from: VariantName; to: VariantName } | null = null;
     const target = actionDef.transitionsTo;
-    if (target !== undefined) {
+    if (target !== undefined && target !== currentVariant) {
       if (!Object.hasOwn(vessel.variants, target)) {
         this.#logger.warn(
           `invokeAction: action "${action}" transitionsTo unknown variant "${target}"; running without transition`,
@@ -372,7 +372,16 @@ export class Orchestrator {
         let paramsSuffix = '';
         if (params && Object.keys(params).length > 0) {
           try {
-            paramsSuffix = ` with ${JSON.stringify(params)}`;
+            // params are app-provided and unvalidated; cap the serialized
+            // projection so a large value can't bloat the engine prompt.
+            // (A validated/redacted projection is a separate concern.)
+            const serialized = JSON.stringify(params);
+            const MAX_PARAMS_CHARS = 200;
+            paramsSuffix = ` with ${
+              serialized.length > MAX_PARAMS_CHARS
+                ? `${serialized.slice(0, MAX_PARAMS_CHARS)}…`
+                : serialized
+            }`;
           } catch {
             // params may be circular or contain a BigInt — fall back to no
             // suffix rather than let JSON.stringify throw and abort the
