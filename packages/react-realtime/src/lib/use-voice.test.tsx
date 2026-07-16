@@ -5,6 +5,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { createMaelstrom, vessel } from '@maelstrom-co/react';
 import { defineVessel } from '@maelstrom-co/protocol';
 import type { TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
+import type { AdapterTurnControl, RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import type { UseVoiceResult } from './maelstrom-realtime.js';
 
@@ -81,11 +82,9 @@ function must<T>(value: T | undefined): T {
   return value;
 }
 
-function setup() {
+function setup(createAdapter: () => RealtimeProviderAdapter = () => ({}) as never) {
   const entry = vessel(testVessel, () => null);
-  const m = createMaelstrom({ vessels: [entry] }).with(
-    maelstromRealtime({ createAdapter: () => ({}) as never }),
-  );
+  const m = createMaelstrom({ vessels: [entry] }).with(maelstromRealtime({ createAdapter }));
   const connector = createMockConnector();
   return { m, connector };
 }
@@ -397,5 +396,47 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
       await must(api).disconnect();
     });
     expect(session.disconnectCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  it('surfaces the adapter turnControl on the hook result', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(() => ({ turnControl }) as never);
+    let api: UseVoiceResult | undefined;
+    function Consumer() {
+      api = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(must(api).turnControl).toBe(turnControl);
+  });
+
+  it('leaves turnControl undefined for speech-native adapters', async () => {
+    const { m, connector } = setup();
+    let api: UseVoiceResult | undefined;
+    function Consumer() {
+      api = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(must(api).turnControl).toBeUndefined();
   });
 });

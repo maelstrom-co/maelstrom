@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { Orchestrator, TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
 import type { MaelstromExtension, MaelstromExtensionContext } from '@maelstrom-co/react';
-import type { RealtimeInstance, RealtimeProviderAdapter, SummarizeFn } from '@maelstrom-co/realtime';
+import type {
+  AdapterTurnControl,
+  RealtimeInstance,
+  RealtimeProviderAdapter,
+  SummarizeFn,
+} from '@maelstrom-co/realtime';
 import { RealtimeSession } from '@maelstrom-co/realtime';
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
 
@@ -42,6 +47,17 @@ export interface UseVoiceResult {
    * the `VoiceSession` seam instead.
    */
   readonly session: RealtimeSession;
+  /**
+   * Turn-boundary control, present only when the underlying adapter is a
+   * push-to-talk cascade (STT→LLM→TTS without server-side VAD) that needs the
+   * user to delimit each turn; speech-native adapters leave it `undefined`.
+   *
+   * `RealtimeSession` never calls it — it is surfaced straight from the
+   * adapter to this UI layer. Consumers use `turnControl !== undefined` as the
+   * type-level signal to render hold-to-talk controls (driving `startTurn` on
+   * press and `endTurn` on release) instead of an always-on listening orb.
+   */
+  readonly turnControl?: AdapterTurnControl;
   /** Connects the shared session. Safe to call from any consumer under the same Provider. */
   readonly connect: () => Promise<void>;
   /** Disconnects the shared session immediately, regardless of other active consumers. */
@@ -82,14 +98,18 @@ export function maelstromRealtime(
   // caller for the same orchestrator reuses it. Keyed on the orchestrator
   // instance (stable for the life of the Provider) rather than a module-level
   // singleton so multiple Maelstrom instances don't share a voice session.
-  const sessions = new WeakMap<Orchestrator, RealtimeSession>();
+  // `RealtimeSession` doesn't expose the adapter it was built from, so the
+  // adapter's `turnControl` capability is captured alongside the session here
+  // at creation time and surfaced through the hook.
+  const sessions = new WeakMap<Orchestrator, VoiceSessionEntry>();
   const refCounts = new WeakMap<Orchestrator, number>();
 
-  function getOrCreateSession(orchestrator: Orchestrator): RealtimeSession {
+  function getOrCreateSession(orchestrator: Orchestrator): VoiceSessionEntry {
     const existing = sessions.get(orchestrator);
     if (existing) return existing;
+    const adapter = options.createAdapter();
     const session = new RealtimeSession({
-      adapter: options.createAdapter(),
+      adapter,
       instance: createBridge(orchestrator),
       sessionId: orchestrator.getConfig().sessionId,
       summarize: options.summarize,
@@ -97,14 +117,15 @@ export function maelstromRealtime(
       onEvent: options.onEvent,
       debug: options.debug,
     });
-    sessions.set(orchestrator, session);
-    return session;
+    const entry: VoiceSessionEntry = { session, turnControl: adapter.turnControl };
+    sessions.set(orchestrator, entry);
+    return entry;
   }
 
   return (ctx: MaelstromExtensionContext) => {
     const useVoice = (): UseVoiceResult => {
       const { orchestrator } = ctx.useMaelstromContext();
-      const session = getOrCreateSession(orchestrator);
+      const { session, turnControl } = getOrCreateSession(orchestrator);
 
       // Seeded from the session's current state rather than a hardcoded
       // 'idle' — a subscriber mounting after another one already connected
@@ -164,6 +185,7 @@ export function maelstromRealtime(
         userTranscript,
         assistantTranscript,
         session,
+        turnControl,
         connect,
         disconnect,
       };
@@ -171,4 +193,14 @@ export function maelstromRealtime(
 
     return { useVoice, VoiceOrb: createVoiceOrb(useVoice) };
   };
+}
+
+/**
+ * Shared-session record kept per orchestrator: the `RealtimeSession` plus the
+ * `turnControl` snapshotted off its adapter at creation, since the session
+ * itself doesn't re-expose the adapter.
+ */
+interface VoiceSessionEntry {
+  readonly session: RealtimeSession;
+  readonly turnControl: AdapterTurnControl | undefined;
 }

@@ -20,6 +20,7 @@ export { RealtimeSession } from './lib/realtime-session/realtime-session.js';
 export type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,

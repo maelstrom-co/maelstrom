@@ -54,6 +54,26 @@ export interface AdapterAudioStreams {
 }
 
 /**
+ * Optional turn-boundary control for providers that lack server-side VAD and
+ * therefore cannot detect turn edges on their own. Cascaded STT→LLM→TTS
+ * transports (push-to-talk) need the user to delimit each turn explicitly:
+ * `startTurn` opens the mic / STT stream, `endTurn` flushes it and triggers
+ * the provider's turn-final transcript. Speech-native providers (OpenAI
+ * WebRTC, Google Live API) detect turns themselves and omit this entirely.
+ *
+ * Invariant: `RealtimeSession` NEVER calls these methods — they exist purely
+ * for the binding/UI layer to drive. The session stays agnostic to whether a
+ * provider is push-to-talk; only the surface that renders controls acts on
+ * this capability.
+ */
+export interface AdapterTurnControl {
+  /** Begin a user turn (e.g. unmute mic, start STT stream). */
+  startTurn(): Promise<void>;
+  /** End the turn (flush STT, mute mic). Triggers the provider's turn-final transcript. */
+  endTurn(): Promise<void>;
+}
+
+/**
  * Provider-agnostic seam a realtime voice transport (OpenAI WebRTC, Google
  * Live API, …) implements. `RealtimeSession` drives every provider through
  * this interface only — it never branches on provider identity. Concrete
@@ -81,4 +101,15 @@ export interface RealtimeProviderAdapter {
    */
   injectGrounding(text: string): void;
   on(handler: (event: RealtimeAdapterEvent) => void): Unsubscribe;
+  /**
+   * Present only on adapters that need explicit turn boundaries (push-to-talk
+   * cascades without server-side VAD); speech-native adapters omit it.
+   *
+   * Invariant: `RealtimeSession` NEVER touches this — it is surfaced to the
+   * binding/UI layer, which uses `turnControl !== undefined` as the type-level
+   * signal to render hold-to-talk controls instead of an always-on listening
+   * orb, and drives {@link AdapterTurnControl.startTurn}/`endTurn` from those
+   * controls.
+   */
+  readonly turnControl?: AdapterTurnControl;
 }
