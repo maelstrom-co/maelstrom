@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
-import type { MaelstromResponse, Vessel } from '@maelstrom-co/protocol';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
-  ActionName,
   InstanceId,
   MessageId,
   VariantName,
@@ -10,16 +9,15 @@ import {
   defineVessel,
 } from '@maelstrom-co/protocol';
 import { err, ok } from '@maelstrom-co/protocol';
-import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
+import FakeTimers from '@sinonjs/fake-timers';
 import { type ReactNode, useMemo } from 'react';
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
-import { useOptimisticVariant } from './use-optimistic-variant.js';
 import { vessel } from './vessel.js';
 
-// Vessel with transitionsTo so we can test optimistic transitions
+// Vessel with transitionsTo so we can test client-authoritative variant transitions
 const orderVessel = defineVessel({
   id: 'orders',
   name: 'Orders',
@@ -255,9 +253,11 @@ describe('m.useVessel() — basic', () => {
   });
 });
 
-// ─── Optimistic transitions ──────────────────────────────────────────────────
+// ─── Store-authoritative transitions ─────────────────────────────────────────
+// executeAction applies a vessel's `transitionsTo` variant to the client store
+// synchronously, so the observable instant flip happens client-side.
 
-describe('m.useVessel() — optimistic transitions', () => {
+describe('m.useVessel() — store-authoritative transitions', () => {
   it('executeAction with transitionsTo immediately updates variantProps.variant', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
@@ -342,7 +342,7 @@ describe('m.useVessel() — optimistic transitions', () => {
     expect(props.variantProps.variant).toBe('list');
   });
 
-  it('optimistic variant is cleared when engine updates the store variant', async () => {
+  it('engine confirmation keeps the client-transitioned variant', async () => {
     let callCount = 0;
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
@@ -381,14 +381,14 @@ describe('m.useVessel() — optimistic transitions', () => {
     expect(props.variantProps.variant).toBe('list');
     const propsSnapshot = props;
 
-    // Optimistic transition to 'detail'
+    // Client transition to 'detail' (applied to the store synchronously)
     await act(async () => {
       propsSnapshot.executeAction('viewDetail');
     });
     assertDefined(props);
     expect(props.variantProps.variant).toBe('detail');
 
-    // Engine confirms 'detail' — optimistic state clears, store drives
+    // Engine confirms 'detail' — store stays authoritative on 'detail'
     assertDefined(state);
     const stateSnapshot2 = state;
     await act(async () => {
@@ -398,7 +398,7 @@ describe('m.useVessel() — optimistic transitions', () => {
     expect(props.variantProps.variant).toBe('detail');
   });
 
-  it('variantProps reflects the correct props for the optimistically transitioned variant', async () => {
+  it('variantProps reflects the correct props for the transitioned variant', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
       process: async () => makeResponse([makeInstance()]),
@@ -502,11 +502,12 @@ describe('m.useVessel() — optimistic transitions', () => {
     );
   });
 
-  it('optimistic variant is cleared when engine rejects the transition (same variant)', async () => {
+  it('engine layout overrides a client transition (reverts to the engine variant)', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
       process: async () => {
-        // Both responses return variant: 'list' — engine rejects the optimistic 'detail'
+        // Both responses return variant: 'list' — the engine layout overrides
+        // the client's local 'detail' transition.
         return makeResponse([makeInstance({ variant: VariantName('list') })]);
       },
     });
@@ -546,21 +547,21 @@ describe('m.useVessel() — optimistic transitions', () => {
     expect(props.variantProps.variant).toBe('list');
     const propsSnapshot = props;
 
-    // Optimistic transition to 'detail'
+    // Client transition to 'detail' (store updated synchronously)
     await act(async () => {
       propsSnapshot.executeAction('viewDetail');
     });
     assertDefined(props);
     expect(props.variantProps.variant).toBe('detail');
 
-    // Engine responds but keeps variant at 'list' — rejects the transition
+    // Engine responds but keeps variant at 'list' — its layout is authoritative
     assertDefined(state);
     const stateSnapshot2 = state;
     await act(async () => {
       await stateSnapshot2.processIntent('engine rejects');
     });
 
-    // Optimistic variant should be cleared, falling back to store's 'list'
+    // Store variant falls back to the engine's 'list'
     assertDefined(props);
     expect(props.variantProps.variant).toBe('list');
   });
@@ -635,7 +636,7 @@ describe('m.useVessel() — optimistic transitions', () => {
     }
   });
 
-  it('optimistic variant is rolled back when action runner returns Failure', async () => {
+  it('runner failure reverts the client transition', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
       process: async () => makeResponse([makeInstance({ variant: VariantName('list') })]),
@@ -675,17 +676,17 @@ describe('m.useVessel() — optimistic transitions', () => {
     expect(props.variantProps.variant).toBe('list');
     const propsSnapshot = props;
 
-    // executeAction sets optimistic to 'detail', but the runner returns Failure
+    // executeAction transitions the store to 'detail', but the runner returns Failure
     await act(async () => {
       propsSnapshot.executeAction('viewDetail');
     });
 
-    // Optimistic should be rolled back since the action failed
+    // Client reverts the transition since the runner failed
     assertDefined(props);
     expect(props.variantProps.variant).toBe('list');
   });
 
-  it('optimistic variant is rolled back when action runner throws', async () => {
+  it('runner throw reverts the client transition', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
       process: async () => makeResponse([makeInstance({ variant: VariantName('list') })]),
@@ -727,65 +728,14 @@ describe('m.useVessel() — optimistic transitions', () => {
     expect(props.variantProps.variant).toBe('list');
     const propsSnapshot = props;
 
-    // executeAction sets optimistic to 'detail', but the runner throws
+    // executeAction transitions the store to 'detail', but the runner throws
     await act(async () => {
       propsSnapshot.executeAction('viewDetail');
     });
 
-    // Optimistic should be rolled back since the action threw
+    // Client reverts the transition since the runner threw
     assertDefined(props);
     expect(props.variantProps.variant).toBe('list');
-  });
-
-  it('does not set optimistic variant when transitionsTo references a non-existent variant', () => {
-    // VesselSchema rejects transitionsTo → non-existent variants at
-    // registration time, and VesselManager stores parsed clones (so mutating
-    // the input post-registration no longer propagates). Drop down to the
-    // defensive branch in useOptimisticVariant directly: pass a hand-built
-    // vessel whose action references a variant the vessel doesn't carry.
-    const driftedVessel: Vessel = {
-      id: VesselId('drifted'),
-      name: 'Drifted',
-      description: 'Vessel whose stored shape has drifted at runtime',
-      defaultVariant: VariantName('main'),
-      variants: {
-        [VariantName('main')]: {
-          description: 'main',
-          props: {},
-          minSize: { width: 1, height: 1 },
-          actions: [
-            {
-              name: ActionName('goToGhost'),
-              description: 'Transitions to a missing variant',
-              // Branded but intentionally absent from `variants` — this is the
-              // runtime drift the defensive branch must handle.
-              transitionsTo: VariantName('ghost-variant'),
-            },
-          ],
-        },
-      },
-    };
-
-    const { result } = renderHook(() =>
-      useOptimisticVariant(
-        { variant: VariantName('main') },
-        driftedVessel,
-        // No-op subscriber; we only care about applyTransition's branch.
-        () => () => undefined,
-      ),
-    );
-
-    expect(result.current.current).toBeNull();
-
-    // Action's transitionsTo points to a variant that doesn't exist on the
-    // vessel — applyTransition must return false and leave optimistic unset.
-    let applied: boolean | undefined;
-    act(() => {
-      applied = result.current.applyTransition('goToGhost');
-    });
-
-    expect(applied).toBe(false);
-    expect(result.current.current).toBeNull();
   });
 
   it('resolves transitionsTo from the active variant, not the first match across all variants', async () => {

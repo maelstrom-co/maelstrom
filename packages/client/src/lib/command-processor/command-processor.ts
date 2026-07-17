@@ -4,6 +4,7 @@ import type {
   GridLayout,
   InstanceId,
   TilingLayout,
+  VariantName,
   VesselDefinition,
 } from '@maelstrom-co/protocol';
 import { toError } from '@maelstrom-co/protocol';
@@ -13,8 +14,11 @@ import type { Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
 import { ActionManager } from './action-manager.js';
-import type { ActionRunner } from './action-runner.types.js';
-import type { Command } from './command.types.js';
+import type {
+  ActionRunner,
+  BatchExecutionResult,
+} from './action-runner.types.js';
+import type { Command, ExecuteActionsCommand } from './command.types.js';
 import {
   type CommandProcessingState,
   createInitialCommandProcessingState,
@@ -45,6 +49,12 @@ export type CommandProcessorEvents = {
     timestamp: number;
   };
 };
+
+// Result of a single locally-invoked action's runner. `skipped` and
+// `succeeded` are distinct from `failed` so the caller can revert an
+// optimistic transition on `failed` only (a skip means no runner ran, so
+// there is nothing to undo).
+export type ActionInvocationOutcome = 'succeeded' | 'failed' | 'skipped';
 
 /**
  * Processes commands through a sequential event loop.
@@ -78,6 +88,14 @@ export class CommandProcessor {
   readonly #logger: Logger;
   #commandQueue: Array<Command | Command[]> = [];
   #idleResolvers: Set<() => void> = new Set();
+  // Keyed by command identity so a locally-invoked action can await the
+  // outcome of *its* execute_actions command specifically, even when other
+  // commands (engine batches, other local invocations) interleave in the
+  // queue. Settled in #processCommand once that command finishes.
+  #actionResultResolvers = new Map<
+    Command,
+    (result: BatchExecutionResult | undefined) => void
+  >();
 
   constructor(options: CommandProcessorOptions = {}) {
     const initialState =
@@ -182,6 +200,56 @@ export class CommandProcessor {
     this.dispatch({ kind: 'execute_actions', executionPlan });
   }
 
+  /**
+   * Last-write-wins variant swap. Applies `next` only if the instance still
+   * exists and its variant is exactly `expected`; returns whether it applied.
+   * The guard is what makes an optimistic-transition revert safe: a newer
+   * local invocation or an engine layout landing in between must not be
+   * clobbered.
+   */
+  setVariantIfCurrent(
+    instanceId: InstanceId,
+    expected: VariantName,
+    next: VariantName,
+  ): boolean {
+    let applied = false;
+    this.store.setState((state) => {
+      const instance = state.instances.get(instanceId);
+      if (!instance || instance.variant !== expected) return state;
+      applied = true;
+      const instances = new Map(state.instances);
+      instances.set(instanceId, { ...instance, variant: next });
+      return { ...state, instances };
+    });
+    return applied;
+  }
+
+  /**
+   * Runs a single action through the same queue + ActionManager machinery as
+   * an engine execution plan (readiness wait, execution timeout, action_error
+   * emission) and resolves with that action's outcome so a caller can arbitrate
+   * an optimistic-transition revert. Does not throw.
+   */
+  runLocalAction(execution: ActionExecution): Promise<ActionInvocationOutcome> {
+    if (this.#emitter.disposed) return Promise.resolve('failed');
+
+    const command: ExecuteActionsCommand = {
+      kind: 'execute_actions',
+      executionPlan: [execution],
+    };
+    const settled = new Promise<BatchExecutionResult | undefined>((resolve) => {
+      this.#actionResultResolvers.set(command, resolve);
+    });
+    this.dispatch(command);
+
+    return settled.then((result) => {
+      const record = result?.actions[0];
+      if (!record) return 'failed';
+      if (record.skipped) return 'skipped';
+      return record.result.ok ? 'succeeded' : 'failed';
+    });
+  }
+
   dispose(): void {
     if (this.#emitter.disposed) return;
 
@@ -193,6 +261,13 @@ export class CommandProcessor {
       resolve();
     }
     this.#idleResolvers.clear();
+
+    // Settle any in-flight runLocalAction awaiters (undefined → 'failed') so
+    // they don't hang past disposal.
+    for (const resolve of this.#actionResultResolvers.values()) {
+      resolve(undefined);
+    }
+    this.#actionResultResolvers.clear();
   }
 
   async #runEventLoop(firstItem: Command | Command[]): Promise<void> {
@@ -227,6 +302,7 @@ export class CommandProcessor {
       timestamp: performance.now(),
     });
 
+    let actionResult: BatchExecutionResult | undefined;
     try {
       switch (command.kind) {
         case 'set_layout': {
@@ -242,10 +318,10 @@ export class CommandProcessor {
           break;
         }
         case 'execute_actions': {
-          const result = await this.#actionManager.executeActions(
+          actionResult = await this.#actionManager.executeActions(
             command.executionPlan,
           );
-          for (const record of result.actions) {
+          for (const record of actionResult.actions) {
             if (!record.result.ok) {
               this.#emitter.emit('action_error', {
                 instanceId: record.instanceId,
@@ -279,6 +355,15 @@ export class CommandProcessor {
       duration: performance.now() - startTime,
       timestamp: performance.now(),
     });
+
+    // A thrown command leaves actionResult undefined → the awaiter resolves
+    // 'failed' (safe: revert an optimistic transition rather than assume
+    // success on a command that never produced a result).
+    const resolve = this.#actionResultResolvers.get(command);
+    if (resolve) {
+      this.#actionResultResolvers.delete(command);
+      resolve(actionResult);
+    }
   }
 
   #dequeueNext(): Command | Command[] | null {

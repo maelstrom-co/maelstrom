@@ -13,7 +13,7 @@ A discrete state of a Vessel with its own props and minimum size requirement.
 _Avoid_: state, mode
 
 **Action**:
-A named transition a Vessel offers in a given Variant, invokable by the Engine or the user.
+A named transition a Vessel offers in a given Variant. Invoked locally by the user — the client applies the declared transition immediately and informs the Engine — or by the Engine through an Execution Plan, where the Layout Directive carries the resulting Variants.
 _Avoid_: command, event
 
 **Instance**:

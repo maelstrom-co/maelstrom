@@ -1,11 +1,15 @@
 import {
   ChartRequestMessage,
   MessageId,
+  type ActionExecution,
+  type ActionName,
   type ChartResizeReason,
+  type InstanceId,
   type MaelstromResponse,
   type SessionHistoryEntry,
   type SessionId,
   type UpdateReason,
+  type VariantName,
   type VesselMutationReason,
   toError,
 } from '@maelstrom-co/protocol';
@@ -76,6 +80,11 @@ export class Orchestrator {
   #isDisposed = false;
   #unsubscribers: (() => void)[] = [];
   #requestCounter = 0;
+  // Vessel mutations invoked while disconnected/reconnecting are held here
+  // instead of flushed into a closed connector; replayed once
+  // 'connection_status_changed' reports 'connected' (mirrors ChartManager's
+  // pendingResize pattern).
+  #pendingMutations: VesselMutationReason[] = [];
 
   constructor(connector: EngineConnector, options: OrchestratorOptions = {}) {
     this.#connector = connector;
@@ -256,6 +265,143 @@ export class Orchestrator {
   }
 
   // ==========================================================================
+  // Local action invocation
+  // ==========================================================================
+
+  /**
+   * Invoke a vessel action locally — the client-authoritative path for actions
+   * a user triggers directly in the UI (e.g. a button click), as opposed to
+   * actions the engine returns in an execution plan.
+   *
+   * WHAT it does, in order:
+   * 1. Validates that `instanceId` exists and that `action` is declared on the
+   *    instance's **current** variant. If either check fails it logs a warning
+   *    and no-ops — it never throws, so it is safe to call straight from a
+   *    render callback.
+   * 2. If the action declares a `transitionsTo` variant that exists on the
+   *    vessel, it updates the store's variant **synchronously, before the
+   *    runner runs** — the store is authoritative and the UI reflects the new
+   *    variant immediately (no optimistic-override-then-rollback dance).
+   * 3. Runs the action's registered runner through the same CommandProcessor /
+   *    ActionManager machinery as engine-plan actions (runner-readiness wait,
+   *    execution timeout, `action_error` emission).
+   * 4. If the runner fails (error result, throw, or timeout), reverts the
+   *    variant — but only if the store variant is still the one this call set,
+   *    so a newer transition or an engine layout that landed in between wins.
+   * 5. When (and only when) a transition actually happened in step 2, schedules
+   *    a `vessel_mutation` update so the engine can re-plan layout. Bursts are
+   *    coalesced by the UpdateCoordinator's debounce.
+   *
+   * WHY: vessels declare their own state machines, so a locally-invoked action
+   * with a `transitionsTo` is a fact the client already knows — applying it
+   * locally makes the client the authority instead of waiting on an engine
+   * round-trip.
+   *
+   * INVARIANTS:
+   * - Never throws; invalid input warns and no-ops.
+   * - The variant transition is applied before the runner is awaited.
+   * - A revert never clobbers a variant a later write already changed.
+   * - No `transitionsTo`, or no effective variant change → no engine update.
+   *
+   * @param instanceId - The instance to act on; must exist in the store.
+   * @param action - The action name; must be declared on the current variant.
+   * @param params - Optional parameter object passed to the runner verbatim.
+   *
+   * @example
+   * ```ts
+   * // In a vessel's render callback:
+   * <button onClick={() => orchestrator.invokeAction(instanceId, 'expand')}>
+   *   Expand
+   * </button>
+   * ```
+   */
+  invokeAction(
+    instanceId: InstanceId,
+    action: ActionName,
+    params?: Record<string, unknown>,
+  ): void {
+    if (this.#isDisposed) {
+      this.#logger.warn('invokeAction called after dispose; ignoring');
+      return;
+    }
+
+    const instance = this.#commandProcessor.store.state.instances.get(
+      instanceId,
+    );
+    if (!instance) {
+      this.#logger.warn(`invokeAction: unknown instance "${instanceId}"`);
+      return;
+    }
+
+    const vessel = this.#vesselManager.get(instance.vesselId);
+    if (!vessel) {
+      this.#logger.warn(
+        `invokeAction: no vessel definition for "${instance.vesselId}"`,
+      );
+      return;
+    }
+
+    const currentVariant = instance.variant;
+    const actionDef = vessel.variants[currentVariant]?.actions.find(
+      (a) => a.name === action,
+    );
+    if (!actionDef) {
+      this.#logger.warn(
+        `invokeAction: action "${action}" is not available on variant "${currentVariant}" of instance "${instanceId}"`,
+      );
+      return;
+    }
+
+    // Transition first: apply the declared variant change locally so the UI
+    // updates before the (async) runner runs.
+    let transition: { from: VariantName; to: VariantName } | null = null;
+    const target = actionDef.transitionsTo;
+    if (target !== undefined && target !== currentVariant) {
+      if (!Object.hasOwn(vessel.variants, target)) {
+        this.#logger.warn(
+          `invokeAction: action "${action}" transitionsTo unknown variant "${target}"; running without transition`,
+        );
+      } else if (
+        this.#commandProcessor.setVariantIfCurrent(
+          instanceId,
+          currentVariant,
+          target,
+        )
+      ) {
+        transition = { from: currentVariant, to: target };
+        let paramsSuffix = '';
+        if (params && Object.keys(params).length > 0) {
+          try {
+            // params are app-provided and unvalidated; cap the serialized
+            // projection so a large value can't bloat the engine prompt.
+            // (A validated/redacted projection is a separate concern.)
+            const serialized = JSON.stringify(params);
+            const MAX_PARAMS_CHARS = 200;
+            paramsSuffix = ` with ${
+              serialized.length > MAX_PARAMS_CHARS
+                ? `${serialized.slice(0, MAX_PARAMS_CHARS)}…`
+                : serialized
+            }`;
+          } catch {
+            // params may be circular or contain a BigInt — fall back to no
+            // suffix rather than let JSON.stringify throw and abort the
+            // (already-applied) transition.
+            paramsSuffix = '';
+          }
+        }
+        this.#scheduleMutation({
+          type: 'vessel_mutation',
+          instanceId,
+          changes: `user invoked "${action}"${paramsSuffix}: variant ${currentVariant} → ${target}`,
+        });
+      }
+    }
+
+    const execution: ActionExecution = { instanceId, action, params };
+    void this.#runLocalAction(execution, transition);
+  }
+
+  // ==========================================================================
   // Connection lifecycle
   // ==========================================================================
 
@@ -264,7 +410,13 @@ export class Orchestrator {
   }
 
   async disconnect(): Promise<void> {
-    this.#updateCoordinator.clear();
+    // Preserve unflushed vessel_mutations across the disconnect so a click that
+    // hasn't reached the wire replays on reconnect instead of vanishing.
+    // takeCoalesced() drains + clears the coordinator (buffer + timers) like
+    // clear() did, but returns the pending updates so mutations can be retained.
+    for (const update of this.#updateCoordinator.takeCoalesced()) {
+      if (update.type === 'vessel_mutation') this.#pendingMutations.push(update);
+    }
     await this.#connectionManager.disconnect();
   }
 
@@ -323,6 +475,7 @@ export class Orchestrator {
     this.#updateCoordinator.dispose();
     this.#commandProcessor.dispose();
     this.#requestCoordinator.dispose();
+    this.#pendingMutations = [];
   }
 
   // ==========================================================================
@@ -353,6 +506,12 @@ export class Orchestrator {
             this.scheduleUpdate(pendingResize);
             this.#chartManager.clearPendingResize();
           }
+
+          if (this.#pendingMutations.length > 0) {
+            const drained = this.#pendingMutations;
+            this.#pendingMutations = [];
+            for (const m of drained) this.scheduleUpdate(m);
+          }
         }
       },
     );
@@ -366,7 +525,13 @@ export class Orchestrator {
 
         if (this.#requestCoordinator.isProcessing) {
           // A request is already in flight; its completion will
-          // handle any queued flush promises.
+          // handle any queued flush promises. UpdateCoordinator.flush()
+          // already cleared its buffer before emitting this event, so
+          // requeue the updates here or they're lost for good — mirrors
+          // flushUpdates().
+          for (const update of event.updates) {
+            this.#updateCoordinator.schedule(update);
+          }
           return;
         }
 
@@ -420,6 +585,46 @@ export class Orchestrator {
         },
       );
       this.#unsubscribers.push(unsubPush);
+    }
+  }
+
+  async #runLocalAction(
+    execution: ActionExecution,
+    transition: { from: VariantName; to: VariantName } | null,
+  ): Promise<void> {
+    const outcome = await this.#commandProcessor.runLocalAction(execution);
+    // Only a failed runner reverts. 'succeeded' keeps the transition; 'skipped'
+    // (no runner ready within the readiness window) also keeps it — a pure
+    // transition has nothing to run or undo.
+    if (outcome === 'failed' && transition) {
+      // Guarded revert: only undo when our transition still stands.
+      const reverted = this.#commandProcessor.setVariantIfCurrent(
+        execution.instanceId,
+        transition.to,
+        transition.from,
+      );
+      if (reverted) {
+        // The original transition mutation may have already flushed to the
+        // engine before this (slow) runner failed — tell it about the
+        // rollback too, or it keeps believing the stale target variant.
+        this.#scheduleMutation({
+          type: 'vessel_mutation',
+          instanceId: execution.instanceId,
+          changes: `action "${execution.action}" failed; reverted variant ${transition.to} → ${transition.from}`,
+        });
+      }
+    }
+  }
+
+  // Routes a vessel_mutation through the live engine notification path when
+  // connected, or holds it when disconnected/reconnecting so a click against
+  // a closed connector isn't silently lost (mirrors ChartManager's
+  // pendingResize pattern for chart_resize).
+  #scheduleMutation(reason: VesselMutationReason): void {
+    if (this.#connectionManager.store.state.connectionStatus === 'connected') {
+      this.scheduleUpdate(reason);
+    } else {
+      this.#pendingMutations.push(reason);
     }
   }
 

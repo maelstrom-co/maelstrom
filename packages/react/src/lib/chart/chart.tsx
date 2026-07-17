@@ -1,6 +1,5 @@
 import type { ComputedTile, Rect, VesselInstance } from '@maelstrom-co/client';
 import { computeTilingLayout, parseTilingTree } from '@maelstrom-co/client';
-import { ActionName, toError } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 import {
   type CSSProperties,
@@ -9,13 +8,13 @@ import {
   Suspense,
   lazy,
   memo,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 
+import { buildExecuteAction } from '../build-execute-action.js';
 import type { MaelstromContextPair } from '../context.js';
 import { warnOnce } from '../warn-once.js';
 import { ErrorBoundary } from './error-boundary.js';
@@ -51,24 +50,9 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
       (s) => s.vessels.get(instance.vesselId),
     );
 
-    const executeAction = useCallback(
-      (name: string, params?: Record<string, unknown>) => {
-        if (config.debug) {
-          console.log(`[Maelstrom] executeAction: ${name}`, params);
-        }
-        try {
-          orchestrator.commandProcessor.executeActions([
-            {
-              instanceId: instance.instanceId,
-              action: ActionName(name),
-              ...(params && { paramsJson: JSON.stringify(params) }),
-            },
-          ]);
-        } catch (err) {
-          const error = toError(err);
-          onErrorRef.current?.(error);
-        }
-      },
+    const executeAction = useMemo(
+      () =>
+        buildExecuteAction(orchestrator, instance.instanceId, config.debug, onErrorRef),
       [orchestrator, instance.instanceId, config.debug, onErrorRef],
     );
 

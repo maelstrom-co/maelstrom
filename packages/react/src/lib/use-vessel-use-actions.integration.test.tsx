@@ -6,7 +6,7 @@
  * - useVessel returns typed props
  * - useActions registers runner
  * - Engine-initiated action fires runner handler
- * - User-initiated executeAction triggers optimistic transition AND fires runner
+ * - User-initiated executeAction triggers the client store transition AND fires runner
  */
 import { describe, it, expect, afterEach, mock } from 'bun:test';
 import { render, cleanup, act } from '@testing-library/react';
@@ -143,7 +143,7 @@ describe('useVessel + useActions integration', () => {
     expect(viewDetailHandler).toHaveBeenCalledWith({ orderId: 'order-99' });
   });
 
-  it('user-initiated executeAction triggers optimistic transition and fires registered runner', async () => {
+  it('user-initiated executeAction triggers the client transition and fires registered runner', async () => {
     const viewDetailHandler = mock((_params: { orderId: string }) => ok(undefined));
     const runner: ActionRunner<typeof orderVessel> = { viewDetail: viewDetailHandler };
     const m = createMaelstrom({ vessels: [entry] });
@@ -175,7 +175,7 @@ describe('useVessel + useActions integration', () => {
     assertDefined(props);
     expect(props.variantProps.variant).toBe('list');
 
-    // User calls executeAction — optimistic transition fires immediately
+    // User calls executeAction — client applies the store transition synchronously
     // ActionManager also notified (runner fires)
     assertDefined(props);
     const propsAfterList = props;
