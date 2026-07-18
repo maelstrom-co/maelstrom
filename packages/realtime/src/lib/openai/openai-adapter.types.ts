@@ -10,4 +10,13 @@ export interface OpenAIAdapterOptions {
   readonly mintToken: () => Promise<TokenHandshakeResponse>;
   /** Enable verbose debug tracing (default false). */
   readonly debug?: boolean;
+  /**
+   * Input-audio transcription configuration for the realtime session.
+   *
+   * Omitted (the default): transcription is enabled with the built-in model.
+   * An object: transcription is enabled with `model` (or the built-in default
+   * when `model` is omitted). `false`: transcription is disabled and no
+   * transcription config is sent in `session.update`.
+   */
+  readonly transcription?: false | { readonly model?: string };
 }

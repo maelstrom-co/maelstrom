@@ -221,10 +221,12 @@ export class RealtimeSession implements VoiceSession {
   }
 
   async connect(): Promise<void> {
-    // Re-entry guard: without it, a second connect() before the first
-    // resolves would stack a second set of subscriptions on top of the
-    // first's (only the last unsubscribe would ever be reachable).
-    if (this.#state === 'connected' || this.#state === 'connecting') return;
+    // Re-entry guard: connect() is only meaningful from a dormant session.
+    // From any live state (connecting/connected and the derived voice-activity
+    // states) a second connect() would stack a second set of subscriptions on
+    // top of the first's (only the last unsubscribe would ever be reachable),
+    // so only idle or error may (re)connect.
+    if (this.#state !== 'idle' && this.#state !== 'error') return;
 
     const epoch = ++this.#connectEpoch;
     this.#lastError = undefined;
@@ -253,7 +255,7 @@ export class RealtimeSession implements VoiceSession {
       // the now-live adapter back down instead of resurrecting the session
       // into 'connected' with a hot mic and zero consumers.
       this.#cleanupConnection();
-      void this.#adapter.disconnect();
+      void this.#adapter.disconnect().catch(() => {});
       return;
     }
     // Grounding only makes sense once the data channel is actually up — a UI
@@ -345,7 +347,7 @@ export class RealtimeSession implements VoiceSession {
           // idempotent, so tearing it down here is safe even if the caller
           // also calls disconnect() later. Without this, a retry connect()
           // throws ALREADY_CONNECTED against the still-live adapter.
-          void this.#adapter.disconnect();
+          void this.#adapter.disconnect().catch(() => {});
           this.#lastError = event.error;
           this.#setState('error');
         }

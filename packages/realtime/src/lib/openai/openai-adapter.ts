@@ -27,6 +27,12 @@ const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 /** Stable id for the single latest-wins grounding context item. */
 const GROUNDING_ITEM_ID = 'maelstrom-grounding';
 
+// ICE `disconnected` is often transient and self-recovers, so it is tolerated
+// for this long before being treated as a fatal connection failure.
+const ICE_DISCONNECT_GRACE_MS = 5000;
+
+const DEFAULT_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe';
+
 function toOpenAITool(spec: RealtimeToolSpec): unknown {
   return {
     type: 'function',
@@ -59,6 +65,7 @@ function toOpenAITool(spec: RealtimeToolSpec): unknown {
 export class OpenAIAdapter implements RealtimeProviderAdapter {
   readonly #mintToken: () => Promise<TokenHandshakeResponse>;
   readonly #logger: Logger;
+  readonly #transcription: false | { readonly model?: string } | undefined;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
 
   #pc: RTCPeerConnection | undefined;
@@ -77,12 +84,14 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   // can detect, once each await resumes, that a newer connect()/teardown
   // overtook it — and abort instead of clobbering the winner's shared state.
   #connectGeneration = 0;
+  #iceGraceTimer: ReturnType<typeof setTimeout> | undefined;
   #responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
   #voiceActivity: VoiceSessionState = 'connected';
   #unexpectedEvents: UnexpectedEventTracker = createUnexpectedEventTracker();
 
   constructor(options: OpenAIAdapterOptions) {
     this.#mintToken = options.mintToken;
+    this.#transcription = options.transcription;
     this.#logger = new Logger(options.debug ?? false, 'OpenAIAdapter');
   }
 
@@ -266,19 +275,43 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     connection.oniceconnectionstatechange = () => {
       // Ignore events from a superseded/abandoned connection.
       if (connection !== this.#pc) return;
-      if (
-        connection.iceConnectionState === 'failed' ||
-        connection.iceConnectionState === 'disconnected'
-      ) {
+      const state = connection.iceConnectionState;
+      if (state === 'failed') {
+        // `failed` is terminal — ICE has exhausted its own recovery.
+        this.#clearIceGraceTimer();
         this.#emit({
           type: 'error',
-          error: new RealtimeVoiceError(
-            'CONNECTION_FAILED',
-            `ICE connection ${connection.iceConnectionState}`,
-          ),
+          error: new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed'),
         });
+        return;
+      }
+      if (state === 'disconnected') {
+        // Often transient and self-recovering — open a grace window rather
+        // than failing immediately; a recovery to connected/completed below
+        // cancels it, and teardown() clears it so it never fires afterwards.
+        if (this.#iceGraceTimer === undefined) {
+          this.#iceGraceTimer = setTimeout(() => {
+            this.#iceGraceTimer = undefined;
+            if (connection !== this.#pc) return;
+            this.#emit({
+              type: 'error',
+              error: new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection disconnected'),
+            });
+          }, ICE_DISCONNECT_GRACE_MS);
+        }
+        return;
+      }
+      if (state === 'connected' || state === 'completed') {
+        this.#clearIceGraceTimer();
       }
     };
+  }
+
+  #clearIceGraceTimer(): void {
+    if (this.#iceGraceTimer !== undefined) {
+      clearTimeout(this.#iceGraceTimer);
+      this.#iceGraceTimer = undefined;
+    }
   }
 
   // Returns the acquired stream rather than self-assigning `#micStream`, so
@@ -316,6 +349,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
           type: 'realtime',
           tools: opts.tools.map(toOpenAITool),
           instructions: opts.instructions,
+          ...this.#transcriptionConfig(),
         },
       };
       this.#logger.debug('→ session.update', sessionUpdate);
@@ -370,6 +404,15 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     });
   }
 
+  // The `audio.input.transcription` slice of session.update, or nothing when
+  // transcription is disabled. GA `type: 'realtime'` nests transcription under
+  // `audio.input`, not the legacy top-level `input_audio_transcription`.
+  #transcriptionConfig(): Record<string, unknown> {
+    if (this.#transcription === false) return {};
+    const model = this.#transcription?.model ?? DEFAULT_TRANSCRIPTION_MODEL;
+    return { audio: { input: { transcription: { model } } } };
+  }
+
   #sendResponseCreate(): void {
     this.#dc?.send(JSON.stringify({ type: 'response.create' }));
   }
@@ -382,6 +425,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     // Invalidate any connect() still mid-handshake so it abandons its own
     // attempt instead of clobbering shared state when its awaits resume.
     this.#connectGeneration++;
+    this.#clearIceGraceTimer();
     this.#audioEl?.pause();
     if (this.#audioEl) this.#audioEl.srcObject = null;
     this.#audioEl = undefined;

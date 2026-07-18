@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import FakeTimers from '@sinonjs/fake-timers';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import type { TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol';
 import { SessionId } from '@maelstrom-co/protocol';
@@ -664,5 +665,124 @@ describe('OpenAIAdapter — superseded connect abandonment', () => {
     expect(pc2?.closed).toBe(false);
     expect(winnerMic?.tracks.some((track) => track.stopped)).toBe(false);
     expect(adapter.getAudioStreams().mic).toBe(winnerMic as unknown as MediaStream);
+  });
+});
+
+// ============================================================================
+// ICE disconnected grace window
+// ============================================================================
+
+describe('OpenAIAdapter — ICE disconnected grace window', () => {
+  it('does not fail immediately on ICE disconnected, fails only after the grace window elapses, and a recovery cancels it', async () => {
+    const clock = FakeTimers.install();
+    try {
+      const { adapter, connection } = await connectWithChannel();
+      const errors: unknown[] = [];
+      adapter.on((e) => {
+        if (e.type === 'error') errors.push(e.error);
+      });
+
+      // disconnected → grace timer starts, no error yet.
+      connection.iceConnectionState = 'disconnected';
+      connection.oniceconnectionstatechange?.();
+      expect(errors).toEqual([]);
+
+      // Recovery before the window elapses cancels the pending failure.
+      connection.iceConnectionState = 'connected';
+      connection.oniceconnectionstatechange?.();
+      await clock.tickAsync(10000);
+      expect(errors).toEqual([]);
+
+      // A fresh disconnected with no recovery fails once the window elapses.
+      connection.iceConnectionState = 'disconnected';
+      connection.oniceconnectionstatechange?.();
+      await clock.tickAsync(10000);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(RealtimeVoiceError);
+      expect((errors[0] as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+    } finally {
+      clock.uninstall();
+    }
+  });
+
+  it('fails immediately with no grace window on ICE failed', async () => {
+    const { adapter, connection } = await connectWithChannel();
+    const errors: unknown[] = [];
+    adapter.on((e) => {
+      if (e.type === 'error') errors.push(e.error);
+    });
+
+    connection.iceConnectionState = 'failed';
+    connection.oniceconnectionstatechange?.();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(RealtimeVoiceError);
+    expect((errors[0] as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+  });
+
+  it('a grace timer left pending by a disconnect never fires after teardown', async () => {
+    const clock = FakeTimers.install();
+    try {
+      const { adapter, connection } = await connectWithChannel();
+      const errors: unknown[] = [];
+      adapter.on((e) => {
+        if (e.type === 'error') errors.push(e.error);
+      });
+
+      connection.iceConnectionState = 'disconnected';
+      connection.oniceconnectionstatechange?.();
+
+      await adapter.disconnect();
+      await clock.tickAsync(10000);
+
+      expect(errors).toEqual([]); // teardown cleared the grace timer
+    } finally {
+      clock.uninstall();
+    }
+  });
+});
+
+// ============================================================================
+// Transcription config
+// ============================================================================
+
+describe('OpenAIAdapter — transcription config', () => {
+  async function connectAndReadSessionUpdate(adapter: OpenAIAdapter) {
+    await adapter.connect(connectOpts);
+    const dc = FakeRTCPeerConnection.instances[0]?.dataChannel;
+    dc?.triggerOpen();
+    return JSON.parse(dc?.sent[0] ?? '{}');
+  }
+
+  it('enables input-audio transcription with the default model by default', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({ mintToken: async () => fakeToken }),
+    );
+    expect(update.session.audio.input.transcription).toEqual({
+      model: 'gpt-4o-mini-transcribe',
+    });
+  });
+
+  it('uses a caller-supplied transcription model', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({ mintToken: async () => fakeToken, transcription: { model: 'whisper-1' } }),
+    );
+    expect(update.session.audio.input.transcription).toEqual({ model: 'whisper-1' });
+  });
+
+  it('falls back to the default model when the transcription object omits model', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({ mintToken: async () => fakeToken, transcription: {} }),
+    );
+    expect(update.session.audio.input.transcription).toEqual({
+      model: 'gpt-4o-mini-transcribe',
+    });
+  });
+
+  it('omits input-audio transcription entirely when disabled', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({ mintToken: async () => fakeToken, transcription: false }),
+    );
+    expect(update.session.audio).toBeUndefined();
   });
 });
