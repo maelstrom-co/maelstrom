@@ -10,6 +10,10 @@ import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type { RealtimeInstance } from '../realtime-session/realtime-session.types.js';
 import { RealtimeSession } from '../realtime-session/realtime-session.js';
 
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 // ============================================================================
 // Fakes
 // ============================================================================
@@ -596,5 +600,69 @@ describe('RealtimeSession + OpenAIAdapter — fatal in-session error recovery', 
     expect(session.state).toBe('connected');
     expect(session.lastError).toBeUndefined();
     expect(liveSubscriptions).toBe(1);
+  });
+});
+
+// ============================================================================
+// Superseded connect abandonment
+// ============================================================================
+
+describe('OpenAIAdapter — superseded connect abandonment', () => {
+  it('abandons a superseded in-flight attempt, closing only its own pc + mic, while the winner stays live and owns the shared fields', async () => {
+    // Controllable getUserMedia: each connect() parks here (after building its
+    // pc) until its resolver is invoked, letting us drive the two attempts out
+    // of order.
+    const micResolvers: Array<() => void> = [];
+    const micStreams: FakeMediaStream[] = [];
+    getUserMediaImpl = () =>
+      new Promise<FakeMediaStream>((resolve) => {
+        micResolvers.push(() => {
+          const stream = new FakeMediaStream(1);
+          micStreams.push(stream);
+          resolve(stream);
+        });
+      });
+
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+
+    // Attempt 1 parks at getUserMedia after creating pc1.
+    const first = adapter.connect(connectOpts);
+    await flushMicrotasks();
+    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+    const pc1 = FakeRTCPeerConnection.instances[0];
+
+    // Teardown clears the connecting guard and bumps the generation, so a
+    // second connect() can start; attempt 1 is now stale.
+    await adapter.disconnect();
+
+    // Attempt 2 parks at its own getUserMedia after creating pc2.
+    const second = adapter.connect(connectOpts);
+    await flushMicrotasks();
+    expect(FakeRTCPeerConnection.instances).toHaveLength(2);
+    const pc2 = FakeRTCPeerConnection.instances[1];
+
+    // Winner first: attempt 2's mic resolves, so it publishes to the shared
+    // fields and finishes its handshake.
+    micResolvers[1]?.();
+    await second;
+    const winnerMic = micStreams[0];
+
+    // Loser last: attempt 1's mic resolves, it discovers it is stale and
+    // abandons its own pc1 + mic without touching the shared fields.
+    micResolvers[0]?.();
+    const firstResult = await first.catch((e: unknown) => e);
+    const loserMic = micStreams[1];
+
+    expect(firstResult).toBeInstanceOf(RealtimeVoiceError);
+    expect((firstResult as RealtimeVoiceError).code).toBe('CONNECT_SUPERSEDED');
+
+    // Stale attempt's pc + mic are closed/stopped...
+    expect(pc1?.closed).toBe(true);
+    expect(loserMic?.tracks.every((track) => track.stopped)).toBe(true);
+
+    // ...while the winner stays live and owns the shared fields.
+    expect(pc2?.closed).toBe(false);
+    expect(winnerMic?.tracks.some((track) => track.stopped)).toBe(false);
+    expect(adapter.getAudioStreams().mic).toBe(winnerMic as unknown as MediaStream);
   });
 });

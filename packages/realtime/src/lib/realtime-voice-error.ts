@@ -9,7 +9,11 @@ export type RealtimeVoiceErrorCode =
   | 'TOKEN_MINT_FAILED'
   | 'CONNECTION_FAILED'
   | 'DATA_CHANNEL_ERROR'
-  | 'ALREADY_CONNECTED';
+  | 'ALREADY_CONNECTED'
+  // Raised on a connect() attempt that a newer connect()/teardown overtook
+  // while it was mid-handshake — the stale attempt aborts instead of clobbering
+  // the winning attempt's connection.
+  | 'CONNECT_SUPERSEDED';
 
 /**
  * A realtime voice failure with a typed cause.

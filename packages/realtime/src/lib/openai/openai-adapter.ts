@@ -72,6 +72,11 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   // connect() during that round-trip would pass the `#pc` check too and leak
   // its own RTCPeerConnection + mic stream.
   #connecting = false;
+  // Bumped at the start of every connect() and in every teardown() so a
+  // connect() whose async steps (mint, getUserMedia, SDP) are still in flight
+  // can detect, once each await resumes, that a newer connect()/teardown
+  // overtook it — and abort instead of clobbering the winner's shared state.
+  #connectGeneration = 0;
   #responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
   #voiceActivity: VoiceSessionState = 'connected';
   #unexpectedEvents: UnexpectedEventTracker = createUnexpectedEventTracker();
@@ -86,11 +91,17 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       throw new RealtimeVoiceError('ALREADY_CONNECTED', 'OpenAI realtime adapter is already connected');
     }
     this.#connecting = true;
+    const generation = ++this.#connectGeneration;
     // Captured by the data channel's onopen closure below so a slow ICE/DTLS
     // establishment (the gap between SDP exchange and channel open) is
     // attributable rather than folded into an opaque "connect() was slow".
     const connectStart = Date.now();
 
+    // Attempt-local handles: shared `#pc`/`#micStream` are only published once
+    // the post-getUserMedia current-check passes, so a superseded attempt can
+    // abandon exactly its own connection + mic without touching the winner's.
+    let connection: RTCPeerConnection | undefined;
+    let micStream: MediaStream | undefined;
     try {
       let token: TokenHandshakeResponse;
       try {
@@ -102,23 +113,63 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
           error,
         );
       }
+      this.#assertCurrent(generation);
       this.#logger.debug('connect timing', { step: 'mint', ms: Date.now() - connectStart });
 
-      const connection = new RTCPeerConnection();
+      connection = new RTCPeerConnection();
+
+      micStream = await this.#attachMicrophone(connection, connectStart);
+      this.#assertCurrent(generation);
+
+      // Past the post-getUserMedia check — this attempt is still current, so
+      // publishing to the shared fields is safe.
       this.#pc = connection;
+      this.#micStream = micStream;
       this.#connecting = false;
       this.#wireConnectionEvents(connection);
-
-      await this.#attachMicrophone(connection, connectStart);
       this.#openDataChannel(connection, opts, connectStart);
 
       await this.#exchangeSdp(connection, token, connectStart);
+      this.#assertCurrent(generation);
     } catch (error) {
-      // Handshake failed partway through — tear down whatever was already
-      // opened (mic stream, data channel, peer connection) so a retry
-      // doesn't leak them, then let the caller's `connect()` await reject.
-      this.#teardown();
+      // Always close this attempt's own connection + mic. They may never have
+      // reached the shared fields (e.g. a failure before the post-getUserMedia
+      // publish), in which case teardown() alone wouldn't clean them up.
+      this.#closeAbandonedAttempt(connection, micStream);
+      if (generation === this.#connectGeneration) {
+        // Still the current attempt — a genuine handshake failure. Reset the
+        // rest of the shared session state (data channel, audio element,
+        // lifecycle) so a retry starts clean. A superseded attempt skips this
+        // so it never clobbers the winner's state.
+        this.#teardown();
+      }
       throw error;
+    }
+  }
+
+  #assertCurrent(generation: number): void {
+    if (generation !== this.#connectGeneration) {
+      throw new RealtimeVoiceError(
+        'CONNECT_SUPERSEDED',
+        'connect() was superseded by a newer connect() or teardown',
+      );
+    }
+  }
+
+  // Closes only the passed attempt's own resources — never the shared
+  // `#pc`/`#micStream`, which by the time this runs belong to the winner.
+  #closeAbandonedAttempt(
+    connection: RTCPeerConnection | undefined,
+    micStream: MediaStream | undefined,
+  ): void {
+    micStream?.getTracks().forEach((track) => {
+      track.stop();
+    });
+    if (connection) {
+      for (const sender of connection.getSenders()) {
+        sender.track?.stop();
+      }
+      connection.close();
     }
   }
 
@@ -206,10 +257,15 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     audio.autoplay = true;
     this.#audioEl = audio;
     connection.ontrack = (event) => {
+      // Ignore events from a superseded/abandoned connection — only the
+      // current shared `#pc` may drive playback.
+      if (connection !== this.#pc) return;
       this.#playbackStream = event.streams[0];
       audio.srcObject = event.streams[0] ?? null;
     };
     connection.oniceconnectionstatechange = () => {
+      // Ignore events from a superseded/abandoned connection.
+      if (connection !== this.#pc) return;
       if (
         connection.iceConnectionState === 'failed' ||
         connection.iceConnectionState === 'disconnected'
@@ -225,7 +281,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     };
   }
 
-  async #attachMicrophone(connection: RTCPeerConnection, connectStart: number): Promise<void> {
+  // Returns the acquired stream rather than self-assigning `#micStream`, so
+  // connect() can publish it to the shared field only after confirming this
+  // attempt hasn't been superseded.
+  async #attachMicrophone(connection: RTCPeerConnection, connectStart: number): Promise<MediaStream> {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -236,10 +295,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
         : new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to acquire the microphone', error);
     }
     this.#logger.debug('connect timing', { step: 'getUserMedia', ms: Date.now() - connectStart });
-    this.#micStream = stream;
     for (const track of stream.getTracks()) {
       connection.addTrack(track, stream);
     }
+    return stream;
   }
 
   #openDataChannel(
@@ -320,6 +379,9 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   }
 
   #teardown(): void {
+    // Invalidate any connect() still mid-handshake so it abandons its own
+    // attempt instead of clobbering shared state when its awaits resume.
+    this.#connectGeneration++;
     this.#audioEl?.pause();
     if (this.#audioEl) this.#audioEl.srcObject = null;
     this.#audioEl = undefined;
