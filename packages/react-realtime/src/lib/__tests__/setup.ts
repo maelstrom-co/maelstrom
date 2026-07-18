@@ -4,7 +4,7 @@ import { Window } from 'happy-dom';
 const originalDocument = globalThis.document;
 const originalWindow = globalThis.window;
 
-let happyWindow = new Window();
+let happyWindow: Window;
 
 beforeEach(() => {
   setupHappyDom();

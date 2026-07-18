@@ -138,10 +138,16 @@ export function maelstromRealtime(
       );
 
       useEffect(() => {
-        return session.on('state', (next) => {
+        const unsubscribe = session.on('state', (next) => {
           setState(next);
           setError(session.lastError);
         });
+        // The session may have already advanced past the state captured by
+        // the useState initializer in the gap between render and this
+        // effect running; re-read here so state can't stay stale.
+        setState(session.state);
+        setError(session.lastError);
+        return unsubscribe;
       }, [session]);
 
       useEffect(() => {

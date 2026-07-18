@@ -10,6 +10,11 @@ export interface LevelMeter {
  * Meters a live audio stream for UI feedback (voice orbs, waveforms).
  * Pull-based by design: call `read()` inside your own rAF loop instead of
  * receiving a callback, so render cadence stays under the consumer's control.
+ *
+ * @example
+ * const meter = createLevelMeter(stream);
+ * const level = meter.read(); // 0..1, call again each animation frame
+ * meter.dispose(); // releases the AudioContext when done
  */
 export function createLevelMeter(
   stream: MediaStream,
@@ -34,8 +39,9 @@ export function createLevelMeter(
       return Math.sqrt(sumSquares / samples.length);
     },
     dispose(): void {
+      if (disposed) return;
       disposed = true;
-      void context.close();
+      context.close().catch(() => {});
     },
   };
 }
