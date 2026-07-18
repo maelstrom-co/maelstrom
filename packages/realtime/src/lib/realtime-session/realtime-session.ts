@@ -335,6 +335,10 @@ export class RealtimeSession implements VoiceSession {
       case 'error':
         this.#logger.warn('adapter error', event.error);
         if (event.error instanceof RealtimeVoiceError) {
+          // Invalidate any in-flight connect() (mirrors disconnect()) so a
+          // late handshake success can't flip this fatally-errored session
+          // back to 'connected'.
+          this.#connectEpoch++;
           this.#cleanupConnection();
           // The adapter itself is still "connected" from its own point of
           // view (mic track live, peer connection open) — teardown() is

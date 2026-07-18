@@ -1220,6 +1220,36 @@ describe('RealtimeSession — error surfacing', () => {
     expect(session.lastError).toBeUndefined();
   });
 
+  it('a fatal error during a gated handshake lands in error and never transitions to connected', async () => {
+    // A fatal RealtimeVoiceError arriving while adapter.connect() is still in
+    // flight must win: when the gated handshake finally resolves, the epoch
+    // it was started under is stale, so connect() tears the now-live adapter
+    // back down instead of resurrecting the fatally-errored session.
+    const { session, adapter } = makeHarness();
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+
+    const release = adapter.gateConnect();
+    const connectPromise = session.connect();
+    await flushMicrotasks();
+    expect(session.state).toBe('connecting');
+
+    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    adapter.emitError(fatal);
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(fatal);
+
+    // The gated handshake resolves only now — without the epoch bump in the
+    // fatal-error branch this would flip the session back to 'connected'.
+    release();
+    await connectPromise;
+    await flushMicrotasks();
+
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(fatal);
+    expect(states).not.toContain('connected');
+  });
+
   it('cleans up the dead subscription on a fatal adapter error so a reconnect does not stack a second one', async () => {
     const { session, adapter } = makeHarness();
     await session.connect();
