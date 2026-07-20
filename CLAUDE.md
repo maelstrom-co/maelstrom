@@ -84,7 +84,7 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 | `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
 | `@maelstrom-co/realtime` | `packages/realtime/` | Browser realtime-voice core: RealtimeSession, RealtimeProviderAdapter seam, OpenAI adapter via `/openai` subpath (ephemeral tokens only — never holds provider keys) |
-| `@maelstrom-co/realtime-server` | `packages/realtime-server/` | Server-side mint of ephemeral realtime tokens; the only package that touches provider API keys |
+| `@maelstrom-co/realtime-server` | `packages/realtime-server/` | Server-side mint of ephemeral OpenAI realtime tokens; each provider package owns token minting via Node-only subpaths |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts
