@@ -1,9 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import FakeTimers from '@sinonjs/fake-timers';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import type { TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol';
+import { SessionId } from '@maelstrom-co/protocol';
+import type { CapabilitySnapshot, UIStructuralSnapshot } from '@maelstrom-co/client';
 
-import type { AdapterConnectOptions } from '../realtime-session/provider-adapter.types.js';
+import type { AdapterConnectOptions, RealtimeProviderAdapter } from '../realtime-session/provider-adapter.types.js';
 import { OpenAIAdapter } from './openai-adapter.js';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
+import type { RealtimeInstance } from '../realtime-session/realtime-session.types.js';
+import { RealtimeSession } from '../realtime-session/realtime-session.js';
+
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 // ============================================================================
 // Fakes
@@ -51,6 +61,10 @@ class FakeDataChannel {
     this.readyState = 'open';
     this.onopen?.();
   }
+
+  receive(payload: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(payload) });
+  }
 }
 
 interface FakeSender {
@@ -61,7 +75,7 @@ class FakeRTCPeerConnection {
   static instances: FakeRTCPeerConnection[] = [];
 
   closed = false;
-  ontrack: ((event: { streams: unknown[] }) => void) | null = null;
+  ontrack: ((event: { streams: readonly unknown[] }) => void) | null = null;
   oniceconnectionstatechange: (() => void) | null = null;
   iceConnectionState = 'new';
   localDescription: { type: string; sdp: string } | undefined;
@@ -109,8 +123,28 @@ class FakeRTCPeerConnection {
 }
 
 class FakeAudio {
+  static instances: FakeAudio[] = [];
+
   autoplay = false;
-  srcObject: unknown = null;
+  paused = true;
+  #srcObject: unknown = null;
+
+  constructor() {
+    FakeAudio.instances.push(this);
+  }
+
+  get srcObject(): unknown {
+    return this.#srcObject;
+  }
+
+  set srcObject(value: unknown) {
+    this.#srcObject = value;
+    if (value && this.autoplay) this.paused = false;
+  }
+
+  pause(): void {
+    this.paused = true;
+  }
 }
 
 // ============================================================================
@@ -162,6 +196,7 @@ function restoreGlobal(key: string, original: unknown): void {
 beforeEach(() => {
   FakeRTCPeerConnection.instances = [];
   FakeMediaStream.instances = [];
+  FakeAudio.instances = [];
   getUserMediaImpl = async () => new FakeMediaStream(1);
   fetchImpl = async () => ({
     ok: true,
@@ -196,6 +231,20 @@ beforeEach(() => {
   });
 });
 
+async function connectWithChannel(): Promise<{
+  adapter: RealtimeProviderAdapter;
+  channel: FakeDataChannel;
+  connection: FakeRTCPeerConnection;
+}> {
+  const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+  await adapter.connect(connectOpts);
+  const pc = FakeRTCPeerConnection.instances[0];
+  const channel = pc?.dataChannel;
+  if (!channel || !pc) throw new Error('connectWithChannel: no data channel created');
+  channel.triggerOpen();
+  return { adapter, channel, connection: pc };
+}
+
 afterEach(() => {
   restoreGlobal('RTCPeerConnection', originalRTCPeerConnection);
   restoreGlobal('Audio', originalAudio);
@@ -222,7 +271,9 @@ describe('OpenAIAdapter — mintToken failure', () => {
       },
     });
 
-    await expect(adapter.connect(connectOpts)).rejects.toThrow('mint failed');
+    await expect(adapter.connect(connectOpts)).rejects.toThrow(
+      'Failed to mint an ephemeral realtime token',
+    );
     expect(FakeRTCPeerConnection.instances).toHaveLength(0);
 
     // The `connecting` guard must have been reset by teardown() — otherwise
@@ -243,7 +294,9 @@ describe('OpenAIAdapter — getUserMedia failure', () => {
       throw new Error('mic denied');
     };
 
-    await expect(adapter.connect(connectOpts)).rejects.toThrow('mic denied');
+    await expect(adapter.connect(connectOpts)).rejects.toThrow(
+      'Failed to acquire the microphone',
+    );
     expect(FakeRTCPeerConnection.instances).toHaveLength(1);
     expect(FakeRTCPeerConnection.instances[0]?.closed).toBe(true);
 
@@ -371,5 +424,365 @@ describe('OpenAIAdapter — successful connect then disconnect', () => {
     expect(stream?.tracks.every((track) => track.stopped)).toBe(true);
     expect(pc?.closed).toBe(true);
     expect(dc?.closed).toBe(true);
+  });
+});
+
+// ============================================================================
+// Typed errors
+// ============================================================================
+
+describe('OpenAIAdapter — typed errors', () => {
+  it('throws ALREADY_CONNECTED on double connect', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    await adapter.connect(connectOpts);
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('ALREADY_CONNECTED');
+  });
+
+  it('wraps a mint rejection as TOKEN_MINT_FAILED with cause preserved', async () => {
+    const boom = new Error('mint 500');
+    const adapter = new OpenAIAdapter({ mintToken: () => Promise.reject(boom) });
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('TOKEN_MINT_FAILED');
+    expect((err as RealtimeVoiceError).cause).toBe(boom);
+  });
+
+  it('maps getUserMedia NotAllowedError to MIC_PERMISSION_DENIED', async () => {
+    const denied = Object.assign(new Error('denied'), { name: 'NotAllowedError' });
+    getUserMediaImpl = async () => {
+      throw denied;
+    };
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('MIC_PERMISSION_DENIED');
+  });
+});
+
+// ============================================================================
+// Voice activity state
+// ============================================================================
+
+describe('OpenAIAdapter — voice activity state', () => {
+  it('emits listening/thinking/speaking/connected across a full turn', async () => {
+    const { adapter, channel } = await connectWithChannel();
+    const states: string[] = [];
+    adapter.on((e) => {
+      if (e.type === 'state') states.push(e.state);
+    });
+
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    channel.receive({ type: 'input_audio_buffer.speech_stopped' });
+    channel.receive({ type: 'response.created' });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.receive({ type: 'response.done' });
+    channel.receive({ type: 'output_audio_buffer.stopped' });
+
+    expect(states).toEqual(['listening', 'thinking', 'speaking', 'connected']);
+  });
+
+  it('does not re-emit an unchanged state', async () => {
+    const { adapter, channel } = await connectWithChannel();
+    const states: string[] = [];
+    adapter.on((e) => {
+      if (e.type === 'state') states.push(e.state);
+    });
+
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    expect(states).toEqual(['listening']);
+  });
+});
+
+// ============================================================================
+// Audio streams
+// ============================================================================
+
+describe('OpenAIAdapter — audio streams', () => {
+  it('exposes mic and playback streams while connected and clears them on disconnect', async () => {
+    const { adapter, connection } = await connectWithChannel();
+    // simulate the remote track arriving:
+    const remote = new FakeMediaStream();
+    connection.ontrack?.({ streams: [remote] } as unknown as RTCTrackEvent);
+
+    const streams = adapter.getAudioStreams();
+    expect(streams.mic).toBeDefined();
+    expect(streams.playback).toBe(remote as unknown as MediaStream);
+
+    await adapter.disconnect();
+    expect(adapter.getAudioStreams()).toEqual({ mic: undefined, playback: undefined });
+  });
+
+  it('pauses and detaches the playback audio element on teardown', async () => {
+    const { adapter, connection } = await connectWithChannel();
+    connection.ontrack?.({ streams: [new FakeMediaStream()] } as unknown as RTCTrackEvent);
+    const audio = FakeAudio.instances.at(-1);
+    expect(audio?.paused).toBe(false);
+    expect(audio?.srcObject).not.toBeNull();
+
+    await adapter.disconnect();
+    expect(audio?.paused).toBe(true);
+    expect(audio?.srcObject).toBeNull();
+  });
+});
+
+// ============================================================================
+// Composed: RealtimeSession + real OpenAIAdapter over the WebRTC fakes
+// ============================================================================
+
+function makeInertInstance(): RealtimeInstance {
+  const snapshot: UIStructuralSnapshot = {
+    instances: [],
+    layout: null,
+    layoutMode: 'grid',
+    chartDimensions: { rows: 8, columns: 12 },
+  };
+  const capabilitySnapshot: CapabilitySnapshot = { vessels: [] };
+  return {
+    submitIntent: async () => {},
+    waitForIdle: async () => {},
+    getStructuralSnapshot: () => snapshot,
+    getCapabilitySnapshot: () => capabilitySnapshot,
+    onSettled: () => () => {},
+  };
+}
+
+describe('RealtimeSession + OpenAIAdapter — fatal in-session error recovery', () => {
+  it('tears down the adapter on a fatal ICE error (mic goes cold) so a retry connect() succeeds instead of throwing ALREADY_CONNECTED', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+
+    // Tracks live `on()` subscriptions against the real adapter so we can
+    // assert the reconnect doesn't stack a second one on top of the dead
+    // subscription from the errored session.
+    let liveSubscriptions = 0;
+    const rawOn = adapter.on.bind(adapter);
+    adapter.on = (handler) => {
+      liveSubscriptions += 1;
+      const unsubscribe = rawOn(handler);
+      return () => {
+        liveSubscriptions -= 1;
+        unsubscribe();
+      };
+    };
+
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeInertInstance(),
+      sessionId: SessionId('sess-fatal-ice'),
+    });
+
+    await session.connect();
+    expect(session.state).toBe('connected');
+
+    const pc = FakeRTCPeerConnection.instances[0];
+    const micStream = FakeMediaStream.instances[0];
+    if (!pc || !micStream) throw new Error('expected a peer connection and mic stream');
+
+    // Simulate an ICE failure mid-session — the fatal-error path the real
+    // adapter takes for a dropped WebRTC connection.
+    pc.iceConnectionState = 'failed';
+    pc.oniceconnectionstatechange?.();
+
+    expect(session.state).toBe('error');
+    // The mic must go cold immediately — leaving it hot after a fatal error
+    // is the bug: the adapter was never torn down, only the session's own
+    // subscriptions were.
+    expect(micStream.tracks.every((track) => track.stopped)).toBe(true);
+    expect(pc.closed).toBe(true);
+    expect(liveSubscriptions).toBe(0);
+
+    // Retry: without tearing down the adapter, this would throw
+    // ALREADY_CONNECTED (the adapter still thinks it's connected) and
+    // clobber lastError instead of establishing a fresh connection.
+    await session.connect();
+
+    expect(session.state).toBe('connected');
+    expect(session.lastError).toBeUndefined();
+    expect(liveSubscriptions).toBe(1);
+  });
+});
+
+// ============================================================================
+// Superseded connect abandonment
+// ============================================================================
+
+describe('OpenAIAdapter — superseded connect abandonment', () => {
+  it('abandons a superseded in-flight attempt, closing only its own pc + mic, while the winner stays live and owns the shared fields', async () => {
+    // Controllable getUserMedia: each connect() parks here (after building its
+    // pc) until its resolver is invoked, letting us drive the two attempts out
+    // of order.
+    const micResolvers: Array<() => void> = [];
+    const micStreams: FakeMediaStream[] = [];
+    getUserMediaImpl = () =>
+      new Promise<FakeMediaStream>((resolve) => {
+        micResolvers.push(() => {
+          const stream = new FakeMediaStream(1);
+          micStreams.push(stream);
+          resolve(stream);
+        });
+      });
+
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+
+    // Attempt 1 parks at getUserMedia after creating pc1.
+    const first = adapter.connect(connectOpts);
+    await flushMicrotasks();
+    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+    const pc1 = FakeRTCPeerConnection.instances[0];
+
+    // Teardown clears the connecting guard and bumps the generation, so a
+    // second connect() can start; attempt 1 is now stale.
+    await adapter.disconnect();
+
+    // Attempt 2 parks at its own getUserMedia after creating pc2.
+    const second = adapter.connect(connectOpts);
+    await flushMicrotasks();
+    expect(FakeRTCPeerConnection.instances).toHaveLength(2);
+    const pc2 = FakeRTCPeerConnection.instances[1];
+
+    // Winner first: attempt 2's mic resolves, so it publishes to the shared
+    // fields and finishes its handshake.
+    micResolvers[1]?.();
+    await second;
+    const winnerMic = micStreams[0];
+
+    // Loser last: attempt 1's mic resolves, it discovers it is stale and
+    // abandons its own pc1 + mic without touching the shared fields.
+    micResolvers[0]?.();
+    const firstResult = await first.catch((e: unknown) => e);
+    const loserMic = micStreams[1];
+
+    expect(firstResult).toBeInstanceOf(RealtimeVoiceError);
+    expect((firstResult as RealtimeVoiceError).code).toBe('CONNECT_SUPERSEDED');
+
+    // Stale attempt's pc + mic are closed/stopped...
+    expect(pc1?.closed).toBe(true);
+    expect(loserMic?.tracks.every((track) => track.stopped)).toBe(true);
+
+    // ...while the winner stays live and owns the shared fields.
+    expect(pc2?.closed).toBe(false);
+    expect(winnerMic?.tracks.some((track) => track.stopped)).toBe(false);
+    expect(adapter.getAudioStreams().mic).toBe(winnerMic as unknown as MediaStream);
+  });
+});
+
+// ============================================================================
+// ICE disconnected grace window
+// ============================================================================
+
+describe('OpenAIAdapter — ICE disconnected grace window', () => {
+  it('does not fail immediately on ICE disconnected, fails only after the grace window elapses, and a recovery cancels it', async () => {
+    const clock = FakeTimers.install();
+    try {
+      const { adapter, connection } = await connectWithChannel();
+      const errors: unknown[] = [];
+      adapter.on((e) => {
+        if (e.type === 'error') errors.push(e.error);
+      });
+
+      // disconnected → grace timer starts, no error yet.
+      connection.iceConnectionState = 'disconnected';
+      connection.oniceconnectionstatechange?.();
+      expect(errors).toEqual([]);
+
+      // Recovery before the window elapses cancels the pending failure.
+      connection.iceConnectionState = 'connected';
+      connection.oniceconnectionstatechange?.();
+      await clock.tickAsync(10000);
+      expect(errors).toEqual([]);
+
+      // A fresh disconnected with no recovery fails once the window elapses.
+      connection.iceConnectionState = 'disconnected';
+      connection.oniceconnectionstatechange?.();
+      await clock.tickAsync(10000);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(RealtimeVoiceError);
+      expect((errors[0] as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+    } finally {
+      clock.uninstall();
+    }
+  });
+
+  it('fails immediately with no grace window on ICE failed', async () => {
+    const { adapter, connection } = await connectWithChannel();
+    const errors: unknown[] = [];
+    adapter.on((e) => {
+      if (e.type === 'error') errors.push(e.error);
+    });
+
+    connection.iceConnectionState = 'failed';
+    connection.oniceconnectionstatechange?.();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(RealtimeVoiceError);
+    expect((errors[0] as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+  });
+
+  it('a grace timer left pending by a disconnect never fires after teardown', async () => {
+    const clock = FakeTimers.install();
+    try {
+      const { adapter, connection } = await connectWithChannel();
+      const errors: unknown[] = [];
+      adapter.on((e) => {
+        if (e.type === 'error') errors.push(e.error);
+      });
+
+      connection.iceConnectionState = 'disconnected';
+      connection.oniceconnectionstatechange?.();
+
+      await adapter.disconnect();
+      await clock.tickAsync(10000);
+
+      expect(errors).toEqual([]); // teardown cleared the grace timer
+    } finally {
+      clock.uninstall();
+    }
+  });
+});
+
+// ============================================================================
+// Transcription config
+// ============================================================================
+
+describe('OpenAIAdapter — transcription config', () => {
+  async function connectAndReadSessionUpdate(adapter: OpenAIAdapter) {
+    await adapter.connect(connectOpts);
+    const dc = FakeRTCPeerConnection.instances[0]?.dataChannel;
+    dc?.triggerOpen();
+    return JSON.parse(dc?.sent[0] ?? '{}');
+  }
+
+  it('enables input-audio transcription with the default model by default', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({ mintToken: async () => fakeToken }),
+    );
+    expect(update.session.audio.input.transcription).toEqual({
+      model: 'gpt-4o-mini-transcribe',
+    });
+  });
+
+  it('uses a caller-supplied transcription model', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({ mintToken: async () => fakeToken, transcription: { model: 'whisper-1' } }),
+    );
+    expect(update.session.audio.input.transcription).toEqual({ model: 'whisper-1' });
+  });
+
+  it('falls back to the default model when the transcription object omits model', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({ mintToken: async () => fakeToken, transcription: {} }),
+    );
+    expect(update.session.audio.input.transcription).toEqual({
+      model: 'gpt-4o-mini-transcribe',
+    });
+  });
+
+  it('omits input-audio transcription entirely when disabled', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({ mintToken: async () => fakeToken, transcription: false }),
+    );
+    expect(update.session.audio).toBeUndefined();
   });
 });

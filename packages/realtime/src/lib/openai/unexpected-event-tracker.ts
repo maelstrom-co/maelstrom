@@ -26,7 +26,6 @@ const KNOWN_BENIGN_UNMAPPED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'conversation.item.added',
   'conversation.item.done',
   'conversation.item.deleted',
-  'conversation.item.input_audio_transcription.delta',
   'rate_limits.updated',
 ]);
 

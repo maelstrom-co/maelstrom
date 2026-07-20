@@ -188,6 +188,24 @@
         "react-dom": ">=18.0.0",
       },
     },
+    "packages/react-realtime": {
+      "name": "@maelstrom-co/react-realtime",
+      "version": "0.0.0",
+      "dependencies": {
+        "@maelstrom-co/client": "0.0.0",
+        "@maelstrom-co/protocol": "0.0.0",
+        "@maelstrom-co/react": "0.0.0",
+        "@maelstrom-co/realtime": "0.0.0",
+      },
+      "devDependencies": {
+        "@testing-library/react": "catalog:",
+        "happy-dom": "catalog:",
+      },
+      "peerDependencies": {
+        "react": ">=18.0.0",
+        "react-dom": ">=18.0.0",
+      },
+    },
     "packages/realtime": {
       "name": "@maelstrom-co/realtime",
       "version": "0.0.0",
@@ -842,6 +860,8 @@
     "@maelstrom-co/protocol": ["@maelstrom-co/protocol@workspace:packages/protocol"],
 
     "@maelstrom-co/react": ["@maelstrom-co/react@workspace:packages/react"],
+
+    "@maelstrom-co/react-realtime": ["@maelstrom-co/react-realtime@workspace:packages/react-realtime"],
 
     "@maelstrom-co/realtime": ["@maelstrom-co/realtime@workspace:packages/realtime"],
 

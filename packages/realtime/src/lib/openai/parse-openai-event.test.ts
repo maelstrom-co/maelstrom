@@ -70,6 +70,21 @@ describe('parseOpenAIServerEvent — transcript', () => {
       final: true,
     });
   });
+
+  it('maps user input transcription deltas to non-final user transcripts', () => {
+    expect(
+      parseOpenAIServerEvent({
+        type: 'conversation.item.input_audio_transcription.delta',
+        delta: 'take me ',
+      }),
+    ).toEqual({ type: 'transcript', role: 'user', text: 'take me ', final: false });
+  });
+
+  it('rejects a user transcription delta without a string delta', () => {
+    expect(
+      parseOpenAIServerEvent({ type: 'conversation.item.input_audio_transcription.delta' }),
+    ).toBeNull();
+  });
 });
 
 describe('parseOpenAIServerEvent — speech and error', () => {

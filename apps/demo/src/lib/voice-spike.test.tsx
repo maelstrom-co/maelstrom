@@ -7,6 +7,7 @@ import type {
   ConnectorCapabilities,
   ConnectorEvent,
   EngineConnector,
+  TranscriptEntry,
   Unsubscribe,
   VoiceSession,
   VoiceSessionState,
@@ -30,9 +31,18 @@ class FakeRealtimeSession implements VoiceSession {
     FakeRealtimeSession.instances.push(this);
   }
 
-  on(_event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe {
-    this.#handlers.add(handler);
-    return () => this.#handlers.delete(handler);
+  on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe;
+  on(event: 'transcript', handler: (t: TranscriptEntry) => void): Unsubscribe;
+  on(
+    event: 'state' | 'transcript',
+    handler: ((s: VoiceSessionState) => void) | ((t: TranscriptEntry) => void),
+  ): Unsubscribe {
+    // The spike only exercises state transitions; transcript is accepted to
+    // satisfy the VoiceSession contract but never emitted by this fake.
+    if (event === 'state') {
+      this.#handlers.add(handler as (s: VoiceSessionState) => void);
+    }
+    return () => this.#handlers.delete(handler as (s: VoiceSessionState) => void);
   }
 
   async connect(): Promise<void> {

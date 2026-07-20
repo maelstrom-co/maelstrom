@@ -1,4 +1,5 @@
 import type {
+  TranscriptEntry,
   UIStructuralSnapshot,
   Unsubscribe,
   VoiceSession,
@@ -9,6 +10,7 @@ import type { SessionId, SidechannelEvent, ToolCallId } from '@maelstrom-co/prot
 
 import { groundedDebounce } from './grounding-debounce.js';
 import type {
+  AdapterAudioStreams,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
@@ -18,6 +20,7 @@ import type {
   RealtimeSessionOptions,
   SummarizeFn,
 } from './realtime-session.types.js';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
 
 // Single source of truth for tool names — the `tools` array passed to the
 // adapter and the dispatch table below are both keyed off this union, so a
@@ -165,11 +168,20 @@ export class RealtimeSession implements VoiceSession {
 
   #state: VoiceSessionState = 'idle';
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
+  readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   #unsubscribeAdapter: Unsubscribe | undefined;
   #unsubscribeSettled: Unsubscribe | undefined;
   #queuedIntent: QueuedIntent | undefined;
   #bargeInLoopRunning = false;
   #groundingClampWarned = false;
+  #lastError: unknown;
+  // Bumped by disconnect() and at the start of every connect() attempt so a
+  // connect() whose adapter.connect() is still in flight when disconnect()
+  // runs can tell, once it resumes, that it's stale — without this a
+  // disconnect() racing an in-flight connect() would have its cleanup
+  // clobbered when the handshake resolves and the connect() call resumes
+  // into 'connected' with a hot mic and zero consumers.
+  #connectEpoch = 0;
 
   readonly #toolHandlers: Record<
     ToolName,
@@ -199,12 +211,25 @@ export class RealtimeSession implements VoiceSession {
     return this.#state;
   }
 
-  async connect(): Promise<void> {
-    // Re-entry guard: without it, a second connect() before the first
-    // resolves would stack a second set of subscriptions on top of the
-    // first's (only the last unsubscribe would ever be reachable).
-    if (this.#state === 'connected' || this.#state === 'connecting') return;
+  /**
+   * The failure behind the most recent `error` state, if any. Cleared at the
+   * start of the next `connect()` attempt. Typed failures are
+   * `RealtimeVoiceError` — switch on `.code` for recovery UX.
+   */
+  get lastError(): unknown {
+    return this.#lastError;
+  }
 
+  async connect(): Promise<void> {
+    // Re-entry guard: connect() is only meaningful from a dormant session.
+    // From any live state (connecting/connected and the derived voice-activity
+    // states) a second connect() would stack a second set of subscriptions on
+    // top of the first's (only the last unsubscribe would ever be reachable),
+    // so only idle or error may (re)connect.
+    if (this.#state !== 'idle' && this.#state !== 'error') return;
+
+    const epoch = ++this.#connectEpoch;
+    this.#lastError = undefined;
     this.#setState('connecting');
     this.#unsubscribeAdapter = this.#adapter.on((event) => {
       this.#handleAdapterEvent(event);
@@ -215,9 +240,23 @@ export class RealtimeSession implements VoiceSession {
         instructions: DEFAULT_INSTRUCTIONS,
       });
     } catch (error) {
-      this.#cleanupConnection();
-      this.#setState('error');
+      // A disconnect() that raced this attempt already reset state/cleanup —
+      // don't stomp its 'idle' back to 'error'.
+      if (epoch === this.#connectEpoch) {
+        this.#cleanupConnection();
+        this.#lastError = error;
+        this.#setState('error');
+      }
       throw error;
+    }
+    if (epoch !== this.#connectEpoch) {
+      // disconnect() ran while adapter.connect() was still in flight — the
+      // handshake succeeded, but nothing is listening for it anymore. Tear
+      // the now-live adapter back down instead of resurrecting the session
+      // into 'connected' with a hot mic and zero consumers.
+      this.#cleanupConnection();
+      void this.#adapter.disconnect().catch(() => {});
+      return;
     }
     // Grounding only makes sense once the data channel is actually up — a UI
     // settle mid-handshake would otherwise schedule a debounced push that
@@ -229,9 +268,19 @@ export class RealtimeSession implements VoiceSession {
   }
 
   async disconnect(): Promise<void> {
+    this.#connectEpoch++;
     this.#cleanupConnection();
     await this.#adapter.disconnect();
+    this.#lastError = undefined;
     this.#setState('idle');
+  }
+
+  /**
+   * Live audio streams for UI metering (voice orbs, level meters). Delegates
+   * to the provider adapter; see `AdapterAudioStreams` for absence semantics.
+   */
+  getAudioStreams(): AdapterAudioStreams {
+    return this.#adapter.getAudioStreams();
   }
 
   #cleanupConnection(): void {
@@ -250,10 +299,23 @@ export class RealtimeSession implements VoiceSession {
     this.#queuedIntent = undefined;
   }
 
-  on(_event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe {
-    this.#stateHandlers.add(handler);
+  on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe;
+  on(event: 'transcript', handler: (t: TranscriptEntry) => void): Unsubscribe;
+  on(
+    event: 'state' | 'transcript',
+    handler: ((s: VoiceSessionState) => void) | ((t: TranscriptEntry) => void),
+  ): Unsubscribe {
+    if (event === 'transcript') {
+      const h = handler as (t: TranscriptEntry) => void;
+      this.#transcriptHandlers.add(h);
+      return () => {
+        this.#transcriptHandlers.delete(h);
+      };
+    }
+    const h = handler as (s: VoiceSessionState) => void;
+    this.#stateHandlers.add(h);
     return () => {
-      this.#stateHandlers.delete(handler);
+      this.#stateHandlers.delete(h);
     };
   }
 
@@ -274,10 +336,41 @@ export class RealtimeSession implements VoiceSession {
         break;
       case 'error':
         this.#logger.warn('adapter error', event.error);
+        if (event.error instanceof RealtimeVoiceError) {
+          // Invalidate any in-flight connect() (mirrors disconnect()) so a
+          // late handshake success can't flip this fatally-errored session
+          // back to 'connected'.
+          this.#connectEpoch++;
+          this.#cleanupConnection();
+          // The adapter itself is still "connected" from its own point of
+          // view (mic track live, peer connection open) — teardown() is
+          // idempotent, so tearing it down here is safe even if the caller
+          // also calls disconnect() later. Without this, a retry connect()
+          // throws ALREADY_CONNECTED against the still-live adapter.
+          void this.#adapter.disconnect().catch(() => {});
+          this.#lastError = event.error;
+          this.#setState('error');
+        }
         break;
-      case 'transcript':
+      case 'transcript': {
+        const entry: TranscriptEntry = {
+          role: event.role,
+          text: event.text,
+          final: event.final,
+        };
+        for (const handler of this.#transcriptHandlers) handler(entry);
+        this.#emit({
+          type: 'transcript',
+          sessionId: this.#sessionId,
+          at: Date.now(),
+          role: event.role,
+          text: event.text,
+          final: event.final,
+        });
+        break;
+      }
       case 'speech_started':
-        // Not part of the tool/grounding surface this session drives.
+        // Activity state is derived provider-side; nothing to do here.
         break;
       default: {
         const _exhaustive: never = event;

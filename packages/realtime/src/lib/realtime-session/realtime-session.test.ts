@@ -13,12 +13,14 @@ import {
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
 
 import type {
+  AdapterAudioStreams,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
 } from './provider-adapter.types.js';
 import type { RealtimeInstance } from './realtime-session.types.js';
 import { RealtimeSession } from './realtime-session.js';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -32,6 +34,7 @@ interface MockAdapter extends RealtimeProviderAdapter {
   readonly toolResults: Array<{ callId: string; output: unknown }>;
   readonly groundingCalls: string[];
   readonly connectCalls: number;
+  readonly disconnectCalls: number;
   /** Tools passed to the most recent `connect()` call. */
   readonly lastConnectTools: readonly RealtimeToolSpec[] | undefined;
   /** Number of adapter-event handlers currently subscribed via `on()` — a leaked subscription shows up here. */
@@ -41,6 +44,10 @@ interface MockAdapter extends RealtimeProviderAdapter {
   /** Makes `connect()` block until the returned function is called. */
   gateConnect(): () => void;
   emitToolCall(call: { callId: string; name: string; argumentsJson: string }): void;
+  emitError(error: unknown): void;
+  emitTranscript(t: { role: 'user' | 'assistant'; text: string; final: boolean }): void;
+  /** Sentinel returned by `getAudioStreams()` — identity-compared by tests. */
+  readonly lastAudioStreams: AdapterAudioStreams;
 }
 
 function makeMockAdapter(): MockAdapter {
@@ -48,15 +55,22 @@ function makeMockAdapter(): MockAdapter {
   const groundingCalls: string[] = [];
   const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
   let connectCalls = 0;
+  let disconnectCalls = 0;
   let lastConnectTools: readonly RealtimeToolSpec[] | undefined;
   let shouldFailNextConnect = false;
   let gate: Promise<void> | undefined;
+  const lastAudioStreams: AdapterAudioStreams = {};
 
   return {
     toolResults,
     groundingCalls,
+    lastAudioStreams,
+    getAudioStreams: () => lastAudioStreams,
     get connectCalls() {
       return connectCalls;
+    },
+    get disconnectCalls() {
+      return disconnectCalls;
     },
     get lastConnectTools() {
       return lastConnectTools;
@@ -86,7 +100,9 @@ function makeMockAdapter(): MockAdapter {
         throw new Error('adapter connect failed');
       }
     },
-    disconnect: async () => {},
+    disconnect: async () => {
+      disconnectCalls += 1;
+    },
     sendToolResult: async (callId, output) => {
       toolResults.push({ callId, output });
     },
@@ -103,6 +119,12 @@ function makeMockAdapter(): MockAdapter {
       for (const h of handlers) {
         h({ type: 'tool_call', ...call, callId: ToolCallId(call.callId) });
       }
+    },
+    emitError(error) {
+      for (const h of handlers) h({ type: 'error', error });
+    },
+    emitTranscript(t) {
+      for (const h of handlers) h({ type: 'transcript', ...t });
     },
   };
 }
@@ -124,6 +146,8 @@ interface MockInstance extends RealtimeInstance {
    * the exact race the barge-in retry loop is bounded against.
    */
   resolveIdle(): void;
+  /** Number of onSettled subscribers currently registered — a leaked subscription shows up here. */
+  readonly settledSubscriberCount: number;
 }
 
 function makeMockInstance(
@@ -137,6 +161,9 @@ function makeMockInstance(
 
   return {
     submitted,
+    get settledSubscriberCount() {
+      return settledHandlers.size;
+    },
     submitIntent: async (intent: string) => {
       if (inFlight) {
         throw new RequestInFlightError();
@@ -1107,5 +1134,201 @@ describe('RealtimeSession — connection lifecycle', () => {
     // No sendToolResult for the abandoned call either way — teardown drops
     // it silently rather than answering it (the adapter is gone too).
     expect(adapter.toolResults.find((r) => r.callId === 'c2')).toBeUndefined();
+  });
+
+  it('disconnecting while connect() is still in flight lands idle instead of resurrecting the session once the handshake resolves', async () => {
+    const { session, adapter, instance } = makeHarness();
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+    const release = adapter.gateConnect();
+
+    const connectPromise = session.connect();
+    await flushMicrotasks();
+    expect(session.state).toBe('connecting');
+
+    // The last consumer unmounts mid-handshake (e.g. a token-mint round
+    // trip) and calls disconnect() before adapter.connect() has resolved.
+    const disconnectPromise = session.disconnect();
+    await flushMicrotasks();
+    expect(session.state).toBe('idle');
+    expect(adapter.disconnectCalls).toBe(1);
+
+    // Now the gated handshake resolves — without the epoch guard this would
+    // subscribe onSettled and flip the state back to 'connected'.
+    release();
+    await connectPromise;
+    await disconnectPromise;
+
+    expect(session.state).toBe('idle');
+    expect(states).not.toContain('connected');
+    // The stale connect() attempt must tear itself back down rather than
+    // leaving a second live adapter subscription, a hot connection, or a
+    // dangling onSettled subscription behind.
+    expect(adapter.listenerCount).toBe(0);
+    expect(adapter.disconnectCalls).toBe(2);
+    expect(instance.settledSubscriberCount).toBe(0);
+  });
+});
+
+// ============================================================================
+// Behavior 8: error surfacing
+// ============================================================================
+
+describe('RealtimeSession — error surfacing', () => {
+  it('transitions to error and records lastError on a fatal adapter error', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+
+    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    adapter.emitError(fatal);
+
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(fatal);
+  });
+
+  it('stays connected on a non-fatal adapter error', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+
+    adapter.emitError(new Error('malformed frame'));
+
+    expect(session.state).toBe('connected');
+    expect(session.lastError).toBeUndefined();
+  });
+
+  it('records lastError when connect() itself rejects', async () => {
+    const { session, adapter } = makeHarness();
+    adapter.failNextConnect();
+
+    await expect(session.connect()).rejects.toThrow();
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBeDefined();
+  });
+
+  it('disconnect clears lastError, keeping "populated when state is error" truthful', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+
+    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    adapter.emitError(fatal);
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(fatal);
+
+    await session.disconnect();
+
+    expect(session.state).toBe('idle');
+    expect(session.lastError).toBeUndefined();
+  });
+
+  it('a fatal error during a gated handshake lands in error and never transitions to connected', async () => {
+    // A fatal RealtimeVoiceError arriving while adapter.connect() is still in
+    // flight must win: when the gated handshake finally resolves, the epoch
+    // it was started under is stale, so connect() tears the now-live adapter
+    // back down instead of resurrecting the fatally-errored session.
+    const { session, adapter } = makeHarness();
+    const states: string[] = [];
+    session.on('state', (s) => states.push(s));
+
+    const release = adapter.gateConnect();
+    const connectPromise = session.connect();
+    await flushMicrotasks();
+    expect(session.state).toBe('connecting');
+
+    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    adapter.emitError(fatal);
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(fatal);
+
+    // The gated handshake resolves only now — without the epoch bump in the
+    // fatal-error branch this would flip the session back to 'connected'.
+    release();
+    await connectPromise;
+    await flushMicrotasks();
+
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(fatal);
+    expect(states).not.toContain('connected');
+  });
+
+  it('cleans up the dead subscription on a fatal adapter error so a reconnect does not stack a second one', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    expect(adapter.listenerCount).toBe(1);
+
+    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    adapter.emitError(fatal);
+    expect(session.state).toBe('error');
+
+    await session.connect(); // retry after the fatal error
+    expect(session.state).toBe('connected');
+    expect(adapter.listenerCount).toBe(1); // not 2 — the dead subscription was torn down
+
+    adapter.emitToolCall({ callId: 'c1', name: 'get_ui_state', argumentsJson: '{}' });
+    await flushMicrotasks();
+
+    // Exactly one tool_result — a leaked handler from the errored session
+    // would have produced two.
+    expect(adapter.toolResults).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// Behavior 9: transcript subscription
+// ============================================================================
+
+describe('RealtimeSession — transcript subscription', () => {
+  it('forwards adapter transcripts to on(transcript) subscribers', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    const seen: Array<{ role: string; text: string; final: boolean }> = [];
+    session.on('transcript', (t) => seen.push(t));
+
+    adapter.emitTranscript({ role: 'assistant', text: 'On it — ', final: false });
+    adapter.emitTranscript({ role: 'assistant', text: 'On it — done.', final: true });
+
+    expect(seen).toEqual([
+      { role: 'assistant', text: 'On it — ', final: false },
+      { role: 'assistant', text: 'On it — done.', final: true },
+    ]);
+  });
+
+  it('unsubscribe stops delivery', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    const seen: unknown[] = [];
+    const off = session.on('transcript', (t) => seen.push(t));
+    off();
+    adapter.emitTranscript({ role: 'user', text: 'hello', final: true });
+    expect(seen).toEqual([]);
+  });
+
+  it('mirrors transcripts onto the sidechannel with session id and timestamp', async () => {
+    const { session, adapter, events } = makeHarness();
+    await session.connect();
+
+    adapter.emitTranscript({ role: 'user', text: 'show my day', final: true });
+
+    const transcriptEvents = events.filter((e) => e.type === 'transcript');
+    expect(transcriptEvents).toHaveLength(1);
+    expect(transcriptEvents[0]).toMatchObject({
+      type: 'transcript',
+      sessionId: testSessionId,
+      role: 'user',
+      text: 'show my day',
+      final: true,
+    });
+    expect((transcriptEvents[0] as { at: number }).at).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// Behavior 10: audio streams delegation
+// ============================================================================
+
+describe('RealtimeSession — audio streams', () => {
+  it('delegates getAudioStreams to the adapter', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    expect(session.getAudioStreams()).toBe(adapter.lastAudioStreams);
   });
 });

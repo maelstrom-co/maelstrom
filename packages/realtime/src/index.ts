@@ -18,10 +18,15 @@ export type {
 export { RealtimeSession } from './lib/realtime-session/realtime-session.js';
 
 export type {
+  AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
 } from './lib/realtime-session/provider-adapter.types.js';
 
 export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
+
+export type { RealtimeVoiceErrorCode } from './lib/realtime-voice-error.js';
+export { RealtimeVoiceError } from './lib/realtime-voice-error.js';
