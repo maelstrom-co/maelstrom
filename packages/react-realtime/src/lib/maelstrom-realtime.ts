@@ -8,9 +8,20 @@ import type {
   SummarizeFn,
 } from '@maelstrom-co/realtime';
 import { RealtimeSession } from '@maelstrom-co/realtime';
-import type { SidechannelEvent } from '@maelstrom-co/protocol';
+import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
 
 import { createVoiceOrb, type VoiceOrbProps } from './voice-orb.js';
+
+/** Context passed to {@link MaelstromRealtimeOptions.createAdapter}. */
+export interface CreateAdapterContext {
+  /**
+   * The session this adapter is being built for. Providers that scope
+   * server-side resources per session (an ephemeral token mint, a room name)
+   * need this to correlate the adapter with the rest of the app's session
+   * state.
+   */
+  readonly sessionId: SessionId;
+}
 
 /** Options for {@link maelstromRealtime}. */
 export interface MaelstromRealtimeOptions {
@@ -18,9 +29,11 @@ export interface MaelstromRealtimeOptions {
    * Builds the provider transport (OpenAI, Google, …) for a new session.
    * Called once per session creation — not once per render, and not once per
    * `useVoice()` call — so it is safe to do provider setup (token minting
-   * closures, etc.) inside it.
+   * closures, etc.) inside it. Receives the orchestrator's `sessionId` so the
+   * adapter can scope per-session server resources (an ephemeral token mint
+   * keyed to the session, a room name derived from it, …) to this session.
    */
-  readonly createAdapter: () => RealtimeProviderAdapter;
+  readonly createAdapter: (ctx: CreateAdapterContext) => RealtimeProviderAdapter;
   /** Overrides the default snapshot-to-sentence grounding summarizer. */
   readonly summarize?: SummarizeFn;
   /** Debounce window for latest-wins grounding pushes. Forwarded to `RealtimeSession`. */
@@ -81,7 +94,9 @@ function createBridge(orchestrator: Orchestrator): RealtimeInstance {
  *
  * @example
  * const m = createMaelstrom({ vessels }).with(
- *   maelstromRealtime({ createAdapter: () => new OpenAIAdapter({ mintToken }) }),
+ *   maelstromRealtime({
+ *     createAdapter: ({ sessionId }) => new OpenAIAdapter({ mintToken: () => mintOpenAIToken(sessionId) }),
+ *   }),
  * );
  */
 export function maelstromRealtime(
@@ -107,11 +122,12 @@ export function maelstromRealtime(
   function getOrCreateSession(orchestrator: Orchestrator): VoiceSessionEntry {
     const existing = sessions.get(orchestrator);
     if (existing) return existing;
-    const adapter = options.createAdapter();
+    const sessionId = orchestrator.getConfig().sessionId;
+    const adapter = options.createAdapter({ sessionId });
     const session = new RealtimeSession({
       adapter,
       instance: createBridge(orchestrator),
-      sessionId: orchestrator.getConfig().sessionId,
+      sessionId,
       summarize: options.summarize,
       groundingDebounceMs: options.groundingDebounceMs,
       onEvent: options.onEvent,

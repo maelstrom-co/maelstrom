@@ -3,11 +3,11 @@ import { StrictMode, type ReactNode } from 'react';
 import { act, cleanup, render } from '@testing-library/react';
 
 import { createMaelstrom, vessel } from '@maelstrom-co/react';
-import { defineVessel } from '@maelstrom-co/protocol';
+import { defineVessel, SessionId } from '@maelstrom-co/protocol';
 import type { TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
 import type { AdapterTurnControl, RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { createMockConnector } from './__tests__/mock-connector.js';
-import type { UseVoiceResult } from './maelstrom-realtime.js';
+import type { CreateAdapterContext, UseVoiceResult } from './maelstrom-realtime.js';
 
 // Fakes the module boundary maelstrom-realtime.ts constructs against —
 // RealtimeSession is never real here, so the assertions below observe this
@@ -82,7 +82,9 @@ function must<T>(value: T | undefined): T {
   return value;
 }
 
-function setup(createAdapter: () => RealtimeProviderAdapter = () => ({}) as never) {
+function setup(
+  createAdapter: (ctx: CreateAdapterContext) => RealtimeProviderAdapter = () => ({}) as never,
+) {
   const entry = vessel(testVessel, () => null);
   const m = createMaelstrom({ vessels: [entry] }).with(maelstromRealtime({ createAdapter }));
   const connector = createMockConnector();
@@ -438,5 +440,35 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
     });
 
     expect(must(api).turnControl).toBeUndefined();
+  });
+
+  it('passes the orchestrator sessionId to createAdapter', async () => {
+    const receivedContexts: CreateAdapterContext[] = [];
+    const entry = vessel(testVessel, () => null);
+    const m = createMaelstrom({ vessels: [entry] }).with(
+      maelstromRealtime({
+        createAdapter: (ctx) => {
+          receivedContexts.push(ctx);
+          return {} as never;
+        },
+      }),
+    );
+    const connector = createMockConnector();
+
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector} sessionId="fixed-session-id">
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(receivedContexts).toHaveLength(1);
+    expect(must(receivedContexts[0]).sessionId).toBe(SessionId('fixed-session-id'));
   });
 });
