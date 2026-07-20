@@ -41,6 +41,9 @@
       "path": "../../packages/realtime/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/react-realtime/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/react/tsconfig.lib.json"
     },
     {

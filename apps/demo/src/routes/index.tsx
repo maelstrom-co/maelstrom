@@ -2,8 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { createDemoConnector } from '../lib/connector';
 import { m } from '../lib/maelstrom';
-import { MicToggle } from '../components/mic-toggle';
-import { LiveKitMic } from '../components/livekit-mic';
+import { VoiceControl } from '../components/voice-control';
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -30,8 +29,7 @@ function DemoApp() {
             <p className="text-sm text-gray-400">AI-Orchestrated Dynamic UI</p>
           </div>
           <div className="flex items-center gap-3">
-            <MicToggle />
-            <LiveKitMic />
+            <VoiceControl />
             <StatusIndicator />
           </div>
         </div>

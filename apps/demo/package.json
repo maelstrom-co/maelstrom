@@ -17,6 +17,7 @@
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
+    "@maelstrom-co/react-realtime": "workspace:*",
     "@maelstrom-co/realtime": "workspace:*",
     "@maelstrom-co/realtime-livekit": "workspace:*",
     "@maelstrom-co/realtime-livekit-agent": "workspace:*",
