@@ -18,6 +18,7 @@ import type {
 import type {
   RealtimeInstance,
   RealtimeSessionOptions,
+  SubmitIntentResult,
   SummarizeFn,
 } from './realtime-session.types.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
@@ -144,7 +145,10 @@ function defaultSummarize(snapshot: UIStructuralSnapshot): string {
  * const session = new RealtimeSession({
  *   adapter,
  *   instance: {
- *     submitIntent: (intent) => orchestrator.processIntent(intent).then(() => {}),
+ *     submitIntent: (intent) =>
+ *       orchestrator
+ *         .processIntent(intent)
+ *         .then((r) => ({ userMessage: r.userMessage })),
  *     waitForIdle: () => orchestrator.commandProcessor.waitForIdle(),
  *     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
  *     getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
@@ -443,9 +447,10 @@ export class RealtimeSession implements VoiceSession {
 
     this.#logger.debug('update_ui: submitting intent', intent);
     const renderStart = Date.now();
+    let outcome: SubmitIntentResult;
     try {
       // Domain-data boundary: only the plain intent string crosses here.
-      await this.#instance.submitIntent(intent);
+      outcome = await this.#instance.submitIntent(intent);
       this.#logger.debug('update_ui: submitIntent resolved, awaiting idle');
       await this.#instance.waitForIdle();
       this.#logger.debug('update_ui: idle (render settled)', {
@@ -502,11 +507,12 @@ export class RealtimeSession implements VoiceSession {
       ms: Date.now() - renderStart,
     });
 
-    // speak-after-render: summary is derived from the POST-settle snapshot.
+    // speak-after-render: the engine's userMessage wins; the summarizer over
+    // the POST-settle snapshot is only the fallback.
     const snapshot = this.#instance.getStructuralSnapshot();
     await this.#sendUpdateUIResult(callId, {
       ok: true,
-      summary: this.#summarize(snapshot),
+      summary: this.#resolveSummary(outcome.userMessage, snapshot),
     });
     return true;
   }
@@ -516,6 +522,18 @@ export class RealtimeSession implements VoiceSession {
     result: UpdateUIToolResult,
   ): Promise<void> {
     return this.#adapter.sendToolResult(callId, result);
+  }
+
+  // The engine's conversational reply is the product voice for a settled
+  // update, so it wins over the structural summarizer. The summarizer is only
+  // reached when the instance surfaced no engine reply (empty/whitespace or
+  // absent) — it describes the snapshot rather than answering the user, and
+  // would count instances the engine keeps alive but hidden.
+  #resolveSummary(
+    userMessage: string | undefined,
+    snapshot: UIStructuralSnapshot,
+  ): string {
+    return userMessage?.trim() || this.#summarize(snapshot);
   }
 
   // Latest-wins: replaces whatever was queued, answering the call it bumps
@@ -561,8 +579,9 @@ export class RealtimeSession implements VoiceSession {
         }
 
         const renderStart = Date.now();
+        let userMessage: string | undefined;
         try {
-          await this.#instance.submitIntent(entry.intent);
+          ({ userMessage } = await this.#instance.submitIntent(entry.intent));
         } catch (error) {
           if (this.#queuedIntent !== entry) {
             attempt = 0;
@@ -614,7 +633,7 @@ export class RealtimeSession implements VoiceSession {
         const snapshot = this.#instance.getStructuralSnapshot();
         await this.#sendUpdateUIResult(entry.callId, {
           ok: true,
-          summary: this.#summarize(snapshot),
+          summary: this.#resolveSummary(userMessage, snapshot),
         });
         entry.resolve(true);
         attempt = 0;

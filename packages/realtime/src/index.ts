@@ -13,6 +13,7 @@
 export type {
   RealtimeInstance,
   RealtimeSessionOptions,
+  SubmitIntentResult,
   SummarizeFn,
 } from './lib/realtime-session/realtime-session.types.js';
 export { RealtimeSession } from './lib/realtime-session/realtime-session.js';

@@ -18,7 +18,7 @@ import type {
   RealtimeProviderAdapter,
   RealtimeToolSpec,
 } from './provider-adapter.types.js';
-import type { RealtimeInstance } from './realtime-session.types.js';
+import type { RealtimeInstance, SubmitIntentResult } from './realtime-session.types.js';
 import { RealtimeSession } from './realtime-session.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 
@@ -153,6 +153,7 @@ interface MockInstance extends RealtimeInstance {
 function makeMockInstance(
   snapshot: UIStructuralSnapshot,
   capabilitySnapshot: CapabilitySnapshot = emptyCapabilitySnapshot,
+  submitResult: SubmitIntentResult = {},
 ): MockInstance {
   const submitted: string[] = [];
   const settledHandlers = new Set<() => void>();
@@ -170,6 +171,7 @@ function makeMockInstance(
       }
       inFlight = true;
       submitted.push(intent);
+      return submitResult;
     },
     waitForIdle: () =>
       new Promise<void>((resolve) => {
@@ -234,9 +236,10 @@ const populatedCapabilitySnapshot: CapabilitySnapshot = {
 function makeHarness(
   snapshot: UIStructuralSnapshot = emptySnapshot,
   capabilitySnapshot: CapabilitySnapshot = emptyCapabilitySnapshot,
+  submitResult: SubmitIntentResult = {},
 ) {
   const adapter = makeMockAdapter();
-  const instance = makeMockInstance(snapshot, capabilitySnapshot);
+  const instance = makeMockInstance(snapshot, capabilitySnapshot, submitResult);
   const events: SidechannelEvent[] = [];
   const session = new RealtimeSession({
     adapter,
@@ -756,7 +759,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
     const instance: RealtimeInstance = {
       submitIntent: async () => {
         submitCalls += 1;
-        if (submitCalls === 1) return; // c1 submits fine
+        if (submitCalls === 1) return {}; // c1 submits fine
         if (submitCalls === 2) throw new RequestInFlightError(); // c2's first attempt: busy, gets queued
         throw new Error('render pipeline exploded'); // c2's retry attempt: genuine failure
       },
@@ -818,13 +821,13 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
     const instance: RealtimeInstance = {
       submitIntent: async () => {
         submitCalls += 1;
-        if (submitCalls === 1) return; // c1 submits fine
+        if (submitCalls === 1) return {}; // c1 submits fine
         if (submitCalls === 2) {
           // NOT `instanceof RequestInFlightError` — a duck-typed lookalike,
           // as would cross a mismatched package boundary.
           throw { code: 'request_in_flight' };
         }
-        return; // c2's retry succeeds
+        return {}; // c2's retry succeeds
       },
       waitForIdle: () =>
         new Promise<void>((resolve) => {
@@ -914,6 +917,144 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
       (e) => e.type === 'timing' && e.label === 'update_ui.error',
     );
     expect(errorTiming).toBeDefined();
+  });
+});
+
+// ============================================================================
+// Behavior 5a: engine userMessage is the spoken reply
+// ============================================================================
+
+describe('RealtimeSession — engine userMessage precedence', () => {
+  it('speaks the engine userMessage verbatim instead of the structural summary', async () => {
+    const engineReply = "I'm doing well, thank you for asking!";
+    // populatedSnapshot would otherwise summarize to a "1 vessel on screen…"
+    // structural sentence — the engine reply must win.
+    const { session, adapter, instance } = makeHarness(
+      populatedSnapshot,
+      emptyCapabilitySnapshot,
+      { userMessage: engineReply },
+    );
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"how are you"}',
+    });
+    await flushMicrotasks();
+    instance.settle();
+    await flushMicrotasks();
+
+    expect(adapter.toolResults[0].output).toEqual({
+      ok: true,
+      summary: engineReply,
+    });
+  });
+
+  it('falls back to the structural summarizer when the engine surfaces no userMessage', async () => {
+    // Empty (whitespace-only) userMessage is treated as absent — fall back.
+    const { session, adapter, instance } = makeHarness(
+      populatedSnapshot,
+      emptyCapabilitySnapshot,
+      { userMessage: '   ' },
+    );
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+    instance.settle();
+    await flushMicrotasks();
+
+    const output = adapter.toolResults[0].output as { ok: boolean; summary: string };
+    expect(output.ok).toBe(true);
+    expect(output.summary).toContain('labs-chart'); // the default summarizer ran
+  });
+
+  it('speaks the engine reply rather than miscounting instances the engine keeps hidden', async () => {
+    // The structural summarizer counts every instance in the snapshot,
+    // including ones a tiling layout keeps alive but off-screen — so it would
+    // say "3 vessels on screen" even when fewer are visible. The engine's
+    // userMessage, which knows what actually rendered, must be spoken instead.
+    const threeInstanceSnapshot: UIStructuralSnapshot = {
+      instances: [
+        {
+          instanceId: InstanceId('inst-1'),
+          vesselId: VesselId('labs-chart'),
+          variant: VariantName('default'),
+        },
+        {
+          instanceId: InstanceId('inst-2'),
+          vesselId: VesselId('revenue-chart'),
+          variant: VariantName('default'),
+        },
+        {
+          instanceId: InstanceId('inst-3'),
+          vesselId: VesselId('pipeline-chart'),
+          variant: VariantName('default'),
+        },
+      ],
+      layout: null,
+      layoutMode: 'tiling',
+      chartDimensions: { rows: 8, columns: 12 },
+    };
+    const engineReply = 'Showing your labs.';
+    const { session, adapter, instance } = makeHarness(
+      threeInstanceSnapshot,
+      emptyCapabilitySnapshot,
+      { userMessage: engineReply },
+    );
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+    instance.settle();
+    await flushMicrotasks();
+
+    const output = adapter.toolResults[0].output as { ok: boolean; summary: string };
+    expect(output.summary).toBe(engineReply);
+    expect(output.summary).not.toContain('3 vessels');
+  });
+
+  it('speaks the engine reply for a barge-in queued call too, not just the first', async () => {
+    const engineReply = 'Done — revenue is up.';
+    const { session, adapter, instance } = makeHarness(
+      populatedSnapshot,
+      emptyCapabilitySnapshot,
+      { userMessage: engineReply },
+    );
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+
+    // c2 arrives while c1 is unsettled — queued as a barge-in and applied via
+    // the retry loop once c1 settles.
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show revenue"}',
+    });
+    await flushMicrotasks();
+
+    instance.settle(); // finalizes c1, lets c2 retry-submit
+    await flushMicrotasks();
+    instance.settle(); // finalizes c2's own render
+    await flushMicrotasks();
+
+    const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
+    expect(c2Result?.output).toEqual({ ok: true, summary: engineReply });
   });
 });
 

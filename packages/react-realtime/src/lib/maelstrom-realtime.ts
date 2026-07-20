@@ -34,7 +34,13 @@ export interface MaelstromRealtimeOptions {
    * keyed to the session, a room name derived from it, …) to this session.
    */
   readonly createAdapter: (ctx: CreateAdapterContext) => RealtimeProviderAdapter;
-  /** Overrides the default snapshot-to-sentence grounding summarizer. */
+  /**
+   * Overrides the default snapshot-to-sentence summarizer used for grounding
+   * pushes and as the `update_ui` tool-result fallback. It is only a fallback
+   * for `update_ui`: the engine's conversational `userMessage` is spoken
+   * verbatim when present, so this runs for that path solely when the engine
+   * surfaced no reply.
+   */
   readonly summarize?: SummarizeFn;
   /** Debounce window for latest-wins grounding pushes. Forwarded to `RealtimeSession`. */
   readonly groundingDebounceMs?: number;
@@ -79,7 +85,12 @@ export interface UseVoiceResult {
 
 function createBridge(orchestrator: Orchestrator): RealtimeInstance {
   return {
-    submitIntent: (intent) => orchestrator.processIntent(intent).then(() => {}),
+    // Pass the engine's conversational reply through the seam so the session
+    // can speak it verbatim instead of a structural summary.
+    submitIntent: (intent) =>
+      orchestrator
+        .processIntent(intent)
+        .then((response) => ({ userMessage: response.userMessage })),
     waitForIdle: () => orchestrator.commandProcessor.waitForIdle(),
     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
     getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
