@@ -1,15 +1,19 @@
 import { Logger } from '@maelstrom-co/client';
-import type { Unsubscribe } from '@maelstrom-co/client';
+import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import type {
+  AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
 } from '@maelstrom-co/realtime';
+import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { Room, RoomEvent, Track, setLogLevel } from 'livekit-client';
 import type { RemoteTrack, TranscriptionSegment } from 'livekit-client';
 
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
+import type { TurnEndMessage } from './protocol.js';
 import { SPEAK_TOPIC, TTS_TOPIC, TURN_TOPIC } from './protocol.js';
 
 // Quiet the livekit-client SDK's verbose signal/connection logging (which dumps
@@ -44,8 +48,8 @@ setLogLevel('warn');
  * const session = new RealtimeSession({ adapter, instance, sessionId });
  * await session.connect();
  * // Hold-to-talk, driven from the demo UI holding the concrete instance:
- * await adapter.startTalking();
- * await adapter.stopTalking();
+ * await adapter.turnControl.startTurn();
+ * await adapter.turnControl.endTurn();
  * ```
  */
 export class LiveKitAdapter implements RealtimeProviderAdapter {
@@ -56,6 +60,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
 
   #room: Room | undefined;
   #audioEl: HTMLAudioElement | undefined;
+  #playbackStream: MediaStream | undefined;
+  // Last state emitted, so the deferred `speaking`→`connected` collapse can be
+  // skipped when a newer state (a barge-in `listening`) already superseded it.
+  #lastState: VoiceSessionState | undefined;
   // Guards the window between connect() being called and `#room` being
   // usable — `getToken()` and `room.connect()` are awaited, so without this a
   // second connect() during that round-trip would open a second room.
@@ -67,6 +75,39 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#roomName = options.roomName;
     this.#logger = new Logger(options.debug ?? false, 'LiveKitAdapter');
   }
+
+  /**
+   * Explicit turn boundaries for this push-to-talk cascade. Unlike a
+   * speech-native provider, the LiveKit STT→TTS pipeline has no server-side VAD
+   * to derive turn edges from, so the hold-to-talk UI must delimit each turn:
+   * `startTurn` unmutes the mic and drives the session into `listening`;
+   * `endTurn` signals the worker to flush its STT buffer, mutes, and drives
+   * `thinking`. These state emissions are load-bearing — with no VAD, this
+   * control surface is the only thing that advances the sub-state machine.
+   *
+   * Surfaced as {@link AdapterTurnControl} (never touched by `RealtimeSession`)
+   * so the binding/UI layer renders hold-to-talk controls off its presence.
+   */
+  readonly turnControl: AdapterTurnControl = {
+    startTurn: async () => {
+      const room = this.#room;
+      if (!room) return;
+      await room.localParticipant.setMicrophoneEnabled(true);
+      this.#emit({ type: 'speech_started' });
+      this.#emit({ type: 'state', state: 'listening' });
+    },
+    endTurn: async () => {
+      const room = this.#room;
+      if (!room) return;
+      const turnEnd: TurnEndMessage = { type: 'turn_end' };
+      await room.localParticipant.publishData(
+        new TextEncoder().encode(JSON.stringify(turnEnd)),
+        { reliable: true, topic: TURN_TOPIC },
+      );
+      await room.localParticipant.setMicrophoneEnabled(false);
+      this.#emit({ type: 'state', state: 'thinking' });
+    },
+  };
 
   /**
    * Joins the LiveKit room and wires the transcript/TTS relay.
@@ -93,12 +134,12 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     try {
       const { token, url } = await this.#getToken(this.#roomName);
       await room.connect(url, token);
-      // Publish the mic track, then mute it via the SAME API used by
-      // start/stopTalking. Muting through setMicrophoneEnabled (not a direct
-      // track.mute()) keeps the publication's enabled flag in sync, so
-      // startTalking's setMicrophoneEnabled(true) is a real false→true toggle
-      // that actually unmutes. A direct track.mute() leaves the publication
-      // "enabled", making the later enable a silent no-op.
+      // Publish the mic track, then mute it via the SAME API turnControl uses.
+      // Muting through setMicrophoneEnabled (not a direct track.mute()) keeps
+      // the publication's enabled flag in sync, so startTurn's
+      // setMicrophoneEnabled(true) is a real false→true toggle that actually
+      // unmutes. A direct track.mute() leaves the publication "enabled", making
+      // the later enable a silent no-op.
       await room.localParticipant.setMicrophoneEnabled(true);
       await room.localParticipant.setMicrophoneEnabled(false);
     } catch (error) {
@@ -118,11 +159,34 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   }
 
   /**
+   * Live mic and playback streams for UI metering. The mic is read from the
+   * local microphone publication (published once on connect, then muted/unmuted
+   * per turn — so it stays a stable stream across a hold); playback is the
+   * worker's TTS track, captured when it is subscribed. Both are undefined
+   * before connect and after disconnect. Never throws.
+   */
+  getAudioStreams(): AdapterAudioStreams {
+    const micTrack = this.#room?.localParticipant.getTrackPublication(
+      Track.Source.Microphone,
+    )?.track;
+    const mic =
+      micTrack?.mediaStream ??
+      (micTrack ? new MediaStream([micTrack.mediaStreamTrack]) : undefined);
+    return { mic, playback: this.#playbackStream };
+  }
+
+  /**
    * Relays a tool result back to the user as speech: extracts the summary
    * string and sends it over the `speak` text stream, where the worker
    * synthesizes it via Cartesia and plays it into the room. Speak-after-render
    * ordering is not this adapter's concern — {@link RealtimeSession} only
    * calls this once the render has settled.
+   *
+   * Emits `speaking` on hand-off but does NOT collapse back here: the worker
+   * publishes a `tts_done` packet on {@link TTS_TOPIC} when playout actually
+   * finishes, and {@link collapseSpeaking} reacts to that — so the state tracks
+   * real audio end, not text hand-off. If the send itself fails no audio will
+   * ever play, so the collapse is forced in the catch instead.
    */
   async sendToolResult(callId: ToolCallId, output: unknown): Promise<void> {
     const summary = extractSummary(output);
@@ -131,7 +195,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     if (!room) {
       this.#emit({
         type: 'error',
-        error: new Error(`sendToolResult: no room (callId=${callId})`),
+        error: new RealtimeVoiceError(
+          'CONNECTION_FAILED',
+          `sendToolResult called with no active LiveKit room (callId=${callId})`,
+        ),
       });
       return;
     }
@@ -139,12 +206,15 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     try {
       await room.localParticipant.sendText(summary, { topic: SPEAK_TOPIC });
     } catch (error) {
-      this.#emit({ type: 'error', error });
-    } finally {
-      // The worker owns the actual TTS playback and gives no completion
-      // signal, so "speaking" collapses back to "connected" when the text is
-      // handed off, not when audio finishes — see the ergonomics note.
-      this.#emit({ type: 'state', state: 'connected' });
+      this.#emit({
+        type: 'error',
+        error: new RealtimeVoiceError(
+          'DATA_CHANNEL_ERROR',
+          'Failed to send speak text to the LiveKit worker',
+          error,
+        ),
+      });
+      this.#collapseSpeaking();
     }
   }
 
@@ -165,36 +235,6 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     };
   }
 
-  /**
-   * Concrete-only (not on {@link RealtimeProviderAdapter}): unmutes the mic for
-   * a hold-to-talk press. The demo holds this instance directly, so this extra
-   * surface never leaks through the provider seam.
-   */
-  async startTalking(): Promise<void> {
-    const room = this.#room;
-    if (!room) return;
-    await room.localParticipant.setMicrophoneEnabled(true);
-    this.#emit({ type: 'speech_started' });
-    this.#emit({ type: 'state', state: 'listening' });
-  }
-
-  /**
-   * Concrete-only: ends a hold-to-talk press. Signals the worker to flush its
-   * STT buffer (one combined transcript per hold) and mutes the mic. The
-   * flushed final transcript arrives asynchronously via
-   * `RoomEvent.TranscriptionReceived` and becomes the synthesized tool call.
-   */
-  async stopTalking(): Promise<void> {
-    const room = this.#room;
-    if (!room) return;
-    await room.localParticipant.publishData(
-      new TextEncoder().encode(JSON.stringify({ type: 'turn_end' })),
-      { reliable: true, topic: TURN_TOPIC },
-    );
-    await room.localParticipant.setMicrophoneEnabled(false);
-    this.#emit({ type: 'state', state: 'thinking' });
-  }
-
   /** Concrete-only: unlock audio playback after a user gesture. */
   async enableAudio(): Promise<void> {
     await this.#room?.startAudio();
@@ -213,13 +253,44 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       if (track.kind !== Track.Kind.Audio) return;
       this.#attachAudioTrack(track);
     });
-    room.on(RoomEvent.DataReceived, (_payload, _participant, _kind, topic) => {
+    room.on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
       if (topic !== TTS_TOPIC) return;
-      this.#emit({
-        type: 'error',
-        error: new Error('LiveKit worker reported a TTS synthesis failure'),
-      });
+      this.#handleTtsSignal(payload);
     });
+  }
+
+  // Worker→client TTS status on TTS_TOPIC: a `tts_done` collapses `speaking`
+  // (guarded, so a barge-in that already moved to `listening` isn't stomped);
+  // anything else on this topic (a `tts_error`, or a malformed packet) means
+  // synthesis failed, surfaced as a fatal error the session can react to.
+  #handleTtsSignal(payload: Uint8Array): void {
+    let type: string | undefined;
+    try {
+      type = (JSON.parse(new TextDecoder().decode(payload)) as { type?: string })
+        .type;
+    } catch {
+      type = undefined;
+    }
+    if (type === 'tts_done') {
+      this.#collapseSpeaking();
+      return;
+    }
+    this.#emit({
+      type: 'error',
+      error: new RealtimeVoiceError(
+        'DATA_CHANNEL_ERROR',
+        'LiveKit worker reported a TTS synthesis failure',
+      ),
+    });
+  }
+
+  // Release the `speaking` state back to `connected` — but only if `speaking`
+  // is still current. A push-to-talk barge-in emits `listening` while the
+  // worker is still talking; collapsing unconditionally would stomp it.
+  #collapseSpeaking(): void {
+    if (this.#lastState === 'speaking') {
+      this.#emit({ type: 'state', state: 'connected' });
+    }
   }
 
   #handleTranscription(segments: TranscriptionSegment[]): void {
@@ -249,6 +320,8 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   }
 
   #attachAudioTrack(track: RemoteTrack): void {
+    this.#playbackStream =
+      track.mediaStream ?? new MediaStream([track.mediaStreamTrack]);
     if (typeof document === 'undefined') return;
     if (!this.#audioEl) {
       const el = document.createElement('audio');
@@ -261,12 +334,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   }
 
   #emit(event: RealtimeAdapterEvent): void {
+    if (event.type === 'state') this.#lastState = event.state;
     for (const handler of this.#handlers) handler(event);
   }
 
   #teardown(): void {
     this.#room = undefined;
     this.#connecting = false;
+    this.#playbackStream = undefined;
     if (this.#audioEl) {
       this.#audioEl.remove();
       this.#audioEl = undefined;

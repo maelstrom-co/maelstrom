@@ -1,4 +1,5 @@
 import { test, expect, mock, beforeEach, describe } from 'bun:test';
+import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
 
 // --- Mocks for livekit-client ---
@@ -10,11 +11,19 @@ const mockSetMicrophoneEnabled = mock(async () => undefined);
 const mockSendText = mock(async (_text: string, _opts?: unknown) => ({}));
 const mockStartAudio = mock(async () => {});
 
+// A live mic publication, returned by getTrackPublication(Source.Microphone).
+// `mediaStream` stands in for the browser MediaStream getAudioStreams surfaces.
+const mockMicStream = { id: 'mic-stream' } as unknown as MediaStream;
+const mockMicPublication = {
+  track: { mediaStream: mockMicStream },
+};
+
 const mockLocalParticipant = {
   setMicrophoneEnabled: mockSetMicrophoneEnabled,
   publishData: mockPublishData,
   sendText: mockSendText,
   startAudio: mockStartAudio,
+  getTrackPublication: mock((_source: string) => mockMicPublication),
 };
 
 function makeMockRoom() {
@@ -54,7 +63,7 @@ mock.module('livekit-client', () => ({
     TrackSubscribed: 'trackSubscribed',
     DataReceived: 'dataReceived',
   },
-  Track: { Kind: { Audio: 'audio' } },
+  Track: { Kind: { Audio: 'audio' }, Source: { Microphone: 'microphone' } },
   setLogLevel: mock(() => {}),
 }));
 
@@ -177,6 +186,10 @@ describe('LiveKitAdapter transcript → tool_call synthesis', () => {
   });
 });
 
+function encodeTts(type: 'tts_done' | 'tts_error'): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify({ type }));
+}
+
 describe('LiveKitAdapter sendToolResult → speak topic', () => {
   beforeEach(() => {
     currentRoom = makeMockRoom();
@@ -196,8 +209,51 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
     expect(mockSendText).toHaveBeenCalledWith('Weather is on screen.', {
       topic: SPEAK_TOPIC,
     });
-    // speaking is announced, then collapses back to connected on hand-off.
-    expect(states(events).slice(-2)).toEqual(['speaking', 'connected']);
+    // speaking is announced on hand-off and STAYS until the worker signals
+    // playout end — it no longer collapses when the text is handed off.
+    expect(states(events).at(-1)).toBe('speaking');
+  });
+
+  test('collapses speaking → connected only when the worker signals tts_done', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.sendToolResult('call-1' as never, { summary: 'Done.' });
+    expect(states(events).at(-1)).toBe('speaking');
+
+    currentRoom._emit('dataReceived', encodeTts('tts_done'), undefined, undefined, TTS_TOPIC);
+    expect(states(events).at(-1)).toBe('connected');
+  });
+
+  test('a send failure surfaces a DATA_CHANNEL_ERROR and releases speaking', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockSendText.mockImplementationOnce(async () => {
+      throw new Error('stream closed');
+    });
+
+    await adapter.sendToolResult('call-1' as never, { summary: 'Done.' });
+
+    const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
+    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
+      'DATA_CHANNEL_ERROR',
+    );
+    // No audio will play, so speaking must not linger.
+    expect(states(events).at(-1)).toBe('connected');
+  });
+
+  test('with no active room, wraps the failure in a RealtimeVoiceError', async () => {
+    const { adapter, events } = makeAdapter();
+    // Never connected — no room.
+    await adapter.sendToolResult('call-1' as never, { summary: 'Done.' });
+
+    const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
+    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
+      'CONNECTION_FAILED',
+    );
+    expect(mockSendText).not.toHaveBeenCalled();
   });
 
   test('accepts a bare string output', async () => {
@@ -219,31 +275,31 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
   });
 });
 
-describe('LiveKitAdapter hold-to-talk state mapping', () => {
+describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
   beforeEach(() => {
     currentRoom = makeMockRoom();
     mockSetMicrophoneEnabled.mockReset();
     mockPublishData.mockReset();
   });
 
-  test('startTalking unmutes and emits speech_started + listening', async () => {
+  test('startTurn unmutes and emits speech_started + listening', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
     mockSetMicrophoneEnabled.mockReset();
 
-    await adapter.startTalking();
+    await adapter.turnControl.startTurn();
 
     expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
     expect(events.some((e) => e.type === 'speech_started')).toBe(true);
     expect(states(events).at(-1)).toBe('listening');
   });
 
-  test('stopTalking publishes turn_end on the turn topic, mutes, emits thinking', async () => {
+  test('endTurn publishes turn_end on the turn topic, mutes, emits thinking', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
     mockSetMicrophoneEnabled.mockReset();
 
-    await adapter.stopTalking();
+    await adapter.turnControl.endTurn();
 
     const [payload, opts] = mockPublishData.mock.calls.at(-1) as unknown as [
       Uint8Array,
@@ -254,6 +310,22 @@ describe('LiveKitAdapter hold-to-talk state mapping', () => {
     expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(false);
     expect(states(events).at(-1)).toBe('thinking');
   });
+
+  test('a tts_done arriving after a barge-in does not stomp the newer listening state', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    // Assistant starts speaking, then the user barges in (push-to-talk) while
+    // audio is still playing — state advances to listening.
+    await adapter.sendToolResult('call-1' as never, { summary: 'Talking…' });
+    expect(states(events).at(-1)).toBe('speaking');
+    await adapter.turnControl.startTurn();
+    expect(states(events).at(-1)).toBe('listening');
+
+    // The now-stale worker tts_done must NOT collapse back to connected.
+    currentRoom._emit('dataReceived', encodeTts('tts_done'), undefined, undefined, TTS_TOPIC);
+    expect(states(events).at(-1)).toBe('listening');
+  });
 });
 
 describe('LiveKitAdapter misc surface', () => {
@@ -262,13 +334,43 @@ describe('LiveKitAdapter misc surface', () => {
     mockSetMicrophoneEnabled.mockReset();
   });
 
-  test('a worker TTS_TOPIC data packet surfaces an error event', async () => {
+  test('a worker tts_error packet surfaces a RealtimeVoiceError error event', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
 
-    currentRoom._emit('dataReceived', new Uint8Array(), undefined, undefined, TTS_TOPIC);
+    currentRoom._emit('dataReceived', encodeTts('tts_error'), undefined, undefined, TTS_TOPIC);
 
-    expect(events.some((e) => e.type === 'error')).toBe(true);
+    const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
+    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
+      'DATA_CHANNEL_ERROR',
+    );
+  });
+
+  test('getAudioStreams exposes the mic publication and subscribed playback track', async () => {
+    const { adapter } = makeAdapter();
+
+    // Before connect: no room, so both streams are undefined.
+    expect(adapter.getAudioStreams()).toEqual({ mic: undefined, playback: undefined });
+
+    await adapter.connect({ tools: [], instructions: '' });
+
+    // Mic comes from the local microphone publication.
+    expect(adapter.getAudioStreams().mic).toBe(mockMicStream);
+    // Playback is undefined until the worker's TTS track is subscribed.
+    expect(adapter.getAudioStreams().playback).toBeUndefined();
+
+    const playbackStream = { id: 'tts-stream' } as unknown as MediaStream;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: playbackStream,
+      attach: () => {},
+    });
+    expect(adapter.getAudioStreams().playback).toBe(playbackStream);
+
+    // After disconnect both streams drop.
+    await adapter.disconnect();
+    expect(adapter.getAudioStreams()).toEqual({ mic: undefined, playback: undefined });
   });
 
   test('injectGrounding is a no-op and never throws', async () => {

@@ -9,7 +9,12 @@ export const SPEAK_TOPIC = 'speak';
 /** Data topic the client uses to signal end-of-turn (flush the STT buffer). */
 export const TURN_TOPIC = 'turn';
 
-/** Data topic the worker uses to report TTS errors back to the client. */
+/**
+ * Data topic the worker uses to report TTS status back to the client: a
+ * `tts_done` when playout of a summary finishes (so the client can collapse
+ * `speaking`→`connected` on actual audio end, not on text hand-off), or a
+ * `tts_error` when synthesis fails.
+ */
 export const TTS_TOPIC = 'tts';
 
 export interface TurnEndMessage {
@@ -18,4 +23,8 @@ export interface TurnEndMessage {
 
 export interface TtsErrorMessage {
   type: 'tts_error';
+}
+
+export interface TtsDoneMessage {
+  type: 'tts_done';
 }

@@ -34,6 +34,7 @@ import {
   SPEAK_TOPIC,
   TURN_TOPIC,
   TTS_TOPIC,
+  type TtsDoneMessage,
 } from '@maelstrom-co/realtime-livekit/protocol';
 
 // Optional native/platform bindings (LiveKit FFI prebuilds, Silero VAD) probe-
@@ -74,12 +75,14 @@ const entry = async (ctx: JobContext) => {
 
   // Find the user's audio track (may already be published or arrive shortly)
   const room = ctx.room;
-  // After ctx.connect() the agent is joined, so its local participant exists;
-  // bind it once so the publish calls below don't each re-null-check.
-  const localParticipant = room.localParticipant;
-  if (!localParticipant) {
+  // After ctx.connect() the agent is joined, so its local participant exists.
+  // Guard the optional field first, THEN bind — so the const is inferred as
+  // non-optional and the hoisted speak()/emitTurn() closures below (which lose
+  // flow narrowing across the function boundary) use it without an assertion.
+  if (!room.localParticipant) {
     throw new Error('agent room has no local participant after connect');
   }
+  const localParticipant = room.localParticipant;
 
   // Single room-scoped turn_end listener, registered ONCE (not per track).
   // Each processAudioTrack sets `flushActiveTurn` to flush ITS speechStream,
@@ -123,21 +126,33 @@ const entry = async (ctx: JobContext) => {
   let speakChain: Promise<void> = Promise.resolve();
   async function speak(text: string) {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    // Use the websocket streaming path (`stream()`), NOT `synthesize()`.
-    // The Cartesia plugin unconditionally sets `max_buffer_delay_ms` in the
-    // request body, which the HTTP `/tts/bytes` endpoint (used by
-    // `synthesize()`) rejects with HTTP 400 — yielding zero audio frames and
-    // no thrown error. The field is only valid on the websocket endpoint.
-    const stream = cartesiaTTS.stream();
-    stream.pushText(trimmed);
-    stream.flush();
-    stream.endInput();
-    for await (const audio of stream) {
-      if (audio === tts.SynthesizeStream.END_OF_STREAM) break;
-      await ttsSource.captureFrame(audio.frame);
+    if (trimmed) {
+      // Use the websocket streaming path (`stream()`), NOT `synthesize()`.
+      // The Cartesia plugin unconditionally sets `max_buffer_delay_ms` in the
+      // request body, which the HTTP `/tts/bytes` endpoint (used by
+      // `synthesize()`) rejects with HTTP 400 — yielding zero audio frames and
+      // no thrown error. The field is only valid on the websocket endpoint.
+      const stream = cartesiaTTS.stream();
+      stream.pushText(trimmed);
+      stream.flush();
+      stream.endInput();
+      for await (const audio of stream) {
+        if (audio === tts.SynthesizeStream.END_OF_STREAM) break;
+        await ttsSource.captureFrame(audio.frame);
+      }
+      stream.close();
+      // Frames are queued into the shared AudioSource but not yet heard; block
+      // until the queue drains so the client collapses `speaking`→`connected`
+      // on real playout end, not on synthesis end.
+      await ttsSource.waitForPlayout();
     }
-    stream.close();
+    // Tell the client the summary has finished playing (empty summaries play
+    // nothing, but still resolve the client's `speaking` state).
+    const done: TtsDoneMessage = { type: 'tts_done' };
+    await localParticipant.publishData(
+      new TextEncoder().encode(JSON.stringify(done)),
+      { reliable: true, topic: TTS_TOPIC },
+    );
   }
 
   // Client sends the tool-result summary over the `speak` text stream.
@@ -186,9 +201,7 @@ const entry = async (ctx: JobContext) => {
       segmentCounter++;
       const now = BigInt(Date.now()) * 1_000_000n; // nanoseconds
       // publishTranscription triggers RoomEvent.TranscriptionReceived on the client.
-      // Non-null asserted: the guard above proves it, but TS drops the const
-      // narrowing inside this hoisted-function closure.
-      void localParticipant!.publishTranscription({
+      void localParticipant.publishTranscription({
         participantIdentity: userParticipant.identity,
         trackSid: '',
         segments: [
