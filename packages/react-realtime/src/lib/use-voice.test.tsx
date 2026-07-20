@@ -131,16 +131,13 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
       return null;
     }
 
-    // Mirrors apps/demo/src/lib/voice-spike.test.tsx's own StrictMode
-    // coverage (not the brief's simplified template): the Provider gates
-    // rendering behind its orchestrator state, so the transient first
-    // orchestrator never reaches a committed render and exactly one session
-    // is ever constructed. React 19 still genuinely double-invokes the
-    // hook's own mount/cleanup/mount for its first (and only) commit,
-    // which — verified empirically against the reference implementation —
-    // does fire one transient `disconnect()` on the fresh, not-yet-connected
-    // session; asserting `disconnectCalls === 0` here would not hold for
-    // voice-spike.ts's own proven lifecycle either. What must hold, and does,
+    // The Provider gates rendering behind its orchestrator state, so the
+    // transient first orchestrator under StrictMode never reaches a
+    // committed render and exactly one session is ever constructed. React 19
+    // still genuinely double-invokes the hook's own mount/cleanup/mount for
+    // its first (and only) commit, which does fire one transient
+    // `disconnect()` on the fresh, not-yet-connected session — so asserting
+    // `disconnectCalls === 0` here would not hold. What must hold, and does,
     // is that exactly one session is created and it remains fully usable
     // afterward.
     await act(async () => {

@@ -35,6 +35,7 @@ import {
   TURN_TOPIC,
   TTS_TOPIC,
   type TtsDoneMessage,
+  type TtsErrorMessage,
 } from '@maelstrom-co/realtime-livekit/protocol';
 
 // Optional native/platform bindings (LiveKit FFI prebuilds, Silero VAD) probe-
@@ -166,8 +167,9 @@ const entry = async (ctx: JobContext) => {
           // Signal the client so its UI can indicate speak-back failed rather
           // than waiting indefinitely for audio that will never arrive.
           try {
+            const error: TtsErrorMessage = { type: 'tts_error' };
             await localParticipant.publishData(
-              new TextEncoder().encode(JSON.stringify({ type: 'tts_error' })),
+              new TextEncoder().encode(JSON.stringify(error)),
               { reliable: true, topic: TTS_TOPIC },
             );
           } catch (signalErr) {

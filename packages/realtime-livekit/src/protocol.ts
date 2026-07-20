@@ -17,14 +17,17 @@ export const TURN_TOPIC = 'turn';
  */
 export const TTS_TOPIC = 'tts';
 
+/** Sent browser adapter → worker on the `TURN_TOPIC` to flush the STT buffer. */
 export interface TurnEndMessage {
   type: 'turn_end';
 }
 
+/** Sent worker → browser adapter on the `TTS_TOPIC` when TTS synthesis fails. */
 export interface TtsErrorMessage {
   type: 'tts_error';
 }
 
+/** Sent worker → browser adapter on the `TTS_TOPIC` when TTS playout finishes. */
 export interface TtsDoneMessage {
   type: 'tts_done';
 }
