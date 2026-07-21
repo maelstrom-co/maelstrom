@@ -25,6 +25,10 @@ Maelstrom is an open-source library for **AI-orchestrated UI**. You author your 
 | [`@maelstrom-co/react`](./packages/react) | React bindings and components |
 | [`@maelstrom-co/engine`](./packages/engine) | LLM decision engine |
 
+## Running the demo
+
+See [`apps/demo/README.md`](./apps/demo/README.md) for how to run the demo app locally, including optional LiveKit voice setup.
+
 ## Contributing
 
 Contributions are welcome — see the [contributing guide](https://docs.maelstrom-ai.co/community/contributing/).

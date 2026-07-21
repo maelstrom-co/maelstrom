@@ -26,6 +26,18 @@ runVoiceAgent();
 node --env-file=.env worker.ts start
 ```
 
+Within this monorepo, the demo app instead runs the package's TypeScript
+source directly against its `.env` at the repo root:
+
+```
+node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start
+```
+
+`--conditions=@maelstrom-co/source` resolves workspace packages to their
+TypeScript source instead of `dist` — only needed for in-repo development,
+not by consumers of the published package, who can run the plain `node
+--env-file=.env worker.ts start` form above against their own entry file.
+
 `defineMaelstromVoiceAgent()` returns the underlying LiveKit agent definition if
 you need to embed it in your own worker harness.
 

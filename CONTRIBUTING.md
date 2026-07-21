@@ -71,7 +71,7 @@ By making a contribution to this project, I certify that:
 
 ```bash
 bun install                    # install dependencies
-nx serve demo                  # run the demo app
+nx serve demo                  # run the demo app (see apps/demo/README.md for voice/provider setup)
 nx run-many -t build           # build all packages
 nx run-many -t test            # run all tests
 nx run-many -t typecheck       # type-check all packages
