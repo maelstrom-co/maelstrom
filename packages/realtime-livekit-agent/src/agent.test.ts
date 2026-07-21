@@ -34,6 +34,7 @@ const {
   waitForParticipantOrTimeout,
   pumpTtsStream,
   runSpeechRecognition,
+  cancelInFlightTts,
 } = await import('./agent');
 
 describe('resolveLiveKitCredentials', () => {
@@ -123,6 +124,49 @@ describe('pumpTtsStream', () => {
       }),
     ).rejects.toThrow('capture boom');
     expect(state.closed).toBe(true);
+  });
+});
+
+describe('cancelInFlightTts', () => {
+  function makeCancelDoubles() {
+    const stream = {
+      closeCount: 0,
+      close() {
+        this.closeCount++;
+      },
+    };
+    const source = {
+      clearCount: 0,
+      clearQueue() {
+        this.clearCount++;
+      },
+    };
+    return { stream, source };
+  }
+
+  test('closes the in-flight stream and clears the queued frames', () => {
+    const { stream, source } = makeCancelDoubles();
+    // biome-ignore lint/suspicious/noExplicitAny: structural doubles for SynthesizeStream/AudioSource
+    cancelInFlightTts(stream as any, source as any);
+    expect(stream.closeCount).toBe(1);
+    expect(source.clearCount).toBe(1);
+  });
+
+  test('is a no-op on the stream when idle, but still clears the queue', () => {
+    const { source } = makeCancelDoubles();
+    // biome-ignore lint/suspicious/noExplicitAny: structural double for AudioSource
+    expect(() => cancelInFlightTts(null, source as any)).not.toThrow();
+    expect(source.clearCount).toBe(1);
+  });
+
+  test('is idempotent when a second cancel arrives on the same stream', () => {
+    const { stream, source } = makeCancelDoubles();
+    // biome-ignore lint/suspicious/noExplicitAny: structural doubles for SynthesizeStream/AudioSource
+    cancelInFlightTts(stream as any, source as any);
+    // biome-ignore lint/suspicious/noExplicitAny: structural doubles for SynthesizeStream/AudioSource
+    cancelInFlightTts(stream as any, source as any);
+    expect(stream.closeCount).toBe(2);
+    expect(source.clearCount).toBe(2);
   });
 });
 

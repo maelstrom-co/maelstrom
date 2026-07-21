@@ -437,6 +437,58 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(states(events)).not.toContain('listening');
   });
 
+  test('a barge-in during speaking publishes tts_cancel then still unmutes and listens', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    // Assistant is speaking; the user barges in.
+    await adapter.sendToolResult('call-1' as never, { summary: 'Talking…' });
+    expect(states(events).at(-1)).toBe('speaking');
+    mockSetMicrophoneEnabled.mockClear();
+    mockPublishData.mockClear();
+
+    await adapter.turnControl.startTurn();
+
+    const [payload, opts] = mockPublishData.mock.calls.at(-1) as unknown as [
+      Uint8Array,
+      { reliable: boolean; topic: string },
+    ];
+    expect(opts).toEqual({ reliable: true, topic: TURN_TOPIC });
+    expect(JSON.parse(new TextDecoder().decode(payload))).toEqual({ type: 'tts_cancel' });
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
+    expect(states(events).at(-1)).toBe('listening');
+  });
+
+  test('a startTurn from connected (no assistant audio) does not publish tts_cancel', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPublishData.mockClear();
+
+    await adapter.turnControl.startTurn();
+
+    expect(mockPublishData).not.toHaveBeenCalled();
+  });
+
+  test('a tts_cancel publish rejection surfaces DATA_CHANNEL_ERROR but still unmutes', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.sendToolResult('call-1' as never, { summary: 'Talking…' });
+    mockSetMicrophoneEnabled.mockClear();
+    mockPublishData.mockImplementationOnce(async () => {
+      throw new Error('data channel closed');
+    });
+
+    await adapter.turnControl.startTurn();
+
+    const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
+      'DATA_CHANNEL_ERROR',
+    );
+    // A failed cancel must not block the user's turn.
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
+    expect(states(events).at(-1)).toBe('listening');
+  });
+
   test('a tts_done arriving after a barge-in does not stomp the newer listening state', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });

@@ -6,7 +6,10 @@
 /** Text-stream topic the client uses to send TTS requests to the worker. */
 export const SPEAK_TOPIC = 'speak';
 
-/** Data topic the client uses to signal end-of-turn (flush the STT buffer). */
+/**
+ * Data topic for client→worker turn control: `turn_end` (flush the STT buffer)
+ * and `tts_cancel` (barge-in — abort the in-flight TTS so old audio stops).
+ */
 export const TURN_TOPIC = 'turn';
 
 /**
@@ -20,6 +23,15 @@ export const TTS_TOPIC = 'tts';
 /** Sent browser adapter → worker on the `TURN_TOPIC` to flush the STT buffer. */
 export interface TurnEndMessage {
   type: 'turn_end';
+}
+
+/**
+ * Sent browser adapter → worker on the `TURN_TOPIC` when the user barges in
+ * while the assistant is speaking: aborts the in-flight Cartesia TTS so the
+ * queued audio stops near-instantly instead of playing to completion.
+ */
+export interface TtsCancelMessage {
+  type: 'tts_cancel';
 }
 
 /** Sent worker → browser adapter on the `TTS_TOPIC` when TTS synthesis fails. */

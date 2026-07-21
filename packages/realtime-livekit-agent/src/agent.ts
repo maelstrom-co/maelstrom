@@ -91,6 +91,9 @@ const entry = async (ctx: JobContext) => {
   // per-track registration leaked a listener per invocation and flushed stale
   // streams once more than one track existed.
   let flushActiveTurn: (() => void) | null = null;
+  // Assigned once the TTS source exists (below); a barge-in `tts_cancel` routes
+  // here to abort the in-flight synthesis.
+  let cancelActiveTts: (() => void) | null = null;
   room.on(
     RoomEvent.DataReceived,
     (payload: Uint8Array, _participant, _kind, topic) => {
@@ -100,6 +103,7 @@ const entry = async (ctx: JobContext) => {
           type?: string;
         };
         if (msg.type === 'turn_end') flushActiveTurn?.();
+        else if (msg.type === 'tts_cancel') cancelActiveTts?.();
       } catch (err) {
         console.warn('[voice-agent] ignoring malformed turn packet', err);
       }
@@ -125,6 +129,9 @@ const entry = async (ctx: JobContext) => {
 
   // Serialize speak requests so overlapping summaries don't interleave frames.
   let speakChain: Promise<void> = Promise.resolve();
+  // The synthesis stream currently draining into `ttsSource`, so a barge-in can
+  // abort it mid-flight. Null while no speak() is in progress.
+  let activeTtsStream: tts.SynthesizeStream | null = null;
   async function speak(text: string) {
     const trimmed = text.trim();
     if (trimmed) {
@@ -134,14 +141,20 @@ const entry = async (ctx: JobContext) => {
       // `synthesize()`) rejects with HTTP 400 — yielding zero audio frames and
       // no thrown error. The field is only valid on the websocket endpoint.
       const stream = cartesiaTTS.stream();
-      stream.pushText(trimmed);
-      stream.flush();
-      stream.endInput();
-      await pumpTtsStream(stream, (frame) => ttsSource.captureFrame(frame));
-      // Frames are queued into the shared AudioSource but not yet heard; block
-      // until the queue drains so the client collapses `speaking`→`connected`
-      // on real playout end, not on synthesis end.
-      await ttsSource.waitForPlayout();
+      activeTtsStream = stream;
+      try {
+        stream.pushText(trimmed);
+        stream.flush();
+        stream.endInput();
+        await pumpTtsStream(stream, (frame) => ttsSource.captureFrame(frame));
+        // Frames are queued into the shared AudioSource but not yet heard; block
+        // until the queue drains so the client collapses `speaking`→`connected`
+        // on real playout end, not on synthesis end. A barge-in `clearQueue()`
+        // resolves this early through the same path.
+        await ttsSource.waitForPlayout();
+      } finally {
+        if (activeTtsStream === stream) activeTtsStream = null;
+      }
     }
     // Tell the client the summary has finished playing (empty summaries play
     // nothing, but still resolve the client's `speaking` state).
@@ -151,6 +164,8 @@ const entry = async (ctx: JobContext) => {
       { reliable: true, topic: TTS_TOPIC },
     );
   }
+
+  cancelActiveTts = () => cancelInFlightTts(activeTtsStream, ttsSource);
 
   // Client sends the tool-result summary over the `speak` text stream.
   room.registerTextStreamHandler(SPEAK_TOPIC, (reader) => {
@@ -351,6 +366,22 @@ export async function pumpTtsStream(
   } finally {
     stream.close();
   }
+}
+
+/**
+ * Aborts an in-flight barge-in TTS: closes the synthesis stream (terminating the
+ * pump's for-await via the stream's close sentinel) and clears the audio queue.
+ * `clearQueue()` also resolves any pending `waitForPlayout()`, so the blocked
+ * `speak()` unblocks and publishes `tts_done` through its normal path — the
+ * client needs no extra signal. Both operations are idempotent and safe when the
+ * stream is null (no speak in progress) or already ended.
+ */
+export function cancelInFlightTts(
+  stream: tts.SynthesizeStream | null,
+  source: Pick<AudioSource, 'clearQueue'>,
+): void {
+  stream?.close();
+  source.clearQueue();
 }
 
 /**

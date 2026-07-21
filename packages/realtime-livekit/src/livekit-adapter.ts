@@ -13,7 +13,7 @@ import { Room, RoomEvent, Track, setLogLevel } from 'livekit-client';
 import type { RemoteTrack, TranscriptionSegment } from 'livekit-client';
 
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
-import type { TurnEndMessage } from './protocol.js';
+import type { TtsCancelMessage, TurnEndMessage } from './protocol.js';
 import { SPEAK_TOPIC, TTS_TOPIC, TURN_TOPIC } from './protocol.js';
 
 // Quiet the livekit-client SDK's verbose signal/connection logging (which dumps
@@ -100,6 +100,28 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       // A barge-in starts a new turn; cancel any pending empty-turn fallback so
       // it can't collapse the `listening` we're about to emit.
       this.#clearThinkingFallback();
+      // Barging in while the assistant is mid-utterance: tell the worker to abort
+      // the in-flight TTS so its audio stops near-instantly. A cancel-publish
+      // failure must NOT block the user's turn — it's surfaced but we still
+      // unmute below; worst case the stale audio plays out.
+      if (this.#lastState === 'speaking') {
+        const cancel: TtsCancelMessage = { type: 'tts_cancel' };
+        try {
+          await room.localParticipant.publishData(
+            new TextEncoder().encode(JSON.stringify(cancel)),
+            { reliable: true, topic: TURN_TOPIC },
+          );
+        } catch (error) {
+          this.#emit({
+            type: 'error',
+            error: new RealtimeVoiceError(
+              'DATA_CHANNEL_ERROR',
+              'Failed to signal TTS cancel to the LiveKit worker',
+              error,
+            ),
+          });
+        }
+      }
       try {
         await room.localParticipant.setMicrophoneEnabled(true);
       } catch (error) {
