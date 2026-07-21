@@ -22,4 +22,13 @@ export interface LiveKitAdapterOptions {
   readonly roomName: string;
   /** Enable verbose debug tracing (default false). */
   readonly debug?: boolean;
+  /**
+   * How long (ms) to wait in `thinking` after `endTurn` before assuming the
+   * turn was empty (an accidental tap with no speech) and collapsing back to
+   * `connected`. With no server-side VAD, an empty turn produces no worker
+   * response, so without this the UI would wedge in `thinking` forever. Any
+   * real activity (a transcript, a TTS signal, a barge-in, disconnect) cancels
+   * the fallback. Defaults to 10000; set `0` to disable it (e.g. in tests).
+   */
+  readonly thinkingFallbackMs?: number;
 }

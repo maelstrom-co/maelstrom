@@ -75,9 +75,17 @@ const DEFAULT_GRANT = { token: 'test-token', url: 'ws://localhost:7880' };
 function makeAdapter(
   getToken: (roomName: string) => Promise<{ token: string; url: string }> = async () =>
     DEFAULT_GRANT,
+  options: { thinkingFallbackMs?: number } = {},
 ) {
   const events: RealtimeAdapterEvent[] = [];
-  const adapter = new LiveKitAdapter({ getToken, roomName: 'room-1' });
+  // Default the thinking fallback OFF so tests don't leak a real timer; the
+  // fallback-specific tests opt into a short interval explicitly.
+  const adapter = new LiveKitAdapter({
+    getToken,
+    roomName: 'room-1',
+    thinkingFallbackMs: 0,
+    ...options,
+  });
   adapter.on((e) => events.push(e));
   return { adapter, events };
 }
@@ -124,6 +132,55 @@ describe('LiveKitAdapter connect', () => {
     await expect(adapter.connect({ tools: [], instructions: '' })).rejects.toThrow(
       'already connected',
     );
+  });
+
+  test('a post-connect step failure disconnects the room, not just teardown', async () => {
+    mockRoomDisconnect.mockClear();
+    const { adapter, events } = makeAdapter();
+    // room.connect succeeds; the mic publish (a later step) blows up.
+    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+      throw new Error('mic publish failed');
+    });
+
+    await expect(adapter.connect({ tools: [], instructions: '' })).rejects.toThrow(
+      'mic publish failed',
+    );
+    // The already-connected room must be torn down over the wire, not leaked.
+    expect(mockRoomDisconnect).toHaveBeenCalled();
+    expect(states(events)).toEqual(['connecting', 'error']);
+  });
+
+  test('a Disconnected event tears down so the adapter can reconnect', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    currentRoom._emit('disconnected');
+    expect(states(events).at(-1)).toBe('idle');
+
+    // Teardown ran, so a fresh connect must not throw 'already connected'.
+    await expect(adapter.connect({ tools: [], instructions: '' })).resolves.toBeUndefined();
+  });
+
+  test('a disconnect during an in-flight connect abandons the orphaned room', async () => {
+    mockRoomConnect.mockClear();
+    mockRoomDisconnect.mockClear();
+    let releaseToken!: (grant: { token: string; url: string }) => void;
+    const tokenPromise = new Promise<{ token: string; url: string }>((res) => {
+      releaseToken = res;
+    });
+    const { adapter, events } = makeAdapter(() => tokenPromise);
+
+    const connecting = adapter.connect({ tools: [], instructions: '' });
+    await adapter.disconnect();
+    releaseToken(DEFAULT_GRANT);
+    await connecting;
+
+    // Staleness was detected after getToken resolved: we never proceeded to
+    // join, and never reported a live connection.
+    expect(mockRoomConnect).not.toHaveBeenCalled();
+    expect(states(events)).not.toContain('connected');
+    // The orphaned room was disconnected.
+    expect(mockRoomDisconnect).toHaveBeenCalled();
   });
 });
 
@@ -311,6 +368,75 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(states(events).at(-1)).toBe('thinking');
   });
 
+  test('endTurn mutes the mic before publishing turn_end', async () => {
+    const order: string[] = [];
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockSetMicrophoneEnabled.mockImplementation(async () => {
+      order.push('mute');
+    });
+    mockPublishData.mockImplementation(async () => {
+      order.push('publish');
+    });
+
+    await adapter.turnControl.endTurn();
+
+    // Mute is local and must land first, so a publish rejection can't leave the
+    // mic hot.
+    expect(order).toEqual(['mute', 'publish']);
+  });
+
+  test('endTurn surfaces a DATA_CHANNEL_ERROR when publishData rejects but still muted', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockSetMicrophoneEnabled.mockClear();
+    mockPublishData.mockImplementationOnce(async () => {
+      throw new Error('data channel closed');
+    });
+
+    await adapter.turnControl.endTurn();
+
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(false);
+    const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
+      'DATA_CHANNEL_ERROR',
+    );
+    // Still advances to thinking (the fallback rescues a wedged worker later).
+    expect(states(events).at(-1)).toBe('thinking');
+  });
+
+  test('endTurn surfaces a CONNECTION_FAILED when muting rejects', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+      throw new Error('mute failed');
+    });
+
+    await adapter.turnControl.endTurn();
+
+    const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
+      'CONNECTION_FAILED',
+    );
+  });
+
+  test('startTurn surfaces a CONNECTION_FAILED when unmuting rejects and skips listening', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+      throw new Error('unmute failed');
+    });
+
+    await adapter.turnControl.startTurn();
+
+    const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
+      'CONNECTION_FAILED',
+    );
+    // Mic never went hot, so we must not claim to be listening.
+    expect(states(events)).not.toContain('listening');
+  });
+
   test('a tts_done arriving after a barge-in does not stomp the newer listening state', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
@@ -324,6 +450,66 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
 
     // The now-stale worker tts_done must NOT collapse back to connected.
     currentRoom._emit('dataReceived', encodeTts('tts_done'), undefined, undefined, TTS_TOPIC);
+    expect(states(events).at(-1)).toBe('listening');
+  });
+});
+
+describe('LiveKitAdapter thinking fallback', () => {
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockSetMicrophoneEnabled.mockReset();
+    mockPublishData.mockReset();
+  });
+
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  test('an empty turn falls back from thinking to connected after the timeout', async () => {
+    const { adapter, events } = makeAdapter(undefined, { thinkingFallbackMs: 10 });
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.turnControl.endTurn();
+    expect(states(events).at(-1)).toBe('thinking');
+
+    await settle(40);
+    // Nothing arrived from the worker — the client unwedges itself.
+    expect(states(events).at(-1)).toBe('connected');
+  });
+
+  test('a transcript arriving cancels the thinking fallback', async () => {
+    const { adapter, events } = makeAdapter(undefined, { thinkingFallbackMs: 10 });
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.turnControl.endTurn();
+    currentRoom._emit('transcriptionReceived', [{ text: 'hello', final: true }]);
+
+    await settle(40);
+    // The worker responded, so the fallback must not fire a spurious connected;
+    // the state stays thinking until real activity moves it.
+    expect(states(events).at(-1)).toBe('thinking');
+  });
+
+  test('a tts signal cancels the thinking fallback', async () => {
+    const { adapter, events } = makeAdapter(undefined, { thinkingFallbackMs: 10 });
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.turnControl.endTurn();
+    // A tts signal means the worker is alive and driving state.
+    currentRoom._emit('dataReceived', encodeTts('tts_error'), undefined, undefined, TTS_TOPIC);
+
+    await settle(40);
+    // Only the tts_error's own error path may have run; no fallback connected.
+    expect(states(events).at(-1)).not.toBe('connected');
+  });
+
+  test('a fallback that fires after a barge-in does not stomp listening', async () => {
+    const { adapter, events } = makeAdapter(undefined, { thinkingFallbackMs: 10 });
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.turnControl.endTurn();
+    await adapter.turnControl.startTurn();
+    expect(states(events).at(-1)).toBe('listening');
+
+    await settle(40);
     expect(states(events).at(-1)).toBe('listening');
   });
 });

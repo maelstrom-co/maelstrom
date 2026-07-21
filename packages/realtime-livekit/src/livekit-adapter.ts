@@ -69,11 +69,16 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // second connect() during that round-trip would open a second room.
   #connecting = false;
   #callSeq = 0;
+  readonly #thinkingFallbackMs: number;
+  // Rescues an empty push-to-talk turn (no speech) that would otherwise wedge
+  // the UI in `thinking` — see #startThinkingFallback.
+  #thinkingFallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options: LiveKitAdapterOptions) {
     this.#getToken = options.getToken;
     this.#roomName = options.roomName;
     this.#logger = new Logger(options.debug ?? false, 'LiveKitAdapter');
+    this.#thinkingFallbackMs = options.thinkingFallbackMs ?? THINKING_FALLBACK_MS;
   }
 
   /**
@@ -92,20 +97,61 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     startTurn: async () => {
       const room = this.#room;
       if (!room) return;
-      await room.localParticipant.setMicrophoneEnabled(true);
+      // A barge-in starts a new turn; cancel any pending empty-turn fallback so
+      // it can't collapse the `listening` we're about to emit.
+      this.#clearThinkingFallback();
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true);
+      } catch (error) {
+        this.#emit({
+          type: 'error',
+          error: new RealtimeVoiceError(
+            'CONNECTION_FAILED',
+            'Failed to unmute the microphone on turn start',
+            error,
+          ),
+        });
+        return;
+      }
       this.#emit({ type: 'speech_started' });
       this.#emit({ type: 'state', state: 'listening' });
     },
     endTurn: async () => {
       const room = this.#room;
       if (!room) return;
+      // Mute first: it's local (no network), so a failed turn_end publish can't
+      // leave the mic hot. A publish failure still advances to `thinking` — the
+      // fallback below rescues a worker that never responds.
+      try {
+        await room.localParticipant.setMicrophoneEnabled(false);
+      } catch (error) {
+        this.#emit({
+          type: 'error',
+          error: new RealtimeVoiceError(
+            'CONNECTION_FAILED',
+            'Failed to mute the microphone on turn end',
+            error,
+          ),
+        });
+      }
       const turnEnd: TurnEndMessage = { type: 'turn_end' };
-      await room.localParticipant.publishData(
-        new TextEncoder().encode(JSON.stringify(turnEnd)),
-        { reliable: true, topic: TURN_TOPIC },
-      );
-      await room.localParticipant.setMicrophoneEnabled(false);
+      try {
+        await room.localParticipant.publishData(
+          new TextEncoder().encode(JSON.stringify(turnEnd)),
+          { reliable: true, topic: TURN_TOPIC },
+        );
+      } catch (error) {
+        this.#emit({
+          type: 'error',
+          error: new RealtimeVoiceError(
+            'DATA_CHANNEL_ERROR',
+            'Failed to signal turn end to the LiveKit worker',
+            error,
+          ),
+        });
+      }
       this.#emit({ type: 'state', state: 'thinking' });
+      this.#startThinkingFallback();
     },
   };
 
@@ -133,7 +179,13 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
 
     try {
       const { token, url } = await this.#getToken(this.#roomName);
+      // `disconnect()` clears `#room` synchronously, but an in-flight connect
+      // keeps running against its local `room`. After every await, bail if a
+      // disconnect (or a superseding connect) stole ownership — otherwise we'd
+      // join and publish the mic on an orphaned room nobody can tear down.
+      if (await this.#abandonIfStale(room)) return;
       await room.connect(url, token);
+      if (await this.#abandonIfStale(room)) return;
       // Publish the mic track, then mute it via the SAME API turnControl uses.
       // Muting through setMicrophoneEnabled (not a direct track.mute()) keeps
       // the publication's enabled flag in sync, so startTurn's
@@ -142,7 +194,11 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       // the later enable a silent no-op.
       await room.localParticipant.setMicrophoneEnabled(true);
       await room.localParticipant.setMicrophoneEnabled(false);
+      if (await this.#abandonIfStale(room)) return;
     } catch (error) {
+      // A later step threw after room.connect() may have succeeded — disconnect
+      // the room before teardown, which only nulls fields.
+      await room.disconnect().catch(() => {});
       this.#teardown();
       this.#connecting = false;
       this.#emit({ type: 'state', state: 'error' });
@@ -243,6 +299,9 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   #wireRoomEvents(room: Room): void {
     room.on(RoomEvent.Disconnected, () => {
       if (this.#room !== room) return;
+      // Clear `#room` so a later connect() isn't rejected as 'already connected'
+      // — without this, a server-side/network disconnect is unrecoverable.
+      this.#teardown();
       this.#emit({ type: 'state', state: 'idle' });
     });
     room.on(RoomEvent.TranscriptionReceived, (segments) => {
@@ -264,6 +323,9 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // anything else on this topic (a `tts_error`, or a malformed packet) means
   // synthesis failed, surfaced as a fatal error the session can react to.
   #handleTtsSignal(payload: Uint8Array): void {
+    // A TTS signal means the worker is alive and driving state — the turn was
+    // not empty, so cancel the empty-turn fallback.
+    this.#clearThinkingFallback();
     let type: string | undefined;
     try {
       type = (JSON.parse(new TextDecoder().decode(payload)) as { type?: string })
@@ -302,6 +364,9 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       .trim();
     if (!text) return;
 
+    // The worker produced a transcript — the turn was not empty, so cancel the
+    // empty-turn fallback before this drives a render.
+    this.#clearThinkingFallback();
     this.#emit({ type: 'transcript', role: 'user', text, final: true });
     // The spike's core: a cascaded final transcript is turned into the same
     // `update_ui` tool call a speech-native model would emit, so RealtimeSession
@@ -338,7 +403,39 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     for (const handler of this.#handlers) handler(event);
   }
 
+  // Returns true (after disconnecting the orphaned room) when a concurrent
+  // disconnect/connect has taken ownership of `#room` away from `room`.
+  async #abandonIfStale(room: Room): Promise<boolean> {
+    if (this.#room === room) return false;
+    await room.disconnect().catch(() => {});
+    return true;
+  }
+
+  // With no server-side VAD, an empty turn (accidental tap, no speech) yields no
+  // worker response, so `thinking` would never resolve. Arm a one-shot timer to
+  // collapse back to `connected`; it self-guards on `#lastState` so a barge-in
+  // that already advanced state isn't stomped, and any real worker activity
+  // cancels it via #clearThinkingFallback.
+  #startThinkingFallback(): void {
+    this.#clearThinkingFallback();
+    if (this.#thinkingFallbackMs <= 0) return;
+    this.#thinkingFallbackTimer = setTimeout(() => {
+      this.#thinkingFallbackTimer = undefined;
+      if (this.#lastState === 'thinking') {
+        this.#emit({ type: 'state', state: 'connected' });
+      }
+    }, this.#thinkingFallbackMs);
+  }
+
+  #clearThinkingFallback(): void {
+    if (this.#thinkingFallbackTimer !== undefined) {
+      clearTimeout(this.#thinkingFallbackTimer);
+      this.#thinkingFallbackTimer = undefined;
+    }
+  }
+
   #teardown(): void {
+    this.#clearThinkingFallback();
     this.#room = undefined;
     this.#connecting = false;
     this.#playbackStream = undefined;
@@ -348,6 +445,8 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     }
   }
 }
+
+const THINKING_FALLBACK_MS = 10_000;
 
 // RealtimeSession sends update_ui results as `{ ok, summary }`; other tools
 // return raw snapshots. We only ever synthesize update_ui, so `summary` is the
