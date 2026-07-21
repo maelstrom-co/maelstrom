@@ -5,13 +5,13 @@
  *
  * Shipped as a package separate from `@maelstrom-co/realtime` so consumers of
  * the core never have `livekit-client` forced on them — pull this in only when
- * you want the LiveKit transport. The Node-only token minter lives on the
- * `./server` subpath; the wire topic constants on `./protocol` (shared with the
- * `@maelstrom-co/realtime-livekit-agent` worker).
+ * you want the LiveKit transport. The Node-only token minter lives in the
+ * sibling `@maelstrom-co/realtime-livekit-server` package; the wire topic
+ * constants on `./protocol` (shared with the `@maelstrom-co/realtime-livekit-agent`
+ * worker).
  */
 export { LiveKitAdapter } from './livekit-adapter.js';
-export type {
-  LiveKitAdapterOptions,
-  LiveKitTokenGrant,
-} from './livekit-adapter.types.js';
+export type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
+export type { LiveKitTokenGrant } from './livekit-token.js';
+export { LiveKitTokenGrantSchema } from './livekit-token.js';
 export * from './protocol.js';

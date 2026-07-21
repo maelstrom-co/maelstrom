@@ -31,3 +31,9 @@ export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
 
 export type { RealtimeVoiceErrorCode } from './lib/realtime-voice-error.js';
 export { RealtimeVoiceError } from './lib/realtime-voice-error.js';
+
+export type { UnixSeconds } from './lib/token/unix-seconds.js';
+export { UnixSecondsSchema } from './lib/token/unix-seconds.js';
+export type { TokenGrant } from './lib/token/token-grant.js';
+export type { MintFailure, MintFailureReason, MintFetch } from './lib/token/mint.js';
+export { mintFailureHttpStatus } from './lib/token/mint.js';

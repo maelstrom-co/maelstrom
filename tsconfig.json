@@ -38,6 +38,9 @@
     },
     {
       "path": "./packages/react-realtime"
+    },
+    {
+      "path": "./packages/realtime-livekit-server"
     }
   ]
 }

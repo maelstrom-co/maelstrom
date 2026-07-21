@@ -1,8 +1,9 @@
 import { expect, it } from 'bun:test';
 
 import { isErr, isOk } from '@maelstrom-co/protocol';
+import { mintFailureHttpStatus, type MintFailureReason } from '@maelstrom-co/realtime';
 
-import { createOpenAIMinter, mintFailureHttpStatus, type MintFailureReason } from './openai-mint.js';
+import { createOpenAIMinter } from './openai-mint.js';
 
 it('mints an ephemeral secret without leaking the api key', async () => {
   let sentAuth = '';
@@ -57,7 +58,12 @@ it('reports upstream-failure when upstream returns 200 with a null body, instead
   expect(result.error).toEqual({ reason: 'upstream-failure', upstreamStatus: 200 });
 });
 
-it('rejects a provider other than openai with unsupported-provider and never calls upstream fetch', async () => {
+it('rejects a provider other than openai with invalid-request and never calls upstream fetch', async () => {
+  // Open-world token model: there is no shared provider enum. The OpenAI mint
+  // request is `provider: 'openai'` (a literal), so a non-openai provider is
+  // simply not a valid OpenAI request — `invalid-request`, not a distinct
+  // `unsupported-provider` (which the shared vocabulary keeps for a minter that
+  // does discriminate a known-but-unhandled provider).
   let fetchCalled = false;
   const fakeFetch = async (): Promise<Response> => {
     fetchCalled = true;
@@ -71,7 +77,7 @@ it('rejects a provider other than openai with unsupported-provider and never cal
   const result = await mint({ provider: 'google', sessionId: 'sess-1' });
   expect(isErr(result)).toBe(true);
   if (!isErr(result)) throw new Error('expected err result');
-  expect(result.error).toEqual({ reason: 'unsupported-provider' });
+  expect(result.error).toEqual({ reason: 'invalid-request' });
   expect(fetchCalled).toBe(false);
 });
 

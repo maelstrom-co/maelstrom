@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import FakeTimers from '@sinonjs/fake-timers';
 import { ToolCallId } from '@maelstrom-co/protocol';
-import type { TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol';
+import type { UnixSeconds } from '../token/unix-seconds.js';
+import type { OpenAITokenGrant } from './openai-token.js';
 import { SessionId } from '@maelstrom-co/protocol';
 import type { CapabilitySnapshot, UIStructuralSnapshot } from '@maelstrom-co/client';
 
@@ -151,7 +152,7 @@ class FakeAudio {
 // Harness
 // ============================================================================
 
-const fakeToken: TokenHandshakeResponse = {
+const fakeToken: OpenAITokenGrant = {
   provider: 'openai',
   value: 'ek-test-secret',
   expiresAt: (Math.floor(Date.now() / 1000) + 60) as UnixSeconds,
@@ -332,8 +333,8 @@ describe('OpenAIAdapter — failed SDP exchange', () => {
 
 describe('OpenAIAdapter — double connect during mint', () => {
   it('rejects a second connect() started while the first is still awaiting mintToken, and only one RTCPeerConnection/mic stream ever exists', async () => {
-    let resolveMint!: (token: TokenHandshakeResponse) => void;
-    const mintPromise = new Promise<TokenHandshakeResponse>((resolve) => {
+    let resolveMint!: (token: OpenAITokenGrant) => void;
+    const mintPromise = new Promise<OpenAITokenGrant>((resolve) => {
       resolveMint = resolve;
     });
     const adapter = new OpenAIAdapter({ mintToken: () => mintPromise });

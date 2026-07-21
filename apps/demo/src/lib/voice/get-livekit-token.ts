@@ -1,24 +1,22 @@
 import { createServerFn } from '@tanstack/react-start';
-import { mintLiveKitToken } from '@maelstrom-co/realtime-livekit/server';
-import { z } from 'zod';
-
-// Guards the trust boundary: a missing/non-string/whitespace-only roomName
-// would otherwise reach mintLiveKitToken as-is, either throwing an opaque
-// TypeError or minting a token scoped to room "". Trimming here (not just
-// validating) also means the minted token always matches the room name a
-// caller sees trimmed elsewhere — untrimmed whitespace variants never diverge.
-export const inputSchema = z.object({
-  roomName: z.string().trim().min(1, 'roomName must be a non-empty string'),
-  identity: z.string().optional(),
-});
+import { isErr } from '@maelstrom-co/protocol';
+import { mintLiveKitToken } from '@maelstrom-co/realtime-livekit-server';
 
 /**
  * TanStack Start server fn wrapping the framework-free `mintLiveKitToken` from
- * `@maelstrom-co/realtime-livekit/server`. This thin wrapper is all the demo
- * owns — the token-grant logic lives in the package. Injected into the
- * `LiveKitAdapter` as `getToken` so the browser bundle never imports
- * `livekit-server-sdk`.
+ * `@maelstrom-co/realtime-livekit-server`. This thin wrapper is all the demo
+ * owns — request validation and the token-grant logic live in the package, so
+ * the raw request is passed straight through. Injected into the
+ * `LiveKitAdapter` as `mintToken` so the browser bundle never imports
+ * `livekit-server-sdk`. A mint failure is surfaced as a throw, which the
+ * adapter wraps as a `TOKEN_MINT_FAILED` voice error.
  */
 export const getLivekitToken = createServerFn({ method: 'GET' })
-  .inputValidator((data: unknown) => inputSchema.parse(data))
-  .handler(async ({ data }) => mintLiveKitToken(data));
+  .inputValidator((data: unknown) => data)
+  .handler(async ({ data }) => {
+    const result = await mintLiveKitToken(data);
+    if (isErr(result)) {
+      throw new Error(`LiveKit token mint failed: ${result.error.reason}`);
+    }
+    return result.value;
+  });

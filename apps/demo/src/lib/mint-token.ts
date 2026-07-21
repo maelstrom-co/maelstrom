@@ -1,8 +1,5 @@
-import {
-  TokenHandshakeResponseSchema,
-  type SessionId,
-  type TokenHandshakeResponse,
-} from '@maelstrom-co/protocol';
+import type { SessionId } from '@maelstrom-co/protocol';
+import { type OpenAITokenGrant, OpenAITokenGrantSchema } from '@maelstrom-co/realtime/openai';
 
 /**
  * Fetches an ephemeral OpenAI realtime credential from the demo's mint
@@ -11,7 +8,7 @@ import {
  */
 export async function mintOpenAIToken(
   sessionId: SessionId,
-): Promise<TokenHandshakeResponse> {
+): Promise<OpenAITokenGrant> {
   const res = await fetch('/api/realtime-token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -21,5 +18,5 @@ export async function mintOpenAIToken(
     throw new Error(`Token mint failed with status ${res.status}`);
   }
   const body: unknown = await res.json();
-  return TokenHandshakeResponseSchema.parse(body);
+  return OpenAITokenGrantSchema.parse(body);
 }

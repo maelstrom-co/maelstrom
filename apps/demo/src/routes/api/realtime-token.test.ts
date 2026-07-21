@@ -1,5 +1,5 @@
 import { expect, it, mock } from 'bun:test';
-import type { UnixSeconds } from '@maelstrom-co/protocol';
+import type { UnixSeconds } from '@maelstrom-co/realtime';
 import type { MintFailureReason, MintResult } from '@maelstrom-co/realtime-server';
 
 // Regression test for the error-precedence bug: with no OPENAI_API_KEY

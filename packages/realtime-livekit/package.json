@@ -20,12 +20,6 @@
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js",
       "default": "./dist/protocol.js"
-    },
-    "./server": {
-      "@maelstrom-co/source": "./src/server.ts",
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js",
-      "default": "./dist/server.js"
     }
   },
   "files": [
@@ -44,7 +38,7 @@
     "@maelstrom-co/client": "0.0.0",
     "@maelstrom-co/protocol": "0.0.0",
     "@maelstrom-co/realtime": "0.0.0",
-    "livekit-server-sdk": "^2.13.1"
+    "zod": "catalog:"
   },
   "peerDependencies": {
     "livekit-client": ">=2.0.0"

@@ -33,7 +33,7 @@ function createAdapter({
 }: CreateAdapterContext): RealtimeProviderAdapter {
   if (import.meta.env.VITE_VOICE_PROVIDER === 'livekit') {
     return new LiveKitAdapter({
-      getToken: (roomName) => getLivekitToken({ data: { roomName } }),
+      mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
       roomName: `maelstrom-${sessionId}`,
       debug: true,
     });

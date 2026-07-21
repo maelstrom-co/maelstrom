@@ -1,4 +1,5 @@
 import { test, expect, mock, beforeEach, afterEach, describe } from 'bun:test';
+import { isErr, isOk } from '@maelstrom-co/protocol';
 
 // Capture the grant passed to AccessToken so the test can assert the token is
 // scoped to the requested room + identity.
@@ -27,7 +28,7 @@ mock.module('livekit-server-sdk', () => ({
   },
 }));
 
-const { mintLiveKitToken } = await import('./server');
+const { mintLiveKitToken } = await import('./livekit-mint.js');
 
 // Assigning `undefined` back to `process.env.X` coerces to the literal string
 // "undefined" rather than clearing the var — delete instead when the
@@ -65,11 +66,17 @@ describe('mintLiveKitToken', () => {
     restoreEnv('LIVEKIT_TOKEN_TTL', original.ttl);
   });
 
-  test('returns a token and url', async () => {
+  test('returns a grant with a token, url, and future expiry', async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
     const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
-    expect(typeof result.token).toBe('string');
-    expect(result.token.length).toBeGreaterThan(0);
-    expect(result.url).toBe('ws://localhost:7880');
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(typeof result.value.token).toBe('string');
+    expect(result.value.token.length).toBeGreaterThan(0);
+    expect(result.value.url).toBe('ws://localhost:7880');
+    // Default 15m TTL → expiry ~900s out.
+    expect(result.value.expiresAt).toBeGreaterThan(nowSeconds);
+    expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + 900 + 2);
   });
 
   test('scopes the grant to the requested room and defaults identity to "user"', async () => {
@@ -88,6 +95,11 @@ describe('mintLiveKitToken', () => {
     expect(lastIdentity).toBe('agent');
   });
 
+  test('trims a room name with surrounding whitespace', async () => {
+    await mintLiveKitToken({ roomName: '  maelstrom-abc  ' });
+    expect(lastGrant).toMatchObject({ room: 'maelstrom-abc' });
+  });
+
   test('defaults the token ttl to 15m when LIVEKIT_TOKEN_TTL is unset', async () => {
     await mintLiveKitToken({ roomName: 'maelstrom-abc' });
     expect(lastTtl).toBe('15m');
@@ -95,21 +107,43 @@ describe('mintLiveKitToken', () => {
 
   test('honours LIVEKIT_TOKEN_TTL when set', async () => {
     process.env.LIVEKIT_TOKEN_TTL = '2h';
-    await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
     expect(lastTtl).toBe('2h');
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    // 2h → expiry ~7200s out.
+    expect(result.value.expiresAt).toBeGreaterThan(nowSeconds + 7000);
   });
 
   test('defaults the url to ws://localhost:7880 when LIVEKIT_URL is unset', async () => {
     delete process.env.LIVEKIT_URL;
     const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
-    expect(result.url).toBe('ws://localhost:7880');
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value.url).toBe('ws://localhost:7880');
   });
 
-  test('throws when credentials are missing', async () => {
+  test('returns missing-api-key when credentials are absent', async () => {
     delete process.env.LIVEKIT_API_KEY;
     delete process.env.LIVEKIT_API_SECRET;
-    await expect(
-      mintLiveKitToken({ roomName: 'maelstrom-abc' }),
-    ).rejects.toThrow('LiveKit credentials not configured');
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('missing-api-key');
+  });
+
+  test('returns invalid-request for a missing room name', async () => {
+    const result = await mintLiveKitToken({});
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-request');
+  });
+
+  test('returns invalid-request for a whitespace-only room name', async () => {
+    const result = await mintLiveKitToken({ roomName: '   ' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-request');
   });
 });

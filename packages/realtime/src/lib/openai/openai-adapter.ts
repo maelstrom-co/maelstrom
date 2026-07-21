@@ -1,6 +1,8 @@
 import { Logger } from '@maelstrom-co/client';
 import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
-import type { ToolCallId, TokenHandshakeResponse } from '@maelstrom-co/protocol';
+import type { ToolCallId } from '@maelstrom-co/protocol';
+
+import type { OpenAITokenGrant } from './openai-token.js';
 
 import type {
   AdapterAudioStreams,
@@ -63,7 +65,7 @@ function toOpenAITool(spec: RealtimeToolSpec): unknown {
  * ```
  */
 export class OpenAIAdapter implements RealtimeProviderAdapter {
-  readonly #mintToken: () => Promise<TokenHandshakeResponse>;
+  readonly #mintToken: () => Promise<OpenAITokenGrant>;
   readonly #logger: Logger;
   readonly #transcription: false | { readonly model?: string } | undefined;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
@@ -112,7 +114,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     let connection: RTCPeerConnection | undefined;
     let micStream: MediaStream | undefined;
     try {
-      let token: TokenHandshakeResponse;
+      let token: OpenAITokenGrant;
       try {
         token = await this.#mintToken();
       } catch (error) {
@@ -368,7 +370,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
 
   async #exchangeSdp(
     connection: RTCPeerConnection,
-    token: TokenHandshakeResponse,
+    token: OpenAITokenGrant,
     connectStart: number,
   ): Promise<void> {
     const offer = await connection.createOffer();

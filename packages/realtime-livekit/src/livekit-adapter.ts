@@ -42,7 +42,7 @@ setLogLevel('warn');
  * @example
  * ```ts
  * const adapter = new LiveKitAdapter({
- *   getToken: (roomName) => fetchLiveKitToken(roomName),
+ *   mintToken: (roomName) => fetchLiveKitToken(roomName),
  *   roomName: `maelstrom-${sessionId}`,
  * });
  * const session = new RealtimeSession({ adapter, instance, sessionId });
@@ -53,7 +53,7 @@ setLogLevel('warn');
  * ```
  */
 export class LiveKitAdapter implements RealtimeProviderAdapter {
-  readonly #getToken: LiveKitAdapterOptions['getToken'];
+  readonly #mintToken: LiveKitAdapterOptions['mintToken'];
   readonly #roomName: string;
   readonly #logger: Logger;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
@@ -65,7 +65,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // skipped when a newer state (a barge-in `listening`) already superseded it.
   #lastState: VoiceSessionState | undefined;
   // Guards the window between connect() being called and `#room` being
-  // usable — `getToken()` and `room.connect()` are awaited, so without this a
+  // usable — `mintToken()` and `room.connect()` are awaited, so without this a
   // second connect() during that round-trip would open a second room.
   #connecting = false;
   #callSeq = 0;
@@ -75,7 +75,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   #thinkingFallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options: LiveKitAdapterOptions) {
-    this.#getToken = options.getToken;
+    this.#mintToken = options.mintToken;
     this.#roomName = options.roomName;
     this.#logger = new Logger(options.debug ?? false, 'LiveKitAdapter');
     this.#thinkingFallbackMs = options.thinkingFallbackMs ?? THINKING_FALLBACK_MS;
@@ -200,7 +200,17 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#wireRoomEvents(room);
 
     try {
-      const { token, url } = await this.#getToken(this.#roomName);
+      let token: string;
+      let url: string;
+      try {
+        ({ token, url } = await this.#mintToken(this.#roomName));
+      } catch (error) {
+        throw new RealtimeVoiceError(
+          'TOKEN_MINT_FAILED',
+          'Failed to mint a LiveKit token',
+          error,
+        );
+      }
       // `disconnect()` clears `#room` synchronously, but an in-flight connect
       // keeps running against its local `room`. After every await, bail if a
       // disconnect (or a superseding connect) stole ownership — otherwise we'd

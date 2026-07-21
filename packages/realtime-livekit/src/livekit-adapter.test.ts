@@ -1,6 +1,7 @@
 import { test, expect, mock, beforeEach, describe } from 'bun:test';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
-import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
+import type { RealtimeAdapterEvent, UnixSeconds } from '@maelstrom-co/realtime';
+import type { LiveKitTokenGrant } from './livekit-token.js';
 
 // --- Mocks for livekit-client ---
 
@@ -70,18 +71,21 @@ mock.module('livekit-client', () => ({
 const { LiveKitAdapter } = await import('./livekit-adapter');
 const { SPEAK_TOPIC, TURN_TOPIC, TTS_TOPIC } = await import('./protocol');
 
-const DEFAULT_GRANT = { token: 'test-token', url: 'ws://localhost:7880' };
+const DEFAULT_GRANT: LiveKitTokenGrant = {
+  token: 'test-token',
+  url: 'ws://localhost:7880',
+  expiresAt: (Math.floor(Date.now() / 1000) + 900) as UnixSeconds,
+};
 
 function makeAdapter(
-  getToken: (roomName: string) => Promise<{ token: string; url: string }> = async () =>
-    DEFAULT_GRANT,
+  mintToken: (roomName: string) => Promise<LiveKitTokenGrant> = async () => DEFAULT_GRANT,
   options: { thinkingFallbackMs?: number } = {},
 ) {
   const events: RealtimeAdapterEvent[] = [];
   // Default the thinking fallback OFF so tests don't leak a real timer; the
   // fallback-specific tests opt into a short interval explicitly.
   const adapter = new LiveKitAdapter({
-    getToken,
+    mintToken,
     roomName: 'room-1',
     thinkingFallbackMs: 0,
     ...options,
@@ -115,14 +119,18 @@ describe('LiveKitAdapter connect', () => {
     expect(mockSetMicrophoneEnabled.mock.calls.map((c) => c[0])).toEqual([true, false]);
   });
 
-  test('a token failure tears down and ends in error state', async () => {
+  test('a token failure wraps as TOKEN_MINT_FAILED, tears down, and ends in error state', async () => {
+    const cause = new Error('LiveKit credentials not configured');
     const { adapter, events } = makeAdapter(async () => {
-      throw new Error('LiveKit credentials not configured');
+      throw cause;
     });
 
-    await expect(adapter.connect({ tools: [], instructions: '' })).rejects.toThrow(
-      'LiveKit credentials not configured',
-    );
+    const error = await adapter
+      .connect({ tools: [], instructions: '' })
+      .then(() => undefined, (e: unknown) => e);
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('TOKEN_MINT_FAILED');
+    expect((error as RealtimeVoiceError).cause).toBe(cause);
     expect(states(events)).toEqual(['connecting', 'error']);
   });
 
@@ -164,8 +172,8 @@ describe('LiveKitAdapter connect', () => {
   test('a disconnect during an in-flight connect abandons the orphaned room', async () => {
     mockRoomConnect.mockClear();
     mockRoomDisconnect.mockClear();
-    let releaseToken!: (grant: { token: string; url: string }) => void;
-    const tokenPromise = new Promise<{ token: string; url: string }>((res) => {
+    let releaseToken!: (grant: LiveKitTokenGrant) => void;
+    const tokenPromise = new Promise<LiveKitTokenGrant>((res) => {
       releaseToken = res;
     });
     const { adapter, events } = makeAdapter(() => tokenPromise);
@@ -175,7 +183,7 @@ describe('LiveKitAdapter connect', () => {
     releaseToken(DEFAULT_GRANT);
     await connecting;
 
-    // Staleness was detected after getToken resolved: we never proceeded to
+    // Staleness was detected after mintToken resolved: we never proceeded to
     // join, and never reported a live connection.
     expect(mockRoomConnect).not.toHaveBeenCalled();
     expect(states(events)).not.toContain('connected');

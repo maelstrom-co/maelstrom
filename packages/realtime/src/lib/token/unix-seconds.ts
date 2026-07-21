@@ -1,6 +1,5 @@
+import type { Brand } from '@maelstrom-co/protocol';
 import { z } from 'zod';
-
-import type { Brand } from './brand.js';
 
 /**
  * Absolute Unix-epoch timestamp, in seconds. Branding this separately from

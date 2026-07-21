@@ -15,7 +15,6 @@ export default defineConfig(() => ({
       entry: {
         index: 'src/index.ts',
         protocol: 'src/protocol.ts',
-        server: 'src/server.ts',
       },
       name: '@maelstrom-co/realtime-livekit',
       formats: ['es' as const],
@@ -27,7 +26,7 @@ export default defineConfig(() => ({
         '@maelstrom-co/protocol',
         '@maelstrom-co/realtime',
         'livekit-client',
-        'livekit-server-sdk',
+        'zod',
       ],
     },
   },

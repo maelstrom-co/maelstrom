@@ -38,6 +38,9 @@
       "path": "../../packages/realtime-livekit/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/realtime-livekit-server/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/realtime/tsconfig.lib.json"
     },
     {

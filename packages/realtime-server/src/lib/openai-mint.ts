@@ -1,10 +1,10 @@
-import type { Result, TokenHandshakeResponse, UnixSeconds } from '@maelstrom-co/protocol';
+import { type Result, err, ok } from '@maelstrom-co/protocol';
+import type { MintFailure, MintFetch, UnixSeconds } from '@maelstrom-co/realtime';
 import {
-  err,
-  ok,
-  TokenHandshakeRequestSchema,
-  TokenHandshakeResponseSchema,
-} from '@maelstrom-co/protocol';
+  type OpenAITokenGrant,
+  OpenAITokenGrantSchema,
+  OpenAITokenRequestSchema,
+} from '@maelstrom-co/realtime/openai';
 import { z } from 'zod';
 
 /** Options for {@link createOpenAIMinter}. */
@@ -17,7 +17,7 @@ export interface CreateOpenAIMinterOptions {
    * Fetch implementation used for the upstream call to OpenAI. Defaults to
    * the global `fetch`; inject a fake in tests to avoid a real network call.
    */
-  readonly fetch?: (url: string, init: RequestInit) => Promise<Response>;
+  readonly fetch?: MintFetch;
 }
 
 /** Shape of OpenAI's `POST /v1/realtime/client_secrets` response. */
@@ -27,71 +27,18 @@ const OpenAIClientSecretResponseSchema = z.object({
   session: z.unknown().optional(),
 });
 
-/**
- * Why a mint attempt failed. Callers map each reason to their own transport
- * status — see the {@link createOpenAIMinter} `@example`.
- *
- * - `invalid-request` — `input` failed {@link TokenHandshakeRequestSchema}.
- * - `unsupported-provider` — the handshake targeted a provider other than
- *   `openai`.
- * - `missing-api-key` — the minter was constructed without an API key.
- * - `upstream-failure` — OpenAI's `client_secrets` endpoint was unreachable,
- *   rejected the request, or returned a response that failed
- *   {@link TokenHandshakeResponseSchema}.
- */
-export type MintFailureReason =
-  | 'invalid-request'
-  | 'unsupported-provider'
-  | 'missing-api-key'
-  | 'upstream-failure';
-
-/**
- * Failure detail for a {@link createOpenAIMinter} call. `upstreamStatus` is
- * only ever present when `reason` is `upstream-failure`, and even then only
- * when OpenAI returned an HTTP response (it's absent when the upstream
- * `fetch` itself threw, e.g. a network error).
- */
-export type MintFailure =
-  | { readonly reason: Exclude<MintFailureReason, 'upstream-failure'> }
-  | { readonly reason: 'upstream-failure'; readonly upstreamStatus?: number };
-
 /** Outcome of a {@link createOpenAIMinter} call. */
-export type MintResult = Result<TokenHandshakeResponse, MintFailure>;
-
-const MINT_FAILURE_HTTP_STATUS: Record<MintFailureReason, number> = {
-  'invalid-request': 400,
-  'unsupported-provider': 400,
-  'missing-api-key': 500,
-  'upstream-failure': 502,
-};
-
-/**
- * Suggested HTTP status for a {@link MintFailureReason}, for callers wiring
- * a minter into an HTTP transport. This package stays transport-agnostic —
- * nothing requires using this mapping; a caller with different status-code
- * conventions is free to write its own.
- *
- * @example
- * ```ts
- * return Response.json(
- *   { error: result.error.reason },
- *   { status: mintFailureHttpStatus(result.error.reason) },
- * );
- * ```
- */
-export function mintFailureHttpStatus(reason: MintFailureReason): number {
-  return MINT_FAILURE_HTTP_STATUS[reason];
-}
+export type MintResult = Result<OpenAITokenGrant, MintFailure>;
 
 /**
  * Creates a transport-agnostic minter that exchanges a server-held OpenAI
  * API key for a short-lived realtime client secret on behalf of the
  * browser, so the browser never sees `OPENAI_API_KEY`.
  *
- * The minter validates `input` against {@link TokenHandshakeRequest}, calls
+ * The minter validates `input` against {@link OpenAITokenRequest}, calls
  * OpenAI's `client_secrets` endpoint with the server-held key in the
- * `Authorization` header, and maps the upstream response to a
- * {@link TokenHandshakeResponse}. The API key is only ever sent upstream —
+ * `Authorization` header, and maps the upstream response to an
+ * {@link OpenAITokenGrant}. The API key is only ever sent upstream —
  * it is never echoed back in the result. Callers own all transport
  * concerns: parsing the request body into `input`, and mapping
  * {@link MintResult} to a status code / response body.
@@ -136,13 +83,9 @@ export function createOpenAIMinter(
       return err({ reason: 'missing-api-key' });
     }
 
-    const handshake = TokenHandshakeRequestSchema.safeParse(input);
+    const handshake = OpenAITokenRequestSchema.safeParse(input);
     if (!handshake.success) {
       return err({ reason: 'invalid-request' });
-    }
-
-    if (handshake.data.provider !== 'openai') {
-      return err({ reason: 'unsupported-provider' });
     }
 
     const resolvedModel = handshake.data.model ?? model;
@@ -178,7 +121,7 @@ export function createOpenAIMinter(
       return err({ reason: 'upstream-failure' });
     }
 
-    const response: TokenHandshakeResponse = {
+    const response: OpenAITokenGrant = {
       provider: 'openai',
       value: upstreamBody.value,
       expiresAt: upstreamBody.expires_at as UnixSeconds,
@@ -186,7 +129,7 @@ export function createOpenAIMinter(
     };
 
     try {
-      TokenHandshakeResponseSchema.parse(response);
+      OpenAITokenGrantSchema.parse(response);
     } catch {
       return err({ reason: 'upstream-failure' });
     }
