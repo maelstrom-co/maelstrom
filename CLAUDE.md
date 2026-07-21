@@ -53,7 +53,7 @@ Before declaring any change done, run typecheck, tests, AND lint (with `--error-
 ## Environment Setup
 
 Copy `.env.example` to `.env` and configure API keys for LLM providers:
-- `GOOGLE_GENERATIVE_AI_API_KEY` - Google Gemini (used by demo)
+- `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) - Google Gemini (used by demo)
 - `OPENAI_API_KEY` - OpenAI
 - `ANTHROPIC_API_KEY` - Anthropic Claude
 
