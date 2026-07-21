@@ -17,6 +17,7 @@ import type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  UpdateUIToolResult,
 } from './provider-adapter.types.js';
 import type { RealtimeInstance, SubmitIntentResult } from './realtime-session.types.js';
 import { RealtimeSession } from './realtime-session.js';
@@ -1021,10 +1022,11 @@ describe('RealtimeSession — defensive outcome normalization', () => {
 // ============================================================================
 
 describe('RealtimeSession — engine userMessage precedence', () => {
-  it('speaks the engine userMessage verbatim instead of the structural summary', async () => {
+  it('carries the engine userMessage alongside the structural summary', async () => {
     const engineReply = "I'm doing well, thank you for asking!";
-    // populatedSnapshot would otherwise summarize to a "1 vessel on screen…"
-    // structural sentence — the engine reply must win.
+    // populatedSnapshot summarizes to a "1 vessel on screen…" structural
+    // sentence; that still travels as `summary`, but the engine reply travels
+    // as `userMessage` so a consuming adapter can prefer it.
     const { session, adapter, instance } = makeHarness(
       populatedSnapshot,
       emptyCapabilitySnapshot,
@@ -1041,13 +1043,16 @@ describe('RealtimeSession — engine userMessage precedence', () => {
     instance.settle();
     await flushMicrotasks();
 
-    expect(adapter.toolResults[0].output).toEqual({
-      ok: true,
-      summary: engineReply,
-    });
+    const output = adapter.toolResults[0].output as UpdateUIToolResult;
+    expect(output.ok).toBe(true);
+    expect(output.userMessage).toBe(engineReply);
+    // The structural summary is not collapsed away — it rides along as the
+    // fallback, distinct from the engine reply.
+    expect(output.summary).toEqual(expect.any(String));
+    expect(output.summary).not.toBe(engineReply);
   });
 
-  it('falls back to the structural summarizer when the engine surfaces no userMessage', async () => {
+  it('omits userMessage so the summary is the fallback when the engine surfaces none', async () => {
     // Empty (whitespace-only) userMessage is treated as absent — fall back.
     const { session, adapter, instance } = makeHarness(
       populatedSnapshot,
@@ -1065,16 +1070,18 @@ describe('RealtimeSession — engine userMessage precedence', () => {
     instance.settle();
     await flushMicrotasks();
 
-    const output = adapter.toolResults[0].output as { ok: boolean; summary: string };
+    const output = adapter.toolResults[0].output as UpdateUIToolResult;
     expect(output.ok).toBe(true);
+    expect(output.userMessage).toBeUndefined(); // whitespace-only reply omitted
     expect(output.summary).toContain('labs-chart'); // the default summarizer ran
   });
 
-  it('speaks the engine reply rather than miscounting instances the engine keeps hidden', async () => {
+  it('carries the engine reply distinct from a structural summary that would miscount hidden instances', async () => {
     // The structural summarizer counts every instance in the snapshot,
     // including ones a tiling layout keeps alive but off-screen — so it would
     // say "3 vessels on screen" even when fewer are visible. The engine's
-    // userMessage, which knows what actually rendered, must be spoken instead.
+    // userMessage, which knows what actually rendered, is the field a consuming
+    // adapter prefers, so the miscount never reaches the user.
     const threeInstanceSnapshot: UIStructuralSnapshot = {
       instances: [
         {
@@ -1114,9 +1121,9 @@ describe('RealtimeSession — engine userMessage precedence', () => {
     instance.settle();
     await flushMicrotasks();
 
-    const output = adapter.toolResults[0].output as { ok: boolean; summary: string };
-    expect(output.summary).toBe(engineReply);
-    expect(output.summary).not.toContain('3 vessels');
+    const output = adapter.toolResults[0].output as UpdateUIToolResult;
+    expect(output.userMessage).toBe(engineReply);
+    expect(output.userMessage).not.toContain('3 vessels');
   });
 
   it('speaks the engine reply for a barge-in queued call too, not just the first', async () => {
@@ -1150,7 +1157,11 @@ describe('RealtimeSession — engine userMessage precedence', () => {
     await flushMicrotasks();
 
     const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
-    expect(c2Result?.output).toEqual({ ok: true, summary: engineReply });
+    expect(c2Result?.output).toEqual({
+      ok: true,
+      summary: expect.any(String),
+      userMessage: engineReply,
+    });
   });
 });
 

@@ -262,7 +262,7 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
     mockSetMicrophoneEnabled.mockReset();
   });
 
-  test('sends the update_ui summary over the speak text stream', async () => {
+  test('speaks the structural summary when there is no engine userMessage', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
 
@@ -279,11 +279,26 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
     expect(states(events).at(-1)).toBe('speaking');
   });
 
+  test('prefers the engine userMessage over the structural summary', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: '1 vessel on screen, tiling layout: weather (default).',
+      userMessage: 'Here is your weather.',
+    });
+
+    expect(mockSendText).toHaveBeenCalledWith('Here is your weather.', {
+      topic: SPEAK_TOPIC,
+    });
+  });
+
   test('collapses speaking → connected only when the worker signals tts_done', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
 
-    await adapter.sendToolResult('call-1' as never, { summary: 'Done.' });
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' });
     expect(states(events).at(-1)).toBe('speaking');
 
     currentRoom._emit('dataReceived', encodeTts('tts_done'), undefined, undefined, TTS_TOPIC);
@@ -297,7 +312,7 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
       throw new Error('stream closed');
     });
 
-    await adapter.sendToolResult('call-1' as never, { summary: 'Done.' });
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' });
 
     const err = events.find((e) => e.type === 'error');
     expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
@@ -311,7 +326,7 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
   test('with no active room, wraps the failure in a RealtimeVoiceError', async () => {
     const { adapter, events } = makeAdapter();
     // Never connected — no room.
-    await adapter.sendToolResult('call-1' as never, { summary: 'Done.' });
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' });
 
     const err = events.find((e) => e.type === 'error');
     expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
@@ -321,20 +336,14 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
     expect(mockSendText).not.toHaveBeenCalled();
   });
 
-  test('accepts a bare string output', async () => {
+  test('serializes a read-only snapshot result rather than voicing it', async () => {
     const { adapter } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
 
-    await adapter.sendToolResult('call-2' as never, 'plain text');
-    expect(mockSendText).toHaveBeenCalledWith('plain text', { topic: SPEAK_TOPIC });
-  });
-
-  test('falls back to JSON when there is no summary field', async () => {
-    const { adapter } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-
-    await adapter.sendToolResult('call-3' as never, { instances: [] });
-    expect(mockSendText).toHaveBeenCalledWith('{"instances":[]}', {
+    // get_ui_state / get_capabilities send raw snapshots (no `ok` field) — the
+    // model would read these as JSON, so there is nothing conversational to say.
+    await adapter.sendToolResult('call-3' as never, { vessels: [] });
+    expect(mockSendText).toHaveBeenCalledWith('{"vessels":[]}', {
       topic: SPEAK_TOPIC,
     });
   });
@@ -450,7 +459,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     await adapter.connect({ tools: [], instructions: '' });
 
     // Assistant is speaking; the user barges in.
-    await adapter.sendToolResult('call-1' as never, { summary: 'Talking…' });
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Talking…' });
     expect(states(events).at(-1)).toBe('speaking');
     mockSetMicrophoneEnabled.mockClear();
     mockPublishData.mockClear();
@@ -480,7 +489,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
   test('a tts_cancel publish rejection surfaces DATA_CHANNEL_ERROR but still unmutes', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
-    await adapter.sendToolResult('call-1' as never, { summary: 'Talking…' });
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Talking…' });
     mockSetMicrophoneEnabled.mockClear();
     mockPublishData.mockImplementationOnce(async () => {
       throw new Error('data channel closed');
@@ -503,7 +512,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
 
     // Assistant starts speaking, then the user barges in (push-to-talk) while
     // audio is still playing — state advances to listening.
-    await adapter.sendToolResult('call-1' as never, { summary: 'Talking…' });
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Talking…' });
     expect(states(events).at(-1)).toBe('speaking');
     await adapter.turnControl.startTurn();
     expect(states(events).at(-1)).toBe('listening');

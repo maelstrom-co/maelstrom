@@ -25,6 +25,8 @@ export type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  ToolResult,
+  UpdateUIToolResult,
 } from './lib/realtime-session/provider-adapter.types.js';
 
 export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';

@@ -10,6 +10,7 @@ import type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  ToolResult,
 } from '../realtime-session/provider-adapter.types.js';
 import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
@@ -192,7 +193,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     return { mic: this.#micStream, playback: this.#playbackStream };
   }
 
-  async sendToolResult(callId: ToolCallId, output: unknown): Promise<void> {
+  async sendToolResult(callId: ToolCallId, output: ToolResult): Promise<void> {
     this.#logger.debug('→ sendToolResult', { callId, output });
     if (!this.#dc || this.#dc.readyState !== 'open') {
       this.#emit({

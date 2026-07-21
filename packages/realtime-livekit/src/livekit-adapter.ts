@@ -7,6 +7,7 @@ import type {
   AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
+  ToolResult,
 } from '@maelstrom-co/realtime';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { Room, RoomEvent, Track, setLogLevel } from 'livekit-client';
@@ -264,11 +265,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   }
 
   /**
-   * Relays a tool result back to the user as speech: extracts the summary
-   * string and sends it over the `speak` text stream, where the worker
-   * synthesizes it via Cartesia and plays it into the room. Speak-after-render
-   * ordering is not this adapter's concern — {@link RealtimeSession} only
-   * calls this once the render has settled.
+   * Relays a tool result back to the user as speech over the `speak` text
+   * stream, where the worker synthesizes it via Cartesia and plays it into the
+   * room. With no model in this cascaded pipeline the adapter picks the words
+   * itself: for an `update_ui` result it voices the engine's `userMessage` when
+   * present, else the structural `summary`; a read-only snapshot (get_ui_state /
+   * get_capabilities) is serialized. Speak-after-render ordering is not this
+   * adapter's concern — {@link RealtimeSession} only calls this once the render
+   * has settled.
    *
    * Emits `speaking` on hand-off but does NOT collapse back here: the worker
    * publishes a `tts_done` packet on {@link TTS_TOPIC} when playout actually
@@ -276,9 +280,12 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * real audio end, not text hand-off. If the send itself fails no audio will
    * ever play, so the collapse is forced in the catch instead.
    */
-  async sendToolResult(callId: ToolCallId, output: unknown): Promise<void> {
-    const summary = extractSummary(output);
-    this.#logger.debug('→ speak', { callId, summary });
+  async sendToolResult(callId: ToolCallId, output: ToolResult): Promise<void> {
+    const speakText =
+      'ok' in output
+        ? (output.userMessage ?? output.summary ?? JSON.stringify(output))
+        : JSON.stringify(output);
+    this.#logger.debug('→ speak', { callId, speakText });
     const room = this.#room;
     if (!room) {
       this.#emit({
@@ -292,7 +299,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     }
     this.#emit({ type: 'state', state: 'speaking' });
     try {
-      await room.localParticipant.sendText(summary, { topic: SPEAK_TOPIC });
+      await room.localParticipant.sendText(speakText, { topic: SPEAK_TOPIC });
     } catch (error) {
       this.#emit({
         type: 'error',
@@ -479,16 +486,3 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
 }
 
 const THINKING_FALLBACK_MS = 10_000;
-
-// RealtimeSession sends update_ui results as `{ ok, summary }`; other tools
-// return raw snapshots. We only ever synthesize update_ui, so `summary` is the
-// expected shape — fall back to a stringified payload rather than speaking
-// nothing if that ever changes.
-function extractSummary(output: unknown): string {
-  if (typeof output === 'string') return output;
-  if (output !== null && typeof output === 'object' && 'summary' in output) {
-    const summary = (output as { summary?: unknown }).summary;
-    if (typeof summary === 'string') return summary;
-  }
-  return JSON.stringify(output);
-}

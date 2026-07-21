@@ -14,6 +14,7 @@ import type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  UpdateUIToolResult,
 } from './provider-adapter.types.js';
 import type {
   RealtimeInstance,
@@ -102,10 +103,6 @@ interface QueuedIntent {
   readonly intent: string;
   readonly resolve: (ok: boolean) => void;
 }
-
-type UpdateUIToolResult =
-  | { readonly ok: true; readonly summary: string }
-  | { readonly ok: false; readonly summary: string };
 
 function defaultSummarize(snapshot: UIStructuralSnapshot): string {
   const count = snapshot.instances.length;
@@ -507,13 +504,14 @@ export class RealtimeSession implements VoiceSession {
       ms: Date.now() - renderStart,
     });
 
-    // speak-after-render: the engine's userMessage wins; the summarizer over
-    // the POST-settle snapshot is only the fallback.
+    // speak-after-render: carry BOTH the structural summary (from the
+    // POST-settle snapshot) and the engine's own reply, unmerged — each
+    // transport decides which to voice.
     const snapshot = this.#instance.getStructuralSnapshot();
-    await this.#sendUpdateUIResult(callId, {
-      ok: true,
-      summary: this.#resolveSummary(outcome.userMessage, snapshot),
-    });
+    await this.#sendUpdateUIResult(
+      callId,
+      this.#buildUpdateResult(outcome.userMessage, snapshot),
+    );
     return true;
   }
 
@@ -524,16 +522,21 @@ export class RealtimeSession implements VoiceSession {
     return this.#adapter.sendToolResult(callId, result);
   }
 
-  // The engine's conversational reply is the product voice for a settled
-  // update, so it wins over the structural summarizer. The summarizer is only
-  // reached when the instance surfaced no engine reply (empty/whitespace or
-  // absent) — it describes the snapshot rather than answering the user, and
-  // would count instances the engine keeps alive but hidden.
-  #resolveSummary(
+  // A settled update carries both fields so each transport can choose: the
+  // structural `summary` (always derivable) and the engine's own `userMessage`
+  // (the product voice, preferred when present). An empty/whitespace engine
+  // reply is treated as absent and omitted, so `userMessage ?? summary` on the
+  // consuming side falls through to the summary rather than voicing nothing.
+  #buildUpdateResult(
     userMessage: string | undefined,
     snapshot: UIStructuralSnapshot,
-  ): string {
-    return userMessage?.trim() || this.#summarize(snapshot);
+  ): UpdateUIToolResult {
+    const engineReply = userMessage?.trim();
+    return {
+      ok: true,
+      summary: this.#summarize(snapshot),
+      ...(engineReply ? { userMessage: engineReply } : {}),
+    };
   }
 
   // Latest-wins: replaces whatever was queued, answering the call it bumps
@@ -631,10 +634,10 @@ export class RealtimeSession implements VoiceSession {
           ms: Date.now() - renderStart,
         });
         const snapshot = this.#instance.getStructuralSnapshot();
-        await this.#sendUpdateUIResult(entry.callId, {
-          ok: true,
-          summary: this.#resolveSummary(userMessage, snapshot),
-        });
+        await this.#sendUpdateUIResult(
+          entry.callId,
+          this.#buildUpdateResult(userMessage, snapshot),
+        );
         entry.resolve(true);
         attempt = 0;
       }
