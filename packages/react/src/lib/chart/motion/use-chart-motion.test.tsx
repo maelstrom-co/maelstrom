@@ -358,6 +358,85 @@ describe('useChartMotion', () => {
     expect(call.keyframes).not.toEqual(flipKeyframes(deltaFromPreResize!));
   });
 
+  it('degrades to no motion when Element.animate is unavailable instead of throwing', () => {
+    // A runtime without WAAPI. A layoutKey change must skip animation, not
+    // throw inside the layout effect — an uncaught error there would unmount
+    // the Chart. The exit path already guards the same way.
+    // @ts-expect-error simulating an environment without Element.animate
+    window.Element.prototype.animate = undefined;
+
+    const first: Item[] = [{ id: 'a', rect: rect(0, 0, 100, 100) }];
+    const second: Item[] = [{ id: 'a', rect: rect(50, 20, 100, 100) }];
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+    });
+
+    expect(() => {
+      act(() => {
+        rerender(<Harness items={second} motion={DEFAULT_MOTION} />);
+      });
+    }).not.toThrow();
+  });
+
+  it('does not cancel a consumer overlay animation when motion is suppressed', () => {
+    // Chart renders consumer `children` as direct siblings of vessel wrappers.
+    // A spinner driving its own element.animate() must survive a reduced-motion
+    // or disabled toggle — the suppression cancel walk targets only vessels.
+    const liveByKey = new Map<string, Array<{ cancel: () => void }>>();
+    const keyOf = (el: Element) =>
+      el.getAttribute('data-instance-id') ?? el.getAttribute('data-overlay') ?? '';
+    window.Element.prototype.animate = function (this: Element) {
+      const key = keyOf(this);
+      const list = liveByKey.get(key) ?? [];
+      const animation = { cancel: () => list.splice(list.indexOf(animation), 1) };
+      list.push(animation);
+      liveByKey.set(key, list);
+      return { ...animation, finished: Promise.resolve() } as unknown as Animation;
+    } as never;
+    window.Element.prototype.getAnimations = function (this: Element) {
+      return (liveByKey.get(keyOf(this)) ?? []) as unknown as Animation[];
+    } as never;
+
+    function OverlayHarness({ motion }: { motion: ResolvedChartMotionConfig }) {
+      const containerRef = useRef<HTMLDivElement | null>(null);
+      useChartMotion(containerRef, 'L1', '800x600', motion);
+      return (
+        <div ref={containerRef}>
+          <div
+            data-instance-id="a"
+            ref={(node) => {
+              if (node) stubRect(node, rect(0, 0, 100, 100));
+            }}
+          />
+          <div
+            data-overlay="spinner"
+            ref={(node) => {
+              if (!node) return;
+              stubRect(node, rect(0, 0, 10, 10));
+              // Consumer-owned animation, seeded once (ref reattaches each render).
+              if ((liveByKey.get('spinner') ?? []).length === 0) node.animate([], {});
+            }}
+          />
+        </div>
+      );
+    }
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(<OverlayHarness motion={DEFAULT_MOTION} />));
+    });
+    expect(liveByKey.get('spinner')).toHaveLength(1);
+
+    // Suppress motion (disabled), no layout/size change: suppression cancel walk runs.
+    act(() => {
+      rerender(<OverlayHarness motion={{ ...DEFAULT_MOTION, disabled: true }} />);
+    });
+
+    expect(liveByKey.get('spinner')).toHaveLength(1);
+  });
+
   it('still animates when the layout key and size key change in the same pass', () => {
     const first: Item[] = [{ id: 'a', rect: rect(0, 0, 100, 100) }];
     const second: Item[] = [{ id: 'a', rect: rect(50, 20, 120, 100) }];

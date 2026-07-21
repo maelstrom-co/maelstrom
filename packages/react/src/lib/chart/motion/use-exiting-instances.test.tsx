@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { act, cleanup, render } from '@testing-library/react';
 import FakeTimers from '@sinonjs/fake-timers';
-import { useRef } from 'react';
+import { StrictMode, useRef } from 'react';
 
 import type { MotionRect } from './flip.js';
 import { DEFAULT_MOTION, EXIT_CLEANUP_BUFFER_MS } from './motion-config.js';
@@ -50,26 +50,29 @@ beforeEach(() => {
 
 // Walks container.children + hasAttribute instead of an attribute-selector
 // querySelectorAll, which throws under this repo's bun+happy-dom combo
-// (documented in use-chart-motion.test.tsx).
+// (documented in use-chart-motion.test.tsx). One batch walk per call —
+// measureCallCount counts calls, so a single layout change is one measure.
 function Harness({ items, motion }: { items: Item[]; motion: ResolvedChartMotionConfig }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const measureRect = (id: string): MotionRect | null => {
+  const measureRects = (): ReadonlyMap<string, MotionRect> => {
     measureCallCount += 1;
     const container = containerRef.current;
-    if (!container) return null;
+    if (!container) return new Map();
     const containerRect = container.getBoundingClientRect();
+    const rects = new Map<string, MotionRect>();
     for (const child of Array.from(container.children)) {
       const node = child as HTMLElement;
-      if (node.getAttribute('data-instance-id') !== id) continue;
+      const id = node.getAttribute('data-instance-id');
+      if (!id) continue;
       const r = node.getBoundingClientRect();
-      return { x: r.x - containerRect.x, y: r.y - containerRect.y, width: r.width, height: r.height };
+      rects.set(id, { x: r.x - containerRect.x, y: r.y - containerRect.y, width: r.width, height: r.height });
     }
-    return null;
+    return rects;
   };
 
   const current = items.map((item) => [item.id, item] as const);
-  capturedEntries = useExitingInstances(current, measureRect, motion, signatureOf(items));
+  capturedEntries = useExitingInstances(current, measureRects, motion, signatureOf(items));
 
   return (
     <div ref={containerRef}>
@@ -287,5 +290,85 @@ describe('useExitingInstances', () => {
     });
 
     expect(measureCallCount).toBe(0);
+  });
+
+  it('does not re-measure when the motion object identity changes but its value is equal', () => {
+    // resolveMotionConfig returns a fresh object every render; keying the effect
+    // on that identity would re-fire on unrelated Provider re-renders and could
+    // snapshot mid-FLIP rects into lastRects. The effect must key on the derived
+    // suppressed boolean, so an equal-value motion of new identity is a no-op.
+    const first: Item[] = [
+      { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+      { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
+    ];
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+    });
+    measureCallCount = 0;
+
+    act(() => {
+      rerender(<Harness items={first} motion={{ ...DEFAULT_MOTION }} />);
+    });
+
+    expect(measureCallCount).toBe(0);
+  });
+
+  it('measures the container in a single batch per layout change, not once per instance', () => {
+    // The old path called measureRect(id) for every current id — O(n²) forced
+    // reflows during the FLIP it's meant to smooth. One batch walk replaces it.
+    const many: Item[] = Array.from({ length: 5 }, (_, i) => ({
+      id: `v${i}`,
+      label: `V${i}`,
+      rect: rect(i * 20, 0, 20, 20),
+    }));
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(<Harness items={many} motion={DEFAULT_MOTION} />));
+    });
+    measureCallCount = 0;
+
+    const moved: Item[] = many.map((m) => ({ ...m, rect: rect(m.rect.x, 40, 20, 20) }));
+    act(() => {
+      rerender(<Harness items={moved} motion={DEFAULT_MOTION} />);
+    });
+
+    expect(measureCallCount).toBe(1);
+  });
+
+  it('detects exits correctly when the component is double-rendered', () => {
+    // Exit detection runs during render (so the dropped instance is reported as
+    // exiting in the SAME commit that removes it from the live layout — that is
+    // what keeps its component mounted). Render-phase work must therefore be
+    // idempotent: StrictMode invokes the render twice, and a second pass that
+    // re-ran detection against its own already-updated bookkeeping would drop
+    // the exit entirely or duplicate it.
+    const first: Item[] = [
+      { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+      { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
+    ];
+    const second: Item[] = [{ id: 'a', label: 'A', rect: rect(0, 0, 100, 100) }];
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(
+        <StrictMode>
+          <Harness items={first} motion={DEFAULT_MOTION} />
+        </StrictMode>,
+      ));
+    });
+
+    act(() => {
+      rerender(
+        <StrictMode>
+          <Harness items={second} motion={DEFAULT_MOTION} />
+        </StrictMode>,
+      );
+    });
+
+    expect(capturedEntries.map((entry) => entry.id)).toEqual(['b']);
+    expect(capturedEntries[0]!.rect).toEqual(rect(100, 0, 100, 100));
   });
 });

@@ -14,8 +14,24 @@ describe('resolveMotionConfig', () => {
     expect(() => resolveMotionConfig({ durationMs: -1 })).toThrow(/durationMs/);
   });
 
-  it('still resolves a valid config after adding the durationMs guard', () => {
-    expect(resolveMotionConfig({ durationMs: 0 })).toEqual({ ...DEFAULT_MOTION, durationMs: 0 });
+  it('throws for a non-finite durationMs instead of letting NaN reach node.animate', () => {
+    // `NaN < 0` is false, so a bare `< 0` guard would pass NaN through to
+    // `node.animate({ duration: NaN })`, which throws an opaque runtime error.
+    expect(() => resolveMotionConfig({ durationMs: Number.NaN })).toThrow(/durationMs/);
+    expect(() => resolveMotionConfig({ durationMs: Number.POSITIVE_INFINITY })).toThrow(/durationMs/);
+  });
+
+  it('throws for an invalid staggerMs', () => {
+    expect(() => resolveMotionConfig({ staggerMs: -1 })).toThrow(/staggerMs/);
+    expect(() => resolveMotionConfig({ staggerMs: Number.NaN })).toThrow(/staggerMs/);
+  });
+
+  it('still resolves a valid config after adding the guards', () => {
+    expect(resolveMotionConfig({ durationMs: 0, staggerMs: 0 })).toEqual({
+      ...DEFAULT_MOTION,
+      durationMs: 0,
+      staggerMs: 0,
+    });
   });
 });
 

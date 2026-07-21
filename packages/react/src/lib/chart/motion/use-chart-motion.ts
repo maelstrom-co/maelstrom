@@ -3,6 +3,7 @@ import type { RefObject } from 'react';
 
 import { computeFlipDelta, enterKeyframes, flipKeyframes, staggerOrder } from './flip.js';
 import type { MotionRect } from './flip.js';
+import { measureInstances } from './measure.js';
 import { motionSuppressed } from './motion-config.js';
 import type { ResolvedChartMotionConfig } from './motion-config.js';
 
@@ -42,7 +43,12 @@ export function useChartMotion(
     if (suppressed) {
       const container = containerRef.current;
       if (container) {
+        // Only cancel vessel animations — a consumer overlay in Chart's
+        // `children` (a spinner driving its own element.animate()) is a direct
+        // sibling here and must not have its animation yanked by a
+        // reduced-motion or disabled toggle.
         for (const child of Array.from(container.children)) {
+          if (!child.getAttribute('data-instance-id')) continue;
           child.getAnimations?.().forEach((animation) => {
             animation.cancel();
           });
@@ -61,22 +67,13 @@ export function useChartMotion(
 
     const prevRects = prevRectsRef.current;
     const isFirstPass = !hasMeasuredRef.current;
-    const containerRect = container.getBoundingClientRect();
 
+    const measured = measureInstances(container);
     const nextRects = new Map<string, MotionRect>();
     const nodeById = new Map<string, HTMLElement>();
-    for (const child of Array.from(container.children)) {
-      const id = child.getAttribute('data-instance-id');
-      if (!id) continue;
-      const node = child as HTMLElement;
-      const rect = node.getBoundingClientRect();
-      nextRects.set(id, {
-        x: rect.x - containerRect.x,
-        y: rect.y - containerRect.y,
-        width: rect.width,
-        height: rect.height,
-      });
-      nodeById.set(id, node);
+    for (const [id, instance] of measured) {
+      nextRects.set(id, instance.rect);
+      nodeById.set(id, instance.node);
     }
 
     prevRectsRef.current = nextRects;
@@ -108,6 +105,10 @@ export function useChartMotion(
       for (const { id, keyframes } of toAnimate) {
         const node = nodeById.get(id);
         if (!node) continue;
+        // Degrade to no motion where WAAPI is absent rather than throwing an
+        // uncaught error inside this layout effect (which would unmount the
+        // Chart) — the exit path guards the same way.
+        if (typeof node.animate !== 'function') continue;
         node.getAnimations?.().forEach((animation) => {
           animation.cancel();
         });

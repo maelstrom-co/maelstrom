@@ -34,15 +34,23 @@ export const DEFAULT_MOTION: ResolvedChartMotionConfig = {
 };
 
 export function resolveMotionConfig(config: ChartMotionConfig | undefined): ResolvedChartMotionConfig {
+  // `< 0` alone lets NaN through (`NaN < 0` is false), which then reaches
+  // `node.animate({ duration: NaN })` and throws an opaque "non-finite
+  // duration" at animation time instead of here at config setup.
   const durationMs = config?.durationMs ?? DEFAULT_MOTION.durationMs;
-  if (durationMs < 0) {
-    throw new Error(`durationMs must be non-negative, got ${durationMs}`);
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    throw new Error(`durationMs must be a non-negative finite number, got ${durationMs}`);
+  }
+
+  const staggerMs = config?.staggerMs ?? DEFAULT_MOTION.staggerMs;
+  if (!Number.isFinite(staggerMs) || staggerMs < 0) {
+    throw new Error(`staggerMs must be a non-negative finite number, got ${staggerMs}`);
   }
 
   return {
     durationMs,
     easing: config?.easing ?? DEFAULT_MOTION.easing,
-    staggerMs: config?.staggerMs ?? DEFAULT_MOTION.staggerMs,
+    staggerMs,
     disabled: config?.disabled ?? DEFAULT_MOTION.disabled,
   };
 }

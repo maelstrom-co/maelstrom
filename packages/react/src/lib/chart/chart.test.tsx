@@ -590,6 +590,12 @@ describe('m.Chart — duplicate chart guard', () => {
 describe('m.Chart — motion', () => {
   interface AnimateCall {
     id: string | null;
+    // Exit ghosts render from the same VesselRenderer as live instances (see
+    // MAE-343 follow-up: single render-entry array, not a separately-wrapped
+    // ExitingVessel), so they carry the same `data-instance-id` a live
+    // instance would. `data-exiting` is the only DOM signal that distinguishes
+    // an exit-shaped animate() call from a live FLIP/enter call on the same id.
+    exiting: boolean;
     keyframes: Keyframe[];
     options: KeyframeAnimationOptions;
   }
@@ -609,6 +615,7 @@ describe('m.Chart — motion', () => {
     ) {
       animateCalls.push({
         id: this.getAttribute('data-instance-id'),
+        exiting: this.hasAttribute('data-exiting'),
         keyframes: keyframes as Keyframe[],
         options: options as KeyframeAnimationOptions,
       });
@@ -651,7 +658,7 @@ describe('m.Chart — motion', () => {
     if (!gridColumn || !gridRow) return null;
     const [colStart, colEnd] = gridColumn.split('/').map((s) => parseInt(s.trim(), 10));
     const [rowStart, rowEnd] = gridRow.split('/').map((s) => parseInt(s.trim(), 10));
-    if (colStart === undefined || colEnd === undefined || rowStart === undefined || rowEnd === undefined) {
+    if ([colStart, colEnd, rowStart, rowEnd].some(Number.isNaN)) {
       return null;
     }
     return {
@@ -1019,6 +1026,55 @@ describe('m.Chart — motion', () => {
     }
   });
 
+  it('does not remount the vessel component when it becomes an exit ghost', async () => {
+    // Regression: live instances and exit ghosts used to render from two
+    // separate .map() child slots with different keys (`id` vs `exit-${id}`),
+    // so React couldn't reconcile across the live -> exiting transition and
+    // unmounted the real component, mounting a brand-new one for the fade.
+    // Any local state, in-flight effects, or subscriptions on the vessel are
+    // lost when that happens — this proves the underlying component instance
+    // survives the transition.
+    let mountCount = 0;
+    function MountCounter() {
+      useEffect(() => {
+        mountCount++;
+      }, []);
+      return <div>content</div>;
+    }
+    const entry = vessel(testVessel, MountCounter);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a']),
+      gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+      gridLayout([]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+
+    expect(mountCount).toBe(1);
+
+    // Removing 'a' from the layout turns it into an exit ghost.
+    await act(async () => { await processIntent!('layout2'); });
+
+    expect(mountCount).toBe(1);
+  });
+
   it('exit animation holds its end state with fill: "forwards"', async () => {
     const entry = vessel(testVessel, () => <div>content</div>);
     const m = createMaelstrom({ vessels: [entry] });
@@ -1052,19 +1108,19 @@ describe('m.Chart — motion', () => {
     animateCalls = [];
     await act(async () => { await processIntent!('layout2'); });
 
-    // ExitingVessel's outer wrapper carries no data-instance-id.
-    const exitShapedCalls = animateCalls.filter((c) => c.id === null);
+    const exitShapedCalls = animateCalls.filter((c) => c.exiting);
     expect(exitShapedCalls.length).toBe(1);
+    expect(exitShapedCalls[0]!.id).toBe('b');
     expect(exitShapedCalls[0]!.options.fill).toBe('forwards');
   });
 
   it('exit animation does not re-fire on an unrelated layout update', async () => {
-    // Regression: ExitingVessel started its exit animation via an inline
-    // callback ref. Since the component isn't memoized, any Chart re-render
-    // creates a new ref-callback identity; React re-invokes it on the
-    // already-mounted node, calling `element.animate()` a second time and
-    // visually restarting the fade mid-flight — even though nothing about
-    // the exiting instance changed.
+    // Regression: the exit-ghost effect used to run on every Chart re-render
+    // (or via an inline callback ref before that). Since `config.motion` is a
+    // fresh object every render, a naive dependency on it — or no dependency
+    // array discipline at all — would re-invoke `element.animate()` on the
+    // already-mounted node, visually restarting the fade mid-flight even
+    // though nothing about the exiting instance changed.
     const entry = vessel(testVessel, () => <div>content</div>);
     const m = createMaelstrom({ vessels: [entry] });
     const connector = connectorSeq([
@@ -1101,9 +1157,7 @@ describe('m.Chart — motion', () => {
     // Unrelated layout update: 'a' moves, 'b' stays removed/exiting.
     await act(async () => { await processIntent!('moveA'); });
 
-    // ExitingVessel's outer wrapper carries no data-instance-id, so a
-    // re-fired exit animate call shows up here as an id-less entry.
-    const exitShapedCalls = animateCalls.filter((c) => c.id === null);
+    const exitShapedCalls = animateCalls.filter((c) => c.exiting);
     expect(exitShapedCalls.length).toBe(0);
   });
 

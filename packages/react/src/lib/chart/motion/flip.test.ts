@@ -22,6 +22,10 @@ describe('computeFlipDelta', () => {
   it('guards against zero-size next rects instead of producing Infinity', () => {
     expect(computeFlipDelta(rect(0, 0, 100, 100), rect(0, 0, 0, 100))).toBeNull();
   });
+
+  it('guards against zero-size prev rects instead of scaling to zero', () => {
+    expect(computeFlipDelta(rect(0, 0, 0, 100), rect(0, 0, 100, 100))).toBeNull();
+  });
 });
 
 describe('flipKeyframes', () => {
@@ -64,5 +68,20 @@ describe('staggerOrder', () => {
       ['left', rect(0, 0, 10, 10)],
     ]);
     expect(order).toEqual(['left', 'right']);
+  });
+
+  it('yields the same order regardless of input order (transitive comparator)', () => {
+    // A(x100,y0), B(x50,y7), C(x0,y14) with ROW_EPSILON=8: A~B and B~C fall
+    // within the tolerance band but A~C does not. An epsilon-inside-comparator
+    // sort is non-transitive here, so Array.sort produces different output for
+    // different input permutations. Quantizing the row makes it deterministic.
+    const a = ['A', rect(100, 0, 10, 10)] as const;
+    const b = ['B', rect(50, 7, 10, 10)] as const;
+    const c = ['C', rect(0, 14, 10, 10)] as const;
+
+    const forward = staggerOrder([a, b, c]);
+    expect(staggerOrder([c, b, a])).toEqual(forward);
+    expect(staggerOrder([b, a, c])).toEqual(forward);
+    expect(staggerOrder([c, a, b])).toEqual(forward);
   });
 });
