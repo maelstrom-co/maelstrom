@@ -5,4 +5,4 @@ export {
   defineMaelstromVoiceAgent,
   runVoiceAgent,
   default,
-} from './agent.js';
+} from './agent.ts';

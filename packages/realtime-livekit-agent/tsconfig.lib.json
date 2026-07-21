@@ -5,7 +5,8 @@
     "lib": ["es2022"],
     "types": ["node"],
     "rootDir": "src",
-    "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo"
+    "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo",
+    "rewriteRelativeImportExtensions": true
   },
   "exclude": [
     "out-tsc",
