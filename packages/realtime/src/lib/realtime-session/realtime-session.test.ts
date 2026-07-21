@@ -921,6 +921,102 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
 });
 
 // ============================================================================
+// Behavior 4a: a legacy instance resolving void must not wedge the session
+// ============================================================================
+
+describe('RealtimeSession — defensive outcome normalization', () => {
+  it('treats an undefined submitIntent resolution as {} on the direct call path, instead of throwing', async () => {
+    const adapter = makeMockAdapter();
+    const events: SidechannelEvent[] = [];
+    const idleResolvers: Array<() => void> = [];
+    const instance: RealtimeInstance = {
+      submitIntent: async () => undefined as unknown as SubmitIntentResult,
+      waitForIdle: () =>
+        new Promise<void>((resolve) => {
+          idleResolvers.push(resolve);
+        }),
+      getStructuralSnapshot: () => populatedSnapshot,
+      getCapabilitySnapshot: () => emptyCapabilitySnapshot,
+      onSettled: () => () => {},
+    };
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      onEvent: (e) => events.push(e),
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+
+    for (const resolve of idleResolvers.splice(0)) resolve();
+    await flushMicrotasks();
+
+    const c1Result = adapter.toolResults.find((r) => r.callId === 'c1');
+    expect(c1Result?.output).toEqual({ ok: true, summary: expect.any(String) });
+  });
+
+  it('treats an undefined submitIntent resolution as {} on the barge-in retry path, instead of throwing', async () => {
+    const adapter = makeMockAdapter();
+    const events: SidechannelEvent[] = [];
+    const idleResolvers: Array<() => void> = [];
+    let submitCalls = 0;
+    const instance: RealtimeInstance = {
+      submitIntent: async () => {
+        submitCalls += 1;
+        if (submitCalls === 1) return {}; // c1 submits fine
+        if (submitCalls === 2) throw new RequestInFlightError(); // c2's first attempt: busy, gets queued
+        // c2's retry attempt: a legacy instance resolving void.
+        return undefined as unknown as SubmitIntentResult;
+      },
+      waitForIdle: () =>
+        new Promise<void>((resolve) => {
+          idleResolvers.push(resolve);
+        }),
+      getStructuralSnapshot: () => populatedSnapshot,
+      getCapabilitySnapshot: () => emptyCapabilitySnapshot,
+      onSettled: () => () => {},
+    };
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      onEvent: (e) => events.push(e),
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show revenue"}',
+    });
+    await flushMicrotasks();
+
+    // Resolve c1's own wait and c2's retry-loop wait.
+    for (const resolve of idleResolvers.splice(0)) resolve();
+    await flushMicrotasks();
+    // Resolve c2's post-submit wait for its own render to settle.
+    for (const resolve of idleResolvers.splice(0)) resolve();
+    await flushMicrotasks();
+
+    const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
+    expect(c2Result?.output).toEqual({ ok: true, summary: expect.any(String) });
+  });
+});
+
+// ============================================================================
 // Behavior 5a: engine userMessage is the spoken reply
 // ============================================================================
 

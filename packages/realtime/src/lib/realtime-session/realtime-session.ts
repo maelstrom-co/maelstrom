@@ -450,7 +450,7 @@ export class RealtimeSession implements VoiceSession {
     let outcome: SubmitIntentResult;
     try {
       // Domain-data boundary: only the plain intent string crosses here.
-      outcome = await this.#instance.submitIntent(intent);
+      outcome = (await this.#instance.submitIntent(intent)) ?? {};
       this.#logger.debug('update_ui: submitIntent resolved, awaiting idle');
       await this.#instance.waitForIdle();
       this.#logger.debug('update_ui: idle (render settled)', {
@@ -581,7 +581,7 @@ export class RealtimeSession implements VoiceSession {
         const renderStart = Date.now();
         let userMessage: string | undefined;
         try {
-          ({ userMessage } = await this.#instance.submitIntent(entry.intent));
+          ({ userMessage } = (await this.#instance.submitIntent(entry.intent)) ?? {});
         } catch (error) {
           if (this.#queuedIntent !== entry) {
             attempt = 0;

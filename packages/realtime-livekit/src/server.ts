@@ -46,6 +46,7 @@ export async function mintLiveKitToken(
 
   const at = new AccessToken(apiKey, apiSecret, {
     identity: data.identity ?? 'user',
+    ttl: '1h',
   });
   at.addGrant({
     roomJoin: true,

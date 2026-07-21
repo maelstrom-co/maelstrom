@@ -12,7 +12,9 @@ LiveKit transport.
 `LiveKitAdapter` **synthesizes an `update_ui` tool call from each final user
 transcript**, so a cascaded pipeline drives the exact same `RealtimeSession`
 machinery (speak-after-render, barge-in, sidechannel events) as the OpenAI
-realtime adapter — with no LLM in the loop on either side.
+realtime adapter — with no voice-side LLM in the worker or adapter. The
+synthesized intent still flows through Maelstrom's engine LLM via
+`RealtimeSession`, exactly as an OpenAI-realtime session would.
 
 - **Transcripts in:** `RoomEvent.TranscriptionReceived` → `transcript` event +
   a synthesized `update_ui` `tool_call`.

@@ -3,14 +3,20 @@ import { test, expect, mock, beforeEach, afterEach, describe } from 'bun:test';
 // Capture the grant passed to AccessToken so the test can assert the token is
 // scoped to the requested room + identity.
 let lastIdentity: string | undefined;
+let lastTtl: string | number | undefined;
 let lastGrant: Record<string, unknown> | undefined;
 
 mock.module('livekit-server-sdk', () => ({
   AccessToken: class {
     #identity: string | undefined;
-    constructor(_key: string, _secret: string, opts?: { identity?: string }) {
+    constructor(
+      _key: string,
+      _secret: string,
+      opts?: { identity?: string; ttl?: string | number },
+    ) {
       this.#identity = opts?.identity;
       lastIdentity = opts?.identity;
+      lastTtl = opts?.ttl;
     }
     addGrant(grant: Record<string, unknown>) {
       lastGrant = grant;
@@ -23,6 +29,17 @@ mock.module('livekit-server-sdk', () => ({
 
 const { mintLiveKitToken } = await import('./server');
 
+// Assigning `undefined` back to `process.env.X` coerces to the literal string
+// "undefined" rather than clearing the var — delete instead when the
+// original was unset.
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}
+
 describe('mintLiveKitToken', () => {
   const original = {
     key: process.env.LIVEKIT_API_KEY,
@@ -32,6 +49,7 @@ describe('mintLiveKitToken', () => {
 
   beforeEach(() => {
     lastIdentity = undefined;
+    lastTtl = undefined;
     lastGrant = undefined;
     process.env.LIVEKIT_API_KEY = 'devkey';
     process.env.LIVEKIT_API_SECRET = 'secret';
@@ -39,9 +57,9 @@ describe('mintLiveKitToken', () => {
   });
 
   afterEach(() => {
-    process.env.LIVEKIT_API_KEY = original.key;
-    process.env.LIVEKIT_API_SECRET = original.secret;
-    process.env.LIVEKIT_URL = original.url;
+    restoreEnv('LIVEKIT_API_KEY', original.key);
+    restoreEnv('LIVEKIT_API_SECRET', original.secret);
+    restoreEnv('LIVEKIT_URL', original.url);
   });
 
   test('returns a token and url', async () => {
@@ -65,6 +83,11 @@ describe('mintLiveKitToken', () => {
   test('honours a custom identity', async () => {
     await mintLiveKitToken({ roomName: 'maelstrom-abc', identity: 'agent' });
     expect(lastIdentity).toBe('agent');
+  });
+
+  test('bounds the token to a 1 hour ttl', async () => {
+    await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(lastTtl).toBe('1h');
   });
 
   test('defaults the url to ws://localhost:7880 when LIVEKIT_URL is unset', async () => {
