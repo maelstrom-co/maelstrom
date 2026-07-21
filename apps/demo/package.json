@@ -8,7 +8,7 @@
     "dev-livekit": "bun run src/server/ws-server.ts & bun run dev-agent & vite dev --port 3000 --mode livekit",
     "dev:ws": "bun run src/server/ws-server.ts",
     "dev:client": "vite dev --port 3000",
-    "dev-agent": "node --conditions=@maelstrom-co/source --env-file=../../.env voice-worker.ts start",
+    "dev-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
     "test": "bun test --pass-with-no-tests"
