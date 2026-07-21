@@ -21,6 +21,11 @@ export interface ResolvedChartMotionConfig {
   readonly disabled: boolean;
 }
 
+// Slack added on top of durationMs before an exit ghost's DOM node is torn
+// down, so the exit-fade animation always finishes before its node
+// disappears.
+export const EXIT_CLEANUP_BUFFER_MS = 100;
+
 export const DEFAULT_MOTION: ResolvedChartMotionConfig = {
   durationMs: 350,
   easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -29,8 +34,13 @@ export const DEFAULT_MOTION: ResolvedChartMotionConfig = {
 };
 
 export function resolveMotionConfig(config: ChartMotionConfig | undefined): ResolvedChartMotionConfig {
+  const durationMs = config?.durationMs ?? DEFAULT_MOTION.durationMs;
+  if (durationMs < 0) {
+    throw new Error(`durationMs must be non-negative, got ${durationMs}`);
+  }
+
   return {
-    durationMs: config?.durationMs ?? DEFAULT_MOTION.durationMs,
+    durationMs,
     easing: config?.easing ?? DEFAULT_MOTION.easing,
     staggerMs: config?.staggerMs ?? DEFAULT_MOTION.staggerMs,
     disabled: config?.disabled ?? DEFAULT_MOTION.disabled,

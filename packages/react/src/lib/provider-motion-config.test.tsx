@@ -53,12 +53,21 @@ describe('motion config resolution (Addendum 2b)', () => {
   });
 
   it('Provider motion prop takes precedence over factory (createMaelstrom) motion config', async () => {
+    // The factory config gets a second distinguishing field (`easing:
+    // 'linear'`, which differs from DEFAULT_MOTION.easing) so this test can
+    // tell whole-object replacement apart from a per-field merge: if the
+    // Provider's `motion` were merged field-by-field onto the factory's, the
+    // resolved easing would be the factory's 'linear' (the Provider didn't
+    // specify one). Because `provider.motion ?? factory.motion` replaces the
+    // whole object once the Provider sets ANY motion field, the factory is
+    // never consulted and easing falls back to DEFAULT_MOTION instead.
     const config = await renderAndCaptureConfig(
-      { motion: { ...DEFAULT_MOTION, durationMs: 100 } },
+      { motion: { ...DEFAULT_MOTION, durationMs: 100, easing: 'linear' } },
       { motion: { durationMs: 200 } },
     );
 
     expect(config?.motion.durationMs).toBe(200);
+    expect(config?.motion.easing).toBe(DEFAULT_MOTION.easing);
   });
 
   it('falls back to factory motion config when Provider does not override', async () => {

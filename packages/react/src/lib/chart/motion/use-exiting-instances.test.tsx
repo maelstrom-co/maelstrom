@@ -4,7 +4,7 @@ import FakeTimers from '@sinonjs/fake-timers';
 import { useRef } from 'react';
 
 import type { MotionRect } from './flip.js';
-import { DEFAULT_MOTION } from './motion-config.js';
+import { DEFAULT_MOTION, EXIT_CLEANUP_BUFFER_MS } from './motion-config.js';
 import type { ResolvedChartMotionConfig } from './motion-config.js';
 import { useExitingInstances } from './use-exiting-instances.js';
 import type { ExitingEntry } from './use-exiting-instances.js';
@@ -111,6 +111,33 @@ describe('useExitingInstances', () => {
     expect(entry.rect).toEqual(rect(100, 0, 100, 100));
   });
 
+  it('renders the exit ghost with the latest item data after a same-signature variant change', () => {
+    // The signature is layoutKey@sizeKey and does not encode variant/props, so
+    // a variant change with identical rects must not leave a stale cached
+    // item -- a later removal should exit with the LATEST data, not the data
+    // from whenever the signature last changed.
+    const original: Item = { id: 'a', label: 'original', rect: rect(0, 0, 100, 100) };
+    const updated: Item = { id: 'a', label: 'updated', rect: rect(0, 0, 100, 100) };
+    const gone: Item[] = [];
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(<Harness items={[original]} motion={DEFAULT_MOTION} />));
+    });
+
+    // Same signature (identical id/rect) -- only the label (item data) changes.
+    act(() => {
+      rerender(<Harness items={[updated]} motion={DEFAULT_MOTION} />);
+    });
+
+    act(() => {
+      rerender(<Harness items={gone} motion={DEFAULT_MOTION} />);
+    });
+
+    expect(capturedEntries).toHaveLength(1);
+    expect(capturedEntries[0]!.item).toEqual(updated);
+  });
+
   it('auto-removes an exiting entry durationMs + buffer after it appears', () => {
     const clock = FakeTimers.install();
     try {
@@ -129,9 +156,9 @@ describe('useExitingInstances', () => {
       });
       expect(capturedEntries).toHaveLength(1);
 
-      // Just shy of the durationMs + 100 buffer: still present.
+      // Just shy of the durationMs + buffer: still present.
       act(() => {
-        clock.tick(DEFAULT_MOTION.durationMs + 99);
+        clock.tick(DEFAULT_MOTION.durationMs + EXIT_CLEANUP_BUFFER_MS - 1);
       });
       expect(capturedEntries).toHaveLength(1);
 

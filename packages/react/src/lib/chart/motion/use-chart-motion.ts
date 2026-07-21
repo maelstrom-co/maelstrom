@@ -26,17 +26,28 @@ export function useChartMotion(
   // to first-pass (silent) behavior.
   const hasMeasuredRef = useRef(false);
 
-  // Deps are the two keys only — unlike useExitingInstances, which keys its
-  // effect on `[signature, motion]`, `motion` here is read from the latest
-  // render closure. A motion config change alone must not re-trigger a
-  // measurement pass (there is nothing new to animate), but when a key
-  // change fires the effect it still sees the freshest duration/easing/
-  // stagger values.
+  // `suppressed` (not the whole `motion` object) is a dep so a disabled-only
+  // toggle still fires this effect and cancels in-flight animations — but a
+  // duration/easing/stagger-only change (suppressed unchanged) must not
+  // re-trigger a measurement pass, matching the layoutKey/sizeKey contract
+  // below. `motion` itself stays out of the deps and is read from the latest
+  // render closure so a key change still sees the freshest values.
+  const suppressed = motionSuppressed(motion);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: motion is read from the latest-render closure by design — a motion-only change must not retrigger measurement/animation; container ref access is intentional.
   useLayoutEffect(() => {
     const layoutChanged = layoutKey !== prevLayoutKeyRef.current;
     prevLayoutKeyRef.current = layoutKey;
 
-    if (motionSuppressed(motion)) {
+    if (suppressed) {
+      const container = containerRef.current;
+      if (container) {
+        for (const child of Array.from(container.children)) {
+          child.getAnimations?.().forEach((animation) => {
+            animation.cancel();
+          });
+        }
+      }
       // Also drop the measured flag so the first pass after unsuppression
       // rebuilds a fresh baseline silently instead of enter-animating
       // everything against the cleared map.
@@ -97,7 +108,9 @@ export function useChartMotion(
       for (const { id, keyframes } of toAnimate) {
         const node = nodeById.get(id);
         if (!node) continue;
-        node.getAnimations?.().forEach((animation) => animation.cancel());
+        node.getAnimations?.().forEach((animation) => {
+          animation.cancel();
+        });
         node.animate(keyframes, {
           duration: motion.durationMs,
           easing: motion.easing,
@@ -106,5 +119,5 @@ export function useChartMotion(
         });
       }
     }
-  }, [layoutKey, sizeKey]);
+  }, [layoutKey, sizeKey, suppressed]);
 }

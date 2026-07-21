@@ -160,6 +160,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
   function ExitingVessel({ entry, motion }: ExitingVesselProps) {
     const ref = useRef<HTMLDivElement>(null);
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the exiting entry's identity is stable for its lifetime — re-running on re-render would restart the fade mid-flight.
     useEffect(() => {
       const node = ref.current;
       if (!node || typeof node.animate !== 'function') return;
@@ -330,8 +331,13 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     // changes and silently re-measures on size-only changes, while exit
     // tracking must re-snapshot on both — so it receives the combined
     // signature. Note tiling's layoutKey is built from computed pixel rects,
-    // so a container resize changes it there by construction.
-    const sizeKey = `${Math.round(containerRect.width)}x${Math.round(containerRect.height)}`;
+    // so a container resize changes it there by construction. Grid track
+    // counts are folded in too: a cellSizePx change can alter columns/rows
+    // with the container's own pixel size unchanged, which remaps every grid
+    // position to a new pixel rect without touching layoutKey (grid units)
+    // or the width/height above — omitting them would leave the next FLIP
+    // animating from a stale pre-resize baseline.
+    const sizeKey = `${Math.round(containerRect.width)}x${Math.round(containerRect.height)}:${chartDimensions.columns}x${chartDimensions.rows}`;
 
     const layoutKey = useMemo(() => {
       if (!layout || layout.type === 'grid') {

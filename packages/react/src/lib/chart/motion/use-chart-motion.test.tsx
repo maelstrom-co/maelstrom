@@ -185,6 +185,53 @@ describe('useChartMotion', () => {
     expect(aCall.options.delay).toBe(DEFAULT_MOTION.staggerMs);
   });
 
+  it('cancels running animations on child nodes when motion is suppressed', () => {
+    // A fake Animation list per node: `animate()` pushes onto it and
+    // `cancel()` removes itself, mirroring real WAAPI semantics closely
+    // enough to prove the suppression branch actually cancels the animation
+    // rather than just skipping future ones.
+    const liveAnimationsById = new Map<string, Array<{ cancel: () => void }>>();
+    window.Element.prototype.animate = function (
+      this: Element,
+      keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+      options?: number | KeyframeAnimationOptions,
+    ) {
+      const id = this.getAttribute('data-instance-id') ?? '';
+      animateCalls.push({ id, keyframes: keyframes as Keyframe[], options: options as KeyframeAnimationOptions });
+      const list = liveAnimationsById.get(id) ?? [];
+      const animation = { cancel: () => list.splice(list.indexOf(animation), 1) };
+      list.push(animation);
+      liveAnimationsById.set(id, list);
+      return { ...animation, finished: Promise.resolve() } as unknown as Animation;
+    } as never;
+    window.Element.prototype.getAnimations = function (this: Element) {
+      const id = this.getAttribute('data-instance-id') ?? '';
+      return (liveAnimationsById.get(id) ?? []) as unknown as Animation[];
+    } as never;
+
+    const first: Item[] = [{ id: 'a', rect: rect(0, 0, 100, 100) }];
+    const second: Item[] = [{ id: 'a', rect: rect(50, 20, 100, 100) }];
+
+    let rerender!: (ui: React.ReactElement) => void;
+    act(() => {
+      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+    });
+
+    // Trigger a FLIP so the child node has a running WAAPI animation.
+    act(() => {
+      rerender(<Harness items={second} motion={DEFAULT_MOTION} />);
+    });
+    expect(animateCalls).toHaveLength(1);
+    expect(liveAnimationsById.get('a')).toHaveLength(1);
+
+    // Toggle motion to disabled only -- no layout/size key change.
+    act(() => {
+      rerender(<Harness items={second} motion={{ ...DEFAULT_MOTION, disabled: true }} />);
+    });
+
+    expect(liveAnimationsById.get('a')).toHaveLength(0);
+  });
+
   it('does not animate when motion is suppressed', () => {
     const disabled: ResolvedChartMotionConfig = { ...DEFAULT_MOTION, disabled: true };
     const first: Item[] = [{ id: 'a', rect: rect(0, 0, 100, 100) }];

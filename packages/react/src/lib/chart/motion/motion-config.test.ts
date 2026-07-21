@@ -9,6 +9,14 @@ describe('resolveMotionConfig', () => {
   it('merges partial overrides onto defaults', () => {
     expect(resolveMotionConfig({ durationMs: 200 })).toEqual({ ...DEFAULT_MOTION, durationMs: 200 });
   });
+
+  it('throws a clear error for a negative durationMs', () => {
+    expect(() => resolveMotionConfig({ durationMs: -1 })).toThrow(/durationMs/);
+  });
+
+  it('still resolves a valid config after adding the durationMs guard', () => {
+    expect(resolveMotionConfig({ durationMs: 0 })).toEqual({ ...DEFAULT_MOTION, durationMs: 0 });
+  });
 });
 
 describe('motionSuppressed', () => {

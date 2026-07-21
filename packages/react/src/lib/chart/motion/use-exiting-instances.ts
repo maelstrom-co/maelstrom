@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { MotionRect } from './flip.js';
-import { motionSuppressed } from './motion-config.js';
+import { EXIT_CLEANUP_BUFFER_MS, motionSuppressed } from './motion-config.js';
 import type { ResolvedChartMotionConfig } from './motion-config.js';
 
 export interface ExitingEntry<T> {
@@ -29,6 +29,13 @@ export function useExitingInstances<T>(
   const measureRectRef = useRef(measureRect);
   measureRectRef.current = measureRect;
 
+  // Refreshed every render (no dep array) so a future exit always carries the
+  // latest variant/props, even when `signature` — which excludes item data —
+  // is unchanged between the change and the eventual removal.
+  useEffect(() => {
+    prevItemsRef.current = new Map(current);
+  });
+
   // Clear timers on unmount only -- the main effect below re-runs on every
   // pass and must NOT sweep timers that are still counting down for entries
   // that survived across passes.
@@ -40,6 +47,7 @@ export function useExitingInstances<T>(
     };
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: signature is a deliberate re-run trigger, not read in the body — current/measureRect come from refs by design (see the comment above the hook), and signature's identity (layoutKey@sizeKey) is what must gate re-detection.
   useLayoutEffect(() => {
     const current = currentRef.current;
     const measureRect = measureRectRef.current;
@@ -90,7 +98,7 @@ export function useExitingInstances<T>(
         const timer = setTimeout(() => {
           timersRef.current.delete(entry.id);
           setEntries((prev) => prev.filter((e) => e.id !== entry.id));
-        }, motion.durationMs + 100);
+        }, motion.durationMs + EXIT_CLEANUP_BUFFER_MS);
         timersRef.current.set(entry.id, timer);
       }
     }

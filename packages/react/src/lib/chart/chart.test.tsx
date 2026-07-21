@@ -16,6 +16,7 @@ import { testVessel } from '../__tests__/test-vessel.fixture.js';
 import { createMockConnector } from '../__tests__/mock-connector.js';
 import { assertDefined } from '../__tests__/assert-defined.js';
 import type { TypedVesselProps } from '../vessel-entry-types.js';
+import { DEFAULT_MOTION, EXIT_CLEANUP_BUFFER_MS } from './motion/motion-config.js';
 
 // Mock ResizeObserver (happy-dom may not implement it)
 type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;
@@ -822,6 +823,109 @@ describe('m.Chart — motion', () => {
     expect(measuresAfterAnimate).toEqual([]);
   });
 
+  // happy-dom has no layout engine, so the rig's shared getBoundingClientRect
+  // stub (gridCellRect) derives fake rects from grid line numbers times a
+  // CONSTANT cell size, which can't express "same grid position, different
+  // pixel rect because the track count changed" -- the real-world trigger for
+  // this bug. This test installs its own cellSizePx-aware rect stub (mirroring
+  // what a real browser's grid layout would produce) so the stale-vs-fresh
+  // FLIP baseline is directly observable in the animate() keyframes.
+  it('(FIX 3) a cellSizePx change that alters the track count re-baselines rects with no container resize', async () => {
+    let trackCellPx = 100;
+    const baseRect = window.Element.prototype.getBoundingClientRect;
+    window.Element.prototype.getBoundingClientRect = function (this: Element) {
+      const style = (this as HTMLElement).style;
+      const rect = this.hasAttribute('data-instance-id')
+        ? (() => {
+            const [colStart, colEnd] = style.gridColumn.split('/').map((s) => parseInt(s.trim(), 10));
+            const [rowStart, rowEnd] = style.gridRow.split('/').map((s) => parseInt(s.trim(), 10));
+            if (colStart === undefined || colEnd === undefined || rowStart === undefined || rowEnd === undefined) {
+              return null;
+            }
+            return {
+              x: (colStart - 1) * trackCellPx,
+              y: (rowStart - 1) * trackCellPx,
+              width: (colEnd - colStart) * trackCellPx,
+              height: (rowEnd - rowStart) * trackCellPx,
+            };
+          })()
+        : null;
+      const r = rect ?? { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+        top: r.y,
+        left: r.x,
+        right: r.x + r.width,
+        bottom: r.y + r.height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    } as never;
+
+    try {
+      const entry = vessel(testVessel, () => <div>content</div>);
+      const m = createMaelstrom({ vessels: [entry] });
+      const connector = connectorSeq([
+        registerLayout(['a']),
+        gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+        gridLayout([{ id: 'a', column: 4, row: 0, width: 2, height: 2 }]),
+      ]);
+
+      let processIntent: ((intent: string) => Promise<void>) | undefined;
+      function Reader() {
+        processIntent = m.useMaelstrom().processIntent;
+        return null;
+      }
+
+      let rerender!: (ui: React.ReactElement) => void;
+      await act(async () => {
+        ({ rerender } = render(
+          <m.Provider connector={connector} cellSizePx={100}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        ));
+      });
+
+      await act(async () => { await processIntent!('register'); });
+      await act(async () => { await processIntent!('layout1'); });
+      // 800x600 @ cellSizePx=100 -> 8 columns; 'a' baselines at width=200 (2 cells * 100px).
+      await act(async () => { triggerResize(800, 600); });
+
+      // Same container pixels, but cellSizePx doubles -> 4 columns, so each
+      // 1fr track (and thus 'a's real pixel width) doubles too, though the
+      // grid POSITION (layoutKey) is untouched.
+      trackCellPx = 200;
+      await act(async () => {
+        rerender(
+          <m.Provider connector={connector} cellSizePx={200}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        );
+      });
+      await act(async () => { triggerResize(800, 600); });
+
+      animateCalls = [];
+      await act(async () => { await processIntent!('layout2'); });
+
+      const aCalls = animateCalls.filter((c) => c.id === 'a');
+      expect(aCalls).toHaveLength(1);
+      // Fresh baseline (post-fix): prev width === next width (both at
+      // trackCellPx=200), so the FLIP is a pure translate with no scale.
+      // Stale baseline (pre-fix, bug): prev width is still the pre-resize
+      // 200px against a next width of 400px, producing a spurious scale(0.5).
+      expect(aCalls[0]!.keyframes[0]!.transform).toContain('scale(1, 1)');
+      expect(aCalls[0]!.keyframes[0]!.transform).not.toContain('scale(0.5');
+    } finally {
+      window.Element.prototype.getBoundingClientRect = baseRect;
+    }
+  });
+
   it('(b) new instance triggers enter keyframes', async () => {
     // Tiling mode: `instances` always lists both ids (so 'b' is a known
     // instance the whole time) while `tree` controls what actually renders.
@@ -904,8 +1008,8 @@ describe('m.Chart — motion', () => {
       // Exit node persists immediately after removal.
       expect(container!.innerHTML).toContain('data-instance-id="b"');
 
-      // Just shy of the durationMs + 100ms buffer: still present.
-      await act(async () => { clock.tick(349 + 100); });
+      // Just shy of the durationMs + buffer: still present.
+      await act(async () => { clock.tick(DEFAULT_MOTION.durationMs + EXIT_CLEANUP_BUFFER_MS - 1); });
       expect(container!.innerHTML).toContain('data-instance-id="b"');
 
       await act(async () => { clock.tick(1); });
