@@ -35,6 +35,7 @@ const {
   pumpTtsStream,
   runSpeechRecognition,
   cancelInFlightTts,
+  createSpeakHandler,
 } = await import('./agent');
 
 describe('resolveLiveKitCredentials', () => {
@@ -285,6 +286,68 @@ describe('runSpeechRecognition', () => {
       // Let the detached pipe task attempt its next push against the closed stream.
       await new Promise((r) => setTimeout(r, 60));
       expect(state.closed).toBe(true);
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+});
+
+function makeFakeTextStreamReader(result: string | Error, opts: { delayMs?: number } = {}) {
+  return {
+    readAll: () =>
+      new Promise<string>((resolve, reject) => {
+        const settle = () => {
+          if (result instanceof Error) reject(result);
+          else resolve(result);
+        };
+        if (opts.delayMs) setTimeout(settle, opts.delayMs);
+        else settle();
+      }),
+  };
+}
+
+describe('createSpeakHandler', () => {
+  test('speaks successive turns serially, in call order', async () => {
+    const spoken: string[] = [];
+    const handler = createSpeakHandler({
+      speak: async (text) => {
+        spoken.push(text);
+      },
+      onSpeakError: () => {},
+    });
+    // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+    handler(makeFakeTextStreamReader('first', { delayMs: 20 }) as any);
+    // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+    handler(makeFakeTextStreamReader('second') as any);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(spoken).toEqual(['first', 'second']);
+  });
+
+  test('does not leak an unhandled rejection when readAll rejects, and later turns still speak', async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (err: unknown) => rejections.push(err);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const spoken: string[] = [];
+      const errors: unknown[] = [];
+      const handler = createSpeakHandler({
+        speak: async (text) => {
+          spoken.push(text);
+        },
+        onSpeakError: (err) => {
+          errors.push(err);
+        },
+      });
+      handler(
+        // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+        makeFakeTextStreamReader(new Error('stream closed abnormally')) as any,
+      );
+      // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+      handler(makeFakeTextStreamReader('after-failure') as any);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(spoken).toEqual(['after-failure']);
+      expect(errors).toEqual([new Error('stream closed abnormally')]);
       expect(rejections).toEqual([]);
     } finally {
       process.off('unhandledRejection', onUnhandled);

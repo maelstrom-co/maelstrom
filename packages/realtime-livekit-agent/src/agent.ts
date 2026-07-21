@@ -27,6 +27,7 @@ import {
   LocalAudioTrack,
   type RemoteTrack,
   RoomEvent,
+  type TextStreamReader,
   TrackKind,
   TrackPublishOptions,
   TrackSource,
@@ -127,8 +128,6 @@ const entry = async (ctx: JobContext) => {
   ttsPublishOptions.source = TrackSource.SOURCE_MICROPHONE;
   await localParticipant.publishTrack(ttsTrack, ttsPublishOptions);
 
-  // Serialize speak requests so overlapping summaries don't interleave frames.
-  let speakChain: Promise<void> = Promise.resolve();
   // The synthesis stream currently draining into `ttsSource`, so a barge-in can
   // abort it mid-flight. Null while no speak() is in progress.
   let activeTtsStream: tts.SynthesizeStream | null = null;
@@ -168,31 +167,29 @@ const entry = async (ctx: JobContext) => {
   cancelActiveTts = () => cancelInFlightTts(activeTtsStream, ttsSource);
 
   // Client sends the tool-result summary over the `speak` text stream.
-  room.registerTextStreamHandler(SPEAK_TOPIC, (reader) => {
-    void (async () => {
-      const text = await reader.readAll();
-      speakChain = speakChain
-        .then(() => speak(text))
-        .catch(async (err) => {
-          console.error('[voice-agent] TTS synthesis failed', err);
-          // Signal the client so its UI can indicate speak-back failed rather
-          // than waiting indefinitely for audio that will never arrive.
-          try {
-            const error: TtsErrorMessage = { type: 'tts_error' };
-            await localParticipant.publishData(
-              new TextEncoder().encode(JSON.stringify(error)),
-              { reliable: true, topic: TTS_TOPIC },
-            );
-          } catch (signalErr) {
-            console.error(
-              '[voice-agent] failed to signal TTS error to client',
-              signalErr,
-            );
-          }
-        });
-      await speakChain;
-    })();
-  });
+  room.registerTextStreamHandler(
+    SPEAK_TOPIC,
+    createSpeakHandler({
+      speak,
+      onSpeakError: async (err) => {
+        console.error('[voice-agent] TTS synthesis failed', err);
+        // Signal the client so its UI can indicate speak-back failed rather
+        // than waiting indefinitely for audio that will never arrive.
+        try {
+          const error: TtsErrorMessage = { type: 'tts_error' };
+          await localParticipant.publishData(
+            new TextEncoder().encode(JSON.stringify(error)),
+            { reliable: true, topic: TTS_TOPIC },
+          );
+        } catch (signalErr) {
+          console.error(
+            '[voice-agent] failed to signal TTS error to client',
+            signalErr,
+          );
+        }
+      },
+    }),
+  );
 
   async function processAudioTrack(track: RemoteTrack) {
     const audioStream = new AudioStream(track);
@@ -382,6 +379,37 @@ export function cancelInFlightTts(
 ): void {
   stream?.close();
   source.clearQueue();
+}
+
+/**
+ * Builds the `speak` text-stream handler LiveKit invokes fire-and-forget (it
+ * never awaits or catches the callback's return), so every awaited step inside
+ * must stay catch-covered or a rejection kills the worker process.
+ *
+ * Serializes turns through a chain private to this handler instance, so
+ * overlapping summaries can't interleave frames; a failed turn's `onSpeakError`
+ * still resolves the chain, so a bad turn never poisons the ones after it.
+ * `speakChain` is reassigned synchronously (no `await` before it), so turn
+ * order tracks call order even when one turn's `readAll()` resolves before
+ * another's — awaiting first would let a fast later call jump the queue.
+ */
+export function createSpeakHandler(deps: {
+  speak: (text: string) => Promise<void>;
+  onSpeakError: (err: unknown) => void | Promise<void>;
+}): (reader: Pick<TextStreamReader, 'readAll'>) => void {
+  let speakChain: Promise<void> = Promise.resolve();
+  return (reader) => {
+    const text = reader.readAll();
+    // Reading starts immediately, but the chain may not reach `text` until
+    // prior turns settle — attach a no-op handler now so a rejection in the
+    // meantime is never reported as unhandled; the real handling still runs
+    // below once the chain gets here.
+    text.catch(() => {});
+    speakChain = speakChain
+      .then(() => text)
+      .then((value) => deps.speak(value))
+      .catch((err) => deps.onSpeakError(err));
+  };
 }
 
 /**
