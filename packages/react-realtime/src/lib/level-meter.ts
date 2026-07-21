@@ -2,9 +2,21 @@
 export interface LevelMeter {
   /** Instantaneous level in [0, 1] (RMS of the current analyser frame). */
   read(): number;
-  /** Releases the AudioContext. The meter reads 0 afterwards. */
+  /**
+   * Disconnects this meter's audio nodes and, once no meter is active
+   * anymore, suspends the shared AudioContext. The meter reads 0 afterwards.
+   */
   dispose(): void;
 }
+
+// Browsers cap concurrent AudioContexts (Safari allows very few), and
+// close() resolves asynchronously — rebuilding a whole context per
+// push-to-talk press let rapid presses stack not-yet-closed contexts and hit
+// that cap, silently killing the meter. One context is created lazily,
+// reference-counted across active meters, and never closed; only the cheap
+// per-stream nodes (source + analyser) are rebuilt per meter.
+let sharedContext: AudioContext | null = null;
+let activeMeters = 0;
 
 /**
  * Meters a live audio stream for UI feedback (voice orbs, waveforms).
@@ -14,16 +26,21 @@ export interface LevelMeter {
  * @example
  * const meter = createLevelMeter(stream);
  * const level = meter.read(); // 0..1, call again each animation frame
- * meter.dispose(); // releases the AudioContext when done
+ * meter.dispose(); // stops metering this stream when done
  */
 export function createLevelMeter(
   stream: MediaStream,
   createAudioContext: () => AudioContext = () => new AudioContext(),
 ): LevelMeter {
-  const context = createAudioContext();
+  if (!sharedContext) sharedContext = createAudioContext();
+  const context = sharedContext;
+  activeMeters += 1;
+  void context.resume().catch(() => {});
+
   const analyser = context.createAnalyser();
   analyser.fftSize = 256;
-  context.createMediaStreamSource(stream).connect(analyser);
+  const source = context.createMediaStreamSource(stream);
+  source.connect(analyser);
   const samples = new Uint8Array(analyser.frequencyBinCount);
   let disposed = false;
 
@@ -41,7 +58,20 @@ export function createLevelMeter(
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      context.close().catch(() => {});
+      source.disconnect();
+      analyser.disconnect();
+      activeMeters -= 1;
+      if (activeMeters <= 0) {
+        activeMeters = 0;
+        void context.suspend().catch(() => {});
+      }
     },
   };
+}
+
+// Process-wide singleton state above must be reset between tests; not part
+// of the public barrel, so it stays out of consumers' hands.
+export function resetLevelMeterAudioContextForTesting(): void {
+  sharedContext = null;
+  activeMeters = 0;
 }
