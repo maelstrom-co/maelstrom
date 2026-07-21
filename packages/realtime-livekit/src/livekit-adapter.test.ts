@@ -195,7 +195,7 @@ describe('LiveKitAdapter connect', () => {
     await expect(adapter.connect({ tools: [], instructions: '' })).resolves.toBeUndefined();
   });
 
-  test('a disconnect during an in-flight connect abandons the orphaned room', async () => {
+  test('a disconnect during an in-flight connect rejects CONNECT_SUPERSEDED and abandons the orphaned room', async () => {
     mockRoomConnect.mockClear();
     mockRoomDisconnect.mockClear();
     let releaseToken!: (grant: LiveKitTokenGrant) => void;
@@ -207,14 +207,53 @@ describe('LiveKitAdapter connect', () => {
     const connecting = adapter.connect({ tools: [], instructions: '' });
     await adapter.disconnect();
     releaseToken(DEFAULT_GRANT);
-    await connecting;
+
+    // A superseded connect must reject rather than resolve as if it connected —
+    // the same observable behavior as the OpenAI adapter (this was the bug: a
+    // stale LiveKit connect used to resolve silently).
+    const error = await connecting.then(() => undefined, (e: unknown) => e);
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('CONNECT_SUPERSEDED');
 
     // Staleness was detected after mintToken resolved: we never proceeded to
     // join, and never reported a live connection.
     expect(mockRoomConnect).not.toHaveBeenCalled();
     expect(states(events)).not.toContain('connected');
+    // The superseded attempt must not stomp the disconnect back into 'error'.
+    expect(states(events)).not.toContain('error');
     // The orphaned room was disconnected.
     expect(mockRoomDisconnect).toHaveBeenCalled();
+  });
+
+  test('a connect superseded by a newer connect rejects without clobbering the winner', async () => {
+    mockRoomConnect.mockClear();
+    mockRoomDisconnect.mockClear();
+    // First attempt parks on mintToken; a disconnect frees the guard, then a
+    // second attempt (with an immediate grant) wins.
+    let releaseFirstToken!: (grant: LiveKitTokenGrant) => void;
+    const firstToken = new Promise<LiveKitTokenGrant>((res) => {
+      releaseFirstToken = res;
+    });
+    let call = 0;
+    const { adapter, events } = makeAdapter(() => {
+      call += 1;
+      return call === 1 ? firstToken : Promise.resolve(DEFAULT_GRANT);
+    });
+
+    const first = adapter.connect({ tools: [], instructions: '' });
+    // Free the connecting guard so a second connect can start and supersede.
+    await adapter.disconnect();
+    const second = adapter.connect({ tools: [], instructions: '' });
+    await second;
+
+    // Now let the stale first attempt resume — it must reject, not resolve.
+    releaseFirstToken(DEFAULT_GRANT);
+    const error = await first.then(() => undefined, (e: unknown) => e);
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('CONNECT_SUPERSEDED');
+
+    // The winner is fully connected and was not driven into 'error' by the loser.
+    expect(states(events).at(-1)).toBe('connected');
   });
 });
 

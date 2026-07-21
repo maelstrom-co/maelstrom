@@ -34,6 +34,9 @@ export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
 export type { RealtimeVoiceErrorCode } from './lib/realtime-voice-error.js';
 export { RealtimeVoiceError } from './lib/realtime-voice-error.js';
 
+export type { ConnectAttempt } from './lib/connect-race-guard.js';
+export { ConnectRaceGuard } from './lib/connect-race-guard.js';
+
 export type { UnixSeconds } from './lib/token/unix-seconds.js';
 export { UnixSecondsSchema } from './lib/token/unix-seconds.js';
 export type { TokenGrant } from './lib/token/token-grant.js';

@@ -13,6 +13,7 @@ import type {
   ToolResult,
 } from '../realtime-session/provider-adapter.types.js';
 import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
+import { ConnectRaceGuard } from '../connect-race-guard.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import { asString, isRecord, parseOpenAIServerEvent } from './parse-openai-event.js';
 import {
@@ -82,11 +83,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   // connect() during that round-trip would pass the `#pc` check too and leak
   // its own RTCPeerConnection + mic stream.
   #connecting = false;
-  // Bumped at the start of every connect() and in every teardown() so a
-  // connect() whose async steps (mint, getUserMedia, SDP) are still in flight
-  // can detect, once each await resumes, that a newer connect()/teardown
-  // overtook it — and abort instead of clobbering the winner's shared state.
-  #connectGeneration = 0;
+  // Detects, once each in-flight connect() await (mint, getUserMedia, SDP)
+  // resumes, that a newer connect()/teardown overtook it — so the stale attempt
+  // aborts instead of clobbering the winner's shared state.
+  readonly #connectGuard = new ConnectRaceGuard();
   #iceGraceTimer: ReturnType<typeof setTimeout> | undefined;
   #responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
   #voiceActivity: VoiceSessionState = 'connected';
@@ -103,7 +103,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       throw new RealtimeVoiceError('ALREADY_CONNECTED', 'OpenAI realtime adapter is already connected');
     }
     this.#connecting = true;
-    const generation = ++this.#connectGeneration;
+    const attempt = this.#connectGuard.begin();
     // Captured by the data channel's onopen closure below so a slow ICE/DTLS
     // establishment (the gap between SDP exchange and channel open) is
     // attributable rather than folded into an opaque "connect() was slow".
@@ -125,13 +125,13 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
           error,
         );
       }
-      this.#assertCurrent(generation);
+      attempt.assertCurrent();
       this.#logger.debug('connect timing', { step: 'mint', ms: Date.now() - connectStart });
 
       connection = new RTCPeerConnection();
 
       micStream = await this.#attachMicrophone(connection, connectStart);
-      this.#assertCurrent(generation);
+      attempt.assertCurrent();
 
       // Past the post-getUserMedia check — this attempt is still current, so
       // publishing to the shared fields is safe.
@@ -142,13 +142,13 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       this.#openDataChannel(connection, opts, connectStart);
 
       await this.#exchangeSdp(connection, token, connectStart);
-      this.#assertCurrent(generation);
+      attempt.assertCurrent();
     } catch (error) {
       // Always close this attempt's own connection + mic. They may never have
       // reached the shared fields (e.g. a failure before the post-getUserMedia
       // publish), in which case teardown() alone wouldn't clean them up.
       this.#closeAbandonedAttempt(connection, micStream);
-      if (generation === this.#connectGeneration) {
+      if (attempt.isCurrent) {
         // Still the current attempt — a genuine handshake failure. Reset the
         // rest of the shared session state (data channel, audio element,
         // lifecycle) so a retry starts clean. A superseded attempt skips this
@@ -156,15 +156,6 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
         this.#teardown();
       }
       throw error;
-    }
-  }
-
-  #assertCurrent(generation: number): void {
-    if (generation !== this.#connectGeneration) {
-      throw new RealtimeVoiceError(
-        'CONNECT_SUPERSEDED',
-        'connect() was superseded by a newer connect() or teardown',
-      );
     }
   }
 
@@ -427,7 +418,7 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   #teardown(): void {
     // Invalidate any connect() still mid-handshake so it abandons its own
     // attempt instead of clobbering shared state when its awaits resume.
-    this.#connectGeneration++;
+    this.#connectGuard.supersede();
     this.#clearIceGraceTimer();
     this.#audioEl?.pause();
     if (this.#audioEl) this.#audioEl.srcObject = null;

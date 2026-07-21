@@ -9,7 +9,7 @@ import type {
   RealtimeProviderAdapter,
   ToolResult,
 } from '@maelstrom-co/realtime';
-import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import { ConnectRaceGuard, RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { Room, RoomEvent, Track, setLogLevel } from 'livekit-client';
 import type { RemoteTrack, TranscriptionSegment } from 'livekit-client';
 
@@ -69,6 +69,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // usable — `mintToken()` and `room.connect()` are awaited, so without this a
   // second connect() during that round-trip would open a second room.
   #connecting = false;
+  // Detects, once each in-flight connect() await (mint, room join, mic publish)
+  // resumes, that a disconnect()/teardown or a newer connect() overtook it — so
+  // the stale attempt abandons its own room instead of joining one nobody owns.
+  readonly #connectGuard = new ConnectRaceGuard();
   #callSeq = 0;
   // Distinct non-fatal TTS-failure kinds already warned about this connection,
   // so a stuck worker warns once per kind instead of flooding the console.
@@ -195,6 +199,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#connecting = true;
     this.#emit({ type: 'state', state: 'connecting' });
 
+    const attempt = this.#connectGuard.begin();
     const room = new Room();
     this.#room = room;
     this.#wireRoomEvents(room);
@@ -212,12 +217,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
         );
       }
       // `disconnect()` clears `#room` synchronously, but an in-flight connect
-      // keeps running against its local `room`. After every await, bail if a
+      // keeps running against its local `room`. After every await, abort if a
       // disconnect (or a superseding connect) stole ownership — otherwise we'd
       // join and publish the mic on an orphaned room nobody can tear down.
-      if (await this.#abandonIfStale(room)) return;
+      // A superseded attempt throws CONNECT_SUPERSEDED (never resolves as if it
+      // connected), matching the OpenAI adapter.
+      attempt.assertCurrent();
       await room.connect(url, token);
-      if (await this.#abandonIfStale(room)) return;
+      attempt.assertCurrent();
       // Publish the mic track, then mute it via the SAME API turnControl uses.
       // Muting through setMicrophoneEnabled (not a direct track.mute()) keeps
       // the publication's enabled flag in sync, so startTurn's
@@ -230,14 +237,19 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
         throw this.#micEnableError(error);
       }
       await room.localParticipant.setMicrophoneEnabled(false);
-      if (await this.#abandonIfStale(room)) return;
+      attempt.assertCurrent();
     } catch (error) {
-      // A later step threw after room.connect() may have succeeded — disconnect
-      // the room before teardown, which only nulls fields.
+      // Always disconnect this attempt's own room — a later step may have thrown
+      // after room.connect() succeeded, and a superseded attempt owns an
+      // orphaned room nobody else will tear down.
       await room.disconnect().catch(() => {});
-      this.#teardown();
-      this.#connecting = false;
-      this.#emit({ type: 'state', state: 'error' });
+      if (attempt.isCurrent) {
+        // Still the current attempt — a genuine failure. Reset shared state and
+        // surface the error. A superseded attempt skips this so it never
+        // clobbers the winner's room or drives it into the error state.
+        this.#teardown();
+        this.#emit({ type: 'state', state: 'error' });
+      }
       throw error;
     }
 
@@ -449,14 +461,6 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     for (const handler of this.#handlers) handler(event);
   }
 
-  // Returns true (after disconnecting the orphaned room) when a concurrent
-  // disconnect/connect has taken ownership of `#room` away from `room`.
-  async #abandonIfStale(room: Room): Promise<boolean> {
-    if (this.#room === room) return false;
-    await room.disconnect().catch(() => {});
-    return true;
-  }
-
   // With no server-side VAD, an empty turn (accidental tap, no speech) yields no
   // worker response, so `thinking` would never resolve. Arm a one-shot timer to
   // collapse back to `connected`; it self-guards on `#lastState` so a barge-in
@@ -500,6 +504,9 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   }
 
   #teardown(): void {
+    // Invalidate any connect() still mid-handshake so it abandons its own room
+    // instead of clobbering shared state when its awaits resume.
+    this.#connectGuard.supersede();
     this.#clearThinkingFallback();
     this.#warnedTtsFailures.clear();
     this.#room = undefined;
