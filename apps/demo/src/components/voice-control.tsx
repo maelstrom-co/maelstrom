@@ -2,8 +2,10 @@ import type { VoiceSessionState } from '@maelstrom-co/client';
 import {
   type KeyboardEvent,
   type PointerEvent,
-  useEffect,
+  useCallback,
+  useLayoutEffect,
   useRef,
+  useState,
 } from 'react';
 import { m } from '../lib/maelstrom';
 
@@ -37,37 +39,46 @@ interface VoiceControlProps {
 /**
  * Provider-agnostic voice control. The orb toggles the shared session; the
  * hold-to-talk button renders only when the active adapter exposes
- * `turnControl` (push-to-talk cascades like LiveKit) and stays absent for
- * speech-native providers that manage turns server-side.
+ * `turnControl` in manual mode. It stays absent while browser VAD owns turns
+ * and for speech-native providers that manage turns server-side.
  */
 export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
-  const { state, turnControl } = m.useVoice();
+  const { state, turnControl, turnMode } = m.useVoice();
   const isConnected = CONNECTED_STATES.has(state);
-  // Single source of truth for "this press owns an active turn" — both the
-  // pointer and keyboard handlers below read/clear it, so a state re-render
-  // racing the pointer leaving the button (state still a stale snapshot)
-  // never leaves the mic stuck open, and the two input modalities can't
-  // double-start or double-end the same turn.
+  // Keep input handlers independent from the latest rendered session state.
   const pressActiveRef = useRef(false);
+  const [pressActive, setPressActive] = useState(false);
 
   const startPress = () => {
     pressActiveRef.current = true;
+    setPressActive(true);
     void turnControl?.startTurn();
   };
 
-  const endPress = () => {
+  const endPress = useCallback(() => {
     if (!pressActiveRef.current) return;
     pressActiveRef.current = false;
+    setPressActive(false);
     void turnControl?.endTurn();
-  };
+  }, [turnControl]);
 
   // A fatal error can flip the button disabled mid-press, and browsers
   // suppress the pointerup/keyup that would normally reach endPress() on a
   // disabled control. Without this, the stale ref permanently eats the next
   // keydown's guard, even after reconnecting.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isConnected) endPress();
-  }, [isConnected]);
+  }, [endPress, isConnected]);
+
+  // Keep the button mounted through this layout cleanup. Clearing the ref
+  // makes a stale release harmless after automatic mode takes over.
+  useLayoutEffect(() => {
+    if (turnMode !== 'manual') endPress();
+    return endPress;
+  }, [endPress, turnMode]);
+
+  const showManualControl =
+    turnControl !== undefined && (turnMode === 'manual' || pressActive);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.repeat || pressActiveRef.current) return;
@@ -92,7 +103,12 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
       >
         {STATE_LABEL[state]}
       </span>
-      {turnControl && (
+      {turnMode === 'manual' && turnControl && (
+        <span className="text-xs text-amber-300" role="status">
+          Automatic voice detection unavailable; hold to talk.
+        </span>
+      )}
+      {showManualControl && (
         <button
           type="button"
           disabled={!isConnected}

@@ -1,6 +1,7 @@
 import { createMaelstrom } from '@maelstrom-co/react';
 import {
   type CreateAdapterContext,
+  type MaelstromRealtimeBuilder,
   maelstromRealtime,
 } from '@maelstrom-co/react-realtime';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
@@ -35,8 +36,29 @@ const hostedMintToken = createBrowserMintToken(
 export const m = createMaelstrom({
   vessels,
 })
-  .with(maelstromRealtime({ createAdapter, debug: isDebugRequested() }))
+  .with(
+    selectVoiceExtension(
+      maelstromRealtime({ createAdapter, debug: isDebugRequested() }),
+      import.meta.env.VITE_VOICE_PROVIDER,
+    ),
+  )
   .with(orchestrationLegibility);
+
+/** Enables self-hosted browser VAD only for the LiveKit cascade. */
+export function selectVoiceExtension(
+  realtime: MaelstromRealtimeBuilder,
+  provider: string | undefined,
+): ReturnType<MaelstromRealtimeBuilder['withVAD']> | MaelstromRealtimeBuilder {
+  if (provider !== 'livekit') return realtime;
+  return realtime.withVAD({
+    assetBaseUrl: '/vad-web/',
+    onError: () => {
+      console.warn(
+        'Browser voice detection unavailable; falling back to hold-to-talk.',
+      );
+    },
+  });
+}
 
 // Provider is chosen at build time by VITE_VOICE_PROVIDER: `livekit` selects the
 // cascaded LiveKit transport (push-to-talk), anything else the speech-native

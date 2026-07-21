@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"vite dev --port 3000\"",
-    "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"vite dev --port 3000 --mode livekit\"",
+    "prepare:voice-assets": "bun run scripts/copy-vad-assets.ts",
+    "dev": "bun run prepare:voice-assets && concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"vite dev --port 3000\"",
+    "dev-livekit": "bun run prepare:voice-assets && concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"vite dev --port 3000 --mode livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
     "dev:client": "vite dev --port 3000",
     "dev-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start",
-    "build": "vite build",
+    "build": "bun run prepare:voice-assets && vite build",
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
     "deploy": "VITE_HOSTED=1 bunx nx build @maelstrom-co/demo && wrangler deploy"
@@ -57,6 +58,7 @@
     "@tailwindcss/vite": "catalog:",
     "concurrently": "^9.1.2",
     "happy-dom": "catalog:",
+    "onnxruntime-web": "1.27.0",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "catalog:"

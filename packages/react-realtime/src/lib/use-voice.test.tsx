@@ -15,6 +15,80 @@ import type {
   UseVoiceResult,
 } from './maelstrom-realtime.js';
 
+type FakeVadController = {
+  state: { mode: 'idle' | 'active' | 'manual_fallback'; error?: unknown };
+  destroyed: boolean;
+  startCalls: number;
+  pauseCalls: number;
+  destroyCalls: number;
+  start(): Promise<void>;
+  pause(): Promise<void>;
+  destroy(): Promise<void>;
+  emitFallback(error: unknown): void;
+};
+
+const fakeVadControllers: FakeVadController[] = [];
+let vadPauseGate: Promise<void> | undefined;
+let vadPauseStarted = false;
+let vadPauseError: unknown;
+let vadStartGate: Promise<void> | undefined;
+let sessionDisconnectGate: Promise<void> | undefined;
+let sessionDisconnectStarted = false;
+let sessionDisconnectError: unknown;
+let sessionConnectGate: Promise<void> | undefined;
+let vadDestroyError: unknown;
+let vadUnsubscribeError: unknown;
+const reportedVadErrors: unknown[] = [];
+
+mock.module('./browser-vad-controller.js', () => ({
+  createBrowserVadController: ({
+    onError,
+  }: {
+    onError: (error: unknown) => void;
+  }) => {
+    const controller: FakeVadController = {
+      state: { mode: 'idle' },
+      destroyed: false,
+      startCalls: 0,
+      pauseCalls: 0,
+      destroyCalls: 0,
+      async start() {
+        controller.startCalls += 1;
+        if (controller.destroyed) return;
+        if (vadStartGate) {
+          await vadStartGate;
+        }
+        if (controller.destroyed) return;
+        controller.state = { mode: 'active' };
+      },
+      async pause() {
+        controller.pauseCalls += 1;
+        if (vadPauseError) throw vadPauseError;
+        if (vadPauseGate) {
+          vadPauseStarted = true;
+          await vadPauseGate;
+        }
+        controller.state = { mode: 'idle' };
+      },
+      async destroy() {
+        controller.destroyCalls += 1;
+        controller.destroyed = true;
+        if (vadDestroyError) throw vadDestroyError;
+        controller.state = {
+          mode: 'manual_fallback',
+          error: new Error('destroyed'),
+        };
+      },
+      emitFallback(error: unknown) {
+        controller.state = { mode: 'manual_fallback', error };
+        onError(error);
+      },
+    };
+    fakeVadControllers.push(controller);
+    return controller;
+  },
+}));
+
 // Fakes the module boundary maelstrom-realtime.ts constructs against —
 // RealtimeSession is never real here, so the assertions below observe this
 // package's own lifecycle wiring (WeakMap reuse, refcounting, transcript
@@ -29,17 +103,27 @@ class FakeRealtimeSession {
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
 
+  get stateHandlerCount() {
+    return this.#stateHandlers.size;
+  }
+
   constructor(readonly options: unknown) {
     FakeRealtimeSession.instances.push(this);
   }
 
   async connect(): Promise<void> {
     this.connectCalls += 1;
+    if (sessionConnectGate) {
+      await sessionConnectGate;
+    }
     this.emitState('connected');
   }
 
   async disconnect(): Promise<void> {
+    sessionDisconnectStarted = true;
+    if (sessionDisconnectGate) await sessionDisconnectGate;
     this.disconnectCalls += 1;
+    if (sessionDisconnectError) throw sessionDisconnectError;
     this.emitState('idle');
   }
 
@@ -47,11 +131,26 @@ class FakeRealtimeSession {
     const set =
       event === 'state' ? this.#stateHandlers : this.#transcriptHandlers;
     set.add(handler);
-    return () => set.delete(handler);
+    return () => {
+      if (
+        event === 'state' &&
+        vadUnsubscribeError &&
+        [...this.#stateHandlers][0] === handler
+      ) {
+        const error = vadUnsubscribeError;
+        vadUnsubscribeError = undefined;
+        throw error;
+      }
+      set.delete(handler);
+    };
   }
 
   getAudioStreams() {
-    return {};
+    const adapter = (this.options as { adapter?: RealtimeProviderAdapter })
+      .adapter;
+    return adapter && typeof adapter.getAudioStreams === 'function'
+      ? adapter.getAudioStreams()
+      : {};
   }
 
   emitState(next: VoiceSessionState): void {
@@ -108,20 +207,46 @@ function makeFakeAdapter(
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function setup(
   createAdapter: (ctx: CreateAdapterContext) => RealtimeProviderAdapter = () =>
     makeFakeAdapter(),
+  withVAD = false,
+  onVadError?: (error: unknown) => void,
 ) {
   const entry = vessel(testVessel, () => null);
-  const m = createMaelstrom({ vessels: [entry] }).with(
-    maelstromRealtime({ createAdapter }),
-  );
+  const realtime = maelstromRealtime({ createAdapter });
+  const extension = withVAD
+    ? realtime.withVAD({ assetBaseUrl: '/vad-web/', onError: onVadError })
+    : realtime;
+  const m = createMaelstrom({ vessels: [entry] }).with(extension);
   const connector = createMockConnector();
   return { m, connector };
 }
 
 beforeEach(() => {
   FakeRealtimeSession.instances = [];
+  fakeVadControllers.length = 0;
+  vadPauseGate = undefined;
+  vadPauseStarted = false;
+  vadPauseError = undefined;
+  vadStartGate = undefined;
+  sessionDisconnectGate = undefined;
+  sessionDisconnectStarted = false;
+  sessionDisconnectError = undefined;
+  sessionConnectGate = undefined;
+  vadDestroyError = undefined;
+  vadUnsubscribeError = undefined;
+  reportedVadErrors.length = 0;
 });
 
 afterEach(() => {
@@ -129,6 +254,12 @@ afterEach(() => {
 });
 
 describe('maelstromRealtime() useVoice lifecycle', () => {
+  it('is structurally compatible with createMaelstrom().with after fluent VAD configuration', () => {
+    const { m } = setup(() => ({}) as never, true);
+
+    expect(m.useVoice).toBeFunction();
+  });
+
   it('two consumers under one Provider share one session', async () => {
     const { m, connector } = setup();
     function ConsumerA() {
@@ -461,6 +592,30 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
     expect(must(api).turnControl).toBe(turnControl);
   });
 
+  it('keeps push-to-talk manual when browser VAD is not configured', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(() => ({ turnControl }) as never);
+    let api: UseVoiceResult | undefined;
+    function Consumer() {
+      api = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(must(api).turnMode).toBe('manual');
+    expect(must(api).vadError).toBeUndefined();
+  });
+
   it('leaves turnControl undefined for speech-native adapters', async () => {
     const { m, connector } = setup();
     let api: UseVoiceResult | undefined;
@@ -478,6 +633,598 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
     });
 
     expect(must(api).turnControl).toBeUndefined();
+    expect(must(api).turnMode).toBe('manual');
+  });
+
+  it('does not initialize VAD without adapter turnControl', async () => {
+    const { m, connector } = setup(
+      () => ({ getAudioStreams: () => ({ mic: {} as MediaStream }) }) as never,
+      true,
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(fakeVadControllers).toHaveLength(0);
+  });
+
+  it('keeps manual mode until configured VAD is active', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    let api: UseVoiceResult | undefined;
+    function Consumer() {
+      api = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(must(api).turnMode).toBe('manual');
+  });
+
+  it('starts one shared VAD controller after a connected session exposes its mic', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    let first: UseVoiceResult | undefined;
+    let second: UseVoiceResult | undefined;
+    function Consumers() {
+      first = m.useVoice();
+      second = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumers />
+        </m.Provider>,
+      );
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+
+    await act(async () => {
+      await session.connect();
+    });
+
+    expect(fakeVadControllers).toHaveLength(1);
+    expect(must(first).turnMode).toBe('automatic');
+    expect(must(second).turnMode).toBe('automatic');
+  });
+
+  it('pauses and resumes the shared VAD controller across disconnect and reconnect', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    let api: UseVoiceResult | undefined;
+    function Consumer() {
+      api = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const voice = must(api);
+    await act(async () => {
+      await voice.connect();
+      await voice.disconnect();
+      await voice.connect();
+    });
+
+    const vad = must(fakeVadControllers[0]);
+    expect(fakeVadControllers).toHaveLength(1);
+    expect(vad.pauseCalls).toBe(1);
+    expect(vad.startCalls).toBe(2);
+  });
+
+  it('keeps one VAD controller through a StrictMode remount', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <StrictMode>
+          <m.Provider connector={connector}>
+            <Consumer />
+          </m.Provider>
+        </StrictMode>,
+      );
+    });
+
+    expect(fakeVadControllers).toHaveLength(1);
+  });
+
+  it('reuses the entry when a remount happens before retirement reconciliation', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      rerender(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(FakeRealtimeSession.instances).toHaveLength(1);
+    expect(fakeVadControllers).toHaveLength(1);
+  });
+
+  it('creates fresh resources after retirement and ignores late old-session completion', async () => {
+    const disconnect = deferred<void>();
+    sessionDisconnectGate = disconnect.promise;
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+    const firstSession = must(FakeRealtimeSession.instances[0]);
+    const firstVad = must(fakeVadControllers[0]);
+
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      await Promise.resolve();
+    });
+    expect(sessionDisconnectStarted).toBe(true);
+    expect(FakeRealtimeSession.instances).toHaveLength(1);
+
+    await act(async () => {
+      rerender(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(FakeRealtimeSession.instances).toHaveLength(2);
+    expect(fakeVadControllers).toHaveLength(2);
+    const secondSession = must(FakeRealtimeSession.instances[1]);
+    const secondVad = must(fakeVadControllers[1]);
+    expect(secondSession).not.toBe(firstSession);
+    expect(secondVad).not.toBe(firstVad);
+
+    disconnect.resolve();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(firstVad.destroyed).toBe(true);
+    expect(secondVad.destroyed).toBe(false);
+  });
+
+  it('ignores a stale VAD start completion after a replacement entry is live', async () => {
+    const start = deferred<void>();
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+    const firstSession = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      await firstSession.connect();
+    });
+    const firstVad = must(fakeVadControllers[0]);
+    firstVad.state = { mode: 'idle' };
+    vadStartGate = start.promise;
+
+    await act(async () => {
+      firstSession.emitState('connected');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rerender(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(FakeRealtimeSession.instances).toHaveLength(2);
+    const secondSession = must(FakeRealtimeSession.instances[1]);
+    const secondVad = must(fakeVadControllers[1]);
+    vadStartGate = undefined;
+    await act(async () => {
+      await secondSession.connect();
+    });
+    start.resolve();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(secondVad.state.mode).toBe('active');
+    expect(secondVad.destroyed).toBe(false);
+  });
+
+  it('propagates VAD failure as manual mode and keeps turnControl available', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    let api: UseVoiceResult | undefined;
+    function Consumer() {
+      api = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    const vadError = new Error('vad failed');
+    await act(async () => {
+      await session.connect();
+      must(fakeVadControllers[0]).emitFallback(vadError);
+    });
+
+    expect(must(api).turnMode).toBe('manual');
+    expect(must(api).vadError).toBe(vadError);
+    expect(must(api).turnControl).toBe(turnControl);
+  });
+
+  it('destroys the shared VAD controller when the last consumer leaves', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      await session.connect();
+    });
+    const vad = must(fakeVadControllers[0]);
+
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(vad.state.mode).toBe('manual_fallback');
+  });
+
+  it('clears an entry after hanging cleanup so a later consumer gets a fresh session', async () => {
+    const disconnect = deferred<void>();
+    sessionDisconnectGate = disconnect.promise;
+    vadPauseGate = new Promise<void>(() => {});
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+    const firstSession = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      await firstSession.connect();
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    expect(sessionDisconnectStarted).toBe(true);
+    expect(vadPauseStarted).toBe(true);
+
+    await act(async () => {
+      rerender(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    expect(FakeRealtimeSession.instances).toHaveLength(2);
+    expect(fakeVadControllers).toHaveLength(2);
+    disconnect.resolve();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(must(fakeVadControllers[1]).destroyed).toBe(false);
+  });
+
+  it('continues teardown when VAD pause, listener unsubscribe, disconnect, and destroy reject', async () => {
+    vadPauseError = new Error('pause failed');
+    vadUnsubscribeError = new Error('unsubscribe failed');
+    sessionDisconnectError = new Error('disconnect failed');
+    vadDestroyError = new Error('destroy failed');
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+      (error) => reportedVadErrors.push(error),
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      await session.connect();
+    });
+
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(sessionDisconnectStarted).toBe(true);
+    expect(must(fakeVadControllers[0]).destroyCalls).toBe(1);
+    expect(reportedVadErrors).toHaveLength(4);
+  });
+
+  it('attempts each cleanup operation exactly once', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    const vad = must(fakeVadControllers[0]);
+    await act(async () => {
+      await session.connect();
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(vad.pauseCalls).toBe(1);
+    expect(session.disconnectCalls).toBe(1);
+    expect(vad.destroyCalls).toBe(1);
+  });
+
+  it('unsubscribes the retired VAD state listener before a replacement attaches', async () => {
+    const turnControl: AdapterTurnControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const { m, connector } = setup(
+      () =>
+        ({
+          turnControl,
+          getAudioStreams: () => ({ mic: {} as MediaStream }),
+        }) as never,
+      true,
+    );
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    expect(session.stateHandlerCount).toBe(2);
+
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(session.stateHandlerCount).toBe(0);
+
+    await act(async () => {
+      rerender(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    expect(FakeRealtimeSession.instances).toHaveLength(2);
+    expect(must(FakeRealtimeSession.instances[1]).stateHandlerCount).toBe(2);
   });
 
   it('passes the orchestrator sessionId to createAdapter', async () => {

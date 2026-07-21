@@ -52,6 +52,8 @@ function makeTurnControl(): AdapterTurnControl & {
 function makeVoiceResult(
   state: VoiceSessionState,
   turnControl: AdapterTurnControl | undefined,
+  turnMode: 'automatic' | 'manual' = 'manual',
+  vadError: unknown = undefined,
 ): UseVoiceResult {
   return {
     state,
@@ -60,6 +62,8 @@ function makeVoiceResult(
     assistantTranscript: undefined,
     session: new FakeRealtimeSession(undefined) as unknown as RealtimeSession,
     turnControl,
+    turnMode,
+    vadError,
     connect: async () => {},
     disconnect: async () => {},
   };
@@ -326,5 +330,33 @@ describe('VoiceControl hold-to-talk button', () => {
     const { container } = render(<VoiceControl />);
 
     expect(within(container).queryByRole('button')).toBeNull();
+  });
+
+  it('hides hold-to-talk while automatic VAD controls turns', () => {
+    const turnControl = makeTurnControl();
+    holder.voiceResult = makeVoiceResult('connected', turnControl, 'automatic');
+
+    const { container } = render(<VoiceControl />);
+
+    expect(within(container).queryByRole('button')).toBeNull();
+    expect(within(container).queryByRole('status')).toBeNull();
+  });
+
+  it('shows hold-to-talk and a concise fallback message when VAD uses manual mode', () => {
+    const turnControl = makeTurnControl();
+    holder.voiceResult = makeVoiceResult(
+      'connected',
+      turnControl,
+      'manual',
+      new Error('assets unavailable'),
+    );
+
+    const { container } = render(<VoiceControl />);
+
+    expect(getHoldButton(container)).toBeDefined();
+    expect(container.textContent).toContain(
+      'Automatic voice detection unavailable; hold to talk.',
+    );
+    expect(container.textContent).not.toContain('assets unavailable');
   });
 });

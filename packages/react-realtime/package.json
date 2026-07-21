@@ -32,7 +32,8 @@
     "@maelstrom-co/client": "0.0.0",
     "@maelstrom-co/protocol": "0.0.0",
     "@maelstrom-co/react": "0.0.0",
-    "@maelstrom-co/realtime": "0.0.0"
+    "@maelstrom-co/realtime": "0.0.0",
+    "@ricky0123/vad-web": "0.0.30"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
