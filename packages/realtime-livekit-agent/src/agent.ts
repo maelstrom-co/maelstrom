@@ -36,6 +36,7 @@ import {
   SPEAK_TOPIC,
   TURN_TOPIC,
   TTS_TOPIC,
+  USER_PARTICIPANT_IDENTITY,
   type TtsDoneMessage,
   type TtsErrorMessage,
 } from '@maelstrom-co/realtime-livekit/protocol';
@@ -54,12 +55,12 @@ const entry = async (ctx: JobContext) => {
   // connects before the deadline, release the job instead of holding the slot.
   const userParticipant = await waitForParticipantOrTimeout(
     ctx,
-    'user',
+    USER_PARTICIPANT_IDENTITY,
     PARTICIPANT_JOIN_TIMEOUT_MS,
   );
   if (!userParticipant) {
     console.error(
-      `[voice-agent] no 'user' participant joined within ${PARTICIPANT_JOIN_TIMEOUT_MS}ms; shutting down job`,
+      `[voice-agent] no '${USER_PARTICIPANT_IDENTITY}' participant joined within ${PARTICIPANT_JOIN_TIMEOUT_MS}ms; shutting down job`,
     );
     ctx.shutdown('user participant did not join');
     return;
@@ -257,7 +258,10 @@ const entry = async (ctx: JobContext) => {
 
   // Handle tracks published after agent joins
   room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
-    if (participant.identity !== 'user' || track.kind !== TrackKind.KIND_AUDIO)
+    if (
+      participant.identity !== USER_PARTICIPANT_IDENTITY ||
+      track.kind !== TrackKind.KIND_AUDIO
+    )
       return;
     void processAudioTrack(track as RemoteTrack);
   });

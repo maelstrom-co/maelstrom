@@ -7,6 +7,14 @@
 export const SPEAK_TOPIC = 'speak';
 
 /**
+ * Identity the browser client connects to the room with, and the identity the
+ * worker waits for on join and filters incoming tracks against. A room-wide
+ * constant (not per-session) because the spike supports exactly one human
+ * participant per room.
+ */
+export const USER_PARTICIPANT_IDENTITY = 'user';
+
+/**
  * Data topic for client→worker turn control: `turn_end` (flush the STT buffer)
  * and `tts_cancel` (barge-in — abort the in-flight TTS so old audio stops).
  */

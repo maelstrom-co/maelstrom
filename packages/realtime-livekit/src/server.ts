@@ -4,6 +4,7 @@
 // stays in the consuming app; this package ships only the framework-free grant.
 
 import { AccessToken } from 'livekit-server-sdk';
+import { USER_PARTICIPANT_IDENTITY } from './protocol.js';
 
 export interface LiveKitTokenInput {
   roomName: string;
@@ -47,7 +48,7 @@ export async function mintLiveKitToken(
   }
 
   const at = new AccessToken(apiKey, apiSecret, {
-    identity: data.identity ?? 'user',
+    identity: data.identity ?? USER_PARTICIPANT_IDENTITY,
     ttl,
   });
   at.addGrant({
