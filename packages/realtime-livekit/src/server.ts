@@ -18,7 +18,8 @@ export interface LiveKitTokenResult {
 /**
  * Mints a LiveKit access token scoped to a single room + identity, reading
  * credentials from `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` and the room URL
- * from `LIVEKIT_URL` (defaulting to a local dev server). Throws when the
+ * from `LIVEKIT_URL` (defaulting to a local dev server). The token lifetime is
+ * read from `LIVEKIT_TOKEN_TTL` (defaulting to `15m`). Throws when the
  * credentials are absent so a misconfigured deploy fails loudly instead of
  * minting an unusable token.
  *
@@ -39,6 +40,7 @@ export async function mintLiveKitToken(
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
   const url = process.env.LIVEKIT_URL ?? 'ws://localhost:7880';
+  const ttl = process.env.LIVEKIT_TOKEN_TTL ?? '15m';
 
   if (!apiKey || !apiSecret) {
     throw new Error('LiveKit credentials not configured');
@@ -46,7 +48,7 @@ export async function mintLiveKitToken(
 
   const at = new AccessToken(apiKey, apiSecret, {
     identity: data.identity ?? 'user',
-    ttl: '1h',
+    ttl,
   });
   at.addGrant({
     roomJoin: true,

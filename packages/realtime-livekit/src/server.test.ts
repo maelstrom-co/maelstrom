@@ -45,6 +45,7 @@ describe('mintLiveKitToken', () => {
     key: process.env.LIVEKIT_API_KEY,
     secret: process.env.LIVEKIT_API_SECRET,
     url: process.env.LIVEKIT_URL,
+    ttl: process.env.LIVEKIT_TOKEN_TTL,
   };
 
   beforeEach(() => {
@@ -54,12 +55,14 @@ describe('mintLiveKitToken', () => {
     process.env.LIVEKIT_API_KEY = 'devkey';
     process.env.LIVEKIT_API_SECRET = 'secret';
     process.env.LIVEKIT_URL = 'ws://localhost:7880';
+    delete process.env.LIVEKIT_TOKEN_TTL;
   });
 
   afterEach(() => {
     restoreEnv('LIVEKIT_API_KEY', original.key);
     restoreEnv('LIVEKIT_API_SECRET', original.secret);
     restoreEnv('LIVEKIT_URL', original.url);
+    restoreEnv('LIVEKIT_TOKEN_TTL', original.ttl);
   });
 
   test('returns a token and url', async () => {
@@ -85,9 +88,15 @@ describe('mintLiveKitToken', () => {
     expect(lastIdentity).toBe('agent');
   });
 
-  test('bounds the token to a 1 hour ttl', async () => {
+  test('defaults the token ttl to 15m when LIVEKIT_TOKEN_TTL is unset', async () => {
     await mintLiveKitToken({ roomName: 'maelstrom-abc' });
-    expect(lastTtl).toBe('1h');
+    expect(lastTtl).toBe('15m');
+  });
+
+  test('honours LIVEKIT_TOKEN_TTL when set', async () => {
+    process.env.LIVEKIT_TOKEN_TTL = '2h';
+    await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(lastTtl).toBe('2h');
   });
 
   test('defaults the url to ws://localhost:7880 when LIVEKIT_URL is unset', async () => {
