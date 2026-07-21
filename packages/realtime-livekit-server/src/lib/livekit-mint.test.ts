@@ -116,6 +116,18 @@ describe('mintLiveKitToken', () => {
     expect(result.value.expiresAt).toBeGreaterThan(nowSeconds + 7000);
   });
 
+  test('honours a bare-seconds LIVEKIT_TOKEN_TTL', async () => {
+    process.env.LIVEKIT_TOKEN_TTL = '90';
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(lastTtl).toBe('90');
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    // 90 → expiry ~90s out, not the 900s fallback.
+    expect(result.value.expiresAt).toBeGreaterThan(nowSeconds + 85);
+    expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + 90 + 2);
+  });
+
   test('defaults the url to ws://localhost:7880 when LIVEKIT_URL is unset', async () => {
     delete process.env.LIVEKIT_URL;
     const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });

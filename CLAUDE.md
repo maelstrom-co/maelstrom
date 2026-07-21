@@ -66,21 +66,23 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
          │
     ┌────┼───────────────┐
     ▼    ▼               ▼
-@maelstrom-co/client  @maelstrom-co/engine  @maelstrom-co/realtime-server
-(framework-agnostic)  (LLM decision core: @tanstack/ai)  (mints ephemeral realtime tokens)
+@maelstrom-co/client  @maelstrom-co/engine
+(framework-agnostic)  (LLM decision core: @tanstack/ai)
     │
     ├──────────┐
     ▼          ▼
 @maelstrom-co/react  @maelstrom-co/realtime
 (React bindings)     (browser realtime-voice core)
                           │
-                          ▼
-                     @maelstrom-co/realtime-livekit
-                     (LiveKit browser adapter)
-                          │
-                          ▼
-                     @maelstrom-co/realtime-livekit-agent
-                     (Node voice-agent worker)
+                     ┌────┴──────────────────┐
+                     ▼                        ▼
+          @maelstrom-co/realtime-server  @maelstrom-co/realtime-livekit
+          (mints ephemeral realtime      (LiveKit browser adapter)
+           tokens)                            │
+                                          ┌────┴──────────────────────────┐
+                                          ▼                                ▼
+                          @maelstrom-co/realtime-livekit-server  @maelstrom-co/realtime-livekit-agent
+                          (mints LiveKit access tokens)          (Node voice-agent worker)
 ```
 
 ### Package Locations
@@ -92,8 +94,9 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 | `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
 | `@maelstrom-co/realtime` | `packages/realtime/` | Browser realtime-voice core: RealtimeSession, RealtimeProviderAdapter seam, OpenAI adapter via `/openai` subpath (ephemeral tokens only — never holds provider keys) |
-| `@maelstrom-co/realtime-server` | `packages/realtime-server/` | Server-side mint of ephemeral OpenAI realtime tokens; each provider package owns token minting via Node-only subpaths |
-| `@maelstrom-co/realtime-livekit` | `packages/realtime-livekit/` | LiveKit browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; token mint via Node-only `/server` subpath |
+| `@maelstrom-co/realtime-server` | `packages/realtime-server/` | Server-side mint of ephemeral OpenAI realtime tokens; each provider owns its own token minting, either via a Node-only subpath or a sibling server package |
+| `@maelstrom-co/realtime-livekit` | `packages/realtime-livekit/` | LiveKit browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; declares the token-grant contract minted by `@maelstrom-co/realtime-livekit-server` |
+| `@maelstrom-co/realtime-livekit-server` | `packages/realtime-livekit-server/` | Server-side mint of LiveKit access tokens; Node-only sibling implementing the grant contract declared by `@maelstrom-co/realtime-livekit` |
 | `@maelstrom-co/realtime-livekit-agent` | `packages/realtime-livekit-agent/` | Node voice-agent worker: Deepgram STT / Cartesia TTS pipeline over LiveKit Agents, speaks engine responses back into the room |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 

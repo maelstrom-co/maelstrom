@@ -100,11 +100,15 @@ const TTL_UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 8640
 
 // LiveKit accepts a TTL as either a plain number of seconds or a duration
 // string like `15m`/`2h`. `expiresAt` needs the absolute expiry, so mirror
-// that parse here. An unrecognized string falls back to the 15-minute default
-// rather than throwing, keeping mint resilient to an odd env value.
+// that parse here. Only a bare non-negative integer (seconds) or a single
+// `<int><unit>` string is supported; anything else falls back to the
+// 15-minute default rather than throwing, keeping mint resilient to an odd
+// env value.
 function ttlToSeconds(ttl: string | number): number {
   if (typeof ttl === 'number') return ttl;
-  const match = /^(\d+)([smhd])$/.exec(ttl.trim());
+  const trimmed = ttl.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const match = /^(\d+)([smhd])$/.exec(trimmed);
   if (!match) return 900;
   return Number(match[1]) * TTL_UNIT_SECONDS[match[2] as keyof typeof TTL_UNIT_SECONDS];
 }
