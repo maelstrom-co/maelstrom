@@ -173,12 +173,23 @@ describe('cancelInFlightTts', () => {
 // A SpeechStream stand-in: yields queued events, then completes ONLY after
 // endInput() is called — mirroring the real SDK iterator, so a test that never
 // terminates proves the endInput()/consume deadlock is back.
-function makeFakeSpeechStream(events: unknown[], opts: { throwAfterFirst?: boolean } = {}) {
+function makeFakeSpeechStream(
+  events: unknown[],
+  opts: { throwAfterFirst?: boolean; throwWhenClosed?: boolean } = {},
+) {
   const state = { inputEnded: false, closed: false, pushed: [] as unknown[] };
   return {
     stream: {
-      pushFrame: (f: unknown) => state.pushed.push(f),
+      pushFrame: (f: unknown) => {
+        if (opts.throwWhenClosed && state.closed) {
+          throw new Error('cannot push frame: stream is closed');
+        }
+        state.pushed.push(f);
+      },
       endInput: () => {
+        if (opts.throwWhenClosed && state.closed) {
+          throw new Error('cannot end input: stream is closed');
+        }
         state.inputEnded = true;
       },
       close: () => {
@@ -203,6 +214,15 @@ function makeFakeSpeechStream(events: unknown[], opts: { throwAfterFirst?: boole
 
 async function* framesOf(...frames: unknown[]) {
   for (const f of frames) yield f;
+}
+
+// Yields frames on a timer so the pipe task is still draining audio when the
+// consume loop fails and the stream is closed underneath it.
+async function* delayedFrames(...frames: unknown[]) {
+  for (const f of frames) {
+    await new Promise((r) => setTimeout(r, 10));
+    yield f;
+  }
 }
 
 describe('runSpeechRecognition', () => {
@@ -241,5 +261,33 @@ describe('runSpeechRecognition', () => {
     ).rejects.toThrow('stt boom');
     expect(state.closed).toBe(true);
     expect(state.inputEnded).toBe(true);
+  });
+
+  test('does not leak an unhandled rejection when the consume loop throws mid-pipe', async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (err: unknown) => rejections.push(err);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const events = [{ type: 'final_transcript', alternatives: [{ text: 'hi' }] }];
+      const { stream, state } = makeFakeSpeechStream(events, {
+        throwAfterFirst: true,
+        throwWhenClosed: true,
+      });
+      await expect(
+        runSpeechRecognition(
+          // biome-ignore lint/suspicious/noExplicitAny: structural test doubles for AudioStream/SpeechStream
+          delayedFrames('f1', 'f2', 'f3') as any,
+          // biome-ignore lint/suspicious/noExplicitAny: structural test doubles for AudioStream/SpeechStream
+          stream as any,
+          () => {},
+        ),
+      ).rejects.toThrow('stt boom');
+      // Let the detached pipe task attempt its next push against the closed stream.
+      await new Promise((r) => setTimeout(r, 60));
+      expect(state.closed).toBe(true);
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 });

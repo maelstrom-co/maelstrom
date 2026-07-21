@@ -405,6 +405,12 @@ export async function runSpeechRecognition(
       speechStream.endInput();
     }
   })();
+  // A failing consume loop skips the success-path `await pipeTask` and closes the
+  // stream in the finally below; observe the pipe here so its next push/endInput
+  // against the now-closed stream can't surface as an unhandled rejection.
+  pipeTask.catch((err) => {
+    console.warn('[voice-agent] pipe task failed during teardown', err);
+  });
   try {
     for await (const event of speechStream) {
       if (event.type !== stt.SpeechEventType.FINAL_TRANSCRIPT) continue;
