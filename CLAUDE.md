@@ -73,6 +73,14 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
     ▼          ▼
 @maelstrom-co/react  @maelstrom-co/realtime
 (React bindings)     (browser realtime-voice core)
+                          │
+                          ▼
+                     @maelstrom-co/realtime-livekit
+                     (LiveKit browser adapter)
+                          │
+                          ▼
+                     @maelstrom-co/realtime-livekit-agent
+                     (Node voice-agent worker)
 ```
 
 ### Package Locations
@@ -85,6 +93,8 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
 | `@maelstrom-co/realtime` | `packages/realtime/` | Browser realtime-voice core: RealtimeSession, RealtimeProviderAdapter seam, OpenAI adapter via `/openai` subpath (ephemeral tokens only — never holds provider keys) |
 | `@maelstrom-co/realtime-server` | `packages/realtime-server/` | Server-side mint of ephemeral OpenAI realtime tokens; each provider package owns token minting via Node-only subpaths |
+| `@maelstrom-co/realtime-livekit` | `packages/realtime-livekit/` | LiveKit browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; token mint via Node-only `/server` subpath |
+| `@maelstrom-co/realtime-livekit-agent` | `packages/realtime-livekit-agent/` | Node voice-agent worker: Deepgram STT / Cartesia TTS pipeline over LiveKit Agents, speaks engine responses back into the room |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts
@@ -120,7 +130,7 @@ is only CSS `overflow: hidden`; there is no resolver.
 - **Frontend**: React 19, TanStack Router/Start
 - **Styling**: Tailwind CSS
 - **LLM**: @tanstack/ai with @tanstack/ai-gemini, Effect for functional composition
-- **Voice/Realtime**: OpenAI gpt-realtime over WebRTC (client-direct, ephemeral tokens)
+- **Voice/Realtime**: OpenAI gpt-realtime over WebRTC (client-direct, ephemeral tokens), or LiveKit (self-hosted or cloud) with a Deepgram/Cartesia STT/TTS agent worker
 
 ## Coding Conventions
 
