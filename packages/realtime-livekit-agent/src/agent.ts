@@ -21,6 +21,7 @@ import {
 import { STT } from '@livekit/agents-plugin-deepgram';
 import { TTS } from '@livekit/agents-plugin-cartesia';
 import {
+  type AudioFrame,
   AudioSource,
   AudioStream,
   LocalAudioTrack,
@@ -38,35 +39,34 @@ import {
   type TtsErrorMessage,
 } from '@maelstrom-co/realtime-livekit/protocol';
 
-// Optional native/platform bindings (LiveKit FFI prebuilds, Silero VAD) probe-
-// load and throw MODULE_NOT_FOUND on unsupported platforms — that's noise, not a
-// real failure. Suppress ONLY those (matched by module code + name), and re-throw
-// everything else so a genuine missing dependency or startup crash stays visible
-// instead of leaving the agent half-initialized with no diagnostic.
-const OPTIONAL_NATIVE_MODULES = [
-  '@livekit/rtc-ffi-bindings',
-  '@livekit/agents-plugin-silero',
-];
-process.on('uncaughtException', (err) => {
-  const code = (err as NodeJS.ErrnoException).code;
-  const message = err instanceof Error ? err.message : String(err);
-  if (
-    code === 'MODULE_NOT_FOUND' &&
-    OPTIONAL_NATIVE_MODULES.some((name) => message.includes(name))
-  ) {
-    console.debug('[voice-agent] suppressed optional native module error:', message);
-    return;
-  }
-  throw err;
-});
+// Cap how long the agent holds a job waiting for the user to connect before it
+// releases the worker slot — LiveKit's waitForParticipant has no timeout of its
+// own and would otherwise block the job forever.
+const PARTICIPANT_JOIN_TIMEOUT_MS = 60_000;
 
 const entry = async (ctx: JobContext) => {
   // Connect the agent to the room first — waitForParticipant requires a
   // connected room, and the agent must be joined to publish transcriptions.
   await ctx.connect();
 
-  // Wait for the user participant to join
-  const userParticipant = await ctx.waitForParticipant('user');
+  // Wait for the user participant to join, but never hang forever: if nobody
+  // connects before the deadline, release the job instead of holding the slot.
+  const userParticipant = await waitForParticipantOrTimeout(
+    ctx,
+    'user',
+    PARTICIPANT_JOIN_TIMEOUT_MS,
+  );
+  if (!userParticipant) {
+    console.error(
+      `[voice-agent] no 'user' participant joined within ${PARTICIPANT_JOIN_TIMEOUT_MS}ms; shutting down job`,
+    );
+    ctx.shutdown('user participant did not join');
+    return;
+  }
+  // Bind the now-narrowed participant to a const so the hoisted closures below
+  // (which lose flow narrowing across the function boundary) use it without an
+  // assertion — same pattern as localParticipant.
+  const user = userParticipant;
 
   const deepgramSTT = new STT({
     apiKey: process.env.DEEPGRAM_API_KEY,
@@ -137,11 +137,7 @@ const entry = async (ctx: JobContext) => {
       stream.pushText(trimmed);
       stream.flush();
       stream.endInput();
-      for await (const audio of stream) {
-        if (audio === tts.SynthesizeStream.END_OF_STREAM) break;
-        await ttsSource.captureFrame(audio.frame);
-      }
-      stream.close();
+      await pumpTtsStream(stream, (frame) => ttsSource.captureFrame(frame));
       // Frames are queued into the shared AudioSource but not yet heard; block
       // until the queue drains so the client collapses `speaking`→`connected`
       // on real playout end, not on synthesis end.
@@ -204,7 +200,7 @@ const entry = async (ctx: JobContext) => {
       const now = BigInt(Date.now()) * 1_000_000n; // nanoseconds
       // publishTranscription triggers RoomEvent.TranscriptionReceived on the client.
       void localParticipant.publishTranscription({
-        participantIdentity: userParticipant.identity,
+        participantIdentity: user.identity,
         trackSid: '',
         segments: [
           {
@@ -219,13 +215,6 @@ const entry = async (ctx: JobContext) => {
       });
     };
 
-    // Pipe audio frames into the STT stream
-    const pipeTask = (async () => {
-      for await (const frame of audioStream) {
-        speechStream.pushFrame(frame);
-      }
-    })();
-
     // Route turn_end packets (received by the room-scoped listener) to THIS
     // track's stream while it is the active one.
     const flushThisTurn = () => {
@@ -237,21 +226,18 @@ const entry = async (ctx: JobContext) => {
     };
     flushActiveTurn = flushThisTurn;
 
-    // Buffer each final; the turn_end handler joins them into one transcript.
-    for await (const event of speechStream) {
-      if (event.type !== stt.SpeechEventType.FINAL_TRANSCRIPT) continue;
-      const text = event.alternatives?.[0]?.text?.trim();
-      if (!text) continue;
-      turnBuffer.push(text);
+    try {
+      // Buffer each final; the turn_end handler joins them into one transcript.
+      await runSpeechRecognition(audioStream, speechStream, (text) => {
+        turnBuffer.push(text);
+      });
+    } finally {
+      if (flushActiveTurn === flushThisTurn) flushActiveTurn = null;
     }
-
-    await pipeTask;
-    speechStream.endInput();
-    if (flushActiveTurn === flushThisTurn) flushActiveTurn = null;
   }
 
   // Handle tracks already published when agent joins
-  for (const [, publication] of userParticipant.trackPublications) {
+  for (const [, publication] of user.trackPublications) {
     if (publication.kind === TrackKind.KIND_AUDIO && publication.track) {
       void processAudioTrack(publication.track);
     }
@@ -287,12 +273,116 @@ export default defineMaelstromVoiceAgent();
  * loads `.env` first.
  */
 export function runVoiceAgent() {
+  const { wsURL, apiKey, apiSecret } = resolveLiveKitCredentials();
   cli.runApp(
     new ServerOptions({
       agent: import.meta.filename,
-      wsURL: process.env.LIVEKIT_URL ?? 'ws://localhost:7880',
-      apiKey: process.env.LIVEKIT_API_KEY ?? 'devkey',
-      apiSecret: process.env.LIVEKIT_API_SECRET ?? 'secret',
+      wsURL,
+      apiKey,
+      apiSecret,
     }),
   );
+}
+
+/**
+ * Resolves LiveKit connection config from the environment, failing closed: any
+ * missing credential throws (listing all that are absent) rather than silently
+ * substituting insecure local-dev defaults that would point the worker at the
+ * wrong server.
+ */
+export function resolveLiveKitCredentials(env: NodeJS.ProcessEnv = process.env): {
+  wsURL: string;
+  apiKey: string;
+  apiSecret: string;
+} {
+  const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = env;
+  const missing: string[] = [];
+  if (!LIVEKIT_URL) missing.push('LIVEKIT_URL');
+  if (!LIVEKIT_API_KEY) missing.push('LIVEKIT_API_KEY');
+  if (!LIVEKIT_API_SECRET) missing.push('LIVEKIT_API_SECRET');
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required LiveKit environment variable(s): ${missing.join(', ')}`,
+    );
+  }
+  return {
+    wsURL: LIVEKIT_URL as string,
+    apiKey: LIVEKIT_API_KEY as string,
+    apiSecret: LIVEKIT_API_SECRET as string,
+  };
+}
+
+/**
+ * Races {@link JobContext.waitForParticipant} against a deadline so a job never
+ * blocks forever on a participant that never connects. Resolves the participant
+ * on join, or `null` on timeout — the SDK method has no timeout of its own and
+ * only settles on ParticipantConnected / room Disconnected.
+ */
+export async function waitForParticipantOrTimeout(
+  ctx: JobContext,
+  identity: string,
+  timeoutMs: number,
+): Promise<Awaited<ReturnType<JobContext['waitForParticipant']>> | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs);
+  });
+  try {
+    return await Promise.race([ctx.waitForParticipant(identity), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Drains a TTS synthesis stream into `captureFrame`, always closing the stream
+ * — even on error — so a mid-synthesis failure can't leak the Cartesia
+ * websocket connection.
+ */
+export async function pumpTtsStream(
+  stream: tts.SynthesizeStream,
+  captureFrame: (frame: AudioFrame) => Promise<void>,
+): Promise<void> {
+  try {
+    for await (const audio of stream) {
+      if (audio === tts.SynthesizeStream.END_OF_STREAM) break;
+      await captureFrame(audio.frame);
+    }
+  } finally {
+    stream.close();
+  }
+}
+
+/**
+ * Runs one STT session for a track: pumps audio frames into `speechStream` and
+ * consumes its transcript events, invoking `onFinalTranscript` per final. Input
+ * is ended as soon as the audio drains — the consume loop only terminates after
+ * endInput(), so ending it after the loop would deadlock — and the stream is
+ * always closed, including on error.
+ */
+export async function runSpeechRecognition(
+  audioStream: AsyncIterable<AudioFrame>,
+  speechStream: stt.SpeechStream,
+  onFinalTranscript: (text: string) => void,
+): Promise<void> {
+  const pipeTask = (async () => {
+    try {
+      for await (const frame of audioStream) {
+        speechStream.pushFrame(frame);
+      }
+    } finally {
+      speechStream.endInput();
+    }
+  })();
+  try {
+    for await (const event of speechStream) {
+      if (event.type !== stt.SpeechEventType.FINAL_TRANSCRIPT) continue;
+      const text = event.alternatives?.[0]?.text?.trim();
+      if (!text) continue;
+      onFinalTranscript(text);
+    }
+    await pipeTask;
+  } finally {
+    speechStream.close();
+  }
 }
