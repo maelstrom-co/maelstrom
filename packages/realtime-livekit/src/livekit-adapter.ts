@@ -70,6 +70,9 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // second connect() during that round-trip would open a second room.
   #connecting = false;
   #callSeq = 0;
+  // Distinct non-fatal TTS-failure kinds already warned about this connection,
+  // so a stuck worker warns once per kind instead of flooding the console.
+  readonly #warnedTtsFailures = new Set<string>();
   readonly #thinkingFallbackMs: number;
   // Rescues an empty push-to-talk turn (no speech) that would otherwise wedge
   // the UI in `thinking` — see #startThinkingFallback.
@@ -126,14 +129,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       try {
         await room.localParticipant.setMicrophoneEnabled(true);
       } catch (error) {
-        this.#emit({
-          type: 'error',
-          error: new RealtimeVoiceError(
-            'CONNECTION_FAILED',
-            'Failed to unmute the microphone on turn start',
-            error,
-          ),
-        });
+        this.#emit({ type: 'error', error: this.#micEnableError(error) });
         return;
       }
       this.#emit({ type: 'speech_started' });
@@ -191,7 +187,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    */
   async connect(_opts: AdapterConnectOptions): Promise<void> {
     if (this.#room || this.#connecting) {
-      throw new Error('LiveKit adapter is already connected');
+      throw new RealtimeVoiceError(
+        'ALREADY_CONNECTED',
+        'LiveKit adapter is already connected',
+      );
     }
     this.#connecting = true;
     this.#emit({ type: 'state', state: 'connecting' });
@@ -225,7 +224,11 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       // setMicrophoneEnabled(true) is a real false→true toggle that actually
       // unmutes. A direct track.mute() leaves the publication "enabled", making
       // the later enable a silent no-op.
-      await room.localParticipant.setMicrophoneEnabled(true);
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true);
+      } catch (error) {
+        throw this.#micEnableError(error);
+      }
       await room.localParticipant.setMicrophoneEnabled(false);
       if (await this.#abandonIfStale(room)) return;
     } catch (error) {
@@ -358,9 +361,12 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   }
 
   // Worker→client TTS status on TTS_TOPIC: a `tts_done` collapses `speaking`
-  // (guarded, so a barge-in that already moved to `listening` isn't stomped);
-  // anything else on this topic (a `tts_error`, or a malformed packet) means
-  // synthesis failed, surfaced as a fatal error the session can react to.
+  // (guarded, so a barge-in that already moved to `listening` isn't stomped).
+  // A `tts_error` or malformed packet is non-fatal — the `update_ui` it was
+  // reading back already rendered, so only the spoken confirmation was lost;
+  // raising a RealtimeVoiceError would tear the whole session down over lost
+  // audio. Warn once per distinct kind and collapse `speaking` so the UI does
+  // not hang waiting for audio that will never arrive.
   #handleTtsSignal(payload: Uint8Array): void {
     // A TTS signal means the worker is alive and driving state — the turn was
     // not empty, so cancel the empty-turn fallback.
@@ -376,13 +382,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       this.#collapseSpeaking();
       return;
     }
-    this.#emit({
-      type: 'error',
-      error: new RealtimeVoiceError(
-        'DATA_CHANNEL_ERROR',
-        'LiveKit worker reported a TTS synthesis failure',
-      ),
-    });
+    const kind = type ?? 'malformed';
+    if (!this.#warnedTtsFailures.has(kind)) {
+      this.#warnedTtsFailures.add(kind);
+      this.#logger.warn('LiveKit worker TTS read-back failed (non-fatal)', {
+        kind,
+      });
+    }
+    this.#collapseSpeaking();
   }
 
   // Release the `speaking` state back to `connected` — but only if `speaking`
@@ -473,8 +480,28 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     }
   }
 
+  // Maps a LiveKit mic-enable failure to its typed cause: a browser
+  // getUserMedia permission denial (NotAllowedError / PermissionDeniedError)
+  // gets its own code so the UI can offer permission help, versus a generic
+  // device/transport failure.
+  #micEnableError(cause: unknown): RealtimeVoiceError {
+    const name = (cause as { name?: unknown } | null)?.name;
+    return name === 'NotAllowedError' || name === 'PermissionDeniedError'
+      ? new RealtimeVoiceError(
+          'MIC_PERMISSION_DENIED',
+          'Microphone permission was denied',
+          cause,
+        )
+      : new RealtimeVoiceError(
+          'CONNECTION_FAILED',
+          'Failed to enable the microphone',
+          cause,
+        );
+  }
+
   #teardown(): void {
     this.#clearThinkingFallback();
+    this.#warnedTtsFailures.clear();
     this.#room = undefined;
     this.#connecting = false;
     this.#playbackStream = undefined;

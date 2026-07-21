@@ -134,25 +134,51 @@ describe('LiveKitAdapter connect', () => {
     expect(states(events)).toEqual(['connecting', 'error']);
   });
 
-  test('rejects a second concurrent connect', async () => {
+  test('rejects a second connect with an ALREADY_CONNECTED RealtimeVoiceError', async () => {
     const { adapter } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
-    await expect(adapter.connect({ tools: [], instructions: '' })).rejects.toThrow(
-      'already connected',
-    );
+
+    const error = await adapter
+      .connect({ tools: [], instructions: '' })
+      .then(() => undefined, (e: unknown) => e);
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('ALREADY_CONNECTED');
+  });
+
+  test('a mic-permission denial on connect surfaces MIC_PERMISSION_DENIED', async () => {
+    const { adapter, events } = makeAdapter();
+    // livekit-client surfaces the browser getUserMedia rejection here.
+    const denied = Object.assign(new Error('Permission denied'), {
+      name: 'NotAllowedError',
+    });
+    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+      throw denied;
+    });
+
+    const error = await adapter
+      .connect({ tools: [], instructions: '' })
+      .then(() => undefined, (e: unknown) => e);
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('MIC_PERMISSION_DENIED');
+    expect(states(events)).toEqual(['connecting', 'error']);
   });
 
   test('a post-connect step failure disconnects the room, not just teardown', async () => {
     mockRoomDisconnect.mockClear();
     const { adapter, events } = makeAdapter();
-    // room.connect succeeds; the mic publish (a later step) blows up.
+    // room.connect succeeds; the mic publish (a later step) blows up. A generic
+    // (non-permission) failure maps to CONNECTION_FAILED, carrying the cause.
+    const cause = new Error('mic publish failed');
     mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
-      throw new Error('mic publish failed');
+      throw cause;
     });
 
-    await expect(adapter.connect({ tools: [], instructions: '' })).rejects.toThrow(
-      'mic publish failed',
-    );
+    const error = await adapter
+      .connect({ tools: [], instructions: '' })
+      .then(() => undefined, (e: unknown) => e);
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+    expect((error as RealtimeVoiceError).cause).toBe(cause);
     // The already-connected room must be torn down over the wire, not leaked.
     expect(mockRoomDisconnect).toHaveBeenCalled();
     expect(states(events)).toEqual(['connecting', 'error']);
@@ -454,6 +480,25 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(states(events)).not.toContain('listening');
   });
 
+  test('startTurn maps a mic-permission denial to MIC_PERMISSION_DENIED', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const denied = Object.assign(new Error('Permission denied'), {
+      name: 'PermissionDeniedError',
+    });
+    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+      throw denied;
+    });
+
+    await adapter.turnControl.startTurn();
+
+    const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
+      'MIC_PERMISSION_DENIED',
+    );
+    expect(states(events)).not.toContain('listening');
+  });
+
   test('a barge-in during speaking publishes tts_cancel then still unmutes and listens', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
@@ -589,17 +634,39 @@ describe('LiveKitAdapter misc surface', () => {
     mockSetMicrophoneEnabled.mockReset();
   });
 
-  test('a worker tts_error packet surfaces a RealtimeVoiceError error event', async () => {
+  test('a worker tts_error is non-fatal: no error event, and speaking collapses', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
 
+    // The update_ui already rendered; only its spoken read-back failed.
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' });
+    expect(states(events).at(-1)).toBe('speaking');
+
     currentRoom._emit('dataReceived', encodeTts('tts_error'), undefined, undefined, TTS_TOPIC);
 
-    const err = events.find((e) => e.type === 'error');
-    expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
-    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
-      'DATA_CHANNEL_ERROR',
+    // Non-fatal: no RealtimeVoiceError (which would tear the session down)...
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+    // ...and the transient speaking state is released so the UI doesn't hang.
+    expect(states(events).at(-1)).toBe('connected');
+  });
+
+  test('a malformed TTS_TOPIC packet is non-fatal and collapses speaking', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' });
+    expect(states(events).at(-1)).toBe('speaking');
+
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode('not json'),
+      undefined,
+      undefined,
+      TTS_TOPIC,
     );
+
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+    expect(states(events).at(-1)).toBe('connected');
   });
 
   test('getAudioStreams exposes the mic publication and subscribed playback track', async () => {
