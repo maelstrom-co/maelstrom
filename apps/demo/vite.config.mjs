@@ -32,13 +32,14 @@ export default defineConfig(({ mode }) => {
     // already resolves for typecheck — without it here, dev/build/test all
     // bundle each package's built dist instead of its current source. SSR
     // has its own resolver in Vite, so it needs the condition set
-    // separately.
+    // separately. Vite 7 replaces (not merges) these arrays, so Vite's own
+    // default conditions are spelled out here rather than dropped.
     resolve: {
-      conditions: ['@maelstrom-co/source'],
+      conditions: ['module', 'browser', 'development|production', '@maelstrom-co/source'],
     },
     ssr: {
       resolve: {
-        conditions: ['@maelstrom-co/source'],
+        conditions: ['module', 'node', 'development|production', '@maelstrom-co/source'],
       },
     },
     plugins: [

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { findLocationByFuzzyName } from '../lib/locations';
 import { getMapSnapshot, mapActions } from './map.store';
 
@@ -12,6 +12,10 @@ const OFFICE = mustFind('office');
 const GYM = mustFind('gym');
 
 describe('mapActions', () => {
+  beforeEach(() => {
+    mapActions.showOverview();
+  });
+
   it('starts with no data', () => {
     expect(getMapSnapshot()).toEqual({});
   });

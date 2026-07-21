@@ -4,7 +4,6 @@
     "outDir": "./out-tsc/vitest",
     "lib": ["es2022", "dom"],
     "types": [
-      "bun",
       "vitest/globals",
       "vitest/importMeta",
       "vite/client",

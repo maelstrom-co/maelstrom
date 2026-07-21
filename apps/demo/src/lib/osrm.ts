@@ -39,10 +39,10 @@ export async function fetchRoute(
     throw new Error(`OSRM request failed with status ${response.status}`);
   }
   const data = (await response.json()) as OsrmResponse;
-  const route = data.routes[0];
-  if (data.code !== 'Ok' || !route) {
+  if (data.code !== 'Ok' || !data.routes?.length) {
     throw new Error(`OSRM returned no route (code: ${data.code})`);
   }
+  const route = data.routes[0];
 
   return {
     durationMin: Math.round(route.duration / 60),

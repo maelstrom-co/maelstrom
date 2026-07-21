@@ -39,7 +39,7 @@ function DemoApp() {
             <p className="text-sm text-gray-400">AI-Orchestrated Dynamic UI</p>
           </div>
           <div className="flex items-center gap-3">
-            <VoiceControl />
+            <VoiceControl showOrb={false} />
             <StatusIndicator />
           </div>
         </div>
@@ -76,8 +76,13 @@ function StatusIndicator() {
   const { connectionStatus } = m.useMaelstrom();
 
   return (
-    <div className="flex items-center gap-2">
+    <div
+      className="flex items-center gap-2"
+      role="status"
+      aria-label={`Connection status: ${connectionStatus}`}
+    >
       <div
+        aria-hidden="true"
         className={`w-2 h-2 rounded-full ${
           connectionStatus === 'connected'
             ? 'bg-green-500'

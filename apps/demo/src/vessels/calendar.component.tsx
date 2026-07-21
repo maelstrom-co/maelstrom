@@ -65,6 +65,16 @@ function hourOf(time: string): number {
   return Number(time.split(':')[0]);
 }
 
+// addEvent appends, so store order isn't display order — sort by clock
+// time whenever events render together.
+function sortByTime<T extends { time: string }>(items: T[]): T[] {
+  const minutesOf = (time: string) => {
+    const [h, m] = time.split(':');
+    return Number(h) * 60 + Number(m ?? 0);
+  };
+  return [...items].sort((a, b) => minutesOf(a.time) - minutesOf(b.time));
+}
+
 export default function CalendarComponent({
   instanceId,
   variantProps,
@@ -106,14 +116,18 @@ export default function CalendarComponent({
             // reads from, so an add/remove/move shows up consistently
             // across both views. Other days stay on the static fixture.
             const dayEvents = isToday
-              ? events.map((e) => ({
+              ? sortByTime(events).map((e) => ({
                   time: e.time,
                   title: eventLabel(e),
                   color: eventColors.get(e.id) ?? EVENT_COLORS[0],
                 }))
               : (EVENTS[day] ?? []);
             return (
-              <div key={day} className="flex flex-col gap-1.5 min-w-0">
+              <div
+                key={day}
+                data-today={isToday || undefined}
+                className="flex flex-col gap-1.5 min-w-0"
+              >
                 <div
                   className={
                     isToday
@@ -161,7 +175,9 @@ export default function CalendarComponent({
       <VesselCard accent="blue" label="Day View" meta="Today">
         <div className="flex-1 overflow-y-auto space-y-0.5">
           {DAY_HOURS.map((hour) => {
-            const slotEvents = events.filter((e) => hourOf(e.time) === hourOf(hour));
+            const slotEvents = sortByTime(
+              events.filter((e) => hourOf(e.time) === hourOf(hour)),
+            );
             return (
               <div key={hour} className="flex items-center gap-3 py-1.5">
                 <span className="text-xs text-gray-500 font-mono w-[44px] shrink-0 text-right">

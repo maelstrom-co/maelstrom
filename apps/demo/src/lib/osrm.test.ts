@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { fakeFetch } from './__tests__/fake-fetch';
 import { fetchRoute } from './osrm';
 
 const HOME = { id: 'home' as const, name: 'Home', lng: -122.433, lat: 37.7648 };
@@ -54,14 +55,6 @@ const REAL_OSRM_RESPONSE = {
   ],
 };
 
-function fakeFetch(body: unknown, ok = true, status = 200): typeof fetch {
-  return vi.fn().mockResolvedValue({
-    ok,
-    status,
-    json: () => Promise.resolve(body),
-  }) as unknown as typeof fetch;
-}
-
 describe('fetchRoute', () => {
   it('requests the OSRM driving route between two points', async () => {
     const fetchImpl = fakeFetch(REAL_OSRM_RESPONSE);
@@ -98,5 +91,11 @@ describe('fetchRoute', () => {
         fakeFetch({ code: 'NoRoute', routes: [], waypoints: [] }),
       ),
     ).rejects.toThrow();
+  });
+
+  it('throws the intended error (not a raw TypeError) when the error response has no routes field at all', async () => {
+    await expect(
+      fetchRoute(HOME, OFFICE, fakeFetch({ code: 'InvalidQuery' })),
+    ).rejects.toThrow(/InvalidQuery/);
   });
 });

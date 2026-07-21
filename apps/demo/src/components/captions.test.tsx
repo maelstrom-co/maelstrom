@@ -5,17 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 
-vi.mock('@maelstrom-co/realtime', () => ({
+vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/realtime')>()),
   RealtimeSession: FakeRealtimeSession,
 }));
 
-vi.mock('@maelstrom-co/realtime/openai', () => ({
+vi.mock('@maelstrom-co/realtime/openai', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/realtime/openai')>()),
   OpenAIAdapter: class {},
 }));
 
 vi.mock('../lib/mint-token', () => ({
-  mintToken: async () => {
-    throw new Error('mintToken should not be called in tests');
+  mintOpenAIToken: async () => {
+    throw new Error('mintOpenAIToken should not be called in tests');
+  },
+  createBrowserMintToken: () => async () => {
+    throw new Error('mintOpenAIToken should not be called in tests');
   },
 }));
 

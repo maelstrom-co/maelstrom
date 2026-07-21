@@ -18,6 +18,7 @@ export function findLocationByFuzzyName(
   query: string,
 ): DemoLocation | undefined {
   const q = query.toLowerCase().trim();
+  if (!q) return undefined;
   return (
     DEMO_LOCATIONS.find(
       (loc) => loc.name.toLowerCase() === q || loc.id === q,

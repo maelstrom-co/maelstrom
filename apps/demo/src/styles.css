@@ -187,3 +187,21 @@ body {
   border-radius: 4px;
   animation: action-flash-pulse 1.2s ease-out 1;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-orb {
+    transition: none;
+  }
+
+  .voice-orb[data-state='connecting'] {
+    animation: none;
+  }
+
+  .chart-wrapper[data-thinking='true']::after {
+    animation: none;
+  }
+
+  [data-flash='true'] {
+    animation: none;
+  }
+}

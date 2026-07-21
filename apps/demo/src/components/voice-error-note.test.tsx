@@ -74,7 +74,7 @@ describe('VoiceErrorNote', () => {
     ],
     [
       'TOKEN_MINT_FAILED',
-      "Voice couldn't start — is OPENAI_API_KEY set on the server? See the README.",
+      "Voice couldn't start — the server couldn't mint a session token. Check the server logs or configuration, then try again.",
     ],
     [
       'CONNECTION_FAILED',

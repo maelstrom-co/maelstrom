@@ -11,7 +11,7 @@ const MESSAGE_BY_CODE: Partial<Record<RealtimeVoiceErrorCode, string>> = {
   MIC_PERMISSION_DENIED:
     "Microphone access is blocked. Allow the mic in your browser's site settings, then click the orb to retry.",
   TOKEN_MINT_FAILED:
-    "Voice couldn't start — is OPENAI_API_KEY set on the server? See the README.",
+    "Voice couldn't start — the server couldn't mint a session token. Check the server logs or configuration, then try again.",
   CONNECTION_FAILED: CONNECTION_DROPPED_MESSAGE,
   DATA_CHANNEL_ERROR: CONNECTION_DROPPED_MESSAGE,
 };

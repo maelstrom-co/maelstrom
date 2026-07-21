@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import type { LiveWeather } from '../lib/weather-data';
@@ -45,9 +45,7 @@ describe('hourly variant with a flat temperature curve', () => {
       <WeatherComponent {...hourlyProps()} />,
     );
     // 12 identical hourly temps only appear once the mocked live data lands.
-    await waitFor(async () => {
-      expect(await findAllByText('55°')).toHaveLength(13);
-    });
+    expect(await findAllByText('55°')).toHaveLength(13);
 
     const bars = Array.from(container.querySelectorAll('div')).filter((div) =>
       div.style.height.endsWith('%'),

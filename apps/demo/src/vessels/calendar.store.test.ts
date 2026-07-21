@@ -38,6 +38,16 @@ describe('calendarActions', () => {
     expect(getCalendarSnapshot().events.at(-1)?.time).toBe('14:00');
   });
 
+  it('addEvent normalizes a valid 1-12 PM hour to 24-hour format', () => {
+    calendarActions.addEvent('Retro', '1:00 PM');
+    expect(getCalendarSnapshot().events.at(-1)?.time).toBe('13:00');
+  });
+
+  it('addEvent falls back to the raw string for an out-of-range hour with a meridiem suffix', () => {
+    calendarActions.addEvent('Bad Time', '13:00 PM');
+    expect(getCalendarSnapshot().events.at(-1)?.time).toBe('13:00 PM');
+  });
+
   it('removeEvent fuzzy-matches a title and removes it', () => {
     const removed = calendarActions.removeEvent('gym');
     expect(removed).toBe(true);
@@ -66,5 +76,23 @@ describe('calendarActions', () => {
     const moved = calendarActions.moveEvent('nonexistent event', '9:00');
     expect(moved).toBe(false);
     expect(getCalendarSnapshot().events.find((e) => e.time === '9:00')).toBeUndefined();
+  });
+
+  it('removeEvent with a blank title matches nothing (not the first event)', () => {
+    const removed = calendarActions.removeEvent('');
+    expect(removed).toBe(false);
+    expect(getCalendarSnapshot().events.map((e) => e.title)).toEqual([
+      'Gym',
+      'Design review',
+      'Sprint planning',
+    ]);
+  });
+
+  it('moveEvent with a blank title matches nothing (not the first event)', () => {
+    const moved = calendarActions.moveEvent('', '9:00');
+    expect(moved).toBe(false);
+    expect(getCalendarSnapshot().events.find((e) => e.title === 'Gym')?.time).toBe(
+      '7:30',
+    );
   });
 });

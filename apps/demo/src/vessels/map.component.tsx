@@ -121,6 +121,11 @@ export default function MapComponent({
   const effectiveVariant = resolveVariant(variant, state);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const pendingLoadSyncRef = useRef(false);
+  const latestSyncRef = useRef<{ variant: MapVariant; state: MapState }>({
+    variant,
+    state,
+  });
 
   m.useActions('map', instanceId, mapActionRunner);
 
@@ -182,10 +187,21 @@ export default function MapComponent({
   }, []);
 
   useEffect(() => {
+    latestSyncRef.current = { variant, state };
     const map = mapRef.current;
     if (!map) return;
     if (!map.isStyleLoaded()) {
-      map.once('load', () => syncMapToState(map, variant, state));
+      // Coalesce: while the style is still loading, repeated state changes
+      // would otherwise stack up multiple `once('load', ...)` closures, each
+      // replaying its own stale snapshot when 'load' finally fires. Register
+      // at most one, and have it read the ref for whatever's latest by then.
+      if (pendingLoadSyncRef.current) return;
+      pendingLoadSyncRef.current = true;
+      map.once('load', () => {
+        pendingLoadSyncRef.current = false;
+        const latest = latestSyncRef.current;
+        syncMapToState(map, latest.variant, latest.state);
+      });
       return;
     }
     syncMapToState(map, variant, state);

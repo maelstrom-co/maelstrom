@@ -73,6 +73,7 @@ function normalizeTime(time: string): string {
   const [, hourStr, minute, meridiem] = match;
   let hour = Number(hourStr);
   if (meridiem) {
+    if (hour < 1 || hour > 12) return time.trim();
     const isPm = meridiem.toUpperCase() === 'PM';
     if (isPm && hour !== 12) hour += 12;
     if (!isPm && hour === 12) hour = 0;

@@ -150,4 +150,42 @@ describe('CalendarComponent day view rendering', () => {
     expect(container.textContent).toContain('Coffee with Sam');
     expect(container.textContent).toContain('9:30');
   });
+
+  it('renders events added out of order chronologically within an hour slot', async () => {
+    const { container } = render(<CalendarComponent {...props('day')} />);
+    const handlers = latestHandlers();
+    await act(async () => {
+      await handlers.addEvent({ title: 'Later Event', time: '9:45' });
+      await handlers.addEvent({ title: 'Earlier Event', time: '9:15' });
+    });
+
+    const earlierIdx = container.textContent?.indexOf('Earlier Event') ?? -1;
+    const laterIdx = container.textContent?.indexOf('Later Event') ?? -1;
+    expect(earlierIdx).toBeGreaterThanOrEqual(0);
+    expect(laterIdx).toBeGreaterThanOrEqual(0);
+    expect(earlierIdx).toBeLessThan(laterIdx);
+  });
+});
+
+describe('CalendarComponent week view rendering', () => {
+  it('renders today\'s events chronologically even when added out of order', async () => {
+    const { container } = render(<CalendarComponent {...props('week')} />);
+    const handlers = latestHandlers();
+    await act(async () => {
+      // Seeded events are 7:30 Gym, 10:00 Design review, 16:00 Sprint
+      // planning — inserting an 8:00 event appends it after all of them.
+      await handlers.addEvent({ title: 'Early Add', time: '8:00' });
+    });
+
+    // Scope to today's column: the static week fixtures also carry a
+    // 'Design review' (Wed) and 'Sprint planning' (Wed), so a document-wide
+    // indexOf would match those on any weekday today falls after Wednesday.
+    const todayColumn = container.querySelector('[data-today]') as HTMLElement | null;
+    if (todayColumn === null) throw new Error("expected a today column");
+    const earlyIdx = todayColumn.textContent?.indexOf('Early Add') ?? -1;
+    const designIdx = todayColumn.textContent?.indexOf('Design review') ?? -1;
+    expect(earlyIdx).toBeGreaterThanOrEqual(0);
+    expect(designIdx).toBeGreaterThanOrEqual(0);
+    expect(earlyIdx).toBeLessThan(designIdx);
+  });
 });

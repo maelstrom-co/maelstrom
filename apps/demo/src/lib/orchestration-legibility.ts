@@ -42,6 +42,6 @@ export const orchestrationLegibility: MaelstromExtension<OrchestrationLegibility
       () => orchestrator.commandProcessor.store.state.instances.size,
       [orchestrator],
     );
-    return useSyncExternalStore(subscribe, getSnapshot);
+    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   },
 });

@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+// @vitest-environment happy-dom
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { AdapterTurnControl } from '@maelstrom-co/realtime';
@@ -7,11 +9,13 @@ import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
 // voice-control.tsx only touches `m.useVoice` and `m.VoiceOrb` — faking the
 // module boundary here isolates these tests from the real Provider/session
 // wiring already covered by react-realtime's own test suite.
-let voiceResult: UseVoiceResult;
+const holder = vi.hoisted(
+  () => ({ voiceResult: undefined as unknown as UseVoiceResult }),
+);
 
-mock.module('../lib/maelstrom', () => ({
+vi.mock('../lib/maelstrom', () => ({
   m: {
-    useVoice: () => voiceResult,
+    useVoice: () => holder.voiceResult,
     VoiceOrb: () => null,
   },
 }));
@@ -68,7 +72,7 @@ afterEach(() => {
 describe('VoiceControl hold-to-talk button', () => {
   it('renders the button with a working pointer down/up cycle', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -90,7 +94,7 @@ describe('VoiceControl hold-to-talk button', () => {
     // Simulates the race: startTurn was fired, but the async state
     // transition to 'listening' has not landed in a re-render yet when the
     // pointer leaves the button.
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -109,7 +113,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('ends the turn on pointerCancel', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -126,7 +130,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('does not call endTurn from pointerUp/pointerLeave when no press is active', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -143,7 +147,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('does not double-fire endTurn when pointerLeave is followed by pointerUp for the same press', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -163,7 +167,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('captures the pointer on pointerDown so up/cancel reliably target the button', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -181,7 +185,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('starts a turn on Enter keydown and ends it on Enter keyup', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -199,7 +203,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('starts a turn on Space keydown and ends it on Space keyup', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -217,7 +221,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('ignores keydown repeats from OS key-repeat', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -237,7 +241,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('ignores keys other than Enter/Space', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -255,7 +259,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('shares one press across pointer and keyboard so an in-progress pointer press is not restarted by a stray Enter keydown', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -280,7 +284,7 @@ describe('VoiceControl hold-to-talk button', () => {
 
   it('recovers keyboard push-to-talk after a fatal disconnect mid-press', async () => {
     const turnControl = makeTurnControl();
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
 
     const { container, rerender } = render(<VoiceControl />);
     const button = getHoldButton(container);
@@ -293,12 +297,12 @@ describe('VoiceControl hold-to-talk button', () => {
     // Fatal adapter error flips the session out of a connected state before
     // the key-up (or pointer-up) ever fires — the browser suppresses
     // events once the button becomes disabled, so nothing clears the press.
-    voiceResult = makeVoiceResult('error', turnControl);
+    holder.voiceResult = makeVoiceResult('error', turnControl);
     await act(async () => {
       rerender(<VoiceControl />);
     });
 
-    voiceResult = makeVoiceResult('connected', turnControl);
+    holder.voiceResult = makeVoiceResult('connected', turnControl);
     await act(async () => {
       rerender(<VoiceControl />);
     });
@@ -311,7 +315,7 @@ describe('VoiceControl hold-to-talk button', () => {
   });
 
   it('does not render the hold-to-talk button when turnControl is absent', async () => {
-    voiceResult = makeVoiceResult('connected', undefined);
+    holder.voiceResult = makeVoiceResult('connected', undefined);
 
     const { container } = render(<VoiceControl />);
     const root = must(container.firstChild as HTMLElement | null);

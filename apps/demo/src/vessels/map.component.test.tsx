@@ -14,7 +14,9 @@ vi.mock('../lib/osrm', () => ({
 }));
 
 class FakeLngLatBounds {
-  extend() {
+  points: unknown[] = [];
+  extend(point: unknown) {
+    this.points.push(point);
     return this;
   }
 }
@@ -44,6 +46,7 @@ class FakeMap {
   #handlers = new Map<string, Array<() => void>>();
   resizeCallCount = 0;
   removed = false;
+  fitBoundsCalls: FakeLngLatBounds[] = [];
 
   constructor(_options?: unknown) {
     mapInstances.push(this);
@@ -59,6 +62,12 @@ class FakeMap {
     this.on(event, handler);
   }
 
+  // Fires every handler registered for `event` — mirrors MapLibre's own
+  // 'load' event so tests can simulate the style finishing its load.
+  trigger(event: string) {
+    for (const handler of this.#handlers.get(event) ?? []) handler();
+  }
+
   isStyleLoaded() {
     return false;
   }
@@ -68,7 +77,9 @@ class FakeMap {
   getSource() {
     return undefined;
   }
-  fitBounds() {}
+  fitBounds(bounds: FakeLngLatBounds) {
+    this.fitBoundsCalls.push(bounds);
+  }
   flyTo() {}
   resize() {
     this.resizeCallCount += 1;
@@ -252,5 +263,33 @@ describe('MapComponent resize handling', () => {
     // before disconnect() took effect — must not throw or resize a removed map.
     expect(() => observer.trigger()).not.toThrow();
     expect(map.resizeCallCount).toBe(0);
+  });
+});
+
+describe('MapComponent pending load sync', () => {
+  it('applies only the latest state once the style finishes loading, not every stale state in between', () => {
+    const gym = DEMO_LOCATIONS.find((loc) => loc.id === 'gym');
+    const cafe = DEMO_LOCATIONS.find((loc) => loc.id === 'cafe');
+    if (!gym || !cafe) throw new Error('fixture location not found');
+
+    const { rerender } = render(<MapComponent {...props()} />);
+    const map = mapInstances[0];
+
+    mapActions.showRoute(gym);
+    rerender(<MapComponent {...props()} variantProps={{ variant: 'route' }} />);
+
+    mapActions.showRoute(cafe);
+    rerender(<MapComponent {...props()} variantProps={{ variant: 'route' }} />);
+
+    map.trigger('load');
+
+    // The route branch extends exactly 2 points (HOME + destination); the
+    // overview branch (from the mount-time 'load' handler) extends all 4
+    // demo locations. Only one route-shaped fitBounds call should have
+    // fired, and it must reflect the LATEST destination (cafe), not gym.
+    const routeCalls = map.fitBoundsCalls.filter((b) => b.points.length === 2);
+    expect(routeCalls).toHaveLength(1);
+    expect(routeCalls[0]?.points).toContainEqual([cafe.lng, cafe.lat]);
+    expect(routeCalls[0]?.points).not.toContainEqual([gym.lng, gym.lat]);
   });
 });

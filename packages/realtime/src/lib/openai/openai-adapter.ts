@@ -365,22 +365,32 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     token: OpenAITokenGrant,
     connectStart: number,
   ): Promise<void> {
-    const offer = await connection.createOffer();
-    await connection.setLocalDescription(offer);
+    let offer: RTCSessionDescriptionInit;
+    try {
+      offer = await connection.createOffer();
+      await connection.setLocalDescription(offer);
+    } catch (error) {
+      throw new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to create a local SDP offer', error);
+    }
 
     const sdp = connection.localDescription?.sdp;
     if (!sdp) {
       throw new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to create a local SDP offer');
     }
 
-    const response = await fetch(REALTIME_CALLS_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token.value}`,
-        'Content-Type': 'application/sdp',
-      },
-      body: sdp,
-    });
+    let response: Response;
+    try {
+      response = await fetch(REALTIME_CALLS_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token.value}`,
+          'Content-Type': 'application/sdp',
+        },
+        body: sdp,
+      });
+    } catch (error) {
+      throw new RealtimeVoiceError('CONNECTION_FAILED', 'OpenAI realtime call setup request failed', error);
+    }
 
     if (!response.ok) {
       throw new RealtimeVoiceError(
@@ -391,7 +401,11 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
 
     const answerSdp = await response.text();
     this.#logger.debug('connect timing', { step: 'sdpExchange', ms: Date.now() - connectStart });
-    await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    try {
+      await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    } catch (error) {
+      throw new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to apply the remote SDP answer', error);
+    }
     this.#logger.debug('connect timing', {
       step: 'setRemoteDescription',
       ms: Date.now() - connectStart,

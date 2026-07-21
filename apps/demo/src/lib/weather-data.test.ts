@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { fakeFetch } from './__tests__/fake-fetch';
 import {
   FALLBACK_WEATHER,
   fetchLiveWeather,
@@ -60,14 +61,6 @@ const OPEN_METEO_FIXTURE = {
     weather_code: [45, 45, 45, 3, 3, 0, 0],
   },
 };
-
-function fakeFetch(body: unknown, ok = true, status = 200): typeof fetch {
-  return vi.fn().mockResolvedValue({
-    ok,
-    status,
-    json: () => Promise.resolve(body),
-  }) as unknown as typeof fetch;
-}
 
 describe('fetchLiveWeather', () => {
   it('maps current conditions, rounding temperature and wind speed', async () => {
@@ -148,6 +141,29 @@ describe('fetchLiveWeather', () => {
   it('rejects on a malformed response missing expected fields', async () => {
     await expect(
       fetchLiveWeather(37.7648, -122.433, fakeFetch({ current: {} })),
+    ).rejects.toThrow();
+  });
+
+  it('rejects a well-shaped response with a non-numeric temperature', async () => {
+    const garbled = {
+      ...OPEN_METEO_FIXTURE,
+      current: { ...OPEN_METEO_FIXTURE.current, temperature_2m: 'n/a' },
+    };
+    await expect(
+      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
+    ).rejects.toThrow();
+  });
+
+  it('rejects a well-shaped response with mismatched hourly array lengths', async () => {
+    const garbled = {
+      ...OPEN_METEO_FIXTURE,
+      hourly: {
+        ...OPEN_METEO_FIXTURE.hourly,
+        temperature_2m: OPEN_METEO_FIXTURE.hourly.temperature_2m.slice(0, 3),
+      },
+    };
+    await expect(
+      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
     ).rejects.toThrow();
   });
 });

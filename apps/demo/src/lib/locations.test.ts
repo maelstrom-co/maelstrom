@@ -41,4 +41,9 @@ describe('findLocationByFuzzyName', () => {
   it('returns undefined on no match', () => {
     expect(findLocationByFuzzyName('nonexistent place')).toBeUndefined();
   });
+
+  it('returns undefined on a blank query instead of matching the first location', () => {
+    expect(findLocationByFuzzyName('')).toBeUndefined();
+    expect(findLocationByFuzzyName('   ')).toBeUndefined();
+  });
 });

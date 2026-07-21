@@ -54,6 +54,106 @@ function formatDay(isoDate: string): string {
   return WEEKDAYS[new Date(`${isoDate}T00:00:00Z`).getUTCDay()];
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string');
+}
+
+function isFiniteNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every(isFiniteNumber);
+}
+
+// `response.json()` is only typed as OpenMeteoResponse by assertion, so a
+// well-formed-but-wrong-typed 200 (e.g. a stringified temperature, or hourly
+// arrays whose lengths disagree) would otherwise flow straight into
+// mapResponse's indexing and surface as silent NaN/undefined instead of a
+// caught error. This checks exactly the fields mapResponse reads.
+function assertValidOpenMeteoResponse(
+  data: unknown,
+): asserts data is OpenMeteoResponse {
+  if (typeof data !== 'object' || data === null) {
+    throw new Error('Open-Meteo response is not an object');
+  }
+  const { current, hourly, daily } = data as Record<string, unknown>;
+
+  if (typeof current !== 'object' || current === null) {
+    throw new Error('Open-Meteo response is missing "current"');
+  }
+  const c = current as Record<string, unknown>;
+  if (typeof c.time !== 'string') {
+    throw new Error('Open-Meteo response has a non-string current.time');
+  }
+  if (!isFiniteNumber(c.temperature_2m)) {
+    throw new Error(
+      'Open-Meteo response has a non-numeric current.temperature_2m',
+    );
+  }
+  if (!isFiniteNumber(c.weather_code)) {
+    throw new Error(
+      'Open-Meteo response has a non-numeric current.weather_code',
+    );
+  }
+  if (!isFiniteNumber(c.wind_speed_10m)) {
+    throw new Error(
+      'Open-Meteo response has a non-numeric current.wind_speed_10m',
+    );
+  }
+
+  if (typeof hourly !== 'object' || hourly === null) {
+    throw new Error('Open-Meteo response is missing "hourly"');
+  }
+  const h = hourly as Record<string, unknown>;
+  if (!isStringArray(h.time)) {
+    throw new Error('Open-Meteo response has a non-array hourly.time');
+  }
+  if (!isFiniteNumberArray(h.temperature_2m)) {
+    throw new Error(
+      'Open-Meteo response has a non-numeric hourly.temperature_2m',
+    );
+  }
+  if (!isFiniteNumberArray(h.weather_code)) {
+    throw new Error(
+      'Open-Meteo response has a non-numeric hourly.weather_code',
+    );
+  }
+  if (h.temperature_2m.length !== h.time.length || h.weather_code.length !== h.time.length) {
+    throw new Error('Open-Meteo response has mismatched hourly array lengths');
+  }
+
+  if (typeof daily !== 'object' || daily === null) {
+    throw new Error('Open-Meteo response is missing "daily"');
+  }
+  const d = daily as Record<string, unknown>;
+  if (!isStringArray(d.time)) {
+    throw new Error('Open-Meteo response has a non-array daily.time');
+  }
+  if (!isFiniteNumberArray(d.temperature_2m_max)) {
+    throw new Error(
+      'Open-Meteo response has a non-numeric daily.temperature_2m_max',
+    );
+  }
+  if (!isFiniteNumberArray(d.temperature_2m_min)) {
+    throw new Error(
+      'Open-Meteo response has a non-numeric daily.temperature_2m_min',
+    );
+  }
+  if (!isFiniteNumberArray(d.weather_code)) {
+    throw new Error(
+      'Open-Meteo response has a non-numeric daily.weather_code',
+    );
+  }
+  if (
+    d.temperature_2m_max.length !== d.time.length ||
+    d.temperature_2m_min.length !== d.time.length ||
+    d.weather_code.length !== d.time.length
+  ) {
+    throw new Error('Open-Meteo response has mismatched daily array lengths');
+  }
+}
+
 function mapResponse(data: OpenMeteoResponse): LiveWeather {
   const hourlyStart = Math.max(
     0,
@@ -107,7 +207,8 @@ export async function fetchLiveWeather(
   if (!response.ok) {
     throw new Error(`Open-Meteo request failed with status ${response.status}`);
   }
-  const data = (await response.json()) as OpenMeteoResponse;
+  const data: unknown = await response.json();
+  assertValidOpenMeteoResponse(data);
   return mapResponse(data);
 }
 

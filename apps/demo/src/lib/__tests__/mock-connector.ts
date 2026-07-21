@@ -11,9 +11,8 @@ import type {
 } from '@maelstrom-co/protocol';
 
 // Mirrors packages/react-realtime/src/lib/__tests__/mock-connector.ts, shared
-// here so voice-component tests (captions, voice error note) don't each
-// re-implement the same EngineConnector fake apps/demo/src/lib/maelstrom.test.tsx
-// already inlines a copy of.
+// here so every apps/demo consumer (voice-component tests, maelstrom.test.tsx,
+// etc.) imports the same EngineConnector fake instead of re-implementing it.
 export function createMockConnector(): EngineConnector {
   const subscribers: Array<(event: ConnectorEvent) => void> = [];
 

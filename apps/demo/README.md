@@ -20,6 +20,7 @@ Fill in `.env`:
 | `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) | Text planning engine | Powers the engine's Gemini adapter |
 | `OPENAI_API_KEY` | Voice | Mints ephemeral realtime tokens server-side; never reaches the browser |
 | `OPENAI_REALTIME_MODEL` | Voice (optional) | Overrides the realtime model; defaults to `gpt-realtime-2` |
+| `ANTHROPIC_API_KEY` | Optional | For the engine's custom LLM provider support |
 
 One command runs both the WebSocket engine server and the Vite dev server:
 
