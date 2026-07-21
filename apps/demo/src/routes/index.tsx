@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useStore } from '@tanstack/react-store';
 import { WireEngineError } from '@maelstrom-co/client';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Captions } from '../components/captions';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
 import { KeyDrawer } from '../components/key-drawer';
@@ -64,6 +64,11 @@ export function HomePage() {
   // fresh connection is up.
   const [intent, setIntent] = useState('');
   const [resumeIntent, setResumeIntent] = useState(false);
+  // True only while the drawer is up because a Send/mic press was actually
+  // blocked on a missing key — as opposed to the header "API key" button or
+  // a mint-error reopen, neither of which should auto-submit whatever text
+  // happens to be sitting in the box on save.
+  const [blockedSubmit, setBlockedSubmit] = useState(false);
 
   // Populated when a voice mint fails in hosted mode, so the reopened
   // drawer explains why rather than looking like an unprompted reappearance.
@@ -88,6 +93,10 @@ export function HomePage() {
       <m.Provider key={keyEpoch} connector={connector} debug={debug}>
         <DemoApp
           onRequireKey={() => setDrawerOpen(true)}
+          onBlockedSubmit={() => {
+            setBlockedSubmit(true);
+            setDrawerOpen(true);
+          }}
           onMintError={handleMintError}
           intent={intent}
           onIntentChange={setIntent}
@@ -101,18 +110,21 @@ export function HomePage() {
           onClose={() => {
             setDrawerOpen(false);
             setKeyErrorMessage(null);
+            setBlockedSubmit(false);
           }}
           onSave={(key, remember) => {
             setPlaygroundKey(key, remember);
             setDrawerOpen(false);
             setKeyErrorMessage(null);
-            setResumeIntent(intent.trim().length > 0);
+            setResumeIntent(blockedSubmit && intent.trim().length > 0);
+            setBlockedSubmit(false);
             setKeyEpoch((e) => e + 1);
           }}
           onRemove={() => {
             clearPlaygroundKey();
             setDrawerOpen(false);
             setKeyErrorMessage(null);
+            setBlockedSubmit(false);
             setKeyEpoch((e) => e + 1);
           }}
           errorMessage={keyErrorMessage}
@@ -124,6 +136,7 @@ export function HomePage() {
 
 interface DemoAppProps {
   readonly onRequireKey: () => void;
+  readonly onBlockedSubmit: () => void;
   readonly onMintError: (message: string) => void;
   readonly intent: string;
   readonly onIntentChange: (intent: string) => void;
@@ -133,6 +146,7 @@ interface DemoAppProps {
 
 function DemoApp({
   onRequireKey,
+  onBlockedSubmit,
   onMintError,
   intent,
   onIntentChange,
@@ -207,7 +221,7 @@ function DemoApp({
 
       {/* Intent input */}
       <IntentInput
-        onRequireKey={onRequireKey}
+        onBlockedSubmit={onBlockedSubmit}
         onMintError={onMintError}
         intent={intent}
         onIntentChange={onIntentChange}
@@ -250,7 +264,7 @@ function StatusIndicator() {
 }
 
 interface IntentInputProps {
-  readonly onRequireKey: () => void;
+  readonly onBlockedSubmit: () => void;
   readonly onMintError: (message: string) => void;
   readonly intent: string;
   readonly onIntentChange: (intent: string) => void;
@@ -259,7 +273,7 @@ interface IntentInputProps {
 }
 
 function IntentInput({
-  onRequireKey,
+  onBlockedSubmit,
   onMintError,
   intent,
   onIntentChange,
@@ -270,6 +284,10 @@ function IntentInput({
   const hosted = isHosted();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const needsKey = hosted && !apiKey;
+  // Last text actually submitted — read by the invalid-key effect below to
+  // restore the draft after handleSubmit's unconditional clear, since
+  // processIntent() resolving doesn't mean the request succeeded.
+  const submittedIntentRef = useRef('');
 
   // Continues the intent the visitor already typed before the key drawer
   // interrupted them, once the post-save reconnect actually lands —
@@ -297,14 +315,19 @@ function IntentInput({
   // a different piece of state.
   useEffect(() => {
     if (!hosted || !lastError || !isInvalidKeyError(lastError)) return;
+    // handleSubmit already cleared the input unconditionally (processIntent
+    // never rejects) — restore what was actually submitted before reopening
+    // the drawer, so the visitor doesn't lose their draft to a rejected key.
+    onIntentChange(submittedIntentRef.current);
     onMintError('Invalid API key.');
-  }, [hosted, lastError, onMintError]);
+  }, [hosted, lastError, onMintError, onIntentChange]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!intent.trim() || isProcessing) return;
+    submittedIntentRef.current = intent;
     if (needsKey) {
-      onRequireKey();
+      onBlockedSubmit();
       return;
     }
 
@@ -319,7 +342,7 @@ function IntentInput({
     if (!needsKey) return;
     e.preventDefault();
     e.stopPropagation();
-    onRequireKey();
+    onBlockedSubmit();
   };
 
   return (

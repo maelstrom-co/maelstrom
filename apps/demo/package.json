@@ -12,7 +12,7 @@
     "build": "vite build",
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
-    "deploy": "VITE_HOSTED=1 vite build && wrangler deploy"
+    "deploy": "VITE_HOSTED=1 bunx nx build @maelstrom-co/demo && wrangler deploy"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",
@@ -29,6 +29,7 @@
     "@maelstrom-co/realtime-livekit-server": "workspace:*",
     "@maelstrom-co/realtime-server": "workspace:*",
     "livekit-client": "^2.13.1",
+    "@tanstack/ai": "catalog:",
     "@tanstack/ai-gemini": "catalog:",
     "@tanstack/ai-openai": "catalog:",
     "@tanstack/react-router": "catalog:",

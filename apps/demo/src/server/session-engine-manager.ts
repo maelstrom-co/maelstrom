@@ -147,6 +147,11 @@ export class SessionEngineManager {
     if (entry) this.#touch(sessionId, entry);
   }
 
+  /** Whether sessionId still has a live engine (not evicted by the LRU cap or idle TTL). */
+  has(sessionId: string): boolean {
+    return this.#sessions.has(sessionId);
+  }
+
   evict(sessionId: string): void {
     const entry = this.#sessions.get(sessionId);
     if (!entry) return;

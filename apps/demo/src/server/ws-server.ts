@@ -198,6 +198,16 @@ const server = Bun.serve<SocketData>({
       // get evicted out from under a socket that's still working.
       if (HOSTED && sessionEngines && ws.data.sessionId) {
         sessionEngines.touch(ws.data.sessionId);
+
+        // touch() is a no-op once the session is already gone (LRU cap or
+        // idle TTL evicted it before this frame arrived) — dispatching
+        // against ws.data.engine at that point would serve the stale cached
+        // engine forever, defeating the cap/TTL entirely. Close instead and
+        // force a fresh hello/engine on reconnect.
+        if (!sessionEngines.has(ws.data.sessionId)) {
+          ws.close(1008, 'session evicted');
+          return;
+        }
       }
 
       const engine = HOSTED ? ws.data.engine : sharedEngine;

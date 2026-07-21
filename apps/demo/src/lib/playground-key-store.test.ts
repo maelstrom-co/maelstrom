@@ -34,6 +34,16 @@ describe('playgroundKeyStore', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
+  it('setPlaygroundKey with remember:false removes a PREVIOUSLY persisted key instead of resurrecting it next load', () => {
+    setPlaygroundKey('sk-remembered', true);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('sk-remembered');
+
+    setPlaygroundKey('sk-session-only', false);
+
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(playgroundKeyStore.state.apiKey).toBe('sk-session-only');
+  });
+
   it('clearPlaygroundKey removes the key from state and localStorage', () => {
     setPlaygroundKey('sk-abc', true);
     clearPlaygroundKey();

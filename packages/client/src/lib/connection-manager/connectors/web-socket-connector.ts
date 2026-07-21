@@ -133,7 +133,18 @@ export class WebSocketConnector implements EngineConnector {
 
         const onOpen = () => {
           cleanup();
-          this.#onOpen?.((data) => this.#ws?.send(data), sessionId);
+          try {
+            this.#onOpen?.((data) => this.#ws?.send(data), sessionId);
+          } catch (err) {
+            // cleanup() already tore down the open/error/close listeners, so a
+            // throw here has no other path back to the promise — without this
+            // catch, connect() hangs in 'connecting' forever instead of
+            // rejecting.
+            this.#ws?.close();
+            this.#ws = null;
+            reject(toError(err));
+            return;
+          }
           this.#setupEventHandlers();
           this.#startHeartbeat();
           resolve();

@@ -26,7 +26,18 @@ export const playgroundKeyStore = new Store<PlaygroundKeyState>({
 
 export function setPlaygroundKey(apiKey: string, remember: boolean): void {
   playgroundKeyStore.setState(() => ({ apiKey }));
-  if (!remember) return;
+  if (!remember) {
+    // A previous key may have been persisted under `remember: true` — clear
+    // it, or readInitialKey() resurrects it on the next load even though the
+    // visitor just asked for this key to be session-only.
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Nothing further to do — the in-memory store already holds the
+      // session-only key.
+    }
+    return;
+  }
   try {
     if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, apiKey);
   } catch {

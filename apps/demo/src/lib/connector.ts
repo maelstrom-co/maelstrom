@@ -56,10 +56,13 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
 
   // window.location is only touched in the hosted branch (short-circuited
   // below) — local (non-hosted) mode must keep working in non-DOM test
-  // environments.
+  // environments. The `typeof window` guard covers hosted mode too: it's a
+  // build-time flag, not proof `window` exists at the call site (e.g. SSR).
   const wsUrl = buildWsUrl(
     hosted,
-    hosted ? window.location : { protocol: '', host: '' },
+    hosted && typeof window !== 'undefined'
+      ? window.location
+      : { protocol: '', host: '' },
     import.meta.env.VITE_WS_URL,
   );
 

@@ -48,7 +48,7 @@
         "vite-plugin-dts": "~4.5.0",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "4.1.9",
-        "wrangler": "^4.110.0",
+        "wrangler": "^4.77.0",
       },
     },
     "apps/demo": {
@@ -68,6 +68,7 @@
         "@maelstrom-co/realtime-livekit-agent": "workspace:*",
         "@maelstrom-co/realtime-livekit-server": "workspace:*",
         "@maelstrom-co/realtime-server": "workspace:*",
+        "@tanstack/ai": "catalog:",
         "@tanstack/ai-gemini": "catalog:",
         "@tanstack/ai-openai": "catalog:",
         "@tanstack/react-router": "catalog:",
@@ -1538,7 +1539,7 @@
 
     "@tanstack/ai-event-client": ["@tanstack/ai-event-client@0.6.8", "", { "dependencies": { "@tanstack/devtools-event-client": "^0.4.1" } }, "sha512-h7/HLz9u2LF9ba6uKFMnSZkFlkzQONJ5u3Hi+4qGxpsHyvcGRtW6v186jaFLoklndhEwyC49ytkC4eafi7Qq8w=="],
 
-    "@tanstack/ai-gemini": ["@tanstack/ai-gemini@0.19.0", "", { "dependencies": { "@google/genai": "^2.8.0", "@tanstack/ai-utils": "0.3.1", "partial-json": "^0.1.7" }, "peerDependencies": { "@tanstack/ai": "^0.39.0" } }, "sha512-4z8MvGNwog3ZUZT59Rh/4djxwLxUWj/3Ub+u846w4SuE5jzXAXZif/67VOF4tjvRfqq8IDa2yeYogp5mVc+VFw=="],
+    "@tanstack/ai-gemini": ["@tanstack/ai-gemini@0.19.1", "", { "dependencies": { "@google/genai": "^2.8.0", "@tanstack/ai-utils": "0.3.1", "partial-json": "^0.1.7" }, "peerDependencies": { "@tanstack/ai": "^0.40.0" } }, "sha512-oGXmHFymfPnx+stic811x7wNi3sFDA5oxuMVsfoQFdX1RDQmFPbwIHlKxz31lKYfSsOhiPu3ujZiIqQ5TXdQtw=="],
 
     "@tanstack/ai-openai": ["@tanstack/ai-openai@0.16.0", "", { "dependencies": { "@tanstack/ai-utils": "0.3.1", "@tanstack/openai-base": "0.9.7", "openai": "^6.41.0" }, "peerDependencies": { "@tanstack/ai": "^0.40.0", "zod": "^4.0.0" } }, "sha512-IB02HKOdBLva+5/9VaiLTvQxVIwksQthLqn5G9xWCfQRBekCTXFHyBj+YpmJ5axuL85zoqKUAw0PBVoRwUJi3Q=="],
 

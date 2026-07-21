@@ -130,6 +130,27 @@ describe('SessionEngineManager', () => {
     expect(manager.size()).toBe(0);
   });
 
+  it('has() reflects whether a session still has a live engine after evict()', () => {
+    manager = makeManager();
+    manager.getOrCreate('session-a', 'sk-key-a');
+    manager.getOrCreate('session-b', 'sk-key-b');
+    expect(manager.has('session-a')).toBe(true);
+    expect(manager.has('session-b')).toBe(true);
+
+    manager.evict('session-a');
+
+    expect(manager.has('session-a')).toBe(false);
+    expect(manager.has('session-b')).toBe(true);
+  });
+
+  it('has() is false for a session evicted by the idle TTL', async () => {
+    manager = makeManager({ idleTtlMs: 10 });
+    manager.getOrCreate('session-a', 'sk-key-a');
+    expect(manager.has('session-a')).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(manager.has('session-a')).toBe(false);
+  });
+
   it('evicts a session after the idle TTL elapses', async () => {
     manager = makeManager({ idleTtlMs: 10 });
     manager.getOrCreate('session-a', 'sk-key-a');

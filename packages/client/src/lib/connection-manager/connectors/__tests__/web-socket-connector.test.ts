@@ -87,6 +87,22 @@ describe('WebSocketConnector onOpen hook', () => {
     await connectAndOpen(connector);
     await connector.disconnect();
   });
+
+  test('rejects connect() and closes the socket when onOpen throws', async () => {
+    const onOpen = mock(() => {
+      throw new Error('onOpen boom');
+    });
+    const connector = new WebSocketConnector({ url: 'ws://test', onOpen });
+
+    const connectPromise = connector.connect(SessionId('session-onopen-throws'));
+    await Promise.resolve();
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error('FakeWebSocket was not constructed');
+    ws.emitOpen();
+
+    await expect(connectPromise).rejects.toThrow('onOpen boom');
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+  });
 });
 
 describe('WebSocketConnector wire contract', () => {
