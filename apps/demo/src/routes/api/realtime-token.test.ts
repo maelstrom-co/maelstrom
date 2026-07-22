@@ -122,6 +122,7 @@ const REASON_STATUS: Array<[MintResult, number]> = [
   [{ ok: false, error: { reason: 'unsupported-provider' } }, 400],
   [{ ok: false, error: { reason: 'missing-api-key' } }, 500],
   [{ ok: false, error: { reason: 'upstream-failure' } }, 502],
+  [{ ok: false, error: { reason: 'invalid-config' } }, 500],
 ];
 
 for (const [result, status] of REASON_STATUS) {
