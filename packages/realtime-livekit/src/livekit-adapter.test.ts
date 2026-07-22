@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import type { RealtimeAdapterEvent, UnixSeconds } from '@maelstrom-co/realtime';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import type { LiveKitTokenGrant } from './livekit-token.js';
+import type { LocalAudioPreRoll } from './local-audio-pre-roll.js';
 
 // --- Mocks for livekit-client ---
 
@@ -10,6 +11,29 @@ const mockRoomDisconnect = mock(async () => {});
 const mockPublishData = mock(async () => {});
 const mockSendText = mock(async (_text: string, _opts?: unknown) => ({}));
 const mockStartAudio = mock(async () => {});
+const mockPauseUpstream = mock(async () => {});
+const mockResumeUpstream = mock(async () => {});
+const mockReplaceTrack = mock(async () => {});
+const mockBridgeStartAutomaticTurn = mock(async (_preRollMs: number) => {});
+const mockBridgeStartManualTurn = mock(async () => {});
+const mockBridgeEndTurn = mock(async () => {});
+const mockBridgeDestroy = mock(async () => {});
+const mockGeneratedTrack = {
+  enabled: true,
+  stop: mock(() => {}),
+} as unknown as MediaStreamTrack;
+const mockBridge = {
+  track: mockGeneratedTrack,
+  startAutomaticTurn: mockBridgeStartAutomaticTurn,
+  startManualTurn: mockBridgeStartManualTurn,
+  endTurn: mockBridgeEndTurn,
+  destroy: mockBridgeDestroy,
+};
+const mockCreateLocalAudioPreRoll = mock<() => Promise<LocalAudioPreRoll>>(
+  async () => {
+    throw new Error('AudioWorklet unavailable');
+  },
+);
 
 // A live mic publication, returned by getTrackPublication(Source.Microphone).
 // The publication and its clone intentionally have independent enabled state:
@@ -30,6 +54,9 @@ const mockMicPublication = {
   track: {
     mediaStream: { id: 'published-mic-stream' } as unknown as MediaStream,
     mediaStreamTrack: mockPublishedMicTrack as unknown as MediaStreamTrack,
+    pauseUpstream: mockPauseUpstream,
+    resumeUpstream: mockResumeUpstream,
+    replaceTrack: mockReplaceTrack,
   },
 };
 
@@ -92,8 +119,12 @@ mock.module('livekit-client', () => ({
   setLogLevel: mock(() => {}),
 }));
 
+mock.module('./local-audio-pre-roll.js', () => ({
+  createLocalAudioPreRoll: mockCreateLocalAudioPreRoll,
+}));
+
 const { LiveKitAdapter } = await import('./livekit-adapter');
-const { SPEAK_TOPIC, TURN_TOPIC, TTS_TOPIC, SPEAK_UTTERANCE_ID_ATTR } =
+const { SPEAK_TOPIC, SPEAK_UTTERANCE_ID_ATTR, TURN_TOPIC, TTS_TOPIC } =
   await import('./protocol');
 
 // The utterance id the client stamped on the most recent speak text stream — the
@@ -170,9 +201,25 @@ describe('LiveKitAdapter connect', () => {
     });
     mockPublishedMicTrack.enabled = false;
     mockMicCloneTrack.enabled = false;
+    mockGeneratedTrack.enabled = true;
     mockPublishedMicTrack.clone.mockClear();
     mockPublishedMicTrack.stop.mockClear();
     mockMicCloneTrack.stop.mockClear();
+    mockCreateLocalAudioPreRoll.mockReset();
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => {
+      throw new Error('AudioWorklet unavailable');
+    });
+    mockPauseUpstream.mockReset();
+    mockResumeUpstream.mockReset();
+    mockReplaceTrack.mockReset();
+    mockBridgeStartAutomaticTurn.mockReset();
+    mockBridgeStartAutomaticTurn.mockImplementation(async () => {});
+    mockBridgeStartManualTurn.mockReset();
+    mockBridgeStartManualTurn.mockImplementation(async () => {});
+    mockBridgeEndTurn.mockReset();
+    mockBridgeEndTurn.mockImplementation(async () => {});
+    mockBridgeDestroy.mockReset();
+    mockBridgeDestroy.mockImplementation(async () => {});
   });
 
   test('emits connecting → connected and publishes+mutes the mic', async () => {
@@ -189,6 +236,265 @@ describe('LiveKitAdapter connect', () => {
       true,
       false,
     ]);
+  });
+
+  test('publishes one generated track and pauses upstream while automatic turns are idle', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(mockCreateLocalAudioPreRoll).toHaveBeenCalledTimes(1);
+    expect(mockReplaceTrack).toHaveBeenCalledWith(mockGeneratedTrack, true);
+    // Raw capture is paused before bridge setup, then the generated publication
+    // is paused again after replaceTrack resumes upstream internally.
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(2);
+    expect(mockSetMicrophoneEnabled.mock.calls.map((call) => call[0])).toEqual([
+      true,
+    ]);
+    expect(mockPublishedMicTrack.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps replacement audio disabled until LiveKit's replaceTrack resume is paused", async () => {
+    const order: string[] = [];
+    let upstreamPaused = false;
+    let generatedEnabledWhenReplacementResumed: boolean | undefined;
+    let pauseCount = 0;
+    let releaseReplacementPause!: () => void;
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockPauseUpstream.mockImplementation(() => {
+      pauseCount += 1;
+      upstreamPaused = true;
+      order.push('pause');
+      if (pauseCount === 2) {
+        return new Promise<void>((resolve) => {
+          releaseReplacementPause = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    mockReplaceTrack.mockImplementationOnce(async () => {
+      // livekit-client 2.13.1 resumes upstream as a replaceTrack side effect.
+      upstreamPaused = false;
+      generatedEnabledWhenReplacementResumed = mockGeneratedTrack.enabled;
+      order.push('replace-resumed');
+    });
+    const { adapter } = makeAdapter();
+
+    const connecting = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (mockPauseUpstream.mock.calls.length === 2) break;
+      await Promise.resolve();
+    }
+
+    expect(order).toEqual(['pause', 'replace-resumed', 'pause']);
+    expect(generatedEnabledWhenReplacementResumed).toBe(false);
+    expect(upstreamPaused).toBe(true);
+    expect(adapter.automaticTurnControl?.isAvailable()).toBe(false);
+
+    releaseReplacementPause();
+    await connecting;
+
+    expect(adapter.automaticTurnControl?.isAvailable()).toBe(true);
+  });
+
+  test('pauses the raw publication before asynchronous bridge initialization', async () => {
+    const order: string[] = [];
+    let rawEnabledDuringBridgeInitialization: boolean | undefined;
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      mockPublishedMicTrack.enabled = enabled;
+      order.push(enabled ? 'enable' : 'disable');
+    });
+    mockPauseUpstream.mockImplementationOnce(async () => {
+      order.push('pause');
+    });
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => {
+      order.push('bridge-init');
+      rawEnabledDuringBridgeInitialization = mockPublishedMicTrack.enabled;
+      return mockBridge;
+    });
+    const { adapter } = makeAdapter();
+
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(order).toEqual(['enable', 'pause', 'bridge-init']);
+    expect(rawEnabledDuringBridgeInitialization).toBe(false);
+  });
+
+  test('restores native upstream control after bridge initialization falls back to manual', async () => {
+    const order: string[] = [];
+    mockPauseUpstream.mockImplementationOnce(async () => {
+      order.push('pause');
+    });
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      order.push(enabled ? 'enable' : 'disable');
+    });
+    mockResumeUpstream.mockImplementationOnce(async () => {
+      order.push('resume');
+    });
+    const { adapter } = makeAdapter();
+
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.turnControl.startTurn();
+
+    expect(order).toEqual(['enable', 'pause', 'disable', 'resume', 'enable']);
+  });
+
+  test('cleans raw, clone, and generated resources when track replacement fails', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockReplaceTrack.mockImplementationOnce(async () => {
+      throw new Error('replace failed');
+    });
+    const { adapter } = makeAdapter();
+
+    await expect(
+      adapter.connect({ tools: [], instructions: '' }),
+    ).rejects.toThrow('replace failed');
+
+    expect(mockPublishedMicTrack.stop).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
+    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+  });
+
+  test('owns and destroys the generated bridge while track replacement is pending', async () => {
+    let releaseReplace!: () => void;
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockReplaceTrack.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseReplace = resolve)),
+    );
+    const { adapter } = makeAdapter();
+
+    const connecting = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (mockReplaceTrack.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+    expect(mockReplaceTrack).toHaveBeenCalledTimes(1);
+
+    await adapter.disconnect();
+
+    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
+    releaseReplace();
+    await expect(connecting).rejects.toMatchObject({
+      code: 'CONNECT_SUPERSEDED',
+    });
+  });
+
+  test('destroys a bridge that finishes initializing after disconnect', async () => {
+    let releaseBridge!: (bridge: LocalAudioPreRoll) => void;
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(
+      () =>
+        new Promise<LocalAudioPreRoll>((resolve) => {
+          releaseBridge = resolve;
+        }),
+    );
+    const { adapter } = makeAdapter();
+
+    const connecting = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (mockCreateLocalAudioPreRoll.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+    expect(mockCreateLocalAudioPreRoll).toHaveBeenCalledTimes(1);
+
+    await adapter.disconnect();
+    releaseBridge(mockBridge);
+
+    await expect(connecting).rejects.toMatchObject({
+      code: 'CONNECT_SUPERSEDED',
+    });
+    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+    expect(mockReplaceTrack).not.toHaveBeenCalled();
+  });
+
+  test('resumes upstream before flushing pre-roll and pauses after the automatic tail drains', async () => {
+    const order: string[] = [];
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockResumeUpstream.mockImplementation(async () => {
+      order.push('resume');
+    });
+    mockBridgeStartAutomaticTurn.mockImplementation(async () => {
+      order.push('pre-roll');
+    });
+    mockBridgeEndTurn.mockImplementation(async () => {
+      order.push('tail-drained');
+    });
+    mockPauseUpstream.mockImplementation(async () => {
+      order.push('pause');
+    });
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    order.length = 0;
+
+    await adapter.automaticTurnControl?.startTurn({ preRollMs: 250 });
+    await adapter.automaticTurnControl?.endTurn();
+
+    expect(order).toEqual(['resume', 'pre-roll', 'tail-drained', 'pause']);
+    expect(mockBridgeStartAutomaticTurn).toHaveBeenCalledWith(250);
+  });
+
+  test('pauses upstream when automatic tail draining fails', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const tailError = new Error('worklet stopped');
+    mockBridgeEndTurn.mockImplementationOnce(async () => {
+      throw tailError;
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPauseUpstream.mockClear();
+    mockPublishData.mockClear();
+
+    const error = await adapter.automaticTurnControl.endTurn().then(
+      () => undefined,
+      (cause: unknown) => cause,
+    );
+
+    expect(error).toMatchObject({ turnFinalized: true, cause: tailError });
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
+    expect(mockPublishData).toHaveBeenCalledTimes(1);
+    expect(states(events).at(-1)).toBe('thinking');
+  });
+
+  test('pauses upstream when automatic start acknowledgement fails', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
+      throw new Error('worklet acknowledgement timed out');
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPauseUpstream.mockClear();
+
+    await expect(
+      adapter.automaticTurnControl.startTurn({ preRollMs: 250 }),
+    ).rejects.toThrow('worklet acknowledgement timed out');
+
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
+    expect(states(events)).not.toContain('listening');
+  });
+
+  test('manual turn control remains direct and never consumes automatic pre-roll', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.turnControl.startTurn();
+    await adapter.turnControl.endTurn();
+
+    expect(mockBridgeStartManualTurn).toHaveBeenCalledTimes(1);
+    expect(mockBridgeStartAutomaticTurn).not.toHaveBeenCalled();
+    expect(mockBridgeEndTurn).toHaveBeenCalledTimes(1);
+  });
+
+  test('destroys the generated audio generation on disconnect', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.disconnect();
+
+    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
   });
 
   test('a token failure wraps as TOKEN_MINT_FAILED, tears down, and ends in error state', async () => {
@@ -400,6 +706,7 @@ describe('LiveKitAdapter disconnect teardown', () => {
     currentRoom = makeMockRoom();
     mockRoomConnect.mockReset();
     mockRoomDisconnect.mockReset();
+    mockRoomDisconnect.mockImplementation(async () => {});
     mockSetMicrophoneEnabled.mockReset();
   });
 
@@ -424,6 +731,28 @@ describe('LiveKitAdapter disconnect teardown', () => {
     await expect(
       adapter.connect({ tools: [], instructions: '' }),
     ).resolves.toBeUndefined();
+  });
+
+  test('disables and destroys local audio before awaiting room disconnect', async () => {
+    const order: string[] = [];
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockBridgeDestroy.mockImplementationOnce(async () => {
+      order.push('destroy-local-audio');
+    });
+    mockRoomDisconnect.mockImplementationOnce(async () => {
+      order.push('disconnect-room');
+    });
+    const { adapter } = makeAdapter();
+    mockMicCloneTrack.stop.mockClear();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.disconnect();
+    await adapter.disconnect();
+
+    expect(order).toEqual(['destroy-local-audio', 'disconnect-room']);
+    expect(mockGeneratedTrack.enabled).toBe(false);
+    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -788,6 +1117,339 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(states(events).at(-1)).toBe('listening');
   });
 
+  test('mutes already-playing remote audio before awaiting the cancel publish', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    let audio!: HTMLAudioElement;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+      },
+    });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    expect(audio).toBeDefined();
+    audio.muted = false;
+    Object.defineProperty(audio, 'paused', {
+      configurable: true,
+      value: false,
+    });
+    mockSetMicrophoneEnabled.mockClear();
+
+    let releaseCancel!: () => void;
+    mockPublishData.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          expect(audio.muted).toBe(true);
+          expect(audio.paused).toBe(false);
+          releaseCancel = resolve;
+        }),
+    );
+
+    const starting = adapter.turnControl.startTurn();
+    await Promise.resolve();
+    expect(audio.muted).toBe(true);
+    expect(mockSetMicrophoneEnabled).not.toHaveBeenCalledWith(true);
+
+    releaseCancel();
+    await starting;
+  });
+
+  test('latches a barge-in mute before the remote audio sink is attached', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+
+    await adapter.turnControl.startTurn();
+
+    let audio!: HTMLAudioElement;
+    let mutedAtAttach: boolean | undefined;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+        mutedAtAttach = element.muted;
+      },
+    });
+    expect(mutedAtAttach).toBe(true);
+
+    await adapter.sendToolResult('call-2' as never, {
+      ok: true,
+      summary: 'New turn.',
+    });
+    expect(audio.muted).toBe(false);
+  });
+
+  test('serializes endTurn behind a delayed barge-in start so the hidden turn stays muted', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    mockSetMicrophoneEnabled.mockClear();
+    mockPublishData.mockClear();
+    let releaseCancel!: () => void;
+    mockPublishData.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseCancel = resolve)),
+    );
+
+    const starting = adapter.turnControl.startTurn();
+    await Promise.resolve();
+    const ending = adapter.turnControl.endTurn();
+    await Promise.resolve();
+
+    releaseCancel();
+    await Promise.all([starting, ending]);
+
+    expect(mockSetMicrophoneEnabled.mock.calls.map((call) => call[0])).toEqual([
+      true,
+      false,
+    ]);
+    const publishCalls = mockPublishData.mock.calls as unknown as [
+      Uint8Array,
+      unknown,
+    ][];
+    const turnMessages = publishCalls.map(([payload]) =>
+      JSON.parse(new TextDecoder().decode(payload)),
+    );
+    expect(turnMessages).toEqual([
+      { type: 'tts_cancel' },
+      { type: 'turn_end' },
+    ]);
+  });
+
+  test('serializes endTurn behind delayed upstream resume and finishes paused', async () => {
+    const order: string[] = [];
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPauseUpstream.mockClear();
+    mockPublishData.mockClear();
+    mockBridgeStartManualTurn.mockImplementationOnce(async () => {
+      order.push('manual-start');
+    });
+    mockBridgeEndTurn.mockImplementationOnce(async () => {
+      order.push('tail-drained');
+    });
+    mockPauseUpstream.mockImplementationOnce(async () => {
+      order.push('pause');
+    });
+    let releaseResume!: () => void;
+    mockResumeUpstream.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push('resume');
+          releaseResume = resolve;
+        }),
+    );
+
+    const starting = adapter.turnControl.startTurn();
+    await Promise.resolve();
+    const ending = adapter.turnControl.endTurn();
+    await Promise.resolve();
+
+    expect(order).toEqual(['resume']);
+    releaseResume();
+    await Promise.all([starting, ending]);
+
+    expect(order).toEqual(['resume', 'manual-start', 'tail-drained', 'pause']);
+    expect(mockPublishData).toHaveBeenCalledTimes(1);
+  });
+
+  test('disconnect fences an in-flight start and its queued end from a replacement room', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    mockSetMicrophoneEnabled.mockClear();
+    mockPublishData.mockClear();
+    let releaseCancel!: () => void;
+    mockPublishData.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseCancel = resolve)),
+    );
+
+    const starting = adapter.turnControl.startTurn();
+    await Promise.resolve();
+    const ending = adapter.turnControl.endTurn();
+    await Promise.resolve();
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    const stateCountAfterReconnect = states(events).length;
+    mockSetMicrophoneEnabled.mockClear();
+    mockPublishData.mockClear();
+
+    releaseCancel();
+    await Promise.all([starting, ending]);
+
+    expect(mockSetMicrophoneEnabled).not.toHaveBeenCalled();
+    expect(mockPublishData).not.toHaveBeenCalled();
+    expect(states(events).slice(stateCountAfterReconnect)).toEqual([]);
+  });
+
+  test('disconnect fences an in-flight end after its delayed local drain', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    let releaseDrain!: () => void;
+    mockBridgeEndTurn.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseDrain = resolve)),
+    );
+
+    const ending = adapter.turnControl.endTurn();
+    await Promise.resolve();
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    const stateCountAfterReconnect = states(events).length;
+    mockPauseUpstream.mockClear();
+    mockPublishData.mockClear();
+
+    releaseDrain();
+    await ending;
+
+    expect(mockPauseUpstream).not.toHaveBeenCalled();
+    expect(mockPublishData).not.toHaveBeenCalled();
+    expect(states(events).slice(stateCountAfterReconnect)).toEqual([]);
+  });
+
+  test('an automatic-turn handle from a retired connection cannot end the replacement turn', async () => {
+    mockCreateLocalAudioPreRoll
+      .mockImplementationOnce(async () => mockBridge)
+      .mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const retiredHandle = adapter.automaticTurnControl.createHandle?.();
+    expect(retiredHandle).toBeDefined();
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    const replacementHandle = adapter.automaticTurnControl.createHandle?.();
+    expect(replacementHandle).toBeDefined();
+    await replacementHandle?.startTurn({ preRollMs: 250 });
+    mockBridgeEndTurn.mockClear();
+    mockPauseUpstream.mockClear();
+    mockPublishData.mockClear();
+
+    await retiredHandle?.endTurn();
+
+    expect(mockBridgeEndTurn).not.toHaveBeenCalled();
+    expect(mockPauseUpstream).not.toHaveBeenCalled();
+    expect(mockPublishData).not.toHaveBeenCalled();
+
+    await replacementHandle?.endTurn();
+    expect(mockBridgeEndTurn).toHaveBeenCalledTimes(1);
+    expect(mockPublishData).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not mute playback for an ordinary listening start', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    let audio!: HTMLAudioElement;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+      },
+    });
+
+    await adapter.turnControl.startTurn();
+
+    expect(audio.muted).toBe(false);
+  });
+
+  test('stale TTS completion does not unmute a barge-in-muted player', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    let audio!: HTMLAudioElement;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+      },
+    });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    await adapter.turnControl.startTurn();
+
+    currentRoom._emit(
+      'dataReceived',
+      encodeTts('tts_done'),
+      undefined,
+      undefined,
+      TTS_TOPIC,
+    );
+
+    expect(audio.muted).toBe(true);
+  });
+
+  test('the next assistant TTS handoff unmutes playback', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    let audio!: HTMLAudioElement;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+      },
+    });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    await adapter.turnControl.startTurn();
+    expect(audio.muted).toBe(true);
+
+    await adapter.sendToolResult('call-2' as never, {
+      ok: true,
+      summary: 'New turn.',
+    });
+
+    expect(audio.muted).toBe(false);
+  });
+
+  test('repeated barge-in calls publish one cancel and enable the mic once', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    mockPublishData.mockClear();
+    mockSetMicrophoneEnabled.mockClear();
+    let releaseCancel!: () => void;
+    mockPublishData.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseCancel = resolve)),
+    );
+
+    const first = adapter.turnControl.startTurn();
+    const second = adapter.turnControl.startTurn();
+    await Promise.resolve();
+    releaseCancel();
+    await Promise.all([first, second]);
+
+    expect(mockPublishData).toHaveBeenCalledTimes(1);
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledTimes(1);
+  });
+
   test('a startTurn from connected (no assistant audio) does not publish tts_cancel', async () => {
     const { adapter } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
@@ -845,6 +1507,59 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     }
   });
 
+  test('a microphone-enable failure recovers playback from the barge-in mute', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    let audio!: HTMLAudioElement;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+      },
+    });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+      throw new Error('mic unavailable');
+    });
+
+    await adapter.turnControl.startTurn();
+
+    expect(audio.muted).toBe(false);
+  });
+
+  test('a cancel publish failure leaves a recoverable mute until the next TTS handoff', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    let audio!: HTMLAudioElement;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+      },
+    });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    mockPublishData.mockImplementationOnce(async () => {
+      throw new Error('data channel closed');
+    });
+
+    await adapter.turnControl.startTurn();
+
+    expect(audio.muted).toBe(true);
+    await adapter.sendToolResult('call-2' as never, {
+      ok: true,
+      summary: 'Recovered.',
+    });
+    expect(audio.muted).toBe(false);
+  });
+
   test('a tts_done arriving after a barge-in does not stomp the newer listening state', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
@@ -868,6 +1583,57 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       TTS_TOPIC,
     );
     expect(states(events).at(-1)).toBe('listening');
+  });
+
+  test('disconnect removes the hidden player and resets its mute state', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    let audio!: HTMLAudioElement;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+      },
+    });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    await adapter.turnControl.startTurn();
+    expect(audio.muted).toBe(true);
+    const removeSpy = spyOn(audio, 'remove');
+
+    await adapter.disconnect();
+
+    expect(audio.muted).toBe(false);
+    expect(removeSpy).toHaveBeenCalledTimes(1);
+    expect(adapter.getAudioStreams().playback).toBeUndefined();
+  });
+
+  test('disconnect clears a latched mute before reconnect attaches a sink', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Talking.',
+    });
+    await adapter.turnControl.startTurn();
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    let audio!: HTMLAudioElement;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'next-tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+      },
+    });
+
+    expect(audio.muted).toBe(false);
   });
 });
 
@@ -1111,7 +1877,9 @@ describe('LiveKitAdapter misc surface', () => {
     await adapter.connect({ tools: [], instructions: '' });
 
     const mic = adapter.getAudioStreams().mic;
-    expect(mic?.getAudioTracks()[0]).toBe(mockMicCloneTrack as unknown as MediaStreamTrack);
+    expect(mic?.getAudioTracks()[0]).toBe(
+      mockMicCloneTrack as unknown as MediaStreamTrack,
+    );
     expect(mockPublishedMicTrack.enabled).toBe(false);
     expect(mockMicCloneTrack.enabled).toBe(true);
     expect(mockPublishedMicTrack.clone).toHaveBeenCalledTimes(1);
@@ -1153,23 +1921,29 @@ describe('LiveKitAdapter misc surface', () => {
   test('stops a clone exactly once when a connect attempt fails after cloning', async () => {
     const { adapter } = makeAdapter();
     const cause = new Error('mute failed');
-    mockSetMicrophoneEnabled.mockImplementationOnce(async (enabled: boolean) => {
-      mockPublishedMicTrack.enabled = enabled;
-    });
+    mockSetMicrophoneEnabled.mockImplementationOnce(
+      async (enabled: boolean) => {
+        mockPublishedMicTrack.enabled = enabled;
+      },
+    );
     mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
       throw cause;
     });
 
-    const error = await adapter
-      .connect({ tools: [], instructions: '' })
-      .then(() => undefined, (connectionError: unknown) => connectionError);
+    const error = await adapter.connect({ tools: [], instructions: '' }).then(
+      () => undefined,
+      (connectionError: unknown) => connectionError,
+    );
     expect(error).toBeInstanceOf(RealtimeVoiceError);
     expect((error as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
     expect((error as RealtimeVoiceError).cause).toBe(cause);
 
     expect(mockPublishedMicTrack.clone).toHaveBeenCalledTimes(1);
     expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
-    expect(adapter.getAudioStreams()).toEqual({ mic: undefined, playback: undefined });
+    expect(adapter.getAudioStreams()).toEqual({
+      mic: undefined,
+      playback: undefined,
+    });
   });
 
   test('stops the old clone before creating one for a reconnect', async () => {

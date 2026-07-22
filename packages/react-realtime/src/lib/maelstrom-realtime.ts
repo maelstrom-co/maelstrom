@@ -2,27 +2,28 @@ import type {
   Orchestrator,
   TranscriptEntry,
   VoiceSessionState,
-} from '@maelstrom-co/client';
-import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
+} from "@maelstrom-co/client";
+import type { SessionId, SidechannelEvent } from "@maelstrom-co/protocol";
 import type {
   MaelstromExtension,
   MaelstromExtensionContext,
-} from '@maelstrom-co/react';
+} from "@maelstrom-co/react";
 import type {
+  AdapterAutomaticTurnControl,
   AdapterTurnControl,
   RealtimeInstance,
   RealtimeProviderAdapter,
   SummarizeFn,
-} from '@maelstrom-co/realtime';
-import { RealtimeSession } from '@maelstrom-co/realtime';
-import type { RealTimeVADOptions } from '@ricky0123/vad-web';
-import { type ReactElement, useCallback, useEffect, useState } from 'react';
+} from "@maelstrom-co/realtime";
+import { RealtimeSession } from "@maelstrom-co/realtime";
+import type { RealTimeVADOptions } from "@ricky0123/vad-web";
+import { type ReactElement, useCallback, useEffect, useState } from "react";
 
 import {
   type BrowserVadController,
   createBrowserVadController,
-} from './browser-vad-controller.js';
-import { createVoiceOrb, type VoiceOrbProps } from './voice-orb.js';
+} from "./browser-vad-controller.js";
+import { createVoiceOrb, type VoiceOrbProps } from "./voice-orb.js";
 
 /** Context passed to {@link MaelstromRealtimeOptions.createAdapter}. */
 export interface CreateAdapterContext {
@@ -65,20 +66,20 @@ export interface MaelstromRealtimeOptions {
 }
 
 type BrowserVadReservedOption =
-  | 'audioContext'
-  | 'getStream'
-  | 'pauseStream'
-  | 'resumeStream'
-  | 'onSpeechStart'
-  | 'onSpeechEnd'
-  | 'onVADMisfire'
-  | 'onSpeechRealStart'
-  | 'onFrameProcessed'
-  | 'startOnLoad'
-  | 'submitUserSpeechOnPause'
-  | 'baseAssetPath'
-  | 'onnxWASMBasePath'
-  | 'ortConfig';
+  | "audioContext"
+  | "getStream"
+  | "pauseStream"
+  | "resumeStream"
+  | "onSpeechStart"
+  | "onSpeechEnd"
+  | "onVADMisfire"
+  | "onSpeechRealStart"
+  | "onFrameProcessed"
+  | "startOnLoad"
+  | "submitUserSpeechOnPause"
+  | "baseAssetPath"
+  | "onnxWASMBasePath"
+  | "ortConfig";
 
 /**
  * Non-lifecycle VAD tuning forwarded to `@ricky0123/vad-web`.
@@ -96,14 +97,27 @@ export type BrowserVadProviderOptions = Omit<
 /** Opt-in browser VAD configuration using self-hosted assets. */
 export interface BrowserVadConfig {
   /**
-   * Same-origin base URL containing the matching VAD worklet, Silero model
-   * files, and ONNX Runtime `.mjs`/`.wasm` files. Relative paths are supported.
-   * Consumers must publish the asset set generated for the exact
-   * `@ricky0123/vad-web` and `onnxruntime-web` versions they install.
+   * Operator-controlled directory containing the matching VAD worklet, Silero
+   * model files, and ONNX Runtime `.mjs`/`.wasm` files. Accepts a relative
+   * directory or an absolute HTTPS CDN directory; credentials, query strings,
+   * fragments, protocol-relative URLs, and non-HTTPS schemes are rejected and
+   * leave manual turn controls available as fallback.
+   *
+   * This is trusted deployment configuration, not a boundary for user-derived
+   * input. The operator remains responsible for trusting the configured host
+   * and publishing assets generated for the exact `@ricky0123/vad-web` and
+   * `onnxruntime-web` versions installed by the application.
    */
   readonly assetBaseUrl: string;
   /** Provider tuning; Maelstrom-owned lifecycle, asset, and runtime controls are excluded. */
   readonly providerOptions?: BrowserVadProviderOptions;
+  /**
+   * Browser-local transport pre-roll replayed once before automatic live audio.
+   * Applies only to `automaticTurnControl`; manual `turnControl` turns do not
+   * use it. This is distinct from `vad-web`'s detection-only `preSpeechPadMs`.
+   * Defaults to 250ms and is clamped to the adapter-safe 0–500ms range.
+   */
+  readonly preRollMs?: number;
   /**
    * Receives VAD initialization, lifecycle, and turn-callback failures that
    * switch automatic turns to manual fallback. Errors thrown by this callback
@@ -144,12 +158,19 @@ export interface UseVoiceResult {
    * `automatic` while browser VAD is active; `manual` means consumers delimit
    * turns through `turnControl` because VAD is absent, unavailable, or failed.
    */
-  readonly turnMode: 'automatic' | 'manual';
+  readonly turnMode: "automatic" | "manual";
   /** Browser VAD failure that caused manual fallback, if any. */
   readonly vadError: unknown;
   /** Connects the shared session. Safe to call from any consumer under the same Provider. */
   readonly connect: () => Promise<void>;
-  /** Disconnects the shared session immediately, regardless of other active consumers. */
+  /**
+   * Disconnects the shared session regardless of other active consumers.
+   * When browser VAD is active, its generation is fenced and given a bounded
+   * window to pause, close any automatic turn, drain transport pre-roll, and
+   * destroy itself before provider transport teardown starts. Cleanup failures
+   * are reported through `BrowserVadConfig.onError`; provider disconnect
+   * failures still reject this promise.
+   */
   readonly disconnect: () => Promise<void>;
 }
 
@@ -169,26 +190,32 @@ function createBridge(orchestrator: Orchestrator): RealtimeInstance {
 }
 
 /**
- * Adds realtime voice to a Maelstrom instance: `m.useVoice()` drives a
- * shared, provider-agnostic voice session whose `update_ui` tool calls flow
- * through the same intent path as keyboard input.
+ * Adds realtime voice bindings to a Maelstrom instance and provides the
+ * opt-in branch for browser-managed turn detection on cascaded adapters.
  *
- * @example
- * const m = createMaelstrom({ vessels }).with(
- *   maelstromRealtime({
- *     createAdapter: ({ sessionId }) => new OpenAIAdapter({ mintToken: () => mintOpenAIToken(sessionId) }),
- *   }),
- * );
+ * The builder exists because the value passed to `createMaelstrom().with()`
+ * must remain a normal {@link MaelstromExtension}, while cascaded STT→LLM→TTS
+ * adapters need extra browser VAD lifecycle that speech-native adapters do not.
+ * The builder itself is therefore the base extension: passing it directly to
+ * `.with()` must preserve the adapter's native turn handling and must not
+ * initialize browser VAD.
+ *
+ * `withVAD()` returns a separate extension rather than mutating that base.
+ * Its automatic path requires the same adapter generation to expose manual
+ * `turnControl`, `automaticTurnControl`, and a shared microphone stream. These
+ * capability boundaries are load-bearing: unavailable pre-roll or VAD
+ * initialization selects manual `turnControl` fallback instead of opening an
+ * unbuffered automatic turn.
  */
-export interface MaelstromRealtimeBuilder
-  extends MaelstromExtension<{
-    useVoice: () => UseVoiceResult;
-    VoiceOrb: (props: VoiceOrbProps) => ReactElement;
-  }> {
+export interface MaelstromRealtimeBuilder extends MaelstromExtension<{
+  useVoice: () => UseVoiceResult;
+  VoiceOrb: (props: VoiceOrbProps) => ReactElement;
+}> {
   /**
    * Returns a cascade extension with browser VAD and manual fallback. This is
-   * intended for adapters that expose both `turnControl` and a shared mic
-   * stream, such as LiveKit; it does not change the OpenAI realtime extension.
+   * intended for adapters that expose `turnControl`, `automaticTurnControl`,
+   * and a shared mic stream, such as LiveKit; it does not change the OpenAI
+   * realtime extension.
    */
   withVAD(config: BrowserVadConfig): MaelstromExtension<{
     useVoice: () => UseVoiceResult;
@@ -196,6 +223,27 @@ export interface MaelstromRealtimeBuilder
   }>;
 }
 
+/**
+ * Creates the React extension that adds a shared realtime voice session,
+ * `useVoice()`, and `VoiceOrb` to a Maelstrom instance.
+ *
+ * The returned builder is itself the provider-neutral base extension, suitable
+ * for speech-native adapters that manage turn detection. For cascaded adapters,
+ * call `.withVAD()` on the builder to create an extension with browser VAD and
+ * manual turn-control fallback.
+ *
+ * @param options - Configures the provider adapter, grounding, telemetry, and
+ * debug behavior for each shared realtime session.
+ * @returns An extension builder that can be passed directly to `.with()`, or
+ * used through `.withVAD()` to build the cascaded-adapter extension.
+ *
+ * @example
+ * const m = createMaelstrom({ vessels }).with(
+ *   maelstromRealtime({
+ *     createAdapter: ({ sessionId }) => createRealtimeAdapter(sessionId),
+ *   }),
+ * );
+ */
 export function maelstromRealtime(
   options: MaelstromRealtimeOptions,
 ): MaelstromRealtimeBuilder {
@@ -238,20 +286,25 @@ function createRealtimeExtension(
       sessions,
       session,
       turnControl: adapter.turnControl,
+      automaticTurnControl: adapter.automaticTurnControl,
       consumerCount: 0,
       desiredConnection: false,
-      phase: 'live',
+      phase: "live",
       generation: 0,
       reconciliation: Promise.resolve(),
       reconciliationQueued: false,
       cleanupStarted: false,
       cleanupPromise: undefined,
       vad: undefined,
+      vadRetirement: undefined,
+      vadGeneration: 0,
       vadError: undefined,
+      vadErrorGeneration: undefined,
       vadStateUnsubscribe: undefined,
       vadHandlers: new Set(),
-      reportVadError: (error) => {
+      reportVadError: (error, generation = entry.vadGeneration) => {
         entry.vadError = error;
+        entry.vadErrorGeneration = generation;
         notifyVad(entry);
         try {
           options.vad?.onError?.(error);
@@ -266,60 +319,123 @@ function createRealtimeExtension(
   }
 
   function attachVad(entry: VoiceSessionEntry): void {
-    if (!entry.turnControl || entry.phase !== 'live') return;
+    if (
+      !entry.turnControl ||
+      entry.phase !== "live" ||
+      entry.session.state === "error" ||
+      entry.vadRetirement
+    )
+      return;
     if (!entry.vad) {
-      entry.vad = createBrowserVadController({
+      const generation = ++entry.vadGeneration;
+      let controller: BrowserVadController | undefined;
+      controller = createBrowserVadController({
         session: entry.session,
-        turnControl: entry.turnControl,
-        assetBaseUrl: options.vad?.assetBaseUrl ?? '/vad-web/',
+        automaticTurnControl: entry.automaticTurnControl,
+        assetBaseUrl: options.vad?.assetBaseUrl ?? "/vad-web/",
         providerOptions: options.vad?.providerOptions,
-        onError: entry.reportVadError,
+        preRollMs: options.vad?.preRollMs,
+        onError: (error) => {
+          if (
+            entry.phase === "live" &&
+            entry.vadGeneration === generation &&
+            entry.vad === controller
+          )
+            entry.reportVadError(error, generation);
+        },
       });
+      entry.vad = controller;
     }
     if (entry.vadStateUnsubscribe) return;
-    entry.vadStateUnsubscribe = entry.session.on('state', (state) => {
-      if (state === 'connected') void maybeStartVad(entry);
-      if (state === 'idle') void pauseVad(entry);
+    entry.vadStateUnsubscribe = entry.session.on("state", (state) => {
+      if (state === "connected") {
+        attachVad(entry);
+        void maybeStartVad(entry);
+      }
+      if (state === "idle" || state === "error")
+        void retireVadGeneration(entry);
       notifyVad(entry);
     });
   }
 
   async function maybeStartVad(entry: VoiceSessionEntry): Promise<void> {
-    await enqueueReconciliation(entry, (generation) => {
+    await enqueueReconciliation(entry, async (generation) => {
+      const vadRetirement = entry.vadRetirement;
+      if (vadRetirement) await vadRetirement;
+      attachVad(entry);
       if (
         !isLive(entry, generation) ||
         !entry.desiredConnection ||
-        entry.session.state !== 'connected' ||
+        entry.session.state !== "connected" ||
         !entry.session.getAudioStreams().mic ||
         !entry.vad ||
-        entry.vad.state.mode === 'active'
+        entry.vad.state.mode === "active"
       )
         return;
       const controller = entry.vad;
+      const vadGeneration = entry.vadGeneration;
       return controller.start().then(() => {
         if (
           isLive(entry, generation) &&
           entry.desiredConnection &&
-          entry.vad === controller
-        )
+          entry.vadGeneration === vadGeneration &&
+          entry.vad === controller &&
+          controller.state.mode === "active"
+        ) {
+          if (
+            entry.vadErrorGeneration !== undefined &&
+            entry.vadErrorGeneration < vadGeneration
+          ) {
+            entry.vadError = undefined;
+            entry.vadErrorGeneration = undefined;
+          }
           notifyVad(entry);
+        }
       });
     });
   }
 
-  async function pauseVad(entry: VoiceSessionEntry): Promise<void> {
-    await enqueueReconciliation(entry, (generation) => {
-      if (!isLive(entry, generation) || !entry.vad) return;
-      const controller = entry.vad;
-      return controller.pause().then(() => {
-        if (isLive(entry, generation) && entry.vad === controller)
-          notifyVad(entry);
-      });
-    });
+  /**
+   * Fences the current microphone generation, then gives its serialized VAD
+   * pause/end/drain and destroy sequence one bounded cleanup window. Concurrent
+   * callers share that retirement even after the fenced controller is cleared.
+   */
+  async function retireVadGeneration(entry: VoiceSessionEntry): Promise<void> {
+    if (entry.vadRetirement) {
+      await entry.vadRetirement;
+      return;
+    }
+    if (!isLive(entry, entry.generation) || !entry.vad) return;
+    const controller = entry.vad;
+    const vadGeneration = entry.vadGeneration;
+    entry.vad = undefined;
+    entry.vadGeneration += 1;
+    const retirement = cleanupWithin(
+      async () => {
+        try {
+          await controller.pause();
+        } catch (error) {
+          entry.reportVadError(error, vadGeneration);
+        }
+        try {
+          await controller.destroy();
+        } catch (error) {
+          entry.reportVadError(error, vadGeneration);
+        }
+      },
+      (error) => entry.reportVadError(error, vadGeneration),
+    ).then(() => undefined);
+    entry.vadRetirement = retirement;
+    notifyVad(entry);
+    try {
+      await retirement;
+    } finally {
+      if (entry.vadRetirement === retirement) entry.vadRetirement = undefined;
+    }
   }
 
   function maybeStartVadIfConnected(entry: VoiceSessionEntry): void {
-    if (entry.session.state === 'connected') void maybeStartVad(entry);
+    if (entry.session.state === "connected") void maybeStartVad(entry);
   }
 
   return (ctx: MaelstromExtensionContext) => {
@@ -342,7 +458,7 @@ function createRealtimeExtension(
       const [vadPolicy, setVadPolicy] = useState(() => getVadPolicy(entry));
 
       useEffect(() => {
-        const unsubscribe = session.on('state', (next) => {
+        const unsubscribe = session.on("state", (next) => {
           setState(next);
           setError(session.lastError);
         });
@@ -364,17 +480,23 @@ function createRealtimeExtension(
       }, [entry]);
 
       useEffect(() => {
-        return session.on('transcript', (entry) => {
+        return session.on("transcript", (transcript) => {
           const setTranscript =
-            entry.role === 'user' ? setUserTranscript : setAssistantTranscript;
+            transcript.role === "user"
+              ? setUserTranscript
+              : setAssistantTranscript;
           setTranscript((prev) => {
             // A final entry replaces the accumulation with its own full text;
             // a non-final entry appends onto the building string, starting a
             // fresh accumulation if the previous entry for this role was
             // already final (or there wasn't one yet).
-            if (entry.final) return entry;
-            const base = prev && !prev.final ? prev.text : '';
-            return { role: entry.role, text: base + entry.text, final: false };
+            if (transcript.final) return transcript;
+            const base = prev && !prev.final ? prev.text : "";
+            return {
+              role: transcript.role,
+              text: base + transcript.text,
+              final: false,
+            };
           });
         });
       }, [session]);
@@ -399,7 +521,10 @@ function createRealtimeExtension(
         if (isLive(entry, generation) && entry.desiredConnection)
           await maybeStartVad(entry);
       }, [entry, session]);
-      const disconnect = useCallback(() => session.disconnect(), [session]);
+      const disconnect = useCallback(async () => {
+        await retireVadGeneration(entry);
+        await session.disconnect();
+      }, [entry, session]);
 
       return {
         state,
@@ -420,13 +545,13 @@ function createRealtimeExtension(
 }
 
 function getVadPolicy(entry: VoiceSessionEntry): {
-  mode: 'automatic' | 'manual';
+  mode: "automatic" | "manual";
   error: unknown;
 } {
   const state = entry.vad?.state;
   return {
     mode:
-      entry.turnControl && state?.mode === 'active' ? 'automatic' : 'manual',
+      entry.turnControl && state?.mode === "active" ? "automatic" : "manual",
     error: entry.vadError ?? state?.error,
   };
 }
@@ -445,23 +570,35 @@ interface VoiceSessionEntry {
   readonly sessions: WeakMap<Orchestrator, VoiceSessionEntry>;
   readonly session: RealtimeSession;
   readonly turnControl: AdapterTurnControl | undefined;
+  /** Automatic boundary capability captured from the same adapter generation. */
+  readonly automaticTurnControl: AdapterAutomaticTurnControl | undefined;
   consumerCount: number;
   desiredConnection: boolean;
-  phase: 'live' | 'retiring' | 'retired';
+  phase: "live" | "retiring" | "retired";
   generation: number;
   reconciliation: Promise<void>;
   reconciliationQueued: boolean;
   cleanupStarted: boolean;
   cleanupPromise: Promise<void> | undefined;
   vad: BrowserVadController | undefined;
+  /** Current bounded pause-and-destroy sequence, shared by concurrent lifecycle paths. */
+  vadRetirement: Promise<void> | undefined;
+  /** Fences callbacks from VAD controllers retired during reconnect. */
+  vadGeneration: number;
   vadError: unknown;
+  /** Generation that last entered manual fallback, used to preserve newer failures. */
+  vadErrorGeneration: number | undefined;
   vadStateUnsubscribe: (() => void) | undefined;
   readonly vadHandlers: Set<() => void>;
-  readonly reportVadError: (error: unknown) => void;
+  readonly reportVadError: (error: unknown, generation?: number) => void;
 }
 
-const TEARDOWN_TIMEOUT_MS = 25;
+// Twice the adapter's 250ms worklet acknowledgement bound leaves scheduling
+// headroom for the serialized pause/end/drain path without allowing cleanup to
+// hold transport disconnect indefinitely.
+const TEARDOWN_TIMEOUT_MS = 500;
 
+/** Reports rejection or timeout and resolves false without cancelling the operation. */
 function cleanupWithin(
   operation: () => Promise<void>,
   report: (error: unknown) => void,
@@ -471,7 +608,7 @@ function cleanupWithin(
     const timer = globalThis.setTimeout(() => {
       if (settled) return;
       settled = true;
-      report(new Error('Voice session cleanup timed out'));
+      report(new Error("Voice session cleanup timed out"));
       resolve(false);
     }, TEARDOWN_TIMEOUT_MS);
 
@@ -499,7 +636,7 @@ type Reconciliation = (generation: number) => Promise<void> | void;
 
 function isLive(entry: VoiceSessionEntry, generation: number): boolean {
   return (
-    entry.phase === 'live' &&
+    entry.phase === "live" &&
     entry.generation === generation &&
     entry.sessions.get(entry.orchestrator) === entry
   );
@@ -530,7 +667,7 @@ function requestReconciliation(
   entry.reconciliationQueued = true;
   queueMicrotask(() => {
     entry.reconciliationQueued = false;
-    if (entry.phase !== 'live' || entry.consumerCount > 0) return;
+    if (entry.phase !== "live" || entry.consumerCount > 0) return;
     retireEntry(orchestrator, entry, sessions);
   });
 }
@@ -540,13 +677,14 @@ function retireEntry(
   entry: VoiceSessionEntry,
   sessions: WeakMap<Orchestrator, VoiceSessionEntry>,
 ): void {
-  if (entry.phase !== 'live' || entry.consumerCount > 0) return;
-  entry.phase = 'retiring';
+  if (entry.phase !== "live" || entry.consumerCount > 0) return;
+  entry.phase = "retiring";
   entry.generation += 1;
   if (sessions.get(orchestrator) === entry) sessions.delete(orchestrator);
 
   const controller = entry.vad;
   entry.vad = undefined;
+  entry.vadGeneration += 1;
   const unsubscribe = entry.vadStateUnsubscribe;
   entry.vadStateUnsubscribe = undefined;
   if (unsubscribe) {
@@ -561,14 +699,19 @@ function retireEntry(
   entry.cleanupStarted = true;
   const report = (error: unknown) => entry.reportVadError(error);
   entry.cleanupPromise = (async () => {
-    await Promise.all([
-      cleanupWithin(() => controller?.pause() ?? Promise.resolve(), report),
-      cleanupWithin(() => entry.session.disconnect(), report),
-    ]);
-    await cleanupWithin(
-      () => controller?.destroy() ?? Promise.resolve(),
-      report,
-    );
-    entry.phase = 'retired';
+    const vadRetirement = entry.vadRetirement;
+    if (vadRetirement) await vadRetirement;
+    else
+      await cleanupWithin(
+        () => controller?.pause() ?? Promise.resolve(),
+        report,
+      );
+    await cleanupWithin(() => entry.session.disconnect(), report);
+    if (!vadRetirement)
+      await cleanupWithin(
+        () => controller?.destroy() ?? Promise.resolve(),
+        report,
+      );
+    entry.phase = "retired";
   })();
 }

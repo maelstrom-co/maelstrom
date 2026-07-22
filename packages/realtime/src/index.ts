@@ -16,6 +16,8 @@ export { ConnectRaceGuard } from './lib/connect-race-guard.js';
 export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
 export type {
   AdapterAudioStreams,
+  AdapterAutomaticTurnControl,
+  AdapterAutomaticTurnOptions,
   AdapterConnectOptions,
   AdapterTurnControl,
   RealtimeAdapterEvent,

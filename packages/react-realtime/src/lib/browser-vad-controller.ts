@@ -1,10 +1,10 @@
 import type {
   AdapterAudioStreams,
-  AdapterTurnControl,
-} from '@maelstrom-co/realtime';
-import type { RealTimeVADOptions } from '@ricky0123/vad-web';
+  AdapterAutomaticTurnControl,
+} from "@maelstrom-co/realtime";
+import type { RealTimeVADOptions } from "@ricky0123/vad-web";
 
-import type { BrowserVadProviderOptions } from './maelstrom-realtime.js';
+import type { BrowserVadProviderOptions } from "./maelstrom-realtime.js";
 
 type MicVAD = {
   start(): Promise<void>;
@@ -18,18 +18,26 @@ type MicVADFactory = {
 
 type BrowserVadControllerOptions = {
   readonly session: { getAudioStreams(): AdapterAudioStreams };
-  readonly turnControl: AdapterTurnControl;
+  /** Adapter-owned automatic boundary control; absence forces manual fallback. */
+  readonly automaticTurnControl?: AdapterAutomaticTurnControl;
   readonly onError: (error: unknown) => void;
   readonly assetBaseUrl?: string;
   readonly providerOptions?: BrowserVadProviderOptions;
+  /** Browser-local transport tail requested at automatic speech start. */
+  readonly preRollMs?: number;
   readonly loadMicVAD?: () => Promise<MicVADFactory>;
 };
 
+type AutomaticTurnHandle = Pick<
+  AdapterAutomaticTurnControl,
+  "startTurn" | "endTurn"
+>;
+
 /** Browser VAD lifecycle; manual fallback keeps push-to-talk available. */
 export type BrowserVadControllerState =
-  | { readonly mode: 'idle'; readonly error?: undefined }
-  | { readonly mode: 'active'; readonly error?: undefined }
-  | { readonly mode: 'manual_fallback'; readonly error: unknown };
+  | { readonly mode: "idle"; readonly error?: undefined }
+  | { readonly mode: "active"; readonly error?: undefined }
+  | { readonly mode: "manual_fallback"; readonly error: unknown };
 
 /** Controls for the browser-owned VAD instance. */
 export type BrowserVadController = {
@@ -40,7 +48,7 @@ export type BrowserVadController = {
 };
 
 async function loadMicVAD(): Promise<MicVADFactory> {
-  const module = await import('@ricky0123/vad-web');
+  const module = await import("@ricky0123/vad-web");
   return module.MicVAD;
 }
 
@@ -49,21 +57,35 @@ async function loadMicVAD(): Promise<MicVADFactory> {
  *
  * The controller owns VAD lifecycle only; Maelstrom does not intentionally stop
  * the adapter's shared media tracks during VAD teardown.
- * Initialization and callback failures are reported through `onError` and
- * transition to `manual_fallback` instead of escaping into the React layer.
+ * Missing pre-roll capability, initialization failures, and callback failures
+ * are reported through `onError` and transition to `manual_fallback` instead of
+ * opening an unbuffered automatic turn or escaping into the React layer.
+ * Initialization captures one connection-bound automatic-turn handle; all
+ * later callbacks and cleanup use that handle, so a delayed pause from a
+ * retired controller cannot close a replacement connection's turn.
+ * Pausing fences pending speech callbacks and closes any automatic turn that
+ * started before the same controller is resumed.
+ * Speech boundaries are serialized; while a turn is ending, one idempotent
+ * next start and its matching end remain pending until that boundary closes.
  */
 export function createBrowserVadController(
   options: BrowserVadControllerOptions,
 ): BrowserVadController {
-  let state: BrowserVadControllerState = { mode: 'idle' };
+  let state: BrowserVadControllerState = { mode: "idle" };
   let vad: MicVAD | undefined;
+  let automaticTurnHandle: AutomaticTurnHandle | undefined;
   let destroyed = false;
   let speechActive = false;
   let speechStarting = false;
   let speechEnding = false;
   let endRequested = false;
   let callbacksEnabled = true;
+  let pauseRequested = false;
+  let speechGeneration = 0;
+  let startedTurnGeneration: number | undefined;
   let queue = Promise.resolve();
+  let pendingNextStart: Promise<void> | undefined;
+  let pendingNextEnd: Promise<void> | undefined;
   let fallbackPause: Promise<void> | undefined;
   let destroyRequested = false;
   let lifecycleSequence = 0;
@@ -71,10 +93,10 @@ export function createBrowserVadController(
   let destroyPromise: Promise<void> | undefined;
 
   const setFallback = (error: unknown) => {
-    if (!callbacksEnabled && state.mode === 'manual_fallback')
+    if (!callbacksEnabled && state.mode === "manual_fallback")
       return fallbackPause;
     callbacksEnabled = false;
-    state = { mode: 'manual_fallback', error };
+    state = { mode: "manual_fallback", error };
     fallbackPause = enqueue(async () => {
       await vad?.pause();
     }).catch(() => undefined);
@@ -92,59 +114,126 @@ export function createBrowserVadController(
     return next;
   };
 
+  const beginTurn = async (generation: number) => {
+    speechStarting = true;
+    try {
+      if (!automaticTurnHandle) {
+        throw new Error("The adapter does not support automatic turn pre-roll");
+      }
+      await automaticTurnHandle.startTurn({
+        preRollMs: normalizePreRollMs(options.preRollMs),
+      });
+      startedTurnGeneration = generation;
+      if (!destroyed && generation === speechGeneration) speechActive = true;
+    } finally {
+      if (generation === speechGeneration) speechStarting = false;
+    }
+  };
+
+  const finishTurn = async (generation: number) => {
+    if (startedTurnGeneration !== generation || destroyed) return;
+    if (generation === speechGeneration) speechEnding = true;
+    try {
+      if (!automaticTurnHandle) return;
+      try {
+        await automaticTurnHandle.endTurn();
+      } catch (error) {
+        if (isFinalizedAutomaticTurnError(error)) {
+          if (startedTurnGeneration === generation)
+            startedTurnGeneration = undefined;
+          if (generation === speechGeneration) speechActive = false;
+        }
+        throw error;
+      }
+      if (startedTurnGeneration === generation)
+        startedTurnGeneration = undefined;
+      if (generation === speechGeneration) speechActive = false;
+    } finally {
+      if (generation === speechGeneration) speechEnding = false;
+    }
+  };
+
   const startSpeech = () => {
     if (
       !callbacksEnabled ||
-      state.mode !== 'active' ||
-      speechActive ||
-      speechStarting ||
+      pauseRequested ||
+      state.mode !== "active" ||
       destroyed
     )
       return Promise.resolve();
-    speechStarting = true;
-    let startPromise: Promise<void>;
-    try {
-      startPromise = options.turnControl.startTurn();
-    } catch (error) {
-      speechStarting = false;
-      return setFallback(error);
+
+    if (endRequested || speechEnding) {
+      if (pendingNextStart) return pendingNextStart;
+      const generation = speechGeneration;
+      const scheduled = enqueue(async () => {
+        if (
+          !callbacksEnabled ||
+          pauseRequested ||
+          state.mode !== "active" ||
+          destroyed ||
+          generation !== speechGeneration
+        )
+          return;
+        await beginTurn(generation);
+      }).catch((error) => {
+        if (generation !== speechGeneration) return;
+        return setFallback(error);
+      });
+      const pending = scheduled.finally(() => {
+        if (pendingNextStart === pending) pendingNextStart = undefined;
+      });
+      pendingNextStart = pending;
+      return pending;
     }
+
+    if (speechStarting) return Promise.resolve();
+    if (speechActive) return Promise.resolve();
+    const generation = speechGeneration;
+    const startPromise = beginTurn(generation);
     return enqueue(async () => {
       await startPromise;
-      if (!destroyed) speechActive = true;
-    }).then(
-      () => {
-        speechStarting = false;
-      },
-      (error) => {
-        speechStarting = false;
-        return setFallback(error);
-      },
-    );
+    }).catch((error) => {
+      if (generation !== speechGeneration) return;
+      return setFallback(error);
+    });
   };
 
   const endSpeech = () => {
-    if (
-      !callbacksEnabled ||
-      state.mode !== 'active' ||
-      endRequested ||
-      speechEnding ||
-      (!speechActive && !speechStarting)
-    ) {
+    if (!callbacksEnabled || state.mode !== "active") {
       return Promise.resolve();
     }
+    if (pendingNextStart) {
+      if (pendingNextEnd) return pendingNextEnd;
+      const generation = speechGeneration;
+      const scheduled = enqueue(async () => {
+        if (
+          !callbacksEnabled ||
+          state.mode !== "active" ||
+          startedTurnGeneration !== generation ||
+          destroyed
+        )
+          return;
+        await finishTurn(generation);
+      }).catch((error) => {
+        if (generation !== speechGeneration) return;
+        return setFallback(error);
+      });
+      const pending = scheduled.finally(() => {
+        if (pendingNextEnd === pending) pendingNextEnd = undefined;
+      });
+      pendingNextEnd = pending;
+      return pending;
+    }
+    if (endRequested || speechEnding || (!speechActive && !speechStarting)) {
+      return Promise.resolve();
+    }
+    const generation = speechGeneration;
     endRequested = true;
     return enqueue(async () => {
-      endRequested = false;
-      if (!speechActive || destroyed) return;
-      speechEnding = true;
-      try {
-        await options.turnControl.endTurn();
-        speechActive = false;
-      } finally {
-        speechEnding = false;
-      }
+      if (generation === speechGeneration) endRequested = false;
+      await finishTurn(generation);
     }).catch((error) => {
+      if (generation !== speechGeneration) return;
       endRequested = false;
       speechEnding = false;
       return setFallback(error);
@@ -153,6 +242,14 @@ export function createBrowserVadController(
 
   const initialize = async () => {
     try {
+      const automaticTurnControl = options.automaticTurnControl;
+      if (
+        !automaticTurnControl?.isAvailable() ||
+        !automaticTurnControl.createHandle
+      ) {
+        throw new Error("The adapter does not support automatic turn pre-roll");
+      }
+      automaticTurnHandle = automaticTurnControl.createHandle();
       const assetBaseUrl = normalizeAssetBaseUrl(options.assetBaseUrl);
       const MicVADConstructor = await (options.loadMicVAD?.() ?? loadMicVAD());
       const providerOptions = {
@@ -169,7 +266,7 @@ export function createBrowserVadController(
           const mic = options.session.getAudioStreams().mic;
           if (!mic)
             throw new Error(
-              'A shared microphone stream is required for browser VAD',
+              "A shared microphone stream is required for browser VAD",
             );
           return mic;
         },
@@ -188,7 +285,10 @@ export function createBrowserVadController(
         return;
       }
       await vad?.start();
-      if (callbacksEnabled) state = { mode: 'active' };
+      if (callbacksEnabled) {
+        pauseRequested = false;
+        state = { mode: "active" };
+      }
     } catch (error) {
       if (!destroyed && !destroyRequested) setFallback(error);
     }
@@ -200,14 +300,17 @@ export function createBrowserVadController(
       if (
         destroyed ||
         request > destroySequence ||
-        state.mode === 'active' ||
-        state.mode === 'manual_fallback'
+        state.mode === "active" ||
+        state.mode === "manual_fallback"
       )
         return;
       if (vad) {
         try {
           await vad.start();
-          if (!destroyed && callbacksEnabled) state = { mode: 'active' };
+          if (!destroyed && callbacksEnabled) {
+            pauseRequested = false;
+            state = { mode: "active" };
+          }
         } catch (error) {
           if (!destroyed) setFallback(error);
         }
@@ -217,18 +320,30 @@ export function createBrowserVadController(
     });
   };
 
-  const pause = () =>
-    enqueue(async () => {
+  const pause = () => {
+    const pausedGeneration = speechGeneration++;
+    pauseRequested = true;
+    speechActive = false;
+    speechStarting = false;
+    speechEnding = false;
+    endRequested = false;
+    return enqueue(async () => {
       const currentVad = vad;
       if (!currentVad || destroyed) return;
       try {
         await currentVad.pause();
-        if (!destroyed && state.mode !== 'manual_fallback')
-          state = { mode: 'idle' };
+        if (startedTurnGeneration === pausedGeneration) {
+          await automaticTurnHandle?.endTurn();
+          if (startedTurnGeneration === pausedGeneration)
+            startedTurnGeneration = undefined;
+        }
+        if (!destroyed && state.mode !== "manual_fallback")
+          state = { mode: "idle" };
       } catch (error) {
         setFallback(error);
       }
     });
+  };
 
   return {
     get state() {
@@ -243,6 +358,7 @@ export function createBrowserVadController(
       destroyPromise = enqueue(async () => {
         destroyed = true;
         callbacksEnabled = false;
+        pauseRequested = true;
         const currentVad = vad;
         if (currentVad) {
           try {
@@ -257,9 +373,13 @@ export function createBrowserVadController(
           if (vad === currentVad) vad = undefined;
         }
         speechActive = false;
+        speechStarting = false;
+        speechEnding = false;
+        endRequested = false;
+        startedTurnGeneration = undefined;
         state = {
-          mode: 'manual_fallback',
-          error: state.error ?? new Error('VAD controller destroyed'),
+          mode: "manual_fallback",
+          error: state.error ?? new Error("VAD controller destroyed"),
         };
       });
       return destroyPromise;
@@ -267,22 +387,62 @@ export function createBrowserVadController(
   };
 }
 
-function normalizeAssetBaseUrl(configured: string | undefined): string {
-  const value = configured?.trim() || '/';
-  const isAbsolute =
-    /^[a-z][a-z\d+.-]*:/i.test(value) || value.startsWith('//');
-  if (!isAbsolute) return value.endsWith('/') ? value : `${value}/`;
+/** Whether an automatic-turn rejection occurred after its boundary was sent. */
+function isFinalizedAutomaticTurnError(
+  error: unknown,
+): error is { readonly turnFinalized: true } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "turnFinalized" in error &&
+    error.turnFinalized === true
+  );
+}
 
-  const location =
-    typeof globalThis.location === 'undefined'
-      ? undefined
-      : globalThis.location;
-  if (!location)
+const DEFAULT_PRE_ROLL_MS = 250;
+const MAX_PRE_ROLL_MS = 500;
+
+/** Normalizes operator tuning to the transport's safe millisecond range. */
+function normalizePreRollMs(configured: number | undefined): number {
+  if (configured === undefined) return DEFAULT_PRE_ROLL_MS;
+  if (!Number.isFinite(configured)) return DEFAULT_PRE_ROLL_MS;
+  return Math.max(0, Math.min(MAX_PRE_ROLL_MS, Math.round(configured)));
+}
+
+/** Normalizes and validates the operator-controlled VAD asset directory. */
+function normalizeAssetBaseUrl(configured: string | undefined): string {
+  const value = configured?.trim() || "/";
+  if (value.startsWith("//"))
+    throw new Error("VAD asset URLs must not be protocol-relative");
+
+  const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(value);
+  if (!hasScheme) {
+    if (value.includes("?") || value.includes("#"))
+      throw new Error(
+        "VAD asset directory URLs must not include query or fragment",
+      );
+    return withOneTrailingSlash(value);
+  }
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("VAD asset URL is malformed");
+  }
+  if (url.protocol !== "https:")
+    throw new Error("Absolute VAD asset URLs must use HTTPS");
+  if (url.username || url.password)
+    throw new Error("VAD asset URLs must not include credentials");
+  if (url.search || url.hash)
     throw new Error(
-      'VAD asset URLs must be same-origin and require a browser location',
+      "VAD asset directory URLs must not include query or fragment",
     );
-  const url = new URL(value, location.href);
-  if (url.origin !== location.origin)
-    throw new Error('VAD assets must be served from the same-origin');
-  return url.href.endsWith('/') ? url.href : `${url.href}/`;
+  url.pathname = withOneTrailingSlash(url.pathname);
+  return url.href;
+}
+
+/** Replaces any trailing slash run with exactly one slash. */
+function withOneTrailingSlash(value: string): string {
+  return `${value.replace(/\/+$/, "")}/`;
 }

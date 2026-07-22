@@ -3,6 +3,7 @@ import { Logger } from '@maelstrom-co/client';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
+  AdapterAutomaticTurnControl,
   AdapterConnectOptions,
   AdapterTurnControl,
   RealtimeAdapterEvent,
@@ -10,10 +11,18 @@ import type {
   ToolResult,
 } from '@maelstrom-co/realtime';
 import { ConnectRaceGuard, RealtimeVoiceError } from '@maelstrom-co/realtime';
-import type { RemoteTrack, TranscriptionSegment } from 'livekit-client';
+import type {
+  LocalAudioTrack,
+  RemoteTrack,
+  TranscriptionSegment,
+} from 'livekit-client';
 import { Room, RoomEvent, setLogLevel, Track } from 'livekit-client';
 
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
+import {
+  createLocalAudioPreRoll,
+  type LocalAudioPreRoll,
+} from './local-audio-pre-roll.js';
 import type { TtsCancelMessage, TurnEndMessage } from './protocol.js';
 import {
   SPEAK_TOPIC,
@@ -41,9 +50,9 @@ setLogLevel('warn');
  * (`SPEAK_TOPIC`). Tool calls, tool results, and speak-after-render sequencing
  * are all `RealtimeSession`'s concern — the same code path every provider uses.
  *
- * The WebRTC/room plumbing itself is not unit-tested; the transcript →
- * tool-call synthesis, tool-result → speak-topic payload, and state mapping it
- * delegates to are.
+ * LiveKit's WebRTC internals are exercised by live validation rather than unit
+ * tests. Unit tests cover the adapter's mocked room orchestration, transcript →
+ * tool-call synthesis, tool-result → speak-topic payload, and state mapping.
  *
  * @example
  * ```ts
@@ -66,10 +75,16 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
 
   #room: Room | undefined;
   #audioEl: HTMLAudioElement | undefined;
-  // The published track is muted between turns. Keep one stopped-with-teardown
-  // clone for consumers such as browser VAD that must observe microphone audio
-  // continuously, independent of the transport publication's enabled flag.
+  // Client-side protection for the persistent remote TTS sink during a
+  // barge-in. The worker cancellation is best-effort and may arrive after
+  // already-buffered audio has started playing.
+  #playbackMutedForBargeIn = false;
+  // Keep one stopped-with-teardown raw clone for browser VAD and local pre-roll.
+  // The generated publication is upstream-paused between automatic turns; on
+  // unsupported browsers the native publication retains manual mute semantics.
   #micClone: MediaStreamTrack | undefined;
+  #localAudioPreRoll: LocalAudioPreRoll | undefined;
+  #automaticTurnControlAvailable = false;
   #micStream: MediaStream | undefined;
   #playbackStream: MediaStream | undefined;
   // Last state emitted, so the deferred `speaking`→`connected` collapse can be
@@ -104,6 +119,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // Rescues an empty push-to-talk turn (no speech) that would otherwise wedge
   // the UI in `thinking` — see #startThinkingFallback.
   #thinkingFallbackTimer: ReturnType<typeof setTimeout> | undefined;
+  #bargeInInProgress = false;
+  // Turn boundaries share transport state, so an end requested while start is
+  // awaiting cancellation or microphone setup must run after that start.
+  #turnOperationQueue: Promise<void> = Promise.resolve();
+  #lastQueuedTurnBoundary:
+    | { generation: number; kind: 'start' | 'end'; result: Promise<void> }
+    | undefined;
+  #connectionGeneration = 0;
 
   constructor(options: LiveKitAdapterOptions) {
     this.#mintToken = options.mintToken;
@@ -117,102 +140,63 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * Explicit turn boundaries for this push-to-talk cascade. Unlike a
    * speech-native provider, the LiveKit STT→TTS pipeline has no server-side VAD
    * to derive turn edges from, so the hold-to-talk UI must delimit each turn:
-   * `startTurn` unmutes the mic and drives the session into `listening`;
-   * `endTurn` signals the worker to flush its STT buffer, mutes, and drives
-   * `thinking`. These state emissions are load-bearing — with no VAD, this
+   * `startTurn` resumes upstream audio (or unmutes the native fallback) and
+   * drives the session into `listening`; `endTurn` drains live audio, pauses or
+   * mutes, signals the worker to flush STT, and drives `thinking`. These state
+   * emissions are load-bearing — with no VAD, this
    * control surface is the only thing that advances the sub-state machine.
    *
    * Surfaced as {@link AdapterTurnControl} (never touched by `RealtimeSession`)
    * so the binding/UI layer renders hold-to-talk controls off its presence.
    */
   readonly turnControl: AdapterTurnControl = {
-    startTurn: async () => {
-      const room = this.#room;
-      if (!room) return;
-      // A barge-in starts a new turn; cancel any pending empty-turn fallback so
-      // it can't collapse the `listening` we're about to emit.
-      this.#clearThinkingFallback();
-      // Barging in while the assistant is mid-utterance: tell the worker to abort
-      // the in-flight TTS so its audio stops near-instantly. A cancel-publish
-      // failure is non-fatal — it must NOT block the user's turn, and nothing
-      // downstream waits on the cancel. Raising a fatal RealtimeVoiceError would
-      // tear the whole session down over a best-effort barge-in signal, so warn
-      // once and unmute anyway; worst case the stale audio plays out. No collapse
-      // is needed: the `listening` we emit below already releases `speaking`.
-      if (this.#lastState === 'speaking') {
-        // Invalidate the utterance being cancelled: its playout-end `tts_done`
-        // will still arrive once the worker's clearQueue resolves, and must be
-        // dropped as stale rather than clearing the empty-turn fallback below.
-        this.#currentUtteranceId = undefined;
-        const cancel: TtsCancelMessage = { type: 'tts_cancel' };
-        try {
-          await room.localParticipant.publishData(
-            new TextEncoder().encode(JSON.stringify(cancel)),
-            { reliable: true, topic: TURN_TOPIC },
-          );
-        } catch {
-          const kind = 'tts_cancel';
-          if (!this.#warnedNonFatalKinds.has(kind)) {
-            this.#warnedNonFatalKinds.add(kind);
-            this.#logger.warn(
-              'Failed to signal TTS cancel to the LiveKit worker (non-fatal)',
-            );
-          }
-        }
-      }
-      try {
-        await room.localParticipant.setMicrophoneEnabled(true);
-      } catch (error) {
-        this.#emit({ type: 'error', error: this.#micEnableError(error) });
-        return;
-      }
-      this.#emit({ type: 'speech_started' });
-      this.#emit({ type: 'state', state: 'listening' });
-    },
-    endTurn: async () => {
-      const room = this.#room;
-      if (!room) return;
-      // Mute first: it's local (no network), so a failed turn_end publish can't
-      // leave the mic hot. Both a mute failure and a turn_end publish failure are
-      // loss of the channel the session drives turns over (fatal): each emits a
-      // RealtimeVoiceError and returns, because the session tears down on the
-      // error — so publishing over the dead channel, or emitting `thinking` /
-      // arming the fallback on a gone session, is dead work that would also
-      // clobber the session's `error` state. Only a clean publish reaches
-      // `thinking` + the empty-turn fallback below.
-      try {
-        await room.localParticipant.setMicrophoneEnabled(false);
-      } catch (error) {
-        this.#emit({
-          type: 'error',
-          error: new RealtimeVoiceError(
-            'CONNECTION_FAILED',
-            'Failed to mute the microphone on turn end',
-            error,
+    startTurn: () =>
+      this.#queueTurnBoundary('start', (generation) =>
+        this.#startTransportTurn(generation, 'manual'),
+      ),
+    endTurn: () =>
+      this.#queueTurnBoundary('end', (generation) =>
+        this.#endTransportTurn(generation, 'manual'),
+      ),
+  };
+
+  /**
+   * Browser-VAD turn boundaries with adapter-owned bounded local pre-roll.
+   * `isAvailable()` remains false when AudioWorklet setup failed, so bindings
+   * select manual {@link turnControl} without transmitting an unbuffered turn.
+   * `createHandle()` snapshots the current connection generation; every method
+   * on a handle from a disconnected generation resolves without touching the
+   * replacement room.
+   */
+  readonly automaticTurnControl: AdapterAutomaticTurnControl = {
+    isAvailable: () => this.#automaticTurnControlAvailable,
+    createHandle: () => {
+      const generation = this.#connectionGeneration;
+      return {
+        startTurn: ({ preRollMs }) =>
+          this.#queueTurnBoundary(
+            'start',
+            (boundGeneration) =>
+              this.#startTransportTurn(boundGeneration, 'automatic', preRollMs),
+            generation,
           ),
-        });
-        return;
-      }
-      const turnEnd: TurnEndMessage = { type: 'turn_end' };
-      try {
-        await room.localParticipant.publishData(
-          new TextEncoder().encode(JSON.stringify(turnEnd)),
-          { reliable: true, topic: TURN_TOPIC },
-        );
-      } catch (error) {
-        this.#emit({
-          type: 'error',
-          error: new RealtimeVoiceError(
-            'DATA_CHANNEL_ERROR',
-            'Failed to signal turn end to the LiveKit worker',
-            error,
+        endTurn: () =>
+          this.#queueTurnBoundary(
+            'end',
+            (boundGeneration) =>
+              this.#endTransportTurn(boundGeneration, 'automatic'),
+            generation,
           ),
-        });
-        return;
-      }
-      this.#emit({ type: 'state', state: 'thinking' });
-      this.#startThinkingFallback();
+      };
     },
+    startTurn: ({ preRollMs }) =>
+      this.#queueTurnBoundary('start', (generation) =>
+        this.#startTransportTurn(generation, 'automatic', preRollMs),
+      ),
+    endTurn: () =>
+      this.#queueTurnBoundary('end', (generation) =>
+        this.#endTransportTurn(generation, 'automatic'),
+      ),
   };
 
   /**
@@ -234,6 +218,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       );
     }
     this.#connecting = true;
+    this.#connectionGeneration += 1;
     this.#emit({ type: 'state', state: 'connecting' });
 
     const attempt = this.#connectGuard.begin();
@@ -262,23 +247,15 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       attempt.assertCurrent();
       await room.connect(url, token);
       attempt.assertCurrent();
-      // Publish the mic track, then mute it via the SAME API turnControl uses.
-      // Muting through setMicrophoneEnabled (not a direct track.mute()) keeps
-      // the publication's enabled flag in sync, so startTurn's
-      // setMicrophoneEnabled(true) is a real false→true toggle that actually
-      // unmutes. A direct track.mute() leaves the publication "enabled", making
-      // the later enable a silent no-op.
+      // Capture once through LiveKit, then replace the publication with the
+      // generated pre-roll track when AudioWorklet is available. Unsupported
+      // browsers keep the native publication for manual hold-to-talk.
       try {
         await room.localParticipant.setMicrophoneEnabled(true);
       } catch (error) {
         throw this.#micEnableError(error);
       }
-      this.#createMicClone(room);
-      try {
-        await room.localParticipant.setMicrophoneEnabled(false);
-      } catch (error) {
-        throw this.#micEnableError(error);
-      }
+      await this.#initializeMicGeneration(room);
       attempt.assertCurrent();
     } catch (error) {
       // Snapshot currency BEFORE disconnecting: room.disconnect() fires its own
@@ -295,7 +272,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
         // Still the current attempt — a genuine failure. Reset shared state and
         // surface the error. A superseded attempt skips this so it never
         // clobbers the winner's room or drives it into the error state.
-        this.#teardown();
+        await this.#teardown();
         this.#emit({ type: 'state', state: 'error' });
       }
       throw error;
@@ -310,18 +287,20 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     // stays set and every later connect() throws ALREADY_CONNECTED forever. The
     // rejection still propagates to the caller.
     this.#closing = true;
+    const room = this.#room;
+    const teardown = this.#teardown();
     try {
-      await this.#room?.disconnect();
+      await room?.disconnect();
     } finally {
-      this.#teardown();
+      await teardown;
     }
   }
 
   /**
    * Live mic and playback streams for UI metering. The mic is read from the
-   * enabled clone of the local microphone publication. LiveKit mutes the
-   * published track between turns, but this clone stays enabled for browser VAD
-   * and is reused until teardown. Playback is the worker's TTS track, captured
+   * enabled clone of the captured microphone. LiveKit pauses the generated
+   * publication upstream between automatic turns, but this clone stays local
+   * and enabled for browser VAD until teardown. Playback is the worker's TTS track, captured
    * when it is subscribed. Both are undefined before connect and after
    * disconnect. Never throws.
    */
@@ -344,19 +323,17 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * finishes, and {@link collapseSpeaking} reacts to that — so the state tracks
    * real audio end, not text hand-off.
    *
-   * Every failure here is **non-fatal** — the `update_ui` this reads back already
-   * applied and nothing downstream waits on the spoken confirmation, so a failure
-   * loses only the audio, never the session. Both failure paths therefore emit a
-   * plain `Error` (logged, not session-fatal) rather than a `RealtimeVoiceError`,
-   * and force the `speaking` collapse so the UI does not hang on audio that will
-   * never play:
-   * - **A send failure** (the room exists but `sendText` throws): matches the
-   *   OpenAI adapter's parallel tool-result case — genuine connection loss is
-   *   surfaced separately by the room's connection-state events, which own
-   *   fatality.
-   * - **No active room** (an intentional teardown raced this in-flight read-back):
-   *   warns once, since a missing room here is a benign teardown race, not the
-   *   connection loss the room's connection-state events would report.
+   * Sending the spoken confirmation is best-effort because `update_ui` has already
+   * applied and nothing downstream waits for this read-back. If no room is active,
+   * an intentional teardown raced the result: the adapter warns once, collapses
+   * any transient `speaking` state, and returns without emitting an adapter error.
+   * If a room exists but `sendText` fails, the adapter emits a plain, non-fatal
+   * `Error` (never a `RealtimeVoiceError`) and collapses `speaking`; genuine
+   * connection loss is reported separately by the room's connection-state events.
+   *
+   * If a prior barge-in muted the persistent remote sink, this new
+   * assistant-turn handoff is the only normal path that unmutes it. TTS
+   * completion/error signals do not unmute playback because they may be stale.
    */
   async sendToolResult(callId: ToolCallId, output: ToolResult): Promise<void> {
     const speakText =
@@ -383,12 +360,16 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       this.#collapseSpeaking();
       return;
     }
-    this.#emit({ type: 'state', state: 'speaking' });
     // Stamp a fresh utterance id so the worker's playout status can be correlated
     // back to this specific utterance and stale status dropped.
     this.#utteranceSeq += 1;
     const utteranceId = this.#utteranceSeq;
     this.#currentUtteranceId = utteranceId;
+    // The worker owns one persistent audio track, so its next per-turn start
+    // is this handoff rather than a new TrackSubscribed event.
+    // This is deliberately distinct from stale tts_done/tts_error signals.
+    this.#unmutePlaybackForNextTtsTurn();
+    this.#emit({ type: 'state', state: 'speaking' });
     try {
       await room.localParticipant.sendText(speakText, {
         topic: SPEAK_TOPIC,
@@ -440,7 +421,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       const expected = this.#closing || this.#connecting;
       // Clear `#room` so a later connect() isn't rejected as 'already connected'
       // — without this, a server-side/network disconnect is unrecoverable.
-      this.#teardown();
+      void this.#teardown();
       if (expected) return;
       // An unexpected server/network drop is loss of the underlying connection
       // (fatal): emit a RealtimeVoiceError, NOT a bare `idle` state. The session's
@@ -566,26 +547,325 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       document.body.appendChild(el);
       this.#audioEl = el;
     }
+    if (this.#playbackMutedForBargeIn) this.#audioEl.muted = true;
     track.attach(this.#audioEl);
   }
 
   /**
-   * Creates the sole VAD-facing clone for a room. The clone shares the
-   * browser-captured source with LiveKit and therefore does not request a
-   * second microphone permission; only the published track is muted by
-   * {@link AdapterTurnControl}.
-  */
-  #createMicClone(room: Room): void {
-    const micTrack = room.localParticipant.getTrackPublication(
-      Track.Source.Microphone,
-    )?.track;
+   * Latches a local playback mute synchronously for a barge-in, including when
+   * the remote sink has not been attached yet. This uses `muted`, not `pause`,
+   * so buffered stale TTS keeps advancing silently and cannot replay when
+   * playback is later resumed.
+   */
+  #mutePlaybackForBargeIn(): void {
+    this.#playbackMutedForBargeIn = true;
+    if (this.#audioEl) this.#audioEl.muted = true;
+  }
+
+  /**
+   * Restores playback after microphone setup fails before the new turn starts.
+   * A failed mic enable means there is no active user turn to protect; the
+   * next assistant handoff remains the other recovery path for a successful
+   * barge-in.
+   */
+  #unmutePlaybackAfterFailedBargeIn(): void {
+    if (this.#audioEl) this.#audioEl.muted = false;
+    this.#playbackMutedForBargeIn = false;
+  }
+
+  /**
+   * Releases a barge-in mute only when a new assistant TTS request is handed
+   * to the worker. Ordinary state changes and stale completion signals do not
+   * call this method.
+   */
+  #unmutePlaybackForNextTtsTurn(): void {
+    if (!this.#playbackMutedForBargeIn) return;
+    if (this.#audioEl) this.#audioEl.muted = false;
+    this.#playbackMutedForBargeIn = false;
+  }
+
+  /**
+   * Serializes turn boundaries so a requested end cannot be overtaken by an
+   * already-started asynchronous start. Adjacent duplicate boundaries share
+   * one operation; an intervening opposite boundary preserves the full order.
+   * A rejected operation still releases the queue for the next boundary while
+   * its own caller receives the error. Disconnect invalidates queued and
+   * in-flight continuations, and a reconnect starts with an independent queue.
+   */
+  #queueTurnBoundary(
+    kind: 'start' | 'end',
+    operation: (generation: number) => Promise<void>,
+    generation = this.#connectionGeneration,
+  ): Promise<void> {
+    if (
+      this.#lastQueuedTurnBoundary?.kind === kind &&
+      this.#lastQueuedTurnBoundary.generation === generation
+    ) {
+      return this.#lastQueuedTurnBoundary.result;
+    }
+    const result = this.#turnOperationQueue.then(() => {
+      if (!this.#isCurrentGeneration(generation)) return;
+      return operation(generation);
+    });
+    this.#turnOperationQueue = result.catch(() => {});
+    const boundary = { generation, kind, result };
+    this.#lastQueuedTurnBoundary = boundary;
+    const clearBoundary = () => {
+      if (this.#lastQueuedTurnBoundary === boundary) {
+        this.#lastQueuedTurnBoundary = undefined;
+      }
+    };
+    void result.then(clearBoundary, clearBoundary);
+    return result;
+  }
+
+  /** Resumes upstream before selecting automatic pre-roll or manual live audio. */
+  async #startTransportTurn(
+    generation: number,
+    mode: 'manual' | 'automatic',
+    preRollMs = 0,
+  ): Promise<void> {
+    const room = this.#roomForGeneration(generation);
+    if (!room) return;
+    const bridge = this.#localAudioPreRoll;
+    if (mode === 'automatic' && !bridge) {
+      throw new Error('Automatic turn pre-roll is unavailable');
+    }
+
+    this.#clearThinkingFallback();
+    const isBargeIn = this.#lastState === 'speaking';
+    if (isBargeIn && this.#bargeInInProgress) return;
+    if (isBargeIn) {
+      this.#bargeInInProgress = true;
+      this.#mutePlaybackForBargeIn();
+      // The worker may still report completion after cancellation. Invalidate
+      // this utterance before publishing so that late status is ignored.
+      this.#currentUtteranceId = undefined;
+      const cancel: TtsCancelMessage = { type: 'tts_cancel' };
+      try {
+        await room.localParticipant.publishData(
+          new TextEncoder().encode(JSON.stringify(cancel)),
+          {
+            reliable: true,
+            topic: TURN_TOPIC,
+          },
+        );
+      } catch {
+        if (!this.#isCurrentRoom(generation, room)) return;
+        const kind = 'tts_cancel';
+        if (!this.#warnedNonFatalKinds.has(kind)) {
+          this.#warnedNonFatalKinds.add(kind);
+          this.#logger.warn(
+            'Failed to signal TTS cancel to the LiveKit worker (non-fatal)',
+          );
+        }
+      }
+      if (!this.#isCurrentRoom(generation, room)) return;
+    }
+
+    try {
+      if (bridge) {
+        await this.#getPublishedMicTrack(room)?.resumeUpstream();
+        if (!this.#isCurrentRoom(generation, room)) return;
+        if (mode === 'automatic') await bridge.startAutomaticTurn(preRollMs);
+        else await bridge.startManualTurn();
+      } else {
+        await room.localParticipant.setMicrophoneEnabled(true);
+      }
+      if (!this.#isCurrentRoom(generation, room)) return;
+    } catch (error) {
+      if (!this.#isCurrentRoom(generation, room)) return;
+      const publishedMicTrack = this.#getPublishedMicTrack(room);
+      if (bridge && publishedMicTrack) {
+        try {
+          await publishedMicTrack.pauseUpstream();
+        } catch {}
+      }
+      if (isBargeIn) this.#unmutePlaybackAfterFailedBargeIn();
+      this.#bargeInInProgress = false;
+      if (mode === 'automatic') throw error;
+      this.#emit({ type: 'error', error: this.#micEnableError(error) });
+      return;
+    }
+
+    this.#bargeInInProgress = false;
+    this.#emit({ type: 'speech_started' });
+    this.#emit({ type: 'state', state: 'listening' });
+  }
+
+  /** Drains the active generation before upstream pause and STT finalization. */
+  async #endTransportTurn(
+    generation: number,
+    mode: 'manual' | 'automatic',
+  ): Promise<void> {
+    const room = this.#roomForGeneration(generation);
+    if (!room) return;
+    const bridge = this.#localAudioPreRoll;
+    if (mode === 'automatic' && !bridge) {
+      throw new Error('Automatic turn pre-roll is unavailable');
+    }
+
+    let tailError: unknown;
+    try {
+      if (bridge) {
+        try {
+          await bridge.endTurn();
+        } catch (error) {
+          tailError = error;
+        }
+        if (!this.#isCurrentRoom(generation, room)) return;
+        try {
+          await this.#getPublishedMicTrack(room)?.pauseUpstream();
+        } catch (error) {
+          if (!this.#isCurrentRoom(generation, room)) return;
+          if (mode === 'automatic') {
+            this.#emit({
+              type: 'error',
+              error: new RealtimeVoiceError(
+                'CONNECTION_FAILED',
+                'Failed to pause microphone upstream on turn end',
+                error,
+              ),
+            });
+          }
+          throw error;
+        }
+      } else {
+        await room.localParticipant.setMicrophoneEnabled(false);
+      }
+      if (!this.#isCurrentRoom(generation, room)) return;
+    } catch (error) {
+      if (!this.#isCurrentRoom(generation, room)) return;
+      if (mode === 'automatic') throw error;
+      this.#emit({
+        type: 'error',
+        error: new RealtimeVoiceError(
+          'CONNECTION_FAILED',
+          'Failed to mute the microphone on turn end',
+          error,
+        ),
+      });
+      return;
+    }
+
+    const turnEnd: TurnEndMessage = { type: 'turn_end' };
+    try {
+      await room.localParticipant.publishData(
+        new TextEncoder().encode(JSON.stringify(turnEnd)),
+        {
+          reliable: true,
+          topic: TURN_TOPIC,
+        },
+      );
+    } catch (error) {
+      if (!this.#isCurrentRoom(generation, room)) return;
+      this.#emit({
+        type: 'error',
+        error: new RealtimeVoiceError(
+          'DATA_CHANNEL_ERROR',
+          'Failed to signal turn end to the LiveKit worker',
+          error,
+        ),
+      });
+      return;
+    }
+    if (!this.#isCurrentRoom(generation, room)) return;
+    this.#emit({ type: 'state', state: 'thinking' });
+    this.#startThinkingFallback();
+    if (tailError !== undefined) {
+      if (mode === 'automatic') {
+        throw Object.assign(
+          new Error('Automatic turn finalized after local audio drain failed', {
+            cause: tailError,
+          }),
+          { turnFinalized: true as const },
+        );
+      }
+      this.#emit({ type: 'error', error: this.#micEnableError(tailError) });
+    }
+  }
+
+  /**
+   * Creates one raw local generation plus its generated LiveKit publication.
+   * The raw publication is disabled and upstream-paused before asynchronous
+   * bridge setup, while its enabled clone remains local for VAD and buffering.
+   * Bridge ownership transfers before replacement awaits, allowing concurrent
+   * teardown to destroy it. LiveKit 2.13.1 resumes upstream as a replacement
+   * side effect, so the generated track stays disabled through replacement and
+   * upstream is explicitly paused again before automatic control is available.
+   * Success explicitly stops the old raw track; failure destroys the bridge and
+   * raw track before connection teardown cleans the clone.
+   */
+  async #initializeMicGeneration(room: Room): Promise<void> {
+    const micTrack = this.#getPublishedMicTrack(room);
     const mediaStreamTrack = micTrack?.mediaStreamTrack;
     if (!mediaStreamTrack || this.#micClone) return;
 
+    mediaStreamTrack.enabled = false;
+    await micTrack.pauseUpstream();
     const clone = mediaStreamTrack.clone();
     clone.enabled = true;
     this.#micClone = clone;
     this.#micStream = new MediaStream([clone]);
+    let bridge: LocalAudioPreRoll;
+    try {
+      bridge = await createLocalAudioPreRoll(clone);
+    } catch {
+      try {
+        await room.localParticipant.setMicrophoneEnabled(false);
+        await micTrack.resumeUpstream();
+      } catch (error) {
+        throw this.#micEnableError(error);
+      }
+      return;
+    }
+    if (this.#room !== room) {
+      mediaStreamTrack.enabled = false;
+      mediaStreamTrack.stop();
+      await bridge.destroy().catch(() => {});
+      return;
+    }
+
+    // Ownership transfers before replacement awaits so concurrent teardown can
+    // always disable and destroy the generated track.
+    bridge.track.enabled = false;
+    this.#localAudioPreRoll = bridge;
+    try {
+      await micTrack.replaceTrack(bridge.track, true);
+      await micTrack.pauseUpstream();
+    } catch (error) {
+      mediaStreamTrack.enabled = false;
+      mediaStreamTrack.stop();
+      if (this.#localAudioPreRoll === bridge) {
+        this.#localAudioPreRoll = undefined;
+        await bridge.destroy().catch(() => {});
+      }
+      throw error;
+    }
+    if (this.#room === room && this.#localAudioPreRoll === bridge) {
+      bridge.track.enabled = true;
+      this.#automaticTurnControlAvailable = true;
+    }
+    mediaStreamTrack.enabled = false;
+    mediaStreamTrack.stop();
+  }
+
+  /** Returns the room's current microphone publication as a local audio track. */
+  #getPublishedMicTrack(room: Room): LocalAudioTrack | undefined {
+    return room.localParticipant.getTrackPublication(Track.Source.Microphone)
+      ?.track as LocalAudioTrack | undefined;
+  }
+
+  #isCurrentGeneration(generation: number): boolean {
+    return generation === this.#connectionGeneration;
+  }
+
+  #roomForGeneration(generation: number): Room | undefined {
+    return this.#isCurrentGeneration(generation) ? this.#room : undefined;
+  }
+
+  #isCurrentRoom(generation: number, room: Room): boolean {
+    return this.#isCurrentGeneration(generation) && this.#room === room;
   }
 
   #emit(event: RealtimeAdapterEvent): void {
@@ -635,25 +915,39 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
         );
   }
 
-  #teardown(): void {
+  #teardown(): Promise<void> {
     // Invalidate any connect() still mid-handshake so it abandons its own room
     // instead of clobbering shared state when its awaits resume.
     this.#connectGuard.supersede();
+    this.#connectionGeneration += 1;
+    this.#turnOperationQueue = Promise.resolve();
+    this.#lastQueuedTurnBoundary = undefined;
     this.#clearThinkingFallback();
+    this.#bargeInInProgress = false;
+    this.#playbackMutedForBargeIn = false;
     this.#warnedNonFatalKinds.clear();
     const micClone = this.#micClone;
+    const bridge = this.#localAudioPreRoll;
+    this.#automaticTurnControlAvailable = false;
+    this.#localAudioPreRoll = undefined;
     this.#micClone = undefined;
     this.#micStream = undefined;
+    if (micClone) micClone.enabled = false;
     micClone?.stop();
+    if (bridge) bridge.track.enabled = false;
     this.#room = undefined;
     this.#connecting = false;
     this.#closing = false;
     this.#currentUtteranceId = undefined;
     this.#playbackStream = undefined;
     if (this.#audioEl) {
+      // Reset before removal so a retained element reference cannot stay muted
+      // after teardown; the next connection creates a fresh sink.
+      this.#audioEl.muted = false;
       this.#audioEl.remove();
       this.#audioEl = undefined;
     }
+    return bridge ? bridge.destroy().catch(() => {}) : Promise.resolve();
   }
 }
 

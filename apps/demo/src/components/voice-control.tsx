@@ -1,4 +1,4 @@
-import type { VoiceSessionState } from '@maelstrom-co/client';
+import type { VoiceSessionState } from "@maelstrom-co/client";
 import {
   type KeyboardEvent,
   type PointerEvent,
@@ -6,25 +6,25 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-} from 'react';
-import { m } from '../lib/maelstrom';
+} from "react";
+import { m } from "../lib/maelstrom";
 
 const STATE_LABEL: Record<VoiceSessionState, string> = {
-  idle: 'Voice off',
-  connecting: 'Connecting…',
-  connected: 'Voice on',
-  listening: 'Listening',
-  thinking: 'Thinking…',
-  speaking: 'Speaking…',
-  error: 'Voice error',
+  idle: "Voice off",
+  connecting: "Connecting…",
+  connected: "Voice on",
+  listening: "Listening",
+  thinking: "Thinking…",
+  speaking: "Speaking…",
+  error: "Voice error",
 };
 
 // Every state where the transport is live — mic on, session up.
 const CONNECTED_STATES: ReadonlySet<VoiceSessionState> = new Set([
-  'connected',
-  'listening',
-  'thinking',
-  'speaking',
+  "connected",
+  "listening",
+  "thinking",
+  "speaking",
 ]);
 
 interface VoiceControlProps {
@@ -73,23 +73,23 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   // Keep the button mounted through this layout cleanup. Clearing the ref
   // makes a stale release harmless after automatic mode takes over.
   useLayoutEffect(() => {
-    if (turnMode !== 'manual') endPress();
+    if (turnMode !== "manual") endPress();
     return endPress;
   }, [endPress, turnMode]);
 
   const showManualControl =
-    turnControl !== undefined && (turnMode === 'manual' || pressActive);
+    turnControl !== undefined && (turnMode === "manual" || pressActive);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.repeat || pressActiveRef.current) return;
-    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.key !== "Enter" && e.key !== " ") return;
     // Space's default action scrolls the page; Enter's would submit/click.
     e.preventDefault();
     startPress();
   };
 
   const handleKeyUp = (e: KeyboardEvent<HTMLButtonElement>) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.key !== "Enter" && e.key !== " ") return;
     endPress();
   };
 
@@ -98,12 +98,12 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
       {showOrb && <m.VoiceOrb size={20} />}
       <span
         className={`text-xs font-medium ${
-          state === 'error' ? 'text-red-400' : 'text-ink-2'
+          state === "error" ? "text-red-400" : "text-ink-2"
         }`}
       >
         {STATE_LABEL[state]}
       </span>
-      {turnMode === 'manual' && turnControl && (
+      {turnMode === "manual" && turnControl && (
         <span className="text-xs text-amber-300" role="status">
           Automatic voice detection unavailable; hold to talk.
         </span>
