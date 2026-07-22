@@ -40,7 +40,7 @@ import { RealtimeSession } from '@maelstrom-co/realtime';
 import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
 
 const adapter = new LiveKitAdapter({
-  getToken: (roomName) => fetchLiveKitToken(roomName),
+  mintToken: (roomName) => fetchLiveKitToken(roomName),
   roomName: `maelstrom-${sessionId}`,
 });
 const session = new RealtimeSession({ adapter, instance, sessionId });

@@ -51,7 +51,7 @@ you need to embed it in your own worker harness.
 
 ## Env vars (root .env)
 
-```
+```dotenv
 LIVEKIT_URL=ws://localhost:7880
 LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=secret
