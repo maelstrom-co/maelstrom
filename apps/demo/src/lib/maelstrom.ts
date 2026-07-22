@@ -52,6 +52,13 @@ export function selectVoiceExtension(
   if (provider !== 'livekit') return realtime;
   return realtime.withVAD({
     assetBaseUrl: '/vad-web/',
+    providerOptions: {
+      positiveSpeechThreshold: 0.8,
+      negativeSpeechThreshold: 0.65,
+      redemptionMs: 200,
+      preSpeechPadMs: 100,
+      minSpeechMs: 100,
+    },
     onError: () => {
       console.warn(
         'Browser voice detection unavailable; falling back to hold-to-talk.',
