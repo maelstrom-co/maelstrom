@@ -141,6 +141,41 @@ describe('mintLiveKitToken', () => {
     expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + expected + 2);
   });
 
+  test('rejects a bare-integer LIVEKIT_TOKEN_TTL that overflows to Infinity', async () => {
+    // A digit string this long parses to Infinity via Number(), which slips
+    // past a bare `> 0` guard and would set expiresAt to Infinity — breaking
+    // the fail-closed guarantee. Reject as invalid-config, sign nothing.
+    process.env.LIVEKIT_TOKEN_TTL = '9'.repeat(400);
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+    expect(lastTtl).toBeUndefined();
+    expect(lastGrant).toBeUndefined();
+  });
+
+  test('rejects a <int><unit> LIVEKIT_TOKEN_TTL that overflows to Infinity', async () => {
+    process.env.LIVEKIT_TOKEN_TTL = `${'9'.repeat(400)}s`;
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+    expect(lastTtl).toBeUndefined();
+    expect(lastGrant).toBeUndefined();
+  });
+
+  test('rejects a <int><unit> LIVEKIT_TOKEN_TTL whose unit multiplication exceeds the safe-integer range', async () => {
+    // Finite but unsafe: 1e12 days * 86400 overflows Number.MAX_SAFE_INTEGER,
+    // so the computed expiry would silently lose precision.
+    process.env.LIVEKIT_TOKEN_TTL = '999999999999d';
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+    expect(lastTtl).toBeUndefined();
+    expect(lastGrant).toBeUndefined();
+  });
+
   test('rejects a "2 days" LIVEKIT_TOKEN_TTL the local parser cannot parse', async () => {
     // Headline bug: the SDK parses "2 days" (vercel/ms grammar) but the local
     // parser cannot, so the reported expiresAt would silently diverge from the

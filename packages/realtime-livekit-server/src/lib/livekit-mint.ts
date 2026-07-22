@@ -133,5 +133,8 @@ function ttlToSeconds(ttl: string): number | null {
     if (!match) return null;
     seconds = Number(match[1]) * TTL_UNIT_SECONDS[match[2] as keyof typeof TTL_UNIT_SECONDS];
   }
-  return seconds > 0 ? seconds : null;
+  // `Number.isSafeInteger` rejects both an Infinity from an over-long digit
+  // string and a finite-but-unsafe product of `<int> * unit` — either would
+  // yield a bogus `expiresAt` that slips past a bare `> 0` guard.
+  return seconds > 0 && Number.isSafeInteger(seconds) ? seconds : null;
 }
