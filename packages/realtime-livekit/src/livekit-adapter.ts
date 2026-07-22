@@ -111,8 +111,11 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       this.#clearThinkingFallback();
       // Barging in while the assistant is mid-utterance: tell the worker to abort
       // the in-flight TTS so its audio stops near-instantly. A cancel-publish
-      // failure must NOT block the user's turn — it's surfaced but we still
-      // unmute below; worst case the stale audio plays out.
+      // failure is non-fatal — it must NOT block the user's turn, and nothing
+      // downstream waits on the cancel. Raising a fatal RealtimeVoiceError would
+      // tear the whole session down over a best-effort barge-in signal, so warn
+      // once and unmute anyway; worst case the stale audio plays out. No collapse
+      // is needed: the `listening` we emit below already releases `speaking`.
       if (this.#lastState === 'speaking') {
         const cancel: TtsCancelMessage = { type: 'tts_cancel' };
         try {
@@ -120,15 +123,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
             new TextEncoder().encode(JSON.stringify(cancel)),
             { reliable: true, topic: TURN_TOPIC },
           );
-        } catch (error) {
-          this.#emit({
-            type: 'error',
-            error: new RealtimeVoiceError(
-              'DATA_CHANNEL_ERROR',
-              'Failed to signal TTS cancel to the LiveKit worker',
-              error,
-            ),
-          });
+        } catch {
+          const kind = 'tts_cancel';
+          if (!this.#warnedNonFatalKinds.has(kind)) {
+            this.#warnedNonFatalKinds.add(kind);
+            this.#logger.warn(
+              'Failed to signal TTS cancel to the LiveKit worker (non-fatal)',
+            );
+          }
         }
       }
       try {
@@ -157,6 +159,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
             error,
           ),
         });
+        // A mute failure is loss of the connection (fatal): the session tears
+        // down synchronously on the error above, so publishing turn_end over the
+        // dead channel or emitting `thinking` on a gone session is dead work.
+        return;
       }
       const turnEnd: TurnEndMessage = { type: 'turn_end' };
       try {

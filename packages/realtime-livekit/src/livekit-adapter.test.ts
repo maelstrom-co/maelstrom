@@ -1,4 +1,4 @@
-import { test, expect, mock, beforeEach, describe } from 'bun:test';
+import { test, expect, mock, beforeEach, describe, spyOn } from 'bun:test';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import type { RealtimeAdapterEvent, UnixSeconds } from '@maelstrom-co/realtime';
 import type { LiveKitTokenGrant } from './livekit-token.js';
@@ -520,9 +520,10 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(states(events).at(-1)).toBe('thinking');
   });
 
-  test('endTurn surfaces a CONNECTION_FAILED when muting rejects', async () => {
+  test('endTurn surfaces a fatal CONNECTION_FAILED when muting rejects and then stops the turn', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
+    mockPublishData.mockClear();
     mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
       throw new Error('mute failed');
     });
@@ -533,6 +534,10 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
       'CONNECTION_FAILED',
     );
+    // A mute failure is loss of the connection (fatal): the session tears down,
+    // so we must not publish turn_end over the dead channel or emit thinking.
+    expect(mockPublishData).not.toHaveBeenCalled();
+    expect(states(events)).not.toContain('thinking');
   });
 
   test('startTurn surfaces a CONNECTION_FAILED when unmuting rejects and skips listening', async () => {
@@ -603,24 +608,45 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(mockPublishData).not.toHaveBeenCalled();
   });
 
-  test('a tts_cancel publish rejection surfaces DATA_CHANNEL_ERROR but still unmutes', async () => {
-    const { adapter, events } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Talking…' });
-    mockSetMicrophoneEnabled.mockClear();
-    mockPublishData.mockImplementationOnce(async () => {
-      throw new Error('data channel closed');
-    });
+  test('a tts_cancel publish rejection is non-fatal: no error event, warns once, and the turn still proceeds', async () => {
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { adapter, events } = makeAdapter();
+      await adapter.connect({ tools: [], instructions: '' });
 
-    await adapter.turnControl.startTurn();
+      // First barge-in: assistant speaking, cancel publish rejects.
+      await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Talking…' });
+      mockSetMicrophoneEnabled.mockClear();
+      mockPublishData.mockImplementationOnce(async () => {
+        throw new Error('data channel closed');
+      });
 
-    const err = events.find((e) => e.type === 'error');
-    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
-      'DATA_CHANNEL_ERROR',
-    );
-    // A failed cancel must not block the user's turn.
-    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
-    expect(states(events).at(-1)).toBe('listening');
+      await adapter.turnControl.startTurn();
+
+      // A failed TTS cancel is non-fatal — no RealtimeVoiceError (which
+      // RealtimeSession treats as session-fatal) may be emitted.
+      expect(events.some((e) => e.type === 'error')).toBe(false);
+      // The turn still proceeds: mic unmuted, listening emitted.
+      expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
+      expect(states(events).at(-1)).toBe('listening');
+
+      const cancelWarns = () =>
+        warnSpy.mock.calls.filter(
+          (c) => typeof c[1] === 'string' && c[1].includes('TTS cancel'),
+        ).length;
+      expect(cancelWarns()).toBe(1);
+
+      // Second barge-in with the same failure warns no further (warn-once per
+      // connection via #warnedNonFatalKinds).
+      await adapter.sendToolResult('call-2' as never, { ok: true, summary: 'Talking…' });
+      mockPublishData.mockImplementationOnce(async () => {
+        throw new Error('data channel closed');
+      });
+      await adapter.turnControl.startTurn();
+      expect(cancelWarns()).toBe(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   test('a tts_done arriving after a barge-in does not stomp the newer listening state', async () => {
