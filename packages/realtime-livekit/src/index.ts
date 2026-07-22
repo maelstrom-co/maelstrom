@@ -7,8 +7,8 @@
  * the core never have `livekit-client` forced on them — pull this in only when
  * you want the LiveKit transport. The Node-only token minter lives in the
  * sibling `@maelstrom-co/realtime-livekit-server` package; the wire topic
- * constants on `./protocol` (shared with the `@maelstrom-co/realtime-livekit-agent`
- * worker).
+ * constants re-exported on `./protocol` are shared with the
+ * `@maelstrom-co/realtime-livekit-agent` worker.
  */
 export { LiveKitAdapter } from './livekit-adapter.js';
 export type { LiveKitAdapterOptions } from './livekit-adapter.types.js';

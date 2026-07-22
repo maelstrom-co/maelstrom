@@ -29,6 +29,7 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server
 ## Quick example
 
 ```ts
+import { createServerFn } from '@tanstack/react-start';
 import { isErr } from '@maelstrom-co/protocol';
 import { mintLiveKitToken } from '@maelstrom-co/realtime-livekit-server';
 
@@ -41,6 +42,14 @@ export const getLivekitToken = createServerFn({ method: 'GET' })
     return result.value;
   });
 ```
+
+`mintLiveKitToken` validates request shape only — it performs no authentication
+or authorization. The example above forwards client-supplied `roomName` and
+`identity` straight through, which is fine for a local demo or spike but not
+for production: a real deployment must authenticate the request first, then
+derive or allowlist `roomName`/`identity` server-side from trusted session
+state rather than forwarding raw client input, since a minted grant lets its
+holder join, publish, and subscribe in the named room.
 
 ## Docs
 

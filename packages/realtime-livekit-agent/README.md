@@ -22,14 +22,14 @@ import { runVoiceAgent } from '@maelstrom-co/realtime-livekit-agent';
 runVoiceAgent();
 ```
 
-```
+```bash
 node --env-file=.env worker.ts start
 ```
 
 Within this monorepo, the demo app instead runs the package's TypeScript
 source directly against its `.env` at the repo root:
 
-```
+```bash
 node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start
 ```
 
