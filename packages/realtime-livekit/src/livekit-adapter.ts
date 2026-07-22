@@ -74,9 +74,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // the stale attempt abandons its own room instead of joining one nobody owns.
   readonly #connectGuard = new ConnectRaceGuard();
   #callSeq = 0;
-  // Distinct non-fatal TTS-failure kinds already warned about this connection,
-  // so a stuck worker warns once per kind instead of flooding the console.
-  readonly #warnedTtsFailures = new Set<string>();
+  // Distinct non-fatal failure kinds already warned about this connection
+  // (TTS read-back failures, a torn-down room racing a tool result), so each
+  // warns once per kind instead of flooding the console.
+  readonly #warnedNonFatalKinds = new Set<string>();
   readonly #thinkingFallbackMs: number;
   // Rescues an empty push-to-talk turn (no speech) that would otherwise wedge
   // the UI in `thinking` — see #startThinkingFallback.
@@ -236,7 +237,11 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       } catch (error) {
         throw this.#micEnableError(error);
       }
-      await room.localParticipant.setMicrophoneEnabled(false);
+      try {
+        await room.localParticipant.setMicrophoneEnabled(false);
+      } catch (error) {
+        throw this.#micEnableError(error);
+      }
       attempt.assertCurrent();
     } catch (error) {
       // Always disconnect this attempt's own room — a later step may have thrown
@@ -258,8 +263,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   }
 
   async disconnect(): Promise<void> {
-    await this.#room?.disconnect();
-    this.#teardown();
+    // Teardown must run even if room.disconnect() rejects — otherwise `#room`
+    // stays set and every later connect() throws ALREADY_CONNECTED forever. The
+    // rejection still propagates to the caller.
+    try {
+      await this.#room?.disconnect();
+    } finally {
+      this.#teardown();
+    }
   }
 
   /**
@@ -294,6 +305,11 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * finishes, and {@link collapseSpeaking} reacts to that — so the state tracks
    * real audio end, not text hand-off. If the send itself fails no audio will
    * ever play, so the collapse is forced in the catch instead.
+   *
+   * Called with no active room (an intentional teardown raced this in-flight
+   * read-back) this is non-fatal — the UI change already applied and nothing
+   * waits on the confirmation — so it warns once and collapses `speaking`
+   * without raising a session-fatal error.
    */
   async sendToolResult(callId: ToolCallId, output: ToolResult): Promise<void> {
     const speakText =
@@ -303,13 +319,21 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#logger.debug('→ speak', { callId, speakText });
     const room = this.#room;
     if (!room) {
-      this.#emit({
-        type: 'error',
-        error: new RealtimeVoiceError(
-          'CONNECTION_FAILED',
-          `sendToolResult called with no active LiveKit room (callId=${callId})`,
-        ),
-      });
+      // Non-fatal: the update_ui this reads back already applied, and nothing
+      // downstream waits on the spoken confirmation. A missing room here means
+      // an intentional teardown raced this in-flight result; genuine connection
+      // loss is surfaced by the room's connection-state events, which own
+      // fatality. Warn once (mirroring #handleTtsSignal) and collapse any
+      // transient `speaking` rather than raising a fatal RealtimeVoiceError.
+      const kind = 'no_room';
+      if (!this.#warnedNonFatalKinds.has(kind)) {
+        this.#warnedNonFatalKinds.add(kind);
+        this.#logger.warn(
+          'sendToolResult called with no active LiveKit room (non-fatal)',
+          { callId },
+        );
+      }
+      this.#collapseSpeaking();
       return;
     }
     this.#emit({ type: 'state', state: 'speaking' });
@@ -395,8 +419,8 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       return;
     }
     const kind = type ?? 'malformed';
-    if (!this.#warnedTtsFailures.has(kind)) {
-      this.#warnedTtsFailures.add(kind);
+    if (!this.#warnedNonFatalKinds.has(kind)) {
+      this.#warnedNonFatalKinds.add(kind);
       this.#logger.warn('LiveKit worker TTS read-back failed (non-fatal)', {
         kind,
       });
@@ -508,7 +532,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     // instead of clobbering shared state when its awaits resume.
     this.#connectGuard.supersede();
     this.#clearThinkingFallback();
-    this.#warnedTtsFailures.clear();
+    this.#warnedNonFatalKinds.clear();
     this.#room = undefined;
     this.#connecting = false;
     this.#playbackStream = undefined;

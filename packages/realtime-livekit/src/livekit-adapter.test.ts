@@ -257,6 +257,37 @@ describe('LiveKitAdapter connect', () => {
   });
 });
 
+describe('LiveKitAdapter disconnect teardown', () => {
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockRoomConnect.mockReset();
+    mockRoomDisconnect.mockReset();
+    mockSetMicrophoneEnabled.mockReset();
+  });
+
+  test('a rejecting room.disconnect() still tears down so a later connect() can succeed', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    const cause = new Error('disconnect failed');
+    mockRoomDisconnect.mockImplementationOnce(async () => {
+      throw cause;
+    });
+
+    // The rejection must propagate to the caller...
+    const error = await adapter
+      .disconnect()
+      .then(() => undefined, (e: unknown) => e);
+    expect(error).toBe(cause);
+
+    // ...but teardown still ran, so a fresh connect is not rejected as
+    // ALREADY_CONNECTED — a failed disconnect must not wedge the adapter.
+    await expect(
+      adapter.connect({ tools: [], instructions: '' }),
+    ).resolves.toBeUndefined();
+  });
+});
+
 describe('LiveKitAdapter transcript → tool_call synthesis', () => {
   beforeEach(() => {
     currentRoom = makeMockRoom();
@@ -388,16 +419,18 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
     expect(states(events).at(-1)).toBe('connected');
   });
 
-  test('with no active room, wraps the failure in a RealtimeVoiceError', async () => {
+  test('with no active room, is non-fatal: no error event, no throw, and no send', async () => {
     const { adapter, events } = makeAdapter();
-    // Never connected — no room.
-    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' });
+    // Never connected — no room. A `#room` unset here means an intentional
+    // teardown raced this in-flight read-back of an already-applied update_ui;
+    // real connection loss is surfaced by the room's connection-state events.
+    // So this must not tear the session down.
+    await expect(
+      adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' }),
+    ).resolves.toBeUndefined();
 
-    const err = events.find((e) => e.type === 'error');
-    expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
-    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
-      'CONNECTION_FAILED',
-    );
+    // No RealtimeVoiceError (which RealtimeSession treats as fatal).
+    expect(events.some((e) => e.type === 'error')).toBe(false);
     expect(mockSendText).not.toHaveBeenCalled();
   });
 

@@ -37,18 +37,23 @@ export type RealtimeVoiceErrorCode =
  * `Error` on an `error` event is only logged. Adapters must therefore reserve
  * `RealtimeVoiceError` for genuinely fatal conditions:
  *
- * - **Fatal** (raise a `RealtimeVoiceError`) — the session is unusable: a lost
- *   tool result (the model conversation wedges without it), or loss of the
- *   underlying connection (token mint failure, transport/mic failure while
- *   connecting, a broken data channel the session drives turns over).
+ * - **Fatal** (raise a `RealtimeVoiceError`) — loss of the underlying
+ *   connection, which the connection-state paths own and surface: a token mint
+ *   failure, a transport/mic failure while connecting, or a broken data channel
+ *   the session drives turns over. Without the connection the session cannot
+ *   function.
  * - **Non-fatal** (never raise a `RealtimeVoiceError`) — a failure that leaves
- *   the already-applied UI change intact and the session usable: a
- *   worker-reported TTS synthesis failure or a malformed status packet on the
- *   spoken read-back channel (the `update_ui` already rendered; only its voiced
- *   confirmation was lost), or an unrecognized inbound packet. Raising a fatal
- *   error here would kill a live session over lost audio. Instead warn once and
- *   recover locally (e.g. collapse a transient `speaking` state so the UI does
- *   not hang waiting for audio that will never arrive).
+ *   the already-applied UI change intact and the session usable. Failing to
+ *   deliver the spoken read-back of a tool result is non-fatal: the `update_ui`
+ *   already rendered, nothing downstream waits on the confirmation, and a
+ *   transport that is truly down is either already surfaced as connection loss
+ *   or an intentional teardown. This covers a worker-reported TTS synthesis
+ *   failure or a malformed status packet on the read-back channel (only the
+ *   voiced confirmation was lost), an unrecognized inbound packet, and a
+ *   read-back attempted after the room is gone. Raising a fatal error here would
+ *   kill a live session over lost audio. Instead warn once and recover locally
+ *   (e.g. collapse a transient `speaking` state so the UI does not hang waiting
+ *   for audio that will never arrive).
  */
 export class RealtimeVoiceError extends MaelstromError {
   public override readonly code: RealtimeVoiceErrorCode;
