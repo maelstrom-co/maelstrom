@@ -18,6 +18,9 @@ export interface LiveKitTokenGrant extends TokenGrant {
 /** Wire schema for {@link LiveKitTokenGrant}. */
 export const LiveKitTokenGrantSchema = z.object({
   token: z.string().min(1),
-  url: z.url(),
+  // room.connect() speaks the LiveKit WebSocket signal protocol, so only
+  // ws/wss URLs are usable — reject http(s) at the boundary rather than let a
+  // mistyped scheme surface as an opaque connect failure.
+  url: z.url({ protocol: /^wss?$/ }),
   expiresAt: UnixSecondsSchema,
 });

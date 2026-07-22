@@ -22,6 +22,15 @@ describe('LiveKitTokenGrantSchema url', () => {
     expect(parsed.url).toBe('ws://localhost:7880');
   });
 
+  test('rejects an http(s):// URL — room.connect() requires ws/wss', () => {
+    const result = LiveKitTokenGrantSchema.safeParse({
+      token: 'test-token',
+      url: 'https://example.com',
+      expiresAt: EXPIRES_AT,
+    });
+    expect(result.success).toBe(false);
+  });
+
   test('rejects a non-empty string that is not a URL', () => {
     const result = LiveKitTokenGrantSchema.safeParse({
       token: 'test-token',
