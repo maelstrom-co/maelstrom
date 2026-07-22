@@ -18,6 +18,6 @@ export interface LiveKitTokenGrant extends TokenGrant {
 /** Wire schema for {@link LiveKitTokenGrant}. */
 export const LiveKitTokenGrantSchema = z.object({
   token: z.string().min(1),
-  url: z.string().min(1),
+  url: z.url(),
   expiresAt: UnixSecondsSchema,
 });
