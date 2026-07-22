@@ -128,6 +128,62 @@ describe('mintLiveKitToken', () => {
     expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + 90 + 2);
   });
 
+  test('accepts an oversized-but-parseable LIVEKIT_TOKEN_TTL', async () => {
+    process.env.LIVEKIT_TOKEN_TTL = '3650d';
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(lastTtl).toBe('3650d');
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    // 3650d → ~315,360,000s out; operator's env, operator's choice.
+    const expected = 3650 * 86400;
+    expect(result.value.expiresAt).toBeGreaterThan(nowSeconds + expected - 5);
+    expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + expected + 2);
+  });
+
+  test('rejects a "2 days" LIVEKIT_TOKEN_TTL the local parser cannot parse', async () => {
+    // Headline bug: the SDK parses "2 days" (vercel/ms grammar) but the local
+    // parser cannot, so the reported expiresAt would silently diverge from the
+    // real JWT expiry. Fail closed instead of minting a mismatched grant.
+    process.env.LIVEKIT_TOKEN_TTL = '2 days';
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+  });
+
+  test('rejects a "1w" LIVEKIT_TOKEN_TTL the local parser cannot parse', async () => {
+    process.env.LIVEKIT_TOKEN_TTL = '1w';
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+  });
+
+  test('rejects a non-numeric LIVEKIT_TOKEN_TTL', async () => {
+    process.env.LIVEKIT_TOKEN_TTL = 'abc';
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+  });
+
+  test('rejects a zero-valued LIVEKIT_TOKEN_TTL', async () => {
+    process.env.LIVEKIT_TOKEN_TTL = '0';
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+  });
+
+  test('does not sign a token when the TTL is unparseable', async () => {
+    process.env.LIVEKIT_TOKEN_TTL = '2 days';
+    await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    // The reject happens before any AccessToken is constructed.
+    expect(lastTtl).toBeUndefined();
+    expect(lastGrant).toBeUndefined();
+  });
+
   test('defaults the url to ws://localhost:7880 when LIVEKIT_URL is unset', async () => {
     delete process.env.LIVEKIT_URL;
     const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });

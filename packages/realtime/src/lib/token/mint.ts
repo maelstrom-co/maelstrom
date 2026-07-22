@@ -15,6 +15,10 @@ export type MintFetch = (url: string, init: RequestInit) => Promise<Response>;
  *   does not handle.
  * - `missing-api-key` — the minter was constructed without provider
  *   credentials.
+ * - `invalid-config` — a server-side configuration value (e.g. an env var)
+ *   was present but invalid, so the minter refused to guess. Distinct from
+ *   `missing-api-key`: the credential is there, another setting is wrong.
+ *   An operator fault either way, never the caller's.
  * - `upstream-failure` — the provider was unreachable, rejected the request,
  *   or returned a response the minter could not validate.
  */
@@ -22,6 +26,7 @@ export type MintFailureReason =
   | 'invalid-request'
   | 'unsupported-provider'
   | 'missing-api-key'
+  | 'invalid-config'
   | 'upstream-failure';
 
 /**
@@ -38,6 +43,7 @@ const MINT_FAILURE_HTTP_STATUS: Record<MintFailureReason, number> = {
   'invalid-request': 400,
   'unsupported-provider': 400,
   'missing-api-key': 500,
+  'invalid-config': 500,
   'upstream-failure': 502,
 };
 

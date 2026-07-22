@@ -76,6 +76,24 @@ export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResul
   const url = process.env.LIVEKIT_URL ?? DEFAULT_URL;
   const ttl = process.env.LIVEKIT_TOKEN_TTL ?? DEFAULT_TTL;
 
+  // Fail closed on a TTL this package can't confidently parse: the SDK accepts
+  // the wider vercel/ms grammar (e.g. `2 days`, `1w`), but the local parser
+  // that computes `expiresAt` does not, so minting anyway would report an
+  // expiry that silently diverges from the real JWT lifetime. Reject before
+  // signing rather than emit a mismatched grant. `invalid-config` is the
+  // shared vocabulary's reason for a present-but-invalid env setting (HTTP
+  // 500) — the credentials are fine, so `missing-api-key` would misdirect an
+  // operator into checking the wrong thing.
+  const ttlSeconds = ttlToSeconds(ttl);
+  if (ttlSeconds === null) {
+    console.error(
+      `LIVEKIT_TOKEN_TTL="${ttl}" is not a supported token lifetime. Use a ` +
+        'positive number of seconds (e.g. 900) or <int><unit> with unit s/m/h/d ' +
+        '(e.g. 15m, 2h, 7d).',
+    );
+    return err({ reason: 'invalid-config' });
+  }
+
   try {
     const at = new AccessToken(apiKey, apiSecret, {
       identity: request.data.identity ?? USER_PARTICIPANT_IDENTITY,
@@ -89,7 +107,7 @@ export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResul
     });
 
     const token = await at.toJwt();
-    const expiresAt = (Math.floor(Date.now() / 1000) + ttlToSeconds(ttl)) as UnixSeconds;
+    const expiresAt = (Math.floor(Date.now() / 1000) + ttlSeconds) as UnixSeconds;
     return ok({ token, url, expiresAt });
   } catch {
     return err({ reason: 'upstream-failure' });
@@ -98,17 +116,22 @@ export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResul
 
 const TTL_UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 
-// LiveKit accepts a TTL as either a plain number of seconds or a duration
-// string like `15m`/`2h`. `expiresAt` needs the absolute expiry, so mirror
-// that parse here. Only a bare non-negative integer (seconds) or a single
-// `<int><unit>` string is supported; anything else falls back to the
-// 15-minute default rather than throwing, keeping mint resilient to an odd
-// env value.
-function ttlToSeconds(ttl: string | number): number {
-  if (typeof ttl === 'number') return ttl;
+// `expiresAt` needs the absolute expiry, so parse the TTL the same way here.
+// Deliberately narrower than the SDK's vercel/ms grammar: only a bare integer
+// number of seconds or a single `<int><unit>` string (unit s/m/h/d) is
+// supported. Returns null for anything else — including a zero-valued TTL (a
+// token expiring immediately is useless, near-certain misconfiguration) — so
+// the caller fails closed rather than reporting a guessed expiry that diverges
+// from the JWT the SDK actually signs.
+function ttlToSeconds(ttl: string): number | null {
   const trimmed = ttl.trim();
-  if (/^\d+$/.test(trimmed)) return Number(trimmed);
-  const match = /^(\d+)([smhd])$/.exec(trimmed);
-  if (!match) return 900;
-  return Number(match[1]) * TTL_UNIT_SECONDS[match[2] as keyof typeof TTL_UNIT_SECONDS];
+  let seconds: number;
+  if (/^\d+$/.test(trimmed)) {
+    seconds = Number(trimmed);
+  } else {
+    const match = /^(\d+)([smhd])$/.exec(trimmed);
+    if (!match) return null;
+    seconds = Number(match[1]) * TTL_UNIT_SECONDS[match[2] as keyof typeof TTL_UNIT_SECONDS];
+  }
+  return seconds > 0 ? seconds : null;
 }
