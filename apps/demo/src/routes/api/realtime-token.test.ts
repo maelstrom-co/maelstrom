@@ -35,6 +35,7 @@ const STATUS: Record<MintFailureReason, number> = {
   'invalid-request': 400,
   'unsupported-provider': 400,
   'missing-api-key': 500,
+  'invalid-config': 500,
   'upstream-failure': 502,
 };
 
