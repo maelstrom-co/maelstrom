@@ -145,19 +145,23 @@ The `@maelstrom-co/*` packages are published to external consumers, so the comme
 - Linting is Biome (no ESLint): `nx run-many -t lint --error-on-warnings`; suppressions use `// biome-ignore <rule>: <why>` comments stating the invariant
 - Tests depend on built packages (`"dependsOn": ["^build"]`)
 
-## Linear Workflow
+## Issue Tracker Workflow
 
-When picking up a Linear ticket (MAE-XXX) to start work on it, immediately move it to "In Progress" before doing anything else. Do this as the first action when a ticket is picked up — not after planning, not after the first commit. If the ticket is already In Progress, leave it.
+Issues live in **ClickUp** (migrated from Linear on 2026-07-21), driven via the ClickUp MCP.
+
+When picking up a ClickUp task to start work on it, immediately move it to "In Progress" before doing anything else. Do this as the first action when a task is picked up — not after planning, not after the first commit. If it's already In Progress, leave it.
+
+> Historical tasks carry Linear `MAE-XXX` ids in git history and PR titles; leave those as-is. The workspace structure, `MAE-###` id scheme, statuses, and triage-tag mapping are all confirmed and documented in `docs/agents/issue-tracker.md`.
 
 ## Agent skills
 
 ### Issue tracker
 
-Issues and specs live in **Linear** (`MAE-XXX`, team `MAE`), driven via the Linear MCP tools — not GitHub Issues. Dependencies use Linear's native blocked-by relation. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+Issues and specs live in **ClickUp** (migrated from Linear 2026-07-21), driven via the ClickUp MCP (`mcp__*clickup*`; load schemas via `ToolSearch` query `clickup`) — not GitHub Issues. Dependencies use ClickUp's native task dependencies (blocking / waiting-on). External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Canonical roles as Linear labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`), with `wontfix` mapped to the `Canceled` workflow state. See `docs/agents/triage-labels.md`.
+Canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`) are ClickUp **tags**; `wontfix` → the `canceled` status. Tags must be created in the ClickUp UI first — the MCP can't mint them. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
