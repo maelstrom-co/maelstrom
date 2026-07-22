@@ -66,6 +66,11 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
 
   #room: Room | undefined;
   #audioEl: HTMLAudioElement | undefined;
+  // The published track is muted between turns. Keep one stopped-with-teardown
+  // clone for consumers such as browser VAD that must observe microphone audio
+  // continuously, independent of the transport publication's enabled flag.
+  #micClone: MediaStreamTrack | undefined;
+  #micStream: MediaStream | undefined;
   #playbackStream: MediaStream | undefined;
   // Last state emitted, so the deferred `speaking`→`connected` collapse can be
   // skipped when a newer state (a barge-in `listening`) already superseded it.
@@ -268,6 +273,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       } catch (error) {
         throw this.#micEnableError(error);
       }
+      this.#createMicClone(room);
       try {
         await room.localParticipant.setMicrophoneEnabled(false);
       } catch (error) {
@@ -313,19 +319,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
 
   /**
    * Live mic and playback streams for UI metering. The mic is read from the
-   * local microphone publication (published once on connect, then muted/unmuted
-   * per turn — so it stays a stable stream across a hold); playback is the
-   * worker's TTS track, captured when it is subscribed. Both are undefined
-   * before connect and after disconnect. Never throws.
+   * enabled clone of the local microphone publication. LiveKit mutes the
+   * published track between turns, but this clone stays enabled for browser VAD
+   * and is reused until teardown. Playback is the worker's TTS track, captured
+   * when it is subscribed. Both are undefined before connect and after
+   * disconnect. Never throws.
    */
   getAudioStreams(): AdapterAudioStreams {
-    const micTrack = this.#room?.localParticipant.getTrackPublication(
-      Track.Source.Microphone,
-    )?.track;
-    const mic =
-      micTrack?.mediaStream ??
-      (micTrack ? new MediaStream([micTrack.mediaStreamTrack]) : undefined);
-    return { mic, playback: this.#playbackStream };
+    return { mic: this.#micStream, playback: this.#playbackStream };
   }
 
   /**
@@ -568,6 +569,25 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     track.attach(this.#audioEl);
   }
 
+  /**
+   * Creates the sole VAD-facing clone for a room. The clone shares the
+   * browser-captured source with LiveKit and therefore does not request a
+   * second microphone permission; only the published track is muted by
+   * {@link AdapterTurnControl}.
+  */
+  #createMicClone(room: Room): void {
+    const micTrack = room.localParticipant.getTrackPublication(
+      Track.Source.Microphone,
+    )?.track;
+    const mediaStreamTrack = micTrack?.mediaStreamTrack;
+    if (!mediaStreamTrack || this.#micClone) return;
+
+    const clone = mediaStreamTrack.clone();
+    clone.enabled = true;
+    this.#micClone = clone;
+    this.#micStream = new MediaStream([clone]);
+  }
+
   #emit(event: RealtimeAdapterEvent): void {
     if (event.type === 'state') this.#lastState = event.state;
     for (const handler of this.#handlers) handler(event);
@@ -621,6 +641,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#connectGuard.supersede();
     this.#clearThinkingFallback();
     this.#warnedNonFatalKinds.clear();
+    const micClone = this.#micClone;
+    this.#micClone = undefined;
+    this.#micStream = undefined;
+    micClone?.stop();
     this.#room = undefined;
     this.#connecting = false;
     this.#closing = false;

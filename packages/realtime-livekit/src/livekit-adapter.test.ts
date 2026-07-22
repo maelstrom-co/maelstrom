@@ -8,16 +8,40 @@ import type { LiveKitTokenGrant } from './livekit-token.js';
 const mockRoomConnect = mock(async () => {});
 const mockRoomDisconnect = mock(async () => {});
 const mockPublishData = mock(async () => {});
-const mockSetMicrophoneEnabled = mock(async () => undefined);
 const mockSendText = mock(async (_text: string, _opts?: unknown) => ({}));
 const mockStartAudio = mock(async () => {});
 
 // A live mic publication, returned by getTrackPublication(Source.Microphone).
-// `mediaStream` stands in for the browser MediaStream getAudioStreams surfaces.
-const mockMicStream = { id: 'mic-stream' } as unknown as MediaStream;
-const mockMicPublication = {
-  track: { mediaStream: mockMicStream },
+// The publication and its clone intentionally have independent enabled state:
+// LiveKit mutes the former between turns, while VAD must read the latter.
+const mockPublishedMicTrack = {
+  enabled: false,
+  clone: mock(() => mockMicCloneTrack),
+  stop: mock(() => {}),
 };
+const mockMicCloneTrack = {
+  enabled: false,
+  stop: mock(() => {}),
+};
+const mockSetMicrophoneEnabled = mock(async (enabled: boolean) => {
+  mockPublishedMicTrack.enabled = enabled;
+});
+const mockMicPublication = {
+  track: {
+    mediaStream: { id: 'published-mic-stream' } as unknown as MediaStream,
+    mediaStreamTrack: mockPublishedMicTrack as unknown as MediaStreamTrack,
+  },
+};
+
+class TestMediaStream {
+  constructor(readonly tracks: MediaStreamTrack[]) {}
+
+  getAudioTracks(): MediaStreamTrack[] {
+    return this.tracks;
+  }
+}
+
+globalThis.MediaStream = TestMediaStream as unknown as typeof MediaStream;
 
 const mockLocalParticipant = {
   setMicrophoneEnabled: mockSetMicrophoneEnabled,
@@ -141,6 +165,14 @@ describe('LiveKitAdapter connect', () => {
     currentRoom = makeMockRoom();
     mockRoomConnect.mockReset();
     mockSetMicrophoneEnabled.mockReset();
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      mockPublishedMicTrack.enabled = enabled;
+    });
+    mockPublishedMicTrack.enabled = false;
+    mockMicCloneTrack.enabled = false;
+    mockPublishedMicTrack.clone.mockClear();
+    mockPublishedMicTrack.stop.mockClear();
+    mockMicCloneTrack.stop.mockClear();
   });
 
   test('emits connecting → connected and publishes+mutes the mic', async () => {
@@ -399,6 +431,14 @@ describe('LiveKitAdapter transcript → tool_call synthesis', () => {
   beforeEach(() => {
     currentRoom = makeMockRoom();
     mockSetMicrophoneEnabled.mockReset();
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      mockPublishedMicTrack.enabled = enabled;
+    });
+    mockPublishedMicTrack.enabled = false;
+    mockMicCloneTrack.enabled = false;
+    mockPublishedMicTrack.clone.mockClear();
+    mockPublishedMicTrack.stop.mockClear();
+    mockMicCloneTrack.stop.mockClear();
   });
 
   test('a final transcript emits a transcript event then an update_ui tool call', async () => {
@@ -999,7 +1039,17 @@ describe('LiveKitAdapter thinking fallback', () => {
 describe('LiveKitAdapter misc surface', () => {
   beforeEach(() => {
     currentRoom = makeMockRoom();
+    mockRoomDisconnect.mockReset();
+    mockRoomDisconnect.mockImplementation(async () => {});
     mockSetMicrophoneEnabled.mockReset();
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      mockPublishedMicTrack.enabled = enabled;
+    });
+    mockPublishedMicTrack.enabled = false;
+    mockMicCloneTrack.enabled = false;
+    mockPublishedMicTrack.clone.mockClear();
+    mockPublishedMicTrack.stop.mockClear();
+    mockMicCloneTrack.stop.mockClear();
   });
 
   test('a worker tts_error is non-fatal: no error event, and speaking collapses', async () => {
@@ -1049,7 +1099,7 @@ describe('LiveKitAdapter misc surface', () => {
     expect(states(events).at(-1)).toBe('connected');
   });
 
-  test('getAudioStreams exposes the mic publication and subscribed playback track', async () => {
+  test('getAudioStreams exposes an enabled clone independent of the muted publication', async () => {
     const { adapter } = makeAdapter();
 
     // Before connect: no room, so both streams are undefined.
@@ -1060,8 +1110,25 @@ describe('LiveKitAdapter misc surface', () => {
 
     await adapter.connect({ tools: [], instructions: '' });
 
-    // Mic comes from the local microphone publication.
-    expect(adapter.getAudioStreams().mic).toBe(mockMicStream);
+    const mic = adapter.getAudioStreams().mic;
+    expect(mic?.getAudioTracks()[0]).toBe(mockMicCloneTrack as unknown as MediaStreamTrack);
+    expect(mockPublishedMicTrack.enabled).toBe(false);
+    expect(mockMicCloneTrack.enabled).toBe(true);
+    expect(mockPublishedMicTrack.clone).toHaveBeenCalledTimes(1);
+    expect(adapter.getAudioStreams().mic).toBe(mic);
+    expect(adapter.getAudioStreams().mic?.getAudioTracks()[0]).toBe(
+      mockMicCloneTrack as unknown as MediaStreamTrack,
+    );
+
+    // Turn control continues to mute/unmute only the published transport track.
+    await adapter.turnControl.startTurn();
+    expect(mockPublishedMicTrack.enabled).toBe(true);
+    expect(mockMicCloneTrack.enabled).toBe(true);
+    await adapter.turnControl.endTurn();
+    expect(mockPublishedMicTrack.enabled).toBe(false);
+    expect(mockMicCloneTrack.enabled).toBe(true);
+    expect(mockMicCloneTrack.stop).not.toHaveBeenCalled();
+
     // Playback is undefined until the worker's TTS track is subscribed.
     expect(adapter.getAudioStreams().playback).toBeUndefined();
 
@@ -1079,6 +1146,51 @@ describe('LiveKitAdapter misc surface', () => {
       mic: undefined,
       playback: undefined,
     });
+    expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
+    expect(mockPublishedMicTrack.stop).not.toHaveBeenCalled();
+  });
+
+  test('stops a clone exactly once when a connect attempt fails after cloning', async () => {
+    const { adapter } = makeAdapter();
+    const cause = new Error('mute failed');
+    mockSetMicrophoneEnabled.mockImplementationOnce(async (enabled: boolean) => {
+      mockPublishedMicTrack.enabled = enabled;
+    });
+    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+      throw cause;
+    });
+
+    const error = await adapter
+      .connect({ tools: [], instructions: '' })
+      .then(() => undefined, (connectionError: unknown) => connectionError);
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+    expect((error as RealtimeVoiceError).cause).toBe(cause);
+
+    expect(mockPublishedMicTrack.clone).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
+    expect(adapter.getAudioStreams()).toEqual({ mic: undefined, playback: undefined });
+  });
+
+  test('stops the old clone before creating one for a reconnect', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const firstClone = mockMicCloneTrack;
+
+    await adapter.disconnect();
+    expect(firstClone.stop).toHaveBeenCalledTimes(1);
+
+    // The mock returns the same object, so reset its stop count to distinguish
+    // the new connection's cleanup from the first connection's cleanup.
+    firstClone.stop.mockClear();
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(mockPublishedMicTrack.clone).toHaveBeenCalledTimes(2);
+    expect(adapter.getAudioStreams().mic?.getAudioTracks()[0]).toBe(
+      firstClone as unknown as MediaStreamTrack,
+    );
+
+    await adapter.disconnect();
+    expect(firstClone.stop).toHaveBeenCalledTimes(1);
   });
 
   test('injectGrounding is a no-op and never throws', async () => {
