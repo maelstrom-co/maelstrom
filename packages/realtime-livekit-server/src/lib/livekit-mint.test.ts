@@ -1,4 +1,4 @@
-import { test, expect, mock, beforeEach, afterEach, describe } from 'bun:test';
+import { test, expect, mock, spyOn, beforeEach, afterEach, describe } from 'bun:test';
 import { isErr, isOk } from '@maelstrom-co/protocol';
 
 // Capture the grant passed to AccessToken so the test can assert the token is
@@ -259,6 +259,29 @@ describe('mintLiveKitToken', () => {
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
     expect(result.error.reason).toBe('invalid-config');
+  });
+
+  test('logs the actual grant-validation issues, not a fixed scheme-assumption string, when the grant fails schema validation', async () => {
+    // The safeParse can fail on any of token/url/expiresAt, so the failure log
+    // must surface the real zod issue rather than assert the scheme is at fault
+    // — a fixed "must use ws:// or wss://" string misdirects an operator when
+    // some other field is the problem.
+    process.env.LIVEKIT_URL = 'https://example.com';
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error.reason).toBe('invalid-config');
+      const logged = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      // Surfaces the concrete zod issue (the failing `url` field).
+      expect(logged).toContain('failed validation');
+      expect(logged).toContain('url');
+      // Not the old fixed string that presumes the scheme is always the fault.
+      expect(logged).not.toContain('it must use the ws:// or wss:// scheme');
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   test('mints successfully with a wss:// LIVEKIT_URL', async () => {

@@ -1,6 +1,6 @@
 import { type Result, err, ok } from '@maelstrom-co/protocol';
 import type { MintFailure, UnixSeconds } from '@maelstrom-co/realtime';
-import { type LiveKitTokenGrant, LiveKitTokenGrantSchema } from '@maelstrom-co/realtime-livekit';
+import { type LiveKitTokenGrant, LiveKitTokenGrantSchema } from '@maelstrom-co/realtime-livekit/token';
 import { USER_PARTICIPANT_IDENTITY } from '@maelstrom-co/realtime-livekit/protocol';
 import { AccessToken } from 'livekit-server-sdk';
 import { z } from 'zod';
@@ -121,13 +121,16 @@ export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResul
     const expiresAt = (Math.floor(Date.now() / 1000) + ttlSeconds) as UnixSeconds;
 
     // Validate the built grant against the contract the browser adapter
-    // expects: room.connect() only speaks ws/wss, so a right-shaped-but-wrong
-    // -scheme LIVEKIT_URL (e.g. https://…) must fail here with a clear reason
-    // rather than reach the browser and fail opaquely there.
+    // expects — most commonly a right-shaped-but-wrong-scheme LIVEKIT_URL
+    // (e.g. https://…), since room.connect() only speaks ws/wss — so a bad
+    // grant fails here with a clear reason rather than reaching the browser and
+    // failing opaquely there. Log the concrete zod issues: the parse can fail
+    // on any of token/url/expiresAt, so a fixed scheme-assumption message would
+    // misdirect an operator whenever some other field is at fault.
     const grant = LiveKitTokenGrantSchema.safeParse({ token, url, expiresAt });
     if (!grant.success) {
       console.error(
-        `LIVEKIT_URL="${url}" is not a valid LiveKit room URL — it must use the ws:// or wss:// scheme.`,
+        `LiveKit token grant failed validation: ${JSON.stringify(grant.error.issues)}`,
       );
       return err({ reason: 'invalid-config' });
     }
