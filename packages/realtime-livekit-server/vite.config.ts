@@ -31,6 +31,7 @@ export default defineConfig(() => ({
         '@maelstrom-co/realtime',
         '@maelstrom-co/realtime-livekit',
         '@maelstrom-co/realtime-livekit/protocol',
+        '@maelstrom-co/realtime-livekit/token',
         'livekit-server-sdk',
         'zod',
       ],

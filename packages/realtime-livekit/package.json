@@ -20,6 +20,12 @@
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js",
       "default": "./dist/protocol.js"
+    },
+    "./token": {
+      "@maelstrom-co/source": "./src/livekit-token.ts",
+      "types": "./dist/livekit-token.d.ts",
+      "import": "./dist/livekit-token.js",
+      "default": "./dist/livekit-token.js"
     }
   },
   "files": [

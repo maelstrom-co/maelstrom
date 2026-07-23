@@ -15,6 +15,7 @@ export default defineConfig(() => ({
       entry: {
         index: 'src/index.ts',
         protocol: 'src/protocol.ts',
+        'livekit-token': 'src/livekit-token.ts',
       },
       name: '@maelstrom-co/realtime-livekit',
       formats: ['es' as const],
