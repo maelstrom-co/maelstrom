@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import type { RealtimeAdapterEvent, UnixSeconds } from '@maelstrom-co/realtime';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import './__tests__/setup.js';
+import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
 import type { LiveKitTokenGrant } from './livekit-token.js';
 import type { LocalAudioPreRoll } from './local-audio-pre-roll.js';
 
@@ -14,10 +16,33 @@ const mockStartAudio = mock(async () => {});
 const mockPauseUpstream = mock(async () => {});
 const mockResumeUpstream = mock(async () => {});
 const mockReplaceTrack = mock(async () => {});
+const mockMuteLocalMic = mock(async () => {});
+const mockCreateLocalAudioTrack = mock(async () => mockMicPublication.track);
+const mockPublishTrack = mock(async (_track: unknown) => mockMicPublication);
 const mockBridgeStartAutomaticTurn = mock(async (_preRollMs: number) => {});
 const mockBridgeStartManualTurn = mock(async () => {});
 const mockBridgeEndTurn = mock(async () => {});
 const mockBridgeDestroy = mock(async () => {});
+const mockVadStart = mock(async () => {});
+const mockVadPause = mock(async () => {});
+const mockVadDestroy = mock(async () => {});
+const capturedVadOptions: Record<string, unknown>[] = [];
+const mockMicVADNew = mock(async (options?: Record<string, unknown>) => {
+  capturedVadOptions.push(options ?? {});
+  return {
+    start: mockVadStart,
+    pause: mockVadPause,
+    destroy: mockVadDestroy,
+  };
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 const mockGeneratedTrack = {
   enabled: true,
   stop: mock(() => {}),
@@ -54,6 +79,8 @@ const mockMicPublication = {
   track: {
     mediaStream: { id: 'published-mic-stream' } as unknown as MediaStream,
     mediaStreamTrack: mockPublishedMicTrack as unknown as MediaStreamTrack,
+    mute: mockMuteLocalMic,
+    stop: mockPublishedMicTrack.stop,
     pauseUpstream: mockPauseUpstream,
     resumeUpstream: mockResumeUpstream,
     replaceTrack: mockReplaceTrack,
@@ -72,6 +99,7 @@ globalThis.MediaStream = TestMediaStream as unknown as typeof MediaStream;
 
 const mockLocalParticipant = {
   setMicrophoneEnabled: mockSetMicrophoneEnabled,
+  publishTrack: mockPublishTrack,
   publishData: mockPublishData,
   sendText: mockSendText,
   startAudio: mockStartAudio,
@@ -101,6 +129,7 @@ function makeMockRoom() {
 let currentRoom = makeMockRoom();
 
 mock.module('livekit-client', () => ({
+  createLocalAudioTrack: mockCreateLocalAudioTrack,
   Room: class {
     on = currentRoom.on;
     off = currentRoom.off;
@@ -121,6 +150,10 @@ mock.module('livekit-client', () => ({
 
 mock.module('./local-audio-pre-roll.js', () => ({
   createLocalAudioPreRoll: mockCreateLocalAudioPreRoll,
+}));
+
+mock.module('@ricky0123/vad-web', () => ({
+  MicVAD: { new: mockMicVADNew },
 }));
 
 const { LiveKitAdapter } = await import('./livekit-adapter');
@@ -165,7 +198,7 @@ const DEFAULT_GRANT: LiveKitTokenGrant = {
 function makeAdapter(
   mintToken: (roomName: string) => Promise<LiveKitTokenGrant> = async () =>
     DEFAULT_GRANT,
-  options: { thinkingFallbackMs?: number } = {},
+  options: Pick<LiveKitAdapterOptions, 'thinkingFallbackMs' | 'vad'> = {},
 ) {
   const events: RealtimeAdapterEvent[] = [];
   // Default the thinking fallback OFF so tests don't leak a real timer; the
@@ -195,9 +228,21 @@ describe('LiveKitAdapter connect', () => {
   beforeEach(() => {
     currentRoom = makeMockRoom();
     mockRoomConnect.mockReset();
+    mockRoomDisconnect.mockReset();
+    mockRoomDisconnect.mockImplementation(async () => {});
     mockSetMicrophoneEnabled.mockReset();
     mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
       mockPublishedMicTrack.enabled = enabled;
+    });
+    mockCreateLocalAudioTrack.mockReset();
+    mockCreateLocalAudioTrack.mockImplementation(
+      async () => mockMicPublication.track,
+    );
+    mockPublishTrack.mockReset();
+    mockPublishTrack.mockImplementation(async () => mockMicPublication);
+    mockMuteLocalMic.mockReset();
+    mockMuteLocalMic.mockImplementation(async () => {
+      mockPublishedMicTrack.enabled = false;
     });
     mockPublishedMicTrack.enabled = false;
     mockMicCloneTrack.enabled = false;
@@ -220,6 +265,14 @@ describe('LiveKitAdapter connect', () => {
     mockBridgeEndTurn.mockImplementation(async () => {});
     mockBridgeDestroy.mockReset();
     mockBridgeDestroy.mockImplementation(async () => {});
+    mockVadStart.mockReset();
+    mockVadStart.mockImplementation(async () => {});
+    mockVadPause.mockReset();
+    mockVadPause.mockImplementation(async () => {});
+    mockVadDestroy.mockReset();
+    mockVadDestroy.mockImplementation(async () => {});
+    mockMicVADNew.mockClear();
+    capturedVadOptions.length = 0;
   });
 
   test('emits connecting → connected and publishes+mutes the mic', async () => {
@@ -231,11 +284,57 @@ describe('LiveKitAdapter connect', () => {
       'ws://localhost:7880',
       'test-token',
     );
-    // publish (true) then mute (false) — the hold-to-talk flip precondition.
+    expect(mockCreateLocalAudioTrack).toHaveBeenCalledTimes(1);
+    expect(mockPublishTrack).toHaveBeenCalledWith(mockMicPublication.track);
     expect(mockSetMicrophoneEnabled.mock.calls.map((c) => c[0])).toEqual([
-      true,
       false,
     ]);
+  });
+
+  test('mutes locally acquired audio before its first publication and exposes mode only after upstream pause', async () => {
+    const order: string[] = [];
+    let rawEnabledAtPublish: boolean | undefined;
+    let cloneEnabledAtPublish: boolean | undefined;
+    mockCreateLocalAudioTrack.mockImplementationOnce(async () => {
+      order.push('acquire');
+      return mockMicPublication.track;
+    });
+    mockPublishedMicTrack.clone.mockImplementationOnce(() => {
+      order.push('clone');
+      return mockMicCloneTrack;
+    });
+    mockMuteLocalMic.mockImplementationOnce(async () => {
+      mockPublishedMicTrack.enabled = false;
+      order.push('mute');
+    });
+    mockPublishTrack.mockImplementationOnce(async (track) => {
+      const localTrack = track as typeof mockMicPublication.track;
+      rawEnabledAtPublish = localTrack.mediaStreamTrack.enabled;
+      cloneEnabledAtPublish = mockMicCloneTrack.enabled;
+      order.push('publish');
+      return mockMicPublication;
+    });
+    mockPauseUpstream.mockImplementationOnce(async () => {
+      order.push('pause');
+    });
+    const { adapter } = makeAdapter(undefined, { vad: false });
+    adapter.on((event) => {
+      if (event.type === 'turn_mode') order.push(`mode:${event.mode}`);
+    });
+
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(order).toEqual([
+      'acquire',
+      'clone',
+      'mute',
+      'publish',
+      'pause',
+      'mode:manual',
+    ]);
+    expect(rawEnabledAtPublish).toBe(false);
+    expect(cloneEnabledAtPublish).toBe(true);
+    expect(mockPublishedMicTrack.enabled).toBe(false);
   });
 
   test('publishes one generated track and pauses upstream while automatic turns are idle', async () => {
@@ -249,10 +348,590 @@ describe('LiveKitAdapter connect', () => {
     // Raw capture is paused before bridge setup, then the generated publication
     // is paused again after replaceTrack resumes upstream internally.
     expect(mockPauseUpstream).toHaveBeenCalledTimes(2);
-    expect(mockSetMicrophoneEnabled.mock.calls.map((call) => call[0])).toEqual([
-      true,
-    ]);
+    expect(mockSetMicrophoneEnabled).not.toHaveBeenCalled();
     expect(mockPublishedMicTrack.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test('establishes automatic mode without exposing manual turn control', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter, events } = makeAdapter();
+
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(events).toContainEqual({ type: 'turn_mode', mode: 'automatic' });
+    expect(mockMicVADNew).toHaveBeenCalledTimes(1);
+    expect(mockVadStart).toHaveBeenCalledTimes(1);
+    expect(adapter.turnControl).toBeUndefined();
+  });
+
+  test('starts VAD on the local clone before announcing automatic mode', async () => {
+    const start = deferred<void>();
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockVadStart.mockImplementationOnce(() => start.promise);
+    const { adapter, events } = makeAdapter(undefined, {
+      vad: {
+        assetBaseUrl: '/custom-vad',
+        preRollMs: 125,
+        providerOptions: { positiveSpeechThreshold: 0.8 },
+      },
+    });
+
+    const connecting = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 100; attempts += 1) {
+      if (mockVadStart.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+
+    expect(events).not.toContainEqual({ type: 'turn_mode', mode: 'automatic' });
+    const options = capturedVadOptions[0] as {
+      baseAssetPath?: string;
+      getStream?: () => Promise<MediaStream>;
+      positiveSpeechThreshold?: number;
+    };
+    expect(options.baseAssetPath).toBe('/custom-vad/');
+    expect(options.positiveSpeechThreshold).toBe(0.8);
+    await expect(options.getStream?.()).resolves.toBe(
+      adapter.getAudioStreams().mic,
+    );
+
+    start.resolve();
+    await connecting;
+    expect(events).toContainEqual({ type: 'turn_mode', mode: 'automatic' });
+    expect(adapter.turnControl).toBeUndefined();
+  });
+
+  test('serializes automatic speech callbacks and sends pre-roll once per turn', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter(undefined, { vad: { preRollMs: 125 } });
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+      onSpeechEnd?: () => Promise<void>;
+    };
+
+    const firstStart = options.onSpeechStart?.();
+    const duplicateStart = options.onSpeechStart?.();
+    const firstEnd = options.onSpeechEnd?.();
+    const secondStart = options.onSpeechStart?.();
+    const secondEnd = options.onSpeechEnd?.();
+    await Promise.all([
+      firstStart,
+      duplicateStart,
+      firstEnd,
+      secondStart,
+      secondEnd,
+    ]);
+
+    expect(
+      mockBridgeStartAutomaticTurn.mock.calls.map((call) => call[0]),
+    ).toEqual([125, 125]);
+    expect(mockBridgeEndTurn).toHaveBeenCalledTimes(2);
+    expect(mockResumeUpstream).toHaveBeenCalledTimes(2);
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(4);
+  });
+
+  test('closes a short automatic turn once on VAD misfire without leaving automatic mode', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPublishData.mockClear();
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+      onSpeechEnd?: () => Promise<void>;
+      onVADMisfire?: () => Promise<void>;
+    };
+    await options.onSpeechStart?.();
+
+    await options.onVADMisfire?.();
+    expect(mockBridgeEndTurn).toHaveBeenCalledTimes(1);
+    await Promise.all([options.onVADMisfire?.(), options.onSpeechEnd?.()]);
+
+    const publishCalls = mockPublishData.mock.calls as unknown as [
+      Uint8Array,
+    ][];
+    const turnEnds = publishCalls.filter(([payload]) => {
+      const message = JSON.parse(new TextDecoder().decode(payload));
+      return message.type === 'turn_end';
+    });
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(3);
+    expect(turnEnds).toHaveLength(1);
+    expect(events.filter((event) => event.type === 'turn_mode')).toEqual([
+      { type: 'turn_mode', mode: 'automatic' },
+    ]);
+    expect(adapter.turnControl).toBeUndefined();
+  });
+
+  test('resumes upstream before emitting automatic pre-roll', async () => {
+    const order: string[] = [];
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockResumeUpstream.mockImplementationOnce(async () => {
+      order.push('resume-upstream');
+    });
+    mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
+      order.push('emit-pre-roll');
+    });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+    };
+
+    await options.onSpeechStart?.();
+
+    // The generated track must be upstream-live before buffered samples leave
+    // the pre-roll bridge, or the beginning of the utterance is dropped.
+    expect(order).toEqual(['resume-upstream', 'emit-pre-roll']);
+  });
+
+  test('destroys VAD on disconnect and fences its callbacks from a fresh reconnect', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => mockBridge);
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const stale = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+      onSpeechEnd?: () => Promise<void>;
+      onVADMisfire?: () => Promise<void>;
+    };
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    const fresh = capturedVadOptions[1] as {
+      onSpeechStart?: () => Promise<void>;
+      onSpeechEnd?: () => Promise<void>;
+    };
+    mockBridgeStartAutomaticTurn.mockClear();
+    mockBridgeEndTurn.mockClear();
+
+    await stale.onSpeechStart?.();
+    await stale.onSpeechEnd?.();
+    await stale.onVADMisfire?.();
+    await fresh.onSpeechStart?.();
+    await fresh.onSpeechEnd?.();
+
+    expect(mockVadDestroy).toHaveBeenCalledTimes(1);
+    expect(mockBridgeStartAutomaticTurn).toHaveBeenCalledTimes(1);
+    expect(mockBridgeEndTurn).toHaveBeenCalledTimes(1);
+  });
+
+  test('degrades a VAD start failure to manual without failing the room', async () => {
+    const cause = new Error('VAD assets unavailable');
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockVadStart.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    const { adapter, events } = makeAdapter();
+
+    await expect(
+      adapter.connect({ tools: [], instructions: '' }),
+    ).resolves.toBeUndefined();
+
+    expect(states(events).at(-1)).toBe('connected');
+    expect(events).toContainEqual({
+      type: 'turn_mode',
+      mode: 'manual',
+      error: cause,
+    });
+    expect(mockVadDestroy).toHaveBeenCalledTimes(1);
+    expect(adapter.turnControl).toBeDefined();
+  });
+
+  test('pauses automatic VAD and upstream before exposing manual fallback after a callback failure', async () => {
+    const cause = new Error('automatic pre-roll failed');
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+    };
+    let controlAvailableAtManualEvent = false;
+    adapter.on((event) => {
+      if (event.type === 'turn_mode' && event.mode === 'manual') {
+        controlAvailableAtManualEvent = adapter.turnControl !== undefined;
+      }
+    });
+
+    await options.onSpeechStart?.();
+
+    expect(mockVadPause).toHaveBeenCalledTimes(1);
+    expect(mockPauseUpstream.mock.calls.length).toBeGreaterThanOrEqual(4);
+    expect(events).toContainEqual({
+      type: 'turn_mode',
+      mode: 'manual',
+      error: cause,
+    });
+    expect(controlAvailableAtManualEvent).toBe(true);
+  });
+
+  test('waits for the degradation pause before exposing manual fallback', async () => {
+    const cause = new Error('automatic pre-roll failed');
+    const degradationPause = deferred<void>();
+    let pauseCount = 0;
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    mockPauseUpstream.mockImplementation(async () => {
+      pauseCount += 1;
+      if (pauseCount === 4) await degradationPause.promise;
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+    };
+
+    const failing = options.onSpeechStart?.();
+    for (let attempts = 0; attempts < 20 && pauseCount < 4; attempts += 1) {
+      await Promise.resolve();
+    }
+
+    expect(pauseCount).toBe(4);
+    expect(adapter.turnControl).toBeUndefined();
+    expect(events).not.toContainEqual({
+      type: 'turn_mode',
+      mode: 'manual',
+      error: cause,
+    });
+
+    degradationPause.resolve();
+    await failing;
+    expect(adapter.turnControl).toBeDefined();
+    expect(events).toContainEqual({
+      type: 'turn_mode',
+      mode: 'manual',
+      error: cause,
+    });
+  });
+
+  test('does not finalize an automatic turn twice when degradation follows a finalized drain failure', async () => {
+    const cause = new Error('local drain failed');
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockBridgeEndTurn.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPublishData.mockClear();
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+      onSpeechEnd?: () => Promise<void>;
+    };
+    await options.onSpeechStart?.();
+
+    await options.onSpeechEnd?.();
+    await options.onSpeechEnd?.();
+
+    expect(mockBridgeEndTurn).toHaveBeenCalledTimes(1);
+    const publishCalls = mockPublishData.mock.calls as unknown as [
+      Uint8Array,
+    ][];
+    const turnEnds = publishCalls.filter(([payload]) => {
+      const message = JSON.parse(new TextDecoder().decode(payload));
+      return message.type === 'turn_end';
+    });
+    expect(turnEnds).toHaveLength(1);
+    expect(events).toContainEqual({
+      type: 'turn_mode',
+      mode: 'manual',
+      error: expect.objectContaining({ cause }),
+    });
+  });
+
+  test('degrades to manual when a VAD misfire closes after a finalized drain failure', async () => {
+    const cause = new Error('local drain failed');
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockBridgeEndTurn.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPublishData.mockClear();
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+      onVADMisfire?: () => Promise<void>;
+    };
+    await options.onSpeechStart?.();
+
+    await options.onVADMisfire?.();
+
+    expect(mockBridgeEndTurn).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual({
+      type: 'turn_mode',
+      mode: 'manual',
+      error: expect.objectContaining({ cause }),
+    });
+    expect(adapter.turnControl).toBeDefined();
+  });
+
+  test('does not publish manual fallback when disconnect wins a delayed degradation', async () => {
+    const cause = new Error('automatic pre-roll failed');
+    const degradationPause = deferred<void>();
+    let pauseCount = 0;
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    mockPauseUpstream.mockImplementation(async () => {
+      pauseCount += 1;
+      if (pauseCount === 4) await degradationPause.promise;
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+    };
+
+    const failing = options.onSpeechStart?.();
+    for (let attempts = 0; attempts < 20 && pauseCount < 4; attempts += 1) {
+      await Promise.resolve();
+    }
+    const disconnecting = adapter.disconnect();
+    degradationPause.resolve();
+    await Promise.all([failing, disconnecting]);
+
+    expect(adapter.turnControl).toBeUndefined();
+    expect(events).not.toContainEqual({
+      type: 'turn_mode',
+      mode: 'manual',
+      error: cause,
+    });
+  });
+
+  test('reconnect reevaluates automatic mode after a runtime degradation', async () => {
+    const cause = new Error('automatic pre-roll failed');
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => mockBridge);
+    mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const stale = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+    };
+    await stale.onSpeechStart?.();
+    expect(adapter.turnControl).toBeDefined();
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(adapter.turnControl).toBeUndefined();
+    expect(events.filter((event) => event.type === 'turn_mode').at(-1)).toEqual(
+      {
+        type: 'turn_mode',
+        mode: 'automatic',
+      },
+    );
+  });
+
+  test('a failed degradation pause is fatal and tears down the connection instead of exposing manual control', async () => {
+    const cause = new Error('automatic pre-roll failed');
+    let pauseCount = 0;
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    mockPauseUpstream.mockImplementation(async () => {
+      pauseCount += 1;
+      if (pauseCount >= 3) throw new Error('upstream pause failed');
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+    };
+
+    await options.onSpeechStart?.();
+
+    expect(adapter.turnControl).toBeUndefined();
+    expect(
+      events.some(
+        (event) => event.type === 'turn_mode' && event.mode === 'manual',
+      ),
+    ).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'error' &&
+          event.error instanceof RealtimeVoiceError &&
+          event.error.code === 'CONNECTION_FAILED',
+      ),
+    ).toBe(true);
+    expect(mockRoomDisconnect).toHaveBeenCalledTimes(1);
+    expect(mockVadDestroy).toHaveBeenCalledTimes(1);
+    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+    expect(adapter.getAudioStreams()).toEqual({
+      mic: undefined,
+      playback: undefined,
+    });
+  });
+
+  test('a fatal pause while handling VAD start failure rejects connect and cleans every local generation resource', async () => {
+    const cause = new Error('VAD assets unavailable');
+    let pauseCount = 0;
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockVadStart.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    mockPauseUpstream.mockImplementation(async () => {
+      pauseCount += 1;
+      if (pauseCount === 3) throw new Error('upstream pause failed');
+    });
+    const { adapter, events } = makeAdapter();
+
+    await expect(
+      adapter.connect({ tools: [], instructions: '' }),
+    ).rejects.toMatchObject({ code: 'CONNECTION_FAILED' });
+
+    expect(states(events)).toEqual(['connecting', 'error']);
+    expect(events.some((event) => event.type === 'turn_mode')).toBe(false);
+    expect(mockRoomDisconnect).toHaveBeenCalledTimes(1);
+    expect(mockVadDestroy).toHaveBeenCalledTimes(1);
+    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
+    expect(adapter.getAudioStreams()).toEqual({
+      mic: undefined,
+      playback: undefined,
+    });
+  });
+
+  test('an automatic turn-end data-channel failure is fatal and tears down without manual fallback', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+      onSpeechEnd?: () => Promise<void>;
+    };
+    await options.onSpeechStart?.();
+    mockPublishData.mockImplementationOnce(async () => {
+      throw new Error('required data channel closed');
+    });
+
+    await options.onSpeechEnd?.();
+
+    expect(adapter.turnControl).toBeUndefined();
+    expect(
+      events.some(
+        (event) => event.type === 'turn_mode' && event.mode === 'manual',
+      ),
+    ).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'error' &&
+          event.error instanceof RealtimeVoiceError &&
+          event.error.code === 'DATA_CHANNEL_ERROR',
+      ),
+    ).toBe(true);
+    expect(mockRoomDisconnect).toHaveBeenCalledTimes(1);
+    expect(mockVadDestroy).toHaveBeenCalledTimes(1);
+    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+  });
+
+  test('a VAD misfire turn-end data-channel failure is fatal without manual fallback', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    const options = capturedVadOptions[0] as {
+      onSpeechStart?: () => Promise<void>;
+      onVADMisfire?: () => Promise<void>;
+    };
+    await options.onSpeechStart?.();
+    mockPublishData.mockImplementationOnce(async () => {
+      throw new Error('required data channel closed');
+    });
+
+    await options.onVADMisfire?.();
+
+    expect(adapter.turnControl).toBeUndefined();
+    expect(
+      events.some(
+        (event) => event.type === 'turn_mode' && event.mode === 'manual',
+      ),
+    ).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'error' &&
+          event.error instanceof RealtimeVoiceError &&
+          event.error.code === 'DATA_CHANNEL_ERROR',
+      ),
+    ).toBe(true);
+  });
+
+  test('vad false skips automatic resources and establishes manual mode after muting', async () => {
+    const order: string[] = [];
+    mockPauseUpstream.mockImplementationOnce(async () => {
+      order.push('pause');
+    });
+    mockResumeUpstream.mockImplementationOnce(async () => {
+      order.push('resume');
+    });
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      order.push(enabled ? 'enable' : 'disable');
+      mockPublishedMicTrack.enabled = enabled;
+    });
+    const { adapter, events } = makeAdapter(undefined, { vad: false });
+    let controlAvailableAtModeEvent = false;
+    adapter.on((event) => {
+      if (event.type === 'turn_mode') {
+        controlAvailableAtModeEvent = adapter.turnControl !== undefined;
+        order.push(`mode:${event.mode}`);
+      }
+    });
+
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(mockCreateLocalAudioPreRoll).not.toHaveBeenCalled();
+    expect(mockPublishedMicTrack.clone).toHaveBeenCalledTimes(1);
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
+    expect(mockResumeUpstream).not.toHaveBeenCalled();
+    expect(order.indexOf('pause')).toBeLessThan(order.indexOf('mode:manual'));
+    expect(order.indexOf('disable')).toBeLessThan(order.indexOf('mode:manual'));
+    expect(events).toContainEqual({ type: 'turn_mode', mode: 'manual' });
+    expect(controlAvailableAtModeEvent).toBe(true);
+    expect(adapter.turnControl).toBeDefined();
+  });
+
+  test.each([
+    [null],
+    ['automatic'],
+    [1],
+    [[]],
+  ])('runtime vad value %p degrades the connected room to manual with a diagnostic', async (vad) => {
+    const { adapter, events } = makeAdapter(undefined, { vad: vad as never });
+
+    await expect(
+      adapter.connect({ tools: [], instructions: '' }),
+    ).resolves.toBeUndefined();
+
+    expect(states(events).at(-1)).toBe('connected');
+    const mode = events.find((event) => event.type === 'turn_mode');
+    expect(mode).toMatchObject({ type: 'turn_mode', mode: 'manual' });
+    expect(mode?.type === 'turn_mode' && mode.error).toBeInstanceOf(TypeError);
+    expect(adapter.turnControl).toBeDefined();
+  });
+
+  test('invalid automatic configuration degrades the connected room to manual', async () => {
+    const { adapter, events } = makeAdapter(undefined, {
+      vad: { preRollMs: 501 },
+    });
+
+    await expect(
+      adapter.connect({ tools: [], instructions: '' }),
+    ).resolves.toBeUndefined();
+
+    expect(states(events).at(-1)).toBe('connected');
+    const mode = events.find((event) => event.type === 'turn_mode');
+    expect(mode).toMatchObject({ type: 'turn_mode', mode: 'manual' });
+    expect(mode?.type === 'turn_mode' && mode.error).toBeInstanceOf(TypeError);
+    expect(mockCreateLocalAudioPreRoll).not.toHaveBeenCalled();
+    expect(adapter.turnControl).toBeDefined();
   });
 
   test("keeps replacement audio disabled until LiveKit's replaceTrack resume is paused", async () => {
@@ -290,12 +969,12 @@ describe('LiveKitAdapter connect', () => {
     expect(order).toEqual(['pause', 'replace-resumed', 'pause']);
     expect(generatedEnabledWhenReplacementResumed).toBe(false);
     expect(upstreamPaused).toBe(true);
-    expect(adapter.automaticTurnControl?.isAvailable()).toBe(false);
+    expect(adapter.turnControl).toBeUndefined();
 
     releaseReplacementPause();
     await connecting;
 
-    expect(adapter.automaticTurnControl?.isAvailable()).toBe(true);
+    expect(adapter.turnControl).toBeUndefined();
   });
 
   test('pauses the raw publication before asynchronous bridge initialization', async () => {
@@ -317,7 +996,7 @@ describe('LiveKitAdapter connect', () => {
 
     await adapter.connect({ tools: [], instructions: '' });
 
-    expect(order).toEqual(['enable', 'pause', 'bridge-init']);
+    expect(order).toEqual(['pause', 'bridge-init']);
     expect(rawEnabledDuringBridgeInitialization).toBe(false);
   });
 
@@ -335,9 +1014,9 @@ describe('LiveKitAdapter connect', () => {
     const { adapter } = makeAdapter();
 
     await adapter.connect({ tools: [], instructions: '' });
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
-    expect(order).toEqual(['enable', 'pause', 'disable', 'resume', 'enable']);
+    expect(order).toEqual(['pause', 'disable', 'resume', 'enable']);
   });
 
   test('cleans raw, clone, and generated resources when track replacement fails', async () => {
@@ -408,84 +1087,6 @@ describe('LiveKitAdapter connect', () => {
     expect(mockReplaceTrack).not.toHaveBeenCalled();
   });
 
-  test('resumes upstream before flushing pre-roll and pauses after the automatic tail drains', async () => {
-    const order: string[] = [];
-    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
-    mockResumeUpstream.mockImplementation(async () => {
-      order.push('resume');
-    });
-    mockBridgeStartAutomaticTurn.mockImplementation(async () => {
-      order.push('pre-roll');
-    });
-    mockBridgeEndTurn.mockImplementation(async () => {
-      order.push('tail-drained');
-    });
-    mockPauseUpstream.mockImplementation(async () => {
-      order.push('pause');
-    });
-    const { adapter } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-    order.length = 0;
-
-    await adapter.automaticTurnControl?.startTurn({ preRollMs: 250 });
-    await adapter.automaticTurnControl?.endTurn();
-
-    expect(order).toEqual(['resume', 'pre-roll', 'tail-drained', 'pause']);
-    expect(mockBridgeStartAutomaticTurn).toHaveBeenCalledWith(250);
-  });
-
-  test('pauses upstream when automatic tail draining fails', async () => {
-    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
-    const tailError = new Error('worklet stopped');
-    mockBridgeEndTurn.mockImplementationOnce(async () => {
-      throw tailError;
-    });
-    const { adapter, events } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-    mockPauseUpstream.mockClear();
-    mockPublishData.mockClear();
-
-    const error = await adapter.automaticTurnControl.endTurn().then(
-      () => undefined,
-      (cause: unknown) => cause,
-    );
-
-    expect(error).toMatchObject({ turnFinalized: true, cause: tailError });
-    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
-    expect(mockPublishData).toHaveBeenCalledTimes(1);
-    expect(states(events).at(-1)).toBe('thinking');
-  });
-
-  test('pauses upstream when automatic start acknowledgement fails', async () => {
-    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
-    mockBridgeStartAutomaticTurn.mockImplementationOnce(async () => {
-      throw new Error('worklet acknowledgement timed out');
-    });
-    const { adapter, events } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-    mockPauseUpstream.mockClear();
-
-    await expect(
-      adapter.automaticTurnControl.startTurn({ preRollMs: 250 }),
-    ).rejects.toThrow('worklet acknowledgement timed out');
-
-    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
-    expect(states(events)).not.toContain('listening');
-  });
-
-  test('manual turn control remains direct and never consumes automatic pre-roll', async () => {
-    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
-    const { adapter } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-
-    await adapter.turnControl.startTurn();
-    await adapter.turnControl.endTurn();
-
-    expect(mockBridgeStartManualTurn).toHaveBeenCalledTimes(1);
-    expect(mockBridgeStartAutomaticTurn).not.toHaveBeenCalled();
-    expect(mockBridgeEndTurn).toHaveBeenCalledTimes(1);
-  });
-
   test('destroys the generated audio generation on disconnect', async () => {
     mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
     const { adapter } = makeAdapter();
@@ -531,7 +1132,7 @@ describe('LiveKitAdapter connect', () => {
     const denied = Object.assign(new Error('Permission denied'), {
       name: 'NotAllowedError',
     });
-    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+    mockCreateLocalAudioTrack.mockImplementationOnce(async () => {
       throw denied;
     });
 
@@ -541,6 +1142,7 @@ describe('LiveKitAdapter connect', () => {
     );
     expect(error).toBeInstanceOf(RealtimeVoiceError);
     expect((error as RealtimeVoiceError).code).toBe('MIC_PERMISSION_DENIED');
+    expect(mockPublishTrack).not.toHaveBeenCalled();
     expect(states(events)).toEqual(['connecting', 'error']);
   });
 
@@ -550,7 +1152,7 @@ describe('LiveKitAdapter connect', () => {
     // room.connect succeeds; the mic publish (a later step) blows up. A generic
     // (non-permission) failure maps to CONNECTION_FAILED, carrying the cause.
     const cause = new Error('mic publish failed');
-    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+    mockPublishTrack.mockImplementationOnce(async () => {
       throw cause;
     });
 
@@ -563,6 +1165,8 @@ describe('LiveKitAdapter connect', () => {
     expect((error as RealtimeVoiceError).cause).toBe(cause);
     // The already-connected room must be torn down over the wire, not leaked.
     expect(mockRoomDisconnect).toHaveBeenCalled();
+    expect(mockPublishedMicTrack.stop).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
     expect(states(events)).toEqual(['connecting', 'error']);
   });
 
@@ -947,17 +1551,34 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
 describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
   beforeEach(() => {
     currentRoom = makeMockRoom();
+    mockRoomDisconnect.mockReset();
+    mockRoomDisconnect.mockImplementation(async () => {});
     mockSetMicrophoneEnabled.mockReset();
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      mockPublishedMicTrack.enabled = enabled;
+    });
+    mockPauseUpstream.mockReset();
+    mockPauseUpstream.mockImplementation(async () => {});
+    mockResumeUpstream.mockReset();
+    mockResumeUpstream.mockImplementation(async () => {});
     mockPublishData.mockReset();
+    mockPublishData.mockImplementation(async () => {});
   });
 
-  test('startTurn unmutes and emits speech_started + listening', async () => {
-    const { adapter, events } = makeAdapter();
+  test('startTurn resumes native upstream before unmuting and emits speech_started + listening', async () => {
+    const order: string[] = [];
+    const { adapter, events } = makeAdapter(undefined, { vad: false });
     await adapter.connect({ tools: [], instructions: '' });
-    mockSetMicrophoneEnabled.mockReset();
+    mockResumeUpstream.mockImplementationOnce(async () => {
+      order.push('resume');
+    });
+    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
+      order.push('enable');
+    });
 
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
+    expect(order).toEqual(['resume', 'enable']);
     expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
     expect(events.some((e) => e.type === 'speech_started')).toBe(true);
     expect(states(events).at(-1)).toBe('listening');
@@ -968,7 +1589,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     await adapter.connect({ tools: [], instructions: '' });
     mockSetMicrophoneEnabled.mockReset();
 
-    await adapter.turnControl.endTurn();
+    await adapter.turnControl?.endTurn();
 
     const [payload, opts] = mockPublishData.mock.calls.at(-1) as unknown as [
       Uint8Array,
@@ -982,22 +1603,70 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(states(events).at(-1)).toBe('thinking');
   });
 
-  test('endTurn mutes the mic before publishing turn_end', async () => {
+  test('endTurn mutes and pauses native upstream before publishing turn_end', async () => {
     const order: string[] = [];
     const { adapter } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
     mockSetMicrophoneEnabled.mockImplementation(async () => {
       order.push('mute');
     });
+    mockPauseUpstream.mockImplementation(async () => {
+      order.push('pause');
+    });
     mockPublishData.mockImplementation(async () => {
       order.push('publish');
     });
 
-    await adapter.turnControl.endTurn();
+    await adapter.turnControl?.endTurn();
 
-    // Mute is local and must land first, so a publish rejection can't leave the
-    // mic hot.
-    expect(order).toEqual(['mute', 'publish']);
+    expect(order).toEqual(['mute', 'pause', 'publish']);
+  });
+
+  test('a native upstream resume failure is fatal and never enables the microphone', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockSetMicrophoneEnabled.mockClear();
+    mockResumeUpstream.mockImplementationOnce(async () => {
+      throw new Error('resume failed');
+    });
+
+    await adapter.turnControl?.startTurn();
+
+    expect(mockSetMicrophoneEnabled).not.toHaveBeenCalledWith(true);
+    expect(states(events)).not.toContain('listening');
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'error' &&
+          event.error instanceof RealtimeVoiceError &&
+          event.error.code === 'CONNECTION_FAILED',
+      ),
+    ).toBe(true);
+    expect(mockRoomDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test('a native upstream pause failure is fatal and never publishes turn_end', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    mockPublishData.mockClear();
+    mockPauseUpstream.mockImplementationOnce(async () => {
+      throw new Error('pause failed');
+    });
+
+    await adapter.turnControl?.endTurn();
+
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(false);
+    expect(mockPublishData).not.toHaveBeenCalled();
+    expect(states(events)).not.toContain('thinking');
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'error' &&
+          event.error instanceof RealtimeVoiceError &&
+          event.error.code === 'CONNECTION_FAILED',
+      ),
+    ).toBe(true);
+    expect(mockRoomDisconnect).toHaveBeenCalledTimes(1);
   });
 
   test('endTurn surfaces a fatal DATA_CHANNEL_ERROR when publishData rejects, still muted, and stops the turn', async () => {
@@ -1010,7 +1679,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       throw new Error('data channel closed');
     });
 
-    await adapter.turnControl.endTurn();
+    await adapter.turnControl?.endTurn();
 
     expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(false);
     const err = events.find((e) => e.type === 'error');
@@ -1042,7 +1711,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       throw new Error('mute failed');
     });
 
-    await adapter.turnControl.endTurn();
+    await adapter.turnControl?.endTurn();
 
     const err = events.find((e) => e.type === 'error');
     expect(
@@ -1061,7 +1730,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       throw new Error('unmute failed');
     });
 
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     const err = events.find((e) => e.type === 'error');
     expect(
@@ -1081,7 +1750,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       throw denied;
     });
 
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     const err = events.find((e) => e.type === 'error');
     expect(
@@ -1103,7 +1772,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     mockSetMicrophoneEnabled.mockClear();
     mockPublishData.mockClear();
 
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     const [payload, opts] = mockPublishData.mock.calls.at(-1) as unknown as [
       Uint8Array,
@@ -1150,7 +1819,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
         }),
     );
 
-    const starting = adapter.turnControl.startTurn();
+    const starting = adapter.turnControl?.startTurn();
     await Promise.resolve();
     expect(audio.muted).toBe(true);
     expect(mockSetMicrophoneEnabled).not.toHaveBeenCalledWith(true);
@@ -1167,7 +1836,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       summary: 'Talking.',
     });
 
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     let audio!: HTMLAudioElement;
     let mutedAtAttach: boolean | undefined;
@@ -1202,9 +1871,9 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       () => new Promise<void>((resolve) => (releaseCancel = resolve)),
     );
 
-    const starting = adapter.turnControl.startTurn();
+    const starting = adapter.turnControl?.startTurn();
     await Promise.resolve();
-    const ending = adapter.turnControl.endTurn();
+    const ending = adapter.turnControl?.endTurn();
     await Promise.resolve();
 
     releaseCancel();
@@ -1227,44 +1896,6 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     ]);
   });
 
-  test('serializes endTurn behind delayed upstream resume and finishes paused', async () => {
-    const order: string[] = [];
-    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
-    const { adapter } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-    mockPauseUpstream.mockClear();
-    mockPublishData.mockClear();
-    mockBridgeStartManualTurn.mockImplementationOnce(async () => {
-      order.push('manual-start');
-    });
-    mockBridgeEndTurn.mockImplementationOnce(async () => {
-      order.push('tail-drained');
-    });
-    mockPauseUpstream.mockImplementationOnce(async () => {
-      order.push('pause');
-    });
-    let releaseResume!: () => void;
-    mockResumeUpstream.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          order.push('resume');
-          releaseResume = resolve;
-        }),
-    );
-
-    const starting = adapter.turnControl.startTurn();
-    await Promise.resolve();
-    const ending = adapter.turnControl.endTurn();
-    await Promise.resolve();
-
-    expect(order).toEqual(['resume']);
-    releaseResume();
-    await Promise.all([starting, ending]);
-
-    expect(order).toEqual(['resume', 'manual-start', 'tail-drained', 'pause']);
-    expect(mockPublishData).toHaveBeenCalledTimes(1);
-  });
-
   test('disconnect fences an in-flight start and its queued end from a replacement room', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
@@ -1279,9 +1910,9 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       () => new Promise<void>((resolve) => (releaseCancel = resolve)),
     );
 
-    const starting = adapter.turnControl.startTurn();
+    const starting = adapter.turnControl?.startTurn();
     await Promise.resolve();
-    const ending = adapter.turnControl.endTurn();
+    const ending = adapter.turnControl?.endTurn();
     await Promise.resolve();
 
     await adapter.disconnect();
@@ -1297,61 +1928,14 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(mockSetMicrophoneEnabled).not.toHaveBeenCalled();
     expect(mockPublishData).not.toHaveBeenCalled();
     expect(states(events).slice(stateCountAfterReconnect)).toEqual([]);
-  });
 
-  test('disconnect fences an in-flight end after its delayed local drain', async () => {
-    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
-    const { adapter, events } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-    let releaseDrain!: () => void;
-    mockBridgeEndTurn.mockImplementationOnce(
-      () => new Promise<void>((resolve) => (releaseDrain = resolve)),
-    );
+    await adapter.turnControl?.startTurn();
+    await adapter.turnControl?.endTurn();
 
-    const ending = adapter.turnControl.endTurn();
-    await Promise.resolve();
-    await adapter.disconnect();
-    currentRoom = makeMockRoom();
-    await adapter.connect({ tools: [], instructions: '' });
-    const stateCountAfterReconnect = states(events).length;
-    mockPauseUpstream.mockClear();
-    mockPublishData.mockClear();
-
-    releaseDrain();
-    await ending;
-
-    expect(mockPauseUpstream).not.toHaveBeenCalled();
-    expect(mockPublishData).not.toHaveBeenCalled();
-    expect(states(events).slice(stateCountAfterReconnect)).toEqual([]);
-  });
-
-  test('an automatic-turn handle from a retired connection cannot end the replacement turn', async () => {
-    mockCreateLocalAudioPreRoll
-      .mockImplementationOnce(async () => mockBridge)
-      .mockImplementationOnce(async () => mockBridge);
-    const { adapter } = makeAdapter();
-    await adapter.connect({ tools: [], instructions: '' });
-    const retiredHandle = adapter.automaticTurnControl.createHandle?.();
-    expect(retiredHandle).toBeDefined();
-
-    await adapter.disconnect();
-    currentRoom = makeMockRoom();
-    await adapter.connect({ tools: [], instructions: '' });
-    const replacementHandle = adapter.automaticTurnControl.createHandle?.();
-    expect(replacementHandle).toBeDefined();
-    await replacementHandle?.startTurn({ preRollMs: 250 });
-    mockBridgeEndTurn.mockClear();
-    mockPauseUpstream.mockClear();
-    mockPublishData.mockClear();
-
-    await retiredHandle?.endTurn();
-
-    expect(mockBridgeEndTurn).not.toHaveBeenCalled();
-    expect(mockPauseUpstream).not.toHaveBeenCalled();
-    expect(mockPublishData).not.toHaveBeenCalled();
-
-    await replacementHandle?.endTurn();
-    expect(mockBridgeEndTurn).toHaveBeenCalledTimes(1);
+    expect(mockSetMicrophoneEnabled.mock.calls.map((call) => call[0])).toEqual([
+      true,
+      false,
+    ]);
     expect(mockPublishData).toHaveBeenCalledTimes(1);
   });
 
@@ -1367,7 +1951,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       },
     });
 
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     expect(audio.muted).toBe(false);
   });
@@ -1387,7 +1971,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       ok: true,
       summary: 'Talking.',
     });
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     currentRoom._emit(
       'dataReceived',
@@ -1415,7 +1999,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       ok: true,
       summary: 'Talking.',
     });
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
     expect(audio.muted).toBe(true);
 
     await adapter.sendToolResult('call-2' as never, {
@@ -1440,8 +2024,8 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       () => new Promise<void>((resolve) => (releaseCancel = resolve)),
     );
 
-    const first = adapter.turnControl.startTurn();
-    const second = adapter.turnControl.startTurn();
+    const first = adapter.turnControl?.startTurn();
+    const second = adapter.turnControl?.startTurn();
     await Promise.resolve();
     releaseCancel();
     await Promise.all([first, second]);
@@ -1450,12 +2034,38 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(mockSetMicrophoneEnabled).toHaveBeenCalledTimes(1);
   });
 
+  test('repeated end calls share one native mute, pause, and turn_end operation', async () => {
+    const pause = deferred<void>();
+    const { adapter } = makeAdapter(undefined, { vad: false });
+    await adapter.connect({ tools: [], instructions: '' });
+    mockSetMicrophoneEnabled.mockClear();
+    mockPauseUpstream.mockClear();
+    mockPublishData.mockClear();
+    mockPauseUpstream.mockImplementationOnce(() => pause.promise);
+
+    const first = adapter.turnControl?.endTurn();
+    const second = adapter.turnControl?.endTurn();
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (mockPauseUpstream.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+
+    expect(mockSetMicrophoneEnabled).toHaveBeenCalledTimes(1);
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(1);
+    expect(mockPublishData).not.toHaveBeenCalled();
+
+    pause.resolve();
+    await Promise.all([first, second]);
+
+    expect(mockPublishData).toHaveBeenCalledTimes(1);
+  });
+
   test('a startTurn from connected (no assistant audio) does not publish tts_cancel', async () => {
     const { adapter } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
     mockPublishData.mockClear();
 
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     expect(mockPublishData).not.toHaveBeenCalled();
   });
@@ -1476,7 +2086,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
         throw new Error('data channel closed');
       });
 
-      await adapter.turnControl.startTurn();
+      await adapter.turnControl?.startTurn();
 
       // A failed TTS cancel is non-fatal — no RealtimeVoiceError (which
       // RealtimeSession treats as session-fatal) may be emitted.
@@ -1500,7 +2110,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       mockPublishData.mockImplementationOnce(async () => {
         throw new Error('data channel closed');
       });
-      await adapter.turnControl.startTurn();
+      await adapter.turnControl?.startTurn();
       expect(cancelWarns()).toBe(1);
     } finally {
       warnSpy.mockRestore();
@@ -1526,7 +2136,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       throw new Error('mic unavailable');
     });
 
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     expect(audio.muted).toBe(false);
   });
@@ -1550,7 +2160,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       throw new Error('data channel closed');
     });
 
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     expect(audio.muted).toBe(true);
     await adapter.sendToolResult('call-2' as never, {
@@ -1571,7 +2181,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       summary: 'Talking…',
     });
     expect(states(events).at(-1)).toBe('speaking');
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
     expect(states(events).at(-1)).toBe('listening');
 
     // The now-stale worker tts_done must NOT collapse back to connected.
@@ -1600,7 +2210,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       ok: true,
       summary: 'Talking.',
     });
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
     expect(audio.muted).toBe(true);
     const removeSpy = spyOn(audio, 'remove');
 
@@ -1618,7 +2228,7 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
       ok: true,
       summary: 'Talking.',
     });
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
 
     await adapter.disconnect();
     currentRoom = makeMockRoom();
@@ -1704,8 +2314,8 @@ describe('LiveKitAdapter TTS utterance-id staleness', () => {
 
     // User barges in (invalidating A) then releases without speaking → thinking +
     // armed empty-turn fallback.
-    await adapter.turnControl.startTurn();
-    await adapter.turnControl.endTurn();
+    await adapter.turnControl?.startTurn();
+    await adapter.turnControl?.endTurn();
     expect(states(events).at(-1)).toBe('thinking');
 
     // The cancelled utterance A's tts_done still arrives (the worker's clearQueue
@@ -1741,7 +2351,7 @@ describe('LiveKitAdapter thinking fallback', () => {
     });
     await adapter.connect({ tools: [], instructions: '' });
 
-    await adapter.turnControl.endTurn();
+    await adapter.turnControl?.endTurn();
     expect(states(events).at(-1)).toBe('thinking');
 
     await settle(40);
@@ -1755,7 +2365,7 @@ describe('LiveKitAdapter thinking fallback', () => {
     });
     await adapter.connect({ tools: [], instructions: '' });
 
-    await adapter.turnControl.endTurn();
+    await adapter.turnControl?.endTurn();
     currentRoom._emit('transcriptionReceived', [
       { text: 'hello', final: true },
     ]);
@@ -1772,7 +2382,7 @@ describe('LiveKitAdapter thinking fallback', () => {
     });
     await adapter.connect({ tools: [], instructions: '' });
 
-    await adapter.turnControl.endTurn();
+    await adapter.turnControl?.endTurn();
     // A tts signal means the worker is alive and driving state.
     currentRoom._emit(
       'dataReceived',
@@ -1793,8 +2403,8 @@ describe('LiveKitAdapter thinking fallback', () => {
     });
     await adapter.connect({ tools: [], instructions: '' });
 
-    await adapter.turnControl.endTurn();
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.endTurn();
+    await adapter.turnControl?.startTurn();
     expect(states(events).at(-1)).toBe('listening');
 
     await settle(40);
@@ -1889,10 +2499,10 @@ describe('LiveKitAdapter misc surface', () => {
     );
 
     // Turn control continues to mute/unmute only the published transport track.
-    await adapter.turnControl.startTurn();
+    await adapter.turnControl?.startTurn();
     expect(mockPublishedMicTrack.enabled).toBe(true);
     expect(mockMicCloneTrack.enabled).toBe(true);
-    await adapter.turnControl.endTurn();
+    await adapter.turnControl?.endTurn();
     expect(mockPublishedMicTrack.enabled).toBe(false);
     expect(mockMicCloneTrack.enabled).toBe(true);
     expect(mockMicCloneTrack.stop).not.toHaveBeenCalled();
@@ -1915,28 +2525,24 @@ describe('LiveKitAdapter misc surface', () => {
       playback: undefined,
     });
     expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
-    expect(mockPublishedMicTrack.stop).not.toHaveBeenCalled();
+    expect(mockPublishedMicTrack.stop).toHaveBeenCalledTimes(1);
   });
 
   test('stops a clone exactly once when a connect attempt fails after cloning', async () => {
     const { adapter } = makeAdapter();
-    const cause = new Error('mute failed');
-    mockSetMicrophoneEnabled.mockImplementationOnce(
-      async (enabled: boolean) => {
-        mockPublishedMicTrack.enabled = enabled;
-      },
-    );
-    mockSetMicrophoneEnabled.mockImplementationOnce(async () => {
-      throw cause;
+    mockPublishTrack.mockImplementationOnce(async () => {
+      throw new Error('mute failed');
     });
 
     const error = await adapter.connect({ tools: [], instructions: '' }).then(
       () => undefined,
-      (connectionError: unknown) => connectionError,
+      (cause: unknown) => cause,
     );
+
     expect(error).toBeInstanceOf(RealtimeVoiceError);
-    expect((error as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
-    expect((error as RealtimeVoiceError).cause).toBe(cause);
+    expect((error as RealtimeVoiceError).cause).toMatchObject({
+      message: 'mute failed',
+    });
 
     expect(mockPublishedMicTrack.clone).toHaveBeenCalledTimes(1);
     expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);

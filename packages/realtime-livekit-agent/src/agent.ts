@@ -250,6 +250,7 @@ const entry = async (ctx: JobContext) => {
     try {
       // Feed each final to the aggregator; it tags, buffers, and emits per turn.
       await runSpeechRecognition(audioStream, speechStream, (text) => {
+        console.log('[voice-agent] final transcript:', text);
         aggregator.pushFinal(text);
       });
     } finally {

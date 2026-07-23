@@ -1,8 +1,7 @@
 import { createMaelstrom } from '@maelstrom-co/react';
 import {
-  type CreateAdapterContext,
-  type MaelstromRealtimeBuilder,
   maelstromRealtime,
+  type CreateAdapterContext,
 } from '@maelstrom-co/react-realtime';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';
@@ -36,39 +35,11 @@ const hostedMintToken = createBrowserMintToken(
 export const m = createMaelstrom({
   vessels,
 })
-  .with(
-    selectVoiceExtension(
-      maelstromRealtime({ createAdapter, debug: isDebugRequested() }),
-      import.meta.env.VITE_VOICE_PROVIDER,
-    ),
-  )
+  .with(maelstromRealtime({ createAdapter, debug: isDebugRequested() }))
   .with(orchestrationLegibility);
 
-/** Enables self-hosted browser VAD only for the LiveKit cascade. */
-export function selectVoiceExtension(
-  realtime: MaelstromRealtimeBuilder,
-  provider: string | undefined,
-): ReturnType<MaelstromRealtimeBuilder['withVAD']> | MaelstromRealtimeBuilder {
-  if (provider !== 'livekit') return realtime;
-  return realtime.withVAD({
-    assetBaseUrl: '/vad-web/',
-    providerOptions: {
-      positiveSpeechThreshold: 0.8,
-      negativeSpeechThreshold: 0.65,
-      redemptionMs: 200,
-      preSpeechPadMs: 100,
-      minSpeechMs: 100,
-    },
-    onError: () => {
-      console.warn(
-        'Browser voice detection unavailable; falling back to hold-to-talk.',
-      );
-    },
-  });
-}
-
 // Provider is chosen at build time by VITE_VOICE_PROVIDER: `livekit` selects the
-// cascaded LiveKit transport (push-to-talk), anything else the speech-native
+// cascaded LiveKit transport, anything else the speech-native
 // OpenAI transport. Runs once per session, so per-session server resources (the
 // token mint, the room name) are scoped by sessionId here.
 //
@@ -84,6 +55,16 @@ function createAdapter({
     return new LiveKitAdapter({
       mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
       roomName: `maelstrom-${sessionId}`,
+      vad: {
+        assetBaseUrl: '/vad-web/',
+        providerOptions: {
+          positiveSpeechThreshold: 0.8,
+          negativeSpeechThreshold: 0.65,
+          redemptionMs: 200,
+          preSpeechPadMs: 100,
+          minSpeechMs: 100,
+        },
+      },
       debug: isDebugRequested(),
     });
   }

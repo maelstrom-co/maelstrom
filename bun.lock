@@ -97,7 +97,6 @@
         "@vitejs/plugin-react": "catalog:",
         "concurrently": "^9.1.2",
         "happy-dom": "catalog:",
-        "onnxruntime-web": "1.27.0",
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
         "vite-tsconfig-paths": "catalog:",
@@ -216,7 +215,6 @@
         "@maelstrom-co/protocol": "0.0.0",
         "@maelstrom-co/react": "0.0.0",
         "@maelstrom-co/realtime": "0.0.0",
-        "@ricky0123/vad-web": "0.0.30",
       },
       "devDependencies": {
         "@testing-library/react": "catalog:",
@@ -242,10 +240,15 @@
     "packages/realtime-livekit": {
       "name": "@maelstrom-co/realtime-livekit",
       "version": "0.0.0",
+      "bin": {
+        "maelstrom-livekit-assets": "./dist/bin/maelstrom-livekit-assets.js",
+      },
       "dependencies": {
         "@maelstrom-co/client": "0.0.0",
         "@maelstrom-co/protocol": "0.0.0",
         "@maelstrom-co/realtime": "0.0.0",
+        "@ricky0123/vad-web": "0.0.30",
+        "onnxruntime-web": "1.27.0",
         "zod": "catalog:",
       },
       "devDependencies": {

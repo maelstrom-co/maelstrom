@@ -16,14 +16,14 @@ export { ConnectRaceGuard } from './lib/connect-race-guard.js';
 export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
 export type {
   AdapterAudioStreams,
-  AdapterAutomaticTurnControl,
-  AdapterAutomaticTurnOptions,
   AdapterConnectOptions,
   AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
   ToolResult,
+  TurnMode,
+  TurnModeEvent,
   UpdateUIToolResult,
 } from './lib/realtime-session/provider-adapter.types.js';
 export { RealtimeSession } from './lib/realtime-session/realtime-session.js';

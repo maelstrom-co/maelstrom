@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare:voice-assets": "bun run scripts/copy-vad-assets.ts",
+    "prepare:voice-assets": "maelstrom-livekit-assets public/vad-web",
     "dev": "bun run prepare:voice-assets && concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"vite dev --port 3000\"",
     "dev-livekit": "bun run prepare:voice-assets && concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"vite dev --port 3000 --mode livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
@@ -58,7 +58,6 @@
     "@tailwindcss/vite": "catalog:",
     "concurrently": "^9.1.2",
     "happy-dom": "catalog:",
-    "onnxruntime-web": "1.27.0",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "catalog:"

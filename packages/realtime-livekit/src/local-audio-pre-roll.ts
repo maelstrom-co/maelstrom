@@ -1,4 +1,4 @@
-const PROCESSOR_NAME = "maelstrom-local-audio-pre-roll";
+const PROCESSOR_NAME = 'maelstrom-local-audio-pre-roll';
 
 const MAX_LOCAL_AUDIO_PRE_ROLL_MS = 500;
 const WORKLET_ACK_TIMEOUT_MS = 250;
@@ -34,9 +34,9 @@ export async function createLocalAudioPreRoll(
   const AudioContextConstructor = globalThis.AudioContext;
   if (
     !AudioContextConstructor ||
-    typeof globalThis.AudioWorkletNode === "undefined"
+    typeof globalThis.AudioWorkletNode === 'undefined'
   ) {
-    throw new Error("AudioWorklet pre-roll is not supported in this browser");
+    throw new Error('AudioWorklet pre-roll is not supported in this browser');
   }
 
   const context = new AudioContextConstructor();
@@ -48,7 +48,7 @@ export async function createLocalAudioPreRoll(
     );
     const destination = context.createMediaStreamDestination();
     const module = new Blob([AUDIO_WORKLET_SOURCE], {
-      type: "text/javascript",
+      type: 'text/javascript',
     });
     objectUrl = URL.createObjectURL(module);
     await context.audioWorklet.addModule(objectUrl);
@@ -66,7 +66,7 @@ export async function createLocalAudioPreRoll(
     source.connect(node).connect(destination);
     generatedTrack = destination.stream.getAudioTracks()[0];
     if (!generatedTrack)
-      throw new Error("AudioWorklet produced no audio track");
+      throw new Error('AudioWorklet produced no audio track');
     await context.resume();
 
     let requestId = 0;
@@ -100,13 +100,13 @@ export async function createLocalAudioPreRoll(
       timeoutMs = WORKLET_ACK_TIMEOUT_MS,
     ) => {
       if (destroyed)
-        return Promise.reject(new Error("Audio pre-roll generation destroyed"));
+        return Promise.reject(new Error('Audio pre-roll generation destroyed'));
       const id = ++requestId;
       return new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           pending.delete(id);
-          node.port.postMessage({ type: "clear" });
-          reject(new Error("Audio pre-roll worklet request timed out"));
+          node.port.postMessage({ type: 'clear' });
+          reject(new Error('Audio pre-roll worklet request timed out'));
         }, timeoutMs);
         pending.set(id, { resolve, reject, timeout });
         node.port.postMessage({ type, id, ...data });
@@ -123,27 +123,27 @@ export async function createLocalAudioPreRoll(
             Number.isFinite(preRollMs) ? preRollMs : 0,
           ),
         );
-        return request("automatic-start", {
+        return request('automatic-start', {
           samples: Math.round((context.sampleRate * boundedMs) / 1000),
         }).then(() => {
           activePreRollMs = boundedMs;
         });
       },
       startManualTurn() {
-        return request("manual-start").then(() => {
+        return request('manual-start').then(() => {
           activePreRollMs = 0;
         });
       },
       endTurn() {
         const timeoutMs = activePreRollMs + WORKLET_ACK_TIMEOUT_MS;
-        return request("end", {}, timeoutMs).finally(() => {
+        return request('end', {}, timeoutMs).finally(() => {
           activePreRollMs = 0;
         });
       },
       async destroy() {
         if (destroyed) return;
         destroyed = true;
-        node.port.postMessage({ type: "clear" });
+        node.port.postMessage({ type: 'clear' });
         for (const request of pending.values()) {
           clearTimeout(request.timeout);
           request.resolve();

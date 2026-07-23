@@ -1,72 +1,112 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { MaelstromRealtimeBuilder } from '@maelstrom-co/react-realtime';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type {
+  CreateAdapterContext,
+  MaelstromRealtimeOptions,
+} from '@maelstrom-co/react-realtime';
+
+const extension = {};
+const orchestrationExtension = {};
+const installedExtensions: unknown[] = [];
+let realtimeOptions: MaelstromRealtimeOptions | undefined;
+const liveKitAdapterOptions: unknown[] = [];
+const openAIAdapterOptions: unknown[] = [];
 
 vi.doMock('@maelstrom-co/react', () => ({
   createMaelstrom: () => {
-    const maelstrom = { with: () => maelstrom };
+    const maelstrom = {
+      with: (candidate: unknown) => {
+        installedExtensions.push(candidate);
+        return maelstrom;
+      },
+    };
     return maelstrom;
   },
 }));
 vi.doMock('@maelstrom-co/react-realtime', () => ({
-  maelstromRealtime: () => ({ withVAD: () => ({}) }),
+  maelstromRealtime: (options: MaelstromRealtimeOptions) => {
+    realtimeOptions = options;
+    return extension;
+  },
 }));
 vi.doMock('@maelstrom-co/realtime/openai', () => ({
-  OpenAIAdapter: class {},
+  OpenAIAdapter: class {
+    constructor(options: unknown) {
+      openAIAdapterOptions.push(options);
+    }
+  },
 }));
 vi.doMock('@maelstrom-co/realtime-livekit', () => ({
-  LiveKitAdapter: class {},
+  LiveKitAdapter: class {
+    constructor(options: unknown) {
+      liveKitAdapterOptions.push(options);
+    }
+  },
 }));
 vi.doMock('../vessels/calendar.vessel', () => ({ calendarEntry: {} }));
 vi.doMock('../vessels/journal.vessel', () => ({ journalEntry: {} }));
 vi.doMock('../vessels/map.vessel', () => ({ mapEntry: {} }));
 vi.doMock('../vessels/tasks.vessel', () => ({ tasksEntry: {} }));
 vi.doMock('../vessels/weather.vessel', () => ({ weatherEntry: {} }));
+vi.doMock('./debug-mode', () => ({ isDebugRequested: () => true }));
 vi.doMock('./mint-token', () => ({
   mintOpenAIToken: () => Promise.resolve(),
+}));
+vi.doMock('./orchestration-legibility', () => ({
+  orchestrationLegibility: orchestrationExtension,
 }));
 vi.doMock('./voice/get-livekit-token', () => ({
   getLivekitToken: () => Promise.resolve(),
 }));
 
 const providerTestSpecifier = './maelstrom.ts' + '?provider-test';
-const { selectVoiceExtension } = (await import(
-  providerTestSpecifier
-)) as typeof import('./maelstrom');
+await import(providerTestSpecifier);
 
-function makeBuilder() {
-  const withVAD = vi.fn(
-    (config: {
-      assetBaseUrl: string;
-      providerOptions?: { model?: 'legacy' | 'v5' };
-      onError?: (error: unknown) => void;
-    }) => {
-      void config;
-      return {} as never;
-    },
-  );
-  return {
-    builder: { withVAD } as unknown as MaelstromRealtimeBuilder,
-    withVAD,
-  };
+function createAdapter(provider: 'livekit' | 'openai') {
+  process.env.VITE_VOICE_PROVIDER = provider;
+  const options = realtimeOptions;
+  if (!options) throw new Error('expected realtime options to be captured');
+  return options.createAdapter({
+    sessionId: 'session-1',
+  } as CreateAdapterContext);
 }
 
-describe('demo voice provider wiring', () => {
-  it('does not configure VAD for the OpenAI provider', () => {
-    const { builder, withVAD } = makeBuilder();
+afterEach(() => {
+  delete process.env.VITE_VOICE_PROVIDER;
+  liveKitAdapterOptions.length = 0;
+  openAIAdapterOptions.length = 0;
+});
 
-    expect(selectVoiceExtension(builder, 'openai')).toBe(builder);
-    expect(withVAD).not.toHaveBeenCalled();
+describe('demo voice provider wiring', () => {
+  it('installs the plain realtime and orchestration extensions', () => {
+    expect(installedExtensions).toEqual([extension, orchestrationExtension]);
   });
 
-  it('configures VAD only for the LiveKit provider', () => {
-    const { builder, withVAD } = makeBuilder();
+  it('configures adapter-owned browser VAD for LiveKit', () => {
+    createAdapter('livekit');
 
-    selectVoiceExtension(builder, 'livekit');
-
-    expect(withVAD).toHaveBeenCalledTimes(1);
-    expect(withVAD.mock.calls[0]?.[0]).toMatchObject({
-      assetBaseUrl: '/vad-web/',
-      onError: expect.any(Function),
+    expect(liveKitAdapterOptions).toHaveLength(1);
+    expect(liveKitAdapterOptions[0]).toMatchObject({
+      roomName: 'maelstrom-session-1',
+      vad: {
+        assetBaseUrl: '/vad-web/',
+        providerOptions: {
+          positiveSpeechThreshold: 0.8,
+          negativeSpeechThreshold: 0.65,
+          redemptionMs: 200,
+          preSpeechPadMs: 100,
+          minSpeechMs: 100,
+        },
+      },
+      debug: true,
     });
+  });
+
+  it('does not pass browser VAD configuration to OpenAI', () => {
+    createAdapter('openai');
+
+    expect(openAIAdapterOptions).toHaveLength(1);
+    expect(openAIAdapterOptions[0]).toMatchObject({ debug: true });
+    expect(openAIAdapterOptions[0]).not.toHaveProperty('vad');
+    expect(liveKitAdapterOptions).toHaveLength(0);
   });
 });

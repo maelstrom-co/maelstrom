@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from 'bun:test';
 
-import { createLocalAudioPreRoll } from "./local-audio-pre-roll.js";
+import { createLocalAudioPreRoll } from './local-audio-pre-roll.js';
 
-describe("createLocalAudioPreRoll", () => {
-  test("allows a bounded audio tail to drain before destroying its generation", async () => {
+describe('createLocalAudioPreRoll', () => {
+  test('allows a bounded audio tail to drain before destroying its generation', async () => {
     const originalAudioContext = globalThis.AudioContext;
     const originalAudioWorkletNode = globalThis.AudioWorkletNode;
     const originalMediaStream = globalThis.MediaStream;
@@ -53,7 +53,7 @@ describe("createLocalAudioPreRoll", () => {
           if (message.id !== undefined) {
             const acknowledge = () =>
               this.port.onmessage?.({ data: message } as MessageEvent);
-            if (message.type === "end") setTimeout(acknowledge, 300);
+            if (message.type === 'end') setTimeout(acknowledge, 300);
             else queueMicrotask(acknowledge);
           }
         },
@@ -87,7 +87,7 @@ describe("createLocalAudioPreRoll", () => {
         FakeAudioContext as unknown as typeof AudioContext;
       globalThis.AudioWorkletNode =
         FakeAudioWorkletNode as unknown as typeof AudioWorkletNode;
-      URL.createObjectURL = () => "blob:pre-roll";
+      URL.createObjectURL = () => 'blob:pre-roll';
       URL.revokeObjectURL = () => {};
 
       const bridge = await createLocalAudioPreRoll({} as MediaStreamTrack);
@@ -112,7 +112,7 @@ describe("createLocalAudioPreRoll", () => {
     }
   });
 
-  test("clears timed-out worklet requests before accepting another turn", async () => {
+  test('clears timed-out worklet requests before accepting another turn', async () => {
     const originalAudioContext = globalThis.AudioContext;
     const originalAudioWorkletNode = globalThis.AudioWorkletNode;
     const originalMediaStream = globalThis.MediaStream;
@@ -143,7 +143,7 @@ describe("createLocalAudioPreRoll", () => {
           | null,
         postMessage: (message: { id?: number; type?: string }) => {
           if (message.type) messages.push(message.type);
-          if (message.type !== "automatic-start") return;
+          if (message.type !== 'automatic-start') return;
           automaticStarts += 1;
           if (automaticStarts === 1 || message.id === undefined) return;
           queueMicrotask(() =>
@@ -169,27 +169,27 @@ describe("createLocalAudioPreRoll", () => {
         FakeAudioContext as unknown as typeof AudioContext;
       globalThis.AudioWorkletNode =
         RecoveringAudioWorkletNode as unknown as typeof AudioWorkletNode;
-      URL.createObjectURL = () => "blob:pre-roll";
+      URL.createObjectURL = () => 'blob:pre-roll';
       URL.revokeObjectURL = () => {};
 
       const bridge = await createLocalAudioPreRoll({} as MediaStreamTrack);
 
       await expect(bridge.startAutomaticTurn(250)).rejects.toThrow(
-        "Audio pre-roll worklet request timed out",
+        'Audio pre-roll worklet request timed out',
       );
       await bridge.startAutomaticTurn(250);
       await expect(bridge.endTurn()).rejects.toThrow(
-        "Audio pre-roll worklet request timed out",
+        'Audio pre-roll worklet request timed out',
       );
       await bridge.startAutomaticTurn(250);
 
       expect(messages).toEqual([
-        "automatic-start",
-        "clear",
-        "automatic-start",
-        "end",
-        "clear",
-        "automatic-start",
+        'automatic-start',
+        'clear',
+        'automatic-start',
+        'end',
+        'clear',
+        'automatic-start',
       ]);
       await bridge.destroy();
     } finally {

@@ -3,8 +3,8 @@ import type {
   UIStructuralSnapshot,
   Unsubscribe,
   VoiceSessionState,
-} from "@maelstrom-co/client";
-import type { ToolCallId } from "@maelstrom-co/protocol";
+} from '@maelstrom-co/client';
+import type { ToolCallId } from '@maelstrom-co/protocol';
 
 /**
  * A single tool exposed to the realtime model, in provider-neutral form.
@@ -25,6 +25,26 @@ export interface AdapterConnectOptions {
   readonly instructions: string;
 }
 
+/** Provider-neutral turn-boundary mode established for the current connection. */
+export type TurnMode = 'automatic' | 'manual';
+
+/**
+ * Reports the usable turn mode for the current adapter connection. `error` is
+ * present only when attempted automatic control degraded to manual mode; a
+ * clean event clears any diagnostic retained from an earlier mode.
+ */
+export interface TurnModeEvent {
+  /** Event discriminator. */
+  readonly type: 'turn_mode';
+  /**
+   * Mode ready for consumers when this event is delivered. Before emitting
+   * `manual`, an adapter must expose its current {@link AdapterTurnControl}.
+   */
+  readonly mode: TurnMode;
+  /** Automatic-mode degradation cause; omitted for a clean mode transition. */
+  readonly error?: unknown;
+}
+
 /**
  * Events a `RealtimeProviderAdapter` emits toward `RealtimeSession`. This is
  * the full inbound surface — `RealtimeSession` never talks to a provider
@@ -32,20 +52,21 @@ export interface AdapterConnectOptions {
  */
 export type RealtimeAdapterEvent =
   | {
-      readonly type: "tool_call";
+      readonly type: 'tool_call';
       readonly callId: ToolCallId;
       readonly name: string;
       readonly argumentsJson: string;
     }
   | {
-      readonly type: "transcript";
-      readonly role: "user" | "assistant";
+      readonly type: 'transcript';
+      readonly role: 'user' | 'assistant';
       readonly text: string;
       readonly final: boolean;
     }
-  | { readonly type: "speech_started" }
-  | { readonly type: "state"; readonly state: VoiceSessionState }
-  | { readonly type: "error"; readonly error: unknown };
+  | { readonly type: 'speech_started' }
+  | { readonly type: 'state'; readonly state: VoiceSessionState }
+  | TurnModeEvent
+  | { readonly type: 'error'; readonly error: unknown };
 
 /**
  * Live audio streams a provider session is currently using, for UI metering
@@ -59,12 +80,11 @@ export interface AdapterAudioStreams {
 }
 
 /**
- * Optional turn-boundary control for providers that lack server-side VAD and
- * therefore cannot detect turn edges on their own. Cascaded STT→LLM→TTS
- * transports (push-to-talk) need the user to delimit each turn explicitly:
- * `startTurn` opens the mic / STT stream, `endTurn` flushes it and triggers
- * the provider's turn-final transcript. Speech-native providers (OpenAI
- * WebRTC, Google Live API) detect turns themselves and omit this entirely.
+ * Manual turn-boundary control for adapters that establish manual mode.
+ * `startTurn` opens the mic / STT stream, while `endTurn` flushes it and
+ * triggers the provider's turn-final transcript. An adapter may expose or
+ * replace this control dynamically when automatic detection degrades; speech-
+ * native providers detect turns themselves and omit it.
  *
  * Invariant: `RealtimeSession` NEVER calls these methods — they exist purely
  * for the binding/UI layer to drive. The session stays agnostic to whether a
@@ -75,44 +95,6 @@ export interface AdapterTurnControl {
   /** Begin a user turn (e.g. unmute mic, start STT stream). */
   startTurn(): Promise<void>;
   /** End the turn (flush STT, mute mic). Triggers the provider's turn-final transcript. */
-  endTurn(): Promise<void>;
-}
-
-/** Options for one browser-detected automatic turn. */
-export interface AdapterAutomaticTurnOptions {
-  /** Browser-local audio to replay once before live audio begins. */
-  readonly preRollMs: number;
-}
-
-/**
- * Optional automatic-turn capability for cascaded providers that can retain a
- * bounded browser-local mic tail while upstream audio is paused. Unlike
- * {@link AdapterTurnControl}, this capability is driven only by browser VAD and
- * guarantees that pre-roll is emitted once before live audio. Unsupported or
- * failed implementations reject so the binding can fail closed to manual mode.
- */
-export interface AdapterAutomaticTurnControl {
-  /** Whether this connection has a live, upstream-gated audio generation. */
-  isAvailable(): boolean;
-  /**
-   * Captures turn operations for the current provider connection. Adapters
-   * with reconnectable transports should return a generation-bound handle so
-   * delayed cleanup from a retired browser VAD controller becomes a no-op
-   * rather than closing a newer connection's turn. Bindings fail closed to
-   * manual mode when this additive capability is absent.
-   */
-  createHandle?(): Pick<AdapterAutomaticTurnControl, "startTurn" | "endTurn">;
-  /** Replays the requested local tail, then opens automatic live forwarding. */
-  startTurn(options: AdapterAutomaticTurnOptions): Promise<void>;
-  /**
-   * Drains pending automatic audio before closing the turn.
-   *
-   * A rejection normally means the turn was not finalized and may still need
-   * cleanup. If finalization succeeded but an advisory drain/cleanup failure
-   * must still be reported, the rejection must carry `turnFinalized: true`.
-   * Bindings use that provider-neutral marker to report the error and fall back
-   * without sending the turn boundary a second time.
-   */
   endTurn(): Promise<void>;
 }
 
@@ -190,20 +172,12 @@ export interface RealtimeProviderAdapter {
   injectGrounding(text: string): void;
   on(handler: (event: RealtimeAdapterEvent) => void): Unsubscribe;
   /**
-   * Present only on adapters that need explicit turn boundaries (push-to-talk
-   * cascades without server-side VAD); speech-native adapters omit it.
+   * Manual control for the current connection generation. It may appear,
+   * change, or disappear as the adapter establishes or leaves manual mode;
+   * speech-native adapters omit it.
    *
-   * Invariant: `RealtimeSession` NEVER touches this — it is surfaced to the
-   * binding/UI layer, which uses `turnControl !== undefined` as the type-level
-   * signal to render hold-to-talk controls instead of an always-on listening
-   * orb, and drives {@link AdapterTurnControl.startTurn}/`endTurn` from those
-   * controls.
+   * Invariant: `RealtimeSession` never invokes this. It delegates the current
+   * value to binding/UI code only while retained `turnMode` is `manual`.
    */
   readonly turnControl?: AdapterTurnControl;
-  /**
-   * Capability for bounded local pre-roll on browser-detected turns. It may be
-   * present before connect; callers must check `isAvailable()` for the current
-   * audio generation. Manual controls continue to use {@link turnControl}.
-   */
-  readonly automaticTurnControl?: AdapterAutomaticTurnControl;
 }

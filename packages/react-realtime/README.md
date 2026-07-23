@@ -1,151 +1,108 @@
 # @maelstrom-co/react-realtime
 
-React bindings for Maelstrom realtime voice sessions. The package provides
-`maelstromRealtime()` for speech-native adapters and `.withVAD()` for a
-LiveKit-style cascaded adapter with manual and automatic turn controls plus a
-shared microphone stream.
+`@maelstrom-co/react-realtime` adds one shared `RealtimeSession`, `useVoice()`,
+and `VoiceOrb` to a Maelstrom React instance. Provider adapters own turn
+detection and transport behavior. The React package subscribes to
+provider-neutral session state; it does not create a browser VAD controller or
+coordinate microphone publication.
 
-## Browser VAD
+## Usage
 
-Browser VAD is opt-in and loads its worklet, model, and ONNX Runtime files from
-`assetBaseUrl`. This URL can be a relative directory served by the application
-or an absolute HTTPS CDN directory. The current asset set must pair
-`@ricky0123/vad-web@0.0.30` with `onnxruntime-web@1.27.0`; do not mix files from
-other versions. Copy the following script into your app (for example,
-`scripts/copy-vad-assets.mjs`) and run it from the app directory:
-
-```js
-import { cp, mkdir, readdir, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const vadDist = dirname(fileURLToPath(await import.meta.resolve("@ricky0123/vad-web")));
-const ortDist = dirname(fileURLToPath(await import.meta.resolve("onnxruntime-web/wasm")));
-const outputDir = join(process.cwd(), "public", "vad-web");
-
-await rm(outputDir, { recursive: true, force: true });
-await mkdir(outputDir, { recursive: true });
-
-const [vadFiles, ortFiles] = await Promise.all([readdir(vadDist), readdir(ortDist)]);
-const assets = [...vadFiles.filter((name) => name === "vad.worklet.bundle.min.js" || name.endsWith(".onnx")).map((name) => [vadDist, name]), ...ortFiles.filter((name) => name.endsWith(".wasm") || name.endsWith(".mjs")).map((name) => [ortDist, name])];
-
-await Promise.all(assets.map(([sourceDir, name]) => cp(join(sourceDir, name), join(outputDir, name))));
-
-console.log(`Copied ${assets.length} VAD assets to ${outputDir}`);
-```
-
-The recipe discovers the installed package locations rather than assuming a
-repository layout. It removes the previous destination before copying the VAD
-worklet, all Silero model `.onnx` files, and all ONNX Runtime `.wasm` and `.mjs`
-files into `public/vad-web/`, served at `/vad-web/`.
-
-Strict package-manager consumers should install a version-matched
-`onnxruntime-web@1.27.0` directly in the application that runs this recipe.
-Regenerate the complete directory whenever either package version changes.
-
-Run it with either `node scripts/copy-vad-assets.mjs` or
-`bun scripts/copy-vad-assets.mjs`.
-
-### Publishing assets
-
-Pass either a relative application path or an absolute HTTPS CDN path. Both
-forms must identify a directory containing the complete, matched asset set:
+Configure browser VAD on `LiveKitAdapter`, then pass the adapter through
+`maelstromRealtime()`:
 
 ```tsx
-// Served by the application.
-assetBaseUrl: "/vad-web/";
-
-// Served by an operator-controlled CDN.
-assetBaseUrl: "https://cdn.example.com/maelstrom/vad-web/0.0.30-ort-1.27.0/";
-```
-
-Use an immutable, versioned CDN directory such as the one above and publish a
-new directory when either dependency changes. Do not replace files under an
-already cached version because a mixed worklet, model, and runtime set can fail
-to initialize. Protocol-relative URLs, plain HTTP, credentials, query strings,
-and fragments are rejected; a rejected URL invokes `onError` and leaves manual
-turn controls available.
-
-For a cross-origin CDN, the browser requires every asset response to allow the
-application's origin with `Access-Control-Allow-Origin` (or `*` for public,
-credential-free assets). Serve `.js` and `.mjs` as JavaScript, `.wasm` as
-`application/wasm`, and `.onnx` as a binary MIME type such as
-`application/octet-stream`. These are operator and browser requirements;
-Maelstrom does not fetch assets itself or inspect response headers. If the
-browser or VAD runtime rejects an asset, the resulting initialization error
-invokes `onError` and leaves `turnControl.startTurn()` /
-`turnControl.endTurn()` available for manual operation.
-
-The LiveKit adapter's local pre-roll uses a Blob-backed AudioWorklet module.
-Content Security Policy must therefore allow `blob:` for worklet scripts (for
-example, through the applicable `script-src` or `worker-src` policy in the
-target browser). If AudioWorklet is unavailable or its setup fails, Maelstrom
-does not open an unbuffered automatic turn: it selects manual fallback instead.
-
-The worklet, `.mjs`, and `.wasm` files are executable browser assets. Treat
-`assetBaseUrl` as trusted operator configuration, never user input, and publish
-only artifacts copied from the exact installed package versions.
-
-### Browser Dependency Risk
-
-The pinned `onnxruntime-web@1.27.0` browser artifact embeds a `protobufjs`
-version with published advisories. This integration limits reachability by
-pinning exact versions and loading only a complete asset set from an
-operator-configured directory. Operators must trust the configured application
-or CDN host, monitor upstream advisories, and upgrade when a patched ONNX
-Runtime browser artifact exists. These controls do not mean that the dependency
-is patched or risk-free.
-
-## Usage (illustrative)
-
-The adapter, token mint, and vessel registry below are application-specific.
-
-```tsx
-import { LiveKitAdapter } from "@maelstrom-co/realtime-livekit";
-import { maelstromRealtime } from "@maelstrom-co/react-realtime";
+import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
+import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 
 const voice = maelstromRealtime({
   createAdapter: ({ sessionId }) =>
     new LiveKitAdapter({
       mintToken: (roomName) => fetchLiveKitToken(roomName),
       roomName: `maelstrom-${sessionId}`,
+      vad: {
+        assetBaseUrl: '/vad-web/',
+        preRollMs: 250,
+      },
     }),
-}).withVAD({
-  assetBaseUrl: "/vad-web/",
-  onError: (error) => console.error("Browser VAD unavailable", error),
 });
 
 const app = createMaelstrom({ vessels }).with(voice);
 ```
 
-The cascaded adapter must expose `turnControl`, `automaticTurnControl`, and a
-shared `mic` stream from `getAudioStreams()`. Browser VAD observes that stream,
-while `automaticTurnControl` owns buffered automatic turn boundaries;
-`turnControl` remains the manual fallback. The LiveKit server, token minter,
-and `@maelstrom-co/realtime-livekit-agent` worker must also be configured,
-including Deepgram and Cartesia credentials.
+Omitting `vad` or setting it to `true` enables LiveKit's adapter-owned automatic
+mode with `/vad-web/` and 250 ms of transport pre-roll. An options object
+overrides supported settings. Set `vad: false` for intentional manual turns.
+See [`@maelstrom-co/realtime-livekit`](../realtime-livekit/README.md) for the
+asset-copy step, URL rules, provider tuning, and failure behavior.
 
-If assets, the runtime, initialization, or a VAD turn callback fails, `onError`
-is called and the hook remains usable in manual mode:
-`turnControl.startTurn()` and `turnControl.endTurn()` remain the turn
-boundaries. Errors thrown by `onError` itself are contained and do not reject
-VAD lifecycle operations. VAD teardown does not intentionally stop the LiveKit
-track; Maelstrom overrides VAD stream hooks to reuse the adapter stream and
-controls the VAD instance lifecycle.
+Speech-native adapters keep their own automatic turn detection and require no
+LiveKit browser VAD configuration.
 
-`providerOptions` forwards non-lifecycle tuning options to `@ricky0123/vad-web`.
-The following are reserved and ignored: `audioContext`, `getStream`,
-`pauseStream`, `resumeStream`, `onSpeechStart`, `onSpeechEnd`,
-`onVADMisfire`, `onSpeechRealStart`, `onFrameProcessed`, `startOnLoad`,
-`submitUserSpeechOnPause`, `baseAssetPath`, `onnxWASMBasePath`, and `ortConfig`.
+## Read turn state with `useVoice()`
 
-`preRollMs` and `providerOptions.preSpeechPadMs` affect different buffers.
-`preRollMs` applies only to automatic turn control: it replays browser-local
-transport audio once before automatic live audio reaches the adapter, defaults
-to 250ms, and is clamped to 0–500ms. Manual turns do not use it.
-`preSpeechPadMs` only changes how much earlier audio `vad-web` includes in its
-detected speech segment. It does not replay that audio to the transport and
-cannot replace `preRollMs`.
+```tsx
+function VoiceControl() {
+  const {
+    state,
+    turnMode,
+    turnModeError,
+    turnControl,
+    connect,
+    disconnect,
+  } = app.useVoice();
 
-OpenAI realtime is unchanged. It uses its existing speech-native turn handling
-and does not create a browser VAD controller.
+  // Render hold-to-talk only when manual controls are currently available.
+  const canHoldToTalk = turnMode === 'manual' && turnControl !== undefined;
+  // ...
+}
+```
+
+The turn-related fields describe the current connection generation:
+
+- `turnMode` is `'automatic'` or `'manual'`.
+- `turnControl` is dynamic. It is absent in automatic mode and appears only
+  after an adapter safely establishes manual mode. A reconnect or mode change
+  can remove or replace it, so do not cache it outside React state.
+- `turnModeError` contains the cause when attempted automatic mode degrades to
+  manual. A clean automatic connection or intentional `vad: false` manual mode
+  clears it.
+
+`turnModeError` is diagnostic-only. Use its presence to show generic recovery
+guidance, such as “Automatic voice detection is unavailable; hold to talk.”
+Never render the value verbatim, include it in serialized application state, or
+send it to telemetry. The underlying value may contain provider or browser
+details that are unsuitable for users and observability payloads.
+
+Invalid VAD configuration and VAD asset, initialization, runtime, or callback
+failures are non-fatal when the LiveKit transport can still stop upstream audio
+safely. The adapter pauses publication before publishing manual mode and
+controls. Fatal LiveKit transport failures instead move the session through its
+existing error path and do not expose manual mode as a fallback.
+
+## Session sharing
+
+All `useVoice()` consumers under one Maelstrom provider share a single
+`RealtimeSession`. The extension creates one adapter per orchestrator session,
+retains state for every subscriber, and retires the session after the final
+consumer unmounts. `disconnect()` explicitly disconnects that shared session
+regardless of how many consumers remain mounted.
+
+## Breaking pre-release migration
+
+Browser VAD ownership moved to `@maelstrom-co/realtime-livekit`.
+
+- Move supported `assetBaseUrl`, `preRollMs`, and `providerOptions` values from
+  `maelstromRealtime(...).withVAD(options)` to
+  `new LiveKitAdapter({ ..., vad: options })` inside `createAdapter`.
+- Replace the old VAD error callback and `vadError` with `turnModeError`.
+- Remove calls to the former public automatic-turn capability. Automatic turn
+  boundaries are private adapter behavior; `useVoice()` exposes only dynamic
+  manual `turnControl`.
+- Remove React-owned VAD setup and direct VAD runtime dependencies. Deploy the
+  package-matched assets with `maelstrom-livekit-assets` or
+  `copyLiveKitVadAssets()` during the application build.
+
+Applications that previously used hold-to-talk can preserve that behavior by
+setting `vad: false` on `LiveKitAdapter` and rendering controls only when
+`turnMode === 'manual'` and `turnControl` is defined.
