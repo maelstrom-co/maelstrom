@@ -1,0 +1,36 @@
+#!/bin/sh
+#
+# prepare-commit-msg — append a DCO "Signed-off-by" trailer automatically.
+#
+# Mirrors `git commit -s` so contributors don't have to remember the flag.
+# Enable once per clone with:  git config core.hooksPath .githooks
+#
+# Idempotent: if the committer's sign-off is already present (e.g. you passed
+# -s, or you are amending), nothing changes. Skipped for merge/squash commits.
+
+set -eu
+
+commit_msg_file="$1"
+commit_source="${2:-}"
+
+case "$commit_source" in
+	merge|squash)
+		exit 0
+		;;
+esac
+
+name="$(git config user.name || true)"
+email="$(git config user.email || true)"
+
+if [ -z "$name" ] || [ -z "$email" ]; then
+	echo "prepare-commit-msg: user.name/user.email not set; skipping Signed-off-by" >&2
+	exit 0
+fi
+
+sob="Signed-off-by: $name <$email>"
+
+if grep -qxF "$sob" "$commit_msg_file"; then
+	exit 0
+fi
+
+git interpret-trailers --if-exists addIfDifferent --trailer "$sob" --in-place "$commit_msg_file"

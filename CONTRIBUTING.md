@@ -58,6 +58,19 @@ By making a contribution to this project, I certify that:
 
 </details>
 
+### Automatic sign-off (optional)
+
+Rather than remembering `-s` on every commit, enable the bundled hook once per
+clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+It appends your `Signed-off-by` trailer automatically and does nothing if the
+trailer is already present. See [`.githooks/README.md`](./.githooks/README.md)
+for details. Requires Git 2.9+.
+
 ## Prerequisites
 
 - [Bun](https://bun.sh) (package manager — the repo is a Bun workspace)
