@@ -15,7 +15,12 @@ import type { RemoteTrack, TranscriptionSegment } from 'livekit-client';
 
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
 import type { TtsCancelMessage, TurnEndMessage } from './protocol.js';
-import { SPEAK_TOPIC, TTS_TOPIC, TURN_TOPIC } from './protocol.js';
+import {
+  SPEAK_TOPIC,
+  SPEAK_UTTERANCE_ID_ATTR,
+  TTS_TOPIC,
+  TURN_TOPIC,
+} from './protocol.js';
 
 // Quiet the livekit-client SDK's verbose signal/connection logging (which dumps
 // the full connect URL on every join). Warnings and errors still surface.
@@ -69,6 +74,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // usable — `mintToken()` and `room.connect()` are awaited, so without this a
   // second connect() during that round-trip would open a second room.
   #connecting = false;
+  // Set while the adapter itself is tearing the room down (disconnect()), so the
+  // resulting RoomEvent.Disconnected is recognized as expected and stays silent.
+  // An unexpected drop (server/network) leaves this false and surfaces as fatal.
+  #closing = false;
   // Detects, once each in-flight connect() await (mint, room join, mic publish)
   // resumes, that a disconnect()/teardown or a newer connect() overtook it — so
   // the stale attempt abandons its own room instead of joining one nobody owns.
@@ -79,6 +88,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // warns once per kind instead of flooding the console.
   readonly #warnedNonFatalKinds = new Set<string>();
   readonly #thinkingFallbackMs: number;
+  // Monotonic id stamped on each speak request; the worker echoes it on the
+  // matching TTS status packet so stale status can be correlated and dropped.
+  #utteranceSeq = 0;
+  // The utterance whose TTS status the client currently accepts. Set when a speak
+  // is handed off; cleared on a barge-in (tts_cancel) so the cancelled
+  // utterance's late `tts_done` is recognized as stale and ignored — without
+  // this, that late packet clears the empty-turn fallback and wedges `thinking`.
+  #currentUtteranceId: number | undefined;
   // Rescues an empty push-to-talk turn (no speech) that would otherwise wedge
   // the UI in `thinking` — see #startThinkingFallback.
   #thinkingFallbackTimer: ReturnType<typeof setTimeout> | undefined;
@@ -117,6 +134,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       // once and unmute anyway; worst case the stale audio plays out. No collapse
       // is needed: the `listening` we emit below already releases `speaking`.
       if (this.#lastState === 'speaking') {
+        // Invalidate the utterance being cancelled: its playout-end `tts_done`
+        // will still arrive once the worker's clearQueue resolves, and must be
+        // dropped as stale rather than clearing the empty-turn fallback below.
+        this.#currentUtteranceId = undefined;
         const cancel: TtsCancelMessage = { type: 'tts_cancel' };
         try {
           await room.localParticipant.publishData(
@@ -146,8 +167,13 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       const room = this.#room;
       if (!room) return;
       // Mute first: it's local (no network), so a failed turn_end publish can't
-      // leave the mic hot. A publish failure still advances to `thinking` — the
-      // fallback below rescues a worker that never responds.
+      // leave the mic hot. Both a mute failure and a turn_end publish failure are
+      // loss of the channel the session drives turns over (fatal): each emits a
+      // RealtimeVoiceError and returns, because the session tears down on the
+      // error — so publishing over the dead channel, or emitting `thinking` /
+      // arming the fallback on a gone session, is dead work that would also
+      // clobber the session's `error` state. Only a clean publish reaches
+      // `thinking` + the empty-turn fallback below.
       try {
         await room.localParticipant.setMicrophoneEnabled(false);
       } catch (error) {
@@ -159,9 +185,6 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
             error,
           ),
         });
-        // A mute failure is loss of the connection (fatal): the session tears
-        // down synchronously on the error above, so publishing turn_end over the
-        // dead channel or emitting `thinking` on a gone session is dead work.
         return;
       }
       const turnEnd: TurnEndMessage = { type: 'turn_end' };
@@ -179,6 +202,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
             error,
           ),
         });
+        return;
       }
       this.#emit({ type: 'state', state: 'thinking' });
       this.#startThinkingFallback();
@@ -272,6 +296,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     // Teardown must run even if room.disconnect() rejects — otherwise `#room`
     // stays set and every later connect() throws ALREADY_CONNECTED forever. The
     // rejection still propagates to the caller.
+    this.#closing = true;
     try {
       await this.#room?.disconnect();
     } finally {
@@ -309,13 +334,21 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * Emits `speaking` on hand-off but does NOT collapse back here: the worker
    * publishes a `tts_done` packet on {@link TTS_TOPIC} when playout actually
    * finishes, and {@link collapseSpeaking} reacts to that — so the state tracks
-   * real audio end, not text hand-off. If the send itself fails no audio will
-   * ever play, so the collapse is forced in the catch instead.
+   * real audio end, not text hand-off.
    *
-   * Called with no active room (an intentional teardown raced this in-flight
-   * read-back) this is non-fatal — the UI change already applied and nothing
-   * waits on the confirmation — so it warns once and collapses `speaking`
-   * without raising a session-fatal error.
+   * Every failure here is **non-fatal** — the `update_ui` this reads back already
+   * applied and nothing downstream waits on the spoken confirmation, so a failure
+   * loses only the audio, never the session. Both failure paths therefore emit a
+   * plain `Error` (logged, not session-fatal) rather than a `RealtimeVoiceError`,
+   * and force the `speaking` collapse so the UI does not hang on audio that will
+   * never play:
+   * - **A send failure** (the room exists but `sendText` throws): matches the
+   *   OpenAI adapter's parallel tool-result case — genuine connection loss is
+   *   surfaced separately by the room's connection-state events, which own
+   *   fatality.
+   * - **No active room** (an intentional teardown raced this in-flight read-back):
+   *   warns once, since a missing room here is a benign teardown race, not the
+   *   connection loss the room's connection-state events would report.
    */
   async sendToolResult(callId: ToolCallId, output: ToolResult): Promise<void> {
     const speakText =
@@ -343,16 +376,26 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       return;
     }
     this.#emit({ type: 'state', state: 'speaking' });
+    // Stamp a fresh utterance id so the worker's playout status can be correlated
+    // back to this specific utterance and stale status dropped.
+    this.#utteranceSeq += 1;
+    const utteranceId = this.#utteranceSeq;
+    this.#currentUtteranceId = utteranceId;
     try {
-      await room.localParticipant.sendText(speakText, { topic: SPEAK_TOPIC });
+      await room.localParticipant.sendText(speakText, {
+        topic: SPEAK_TOPIC,
+        attributes: { [SPEAK_UTTERANCE_ID_ATTR]: String(utteranceId) },
+      });
     } catch (error) {
+      // Non-fatal: a plain Error (RealtimeSession only logs these), never a
+      // RealtimeVoiceError — the read-back already rendered, so only the spoken
+      // confirmation is lost. Collapse the transient `speaking` so the UI does
+      // not hang on audio that will never play.
       this.#emit({
         type: 'error',
-        error: new RealtimeVoiceError(
-          'DATA_CHANNEL_ERROR',
-          'Failed to send speak text to the LiveKit worker',
-          error,
-        ),
+        error: new Error('Failed to send speak text to the LiveKit worker', {
+          cause: error,
+        }),
       });
       this.#collapseSpeaking();
     }
@@ -383,10 +426,26 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   #wireRoomEvents(room: Room): void {
     room.on(RoomEvent.Disconnected, () => {
       if (this.#room !== room) return;
+      // Was this disconnect adapter-initiated? disconnect() sets `#closing`; a
+      // connect() that fails and rolls back its own room does so while still
+      // `#connecting`. Read before teardown clears both.
+      const expected = this.#closing || this.#connecting;
       // Clear `#room` so a later connect() isn't rejected as 'already connected'
       // — without this, a server-side/network disconnect is unrecoverable.
       this.#teardown();
-      this.#emit({ type: 'state', state: 'idle' });
+      if (expected) return;
+      // An unexpected server/network drop is loss of the underlying connection
+      // (fatal): emit a RealtimeVoiceError, NOT a bare `idle` state. The session's
+      // `error` path then runs its cleanup (unsubscribing this adapter); a bare
+      // `idle` state is a no-op there, leaving a stale subscription that would
+      // double-handle every event after the next connect().
+      this.#emit({
+        type: 'error',
+        error: new RealtimeVoiceError(
+          'CONNECTION_FAILED',
+          'The LiveKit room disconnected unexpectedly',
+        ),
+      });
     });
     room.on(RoomEvent.TranscriptionReceived, (segments) => {
       this.#handleTranscription(segments);
@@ -410,16 +469,29 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // audio. Warn once per distinct kind and collapse `speaking` so the UI does
   // not hang waiting for audio that will never arrive.
   #handleTtsSignal(payload: Uint8Array): void {
-    // A TTS signal means the worker is alive and driving state — the turn was
-    // not empty, so cancel the empty-turn fallback.
-    this.#clearThinkingFallback();
     let type: string | undefined;
+    let utteranceId: number | undefined;
     try {
-      type = (JSON.parse(new TextDecoder().decode(payload)) as { type?: string })
-        .type;
+      const parsed = JSON.parse(new TextDecoder().decode(payload)) as {
+        type?: string;
+        utteranceId?: number;
+      };
+      type = parsed.type;
+      utteranceId = parsed.utteranceId;
     } catch {
       type = undefined;
     }
+    // Drop status for an utterance the client has already barged past: a
+    // cancelled utterance's late `tts_done` must be a full no-op — not clear the
+    // empty-turn fallback, not move state — or the UI wedges in `thinking`. Only
+    // correlate when the packet actually carries an id; an id-less/malformed
+    // packet can't be attributed, so it falls through to the non-fatal path.
+    if (typeof utteranceId === 'number' && utteranceId !== this.#currentUtteranceId) {
+      return;
+    }
+    // A live TTS signal means the worker is alive and driving state — the turn
+    // was not empty, so cancel the empty-turn fallback.
+    this.#clearThinkingFallback();
     if (type === 'tts_done') {
       this.#collapseSpeaking();
       return;
@@ -541,6 +613,8 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#warnedNonFatalKinds.clear();
     this.#room = undefined;
     this.#connecting = false;
+    this.#closing = false;
+    this.#currentUtteranceId = undefined;
     this.#playbackStream = undefined;
     if (this.#audioEl) {
       this.#audioEl.remove();

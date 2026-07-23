@@ -28,6 +28,16 @@ export const TURN_TOPIC = 'turn';
  */
 export const TTS_TOPIC = 'tts';
 
+/**
+ * Attribute key carrying the utterance id on a `SPEAK_TOPIC` text stream. The
+ * client (which initiates each utterance) stamps a monotonic id here; the worker
+ * echoes it on the matching `TTS_TOPIC` status packet ({@link TtsDoneMessage} /
+ * {@link TtsErrorMessage}) so the client can drop status for an utterance it has
+ * already barged past — a cancelled utterance's late `tts_done` must not clear
+ * the client's thinking fallback or move state, or the UI wedges in `thinking`.
+ */
+export const SPEAK_UTTERANCE_ID_ATTR = 'mae-utterance-id';
+
 /** Sent browser adapter → worker on the `TURN_TOPIC` to flush the STT buffer. */
 export interface TurnEndMessage {
   type: 'turn_end';
@@ -45,9 +55,18 @@ export interface TtsCancelMessage {
 /** Sent worker → browser adapter on the `TTS_TOPIC` when TTS synthesis fails. */
 export interface TtsErrorMessage {
   type: 'tts_error';
+  /**
+   * The utterance this status refers to, echoed from the speak request's
+   * {@link SPEAK_UTTERANCE_ID_ATTR}. Absent when the worker never received an id
+   * (older/id-less speak requests); the client then falls back to type-only
+   * handling.
+   */
+  utteranceId?: number;
 }
 
 /** Sent worker → browser adapter on the `TTS_TOPIC` when TTS playout finishes. */
 export interface TtsDoneMessage {
   type: 'tts_done';
+  /** The utterance this status refers to — see {@link TtsErrorMessage.utteranceId}. */
+  utteranceId?: number;
 }

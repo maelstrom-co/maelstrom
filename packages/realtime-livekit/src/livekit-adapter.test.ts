@@ -69,7 +69,33 @@ mock.module('livekit-client', () => ({
 }));
 
 const { LiveKitAdapter } = await import('./livekit-adapter');
-const { SPEAK_TOPIC, TURN_TOPIC, TTS_TOPIC } = await import('./protocol');
+const { SPEAK_TOPIC, TURN_TOPIC, TTS_TOPIC, SPEAK_UTTERANCE_ID_ATTR } = await import('./protocol');
+
+// The utterance id the client stamped on the most recent speak text stream — the
+// worker echoes this on its TTS status packets, so tests read it back to forge a
+// matching (current) or mismatching (stale) status.
+function lastUtteranceId(): number {
+  const opts = mockSendText.mock.calls.at(-1)?.[1] as
+    | { attributes?: Record<string, string> }
+    | undefined;
+  return Number(opts?.attributes?.[SPEAK_UTTERANCE_ID_ATTR]);
+}
+
+function encodeTtsWithId(type: 'tts_done' | 'tts_error', utteranceId: number): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify({ type, utteranceId }));
+}
+
+// Asserts the most recent speak carried `text` on SPEAK_TOPIC with a positive
+// utterance id stamped in its attributes (the id itself is dynamic).
+function expectSpoke(text: string): void {
+  const [spoken, opts] = (mockSendText.mock.calls.at(-1) ?? []) as [
+    string,
+    { topic: string; attributes?: Record<string, string> },
+  ];
+  expect(spoken).toBe(text);
+  expect(opts.topic).toBe(SPEAK_TOPIC);
+  expect(Number(opts.attributes?.[SPEAK_UTTERANCE_ID_ATTR])).toBeGreaterThan(0);
+}
 
 const DEFAULT_GRANT: LiveKitTokenGrant = {
   token: 'test-token',
@@ -184,15 +210,41 @@ describe('LiveKitAdapter connect', () => {
     expect(states(events)).toEqual(['connecting', 'error']);
   });
 
-  test('a Disconnected event tears down so the adapter can reconnect', async () => {
+  test('an unexpected Disconnected emits a fatal CONNECTION_FAILED (not a bare idle) and tears down so the adapter can reconnect', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
 
     currentRoom._emit('disconnected');
-    expect(states(events).at(-1)).toBe('idle');
 
-    // Teardown ran, so a fresh connect must not throw 'already connected'.
+    // A server/network drop the adapter did not initiate is fatal: emit a
+    // RealtimeVoiceError so RealtimeSession's `error` path runs cleanup (it
+    // unsubscribes the adapter), instead of a bare `idle` state the session
+    // treats as a no-op — which would leave a stale subscription behind and
+    // double-handle every event after the next connect().
+    const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
+    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
+      'CONNECTION_FAILED',
+    );
+    expect(states(events)).not.toContain('idle');
+
+    // Teardown still ran, so a fresh connect must not throw 'already connected'.
     await expect(adapter.connect({ tools: [], instructions: '' })).resolves.toBeUndefined();
+  });
+
+  test('a locally-initiated disconnect() does not emit an error even when it fires Disconnected', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    // Real LiveKit fires RoomEvent.Disconnected as a result of room.disconnect().
+    // An adapter-initiated teardown must stay silent — no fatal error.
+    mockRoomDisconnect.mockImplementationOnce(async () => {
+      currentRoom._emit('disconnected');
+    });
+
+    await adapter.disconnect();
+
+    expect(events.some((e) => e.type === 'error')).toBe(false);
   });
 
   test('a disconnect during an in-flight connect rejects CONNECT_SUPERSEDED and abandons the orphaned room', async () => {
@@ -367,9 +419,7 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
       summary: 'Weather is on screen.',
     });
 
-    expect(mockSendText).toHaveBeenCalledWith('Weather is on screen.', {
-      topic: SPEAK_TOPIC,
-    });
+    expectSpoke('Weather is on screen.');
     // speaking is announced on hand-off and STAYS until the worker signals
     // playout end — it no longer collapses when the text is handed off.
     expect(states(events).at(-1)).toBe('speaking');
@@ -385,9 +435,7 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
       userMessage: 'Here is your weather.',
     });
 
-    expect(mockSendText).toHaveBeenCalledWith('Here is your weather.', {
-      topic: SPEAK_TOPIC,
-    });
+    expectSpoke('Here is your weather.');
   });
 
   test('collapses speaking → connected only when the worker signals tts_done', async () => {
@@ -401,7 +449,7 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
     expect(states(events).at(-1)).toBe('connected');
   });
 
-  test('a send failure surfaces a DATA_CHANNEL_ERROR and releases speaking', async () => {
+  test('a send failure is non-fatal: a plain error event, no fatal RealtimeVoiceError, releases speaking', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
     mockSendText.mockImplementationOnce(async () => {
@@ -410,10 +458,14 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
 
     await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' });
 
+    // The update_ui already applied and nothing waits on the spoken read-back —
+    // so a send failure is surfaced as a plain Error (logged, non-fatal), never a
+    // session-fatal RealtimeVoiceError. Mirrors the OpenAI adapter's parallel case.
     const err = events.find((e) => e.type === 'error');
-    expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
-    expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
-      'DATA_CHANNEL_ERROR',
+    expect(err?.type === 'error' && err.error).toBeInstanceOf(Error);
+    expect(err?.type === 'error' && err.error).not.toBeInstanceOf(RealtimeVoiceError);
+    expect(events.some((e) => e.type === 'error' && e.error instanceof RealtimeVoiceError)).toBe(
+      false,
     );
     // No audio will play, so speaking must not linger.
     expect(states(events).at(-1)).toBe('connected');
@@ -441,9 +493,7 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
     // get_ui_state / get_capabilities send raw snapshots (no `ok` field) — the
     // model would read these as JSON, so there is nothing conversational to say.
     await adapter.sendToolResult('call-3' as never, { vessels: [] });
-    expect(mockSendText).toHaveBeenCalledWith('{"vessels":[]}', {
-      topic: SPEAK_TOPIC,
-    });
+    expectSpoke('{"vessels":[]}');
   });
 });
 
@@ -501,8 +551,8 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(order).toEqual(['mute', 'publish']);
   });
 
-  test('endTurn surfaces a DATA_CHANNEL_ERROR when publishData rejects but still muted', async () => {
-    const { adapter, events } = makeAdapter();
+  test('endTurn surfaces a fatal DATA_CHANNEL_ERROR when publishData rejects, still muted, and stops the turn', async () => {
+    const { adapter, events } = makeAdapter(undefined, { thinkingFallbackMs: 10 });
     await adapter.connect({ tools: [], instructions: '' });
     mockSetMicrophoneEnabled.mockClear();
     mockPublishData.mockImplementationOnce(async () => {
@@ -513,11 +563,22 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
 
     expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(false);
     const err = events.find((e) => e.type === 'error');
+    expect(err?.type === 'error' && err.error).toBeInstanceOf(RealtimeVoiceError);
     expect(err?.type === 'error' && (err.error as RealtimeVoiceError).code).toBe(
       'DATA_CHANNEL_ERROR',
     );
-    // Still advances to thinking (the fallback rescues a wedged worker later).
-    expect(states(events).at(-1)).toBe('thinking');
+    // A broken data channel is fatal: the session tears down on the error, so we
+    // must not emit `thinking` (it would clobber the session's `error` state) or
+    // arm the fallback — dead work on a torn-down session. `connected` (from
+    // connect) stays the last state; endTurn emits nothing after the fatal error.
+    expect(states(events)).not.toContain('thinking');
+    expect(states(events)).toEqual(['connecting', 'connected']);
+
+    // And no fallback was armed: it would emit a (spurious) state after the
+    // fallback interval, but nothing more is emitted.
+    const before = events.length;
+    await new Promise((r) => setTimeout(r, 40));
+    expect(events.length).toBe(before);
   });
 
   test('endTurn surfaces a fatal CONNECTION_FAILED when muting rejects and then stops the turn', async () => {
@@ -663,6 +724,82 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     // The now-stale worker tts_done must NOT collapse back to connected.
     currentRoom._emit('dataReceived', encodeTts('tts_done'), undefined, undefined, TTS_TOPIC);
     expect(states(events).at(-1)).toBe('listening');
+  });
+});
+
+describe('LiveKitAdapter TTS utterance-id staleness', () => {
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockSetMicrophoneEnabled.mockReset();
+    mockPublishData.mockReset();
+    mockSendText.mockReset();
+    mockSendText.mockImplementation(async () => ({}));
+  });
+
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  test('a current-utterance tts_done collapses speaking normally', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' });
+    expect(states(events).at(-1)).toBe('speaking');
+
+    // The worker echoes the utterance id the client stamped on the speak stream.
+    currentRoom._emit(
+      'dataReceived',
+      encodeTtsWithId('tts_done', lastUtteranceId()),
+      undefined,
+      undefined,
+      TTS_TOPIC,
+    );
+    expect(states(events).at(-1)).toBe('connected');
+  });
+
+  test('client stamps the utterance id on the speak text stream', async () => {
+    const { adapter } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Done.' });
+
+    const opts = mockSendText.mock.calls.at(-1)?.[1] as {
+      topic: string;
+      attributes?: Record<string, string>;
+    };
+    expect(opts.topic).toBe(SPEAK_TOPIC);
+    expect(Number(opts.attributes?.[SPEAK_UTTERANCE_ID_ATTR])).toBeGreaterThan(0);
+  });
+
+  test('a stale tts_done from a barged-past utterance is a no-op: fallback not cleared, state unchanged, and the fallback still fires', async () => {
+    const { adapter, events } = makeAdapter(undefined, { thinkingFallbackMs: 20 });
+    await adapter.connect({ tools: [], instructions: '' });
+
+    // Assistant is speaking utterance A.
+    await adapter.sendToolResult('call-1' as never, { ok: true, summary: 'Talking…' });
+    const utteranceA = lastUtteranceId();
+    expect(states(events).at(-1)).toBe('speaking');
+
+    // User barges in (invalidating A) then releases without speaking → thinking +
+    // armed empty-turn fallback.
+    await adapter.turnControl.startTurn();
+    await adapter.turnControl.endTurn();
+    expect(states(events).at(-1)).toBe('thinking');
+
+    // The cancelled utterance A's tts_done still arrives (the worker's clearQueue
+    // resolved its playout). It must be dropped whole: no fallback clear, no state
+    // change — otherwise the UI wedges in `thinking`.
+    currentRoom._emit(
+      'dataReceived',
+      encodeTtsWithId('tts_done', utteranceA),
+      undefined,
+      undefined,
+      TTS_TOPIC,
+    );
+    expect(states(events).at(-1)).toBe('thinking');
+
+    // Fallback was NOT cleared by the stale packet, so it still rescues the UI.
+    await settle(50);
+    expect(states(events).at(-1)).toBe('connected');
   });
 });
 
