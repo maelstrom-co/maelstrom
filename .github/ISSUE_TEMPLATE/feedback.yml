@@ -1,0 +1,54 @@
+name: Preview Feedback
+description: Share feedback as a design partner during the preview period
+labels: ["preview-feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We appreciate your feedback during the preview. This helps us shape the API before 1.0.
+
+  - type: input
+    id: package
+    attributes:
+      label: Package / Area
+      description: Which package or area does this relate to?
+      placeholder: "@maelstrom-co/client, voice, docs, DX, etc."
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "0.1.0-alpha.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feedback Category
+      options:
+        - API ergonomics
+        - Missing capability
+        - Documentation gap
+        - Performance
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Feedback
+      description: What's your experience? What would make it better?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you building? How are you using Maelstrom?
+    validations:
+      required: false
