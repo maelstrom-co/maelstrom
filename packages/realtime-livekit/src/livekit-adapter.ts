@@ -274,11 +274,17 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       }
       attempt.assertCurrent();
     } catch (error) {
+      // Snapshot currency BEFORE disconnecting: room.disconnect() fires its own
+      // RoomEvent.Disconnected handler, which runs #teardown() and supersedes the
+      // guard — so a post-disconnect isCurrent read would report even the sole
+      // genuine attempt as superseded and skip the error emit. Decide from the
+      // pre-disconnect view.
+      const wasCurrent = attempt.isCurrent;
       // Always disconnect this attempt's own room — a later step may have thrown
       // after room.connect() succeeded, and a superseded attempt owns an
       // orphaned room nobody else will tear down.
       await room.disconnect().catch(() => {});
-      if (attempt.isCurrent) {
+      if (wasCurrent) {
         // Still the current attempt — a genuine failure. Reset shared state and
         // surface the error. A superseded attempt skips this so it never
         // clobbers the winner's room or drives it into the error state.

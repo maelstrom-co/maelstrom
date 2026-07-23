@@ -210,6 +210,31 @@ describe('LiveKitAdapter connect', () => {
     expect(states(events)).toEqual(['connecting', 'error']);
   });
 
+  test('a connect failure whose room.disconnect fires Disconnected still ends in error state', async () => {
+    mockRoomDisconnect.mockClear();
+    const { adapter, events } = makeAdapter();
+    const cause = new Error('signal connection failed');
+    mockRoomConnect.mockImplementationOnce(async () => {
+      throw cause;
+    });
+    // Real livekit-client fires RoomEvent.Disconnected as a side effect of
+    // room.disconnect(). That handler runs teardown (superseding the connect
+    // guard) before the catch resumes — so an `attempt.isCurrent` read taken
+    // AFTER the disconnect would wrongly report this sole genuine attempt as
+    // superseded and skip the error emit, stalling the state stream at
+    // `connecting`. The catch must still tear down and emit `error`.
+    mockRoomDisconnect.mockImplementationOnce(async () => {
+      currentRoom._emit('disconnected');
+    });
+
+    const error = await adapter
+      .connect({ tools: [], instructions: '' })
+      .then(() => undefined, (e: unknown) => e);
+    expect(error).toBe(cause);
+    expect(mockRoomDisconnect).toHaveBeenCalled();
+    expect(states(events)).toEqual(['connecting', 'error']);
+  });
+
   test('an unexpected Disconnected emits a fatal CONNECTION_FAILED (not a bare idle) and tears down so the adapter can reconnect', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
