@@ -7,7 +7,7 @@ you point `core.hooksPath` here (a per-clone local setting):
 git config core.hooksPath .githooks
 ```
 
-Requires Git 2.9+.
+Requires Git 2.15+.
 
 ## `prepare-commit-msg`
 

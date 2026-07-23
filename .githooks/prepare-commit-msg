@@ -6,7 +6,8 @@
 # Enable once per clone with:  git config core.hooksPath .githooks
 #
 # Idempotent: if the committer's sign-off is already present (e.g. you passed
-# -s, or you are amending), nothing changes. Skipped for merge/squash commits.
+# -s, or you are amending), interpret-trailers leaves it untouched. Skipped for
+# merge/squash commits.
 
 set -eu
 
@@ -19,18 +20,17 @@ case "$commit_source" in
 		;;
 esac
 
-name="$(git config user.name || true)"
-email="$(git config user.email || true)"
+# Resolve the effective *committer* identity — honours committer.* config and
+# GIT_COMMITTER_* env, so the trailer names whoever `git commit -s` would.
+# `git var GIT_COMMITTER_IDENT` prints "Name <email> <timestamp> <tz>"; strip
+# the trailing timestamp and timezone to leave "Name <email>".
+ident="$(git var GIT_COMMITTER_IDENT 2>/dev/null || true)"
+ident="$(printf '%s' "$ident" | sed -E 's/ [0-9]+ [-+][0-9]+$//')"
 
-if [ -z "$name" ] || [ -z "$email" ]; then
-	echo "prepare-commit-msg: user.name/user.email not set; skipping Signed-off-by" >&2
+if [ -z "$ident" ]; then
+	echo "prepare-commit-msg: committer identity not set; skipping Signed-off-by" >&2
 	exit 0
 fi
 
-sob="Signed-off-by: $name <$email>"
-
-if grep -qxF "$sob" "$commit_msg_file"; then
-	exit 0
-fi
-
-git interpret-trailers --if-exists addIfDifferent --trailer "$sob" --in-place "$commit_msg_file"
+git interpret-trailers --if-exists addIfDifferent \
+	--trailer "Signed-off-by: $ident" --in-place "$commit_msg_file"

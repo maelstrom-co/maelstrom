@@ -69,7 +69,7 @@ git config core.hooksPath .githooks
 
 It appends your `Signed-off-by` trailer automatically and does nothing if the
 trailer is already present. See [`.githooks/README.md`](./.githooks/README.md)
-for details. Requires Git 2.9+.
+for details. Requires Git 2.15+.
 
 ## Prerequisites
 
