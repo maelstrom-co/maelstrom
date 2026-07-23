@@ -1,6 +1,6 @@
 import { type Result, err, ok } from '@maelstrom-co/protocol';
 import type { MintFailure, UnixSeconds } from '@maelstrom-co/realtime';
-import type { LiveKitTokenGrant } from '@maelstrom-co/realtime-livekit';
+import { type LiveKitTokenGrant, LiveKitTokenGrantSchema } from '@maelstrom-co/realtime-livekit';
 import { USER_PARTICIPANT_IDENTITY } from '@maelstrom-co/realtime-livekit/protocol';
 import { AccessToken } from 'livekit-server-sdk';
 import { z } from 'zod';
@@ -27,14 +27,14 @@ export const LiveKitTokenRequestSchema = z.object({
 /** Outcome of a {@link mintLiveKitToken} call. */
 export type LiveKitMintResult = Result<LiveKitTokenGrant, MintFailure>;
 
-const DEFAULT_URL = 'ws://localhost:7880';
 const DEFAULT_TTL = '15m';
 
 /**
  * Mints a LiveKit access-token grant scoped to a single room + identity,
  * reading credentials from `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`, the room
- * URL from `LIVEKIT_URL` (defaulting to a local dev server), and the token
- * lifetime from `LIVEKIT_TOKEN_TTL` (defaulting to `15m`).
+ * URL from `LIVEKIT_URL` (required — no default, so a deploy that omits it
+ * fails closed rather than silently pointing every browser at localhost),
+ * and the token lifetime from `LIVEKIT_TOKEN_TTL` (defaulting to `15m`).
  *
  * Result-based rather than throwing: a missing credential is a
  * `missing-api-key` failure and a malformed request an `invalid-request`
@@ -73,7 +73,14 @@ export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResul
     return err({ reason: 'invalid-request' });
   }
 
-  const url = process.env.LIVEKIT_URL ?? DEFAULT_URL;
+  const url = process.env.LIVEKIT_URL;
+  if (!url) {
+    console.error(
+      'LIVEKIT_URL is required (e.g. ws://localhost:7880 for local dev) — no default is assumed.',
+    );
+    return err({ reason: 'invalid-config' });
+  }
+
   const ttl = process.env.LIVEKIT_TOKEN_TTL ?? DEFAULT_TTL;
 
   // Fail closed on a TTL this package can't confidently parse: the SDK accepts
@@ -97,7 +104,11 @@ export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResul
   try {
     const at = new AccessToken(apiKey, apiSecret, {
       identity: request.data.identity ?? USER_PARTICIPANT_IDENTITY,
-      ttl,
+      // Numeric seconds, not the raw env string: livekit-server-sdk only
+      // appends a unit for a number-typed ttl — a string goes verbatim to
+      // jose's parser, which requires a unit and throws on a bare integer
+      // like the `900` this function's own error message recommends.
+      ttl: ttlSeconds,
     });
     at.addGrant({
       roomJoin: true,
@@ -108,7 +119,19 @@ export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResul
 
     const token = await at.toJwt();
     const expiresAt = (Math.floor(Date.now() / 1000) + ttlSeconds) as UnixSeconds;
-    return ok({ token, url, expiresAt });
+
+    // Validate the built grant against the contract the browser adapter
+    // expects: room.connect() only speaks ws/wss, so a right-shaped-but-wrong
+    // -scheme LIVEKIT_URL (e.g. https://…) must fail here with a clear reason
+    // rather than reach the browser and fail opaquely there.
+    const grant = LiveKitTokenGrantSchema.safeParse({ token, url, expiresAt });
+    if (!grant.success) {
+      console.error(
+        `LIVEKIT_URL="${url}" is not a valid LiveKit room URL — it must use the ws:// or wss:// scheme.`,
+      );
+      return err({ reason: 'invalid-config' });
+    }
+    return ok(grant.data);
   } catch {
     return err({ reason: 'upstream-failure' });
   }

@@ -102,14 +102,17 @@ describe('mintLiveKitToken', () => {
 
   test('defaults the token ttl to 15m when LIVEKIT_TOKEN_TTL is unset', async () => {
     await mintLiveKitToken({ roomName: 'maelstrom-abc' });
-    expect(lastTtl).toBe('15m');
+    // Passed as the numeric seconds count, not the raw '15m' string — a raw
+    // string ttl goes verbatim to jose's parser, which requires a unit and
+    // rejects a bare integer like the one this package's own docs recommend.
+    expect(lastTtl).toBe(900);
   });
 
   test('honours LIVEKIT_TOKEN_TTL when set', async () => {
     process.env.LIVEKIT_TOKEN_TTL = '2h';
     const nowSeconds = Math.floor(Date.now() / 1000);
     const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
-    expect(lastTtl).toBe('2h');
+    expect(lastTtl).toBe(7200);
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
     // 2h → expiry ~7200s out.
@@ -120,7 +123,7 @@ describe('mintLiveKitToken', () => {
     process.env.LIVEKIT_TOKEN_TTL = '90';
     const nowSeconds = Math.floor(Date.now() / 1000);
     const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
-    expect(lastTtl).toBe('90');
+    expect(lastTtl).toBe(90);
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
     // 90 → expiry ~90s out, not the 900s fallback.
@@ -128,15 +131,29 @@ describe('mintLiveKitToken', () => {
     expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + 90 + 2);
   });
 
+  test('mints successfully with a bare-integer LIVEKIT_TOKEN_TTL (livekit-server-sdk requires a numeric ttl to append units)', async () => {
+    // A raw string ttl of '900' goes verbatim to jose's setExpirationTime,
+    // whose grammar requires a unit and throws — the numeric ttlSeconds this
+    // package already computed must be what's passed to AccessToken instead.
+    process.env.LIVEKIT_TOKEN_TTL = '900';
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(lastTtl).toBe(900);
+    expect(result.value.expiresAt).toBeGreaterThan(nowSeconds + 895);
+    expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + 900 + 2);
+  });
+
   test('accepts an oversized-but-parseable LIVEKIT_TOKEN_TTL', async () => {
     process.env.LIVEKIT_TOKEN_TTL = '3650d';
     const nowSeconds = Math.floor(Date.now() / 1000);
     const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
-    expect(lastTtl).toBe('3650d');
+    const expected = 3650 * 86400;
+    expect(lastTtl).toBe(expected);
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
     // 3650d → ~315,360,000s out; operator's env, operator's choice.
-    const expected = 3650 * 86400;
     expect(result.value.expiresAt).toBeGreaterThan(nowSeconds + expected - 5);
     expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + expected + 2);
   });
@@ -219,12 +236,37 @@ describe('mintLiveKitToken', () => {
     expect(lastGrant).toBeUndefined();
   });
 
-  test('defaults the url to ws://localhost:7880 when LIVEKIT_URL is unset', async () => {
+  test('returns invalid-config when LIVEKIT_URL is unset', async () => {
     delete process.env.LIVEKIT_URL;
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+    expect(lastGrant).toBeUndefined();
+  });
+
+  test('returns invalid-config when LIVEKIT_URL is an empty string', async () => {
+    process.env.LIVEKIT_URL = '';
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+  });
+
+  test('returns invalid-config when LIVEKIT_URL has an http(s) scheme, not ws/wss', async () => {
+    process.env.LIVEKIT_URL = 'https://example.com';
+    const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error.reason).toBe('invalid-config');
+  });
+
+  test('mints successfully with a wss:// LIVEKIT_URL', async () => {
+    process.env.LIVEKIT_URL = 'wss://example.com';
     const result = await mintLiveKitToken({ roomName: 'maelstrom-abc' });
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
-    expect(result.value.url).toBe('ws://localhost:7880');
+    expect(result.value.url).toBe('wss://example.com');
   });
 
   test('returns missing-api-key when credentials are absent', async () => {
