@@ -48,19 +48,22 @@ beforeEach(() => {
 describe('createLevelMeter', () => {
   it('reads 0 for silence (samples at the 128 midpoint)', () => {
     const { context } = makeFakeAudioContext(128);
-    const meter = createLevelMeter({} as MediaStream, () => context);
+    resetLevelMeterAudioContextForTesting(() => context);
+    const meter = createLevelMeter({} as MediaStream);
     expect(meter.read()).toBeCloseTo(0, 2);
   });
 
   it('reads ~1 for a full-scale signal', () => {
     const { context } = makeFakeAudioContext(255);
-    const meter = createLevelMeter({} as MediaStream, () => context);
+    resetLevelMeterAudioContextForTesting(() => context);
+    const meter = createLevelMeter({} as MediaStream);
     expect(meter.read()).toBeGreaterThan(0.9);
   });
 
   it('reads 0 after dispose', () => {
     const { context } = makeFakeAudioContext(255);
-    const meter = createLevelMeter({} as MediaStream, () => context);
+    resetLevelMeterAudioContextForTesting(() => context);
+    const meter = createLevelMeter({} as MediaStream);
     meter.dispose();
     expect(meter.read()).toBe(0);
   });
@@ -71,10 +74,11 @@ describe('createLevelMeter', () => {
       created += 1;
       return makeFakeAudioContext(255).context;
     };
+    resetLevelMeterAudioContextForTesting(factory);
 
-    const first = createLevelMeter({} as MediaStream, factory);
+    const first = createLevelMeter({} as MediaStream);
     first.dispose();
-    const second = createLevelMeter({} as MediaStream, factory);
+    const second = createLevelMeter({} as MediaStream);
     second.dispose();
 
     expect(created).toBe(1);
@@ -82,9 +86,10 @@ describe('createLevelMeter', () => {
 
   it('suspends the shared context once the last active meter disposes, and resumes it for the next meter', () => {
     const { context, raw } = makeFakeAudioContext(255);
+    resetLevelMeterAudioContextForTesting(() => context);
 
-    const first = createLevelMeter({} as MediaStream, () => context);
-    const second = createLevelMeter({} as MediaStream, () => context);
+    const first = createLevelMeter({} as MediaStream);
+    const second = createLevelMeter({} as MediaStream);
     expect(raw.resumeCalls).toBeGreaterThan(0);
 
     first.dispose();
@@ -94,23 +99,46 @@ describe('createLevelMeter', () => {
     expect(raw.suspendCalls).toBe(1);
 
     const resumeCallsBeforeThird = raw.resumeCalls;
-    const third = createLevelMeter({} as MediaStream, () => context);
+    const third = createLevelMeter({} as MediaStream);
     expect(raw.resumeCalls).toBeGreaterThan(resumeCallsBeforeThird);
 
     third.dispose();
     expect(raw.suspendCalls).toBe(2);
   });
 
+  it('does not wedge the refcount when node construction throws, so a later meter can still suspend the shared context', () => {
+    const { context, raw } = makeFakeAudioContext(255);
+    const originalCreateMediaStreamSource = raw.createMediaStreamSource;
+    let shouldThrow = true;
+    raw.createMediaStreamSource = () => {
+      if (shouldThrow) {
+        shouldThrow = false;
+        throw new Error('stream ended');
+      }
+      return originalCreateMediaStreamSource();
+    };
+    resetLevelMeterAudioContextForTesting(() => context);
+
+    expect(() => createLevelMeter({} as MediaStream)).toThrow();
+
+    const meter = createLevelMeter({} as MediaStream);
+    meter.dispose();
+
+    expect(raw.suspendCalls).toBe(1);
+  });
+
   it('never closes the shared context', () => {
     const { context, raw } = makeFakeAudioContext(255);
-    const meter = createLevelMeter({} as MediaStream, () => context);
+    resetLevelMeterAudioContextForTesting(() => context);
+    const meter = createLevelMeter({} as MediaStream);
     meter.dispose();
     expect(raw.closeCalls).toBe(0);
   });
 
   it('is safe to dispose twice', () => {
     const { context, raw } = makeFakeAudioContext(255);
-    const meter = createLevelMeter({} as MediaStream, () => context);
+    resetLevelMeterAudioContextForTesting(() => context);
+    const meter = createLevelMeter({} as MediaStream);
     meter.dispose();
     meter.dispose();
     expect(raw.suspendCalls).toBe(1);

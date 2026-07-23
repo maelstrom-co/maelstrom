@@ -17,30 +17,32 @@ export interface LevelMeter {
 // per-stream nodes (source + analyser) are rebuilt per meter.
 let sharedContext: AudioContext | null = null;
 let activeMeters = 0;
+let contextFactory: () => AudioContext = () => new AudioContext();
 
 /**
  * Meters a live audio stream for UI feedback (voice orbs, waveforms).
  * Pull-based by design: call `read()` inside your own rAF loop instead of
  * receiving a callback, so render cadence stays under the consumer's control.
+ * Shares one lazily-created `AudioContext` across all active meters (see
+ * module notes above) — there is no way to supply your own context.
  *
  * @example
  * const meter = createLevelMeter(stream);
  * const level = meter.read(); // 0..1, call again each animation frame
  * meter.dispose(); // stops metering this stream when done
  */
-export function createLevelMeter(
-  stream: MediaStream,
-  createAudioContext: () => AudioContext = () => new AudioContext(),
-): LevelMeter {
-  if (!sharedContext) sharedContext = createAudioContext();
+export function createLevelMeter(stream: MediaStream): LevelMeter {
+  if (!sharedContext) sharedContext = contextFactory();
   const context = sharedContext;
-  activeMeters += 1;
   void context.resume().catch(() => {});
 
   const analyser = context.createAnalyser();
   analyser.fftSize = 256;
   const source = context.createMediaStreamSource(stream);
   source.connect(analyser);
+  // Counted only once both nodes exist: an early throw (e.g. an ended
+  // stream) must not wedge the refcount above zero with no meter to dispose.
+  activeMeters += 1;
   const samples = new Uint8Array(analyser.frequencyBinCount);
   let disposed = false;
 
@@ -70,8 +72,12 @@ export function createLevelMeter(
 }
 
 // Process-wide singleton state above must be reset between tests; not part
-// of the public barrel, so it stays out of consumers' hands.
-export function resetLevelMeterAudioContextForTesting(): void {
+// of the public barrel, so it stays out of consumers' hands. The optional
+// factory stands in for `new AudioContext()` the next time a meter lazily
+// creates the shared context, letting tests inject a fake without a public
+// param on createLevelMeter itself.
+export function resetLevelMeterAudioContextForTesting(factory?: () => AudioContext): void {
   sharedContext = null;
   activeMeters = 0;
+  contextFactory = factory ?? (() => new AudioContext());
 }
