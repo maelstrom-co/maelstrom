@@ -3,10 +3,10 @@ import { z } from 'zod';
 
 /**
  * A LiveKit access token + room URL for a single room, plus the absolute
- * expiry the client uses to refresh proactively before the JWT lapses.
+ * expiry a client can use to refresh proactively before the JWT lapses.
  *
  * The server sibling (`@maelstrom-co/realtime-livekit-server`) mints this;
- * the browser adapter consumes `token`/`url` to join the room and reads
+ * the browser adapter consumes `token`/`url` to join the room and can use
  * `expiresAt` to schedule a refresh — the LiveKit token TTL is a server-side
  * env setting the browser cannot otherwise see.
  */
