@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import { m } from '../lib/maelstrom';
 
@@ -46,6 +46,14 @@ export function VoiceControl() {
     pressActiveRef.current = false;
     void turnControl?.endTurn();
   };
+
+  // A fatal error can flip the button disabled mid-press, and browsers
+  // suppress the pointerup/keyup that would normally reach endPress() on a
+  // disabled control. Without this, the stale ref permanently eats the next
+  // keydown's guard, even after reconnecting.
+  useEffect(() => {
+    if (!isConnected) endPress();
+  }, [isConnected]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.repeat || pressActiveRef.current) return;

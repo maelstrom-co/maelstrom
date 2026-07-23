@@ -278,6 +278,38 @@ describe('VoiceControl hold-to-talk button', () => {
     expect(turnControl.endCalls).toBe(1);
   });
 
+  it('recovers keyboard push-to-talk after a fatal disconnect mid-press', async () => {
+    const turnControl = makeTurnControl();
+    voiceResult = makeVoiceResult('connected', turnControl);
+
+    const { container, rerender } = render(<VoiceControl />);
+    const button = getHoldButton(container);
+
+    await act(async () => {
+      fireEvent.keyDown(button, { key: 'Enter' });
+    });
+    expect(turnControl.startCalls).toBe(1);
+
+    // Fatal adapter error flips the session out of a connected state before
+    // the key-up (or pointer-up) ever fires — the browser suppresses
+    // events once the button becomes disabled, so nothing clears the press.
+    voiceResult = makeVoiceResult('error', turnControl);
+    await act(async () => {
+      rerender(<VoiceControl />);
+    });
+
+    voiceResult = makeVoiceResult('connected', turnControl);
+    await act(async () => {
+      rerender(<VoiceControl />);
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(button, { key: 'Enter' });
+    });
+
+    expect(turnControl.startCalls).toBe(2);
+  });
+
   it('does not render the hold-to-talk button when turnControl is absent', async () => {
     voiceResult = makeVoiceResult('connected', undefined);
 
