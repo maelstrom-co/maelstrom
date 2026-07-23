@@ -41,7 +41,7 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "livekit-client": ">=2.0.0"
+    "livekit-client": ">=2.9.0"
   },
   "devDependencies": {
     "happy-dom": "catalog:",
