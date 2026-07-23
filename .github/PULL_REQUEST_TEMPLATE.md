@@ -19,6 +19,6 @@
 ### Checklist
 
 - [ ] Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
-- [ ] All commits are signed off (`git commit -s`) per the [DCO](./CONTRIBUTING.md)
-- [ ] Tests pass (`bun test`)
+- [ ] All commits are signed off (`git commit -s`) per the [DCO](../CONTRIBUTING.md)
+- [ ] Tests pass (`nx run-many -t test`)
 - [ ] Typecheck passes (`nx run-many -t typecheck`)
