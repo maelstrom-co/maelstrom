@@ -3,6 +3,13 @@
 Thanks for your interest in contributing! Bug reports, feature requests,
 documentation fixes, and code contributions are all welcome.
 
+Please note this project follows our [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+Found a bug or have feedback on a preview release? Open a
+[GitHub Issue](../../issues) using the provided templates. Feel free to
+self-label your issue with `bug`, `preview-feedback`, or `documentation` if
+one clearly fits.
+
 ## License of contributions
 
 Maelstrom is released under the [MIT License](./LICENSE). By submitting a
@@ -63,9 +70,9 @@ By making a contribution to this project, I certify that:
 3. Create a branch for your change.
 4. Make your change with tests, then open a pull request.
 
-> Installing the `@maelstrom-co/*` scoped dependencies resolves from GitHub
-> Packages. The root `.npmrc` requires a `GITHUB_TOKEN` to be set in your
-> environment for `bun install` to authenticate.
+> The `@maelstrom-co/*` packages resolve as local workspace packages
+> (`workspace:*`), so `bun install` works out of the box on a fresh clone —
+> no `GITHUB_TOKEN` or other authentication is required.
 
 ## Development
 
