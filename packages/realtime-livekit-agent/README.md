@@ -61,3 +61,9 @@ CARTESIA_API_KEY=<your key>
 
 `livekit-server --dev` uses the well-known insecure key/secret (`devkey`/`secret`).
 These defaults are pre-filled — only Deepgram (STT) and Cartesia (TTS) require real keys.
+
+### Optional tuning
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `MAELSTROM_STT_FLUSH_TIMEOUT_MS` | `2000` | Fallback ceiling (ms) for emitting a push-to-talk turn when the flush-produced final never arrives (an empty tap). A turn normally emits the instant its flush-final lands, so this only bounds the empty-turn case. Must be a positive number — a non-numeric or non-positive value fails worker startup. |

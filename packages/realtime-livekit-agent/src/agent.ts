@@ -34,6 +34,7 @@ import {
 } from '@livekit/rtc-node';
 import {
   SPEAK_TOPIC,
+  SPEAK_UTTERANCE_ID_ATTR,
   TURN_TOPIC,
   TTS_TOPIC,
   USER_PARTICIPANT_IDENTITY,
@@ -75,6 +76,9 @@ const entry = async (ctx: JobContext) => {
     model: 'nova-2',
     language: 'en-US',
   });
+  // Fallback ceiling for emitting a push-to-talk turn whose flush-final never
+  // arrives; resolved (and validated) here so a bad value fails a starting job.
+  const flushTimeoutMs = resolveFlushTimeoutMs();
 
   // Find the user's audio track (may already be published or arrive shortly)
   const room = ctx.room;
@@ -132,7 +136,11 @@ const entry = async (ctx: JobContext) => {
   // The synthesis stream currently draining into `ttsSource`, so a barge-in can
   // abort it mid-flight. Null while no speak() is in progress.
   let activeTtsStream: tts.SynthesizeStream | null = null;
-  async function speak(text: string) {
+  // The utterance id currently being synthesized, echoed back on this
+  // utterance's `tts_done`/`tts_error` so the client can correlate late status.
+  let activeUtteranceId: number | undefined;
+  async function speak(text: string, utteranceId: number | undefined) {
+    activeUtteranceId = utteranceId;
     const trimmed = text.trim();
     if (trimmed) {
       // Use the websocket streaming path (`stream()`), NOT `synthesize()`.
@@ -157,8 +165,9 @@ const entry = async (ctx: JobContext) => {
       }
     }
     // Tell the client the summary has finished playing (empty summaries play
-    // nothing, but still resolve the client's `speaking` state).
-    const done: TtsDoneMessage = { type: 'tts_done' };
+    // nothing, but still resolve the client's `speaking` state). The utterance id
+    // lets the client drop this if it already barged past this utterance.
+    const done: TtsDoneMessage = { type: 'tts_done', utteranceId };
     await localParticipant.publishData(
       new TextEncoder().encode(JSON.stringify(done)),
       { reliable: true, topic: TTS_TOPIC },
@@ -177,7 +186,10 @@ const entry = async (ctx: JobContext) => {
         // Signal the client so its UI can indicate speak-back failed rather
         // than waiting indefinitely for audio that will never arrive.
         try {
-          const error: TtsErrorMessage = { type: 'tts_error' };
+          const error: TtsErrorMessage = {
+            type: 'tts_error',
+            utteranceId: activeUtteranceId,
+          };
           await localParticipant.publishData(
             new TextEncoder().encode(JSON.stringify(error)),
             { reliable: true, topic: TTS_TOPIC },
@@ -197,21 +209,10 @@ const entry = async (ctx: JobContext) => {
     const speechStream = deepgramSTT.stream();
     let segmentCounter = 0;
 
-    // Push-to-talk turn buffer. Deepgram endpointing emits a FINAL transcript
-    // at every natural pause, so one held utterance can yield several finals.
-    // We accumulate them and publish ONE combined transcript per hold (on
-    // turn_end), so the orchestrator gets a single intent per press — not a
-    // chunk per pause.
-    const turnBuffer: string[] = [];
-    let emitTimer: ReturnType<typeof setTimeout> | null = null;
-    const emitTurn = () => {
-      emitTimer = null;
-      const text = turnBuffer.join(' ').replace(/\s+/g, ' ').trim();
-      turnBuffer.length = 0;
-      if (!text) return;
+    // publishTranscription triggers RoomEvent.TranscriptionReceived on the client.
+    const publishTranscript = (text: string) => {
       segmentCounter++;
       const now = BigInt(Date.now()) * 1_000_000n; // nanoseconds
-      // publishTranscription triggers RoomEvent.TranscriptionReceived on the client.
       void localParticipant.publishTranscription({
         participantIdentity: user.identity,
         trackSid: '',
@@ -228,24 +229,26 @@ const entry = async (ctx: JobContext) => {
       });
     };
 
+    // One combined intent per push-to-talk hold (not a chunk per Deepgram pause),
+    // emitted on the flush-final with a fallback for empty taps.
+    const aggregator = createTurnAggregator({ flushTimeoutMs, emit: publishTranscript });
+
     // Route turn_end packets (received by the room-scoped listener) to THIS
     // track's stream while it is the active one.
     const flushThisTurn = () => {
       speechStream.flush();
-      // Grace window for the trailing final the flush produces, then emit the
-      // whole hold as one transcript.
-      if (emitTimer) clearTimeout(emitTimer);
-      emitTimer = setTimeout(emitTurn, 600);
+      aggregator.endTurn();
     };
     flushActiveTurn = flushThisTurn;
 
     try {
-      // Buffer each final; the turn_end handler joins them into one transcript.
+      // Feed each final to the aggregator; it tags, buffers, and emits per turn.
       await runSpeechRecognition(audioStream, speechStream, (text) => {
-        turnBuffer.push(text);
+        aggregator.pushFinal(text);
       });
     } finally {
       if (flushActiveTurn === flushThisTurn) flushActiveTurn = null;
+      aggregator.dispose();
     }
   }
 
@@ -290,6 +293,9 @@ export default defineMaelstromVoiceAgent();
  */
 export function runVoiceAgent() {
   const { wsURL, apiKey, apiSecret } = resolveLiveKitCredentials();
+  // Validate early so a bad MAELSTROM_STT_FLUSH_TIMEOUT_MS fails worker startup,
+  // not a mid-turn job — same fail-closed posture as credential resolution.
+  resolveFlushTimeoutMs();
   cli.runApp(
     new ServerOptions({
       agent: import.meta.filename,
@@ -327,6 +333,28 @@ export function resolveLiveKitCredentials(env: NodeJS.ProcessEnv = process.env):
     apiSecret: LIVEKIT_API_SECRET as string,
   };
 }
+
+/**
+ * Resolves the STT turn-flush fallback timeout (ms) from
+ * `MAELSTROM_STT_FLUSH_TIMEOUT_MS`, defaulting to 2000. This is only a fallback:
+ * a turn normally emits the instant the flush-produced final arrives, and the
+ * timer fires solely when that final never comes (an empty push-to-talk tap).
+ * Fails closed like credential resolution — a non-numeric or non-positive value
+ * throws at startup rather than silently degrading turn emission.
+ */
+export function resolveFlushTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.MAELSTROM_STT_FLUSH_TIMEOUT_MS;
+  if (raw === undefined || raw === '') return DEFAULT_FLUSH_TIMEOUT_MS;
+  const ms = Number(raw);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    throw new Error(
+      `Invalid MAELSTROM_STT_FLUSH_TIMEOUT_MS: expected a positive number of milliseconds, got ${JSON.stringify(raw)}`,
+    );
+  }
+  return ms;
+}
+
+const DEFAULT_FLUSH_TIMEOUT_MS = 2000;
 
 /**
  * Races {@link JobContext.waitForParticipant} against a deadline so a job never
@@ -398,12 +426,20 @@ export function cancelInFlightTts(
  * another's — awaiting first would let a fast later call jump the queue.
  */
 export function createSpeakHandler(deps: {
-  speak: (text: string) => Promise<void>;
+  speak: (text: string, utteranceId: number | undefined) => Promise<void>;
   onSpeakError: (err: unknown) => void | Promise<void>;
-}): (reader: Pick<TextStreamReader, 'readAll'>) => void {
+}): (
+  reader: Pick<TextStreamReader, 'readAll'> & {
+    info?: { attributes?: Record<string, string> };
+  },
+) => void {
   let speakChain: Promise<void> = Promise.resolve();
   return (reader) => {
     const text = reader.readAll();
+    // Correlate this utterance with its later TTS status: the client stamps an id
+    // on the stream attributes, and the worker echoes it on `tts_done`/`tts_error`
+    // so the client can drop status for an utterance it already barged past.
+    const utteranceId = parseUtteranceId(reader.info?.attributes?.[SPEAK_UTTERANCE_ID_ATTR]);
     // Reading starts immediately, but the chain may not reach `text` until
     // prior turns settle — attach a no-op handler now so a rejection in the
     // meantime is never reported as unhandled; the real handling still runs
@@ -411,8 +447,115 @@ export function createSpeakHandler(deps: {
     text.catch(() => {});
     speakChain = speakChain
       .then(() => text)
-      .then((value) => deps.speak(value))
+      .then((value) => deps.speak(value, utteranceId))
       .catch((err) => deps.onSpeakError(err));
+  };
+}
+
+// Attributes are strings on the wire; a missing or non-numeric id yields
+// undefined, so the worker echoes no id and the client falls back to type-only
+// handling of the status packet.
+function parseUtteranceId(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const id = Number(raw);
+  return Number.isFinite(id) ? id : undefined;
+}
+
+/**
+ * Aggregates Deepgram finals into one transcript per push-to-talk hold.
+ *
+ * Deepgram emits a final at every natural pause, so one hold yields several
+ * finals; `flush()` (called on the client's `turn_end`) forces a trailing final
+ * for any audio after the last pause. This buffers a hold's finals and publishes
+ * them as a single intent, closing two races the naive "flush then emit after a
+ * fixed delay" had:
+ *
+ * - **Truncation**: a turn emits the instant its flush-final arrives (ack-driven)
+ *   rather than after a fixed grace, so a slow flush can't clip the trailing
+ *   words. The timer is a pure fallback for a hold that produced no flush-final
+ *   at all (an empty tap).
+ * - **Cross-turn leakage**: every final is tagged with the turn active when it
+ *   arrives and a turn's emit consumes only its own finals, so a flush-final that
+ *   lands after the fallback already emitted its turn is dropped, never prepended
+ *   to the next turn's intent.
+ *
+ * The caller pairs {@link endTurn} with `speechStream.flush()`; this owns only
+ * the buffering, emit timing, and turn tagging.
+ */
+export function createTurnAggregator(opts: {
+  flushTimeoutMs: number;
+  emit: (text: string) => void;
+}): { pushFinal: (text: string) => void; endTurn: () => void; dispose: () => void } {
+  const { flushTimeoutMs, emit } = opts;
+  const buffer: Array<{ turnId: number; text: string }> = [];
+  // The turn live speech currently accumulates into.
+  let currentTurnId = 0;
+  // The turn whose flush-final is still expected, or null. The first final after
+  // a turn_end is that turn's trailing final; keeping this set past the fallback
+  // firing (for a turn that had content) is what lets a late flush-final be
+  // recognized and dropped instead of leaking forward.
+  let awaitingFlushForTurn: number | null = null;
+  let lastEmittedTurnId = -1;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  function drain(turnId: number): string {
+    const parts: string[] = [];
+    for (let i = 0; i < buffer.length; ) {
+      if (buffer[i].turnId === turnId) {
+        parts.push(buffer[i].text);
+        buffer.splice(i, 1);
+      } else {
+        i++;
+      }
+    }
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function emitTurn(turnId: number, viaTimer: boolean): void {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    const text = drain(turnId);
+    // Already emitted (the fallback fired, and this is the late flush-final's ack):
+    // its finals were just drained out of the buffer above and are discarded here,
+    // so a straggler is dropped rather than republished or leaked.
+    if (turnId <= lastEmittedTurnId) return;
+    lastEmittedTurnId = turnId;
+    if (currentTurnId <= turnId) currentTurnId = turnId + 1;
+    if (viaTimer && text === '') {
+      // Empty tap: no flush-final will ever come, so stop waiting or the next
+      // turn's first final would be mistaken for this turn's trailing final.
+      awaitingFlushForTurn = null;
+    }
+    if (text === '') return;
+    emit(text);
+  }
+
+  return {
+    pushFinal(text: string): void {
+      if (awaitingFlushForTurn !== null) {
+        // The trailing final flush() produced — belongs to the just-ended turn.
+        const flushed = awaitingFlushForTurn;
+        awaitingFlushForTurn = null;
+        buffer.push({ turnId: flushed, text });
+        emitTurn(flushed, false);
+      } else {
+        buffer.push({ turnId: currentTurnId, text });
+      }
+    },
+    endTurn(): void {
+      awaitingFlushForTurn = currentTurnId;
+      const flushedTurn = currentTurnId;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => emitTurn(flushedTurn, true), flushTimeoutMs);
+    },
+    dispose(): void {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
   };
 }
 

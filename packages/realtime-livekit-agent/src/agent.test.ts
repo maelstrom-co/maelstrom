@@ -31,12 +31,17 @@ mock.module('@livekit/rtc-node', () => ({
 
 const {
   resolveLiveKitCredentials,
+  resolveFlushTimeoutMs,
   waitForParticipantOrTimeout,
   pumpTtsStream,
   runSpeechRecognition,
   cancelInFlightTts,
   createSpeakHandler,
+  createTurnAggregator,
 } = await import('./agent');
+const { SPEAK_UTTERANCE_ID_ATTR } = await import(
+  '@maelstrom-co/realtime-livekit/protocol'
+);
 
 describe('resolveLiveKitCredentials', () => {
   test('returns the config when all vars are present', () => {
@@ -65,6 +70,94 @@ describe('resolveLiveKitCredentials', () => {
         LIVEKIT_API_KEY: 'key',
       }),
     ).toThrow(/LIVEKIT_API_SECRET/);
+  });
+});
+
+describe('resolveFlushTimeoutMs', () => {
+  test('defaults to 2000ms when unset', () => {
+    expect(resolveFlushTimeoutMs({})).toBe(2000);
+  });
+
+  test('parses a valid positive integer', () => {
+    expect(resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: '750' })).toBe(750);
+  });
+
+  test('fails closed on a non-numeric value', () => {
+    expect(() =>
+      resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: 'soon' }),
+    ).toThrow(/MAELSTROM_STT_FLUSH_TIMEOUT_MS/);
+  });
+
+  test('fails closed on a non-positive value', () => {
+    expect(() =>
+      resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: '0' }),
+    ).toThrow(/MAELSTROM_STT_FLUSH_TIMEOUT_MS/);
+    expect(() =>
+      resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: '-5' }),
+    ).toThrow(/MAELSTROM_STT_FLUSH_TIMEOUT_MS/);
+  });
+});
+
+describe('createTurnAggregator', () => {
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  test('the flush-final emits the turn immediately, without waiting the full timeout', () => {
+    const emitted: string[] = [];
+    const agg = createTurnAggregator({
+      flushTimeoutMs: 10_000,
+      emit: (t) => emitted.push(t),
+    });
+
+    agg.pushFinal('show the');
+    agg.endTurn(); // client released the button → flush()
+    agg.pushFinal('weather'); // the trailing final flush() produced
+
+    // Emitted synchronously on the flush-final, not after the 10s fallback.
+    expect(emitted).toEqual(['show the weather']);
+    agg.dispose();
+  });
+
+  test('a late final arriving after the fallback fired does not leak into the next turn', async () => {
+    const emitted: string[] = [];
+    const agg = createTurnAggregator({
+      flushTimeoutMs: 10,
+      emit: (t) => emitted.push(t),
+    });
+
+    agg.pushFinal('first');
+    agg.endTurn();
+    await settle(30); // fallback fires, emits the turn with what it had
+    expect(emitted).toEqual(['first']);
+
+    // The turn-0 flush-final arrives late (after the fallback already emitted) —
+    // it must be dropped, never prepended to the next turn.
+    agg.pushFinal('straggler');
+
+    // A fresh turn runs cleanly, unpolluted by the straggler.
+    agg.pushFinal('second');
+    agg.endTurn();
+    agg.pushFinal('turn');
+    expect(emitted).toEqual(['first', 'second turn']);
+    agg.dispose();
+  });
+
+  test('an empty turn does not swallow the next turn\'s first final', async () => {
+    const emitted: string[] = [];
+    const agg = createTurnAggregator({
+      flushTimeoutMs: 10,
+      emit: (t) => emitted.push(t),
+    });
+
+    agg.endTurn(); // accidental tap: no speech, so no flush-final ever arrives
+    await settle(30);
+    expect(emitted).toEqual([]); // empty turn publishes nothing
+
+    // The next real hold must be captured in full.
+    agg.pushFinal('real');
+    agg.endTurn();
+    agg.pushFinal('intent');
+    expect(emitted).toEqual(['real intent']);
+    agg.dispose();
   });
 });
 
@@ -293,8 +386,12 @@ describe('runSpeechRecognition', () => {
   });
 });
 
-function makeFakeTextStreamReader(result: string | Error, opts: { delayMs?: number } = {}) {
+function makeFakeTextStreamReader(
+  result: string | Error,
+  opts: { delayMs?: number; attributes?: Record<string, string> } = {},
+) {
   return {
+    info: { attributes: opts.attributes },
     readAll: () =>
       new Promise<string>((resolve, reject) => {
         const settle = () => {
@@ -322,6 +419,37 @@ describe('createSpeakHandler', () => {
     handler(makeFakeTextStreamReader('second') as any);
     await new Promise((r) => setTimeout(r, 60));
     expect(spoken).toEqual(['first', 'second']);
+  });
+
+  test('forwards the utterance id from the stream attributes so the worker can echo it', async () => {
+    const spoken: Array<{ text: string; utteranceId: number | undefined }> = [];
+    const handler = createSpeakHandler({
+      speak: async (text, utteranceId) => {
+        spoken.push({ text, utteranceId });
+      },
+      onSpeakError: () => {},
+    });
+    const reader = makeFakeTextStreamReader('hello', {
+      attributes: { [SPEAK_UTTERANCE_ID_ATTR]: '7' },
+    });
+    // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+    handler(reader as any);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spoken).toEqual([{ text: 'hello', utteranceId: 7 }]);
+  });
+
+  test('forwards an undefined utterance id when the stream carries no id attribute', async () => {
+    const ids: Array<number | undefined> = [];
+    const handler = createSpeakHandler({
+      speak: async (_text, utteranceId) => {
+        ids.push(utteranceId);
+      },
+      onSpeakError: () => {},
+    });
+    // biome-ignore lint/suspicious/noExplicitAny: structural test double for TextStreamReader
+    handler(makeFakeTextStreamReader('hi') as any);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ids).toEqual([undefined]);
   });
 
   test('does not leak an unhandled rejection when readAll rejects, and later turns still speak', async () => {
