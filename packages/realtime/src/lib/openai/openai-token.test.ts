@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { SessionId } from './session.js';
-import {
-  TokenHandshakeRequestSchema,
-  TokenHandshakeResponseSchema,
-} from './token-handshake.js';
+import { SessionId } from '@maelstrom-co/protocol';
 
-describe('TokenHandshakeRequestSchema', () => {
+import { OpenAITokenGrantSchema, OpenAITokenRequestSchema } from './openai-token.js';
+
+describe('OpenAITokenRequestSchema', () => {
   it('accepts a valid openai mint request', () => {
-    const parsed = TokenHandshakeRequestSchema.parse({
+    const parsed = OpenAITokenRequestSchema.parse({
       provider: 'openai',
       sessionId: SessionId('sess-1'),
     });
@@ -16,18 +14,18 @@ describe('TokenHandshakeRequestSchema', () => {
 
   it('rejects an unknown provider', () => {
     expect(() =>
-      TokenHandshakeRequestSchema.parse({ provider: 'anthropic', sessionId: SessionId('s') }),
+      OpenAITokenRequestSchema.parse({ provider: 'anthropic', sessionId: SessionId('s') }),
     ).toThrow();
   });
 
   it('rejects a request missing sessionId', () => {
-    expect(() => TokenHandshakeRequestSchema.parse({ provider: 'openai' })).toThrow();
+    expect(() => OpenAITokenRequestSchema.parse({ provider: 'openai' })).toThrow();
   });
 });
 
-describe('TokenHandshakeResponseSchema', () => {
+describe('OpenAITokenGrantSchema', () => {
   it('accepts a valid ephemeral credential', () => {
-    const parsed = TokenHandshakeResponseSchema.parse({
+    const parsed = OpenAITokenGrantSchema.parse({
       provider: 'openai',
       value: 'ek-abc123',
       expiresAt: 1712345678,
@@ -38,24 +36,33 @@ describe('TokenHandshakeResponseSchema', () => {
 
   it('rejects an empty credential value', () => {
     expect(() =>
-      TokenHandshakeResponseSchema.parse({
-        provider: 'openai', value: '', expiresAt: 1, model: 'm',
+      OpenAITokenGrantSchema.parse({
+        provider: 'openai',
+        value: '',
+        expiresAt: 1,
+        model: 'm',
       }),
     ).toThrow();
   });
 
   it('rejects an empty model', () => {
     expect(() =>
-      TokenHandshakeResponseSchema.parse({
-        provider: 'openai', value: 'ek-x', expiresAt: 1, model: '',
+      OpenAITokenGrantSchema.parse({
+        provider: 'openai',
+        value: 'ek-x',
+        expiresAt: 1,
+        model: '',
       }),
     ).toThrow();
   });
 
   it('rejects a non-positive expiresAt', () => {
     expect(() =>
-      TokenHandshakeResponseSchema.parse({
-        provider: 'openai', value: 'ek-x', expiresAt: 0, model: 'm',
+      OpenAITokenGrantSchema.parse({
+        provider: 'openai',
+        value: 'ek-x',
+        expiresAt: 0,
+        model: 'm',
       }),
     ).toThrow();
   });

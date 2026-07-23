@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/server/ws-server.ts & vite dev --port 3000",
+    "dev-livekit": "bun run src/server/ws-server.ts & bun run dev-agent & vite dev --port 3000 --mode livekit",
     "dev:ws": "bun run src/server/ws-server.ts",
     "dev:client": "vite dev --port 3000",
+    "dev-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
     "test": "bun test --pass-with-no-tests"
@@ -16,8 +18,13 @@
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
+    "@maelstrom-co/react-realtime": "workspace:*",
     "@maelstrom-co/realtime": "workspace:*",
+    "@maelstrom-co/realtime-livekit": "workspace:*",
+    "@maelstrom-co/realtime-livekit-agent": "workspace:*",
+    "@maelstrom-co/realtime-livekit-server": "workspace:*",
     "@maelstrom-co/realtime-server": "workspace:*",
+    "livekit-client": "^2.13.1",
     "@tanstack/ai-gemini": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",
@@ -27,7 +34,8 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwind-merge": "^3.5.0",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@testing-library/react": "catalog:",

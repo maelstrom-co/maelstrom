@@ -7,9 +7,11 @@
  * host owns only socket plumbing — no wire shapes are hand-listed here.
  *
  * One shared engine (history is keyed by sessionId, so a single in-memory store
- * isolates sessions correctly). The engine requires GOOGLE_API_KEY (or
- * GEMINI_API_KEY) at construction; if it's missing the socket still connects and
- * each request returns an `engine.error` rather than failing the connection.
+ * isolates sessions correctly). The `geminiText` adapter requires GOOGLE_API_KEY
+ * (or GEMINI_API_KEY as a fallback — see `@tanstack/ai-gemini`'s
+ * `getGeminiApiKeyFromEnv`) at construction; if it's missing the socket still
+ * connects and each request returns an `engine.error` rather than failing the
+ * connection.
  *
  * Behavior differs from the previous hand-rolled handler in three ways, all by
  * delegating to `handleEnvelope`: history and assistant-message failures now

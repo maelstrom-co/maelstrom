@@ -1,4 +1,9 @@
-import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
+import type {
+  CapabilitySnapshot,
+  UIStructuralSnapshot,
+  Unsubscribe,
+  VoiceSessionState,
+} from '@maelstrom-co/client';
 import type { ToolCallId } from '@maelstrom-co/protocol';
 
 /**
@@ -74,6 +79,51 @@ export interface AdapterTurnControl {
 }
 
 /**
+ * Result of a settled `update_ui` tool call, as `RealtimeSession` hands it to
+ * {@link RealtimeProviderAdapter.sendToolResult}. Both speak-worthy fields are
+ * carried separately rather than pre-collapsed to one string, because each
+ * transport phrases the reply differently: a speech-native provider (OpenAI)
+ * posts the whole object and lets its own model choose the wording from both,
+ * while a cascaded TTS provider (LiveKit) has no model and speaks
+ * `userMessage ?? summary` verbatim.
+ *
+ * Keeping the fields typed here is the point of the type: renaming one is a
+ * compile error in every adapter that reads it, never a silent empty utterance.
+ */
+export interface UpdateUIToolResult {
+  /**
+   * Whether the intent applied. `false` carries a user-facing `summary`
+   * explaining why (bad request, render failure, still busy).
+   */
+  readonly ok: boolean;
+  /**
+   * Structural description derived from the post-render snapshot. Always
+   * present for a settled call; the fallback an adapter speaks when the engine
+   * surfaced no `userMessage`.
+   */
+  readonly summary?: string;
+  /**
+   * The engine LLM's own conversational reply, already phrased for speech.
+   * Preferred over `summary` when present; absent (or empty/whitespace) when
+   * the engine produced no reply.
+   */
+  readonly userMessage?: string;
+}
+
+/**
+ * Everything an adapter can receive at {@link RealtimeProviderAdapter.sendToolResult}:
+ * either the dual-field {@link UpdateUIToolResult} from `update_ui`, or a raw
+ * snapshot from the read-only `get_ui_state` / `get_capabilities` pulls (which
+ * a speech-native model reads as JSON, and a speaking adapter serializes rather
+ * than voicing). The `ok` field is present only on {@link UpdateUIToolResult},
+ * so adapters discriminate on it.
+ */
+export type ToolResult =
+  | UpdateUIToolResult
+  | UIStructuralSnapshot
+  | CapabilitySnapshot;
+
+/**
  * Provider-agnostic seam a realtime voice transport (OpenAI WebRTC, Google
  * Live API, …) implements. `RealtimeSession` drives every provider through
  * this interface only — it never branches on provider identity. Concrete
@@ -91,7 +141,7 @@ export interface RealtimeProviderAdapter {
   /** Streams for UI metering. Never throws; absent streams are undefined. */
   getAudioStreams(): AdapterAudioStreams;
   /** Sends a tool call's result back to the model. */
-  sendToolResult(callId: ToolCallId, output: unknown): Promise<void>;
+  sendToolResult(callId: ToolCallId, output: ToolResult): Promise<void>;
   /**
    * Pushes a terse grounding string into the model's context. The adapter
    * owns whatever latest-wins mechanics apply at the wire/session level

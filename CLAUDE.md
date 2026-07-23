@@ -53,7 +53,7 @@ Before declaring any change done, run typecheck, tests, AND lint (with `--error-
 ## Environment Setup
 
 Copy `.env.example` to `.env` and configure API keys for LLM providers:
-- `GOOGLE_GENERATIVE_AI_API_KEY` - Google Gemini (used by demo)
+- `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) - Google Gemini (used by demo)
 - `OPENAI_API_KEY` - OpenAI
 - `ANTHROPIC_API_KEY` - Anthropic Claude
 
@@ -66,13 +66,23 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
          │
     ┌────┼───────────────┐
     ▼    ▼               ▼
-@maelstrom-co/client  @maelstrom-co/engine  @maelstrom-co/realtime-server
-(framework-agnostic)  (LLM decision core: @tanstack/ai)  (mints ephemeral realtime tokens)
+@maelstrom-co/client  @maelstrom-co/engine
+(framework-agnostic)  (LLM decision core: @tanstack/ai)
     │
     ├──────────┐
     ▼          ▼
 @maelstrom-co/react  @maelstrom-co/realtime
 (React bindings)     (browser realtime-voice core)
+                          │
+                     ┌────┴──────────────────┐
+                     ▼                        ▼
+          @maelstrom-co/realtime-server  @maelstrom-co/realtime-livekit
+          (mints ephemeral realtime      (LiveKit browser adapter)
+           tokens)                            │
+                                          ┌────┴──────────────────────────┐
+                                          ▼                                ▼
+                          @maelstrom-co/realtime-livekit-server  @maelstrom-co/realtime-livekit-agent
+                          (mints LiveKit access tokens)          (Node voice-agent worker)
 ```
 
 ### Package Locations
@@ -84,7 +94,10 @@ Packages are published to GitHub Packages under the `@maelstrom-co` scope. The `
 | `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
 | `@maelstrom-co/realtime` | `packages/realtime/` | Browser realtime-voice core: RealtimeSession, RealtimeProviderAdapter seam, OpenAI adapter via `/openai` subpath (ephemeral tokens only — never holds provider keys) |
-| `@maelstrom-co/realtime-server` | `packages/realtime-server/` | Server-side mint of ephemeral realtime tokens; the only package that touches provider API keys |
+| `@maelstrom-co/realtime-server` | `packages/realtime-server/` | Server-side mint of ephemeral OpenAI realtime tokens; each provider owns its own token minting, either via a Node-only subpath or a sibling server package |
+| `@maelstrom-co/realtime-livekit` | `packages/realtime-livekit/` | LiveKit browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; declares the token-grant contract minted by `@maelstrom-co/realtime-livekit-server` |
+| `@maelstrom-co/realtime-livekit-server` | `packages/realtime-livekit-server/` | Server-side mint of LiveKit access tokens; Node-only sibling implementing the grant contract declared by `@maelstrom-co/realtime-livekit` |
+| `@maelstrom-co/realtime-livekit-agent` | `packages/realtime-livekit-agent/` | Node voice-agent worker: Deepgram STT / Cartesia TTS pipeline over LiveKit Agents, speaks engine responses back into the room |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts
@@ -120,7 +133,7 @@ is only CSS `overflow: hidden`; there is no resolver.
 - **Frontend**: React 19, TanStack Router/Start
 - **Styling**: Tailwind CSS
 - **LLM**: @tanstack/ai with @tanstack/ai-gemini, Effect for functional composition
-- **Voice/Realtime**: OpenAI gpt-realtime over WebRTC (client-direct, ephemeral tokens)
+- **Voice/Realtime**: OpenAI gpt-realtime over WebRTC (client-direct, ephemeral tokens), or LiveKit (self-hosted or cloud) with a Deepgram/Cartesia STT/TTS agent worker
 
 ## Coding Conventions
 

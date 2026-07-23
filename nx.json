@@ -89,6 +89,11 @@
         "^build"
       ]
     },
+    "dev-livekit": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
     "@nx/js:tsc": {
       "cache": true,
       "dependsOn": [

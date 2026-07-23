@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@maelstrom-co/protocol": "0.0.0",
+    "@maelstrom-co/realtime": "0.0.0",
     "zod": "catalog:"
   },
   "nx": {

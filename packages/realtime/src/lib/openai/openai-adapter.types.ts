@@ -1,4 +1,4 @@
-import type { TokenHandshakeResponse } from '@maelstrom-co/protocol';
+import type { OpenAITokenGrant } from './openai-token.js';
 
 /** Options for constructing an {@link OpenAIAdapter}. */
 export interface OpenAIAdapterOptions {
@@ -7,7 +7,7 @@ export interface OpenAIAdapterOptions {
    * with. Called once per `connect()`. The token handshake is assigned to
    * the adapter — `RealtimeSession` never sees a credential.
    */
-  readonly mintToken: () => Promise<TokenHandshakeResponse>;
+  readonly mintToken: () => Promise<OpenAITokenGrant>;
   /** Enable verbose debug tracing (default false). */
   readonly debug?: boolean;
   /**

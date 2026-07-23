@@ -14,10 +14,12 @@ import type {
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  UpdateUIToolResult,
 } from './provider-adapter.types.js';
 import type {
   RealtimeInstance,
   RealtimeSessionOptions,
+  SubmitIntentResult,
   SummarizeFn,
 } from './realtime-session.types.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
@@ -102,10 +104,6 @@ interface QueuedIntent {
   readonly resolve: (ok: boolean) => void;
 }
 
-type UpdateUIToolResult =
-  | { readonly ok: true; readonly summary: string }
-  | { readonly ok: false; readonly summary: string };
-
 function defaultSummarize(snapshot: UIStructuralSnapshot): string {
   const count = snapshot.instances.length;
   if (count === 0) return 'The screen is empty.';
@@ -144,7 +142,10 @@ function defaultSummarize(snapshot: UIStructuralSnapshot): string {
  * const session = new RealtimeSession({
  *   adapter,
  *   instance: {
- *     submitIntent: (intent) => orchestrator.processIntent(intent).then(() => {}),
+ *     submitIntent: (intent) =>
+ *       orchestrator
+ *         .processIntent(intent)
+ *         .then((r) => ({ userMessage: r.userMessage })),
  *     waitForIdle: () => orchestrator.commandProcessor.waitForIdle(),
  *     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
  *     getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
@@ -443,9 +444,10 @@ export class RealtimeSession implements VoiceSession {
 
     this.#logger.debug('update_ui: submitting intent', intent);
     const renderStart = Date.now();
+    let outcome: SubmitIntentResult;
     try {
       // Domain-data boundary: only the plain intent string crosses here.
-      await this.#instance.submitIntent(intent);
+      outcome = (await this.#instance.submitIntent(intent)) ?? {};
       this.#logger.debug('update_ui: submitIntent resolved, awaiting idle');
       await this.#instance.waitForIdle();
       this.#logger.debug('update_ui: idle (render settled)', {
@@ -502,12 +504,14 @@ export class RealtimeSession implements VoiceSession {
       ms: Date.now() - renderStart,
     });
 
-    // speak-after-render: summary is derived from the POST-settle snapshot.
+    // speak-after-render: carry BOTH the structural summary (from the
+    // POST-settle snapshot) and the engine's own reply, unmerged — each
+    // transport decides which to voice.
     const snapshot = this.#instance.getStructuralSnapshot();
-    await this.#sendUpdateUIResult(callId, {
-      ok: true,
-      summary: this.#summarize(snapshot),
-    });
+    await this.#sendUpdateUIResult(
+      callId,
+      this.#buildUpdateResult(outcome.userMessage, snapshot),
+    );
     return true;
   }
 
@@ -516,6 +520,23 @@ export class RealtimeSession implements VoiceSession {
     result: UpdateUIToolResult,
   ): Promise<void> {
     return this.#adapter.sendToolResult(callId, result);
+  }
+
+  // A settled update carries both fields so each transport can choose: the
+  // structural `summary` (always derivable) and the engine's own `userMessage`
+  // (the product voice, preferred when present). An empty/whitespace engine
+  // reply is treated as absent and omitted, so `userMessage ?? summary` on the
+  // consuming side falls through to the summary rather than voicing nothing.
+  #buildUpdateResult(
+    userMessage: string | undefined,
+    snapshot: UIStructuralSnapshot,
+  ): UpdateUIToolResult {
+    const engineReply = userMessage?.trim();
+    return {
+      ok: true,
+      summary: this.#summarize(snapshot),
+      ...(engineReply ? { userMessage: engineReply } : {}),
+    };
   }
 
   // Latest-wins: replaces whatever was queued, answering the call it bumps
@@ -561,8 +582,9 @@ export class RealtimeSession implements VoiceSession {
         }
 
         const renderStart = Date.now();
+        let userMessage: string | undefined;
         try {
-          await this.#instance.submitIntent(entry.intent);
+          ({ userMessage } = (await this.#instance.submitIntent(entry.intent)) ?? {});
         } catch (error) {
           if (this.#queuedIntent !== entry) {
             attempt = 0;
@@ -612,10 +634,10 @@ export class RealtimeSession implements VoiceSession {
           ms: Date.now() - renderStart,
         });
         const snapshot = this.#instance.getStructuralSnapshot();
-        await this.#sendUpdateUIResult(entry.callId, {
-          ok: true,
-          summary: this.#summarize(snapshot),
-        });
+        await this.#sendUpdateUIResult(
+          entry.callId,
+          this.#buildUpdateResult(userMessage, snapshot),
+        );
         entry.resolve(true);
         attempt = 0;
       }

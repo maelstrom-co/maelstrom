@@ -5,8 +5,6 @@ export type { Brand } from './lib/brand.js';
 export { SessionId, SessionIdSchema } from './lib/session.js';
 export { ToolCallId, ToolCallIdSchema } from './lib/tool-call-id.js';
 export { MessageId, MessageIdSchema } from './lib/message.js';
-export type { UnixSeconds } from './lib/unix-seconds.js';
-export { UnixSecondsSchema } from './lib/unix-seconds.js';
 export { InstanceId } from './lib/instance.js';
 export { VesselId } from './lib/vessel-id.js';
 export { VariantName } from './lib/variant-name.js';
@@ -87,16 +85,6 @@ export {
   SessionHistoryEntryArraySchema,
   SessionHistoryEntrySchema,
 } from './lib/session-history-entry.js';
-export type {
-  RealtimeProvider,
-  TokenHandshakeRequest,
-  TokenHandshakeResponse,
-} from './lib/token-handshake.js';
-export {
-  RealtimeProviderSchema,
-  TokenHandshakeRequestSchema,
-  TokenHandshakeResponseSchema,
-} from './lib/token-handshake.js';
 export type { SidechannelEvent } from './lib/sidechannel-event.js';
 export { SidechannelEventSchema } from './lib/sidechannel-event.js';
 export {

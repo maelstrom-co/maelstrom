@@ -28,10 +28,19 @@
       "path": "./packages/realtime"
     },
     {
+      "path": "./packages/realtime-livekit"
+    },
+    {
+      "path": "./packages/realtime-livekit-agent"
+    },
+    {
       "path": "./packages/realtime-server"
     },
     {
       "path": "./packages/react-realtime"
+    },
+    {
+      "path": "./packages/realtime-livekit-server"
     }
   ]
 }

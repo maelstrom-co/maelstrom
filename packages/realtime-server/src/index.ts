@@ -9,10 +9,11 @@
  * into an HTTP route (method checks, body parsing, status codes) is the
  * caller's responsibility.
  */
-export type {
-  CreateOpenAIMinterOptions,
-  MintFailure,
-  MintFailureReason,
-  MintResult,
-} from './lib/openai-mint.js';
-export { createOpenAIMinter, mintFailureHttpStatus } from './lib/openai-mint.js';
+export type { CreateOpenAIMinterOptions, MintResult } from './lib/openai-mint.js';
+export { createOpenAIMinter } from './lib/openai-mint.js';
+
+// The shared mint vocabulary lives in `@maelstrom-co/realtime` (the browser
+// package that declares the grant contracts); re-exported here so a consumer
+// wiring an OpenAI mint route pulls everything it needs from one entry point.
+export type { MintFailure, MintFailureReason } from '@maelstrom-co/realtime';
+export { mintFailureHttpStatus } from '@maelstrom-co/realtime';

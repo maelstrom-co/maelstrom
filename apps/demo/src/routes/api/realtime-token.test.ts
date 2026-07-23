@@ -1,5 +1,5 @@
 import { expect, it, mock } from 'bun:test';
-import type { UnixSeconds } from '@maelstrom-co/protocol';
+import type { UnixSeconds } from '@maelstrom-co/realtime';
 import type { MintFailureReason, MintResult } from '@maelstrom-co/realtime-server';
 
 // Regression test for the error-precedence bug: with no OPENAI_API_KEY
@@ -35,6 +35,7 @@ const STATUS: Record<MintFailureReason, number> = {
   'invalid-request': 400,
   'unsupported-provider': 400,
   'missing-api-key': 500,
+  'invalid-config': 500,
   'upstream-failure': 502,
 };
 
@@ -121,6 +122,7 @@ const REASON_STATUS: Array<[MintResult, number]> = [
   [{ ok: false, error: { reason: 'unsupported-provider' } }, 400],
   [{ ok: false, error: { reason: 'missing-api-key' } }, 500],
   [{ ok: false, error: { reason: 'upstream-failure' } }, 502],
+  [{ ok: false, error: { reason: 'invalid-config' } }, 500],
 ];
 
 for (const [result, status] of REASON_STATUS) {

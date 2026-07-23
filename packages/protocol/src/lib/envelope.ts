@@ -3,8 +3,8 @@ import { z } from 'zod';
 import type { Mutable } from './_drift-guards.js';
 import { ActionName } from './action-name.js';
 import {
-  AssistantInjectionMessage,
-  ChartRequestMessage,
+  type AssistantInjectionMessage,
+  type ChartRequestMessage,
   EngineMessageSchema,
 } from './engine-message.js';
 import { MaelstromError } from './errors/index.js';
@@ -20,7 +20,7 @@ import { err, ok, type Result } from './result.js';
 import { GridLayoutSchema, TilingLayoutSchema } from './schemas.js';
 import type { SessionHistoryEntry } from './session-history-entry.js';
 import { SessionHistoryEntryArraySchema } from './session-history-entry.js';
-import { SessionId, SessionIdSchema } from './session.js';
+import { type SessionId, SessionIdSchema } from './session.js';
 
 // ---------------------------------------------------------------------------
 // MaelstromResponse wire parser
