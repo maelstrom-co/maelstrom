@@ -5,7 +5,7 @@ description: The two layout algorithms the engine can return, and how each turns
 
 Maelstrom ships two layout modes. The engine picks one when it answers a `ChartRequest`, the client renders whichever it gets, and which one fits a given app is a design decision — not a runtime negotiation.
 
-Both modes operate on the same inputs: the set of visible Vessel instances, their current variants, and a `minSize` declared on each variant. They differ in how they describe placement.
+Both modes describe the same screen — the set of visible Vessel instances and their current variants — and differ only in how they express placement. (Each variant also declares a `minSize`, but as we'll see it only bites in grid mode.)
 
 ## Grid layout: explicit coordinates
 
@@ -33,7 +33,7 @@ const layout: GridLayout = {
 
 Every cell is an integer. The grid origin is top-left: `row: 0, column: 0`. The Chart container observes its own size, divides by the configured grid unit (default 80px), and exposes the result as `ChartDimensions` to both the LLM and the renderer. Coordinates are *never* pixels.
 
-The engine returns a `GridLayout` when the response shape was negotiated as `layoutMode: 'grid'` in the request. The client then translates each `(row, column, width, height)` into a CSS transform.
+The engine returns a `GridLayout` when the response shape was negotiated as `layoutMode: 'grid'` in the request. The client then translates each `(row, column, width, height)` into CSS Grid placement (`grid-column` / `grid-row`).
 
 ### When grid fits
 
@@ -78,16 +78,16 @@ There is no `chartDimensions` row-and-column count to honour at the leaf level. 
 
 ### What tiling asks of the LLM
 
-The tree has to be well-formed: every `'H'` and `'V'` needs two children, every leaf id has to appear in `instances`, and the input instance list has to be a subset of `layout.instances` (the LLM may *add* instances for a turn — useful when the response brings a new Vessel into view). The protocol validates all of this at parse time so the renderer never sees a broken tree.
+The tree has to be well-formed: every `'H'` and `'V'` needs two children, every leaf id has to appear in `instances`, and the input instance list has to be a subset of `layout.instances` (the LLM may *add* instances for a turn — useful when the response brings a new Vessel into view). Two layers keep that contract: `ChartRequestSchema` rejects a request whose leaf ids don't match its `instances` at parse time, and the engine's heal pass repairs a malformed response tree from the LLM — dropping unresolvable children (reason `tree_missing_child`) and collapsing orphaned splits — so the renderer receives a clean tree.
 
-## How `minSize` feeds both modes
+## Where `minSize` applies
 
-Every `VesselVariant` declares a `minSize` (`packages/protocol/src/lib/vessel.ts`) — the minimum number of chart cells that variant needs to be usable. The same field shapes both layout modes, but the LLM consumes it differently:
+Every `VesselVariant` declares a `minSize` (`packages/protocol/src/lib/vessel.ts`) — the minimum number of chart cells that variant needs to be usable. The field is enforced in exactly one place, and only in grid mode:
 
-- **In grid mode**, `minSize` is a lower bound on `GridPosition.size`. The LLM must allocate at least that much. If it doesn't, the engine's heal pass drops the position with reason `size_below_minimum` and the renderer skips it.
-- **In tiling mode**, `minSize` is a hint about how generously to subdivide. There is no per-leaf size guarantee — a leaf's actual size falls out of the tree shape and the container rect. The LLM uses `minSize` to decide whether a variant *can* go in a corner of a four-way split at all, or whether it needs to own a larger half.
+- **In grid mode**, `minSize` is a lower bound on `GridPosition.size`, enforced server-side. The LLM plans in whole cells and the system prompt tells it to allocate "enough", but it never receives the actual numbers — so the guarantee comes after the fact: the engine's heal pass drops any position smaller than the target variant's `minSize` (reason `size_below_minimum`) and the renderer skips it.
+- **In tiling mode**, `minSize` does nothing. A leaf's size falls out purely of the tree shape and the container rect; neither the prompt, the tiling output schema, nor the client's layout math references `minSize` at all. Tiling honours the tree the LLM emits and nothing else.
 
-The shared signal matters: a Calendar `'month'` variant might declare `minSize: { width: 6, height: 4 }`, and that single number tells the LLM "don't try to put this in a sidebar" regardless of which layout mode is active. Defining `minSize` honestly is the load-bearing input to good layout decisions.
+So `minSize` is a server-side backstop, not something the LLM reasons with. A Calendar `'month'` variant might declare `minSize: { width: 6, height: 4 }`; the model never sees that number, but in grid mode the engine will drop a `month` placement narrower than six columns rather than render it cramped. Declaring `minSize` honestly is what makes that backstop meaningful — in grid layouts.
 
 ## Picking a mode
 

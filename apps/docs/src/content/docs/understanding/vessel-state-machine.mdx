@@ -73,7 +73,7 @@ That's a three-state machine. The Calendar starts in `month`. From `month` it ca
 Each `VesselVariant` describes what the component *is* in that state:
 
 - **`props`** — the data the component renders with. Whatever your framework binding consumes.
-- **`minSize`** — the smallest chart-cell footprint this state is usable at. Feeds both layout modes (see [Grid vs Tiling](/understanding/grid-vs-tiling/)).
+- **`minSize`** — the smallest chart-cell footprint this state is usable at. Enforced by the engine in grid mode; ignored in tiling (see [Grid vs Tiling](/understanding/grid-vs-tiling/)).
 - **`actions`** — the buttons the LLM can press while you're here.
 
 A variant is not a route or a tab. It's the *whole shape* of the Vessel at one moment: which data it shows, how much room it needs, what it can do next. Two states with the same props but different `minSize` are still two states — the size difference is the meaningful one.
@@ -95,36 +95,36 @@ The protocol validates that every `transitionsTo` target exists. Typos can't shi
 
 The engine isn't choosing what to render. It's reasoning about what *can happen next*. A state machine gives it three things a flat config cannot:
 
-- **A closed set of legal actions.** When the Calendar is in `collapsed`, the only action the LLM sees is `expand`. It cannot hallucinate `showWeek` and have it silently fail — `showWeek` doesn't exist on `collapsed`, so it never enters the prompt.
-- **Predictable post-transition size.** Before the LLM commits to invoking `expand`, it already knows the next `minSize` is `{ width: 6, height: 4 }`. That lets it plan the layout it wants to land in, not just the layout it's leaving.
-- **Reasoning over trade-offs.** "Weather wants four cells of width. Calendar's `month` variant needs six. The grid only has eight. Collapse Calendar to free four columns, then place Weather." That whole sentence is *only* possible because each variant declares its size cost up front.
+- **A closed set of legal moves per state.** For a `collapsed` Calendar instance, the only action offered as available is `expand`. The model can still see from the Vessel catalogue that `showWeek` exists on the `month` variant, but it can't invoke it from `collapsed` — and if it tries anyway, the engine's coherence pass rejects it (`action_not_valid`) rather than letting it silently fail.
+- **A checkable transition graph.** Every action names the variant it `transitionsTo`, so the whole state graph is known before anything runs. The protocol rejects a transition to a variant that doesn't exist, and the engine knows exactly which variant an action lands in without executing your component.
+- **Enforceable size per state.** Each variant carries its own `minSize`, and in grid mode the engine enforces it: the LLM plans in whole cells, and any placement that comes back smaller than the target variant's `minSize` is dropped before it renders. Each state gets to declare — and the engine to guarantee — its own footprint.
 
 A flat config — one component, one render function, one set of props — gives you none of that. You'd either pay for an LLM hallucination every turn or constrain the model so tightly it can't help you.
 
 ## What the engine sees
 
-Every `ChartRequest` carries the full set of registered vessels plus a snapshot of every visible instance's *current* variant (`VesselInstanceSnapshot`, `packages/protocol/src/lib/request.ts`). The engine builds a prompt that tells the LLM:
+Every `ChartRequest` carries the full set of registered vessels plus a snapshot of every instance's *current* variant (`VesselInstanceSnapshot`, `packages/protocol/src/lib/request.ts`) — visible and hidden alike. The engine builds a prompt that tells the LLM:
 
 1. Here is every Vessel and every variant it has.
-2. Here is each visible instance and what variant it is in *right now*.
+2. Here is each instance and what variant it is in *right now*.
 3. Here are the actions available from each instance's current variant — and what variant each one transitions to.
 
-Then it asks for an execution plan. The structured-output schema (`ActionExecution` in `packages/protocol/src/lib/response.ts`) requires `instanceId` and `action`; the engine's coherence pass rejects actions that aren't valid for the instance's current state.
+Then it asks for an execution plan. The structured-output schema (`ActionExecutionSchema` in `packages/protocol/src/lib/schemas.ts`) requires `instanceId` and `action`, with any arguments carried as a `paramsJson` string; the engine's coherence pass then rejects actions that aren't valid for the instance's current state.
 
-The variant the LLM ends up choosing is rarely the only legal one. It's the one whose post-transition `minSize` fits the room the LLM also wants to give Weather and Tasks. That trade-off is the orchestration loop — see [How the LLM Orchestrates UI](/understanding/llm-orchestration/) for the rest of the picture.
+The variant the LLM ends up choosing is rarely the only legal one — it picks the transition and the layout that best fit the room it also wants to give Weather and Tasks, and the engine enforces each variant's `minSize` on the result. That trade-off is the orchestration loop — see [How the LLM Orchestrates UI](/understanding/llm-orchestration/) for the rest of the picture.
 
 ## Self-actions and parameters
 
 Not every action has to transition. A `Search` Vessel might expose a `query` action with a `text` parameter and no `transitionsTo` — it filters results in place, no state change. The protocol allows it: `transitionsTo` is optional on `VesselActionSchema`.
 
-`parameters` is where structured arguments live. Each parameter declares a `type` (`'string' | 'number' | 'boolean' | 'object'`), a `description` the LLM reads, optional `required`, `defaultValue`, and an `enum` of allowed values. The engine packages these into the LLM's tool definitions so the model emits typed params, not free text.
+`parameters` is where structured arguments live. Each parameter declares a `type` (`'string' | 'number' | 'boolean' | 'object'`), a `description` the LLM reads, optional `required`, `defaultValue`, and an `enum` of allowed values. The model returns its arguments as a JSON object encoded in a single `paramsJson` string; the declarations document the expected shape, but the engine parses that JSON without validating it against the declared `type`, `required`, or `enum` today.
 
 ## Authoring tips
 
 - **Make variants meaningfully different.** Two states that differ only by a boolean prop don't earn their own machine entry — collapse them into one variant whose props the action mutates.
 - **Use `description` liberally.** The LLM never reads your TypeScript. It only sees the descriptions on the Vessel, on each action, and on each parameter. Treat those strings as the contract.
-- **Be honest about `minSize`.** If a variant *needs* six columns to be legible, declare six. The LLM will trade space elsewhere; it can't trade what you didn't tell it.
-- **Keep default variants small.** New instances start in `defaultVariant`. If that variant has a large `minSize`, a turn that creates the instance is forced to find room for it — which can crowd out the rest of the layout.
+- **Be honest about `minSize`.** In grid mode it's the one hard size guarantee: the engine drops any placement smaller than a variant's declared `minSize` rather than render it cramped. Set it too low and cramped layouts slip through; too high and otherwise-fine placements get dropped. (In tiling mode `minSize` is ignored entirely.)
+- **Keep default variants small.** New instances start in `defaultVariant`. In grid mode, if that variant has a large `minSize`, the turn that creates the instance has to allocate enough room or the engine drops the placement — either crowding out the rest of the layout or dropping the new instance itself.
 
 ## Next steps
 

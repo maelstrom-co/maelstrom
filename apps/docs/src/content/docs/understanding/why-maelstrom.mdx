@@ -29,7 +29,7 @@ Those three together are the bet: *if you give the model a closed world of well-
 
 Both choices look opinionated. Both are load-bearing.
 
-**State machines** ([The Vessel State Machine](/understanding/vessel-state-machine/)) because the LLM needs a closed set of legal moves. When the Calendar is collapsed, the model sees `expand` and nothing else — it cannot ask for `showWeek` and silently fail. Each variant also declares its `minSize`, so the LLM knows the size cost of a transition *before* it commits. That single signal is what lets the model trade space: "Collapse Calendar to fit Weather."
+**State machines** ([The Vessel State Machine](/understanding/vessel-state-machine/)) because the LLM needs a closed set of legal moves. When the Calendar is collapsed, the model sees `expand` and nothing else — it cannot ask for `showWeek` and silently fail. Each variant also declares its `minSize` — the footprint that state needs — which the engine holds grid layouts to. That's what turns "collapse Calendar to fit Weather" into a move the system can represent and enforce, rather than a guess about pixels.
 
 **A grid** because integer coordinates are the smallest reasoning surface that still describes layout. The LLM never sees pixels — only `row`, `column`, `width`, `height`. Two natural layout modes fall out: [explicit grid placement and a recursive tiling tree](/understanding/grid-vs-tiling/). Both stay inside the same small numeric domain. The container computes its own pixel size; the model never has to.
 

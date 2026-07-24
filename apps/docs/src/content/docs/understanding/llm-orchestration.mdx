@@ -127,7 +127,7 @@ There is no separate "look up the new size" or "handle overflow" step. `minSize`
 - **Untyped components.** The model never invents a component — it picks among the Vessels you registered.
 - **Unrecoverable failures.** Drops, schema errors, and retries are bounded and categorised. A bad turn becomes a partial layout, not a blank page.
 
-The boundary itself stays small: [the Engine](/understanding/engine/) is defined by a single `handle(message): Promise<Result<EngineOutput, EngineError>>` method. The reference implementation does a lot inside that method; production deployments can replace all of it without touching the client or the protocol.
+The boundary itself stays small: [the Engine](/understanding/engine/)'s decision loop is a single `handle(message): Promise<Result<EngineOutput, EngineError>>` method (a companion `getHistory` handles session rehydration). The reference implementation does a lot inside that method; production deployments can replace all of it without touching the client or the protocol.
 
 ## What this design doesn't cover
 
