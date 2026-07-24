@@ -853,7 +853,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * Bridge ownership transfers before replacement awaits, allowing concurrent
    * teardown to destroy it. LiveKit 2.13.1 resumes upstream as a replacement
    * side effect, so the generated track stays disabled through replacement and
-   * upstream is explicitly paused again before automatic control is available.
+   * upstream is explicitly paused again before the replacement is unmuted and
+   * automatic or degraded-manual control becomes available. Unmuting while the
+   * sender is paused clears LiveKit's persistent logical mute without sending
+   * idle audio.
    * Success explicitly stops the old raw track; failure destroys the bridge and
    * raw track before connection teardown cleans the clone.
    */
@@ -888,6 +891,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     try {
       await micTrack.replaceTrack(bridge.track, true);
       await micTrack.pauseUpstream();
+      await micTrack.unmute();
     } catch (error) {
       mediaStreamTrack.enabled = false;
       mediaStreamTrack.stop();

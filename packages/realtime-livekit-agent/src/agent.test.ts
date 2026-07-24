@@ -5,9 +5,7 @@ import type { JobContext } from '@livekit/agents';
 // touches real bindings. Only the enum/sentinel shapes the helpers read matter.
 const END_OF_STREAM = Symbol('END_OF_STREAM');
 
-// Placeholder constructor for SDK classes the module imports but the helpers
-// under test never instantiate (only `entry`/`processAudioTrack` do, and those
-// are not driven here).
+// Placeholder constructor for SDK classes whose behavior is irrelevant here.
 class Stub {}
 
 mock.module('@livekit/agents', () => ({
@@ -34,15 +32,17 @@ mock.module('@livekit/rtc-node', () => ({
 
 const {
   resolveLiveKitCredentials,
-  resolveFlushTimeoutMs,
+  resolveSttDrainTimeoutMs,
   waitForParticipantOrTimeout,
   pumpTtsStream,
   runSpeechRecognition,
   cancelInFlightTts,
   createSpeakHandler,
   createTurnAggregator,
+  createSubscribedMicrophoneTrackHandler,
+  createTurnControlHandler,
 } = await import('./agent');
-const { SPEAK_UTTERANCE_ID_ATTR } = await import(
+const { SPEAK_UTTERANCE_ID_ATTR, TURN_TOPIC } = await import(
   '@maelstrom-co/realtime-livekit/protocol'
 );
 
@@ -76,91 +76,119 @@ describe('resolveLiveKitCredentials', () => {
   });
 });
 
-describe('resolveFlushTimeoutMs', () => {
-  test('defaults to 2000ms when unset', () => {
-    expect(resolveFlushTimeoutMs({})).toBe(2000);
+describe('resolveSttDrainTimeoutMs', () => {
+  test('defaults to 5000ms when unset', () => {
+    expect(resolveSttDrainTimeoutMs({})).toBe(5000);
   });
 
-  test('parses a valid positive integer', () => {
+  test('parses a valid positive value', () => {
     expect(
-      resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: '750' }),
-    ).toBe(750);
+      resolveSttDrainTimeoutMs({ MAELSTROM_STT_DRAIN_TIMEOUT_MS: '1250' }),
+    ).toBe(1250);
   });
 
-  test('fails closed on a non-numeric value', () => {
+  test('fails closed on invalid values', () => {
     expect(() =>
-      resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: 'soon' }),
-    ).toThrow(/MAELSTROM_STT_FLUSH_TIMEOUT_MS/);
-  });
-
-  test('fails closed on a non-positive value', () => {
+      resolveSttDrainTimeoutMs({ MAELSTROM_STT_DRAIN_TIMEOUT_MS: 'never' }),
+    ).toThrow(/MAELSTROM_STT_DRAIN_TIMEOUT_MS/);
     expect(() =>
-      resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: '0' }),
-    ).toThrow(/MAELSTROM_STT_FLUSH_TIMEOUT_MS/);
-    expect(() =>
-      resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: '-5' }),
-    ).toThrow(/MAELSTROM_STT_FLUSH_TIMEOUT_MS/);
+      resolveSttDrainTimeoutMs({ MAELSTROM_STT_DRAIN_TIMEOUT_MS: '0' }),
+    ).toThrow(/MAELSTROM_STT_DRAIN_TIMEOUT_MS/);
   });
 });
 
-describe('createTurnAggregator', () => {
-  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function createManualScheduler() {
+  let scheduled: (() => void) | null = null;
+  return {
+    schedule(callback: () => void) {
+      scheduled = callback;
+      return () => {
+        if (scheduled === callback) scheduled = null;
+      };
+    },
+    fire() {
+      const callback = scheduled;
+      scheduled = null;
+      callback?.();
+    },
+  };
+}
 
-  test('the flush-final emits the turn immediately, without waiting the full timeout', () => {
+describe('createTurnAggregator', () => {
+  test('combines all finals from the draining stream and emits the ending turn once', async () => {
     const emitted: string[] = [];
+    const scheduler = createManualScheduler();
     const agg = createTurnAggregator({
       flushTimeoutMs: 10_000,
       emit: (t) => emitted.push(t),
+      scheduleFallback: scheduler.schedule,
     });
 
     agg.pushFinal('show the');
-    agg.endTurn(); // client released the button → flush()
-    agg.pushFinal('weather'); // the trailing final flush() produced
+    const ended = agg.endTurn();
+    agg.pushFinal('weather');
+    agg.pushFinal('tomorrow');
+    expect(emitted).toEqual([]);
+    agg.completeTurn();
+    await ended;
 
-    // Emitted synchronously on the flush-final, not after the 10s fallback.
-    expect(emitted).toEqual(['show the weather']);
+    expect(emitted).toEqual(['show the weather tomorrow']);
+    agg.completeTurn();
+    expect(emitted).toEqual(['show the weather tomorrow']);
     agg.dispose();
   });
 
   test('a late final arriving after the fallback fired does not leak into the next turn', async () => {
     const emitted: string[] = [];
+    const scheduler = createManualScheduler();
     const agg = createTurnAggregator({
       flushTimeoutMs: 10,
       emit: (t) => emitted.push(t),
+      scheduleFallback: scheduler.schedule,
     });
 
     agg.pushFinal('first');
-    agg.endTurn();
-    await settle(30); // fallback fires, emits the turn with what it had
+    const firstEnded = agg.endTurn();
+    scheduler.fire();
+    await firstEnded;
     expect(emitted).toEqual(['first']);
 
-    // The turn-0 flush-final arrives late (after the fallback already emitted) —
+    // The turn-0 trailing final arrives late (after the fallback already emitted) —
     // it must be dropped, never prepended to the next turn.
     agg.pushFinal('straggler');
+    agg.completeTurn();
 
     // A fresh turn runs cleanly, unpolluted by the straggler.
     agg.pushFinal('second');
-    agg.endTurn();
+    const secondEnded = agg.endTurn();
     agg.pushFinal('turn');
+    agg.completeTurn();
+    await secondEnded;
     expect(emitted).toEqual(['first', 'second turn']);
     agg.dispose();
   });
 
   test("an empty turn does not swallow the next turn's first final", async () => {
     const emitted: string[] = [];
+    const scheduler = createManualScheduler();
     const agg = createTurnAggregator({
       flushTimeoutMs: 10,
       emit: (t) => emitted.push(t),
+      scheduleFallback: scheduler.schedule,
     });
 
-    agg.endTurn(); // accidental tap: no speech, so no flush-final ever arrives
-    await settle(30);
+    const ended = agg.endTurn(); // accidental tap: no speech, so no trailing final arrives
+    scheduler.fire();
+    await ended;
     expect(emitted).toEqual([]); // empty turn publishes nothing
+    agg.completeTurn();
 
     // The next real hold must be captured in full.
     agg.pushFinal('real');
-    agg.endTurn();
+    const realEnded = agg.endTurn();
     agg.pushFinal('intent');
+    agg.completeTurn();
+    await realEnded;
     expect(emitted).toEqual(['real intent']);
     agg.dispose();
   });
@@ -168,7 +196,9 @@ describe('createTurnAggregator', () => {
 
 describe('waitForParticipantOrTimeout', () => {
   test('resolves with the participant when one joins', async () => {
-    const participant = { identity: 'user' };
+    const participant = { identity: 'user' } as unknown as Awaited<
+      ReturnType<JobContext['waitForParticipant']>
+    >;
     const ctx = {
       waitForParticipant: mock(async () => participant),
     } as unknown as JobContext;
@@ -274,131 +304,537 @@ describe('cancelInFlightTts', () => {
   });
 });
 
-// A SpeechStream stand-in: yields queued events, then completes ONLY after
-// endInput() is called — mirroring the real SDK iterator, so a test that never
-// terminates proves the endInput()/consume deadlock is back.
-function makeFakeSpeechStream(
-  events: unknown[],
-  opts: { throwAfterFirst?: boolean; throwWhenClosed?: boolean } = {},
-) {
-  const state = { inputEnded: false, closed: false, pushed: [] as unknown[] };
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+function makeControllableAudioStream() {
+  const frames: unknown[] = [];
+  let wake = deferred();
+  let ended = false;
+  const state = { iteratorCount: 0 };
   return {
+    state,
+    push(frame: unknown) {
+      frames.push(frame);
+      wake.resolve();
+    },
+    end() {
+      ended = true;
+      wake.resolve();
+    },
     stream: {
-      pushFrame: (f: unknown) => {
-        if (opts.throwWhenClosed && state.closed) {
-          throw new Error('cannot push frame: stream is closed');
-        }
-        state.pushed.push(f);
-      },
-      endInput: () => {
-        if (opts.throwWhenClosed && state.closed) {
-          throw new Error('cannot end input: stream is closed');
-        }
-        state.inputEnded = true;
-      },
-      close: () => {
-        state.closed = true;
-      },
-      flush: () => {},
       async *[Symbol.asyncIterator]() {
-        let first = true;
-        for (const e of events) {
-          yield e;
-          if (first && opts.throwAfterFirst) throw new Error('stt boom');
-          first = false;
-        }
-        while (!state.inputEnded) {
-          await new Promise((r) => setTimeout(r, 2));
+        state.iteratorCount++;
+        while (!ended || frames.length > 0) {
+          if (frames.length === 0) {
+            await wake.promise;
+            wake = deferred();
+            continue;
+          }
+          yield frames.shift();
         }
       },
     },
-    state,
   };
 }
 
-async function* framesOf(...frames: unknown[]) {
-  for (const f of frames) yield f;
+type FakeSpeechStream = ReturnType<typeof makeControllableSpeechStream>;
+
+function makeControllableSpeechStream(
+  id: number,
+  order: string[],
+  opts: { endInputError?: Error; keepIteratorOpenOnClose?: boolean } = {},
+) {
+  const events: unknown[] = [];
+  let wake = deferred();
+  let finished = false;
+  let iteratorError: unknown;
+  const state = {
+    closeCount: 0,
+    endInputCount: 0,
+    pushed: [] as unknown[],
+  };
+  return {
+    state,
+    emit(event: unknown) {
+      events.push(event);
+      wake.resolve();
+    },
+    finish() {
+      finished = true;
+      wake.resolve();
+    },
+    fail(error: unknown) {
+      iteratorError = error;
+      wake.resolve();
+    },
+    stream: {
+      pushFrame(frame: unknown) {
+        order.push(`push:${id}:${String(frame)}`);
+        state.pushed.push(frame);
+      },
+      endInput() {
+        order.push(`end:${id}`);
+        state.endInputCount++;
+        if (opts.endInputError) throw opts.endInputError;
+      },
+      close() {
+        order.push(`close:${id}`);
+        state.closeCount++;
+        if (!opts.keepIteratorOpenOnClose) finished = true;
+        wake.resolve();
+      },
+      async *[Symbol.asyncIterator]() {
+        while (!finished || events.length > 0) {
+          if (iteratorError) throw iteratorError;
+          if (events.length === 0) {
+            await wake.promise;
+            wake = deferred();
+            continue;
+          }
+          yield events.shift();
+        }
+        if (iteratorError) throw iteratorError;
+      },
+    },
+  };
 }
 
-// Yields frames on a timer so the pipe task is still draining audio when the
-// consume loop fails and the stream is closed underneath it.
-async function* delayedFrames(...frames: unknown[]) {
-  for (const f of frames) {
-    await new Promise((r) => setTimeout(r, 10));
-    yield f;
+async function waitFor(check: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (check()) return;
+    await Promise.resolve();
   }
+  throw new Error('condition was not reached');
 }
 
-describe('runSpeechRecognition', () => {
-  test('pipes frames, ends input, collects finals, and closes', async () => {
-    const events = [
-      { type: 'final_transcript', alternatives: [{ text: ' hello ' }] },
-      { type: 'interim', alternatives: [{ text: 'ignored' }] },
-      { type: 'final_transcript', alternatives: [{ text: 'world' }] },
-    ];
-    const { stream, state } = makeFakeSpeechStream(events);
-    const finals: string[] = [];
-    await runSpeechRecognition(
-      // biome-ignore lint/suspicious/noExplicitAny: structural test doubles for AudioStream/SpeechStream
-      framesOf('f1', 'f2') as any,
-      // biome-ignore lint/suspicious/noExplicitAny: structural test doubles for AudioStream/SpeechStream
-      stream as any,
-      (text) => finals.push(text),
-    );
-    expect(state.pushed).toEqual(['f1', 'f2']);
-    expect(state.inputEnded).toBe(true);
-    expect(state.closed).toBe(true);
-    expect(finals).toEqual(['hello', 'world']);
+function createRecognitionHarness(
+  opts: {
+    streamOptions?: (id: number) => {
+      endInputError?: Error;
+      keepIteratorOpenOnClose?: boolean;
+    };
+    drainDeadline?: { promise: Promise<void> };
+  } = {},
+) {
+  const order: string[] = [];
+  const audio = makeControllableAudioStream();
+  const streams: FakeSpeechStream[] = [];
+  const finals: string[] = [];
+  const receivedFinals: string[] = [];
+  const scheduler = createManualScheduler();
+  const drainDeadline = opts.drainDeadline;
+  let customDeadlineUsed = false;
+  const aggregator = createTurnAggregator({
+    emit: (text) => finals.push(text),
+    fallback: false,
+  });
+  let endTurn: (() => Promise<void>) | null = null;
+  const run = runSpeechRecognition({
+    // biome-ignore lint/suspicious/noExplicitAny: structural test double for AudioStream
+    audioStream: audio.stream as any,
+    createSpeechStream: () => {
+      const id = streams.length + 1;
+      order.push(`create:${id}`);
+      const fake = makeControllableSpeechStream(
+        id,
+        order,
+        opts.streamOptions?.(id),
+      );
+      streams.push(fake);
+      // biome-ignore lint/suspicious/noExplicitAny: structural test double for SpeechStream
+      return fake.stream as any;
+    },
+    onFinalTranscript: (text) => {
+      receivedFinals.push(text);
+      aggregator.pushFinal(text);
+    },
+    onTurnEnd: () => aggregator.endTurn(),
+    onTurnDrained: () => aggregator.completeTurn(),
+    drainTimeoutMs: 5000,
+    createDrainDeadline: drainDeadline
+      ? () => {
+          if (!customDeadlineUsed) {
+            customDeadlineUsed = true;
+            return { promise: drainDeadline.promise, cancel: () => {} };
+          }
+          return { promise: new Promise<void>(() => {}), cancel: () => {} };
+        }
+      : undefined,
+    setEndTurnHandler: (handler) => {
+      endTurn = handler;
+    },
+  });
+  run.catch(() => {});
+  return {
+    audio,
+    aggregator,
+    endTurn: () => {
+      if (!endTurn) throw new Error('turn handler is not installed');
+      return endTurn();
+    },
+    finals,
+    order,
+    receivedFinals,
+    run,
+    scheduler,
+    streams,
+  };
+}
+
+const finalEvent = (text: string) => ({
+  type: 'final_transcript',
+  alternatives: [{ text }],
+});
+
+describe('runSpeechRecognition per-turn lifecycle', () => {
+  test('keeps one audio iterator while ending, draining, closing, and replacing each speech stream', async () => {
+    const harness = createRecognitionHarness();
+    await waitFor(() => harness.streams.length === 1);
+    harness.audio.push('turn-1');
+    await waitFor(() => harness.streams[0].state.pushed.length === 1);
+
+    const boundary = harness.endTurn();
+    expect(harness.streams[0].state.endInputCount).toBe(1);
+    harness.streams[0].emit(finalEvent(' late final '));
+    harness.streams[0].emit(finalEvent(' segment '));
+    await Promise.resolve();
+    expect(harness.finals).toEqual([]);
+    expect(harness.streams).toHaveLength(1);
+    harness.streams[0].finish();
+    await boundary;
+
+    expect(harness.order).toEqual([
+      'create:1',
+      'push:1:turn-1',
+      'end:1',
+      'close:1',
+      'create:2',
+    ]);
+    expect(harness.finals).toEqual(['late final segment']);
+    harness.audio.push('turn-2');
+    await waitFor(() => harness.streams[1].state.pushed.length === 1);
+    expect(harness.streams[1].state.pushed).toEqual(['turn-2']);
+    expect(harness.audio.state.iteratorCount).toBe(1);
+
+    harness.audio.end();
+    harness.streams[1].finish();
+    await harness.run;
   });
 
-  test('closes the speech stream even when the consume loop throws', async () => {
-    const events = [
-      { type: 'final_transcript', alternatives: [{ text: 'hi' }] },
-    ];
-    const { stream, state } = makeFakeSpeechStream(events, {
-      throwAfterFirst: true,
-    });
-    await expect(
-      runSpeechRecognition(
-        // biome-ignore lint/suspicious/noExplicitAny: structural test doubles for AudioStream/SpeechStream
-        framesOf('f1') as any,
-        // biome-ignore lint/suspicious/noExplicitAny: structural test doubles for AudioStream/SpeechStream
-        stream as any,
-        () => {},
-      ),
-    ).rejects.toThrow('stt boom');
-    expect(state.closed).toBe(true);
-    expect(state.inputEnded).toBe(true);
+  test('defers the aggregation fallback while the provider stream is still draining', async () => {
+    const harness = createRecognitionHarness();
+    await waitFor(() => harness.streams.length === 1);
+    const boundary = harness.endTurn();
+    harness.streams[0].emit(finalEvent('still draining'));
+    await waitFor(() => harness.receivedFinals.length === 1);
+
+    harness.scheduler.fire();
+    expect(harness.finals).toEqual([]);
+
+    harness.streams[0].emit(finalEvent('complete turn'));
+    harness.streams[0].finish();
+    await boundary;
+    expect(harness.finals).toEqual(['still draining complete turn']);
+    harness.audio.end();
+    harness.streams[1].finish();
+    await harness.run;
   });
 
-  test('does not leak an unhandled rejection when the consume loop throws mid-pipe', async () => {
+  test('coalesces duplicate boundaries while a stream drains', async () => {
+    const harness = createRecognitionHarness();
+    await waitFor(() => harness.streams.length === 1);
+    const first = harness.endTurn();
+    const duplicate = harness.endTurn();
+    expect(harness.streams[0].state.endInputCount).toBe(1);
+    harness.streams[0].finish();
+    await Promise.all([first, duplicate]);
+    expect(harness.streams).toHaveLength(2);
+    harness.audio.end();
+    harness.streams[1].finish();
+    await harness.run;
+  });
+
+  test('drops frames during provider drain without blocking the track frame pump', async () => {
+    const harness = createRecognitionHarness();
+    await waitFor(() => harness.streams.length === 1);
+    const boundary = harness.endTurn();
+    harness.audio.push('dropped-while-draining');
+    await Promise.resolve();
+    expect(harness.streams[0].state.pushed).toEqual([]);
+    harness.streams[0].finish();
+    await boundary;
+    expect(harness.streams[1].state.pushed).toEqual([]);
+    harness.audio.push('next-turn');
+    await waitFor(() => harness.streams[1].state.pushed.length === 1);
+    expect(harness.streams[1].state.pushed).toEqual(['next-turn']);
+    harness.audio.end();
+    harness.streams[1].finish();
+    await harness.run;
+  });
+
+  test('does not create a successor when track teardown starts during drain', async () => {
+    const harness = createRecognitionHarness();
+    await waitFor(() => harness.streams.length === 1);
+    const boundary = harness.endTurn();
+    harness.audio.end();
+    harness.streams[0].finish();
+    await Promise.all([boundary, harness.run]);
+    expect(harness.streams).toHaveLength(1);
+    expect(harness.streams[0].state.closeCount).toBe(1);
+  });
+
+  test('observes iterator failure, closes the stream, and installs a clean successor without another frame', async () => {
     const rejections: unknown[] = [];
-    const onUnhandled = (err: unknown) => rejections.push(err);
+    const onUnhandled = (error: unknown) => rejections.push(error);
     process.on('unhandledRejection', onUnhandled);
     try {
-      const events = [
-        { type: 'final_transcript', alternatives: [{ text: 'hi' }] },
-      ];
-      const { stream, state } = makeFakeSpeechStream(events, {
-        throwAfterFirst: true,
-        throwWhenClosed: true,
-      });
-      await expect(
-        runSpeechRecognition(
-          // biome-ignore lint/suspicious/noExplicitAny: structural test doubles for AudioStream/SpeechStream
-          delayedFrames('f1', 'f2', 'f3') as any,
-          // biome-ignore lint/suspicious/noExplicitAny: structural test doubles for AudioStream/SpeechStream
-          stream as any,
-          () => {},
-        ),
-      ).rejects.toThrow('stt boom');
-      // Let the detached pipe task attempt its next push against the closed stream.
-      await new Promise((r) => setTimeout(r, 60));
-      expect(state.closed).toBe(true);
+      const harness = createRecognitionHarness();
+      await waitFor(() => harness.streams.length === 1);
+      const boundary = harness.endTurn();
+      harness.streams[0].emit(finalEvent('salvaged before failure'));
+      await waitFor(() => harness.receivedFinals.length === 1);
+      harness.streams[0].fail(new Error('iterator failed'));
+      await expect(boundary).rejects.toThrow('iterator failed');
+      expect(harness.finals).toEqual(['salvaged before failure']);
+      expect(harness.streams).toHaveLength(2);
+      expect(harness.streams[0].state.closeCount).toBe(1);
+      await Promise.resolve();
       expect(rejections).toEqual([]);
+      harness.audio.end();
+      harness.streams[1].finish();
+      await harness.run;
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
+  });
+
+  test('observes endInput failure, closes, and recovers without another audio frame', async () => {
+    const harness = createRecognitionHarness({
+      streamOptions: (id) =>
+        id === 1 ? { endInputError: new Error('end input failed') } : {},
+    });
+    await waitFor(() => harness.streams.length === 1);
+    await expect(harness.endTurn()).rejects.toThrow('end input failed');
+    expect(harness.streams).toHaveLength(2);
+    expect(harness.streams[0].state.closeCount).toBe(1);
+    harness.audio.end();
+    harness.streams[1].finish();
+    await harness.run;
+  });
+
+  test('times out a stalled provider drain, closes it, and installs a clean successor', async () => {
+    const deadline = deferred();
+    const harness = createRecognitionHarness({ drainDeadline: deadline });
+    await waitFor(() => harness.streams.length === 1);
+    const boundary = harness.endTurn();
+    harness.audio.push('dropped-during-timeout');
+    await Promise.resolve();
+    deadline.resolve();
+    await expect(boundary).rejects.toThrow(/drain timed out/i);
+    expect(harness.streams[0].state.closeCount).toBe(1);
+    expect(harness.streams).toHaveLength(2);
+    expect(harness.streams[1].state.pushed).toEqual([]);
+    harness.audio.push('after-timeout');
+    await waitFor(() => harness.streams[1].state.pushed.length === 1);
+    expect(harness.streams[1].state.pushed).toEqual(['after-timeout']);
+    harness.audio.end();
+    harness.streams[1].finish();
+    await harness.run;
+  });
+
+  test('drops a late final from a timed-out stream before the successor turn', async () => {
+    const deadline = deferred();
+    const harness = createRecognitionHarness({
+      drainDeadline: deadline,
+      streamOptions: (id) =>
+        id === 1 ? { keepIteratorOpenOnClose: true } : {},
+    });
+    await waitFor(() => harness.streams.length === 1);
+    const firstBoundary = harness.endTurn();
+    harness.streams[0].emit(finalEvent('salvaged'));
+    await Promise.resolve();
+    deadline.resolve();
+    await expect(firstBoundary).rejects.toThrow(/drain timed out/i);
+    expect(harness.finals).toEqual(['salvaged']);
+
+    harness.streams[0].emit(finalEvent('stale late final'));
+    await Promise.resolve();
+    harness.streams[0].finish();
+
+    const secondBoundary = harness.endTurn();
+    harness.streams[1].emit(finalEvent('successor'));
+    harness.streams[1].finish();
+    await secondBoundary;
+    expect(harness.finals).toEqual(['salvaged', 'successor']);
+    harness.audio.end();
+    harness.streams[2].finish();
+    await harness.run;
+  });
+
+  test('ignores interim and empty finals while trimming valid final transcripts', async () => {
+    const harness = createRecognitionHarness();
+    await waitFor(() => harness.streams.length === 1);
+    const boundary = harness.endTurn();
+    harness.streams[0].emit({
+      type: 'interim_transcript',
+      alternatives: [{ text: 'ignored' }],
+    });
+    harness.streams[0].emit(finalEvent('   '));
+    harness.streams[0].emit(finalEvent(' accepted '));
+    harness.streams[0].finish();
+    await boundary;
+    expect(harness.finals).toEqual(['accepted']);
+    harness.audio.end();
+    harness.streams[1].finish();
+    await harness.run;
+  });
+
+  test('an empty turn rotates cleanly and the next real turn still receives audio', async () => {
+    const harness = createRecognitionHarness();
+    await waitFor(() => harness.streams.length === 1);
+    const emptyBoundary = harness.endTurn();
+    harness.streams[0].finish();
+    await emptyBoundary;
+    harness.audio.push('real-turn');
+    await waitFor(() => harness.streams[1].state.pushed.length === 1);
+    expect(harness.streams[1].state.pushed).toEqual(['real-turn']);
+    harness.audio.end();
+    harness.streams[1].finish();
+    await harness.run;
+  });
+
+  test('routes an authorized TURN_TOPIC tts_cancel while STT drains', async () => {
+    const harness = createRecognitionHarness();
+    await waitFor(() => harness.streams.length === 1);
+    const boundary = harness.endTurn();
+    const stream = { close: mock(() => {}) };
+    const source = { clearQueue: mock(() => {}) };
+    const handler = createTurnControlHandler({
+      boundIdentity: 'user',
+      endTurn: () => harness.endTurn(),
+      cancelTts: () => {
+        // biome-ignore lint/suspicious/noExplicitAny: structural TTS doubles
+        cancelInFlightTts(stream as any, source as any);
+      },
+      onMalformed: () => {},
+      onTurnEndError: () => {},
+    });
+    handler(
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_cancel' })),
+      { identity: 'user' },
+      undefined,
+      TURN_TOPIC,
+    );
+    expect(stream.close).toHaveBeenCalledTimes(1);
+    expect(source.clearQueue).toHaveBeenCalledTimes(1);
+    expect(harness.streams).toHaveLength(1);
+    harness.streams[0].finish();
+    await boundary;
+    expect(harness.order.slice(-2)).toEqual(['close:1', 'create:2']);
+    harness.audio.end();
+    harness.streams[1].finish();
+    await harness.run;
+  });
+});
+
+describe('createTurnControlHandler', () => {
+  test('ignores turn controls from any identity except the bound user', async () => {
+    const endTurn = mock(async () => {});
+    const cancelTts = mock(() => {});
+    const handler = createTurnControlHandler({
+      boundIdentity: 'bound-user',
+      endTurn,
+      cancelTts,
+      onMalformed: () => {},
+      onTurnEndError: () => {},
+    });
+    const payload = new TextEncoder().encode(
+      JSON.stringify({ type: 'turn_end' }),
+    );
+    const cancelPayload = new TextEncoder().encode(
+      JSON.stringify({ type: 'tts_cancel' }),
+    );
+
+    handler(payload, { identity: 'other-user' }, undefined, TURN_TOPIC);
+    handler(payload, undefined, undefined, TURN_TOPIC);
+    handler(cancelPayload, { identity: 'other-user' }, undefined, TURN_TOPIC);
+    await Promise.resolve();
+
+    expect(endTurn).not.toHaveBeenCalled();
+    expect(cancelTts).not.toHaveBeenCalled();
+  });
+
+  test('treats malformed controls as a metadata-only no-op', () => {
+    const malformed = mock(() => {});
+    const handler = createTurnControlHandler({
+      boundIdentity: 'user',
+      endTurn: async () => {},
+      cancelTts: () => {},
+      onMalformed: malformed,
+      onTurnEndError: () => {},
+    });
+
+    handler(
+      new TextEncoder().encode('{raw transcript'),
+      { identity: 'user' },
+      undefined,
+      TURN_TOPIC,
+    );
+
+    expect(malformed).toHaveBeenCalledTimes(1);
+    expect(malformed.mock.calls[0]).toEqual([]);
+  });
+});
+
+describe('createSubscribedMicrophoneTrackHandler', () => {
+  test('runs at most one expected-user microphone track and safely ignores overlap', async () => {
+    const firstDone = deferred();
+    const processed: unknown[] = [];
+    const handler = createSubscribedMicrophoneTrackHandler({
+      expectedIdentity: 'user',
+      processTrack: async (track: unknown) => {
+        processed.push(track);
+        if (processed.length === 1) await firstDone.promise;
+      },
+      onProcessingError: () => {},
+      onIgnoredTrack: () => {},
+    });
+    const first = { kind: 'audio' };
+    const overlapping = { kind: 'audio' };
+    const successor = { kind: 'audio' };
+
+    handler(first as never, { identity: 'user' });
+    handler(overlapping as never, { identity: 'user' });
+    await Promise.resolve();
+    expect(processed).toEqual([first]);
+
+    firstDone.resolve();
+    await waitFor(() => processed.length === 1);
+    for (let attempt = 0; attempt < 10; attempt++) await Promise.resolve();
+    handler(successor as never, { identity: 'user' });
+    await waitFor(() => processed.length === 2);
+    expect(processed).toEqual([first, successor]);
+  });
+
+  test('ignores audio tracks from an unexpected participant', async () => {
+    const processTrack = mock(async () => {});
+    const handler = createSubscribedMicrophoneTrackHandler({
+      expectedIdentity: 'user',
+      processTrack,
+      onProcessingError: () => {},
+      onIgnoredTrack: () => {},
+    });
+
+    handler({ kind: 'audio' } as never, { identity: 'attacker' });
+    await Promise.resolve();
+
+    expect(processTrack).not.toHaveBeenCalled();
   });
 });
 

@@ -185,9 +185,11 @@ presenting hold-to-talk as a safe fallback.
   unit `s`/`m`/`h`/`d` (default `15m`); anything else (e.g. `2 days`, `1w`)
   fails closed with an HTTP 500 invalid-config response and a console error
   naming the bad value.
-- `MAELSTROM_STT_FLUSH_TIMEOUT_MS` (optional, default `2000`) tunes the agent's
-  push-to-talk turn-flush fallback; a non-numeric or non-positive value fails
-  the agent worker's startup with a clear error naming the bad value.
+- `MAELSTROM_STT_DRAIN_TIMEOUT_MS` (optional, default `5000`) sets the positive
+  millisecond deadline for the provider stream to finish draining after
+  `endInput()`. If the stream stalls, the agent closes it and installs a clean
+  successor while the track remains active. A non-numeric or non-positive value
+  fails the agent worker's startup with a clear error naming the bad value.
 - The three processes run under `concurrently --kill-others-on-fail`, so a
   worker that dies (e.g. on a missing `DEEPGRAM_API_KEY`/`CARTESIA_API_KEY`)
   takes the other two down with it and the command exits non-zero. The failure

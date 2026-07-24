@@ -46,7 +46,6 @@ import {
 // releases the worker slot — LiveKit's waitForParticipant has no timeout of its
 // own and would otherwise block the job forever.
 const PARTICIPANT_JOIN_TIMEOUT_MS = 60_000;
-
 const entry = async (ctx: JobContext) => {
   // Connect the agent to the room first — waitForParticipant requires a
   // connected room, and the agent must be joined to publish transcriptions.
@@ -73,12 +72,10 @@ const entry = async (ctx: JobContext) => {
 
   const deepgramSTT = new STT({
     apiKey: process.env.DEEPGRAM_API_KEY,
-    model: 'nova-2',
+    model: 'nova-3',
     language: 'en-US',
   });
-  // Fallback ceiling for emitting a push-to-talk turn whose flush-final never
-  // arrives; resolved (and validated) here so a bad value fails a starting job.
-  const flushTimeoutMs = resolveFlushTimeoutMs();
+  const drainTimeoutMs = resolveSttDrainTimeoutMs();
 
   // Find the user's audio track (may already be published or arrive shortly)
   const room = ctx.room;
@@ -92,28 +89,27 @@ const entry = async (ctx: JobContext) => {
   const localParticipant = room.localParticipant;
 
   // Single room-scoped turn_end listener, registered ONCE (not per track).
-  // Each processAudioTrack sets `flushActiveTurn` to flush ITS speechStream,
+  // Each processAudioTrack installs its asynchronous stream-boundary handler,
   // so a turn_end packet always routes to the currently-active track. The old
-  // per-track registration leaked a listener per invocation and flushed stale
+  // per-track registration leaked a listener per invocation and ended stale
   // streams once more than one track existed.
-  let flushActiveTurn: (() => void) | null = null;
+  let flushActiveTurn: (() => Promise<void>) | null = null;
   // Assigned once the TTS source exists (below); a barge-in `tts_cancel` routes
   // here to abort the in-flight synthesis.
   let cancelActiveTts: (() => void) | null = null;
   room.on(
     RoomEvent.DataReceived,
-    (payload: Uint8Array, _participant, _kind, topic) => {
-      if (topic !== TURN_TOPIC) return;
-      try {
-        const msg = JSON.parse(new TextDecoder().decode(payload)) as {
-          type?: string;
-        };
-        if (msg.type === 'turn_end') flushActiveTurn?.();
-        else if (msg.type === 'tts_cancel') cancelActiveTts?.();
-      } catch (err) {
-        console.warn('[voice-agent] ignoring malformed turn packet', err);
-      }
-    },
+    createTurnControlHandler({
+      boundIdentity: user.identity,
+      endTurn: () => flushActiveTurn?.() ?? Promise.resolve(),
+      cancelTts: () => cancelActiveTts?.(),
+      onMalformed: () => {
+        console.warn('[voice-agent] ignoring malformed turn control');
+      },
+      onTurnEndError: () => {
+        console.warn('[voice-agent] STT turn finalization failed');
+      },
+    }),
   );
 
   // --- TTS return path (Cartesia) ---
@@ -121,8 +117,8 @@ const entry = async (ctx: JobContext) => {
   // into its shared AudioSource. Cartesia reads CARTESIA_API_KEY from env and
   // defaults to the sonic-3 model + default voice.
   const cartesiaTTS = new TTS();
-  cartesiaTTS.on('error', (e) => {
-    console.error('[voice-agent] Cartesia TTS error event:', e);
+  cartesiaTTS.on('error', () => {
+    console.error('[voice-agent] Cartesia TTS error event');
   });
   const ttsSource = new AudioSource(
     cartesiaTTS.sampleRate,
@@ -184,8 +180,8 @@ const entry = async (ctx: JobContext) => {
     SPEAK_TOPIC,
     createSpeakHandler({
       speak,
-      onSpeakError: async (err) => {
-        console.error('[voice-agent] TTS synthesis failed', err);
+      onSpeakError: async () => {
+        console.error('[voice-agent] TTS synthesis failed');
         // Signal the client so its UI can indicate speak-back failed rather
         // than waiting indefinitely for audio that will never arrive.
         try {
@@ -197,83 +193,95 @@ const entry = async (ctx: JobContext) => {
             new TextEncoder().encode(JSON.stringify(error)),
             { reliable: true, topic: TTS_TOPIC },
           );
-        } catch (signalErr) {
-          console.error(
-            '[voice-agent] failed to signal TTS error to client',
-            signalErr,
-          );
+        } catch {
+          console.error('[voice-agent] failed to signal TTS error to client');
         }
       },
     }),
   );
 
+  /** Processes one accepted microphone track without changing its STT lifecycle. */
   async function processAudioTrack(track: RemoteTrack) {
     const audioStream = new AudioStream(track);
-    const speechStream = deepgramSTT.stream();
     let segmentCounter = 0;
 
-    // publishTranscription triggers RoomEvent.TranscriptionReceived on the client.
+    /** Publishes one aggregated transcript. */
     const publishTranscript = (text: string) => {
       segmentCounter++;
       const now = BigInt(Date.now()) * 1_000_000n; // nanoseconds
-      void localParticipant.publishTranscription({
-        participantIdentity: user.identity,
-        trackSid: '',
-        segments: [
-          {
-            id: `seg-${segmentCounter}`,
-            text,
-            startTime: now,
-            endTime: now,
-            language: 'en-US',
-            final: true,
-          },
-        ],
-      });
+      void localParticipant
+        .publishTranscription({
+          participantIdentity: user.identity,
+          trackSid: '',
+          segments: [
+            {
+              id: `seg-${segmentCounter}`,
+              text,
+              startTime: now,
+              endTime: now,
+              language: 'en-US',
+              final: true,
+            },
+          ],
+        })
+        .catch(() => {
+          console.warn('[voice-agent] transcript publication failed');
+        });
     };
 
     // One combined intent per push-to-talk hold (not a chunk per Deepgram pause),
-    // emitted on the flush-final with a fallback for empty taps.
+    // normally emitted when that turn's provider iterator finishes.
     const aggregator = createTurnAggregator({
-      flushTimeoutMs,
       emit: publishTranscript,
+      fallback: false,
     });
 
-    // Route turn_end packets (received by the room-scoped listener) to THIS
-    // track's stream while it is the active one.
-    const flushThisTurn = () => {
-      speechStream.flush();
-      aggregator.endTurn();
-    };
-    flushActiveTurn = flushThisTurn;
-
     try {
-      // Feed each final to the aggregator; it tags, buffers, and emits per turn.
-      await runSpeechRecognition(audioStream, speechStream, (text) => {
-        console.log('[voice-agent] final transcript:', text);
-        aggregator.pushFinal(text);
+      let trackEndHandler: (() => Promise<void>) | null = null;
+      await runSpeechRecognition({
+        audioStream,
+        createSpeechStream: () => deepgramSTT.stream(),
+        onFinalTranscript: (text) => aggregator.pushFinal(text),
+        onTurnEnd: () => aggregator.endTurn(),
+        onTurnDrained: () => aggregator.completeTurn(),
+        drainTimeoutMs,
+        setEndTurnHandler: (handler) => {
+          if (handler) {
+            trackEndHandler = handler;
+            flushActiveTurn = handler;
+          } else if (flushActiveTurn === trackEndHandler) {
+            flushActiveTurn = null;
+          }
+        },
       });
     } finally {
-      if (flushActiveTurn === flushThisTurn) flushActiveTurn = null;
       aggregator.dispose();
     }
   }
 
-  // Handle tracks already published when agent joins
+  const handleMicrophoneTrack = createSubscribedMicrophoneTrackHandler({
+    expectedIdentity: user.identity,
+    processTrack: processAudioTrack,
+    onIgnoredTrack: () => {
+      console.warn('[voice-agent] ignoring overlapping microphone track');
+    },
+    onProcessingError: () => {
+      console.warn('[voice-agent] audio track processing stopped');
+    },
+  });
+
+  // Handle tracks already published when agent joins.
   for (const [, publication] of user.trackPublications) {
-    if (publication.kind === TrackKind.KIND_AUDIO && publication.track) {
-      void processAudioTrack(publication.track);
+    if (publication.kind === TrackKind.KIND_AUDIO) {
+      if (publication.track) {
+        handleMicrophoneTrack(publication.track, user);
+      }
     }
   }
 
   // Handle tracks published after agent joins
   room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
-    if (
-      participant.identity !== USER_PARTICIPANT_IDENTITY ||
-      track.kind !== TrackKind.KIND_AUDIO
-    )
-      return;
-    void processAudioTrack(track as RemoteTrack);
+    handleMicrophoneTrack(track as RemoteTrack, participant);
   });
 };
 
@@ -300,9 +308,9 @@ export default defineMaelstromVoiceAgent();
  */
 export function runVoiceAgent() {
   const { wsURL, apiKey, apiSecret } = resolveLiveKitCredentials();
-  // Validate early so a bad MAELSTROM_STT_FLUSH_TIMEOUT_MS fails worker startup,
-  // not a mid-turn job — same fail-closed posture as credential resolution.
-  resolveFlushTimeoutMs();
+  // Validate the STT deadline at worker startup, not during a live turn — the
+  // same fail-closed posture as credential resolution.
+  resolveSttDrainTimeoutMs();
   cli.runApp(
     new ServerOptions({
       agent: import.meta.filename,
@@ -344,28 +352,27 @@ export function resolveLiveKitCredentials(
 }
 
 /**
- * Resolves the STT turn-flush fallback timeout (ms) from
- * `MAELSTROM_STT_FLUSH_TIMEOUT_MS`, defaulting to 2000. This is only a fallback:
- * a turn normally emits the instant the flush-produced final arrives, and the
- * timer fires solely when that final never comes (an empty push-to-talk tap).
- * Fails closed like credential resolution — a non-numeric or non-positive value
- * throws at startup rather than silently degrading turn emission.
+ * Resolves the provider stream drain deadline from
+ * `MAELSTROM_STT_DRAIN_TIMEOUT_MS`, defaulting to 5000 ms. This bounds Deepgram
+ * iterator completion after `endInput()`; expiry closes that provider stream
+ * and allows a clean successor. Invalid values fail worker startup rather than
+ * changing turn behavior later.
  */
-export function resolveFlushTimeoutMs(
+export function resolveSttDrainTimeoutMs(
   env: NodeJS.ProcessEnv = process.env,
 ): number {
-  const raw = env.MAELSTROM_STT_FLUSH_TIMEOUT_MS;
-  if (raw === undefined || raw === '') return DEFAULT_FLUSH_TIMEOUT_MS;
+  const raw = env.MAELSTROM_STT_DRAIN_TIMEOUT_MS;
+  if (raw === undefined || raw === '') return DEFAULT_STT_DRAIN_TIMEOUT_MS;
   const ms = Number(raw);
   if (!Number.isFinite(ms) || ms <= 0) {
     throw new Error(
-      `Invalid MAELSTROM_STT_FLUSH_TIMEOUT_MS: expected a positive number of milliseconds, got ${JSON.stringify(raw)}`,
+      `Invalid MAELSTROM_STT_DRAIN_TIMEOUT_MS: expected a positive number of milliseconds, got ${JSON.stringify(raw)}`,
     );
   }
   return ms;
 }
 
-const DEFAULT_FLUSH_TIMEOUT_MS = 2000;
+const DEFAULT_STT_DRAIN_TIMEOUT_MS = 5000;
 
 /**
  * Races {@link JobContext.waitForParticipant} against a deadline so a job never
@@ -474,144 +481,429 @@ function parseUtteranceId(raw: string | undefined): number | undefined {
   return Number.isFinite(id) ? id : undefined;
 }
 
+type TurnControlParticipant = { identity: string } | undefined;
+
+/**
+ * Creates the room-scoped control listener for push-to-talk boundaries and TTS
+ * cancellation. Only the participant identity bound after job join may control
+ * the session; missing, foreign, off-topic, malformed, and unknown controls are
+ * no-ops. Parse failures are reported without forwarding payloads or errors, and
+ * the fire-and-forget turn boundary always has a rejection observer.
+ */
+export function createTurnControlHandler(deps: {
+  boundIdentity: string;
+  endTurn: () => Promise<void>;
+  cancelTts: () => void;
+  onMalformed: () => void;
+  onTurnEndError: () => void;
+}): (
+  payload: Uint8Array,
+  participant: TurnControlParticipant,
+  kind: unknown,
+  topic: string | undefined,
+) => void {
+  return (payload, participant, _kind, topic) => {
+    if (topic !== TURN_TOPIC || participant?.identity !== deps.boundIdentity) {
+      return;
+    }
+
+    let message: unknown;
+    try {
+      message = JSON.parse(new TextDecoder().decode(payload));
+    } catch {
+      deps.onMalformed();
+      return;
+    }
+    if (!message || typeof message !== 'object' || !('type' in message)) {
+      deps.onMalformed();
+      return;
+    }
+
+    const type = (message as { type?: unknown }).type;
+    if (type === 'turn_start') {
+      deps.onMalformed();
+    } else if (type === 'turn_end') {
+      void deps.endTurn().catch(() => deps.onTurnEndError());
+    } else if (type === 'tts_cancel') {
+      deps.cancelTts();
+    } else {
+      deps.onMalformed();
+    }
+  };
+}
+
+/**
+ * Serializes subscribed microphone ownership for the expected user. The first
+ * accepted audio track remains active until its processing promise settles;
+ * overlapping tracks are ignored rather than creating a second STT boundary
+ * authority. Foreign participants and non-audio tracks are silent no-ops. Both
+ * synchronous and asynchronous processing failures are observed without
+ * exposing raw error objects.
+ */
+export function createSubscribedMicrophoneTrackHandler(deps: {
+  expectedIdentity: string;
+  processTrack: (track: RemoteTrack) => Promise<void>;
+  onIgnoredTrack: () => void;
+  onProcessingError: () => void;
+}): (track: RemoteTrack, participant: { identity: string }) => void {
+  let active = false;
+  return (track, participant) => {
+    if (
+      participant.identity !== deps.expectedIdentity ||
+      track.kind !== TrackKind.KIND_AUDIO
+    ) {
+      return;
+    }
+    if (active) {
+      deps.onIgnoredTrack();
+      return;
+    }
+
+    active = true;
+    void Promise.resolve()
+      .then(() => deps.processTrack(track))
+      .catch(() => deps.onProcessingError())
+      .finally(() => {
+        active = false;
+      });
+  };
+}
+
 /**
  * Aggregates Deepgram finals into one transcript per push-to-talk hold.
  *
  * Deepgram emits a final at every natural pause, so one hold yields several
- * finals; `flush()` (called on the client's `turn_end`) forces a trailing final
- * for any audio after the last pause. This buffers a hold's finals and publishes
- * them as a single intent, closing two races the naive "flush then emit after a
- * fixed delay" had:
+ * finals. `completeTurn()` is the provider-stream ownership boundary: only after
+ * that ending stream has finished (or failed and closed) are all of its finals
+ * joined and emitted once. A successor stream is installed afterward, so its
+ * finals cannot share this buffer.
  *
- * - **Truncation**: a turn emits the instant its flush-final arrives (ack-driven)
- *   rather than after a fixed grace, so a slow flush can't clip the trailing
- *   words. The timer is a pure fallback for a hold that produced no flush-final
- *   at all (an empty tap).
- * - **Cross-turn leakage**: every final is tagged with the turn active when it
- *   arrives and a turn's emit consumes only its own finals, so a flush-final that
- *   lands after the fallback already emitted its turn is dropped, never prepended
- *   to the next turn's intent.
- *
- * The caller pairs {@link endTurn} with `speechStream.flush()`; this owns only
- * the buffering, emit timing, and turn tagging.
+ * The optional fallback exists only for isolated users without a stream
+ * coordinator. Production disables it because the coordinator's drain deadline
+ * is the sole completion authority. The promise returned by `endTurn()` settles
+ * after `completeTurn()` emits, or after the optional fallback. `dispose()`
+ * cancels pending fallback work and settles without emitting additional text.
  */
-export function createTurnAggregator(opts: {
-  flushTimeoutMs: number;
-  emit: (text: string) => void;
-}): {
+export function createTurnAggregator(
+  opts: {
+    emit: (text: string) => void;
+  } & (
+    | { fallback: false }
+    | {
+        fallback?: true;
+        flushTimeoutMs: number;
+        scheduleFallback?: (
+          callback: () => void,
+          timeoutMs: number,
+        ) => () => void;
+      }
+  ),
+): {
   pushFinal: (text: string) => void;
-  endTurn: () => void;
+  endTurn: () => Promise<void>;
+  completeTurn: () => void;
   dispose: () => void;
 } {
-  const { flushTimeoutMs, emit } = opts;
-  const buffer: Array<{ turnId: number; text: string }> = [];
-  // The turn live speech currently accumulates into.
-  let currentTurnId = 0;
-  // The turn whose flush-final is still expected, or null. The first final after
-  // a turn_end is that turn's trailing final; keeping this set past the fallback
-  // firing (for a turn that had content) is what lets a late flush-final be
-  // recognized and dropped instead of leaking forward.
-  let awaitingFlushForTurn: number | null = null;
-  let lastEmittedTurnId = -1;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  const { emit } = opts;
+  const scheduleFallback =
+    ('scheduleFallback' in opts ? opts.scheduleFallback : undefined) ??
+    ((callback: () => void, timeoutMs: number) => {
+      const timer = setTimeout(callback, timeoutMs);
+      return () => clearTimeout(timer);
+    });
+  let buffer: string[] = [];
+  let ending = false;
+  let emitted = false;
+  let cancelFallback: (() => void) | null = null;
+  let endedPromise: Promise<void> | null = null;
+  let settleEndedTurn: (() => void) | null = null;
 
-  function drain(turnId: number): string {
-    const parts: string[] = [];
-    for (let i = 0; i < buffer.length; ) {
-      if (buffer[i].turnId === turnId) {
-        parts.push(buffer[i].text);
-        buffer.splice(i, 1);
-      } else {
-        i++;
-      }
-    }
-    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  function emitBufferedTurn(): void {
+    if (emitted) return;
+    emitted = true;
+    const text = buffer.join(' ').replace(/\s+/g, ' ').trim();
+    buffer = [];
+    if (text) emit(text);
+    settleEndedTurn?.();
+    settleEndedTurn = null;
   }
 
-  function emitTurn(turnId: number, viaTimer: boolean): void {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    const text = drain(turnId);
-    // Already emitted (the fallback fired, and this is the late flush-final's ack):
-    // its finals were just drained out of the buffer above and are discarded here,
-    // so a straggler is dropped rather than republished or leaked.
-    if (turnId <= lastEmittedTurnId) return;
-    lastEmittedTurnId = turnId;
-    if (currentTurnId <= turnId) currentTurnId = turnId + 1;
-    if (viaTimer && text === '') {
-      // Empty tap: no flush-final will ever come, so stop waiting or the next
-      // turn's first final would be mistaken for this turn's trailing final.
-      awaitingFlushForTurn = null;
-    }
-    if (text === '') return;
-    emit(text);
+  function resetTurn(): void {
+    cancelFallback?.();
+    cancelFallback = null;
+    ending = false;
+    emitted = false;
+    buffer = [];
+    endedPromise = null;
+    settleEndedTurn = null;
   }
 
   return {
     pushFinal(text: string): void {
-      if (awaitingFlushForTurn !== null) {
-        // The trailing final flush() produced — belongs to the just-ended turn.
-        const flushed = awaitingFlushForTurn;
-        awaitingFlushForTurn = null;
-        buffer.push({ turnId: flushed, text });
-        emitTurn(flushed, false);
-      } else {
-        buffer.push({ turnId: currentTurnId, text });
-      }
+      if (ending && emitted) return;
+      buffer.push(text);
     },
-    endTurn(): void {
-      awaitingFlushForTurn = currentTurnId;
-      const flushedTurn = currentTurnId;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => emitTurn(flushedTurn, true), flushTimeoutMs);
+    endTurn(): Promise<void> {
+      if (endedPromise) return endedPromise;
+      ending = true;
+      if (opts.fallback !== false) {
+        cancelFallback = scheduleFallback(
+          emitBufferedTurn,
+          opts.flushTimeoutMs,
+        );
+      }
+      endedPromise = new Promise<void>((resolve) => {
+        settleEndedTurn = resolve;
+      });
+      return endedPromise;
+    },
+    completeTurn(): void {
+      if (!ending) return;
+      cancelFallback?.();
+      cancelFallback = null;
+      emitBufferedTurn();
+      resetTurn();
     },
     dispose(): void {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
+      cancelFallback?.();
+      settleEndedTurn?.();
+      resetTurn();
+    },
+  };
+}
+
+type SpeechTurn = {
+  stream: stt.SpeechStream;
+  consumeTask: Promise<void>;
+  acceptsFinals: boolean;
+  inputEnded: boolean;
+  closed: boolean;
+};
+
+type SpeechRecognitionOptions = {
+  audioStream: AsyncIterable<AudioFrame>;
+  createSpeechStream: () => stt.SpeechStream;
+  onFinalTranscript: (text: string) => void;
+  onTurnEnd: () => void | Promise<void>;
+  onTurnDrained: () => void | Promise<void>;
+  drainTimeoutMs: number;
+  createDrainDeadline?: (timeoutMs: number) => DrainDeadline;
+  setEndTurnHandler: (handler: (() => Promise<void>) | null) => void;
+};
+
+type DrainDeadline = {
+  promise: Promise<void>;
+  cancel: () => void;
+};
+
+function createDrainDeadline(timeoutMs: number): DrainDeadline {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    promise: new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    }),
+    cancel: () => {
+      if (timer) clearTimeout(timer);
     },
   };
 }
 
 /**
- * Runs one STT session for a track: pumps audio frames into `speechStream` and
- * consumes its transcript events, invoking `onFinalTranscript` per final. Input
- * is ended as soon as the audio drains — the consume loop only terminates after
- * endInput(), so ending it after the loop would deadlock — and the stream is
- * always closed, including on error.
+ * Owns one turn-scoped Deepgram stream at a time beneath a track-scoped LiveKit
+ * audio iterator. A boundary synchronously detaches the writable stream, so the
+ * frame pump keeps consuming and drops frames until a successor exists. It ends
+ * input exactly once, drains final events to iterator completion or the
+ * provider-drain deadline, closes the old stream, completes that stream's
+ * aggregator ownership, and installs a clean successor without requiring
+ * another LiveKit frame.
+ *
+ * Each stream owns a final-transcript generation. Completion, timeout, failure,
+ * or close retires that generation before aggregation completes, so a queued
+ * event from the old consumer cannot enter the successor's buffer. Successful
+ * drains emit all finals once; failed drains salvage only finals accepted before
+ * ownership was retired. Empty turns emit nothing.
+ *
+ * Duplicate boundaries during the same drain share one promise. Disposal marks
+ * ownership dead before awaiting in-flight work, so track teardown cannot create
+ * a successor. Boundary failures reject that boundary after recovery rather than
+ * poisoning the track pump. Every internally started consumer and boundary has
+ * an immediate rejection observer, including streams closed by timeout.
  */
-export async function runSpeechRecognition(
-  audioStream: AsyncIterable<AudioFrame>,
-  speechStream: stt.SpeechStream,
-  onFinalTranscript: (text: string) => void,
-): Promise<void> {
-  const pipeTask = (async () => {
+class SpeechTurnCoordinator {
+  readonly #createSpeechStream: () => stt.SpeechStream;
+  readonly #onFinalTranscript: (text: string) => void;
+  readonly #onTurnEnd: () => void | Promise<void>;
+  readonly #onTurnDrained: () => void | Promise<void>;
+  readonly #drainTimeoutMs: number;
+  readonly #createDrainDeadline: (timeoutMs: number) => DrainDeadline;
+  #current: SpeechTurn | null = null;
+  #boundary: Promise<void> | null = null;
+  #disposed = false;
+
+  constructor(
+    createSpeechStream: () => stt.SpeechStream,
+    onFinalTranscript: (text: string) => void,
+    onTurnEnd: () => void | Promise<void>,
+    onTurnDrained: () => void | Promise<void>,
+    drainTimeoutMs: number,
+    deadlineFactory: (timeoutMs: number) => DrainDeadline,
+  ) {
+    this.#createSpeechStream = createSpeechStream;
+    this.#onFinalTranscript = onFinalTranscript;
+    this.#onTurnEnd = onTurnEnd;
+    this.#onTurnDrained = onTurnDrained;
+    this.#drainTimeoutMs = drainTimeoutMs;
+    this.#createDrainDeadline = deadlineFactory;
+    this.#current = this.#createTurn();
+  }
+
+  pushFrame(frame: AudioFrame): void {
+    if (!this.#current) return;
+    this.#current.stream.pushFrame(frame);
+  }
+
+  endTurn(): Promise<void> {
+    if (this.#boundary) return this.#boundary;
+    if (this.#disposed || !this.#current) return Promise.resolve();
+
+    const turn = this.#current;
+    this.#current = null;
+    const boundary = this.#rotate(turn);
+    this.#boundary = boundary;
+    boundary.catch(() => {});
+    void boundary
+      .finally(() => {
+        if (this.#boundary === boundary) this.#boundary = null;
+      })
+      .catch(() => {});
+    return boundary;
+  }
+
+  async dispose(): Promise<void> {
+    this.#disposed = true;
+    if (this.#boundary) {
+      await this.#boundary;
+      return;
+    }
+    const turn = this.#current;
+    this.#current = null;
+    if (turn) await this.#finishTurn(turn);
+  }
+
+  #createTurn(): SpeechTurn {
+    const stream = this.#createSpeechStream();
+    const turn: SpeechTurn = {
+      stream,
+      consumeTask: Promise.resolve(),
+      acceptsFinals: true,
+      inputEnded: false,
+      closed: false,
+    };
+    turn.consumeTask = this.#consume(turn);
+    turn.consumeTask.catch(() => {});
+    return turn;
+  }
+
+  async #consume(turn: SpeechTurn): Promise<void> {
+    for await (const event of turn.stream) {
+      const final = event.type === stt.SpeechEventType.FINAL_TRANSCRIPT;
+      if (!final) continue;
+      const text = event.alternatives?.[0]?.text?.trim();
+      if (turn.acceptsFinals && text) this.#onFinalTranscript(text);
+    }
+  }
+
+  async #rotate(turn: SpeechTurn): Promise<void> {
+    let failure: unknown;
     try {
-      for await (const frame of audioStream) {
-        speechStream.pushFrame(frame);
+      await this.#finishTurn(turn);
+    } catch (error) {
+      failure = error;
+    }
+    let aggregatorSettled: Promise<void> = Promise.resolve();
+    try {
+      aggregatorSettled = Promise.resolve(this.#onTurnEnd());
+    } catch (error) {
+      aggregatorSettled = Promise.reject(error);
+    }
+    aggregatorSettled.catch(() => {});
+    try {
+      await this.#onTurnDrained();
+    } catch (error) {
+      failure ??= error;
+    }
+    try {
+      await aggregatorSettled;
+    } catch (error) {
+      failure ??= error;
+    }
+    if (!this.#disposed) {
+      try {
+        this.#current = this.#createTurn();
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure !== undefined) throw failure;
+  }
+
+  async #finishTurn(turn: SpeechTurn): Promise<void> {
+    let deadline: DrainDeadline | null = null;
+    try {
+      if (!turn.inputEnded) {
+        turn.inputEnded = true;
+        turn.stream.endInput();
+      }
+      deadline = this.#createDrainDeadline(this.#drainTimeoutMs);
+      const outcome = await Promise.race([
+        turn.consumeTask.then(() => 'drained' as const),
+        deadline.promise.then(() => 'timeout' as const),
+      ]);
+      if (outcome === 'timeout') {
+        throw new Error('STT provider drain timed out');
       }
     } finally {
-      speechStream.endInput();
+      deadline?.cancel();
+      turn.acceptsFinals = false;
+      if (!turn.closed) {
+        turn.closed = true;
+        turn.stream.close();
+      }
     }
-  })();
-  // A failing consume loop skips the success-path `await pipeTask` and closes the
-  // stream in the finally below; observe the pipe here so its next push/endInput
-  // against the now-closed stream can't surface as an unhandled rejection.
-  pipeTask.catch((err) => {
-    console.warn('[voice-agent] pipe task failed during teardown', err);
-  });
+  }
+}
+
+/**
+ * Consumes one LiveKit audio stream for a subscribed track while delegating each
+ * accepted voice turn to a distinct Deepgram stream. The installed turn handler
+ * is asynchronous because it represents the full end-input, provider-drain,
+ * close, and successor-install sequence; callers must observe its rejection.
+ *
+ * Frames yielded while a boundary is pending are consumed and dropped, never
+ * held for a successor or pushed into the ended stream. Ordered delivery still
+ * relies on the browser pausing microphone publication before sending
+ * `turn_end`; without a protocol turn identifier this package cannot correct
+ * delayed controls.
+ */
+export async function runSpeechRecognition(
+  opts: SpeechRecognitionOptions,
+): Promise<void> {
+  const coordinator = new SpeechTurnCoordinator(
+    opts.createSpeechStream,
+    opts.onFinalTranscript,
+    opts.onTurnEnd,
+    opts.onTurnDrained,
+    opts.drainTimeoutMs,
+    opts.createDrainDeadline ?? createDrainDeadline,
+  );
+  const endTurn = () => coordinator.endTurn();
+  opts.setEndTurnHandler(endTurn);
   try {
-    for await (const event of speechStream) {
-      if (event.type !== stt.SpeechEventType.FINAL_TRANSCRIPT) continue;
-      const text = event.alternatives?.[0]?.text?.trim();
-      if (!text) continue;
-      onFinalTranscript(text);
+    for await (const frame of opts.audioStream) {
+      coordinator.pushFrame(frame);
     }
-    await pipeTask;
   } finally {
-    speechStream.close();
+    opts.setEndTurnHandler(null);
+    await coordinator.dispose();
   }
 }

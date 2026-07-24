@@ -17,6 +17,7 @@ const mockPauseUpstream = mock(async () => {});
 const mockResumeUpstream = mock(async () => {});
 const mockReplaceTrack = mock(async () => {});
 const mockMuteLocalMic = mock(async () => {});
+const mockUnmuteLocalMic = mock(async () => {});
 const mockCreateLocalAudioTrack = mock(async () => mockMicPublication.track);
 const mockPublishTrack = mock(async (_track: unknown) => mockMicPublication);
 const mockBridgeStartAutomaticTurn = mock(async (_preRollMs: number) => {});
@@ -77,9 +78,11 @@ const mockSetMicrophoneEnabled = mock(async (enabled: boolean) => {
 });
 const mockMicPublication = {
   track: {
+    isMuted: false,
     mediaStream: { id: 'published-mic-stream' } as unknown as MediaStream,
     mediaStreamTrack: mockPublishedMicTrack as unknown as MediaStreamTrack,
     mute: mockMuteLocalMic,
+    unmute: mockUnmuteLocalMic,
     stop: mockPublishedMicTrack.stop,
     pauseUpstream: mockPauseUpstream,
     resumeUpstream: mockResumeUpstream,
@@ -243,7 +246,14 @@ describe('LiveKitAdapter connect', () => {
     mockMuteLocalMic.mockReset();
     mockMuteLocalMic.mockImplementation(async () => {
       mockPublishedMicTrack.enabled = false;
+      mockMicPublication.track.isMuted = true;
     });
+    mockUnmuteLocalMic.mockReset();
+    mockUnmuteLocalMic.mockImplementation(async () => {
+      mockGeneratedTrack.enabled = true;
+      mockMicPublication.track.isMuted = false;
+    });
+    mockMicPublication.track.isMuted = false;
     mockPublishedMicTrack.enabled = false;
     mockMicCloneTrack.enabled = false;
     mockGeneratedTrack.enabled = true;
@@ -977,6 +987,54 @@ describe('LiveKitAdapter connect', () => {
     expect(adapter.turnControl).toBeUndefined();
   });
 
+  test.each([
+    ['automatic', false],
+    ['manual degradation', true],
+  ])('logically unmutes the generated publication while upstream remains paused in %s mode', async (_mode, failVadStart) => {
+    const order: string[] = [];
+    let upstreamPaused = false;
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockPauseUpstream.mockImplementation(async () => {
+      upstreamPaused = true;
+      order.push('pause');
+    });
+    mockReplaceTrack.mockImplementationOnce(async () => {
+      upstreamPaused = false;
+      order.push('replace-resumed');
+    });
+    mockUnmuteLocalMic.mockImplementationOnce(async () => {
+      expect(upstreamPaused).toBe(true);
+      expect(mockGeneratedTrack.enabled).toBe(false);
+      mockGeneratedTrack.enabled = true;
+      mockMicPublication.track.isMuted = false;
+      order.push('unmute');
+    });
+    if (failVadStart) {
+      mockVadStart.mockImplementationOnce(async () => {
+        throw new Error('VAD startup failed');
+      });
+    }
+    const { adapter, events } = makeAdapter();
+
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(order.slice(0, 4)).toEqual([
+      'pause',
+      'replace-resumed',
+      'pause',
+      'unmute',
+    ]);
+    expect(mockMicPublication.track.isMuted).toBe(false);
+    expect(upstreamPaused).toBe(true);
+    expect(mockGeneratedTrack.enabled).toBe(true);
+    expect(
+      events.filter((event) => event.type === 'turn_mode').at(-1),
+    ).toMatchObject({
+      type: 'turn_mode',
+      mode: failVadStart ? 'manual' : 'automatic',
+    });
+  });
+
   test('pauses the raw publication before asynchronous bridge initialization', async () => {
     const order: string[] = [];
     let rawEnabledDuringBridgeInitialization: boolean | undefined;
@@ -1033,6 +1091,29 @@ describe('LiveKitAdapter connect', () => {
     expect(mockPublishedMicTrack.stop).toHaveBeenCalledTimes(1);
     expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
     expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+  });
+
+  test('treats generated-track unmute failure as fatal and cleans every local resource', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockUnmuteLocalMic.mockImplementationOnce(async () => {
+      throw new Error('unmute failed');
+    });
+    const { adapter, events } = makeAdapter();
+
+    await expect(
+      adapter.connect({ tools: [], instructions: '' }),
+    ).rejects.toThrow('unmute failed');
+
+    expect(states(events)).toEqual(['connecting', 'error']);
+    expect(events.some((event) => event.type === 'turn_mode')).toBe(false);
+    expect(mockRoomDisconnect).toHaveBeenCalledTimes(1);
+    expect(mockPublishedMicTrack.stop).toHaveBeenCalledTimes(1);
+    expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
+    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+    expect(adapter.getAudioStreams()).toEqual({
+      mic: undefined,
+      playback: undefined,
+    });
   });
 
   test('owns and destroys the generated bridge while track replacement is pending', async () => {
