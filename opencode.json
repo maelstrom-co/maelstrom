@@ -17,9 +17,9 @@
         "postgresql://mar:mar_dev_password@localhost/mar"
       ]
     },
-    "linear": {
+    "clickup": {
       "type": "remote",
-      "url": "https://mcp.linear.app/mcp"
+      "url": "https://mcp.clickup.com/mcp"
     },
     "github": {
       "type": "remote",
