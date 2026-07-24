@@ -19,6 +19,6 @@
 ### Checklist
 
 - [ ] Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
-- [ ] All commits are signed off (`git commit -s`) per the [DCO](../CONTRIBUTING.md)
+- [ ] All commits carry a DCO `Signed-off-by` trailer (git: `commit -s`; other tools: see [CONTRIBUTING](../CONTRIBUTING.md#automatic-sign-off-optional))
 - [ ] Tests pass (`nx run-many -t test`)
 - [ ] Typecheck passes (`nx run-many -t typecheck`)

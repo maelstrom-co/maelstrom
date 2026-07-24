@@ -6,9 +6,8 @@ documentation fixes, and code contributions are all welcome.
 Please note this project follows our [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 Found a bug or have feedback on a preview release? Open a
-[GitHub Issue](../../issues) using the provided templates. Feel free to
-self-label your issue with `bug`, `preview-feedback`, or `documentation` if
-one clearly fits.
+[GitHub Issue](../../issues) using the provided templates — they apply the
+right triage label (`bug` or `preview-feedback`) automatically.
 
 ## License of contributions
 
@@ -70,6 +69,24 @@ git config core.hooksPath .githooks
 It appends your `Signed-off-by` trailer automatically and does nothing if the
 trailer is already present. See [`.githooks/README.md`](./.githooks/README.md)
 for details. Requires Git 2.15+.
+
+The hook is a `prepare-commit-msg` hook, so it only fires in tools that run that
+hook on commit — plain `git commit`, Graphite, GitKraken, GitHub Desktop, and
+VS Code all do. Some tools don't (see below).
+
+#### Using jujutsu?
+
+jj never runs git hooks, so the hook above does nothing for `jj` commits. Instead,
+enable jj's built-in sign-off trailer once per repo (jj ≥ 0.24):
+
+```bash
+jj config set --repo templates.commit_trailers 'format_signed_off_by_trailer(self)'
+```
+
+Using another tool that skips `prepare-commit-msg` (JetBrains IDEs, lazygit,
+Sourcetree)? See
+[`.githooks/SIGN-OFF-TOOLS.md`](./.githooks/SIGN-OFF-TOOLS.md) for each tool's
+native sign-off option, or just fall back to `git commit -s`.
 
 ## Prerequisites
 
