@@ -3,7 +3,7 @@ title: Grid vs Tiling Layout
 description: The two layout algorithms the engine can return, and how each turns Vessel state into pixels.
 ---
 
-Maelstrom ships two layout modes. The engine picks one when it answers a `ChartRequest`, the client renders whichever it gets, and which one fits a given app is a design decision — not a runtime negotiation.
+Maelstrom ships two layout modes. The `ChartRequest` names one via `layoutMode` and the engine returns a response in that mode, the client renders whichever it gets, and which one fits a given app is a design decision — not a runtime negotiation.
 
 Both modes describe the same screen — the set of visible Vessel instances and their current variants — and differ only in how they express placement. (Each variant also declares a `minSize`, but as we'll see it only bites in grid mode.)
 
@@ -72,7 +72,7 @@ There is no `chartDimensions` row-and-column count to honour at the leaf level. 
 
 ### When tiling fits
 
-- **Filling whatever screen you give it.** A tiling layout always covers the whole container — no gaps, no whitespace columns. If you resize, every Vessel resizes with you.
+- **Filling whatever screen you give it.** A fully populated tiling tree covers the whole container — no gaps, no whitespace columns. (A `null` empty leaf is the one way to leave a pane blank.) If you resize, every Vessel resizes with you.
 - **A few Vessels at a time.** Three to five panes feels natural. Twenty leaves would compute fine but read as visual noise.
 - **Letting the LLM compose freely.** "Show me the calendar with weather and tasks alongside" maps cleanly to "split horizontally, then split the bottom vertically" — no coordinate arithmetic.
 

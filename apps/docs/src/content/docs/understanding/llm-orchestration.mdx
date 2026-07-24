@@ -3,7 +3,7 @@ title: How the LLM Orchestrates UI
 description: From user intent to engine decision to rendered layout — the contract that lets an LLM drive your UI without inventing it.
 ---
 
-The LLM in Maelstrom doesn't generate components, write JSX, or stream HTML. It picks among the Vessels you defined, decides which variant each visible instance should be in, and proposes a layout. Three structured outputs, validated against schemas, fed into a strict client-side execution order.
+The LLM in Maelstrom doesn't generate components, write JSX, or stream HTML. It picks among the Vessels you defined, decides which variant each visible instance should be in, and proposes a layout. Four structured response fields, validated against schemas, fed into a strict client-side execution order.
 
 This page walks the decision loop end to end: what the client sends, what the engine prompts, what the LLM returns, and how the client applies the result without ever trusting it blindly.
 
@@ -92,7 +92,7 @@ const response: MaelstromResponse = {
 };
 ```
 
-Three outputs, each with a different audience:
+Four response fields, each with a different purpose:
 
 - **`userMessage`** — the conversational reply, shown in the chat.
 - **`rationale`** — internal reasoning for debugging and logs. Never user-facing.
