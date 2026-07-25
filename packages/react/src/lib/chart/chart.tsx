@@ -8,6 +8,7 @@ import {
   Suspense,
   lazy,
   memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -19,6 +20,37 @@ import type { MaelstromContextPair } from '../context.js';
 import { warnOnce } from '../warn-once.js';
 import { ErrorBoundary } from './error-boundary.js';
 import { VesselLoadError, VesselLoadingSkeleton } from './loading.js';
+import type { MotionRect } from './motion/flip.js';
+import { exitKeyframes } from './motion/flip.js';
+import { measureInstanceRects } from './motion/measure.js';
+import type { ResolvedChartMotionConfig } from './motion/motion-config.js';
+import { useChartMotion } from './motion/use-chart-motion.js';
+import { useExitingInstances } from './motion/use-exiting-instances.js';
+
+// Shared shape for one child slot of the container's single render pass,
+// covering both live instances and exit ghosts — see the render-entry
+// construction in each layout branch below for why they must share a slot.
+interface RenderEntry {
+  readonly id: string;
+  readonly instance: VesselInstance;
+  readonly style: CSSProperties;
+  readonly exiting?: ResolvedChartMotionConfig;
+}
+
+// Exit ghost's visual style: absolute-positioned at its last known live rect,
+// non-interactive, and behind live content (zIndex 0 vs. live's 1).
+function exitGhostStyle(rect: MotionRect): CSSProperties {
+  return {
+    position: 'absolute',
+    left: rect.x,
+    top: rect.y,
+    width: rect.width,
+    height: rect.height,
+    pointerEvents: 'none',
+    zIndex: 0,
+    overflow: 'hidden',
+  };
+}
 
 /** Props for the `m.Chart` layout component. */
 export interface ChartProps {
@@ -39,11 +71,35 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
   interface VesselRendererProps {
     instance: VesselInstance;
     style: CSSProperties;
+    /**
+     * Present when this render is an exit ghost rather than a live instance.
+     * Carries the resolved motion config so the wrapper can run its exit
+     * animation once, at the moment the live -> exiting transition happens.
+     */
+    exiting?: ResolvedChartMotionConfig;
   }
 
-  const VesselRenderer = memo(function VesselRenderer({ instance, style }: VesselRendererProps) {
+  const VesselRenderer = memo(function VesselRenderer({ instance, style, exiting }: VesselRendererProps) {
     const { orchestrator, componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry, config, onErrorRef } =
       useMaelstromContext();
+
+    const ref = useRef<HTMLDivElement>(null);
+
+    // Fires exactly once per live -> exiting transition: keyed on the boolean
+    // presence of `exiting` (not the config object, which is a fresh
+    // reference every render) so the animation isn't restarted mid-flight by
+    // an unrelated Chart re-render while this instance is already exiting.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on Boolean(exiting), not `exiting` itself or `instance` — see comment above.
+    useEffect(() => {
+      if (!exiting) return;
+      const node = ref.current;
+      if (!node || typeof node.animate !== 'function') return;
+      node.animate(exitKeyframes(), {
+        duration: exiting.durationMs,
+        easing: exiting.easing,
+        fill: 'forwards',
+      });
+    }, [Boolean(exiting)]);
 
     const vessel = useStore(
       orchestrator.vesselManager.store,
@@ -126,7 +182,12 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     );
 
     return (
-      <div style={style} data-instance-id={instance.instanceId}>
+      <div
+        style={style}
+        data-instance-id={instance.instanceId}
+        data-exiting={exiting ? '' : undefined}
+        ref={ref}
+      >
         {content}
       </div>
     );
@@ -134,6 +195,13 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     if (prev.instance.instanceId !== next.instance.instanceId) return false;
     if (prev.instance.variant !== next.instance.variant) return false;
     if (prev.instance.vesselId !== next.instance.vesselId) return false;
+    // A change in exiting-ness (undefined <-> a resolved motion config) must
+    // force a re-render even if style hasn't settled yet — that's the render
+    // that mounts the ref the exit effect fires against. `config.motion`
+    // itself is a fresh object every Provider render, so comparing presence
+    // rather than reference avoids re-rendering (and re-diffing style) on
+    // every unrelated re-render once an instance is already exiting.
+    if ((prev.exiting === undefined) !== (next.exiting === undefined)) return false;
     const prevStyle = prev.style;
     const nextStyle = next.style;
     const allKeys = new Set([...Object.keys(prevStyle), ...Object.keys(nextStyle)]);
@@ -269,6 +337,83 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
       return () => observer.disconnect();
     }, [orchestrator, config.cellSizePx]);
 
+    // Tiling layout computed once per render — reused by both the
+    // layoutKey below and the tiling render branch.
+    const tilingComputed = useMemo<readonly ComputedTile[] | null>(() => {
+      if (!layout || layout.type !== 'tiling') return null;
+      const tree = parseTilingTree(layout.tree);
+      return computeTilingLayout(tree, containerRect, config.tilingPaddingPx);
+    }, [layout, containerRect, config.tilingPaddingPx]);
+
+    // The logical layout (layoutKey) and the container pixel size (sizeKey)
+    // are kept as separate keys: useChartMotion animates only on layoutKey
+    // changes and silently re-measures on size-only changes, while exit
+    // tracking must re-snapshot on both — so it receives the combined
+    // signature. Note tiling's layoutKey is built from computed pixel rects,
+    // so a container resize changes it there by construction. Grid track
+    // counts are folded in too: a cellSizePx change can alter columns/rows
+    // with the container's own pixel size unchanged, which remaps every grid
+    // position to a new pixel rect without touching layoutKey (grid units)
+    // or the width/height above — omitting them would leave the next FLIP
+    // animating from a stale pre-resize baseline.
+    const sizeKey = `${Math.round(containerRect.width)}x${Math.round(containerRect.height)}:${chartDimensions.columns}x${chartDimensions.rows}`;
+
+    const layoutKey = useMemo(() => {
+      if (!layout || layout.type === 'grid') {
+        const positions = layout?.positions ?? [];
+        const key = positions
+          .map((p) => `${p.instanceId}:${p.position.row}:${p.position.column}:${p.size.width}:${p.size.height}`)
+          .join('|');
+        return `grid:${key}`;
+      }
+      if (layout.type === 'tiling') {
+        const tiles = tilingComputed ?? [];
+        const key = tiles
+          .map((t) => `${t.instanceId}:${t.rect.x}:${t.rect.y}:${t.rect.width}:${t.rect.height}`)
+          .join('|');
+        return `tiling:${key}`;
+      }
+      return 'unknown';
+    }, [layout, tilingComputed]);
+
+    const layoutSignature = `${layoutKey}@${sizeKey}`;
+
+    // Instances currently rendered, keyed by instanceId — feeds exit tracking
+    // so a instance dropped from the next layout response gets an exit entry.
+    const currentInstanceEntries = useMemo<ReadonlyArray<readonly [string, VesselInstance]>>(() => {
+      const out: Array<readonly [string, VesselInstance]> = [];
+      if (!layout || layout.type === 'grid') {
+        for (const pos of layout?.positions ?? []) {
+          const instance = instances.get(pos.instanceId);
+          if (instance) out.push([pos.instanceId, instance]);
+        }
+      } else if (layout.type === 'tiling') {
+        for (const tile of tilingComputed ?? []) {
+          const instance = instances.get(tile.instanceId);
+          if (instance) out.push([tile.instanceId, instance]);
+        }
+      }
+      return out;
+    }, [layout, instances, tilingComputed]);
+
+    // Single shared children-walk (see motion/measure.ts) so FLIP baselines and
+    // exit-ghost snapshots never disagree about where an instance was.
+    const measureRects = useCallback(
+      (): ReadonlyMap<string, MotionRect> =>
+        containerRef.current ? measureInstanceRects(containerRef.current) : new Map(),
+      [],
+    );
+
+    // Ordering invariant: useExitingInstances MUST run before useChartMotion.
+    // Layout effects fire in hook call order, and a freshly-created WAAPI
+    // animation applies its first (inverted, old-position) keyframe to
+    // computed style immediately — exit snapshots taken after useChartMotion
+    // starts animating would capture pre-move rects and place a later exit
+    // ghost at a stale position.
+    const exiting = useExitingInstances(currentInstanceEntries, measureRects, config.motion, layoutSignature);
+
+    useChartMotion(containerRef, layoutKey, sizeKey, config.motion);
+
     // ── Guard: duplicate Chart ────────────────────────────────────────────────
 
     if (isDuplicate) {
@@ -320,30 +465,50 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
             item !== null,
         );
 
+      // Live and exiting instances are combined into ONE array, rendered from
+      // a SINGLE .map() below, keyed by instanceId. Two separate .map() calls
+      // (live vs. exit-ghost, with a rekeyed `exit-${id}`) are two child
+      // slots to React's reconciler, which unmounts the live element and
+      // mounts a fresh one for the fade — losing any local state, in-flight
+      // effects, or subscriptions on the vessel. One slot with a stable key
+      // lets React recognize it's the same element across the transition.
+      const renderEntries: RenderEntry[] = instancesToRender.map(({ instance, pos }) => {
+        const colStart = pos.position.column + 1;
+        const rowStart = pos.position.row + 1;
+        return {
+          id: instance.instanceId,
+          instance,
+          style: {
+            gridColumn: `${colStart} / ${colStart + pos.size.width}`,
+            gridRow: `${rowStart} / ${rowStart + pos.size.height}`,
+            zIndex: 1,
+            minWidth: 0,
+            minHeight: 0,
+          },
+        };
+      });
+      for (const entry of exiting) {
+        renderEntries.push({
+          id: entry.id,
+          instance: entry.item,
+          style: exitGhostStyle(entry.rect),
+          exiting: config.motion,
+        });
+      }
+
       return (
         <div ref={containerRef} className={className} style={containerStyle}>
           {config.debug && columns > 0 && rows > 0 && (
             <GridDebugOverlay columns={columns} rows={rows} />
           )}
-          {instancesToRender.map(({ instance, pos }) => {
-            const colStart = pos.position.column + 1;
-            const rowStart = pos.position.row + 1;
-            const vesselStyle: CSSProperties = {
-              gridColumn: `${colStart} / ${colStart + pos.size.width}`,
-              gridRow: `${rowStart} / ${rowStart + pos.size.height}`,
-              zIndex: 1,
-              transition: 'all 0.3s ease-out',
-              minWidth: 0,
-              minHeight: 0,
-            };
-            return (
-              <VesselRenderer
-                key={instance.instanceId}
-                instance={instance}
-                style={vesselStyle}
-              />
-            );
-          })}
+          {renderEntries.map((entry) => (
+            <VesselRenderer
+              key={entry.id}
+              instance={entry.instance}
+              style={entry.style}
+              exiting={entry.exiting}
+            />
+          ))}
           {children}
         </div>
       );
@@ -360,8 +525,7 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
         overflow: 'hidden',
       };
 
-      const tree = parseTilingTree(layout.tree);
-      const computedTiles = computeTilingLayout(tree, containerRect, config.tilingPaddingPx);
+      const computedTiles = tilingComputed ?? [];
 
       const tilesToRender = computedTiles
         .map((tile) => {
@@ -375,26 +539,40 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
           (item): item is { instance: VesselInstance; tile: ComputedTile } => item !== null,
         );
 
+      // See the grid branch above for why live and exiting instances must
+      // render from one combined array/one .map() rather than two.
+      const renderEntries: RenderEntry[] = tilesToRender.map(({ instance, tile }) => ({
+        id: instance.instanceId,
+        instance,
+        style: {
+          position: 'absolute',
+          left: tile.rect.x,
+          top: tile.rect.y,
+          width: tile.rect.width,
+          height: tile.rect.height,
+          zIndex: 1,
+          overflow: 'hidden',
+        },
+      }));
+      for (const entry of exiting) {
+        renderEntries.push({
+          id: entry.id,
+          instance: entry.item,
+          style: exitGhostStyle(entry.rect),
+          exiting: config.motion,
+        });
+      }
+
       return (
         <div ref={containerRef} className={className} style={containerStyle}>
-          {tilesToRender.map(({ instance, tile }) => {
-            const vesselStyle: CSSProperties = {
-              position: 'absolute',
-              left: tile.rect.x,
-              top: tile.rect.y,
-              width: tile.rect.width,
-              height: tile.rect.height,
-              transition: 'all 0.3s ease-out',
-              overflow: 'hidden',
-            };
-            return (
-              <VesselRenderer
-                key={instance.instanceId}
-                instance={instance}
-                style={vesselStyle}
-              />
-            );
-          })}
+          {renderEntries.map((entry) => (
+            <VesselRenderer
+              key={entry.id}
+              instance={entry.instance}
+              style={entry.style}
+              exiting={entry.exiting}
+            />
+          ))}
           {config.debug && <TilingDebugOverlay tiles={computedTiles} />}
           {children}
         </div>

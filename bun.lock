@@ -186,6 +186,7 @@
         "@tanstack/react-store": "catalog:",
       },
       "devDependencies": {
+        "@sinonjs/fake-timers": "catalog:",
         "@testing-library/react": "catalog:",
         "happy-dom": "catalog:",
       },
@@ -218,6 +219,7 @@
       "dependencies": {
         "@maelstrom-co/client": "0.0.0",
         "@maelstrom-co/protocol": "0.0.0",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
@@ -237,7 +239,7 @@
         "livekit-client": "^2.13.1",
       },
       "peerDependencies": {
-        "livekit-client": ">=2.0.0",
+        "livekit-client": ">=2.9.0",
       },
     },
     "packages/realtime-livekit-agent": {

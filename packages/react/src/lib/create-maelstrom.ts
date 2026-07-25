@@ -1,4 +1,5 @@
 import type { AnyVesselEntry } from './vessel-entry-types.js';
+import type { ChartMotionConfig } from './chart/motion/motion-config.js';
 import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import type { MaelstromContextPair } from './context.js';
 import type {
@@ -27,6 +28,11 @@ export interface CreateMaelstromConfig<T extends readonly AnyVesselEntry[]> {
   cellSizePx?: number;
   tilingPaddingPx?: number;
   debug?: boolean;
+  /**
+   * Chart motion/choreography settings. A `motion` prop on the Provider
+   * overrides this as a whole object (no per-field merge).
+   */
+  motion?: ChartMotionConfig;
 }
 
 /** Create a Maelstrom instance with Provider, hooks, and typed vessel access */
@@ -38,6 +44,7 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     cellSizePx: config.cellSizePx,
     tilingPaddingPx: config.tilingPaddingPx,
     debug: config.debug,
+    motion: config.motion,
   };
 
   const base = {

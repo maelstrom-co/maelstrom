@@ -15,7 +15,7 @@ export default defineConfig(() => ({
       formats: ['es' as const],
     },
     rollupOptions: {
-      external: ['@maelstrom-co/client', '@maelstrom-co/protocol'],
+      external: ['@maelstrom-co/client', '@maelstrom-co/protocol', 'zod'],
     },
   },
 }));

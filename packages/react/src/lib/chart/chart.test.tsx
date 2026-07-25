@@ -1,9 +1,12 @@
 import { useEffect } from 'react';
-import { describe, it, expect, afterEach, beforeAll, spyOn, mock } from 'bun:test';
+import { describe, it, expect, afterEach, beforeAll, beforeEach, spyOn, mock } from 'bun:test';
 import { render, cleanup, act, fireEvent } from '@testing-library/react';
+import FakeTimers from '@sinonjs/fake-timers';
 import type {
   ChartRequestMessage,
+  GridLayout,
   MaelstromResponse,
+  TilingLayout,
 } from '@maelstrom-co/protocol';
 import { InstanceId, VesselId, VariantName, ok } from '@maelstrom-co/protocol';
 
@@ -13,6 +16,7 @@ import { testVessel } from '../__tests__/test-vessel.fixture.js';
 import { createMockConnector } from '../__tests__/mock-connector.js';
 import { assertDefined } from '../__tests__/assert-defined.js';
 import type { TypedVesselProps } from '../vessel-entry-types.js';
+import { DEFAULT_MOTION, EXIT_CLEANUP_BUFFER_MS } from './motion/motion-config.js';
 
 // Mock ResizeObserver (happy-dom may not implement it)
 type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;
@@ -580,5 +584,711 @@ describe('m.Chart — duplicate chart guard', () => {
     });
 
     expect(container.innerHTML).not.toContain('Only one');
+  });
+});
+
+describe('m.Chart — motion', () => {
+  interface AnimateCall {
+    id: string | null;
+    // Exit ghosts render from the same VesselRenderer as live instances (see
+    // MAE-343 follow-up: single render-entry array, not a separately-wrapped
+    // ExitingVessel), so they carry the same `data-instance-id` a live
+    // instance would. `data-exiting` is the only DOM signal that distinguishes
+    // an exit-shaped animate() call from a live FLIP/enter call on the same id.
+    exiting: boolean;
+    keyframes: Keyframe[];
+    options: KeyframeAnimationOptions;
+  }
+
+  let animateCalls: AnimateCall[] = [];
+
+  beforeEach(() => {
+    animateCalls = [];
+
+    // Stub WAAPI: happy-dom doesn't implement Element.animate. Attached via
+    // `window.Element` (not the bare global) because setup.ts rebuilds
+    // `window` per test and doesn't splice it onto the Node global scope.
+    window.Element.prototype.animate = function (
+      this: Element,
+      keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+      options?: number | KeyframeAnimationOptions,
+    ) {
+      animateCalls.push({
+        id: this.getAttribute('data-instance-id'),
+        exiting: this.hasAttribute('data-exiting'),
+        keyframes: keyframes as Keyframe[],
+        options: options as KeyframeAnimationOptions,
+      });
+      return { cancel() {}, finished: Promise.resolve() } as unknown as Animation;
+    } as never;
+
+    // Stub getBoundingClientRect: happy-dom has no layout engine, so every
+    // element reports a zero rect. Deriving a synthetic rect from the grid
+    // wrapper's own `gridColumn`/`gridRow` inline style (which chart.tsx sets
+    // per layout) gives FLIP a real position delta to detect when a vessel's
+    // grid placement changes, and an unchanged rect when it doesn't.
+    window.Element.prototype.getBoundingClientRect = function (this: Element) {
+      const style = (this as HTMLElement).style;
+      const rect = this.hasAttribute('data-instance-id')
+        ? gridCellRect(style.gridColumn, style.gridRow)
+        : null;
+      const r = rect ?? { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+        top: r.y,
+        left: r.x,
+        right: r.x + r.width,
+        bottom: r.y + r.height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    } as never;
+  });
+
+  const CELL = 100;
+
+  function gridCellRect(
+    gridColumn: string,
+    gridRow: string,
+  ): { x: number; y: number; width: number; height: number } | null {
+    if (!gridColumn || !gridRow) return null;
+    const [colStart, colEnd] = gridColumn.split('/').map((s) => parseInt(s.trim(), 10));
+    const [rowStart, rowEnd] = gridRow.split('/').map((s) => parseInt(s.trim(), 10));
+    if ([colStart, colEnd, rowStart, rowEnd].some(Number.isNaN)) {
+      return null;
+    }
+    return {
+      x: (colStart - 1) * CELL,
+      y: (rowStart - 1) * CELL,
+      width: (colEnd - colStart) * CELL,
+      height: (rowEnd - rowStart) * CELL,
+    };
+  }
+
+  // Recursive children-walk instead of an attribute-selector querySelector,
+  // which throws under this repo's bun+happy-dom combo.
+  function findByInstanceId(root: Element, id: string): HTMLElement | null {
+    for (const child of Array.from(root.children)) {
+      if (child.getAttribute('data-instance-id') === id) return child as HTMLElement;
+      const nested = findByInstanceId(child, id);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function registerLayout(ids: string[]): TilingLayout {
+    return {
+      type: 'tiling',
+      tree: [],
+      instances: ids.map((id) => ({
+        instanceId: InstanceId(id),
+        vesselId: VesselId('orders'),
+        variant: VariantName('list'),
+      })),
+    };
+  }
+
+  function gridLayout(
+    entries: Array<{ id: string; column: number; row: number; width?: number; height?: number }>,
+  ): GridLayout {
+    return {
+      type: 'grid',
+      positions: entries.map((e) => ({
+        instanceId: InstanceId(e.id),
+        position: { column: e.column, row: e.row },
+        size: { width: e.width ?? 1, height: e.height ?? 1 },
+      })),
+    };
+  }
+
+  function connectorSeq(layouts: Array<GridLayout | TilingLayout>) {
+    let i = 0;
+    return createMockConnector({
+      process: async (msg: ChartRequestMessage): Promise<MaelstromResponse> => {
+        const layout = layouts[Math.min(i, layouts.length - 1)]!;
+        i++;
+        return {
+          type: 'maelstrom_response',
+          requestId: msg.id,
+          userMessage: '',
+          rationale: '',
+          executionPlan: [],
+          layout,
+        };
+      },
+    });
+  }
+
+  it('(a) layout change triggers FLIP animate calls on moved instance wrappers', async () => {
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a', 'b']),
+      gridLayout([
+        { id: 'a', column: 0, row: 0, width: 2, height: 2 },
+        { id: 'b', column: 10, row: 0, width: 2, height: 2 },
+      ]),
+      gridLayout([
+        { id: 'a', column: 14, row: 0, width: 2, height: 2 },
+        { id: 'b', column: 10, row: 0, width: 2, height: 2 },
+      ]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+
+    animateCalls = [];
+    await act(async () => { await processIntent!('layout2'); });
+
+    const aCalls = animateCalls.filter((c) => c.id === 'a');
+    const bCalls = animateCalls.filter((c) => c.id === 'b');
+    expect(aCalls.length).toBe(1);
+    expect(bCalls.length).toBe(0);
+    expect(aCalls[0]!.keyframes[0]!.transform).toContain('translate');
+  });
+
+  // Ordering guard for the exit-snapshot invariant: useExitingInstances must
+  // measure BEFORE useChartMotion starts any WAAPI animation, because a
+  // freshly-created animation applies its first (inverted, old-position)
+  // keyframe to computed style immediately — a snapshot taken after that
+  // captures a pre-move rect. happy-dom has no layout engine, so a faithful
+  // "ghost placed at stale position" test can't fail here; instead this
+  // instruments both hooks' shared primitives and asserts that within the
+  // commit no instance measurement happens after an animation has started.
+  it('takes all exit-snapshot measurements before any animation starts in the same commit', async () => {
+    const events: string[] = [];
+    const baseRect = window.Element.prototype.getBoundingClientRect;
+    const baseAnimate = window.Element.prototype.animate;
+    window.Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this.hasAttribute('data-instance-id')) events.push('measure:' + this.getAttribute('data-instance-id'));
+      return baseRect.call(this);
+    } as never;
+    window.Element.prototype.animate = function (
+      this: Element,
+      keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+      options?: number | KeyframeAnimationOptions,
+    ) {
+      events.push('animate:' + this.getAttribute('data-instance-id'));
+      return baseAnimate.call(this, keyframes as Keyframe[], options);
+    } as never;
+
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a', 'b']),
+      gridLayout([
+        { id: 'a', column: 0, row: 0, width: 2, height: 2 },
+        { id: 'b', column: 8, row: 0, width: 2, height: 2 },
+      ]),
+      // 'a' moves (FLIPs) and 'b' is removed (needs an exit snapshot).
+      gridLayout([{ id: 'a', column: 14, row: 0, width: 2, height: 2 }]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+
+    events.length = 0;
+    await act(async () => { await processIntent!('layout2'); });
+
+    const firstAnimate = events.findIndex((e) => e.startsWith('animate'));
+    expect(firstAnimate).toBeGreaterThan(-1);
+    const measuresAfterAnimate = events.slice(firstAnimate).filter((e) => e.startsWith('measure'));
+    expect(measuresAfterAnimate).toEqual([]);
+  });
+
+  // happy-dom has no layout engine, so the rig's shared getBoundingClientRect
+  // stub (gridCellRect) derives fake rects from grid line numbers times a
+  // CONSTANT cell size, which can't express "same grid position, different
+  // pixel rect because the track count changed" -- the real-world trigger for
+  // this bug. This test installs its own cellSizePx-aware rect stub (mirroring
+  // what a real browser's grid layout would produce) so the stale-vs-fresh
+  // FLIP baseline is directly observable in the animate() keyframes.
+  it('(FIX 3) a cellSizePx change that alters the track count re-baselines rects with no container resize', async () => {
+    let trackCellPx = 100;
+    const baseRect = window.Element.prototype.getBoundingClientRect;
+    window.Element.prototype.getBoundingClientRect = function (this: Element) {
+      const style = (this as HTMLElement).style;
+      const rect = this.hasAttribute('data-instance-id')
+        ? (() => {
+            const [colStart, colEnd] = style.gridColumn.split('/').map((s) => parseInt(s.trim(), 10));
+            const [rowStart, rowEnd] = style.gridRow.split('/').map((s) => parseInt(s.trim(), 10));
+            if (colStart === undefined || colEnd === undefined || rowStart === undefined || rowEnd === undefined) {
+              return null;
+            }
+            return {
+              x: (colStart - 1) * trackCellPx,
+              y: (rowStart - 1) * trackCellPx,
+              width: (colEnd - colStart) * trackCellPx,
+              height: (rowEnd - rowStart) * trackCellPx,
+            };
+          })()
+        : null;
+      const r = rect ?? { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+        top: r.y,
+        left: r.x,
+        right: r.x + r.width,
+        bottom: r.y + r.height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    } as never;
+
+    try {
+      const entry = vessel(testVessel, () => <div>content</div>);
+      const m = createMaelstrom({ vessels: [entry] });
+      const connector = connectorSeq([
+        registerLayout(['a']),
+        gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+        gridLayout([{ id: 'a', column: 4, row: 0, width: 2, height: 2 }]),
+      ]);
+
+      let processIntent: ((intent: string) => Promise<void>) | undefined;
+      function Reader() {
+        processIntent = m.useMaelstrom().processIntent;
+        return null;
+      }
+
+      let rerender!: (ui: React.ReactElement) => void;
+      await act(async () => {
+        ({ rerender } = render(
+          <m.Provider connector={connector} cellSizePx={100}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        ));
+      });
+
+      await act(async () => { await processIntent!('register'); });
+      await act(async () => { await processIntent!('layout1'); });
+      // 800x600 @ cellSizePx=100 -> 8 columns; 'a' baselines at width=200 (2 cells * 100px).
+      await act(async () => { triggerResize(800, 600); });
+
+      // Same container pixels, but cellSizePx doubles -> 4 columns, so each
+      // 1fr track (and thus 'a's real pixel width) doubles too, though the
+      // grid POSITION (layoutKey) is untouched.
+      trackCellPx = 200;
+      await act(async () => {
+        rerender(
+          <m.Provider connector={connector} cellSizePx={200}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        );
+      });
+      await act(async () => { triggerResize(800, 600); });
+
+      animateCalls = [];
+      await act(async () => { await processIntent!('layout2'); });
+
+      const aCalls = animateCalls.filter((c) => c.id === 'a');
+      expect(aCalls).toHaveLength(1);
+      // Fresh baseline (post-fix): prev width === next width (both at
+      // trackCellPx=200), so the FLIP is a pure translate with no scale.
+      // Stale baseline (pre-fix, bug): prev width is still the pre-resize
+      // 200px against a next width of 400px, producing a spurious scale(0.5).
+      expect(aCalls[0]!.keyframes[0]!.transform).toContain('scale(1, 1)');
+      expect(aCalls[0]!.keyframes[0]!.transform).not.toContain('scale(0.5');
+    } finally {
+      window.Element.prototype.getBoundingClientRect = baseRect;
+    }
+  });
+
+  it('(b) new instance triggers enter keyframes', async () => {
+    // Tiling mode: `instances` always lists both ids (so 'b' is a known
+    // instance the whole time) while `tree` controls what actually renders.
+    // Grid mode can't express "add an instance back later" here — a
+    // GridLayout entirely replaces the instances map from its own
+    // `positions`, so an id dropped from one response can never reappear in
+    // a later one without a fresh tiling registration.
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const instances = [
+      { instanceId: InstanceId('a'), vesselId: VesselId('orders'), variant: VariantName('list') },
+      { instanceId: InstanceId('b'), vesselId: VesselId('orders'), variant: VariantName('list') },
+    ];
+    const connector = connectorSeq([
+      { type: 'tiling', tree: [InstanceId('a')], instances },
+      { type: 'tiling', tree: ['V', InstanceId('a'), InstanceId('b')], instances },
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('layout1'); });
+
+    animateCalls = [];
+    await act(async () => { await processIntent!('layout2'); });
+
+    const aCalls = animateCalls.filter((c) => c.id === 'a');
+    const bCalls = animateCalls.filter((c) => c.id === 'b');
+    expect(aCalls.length).toBe(0);
+    expect(bCalls.length).toBe(1);
+    expect(bCalls[0]!.keyframes[0]).toEqual({ opacity: 0, transform: 'scale(0.96)' });
+  });
+
+  it('(c) a removed instance keeps an exit node in the DOM and it disappears after the motion duration', async () => {
+    const clock = FakeTimers.install();
+    try {
+      const entry = vessel(testVessel, () => <div>content</div>);
+      const m = createMaelstrom({ vessels: [entry] });
+      const connector = connectorSeq([
+        registerLayout(['a', 'b']),
+        gridLayout([
+          { id: 'a', column: 0, row: 0, width: 2, height: 2 },
+          { id: 'b', column: 8, row: 0, width: 2, height: 2 },
+        ]),
+        gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+      ]);
+
+      let processIntent: ((intent: string) => Promise<void>) | undefined;
+      function Reader() {
+        processIntent = m.useMaelstrom().processIntent;
+        return null;
+      }
+
+      let container: HTMLElement;
+      await act(async () => {
+        ({ container } = render(
+          <m.Provider connector={connector}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        ));
+      });
+
+      await act(async () => { await processIntent!('register'); });
+      await act(async () => { await processIntent!('layout1'); });
+      await act(async () => { await processIntent!('layout2'); });
+
+      // Exit node persists immediately after removal.
+      expect(container!.innerHTML).toContain('data-instance-id="b"');
+
+      // Just shy of the durationMs + buffer: still present.
+      await act(async () => { clock.tick(DEFAULT_MOTION.durationMs + EXIT_CLEANUP_BUFFER_MS - 1); });
+      expect(container!.innerHTML).toContain('data-instance-id="b"');
+
+      await act(async () => { clock.tick(1); });
+      expect(container!.innerHTML).not.toContain('data-instance-id="b"');
+    } finally {
+      clock.uninstall();
+    }
+  });
+
+  it('does not remount the vessel component when it becomes an exit ghost', async () => {
+    // Regression: live instances and exit ghosts used to render from two
+    // separate .map() child slots with different keys (`id` vs `exit-${id}`),
+    // so React couldn't reconcile across the live -> exiting transition and
+    // unmounted the real component, mounting a brand-new one for the fade.
+    // Any local state, in-flight effects, or subscriptions on the vessel are
+    // lost when that happens — this proves the underlying component instance
+    // survives the transition.
+    let mountCount = 0;
+    function MountCounter() {
+      useEffect(() => {
+        mountCount++;
+      }, []);
+      return <div>content</div>;
+    }
+    const entry = vessel(testVessel, MountCounter);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a']),
+      gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+      gridLayout([]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+
+    expect(mountCount).toBe(1);
+
+    // Removing 'a' from the layout turns it into an exit ghost.
+    await act(async () => { await processIntent!('layout2'); });
+
+    expect(mountCount).toBe(1);
+  });
+
+  it('exit animation holds its end state with fill: "forwards"', async () => {
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a', 'b']),
+      gridLayout([
+        { id: 'a', column: 0, row: 0, width: 2, height: 2 },
+        { id: 'b', column: 8, row: 0, width: 2, height: 2 },
+      ]),
+      gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+
+    animateCalls = [];
+    await act(async () => { await processIntent!('layout2'); });
+
+    const exitShapedCalls = animateCalls.filter((c) => c.exiting);
+    expect(exitShapedCalls.length).toBe(1);
+    expect(exitShapedCalls[0]!.id).toBe('b');
+    expect(exitShapedCalls[0]!.options.fill).toBe('forwards');
+  });
+
+  it('exit animation does not re-fire on an unrelated layout update', async () => {
+    // Regression: the exit-ghost effect used to run on every Chart re-render
+    // (or via an inline callback ref before that). Since `config.motion` is a
+    // fresh object every render, a naive dependency on it — or no dependency
+    // array discipline at all — would re-invoke `element.animate()` on the
+    // already-mounted node, visually restarting the fade mid-flight even
+    // though nothing about the exiting instance changed.
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a', 'b']),
+      gridLayout([
+        { id: 'a', column: 0, row: 0, width: 2, height: 2 },
+        { id: 'b', column: 8, row: 0, width: 2, height: 2 },
+      ]),
+      gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+      gridLayout([{ id: 'a', column: 14, row: 0, width: 2, height: 2 }]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+    // Removing 'b' starts its exit animation.
+    await act(async () => { await processIntent!('removeB'); });
+
+    animateCalls = [];
+    // Unrelated layout update: 'a' moves, 'b' stays removed/exiting.
+    await act(async () => { await processIntent!('moveA'); });
+
+    const exitShapedCalls = animateCalls.filter((c) => c.exiting);
+    expect(exitShapedCalls.length).toBe(0);
+  });
+
+  it('(d) motion: { disabled: true } produces zero animate calls and instant removal', async () => {
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorSeq([
+      registerLayout(['a', 'b']),
+      gridLayout([
+        { id: 'a', column: 0, row: 0, width: 2, height: 2 },
+        { id: 'b', column: 8, row: 0, width: 2, height: 2 },
+      ]),
+      gridLayout([{ id: 'a', column: 14, row: 0, width: 2, height: 2 }]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <m.Provider connector={connector} motion={{ disabled: true }}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      ));
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+
+    animateCalls = [];
+    await act(async () => { await processIntent!('layout2'); });
+
+    // 'a' moved and 'b' was removed — with motion disabled neither animates,
+    // and the removed instance leaves no lingering exit node.
+    expect(animateCalls.length).toBe(0);
+    expect(container!.innerHTML).not.toContain('data-instance-id="b"');
+  });
+
+  it('createMaelstrom({ motion: { disabled: true } }) reaches the Chart with zero animate calls', async () => {
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry], motion: { disabled: true } });
+    const connector = connectorSeq([
+      registerLayout(['a']),
+      gridLayout([{ id: 'a', column: 0, row: 0, width: 2, height: 2 }]),
+      gridLayout([{ id: 'a', column: 10, row: 0, width: 2, height: 2 }]),
+    ]);
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      );
+    });
+
+    await act(async () => { await processIntent!('register'); });
+    await act(async () => { await processIntent!('layout1'); });
+
+    animateCalls = [];
+    await act(async () => { await processIntent!('layout2'); });
+
+    expect(animateCalls.length).toBe(0);
+  });
+
+  it('(e) vessel inline styles no longer contain a transition property in grid mode', async () => {
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorWithGridInstance('inst-1', 'orders', 'list');
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      ));
+    });
+
+    await act(async () => { await processIntent!('x'); });
+    await act(async () => { await processIntent!('grid'); });
+
+    const grid = container!.firstElementChild as HTMLElement;
+    const wrapper = findByInstanceId(grid, 'inst-1')!;
+    expect(wrapper.style.transition).toBe('');
+  });
+
+  it('(e) vessel inline styles no longer contain a transition property in tiling mode', async () => {
+    const entry = vessel(testVessel, () => <div>content</div>);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = connectorWithTilingLayout('inst-1', 'orders', 'list');
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    let container: HTMLElement;
+    await act(async () => {
+      ({ container } = render(
+        <m.Provider connector={connector}>
+          <m.Chart />
+          <Reader />
+        </m.Provider>,
+      ));
+    });
+
+    await act(async () => { triggerResize(800, 600); });
+    await act(async () => { await processIntent!('x'); });
+
+    const tiling = container!.firstElementChild as HTMLElement;
+    const wrapper = findByInstanceId(tiling, 'inst-1')!;
+    expect(wrapper.style.transition).toBe('');
   });
 });
