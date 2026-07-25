@@ -159,21 +159,54 @@ export type PublishOptions = {
   registry: string;
   dryRun?: boolean;
   verbose?: boolean;
+  provenance?: boolean;
+  skipPublished?: boolean;
 };
 
 export type PublishResult = {
   failures: string[];
+  published: string[];
+  skipped: string[];
 };
+
+// A version already on the registry is immutable, so re-publishing it is a
+// hard error rather than a no-op. Treating "already there" as success is what
+// makes a re-run after a partial publish able to finish the remaining
+// packages instead of dying on the first one that succeeded last time.
+function isAlreadyPublished(
+  name: string,
+  version: string,
+  registry: string,
+): boolean {
+  try {
+    execSync(
+      `npm view ${name}@${version} version --registry ${registry} --json`,
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function publishWorkspacePackages(
   options: PublishOptions,
 ): Promise<PublishResult> {
-  const { tag, registry, dryRun = false, verbose = false } = options;
+  const {
+    tag,
+    registry,
+    dryRun = false,
+    verbose = false,
+    provenance = false,
+    skipPublished = false,
+  } = options;
   const cwd = process.cwd();
 
   const ctx = buildSubstitutionContext(cwd);
   const projectGraph = await createProjectGraphAsync();
   const failures: string[] = [];
+  const published: string[] = [];
+  const skipped: string[] = [];
 
   for (const node of Object.values(projectGraph.nodes)) {
     const projectRoot = node.data.root;
@@ -189,12 +222,24 @@ export async function publishWorkspacePackages(
       console.log(`Skipping ${pkgJson.name} (private).`);
       continue;
     }
+    if (
+      skipPublished &&
+      !dryRun &&
+      isAlreadyPublished(pkgJson.name, pkgJson.version, registry)
+    ) {
+      console.log(
+        `Skipping ${pkgJson.name}@${pkgJson.version} (already on ${registry}).`,
+      );
+      skipped.push(pkgJson.name);
+      continue;
+    }
     const args = ['publish', '--tag', tag, '--registry', registry];
     if (dryRun) args.push('--dry-run');
+    if (provenance) args.push('--provenance');
     console.log(
       `\n→ ${pkgJson.name}@${pkgJson.version} → ${registry} [tag=${tag}]${
-        dryRun ? ' (dry-run)' : ''
-      }`,
+        provenance ? ' (provenance)' : ''
+      }${dryRun ? ' (dry-run)' : ''}`,
     );
     try {
       const transformed = substituteManifest(ctx, pkgJson);
@@ -204,6 +249,7 @@ export async function publishWorkspacePackages(
         cwd: join(cwd, projectRoot),
         stdio: verbose ? 'inherit' : ['ignore', 'inherit', 'inherit'],
       });
+      published.push(pkgJson.name);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith(`${pkgJson.name}: `)) {
         console.error(err.message);
@@ -214,7 +260,7 @@ export async function publishWorkspacePackages(
     }
   }
 
-  return { failures };
+  return { failures, published, skipped };
 }
 
 // CLI entrypoint. Invoked directly (e.g. by the PR-preview workflow) the
@@ -230,6 +276,8 @@ if (isDirectInvocation) {
       registry: { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
       verbose: { type: 'boolean', default: false },
+      provenance: { type: 'boolean', default: false },
+      'skip-published': { type: 'boolean', default: false },
     },
   });
 
@@ -244,12 +292,18 @@ if (isDirectInvocation) {
     process.env.RELEASE_REGISTRY ??
     'https://registry.npmjs.org';
 
-  const { failures } = await publishWorkspacePackages({
+  const { failures, published, skipped } = await publishWorkspacePackages({
     tag,
     registry,
     dryRun: values['dry-run'],
     verbose: values.verbose,
+    provenance: values.provenance,
+    skipPublished: values['skip-published'],
   });
+
+  console.log(
+    `\nPublished ${published.length}, skipped ${skipped.length}, failed ${failures.length}.`,
+  );
 
   if (failures.length > 0) {
     console.error(`\nPublish failed for: ${failures.join(', ')}`);

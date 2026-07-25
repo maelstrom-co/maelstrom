@@ -1,0 +1,219 @@
+name: Release
+
+# Publishing is CI's job, not a laptop's. `scripts/release.ts --skip-publish`
+# versions, tags, and pushes locally; pushing the tag lands here and this
+# workflow does the publish. That split is what makes provenance possible —
+# an attestation is only worth something if the build it describes ran
+# somewhere auditable.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish, e.g. v0.1.0-alpha.0. Leave empty to dry-run the current branch.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Resolve and pack everything without publishing'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write # npm provenance; also the OIDC token for trusted publishing
+
+jobs:
+  release:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      # One run per tag, and never cancel a publish mid-flight: a half-published
+      # release has to be finished, not restarted from scratch.
+      group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag || github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Resolve release target
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            TAG="$REF_NAME"
+            DRY_RUN=false
+          else
+            TAG="$INPUT_TAG"
+            DRY_RUN="$INPUT_DRY_RUN"
+          fi
+
+          # No tag is only meaningful as a rehearsal: it means "prove the
+          # release resolves off the current branch", with nothing to publish.
+          if [ -z "$TAG" ]; then
+            if [ "$DRY_RUN" != "true" ]; then
+              echo "::error::A real publish needs a tag. Pass one, or set dry_run."
+              exit 1
+            fi
+            echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+            echo "dist_tag=dry-run" >> "$GITHUB_OUTPUT"
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+            echo "Dry run against ${{ github.ref }} (no tag, no version assertion)"
+            exit 0
+          fi
+
+          # nx.json releaseTag.pattern is `v{version}` and versioning is fixed,
+          # so one tag covers every package.
+          if [[ ! "$TAG" =~ ^v(.+)$ ]]; then
+            echo "::error::Unrecognized release tag '$TAG' (expected vX.Y.Z)"
+            exit 1
+          fi
+          VERSION="${BASH_REMATCH[1]}"
+
+          # Prereleases publish under their own preid as the dist-tag, so a
+          # plain `npm install @maelstrom-co/react` never resolves to one.
+          # 0.1.0-alpha.0 -> alpha; 0.1.0 -> latest.
+          case "$VERSION" in
+            *-*)
+              PREID="${VERSION#*-}"
+              DIST_TAG="${PREID%%.*}"
+              ;;
+            *)
+              DIST_TAG="latest"
+              ;;
+          esac
+
+          {
+            echo "ref=refs/tags/$TAG"
+            echo "version=$VERSION"
+            echo "dist_tag=$DIST_TAG"
+            echo "dry_run=$DRY_RUN"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publishing $VERSION under dist-tag $DIST_TAG (dry_run=$DRY_RUN)"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.meta.outputs.ref }}
+          filter: tree:0
+          fetch-depth: 0
+
+      - name: Setup Node
+        # Deliberately no registry-url. With it, setup-node writes an .npmrc
+        # carrying `_authToken=${NODE_AUTH_TOKEN}`; with no token in this
+        # tokenless flow that expands to an empty credential, which has been
+        # observed to stop npm from falling through to the OIDC exchange.
+        # npm's own example does pass registry-url, so this is contested — but
+        # the registry is already pinned explicitly by publishConfig and the
+        # publish script's --registry, so omitting it costs nothing and is the
+        # safe choice under either reading.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Upgrade npm
+        # Node 22 ships npm 10.x. npm 11 is required for OIDC trusted
+        # publishing (>= 11.5.1) and is the current provenance implementation;
+        # installing it now means the migration off tokens is a config change
+        # on npmjs.org rather than another workflow edit.
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Assert manifests match the tag
+        # Versioning is fixed, so every publishable package must already carry
+        # the tag's version — the release commit is the tagged commit. A
+        # mismatch means the tag points at the wrong tree and we are about to
+        # publish something nobody reviewed.
+        if: steps.meta.outputs.version != ''
+        env:
+          EXPECTED: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          status=0
+          for manifest in packages/*/package.json; do
+            name=$(node -p "require('./$manifest').name")
+            private=$(node -p "require('./$manifest').private === true")
+            version=$(node -p "require('./$manifest').version")
+            [ "$private" = "true" ] && continue
+            if [ "$version" != "$EXPECTED" ]; then
+              echo "::error file=$manifest::$name is at $version but the tag says $EXPECTED"
+              status=1
+            fi
+          done
+          exit $status
+
+      - name: Build packages
+        run: bunx nx run-many -t build --projects='packages/*'
+
+      - name: Publish
+        # No token, by design. Auth is npm OIDC trusted publishing: npm trades
+        # this job's OIDC identity for a short-lived credential, so nothing
+        # long-lived is stored anywhere. It also sidesteps npm's 90-day cap on
+        # granular write tokens, which would otherwise mean rotating a secret
+        # every quarter and a broken release the one time it's forgotten.
+        #
+        # --skip-published makes a re-run after a partial failure finish the
+        # remaining packages instead of dying on the first one that already
+        # landed; npm versions are immutable, so re-publishing is a hard error.
+        #
+        # Provenance is gated on repository visibility: npm will not attest a
+        # build it cannot link to public source. Under OIDC npm also emits
+        # provenance on its own for public repos, so the flag is belt and
+        # braces — and it turns itself on when this repo goes public.
+        env:
+          PROVENANCE: ${{ github.event.repository.visibility == 'public' && '--provenance' || '' }}
+          DRY_RUN: ${{ steps.meta.outputs.dry_run == 'true' && '--dry-run' || '' }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event.repository.visibility }}" != "public" ]; then
+            echo "::warning::Repository is ${{ github.event.repository.visibility }}; publishing without provenance (npm requires a public repo to attest a build)."
+          fi
+          trap 'echo "::error::Publish failed. If this is an auth error, check that every package has a trusted publisher configured on npmjs.org pointing at this repo and release.yml — npm cannot configure one for a package that does not exist yet, so each package needs its first version published manually. See CONTRIBUTING.md."' ERR
+          bun scripts/publish-packages.ts \
+            --tag "${{ steps.meta.outputs.dist_tag }}" \
+            --skip-published \
+            $PROVENANCE \
+            $DRY_RUN
+
+      - name: Verify packages are live
+        # A green publish step is not proof the registry serves the packages.
+        # Confirm every one, so a partial publish fails loudly.
+        if: steps.meta.outputs.dry_run != 'true'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          status=0
+          for manifest in packages/*/package.json; do
+            private=$(node -p "require('./$manifest').private === true")
+            [ "$private" = "true" ] && continue
+            name=$(node -p "require('./$manifest').name")
+            live=false
+            for attempt in 1 2 3 4 5; do
+              if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+                echo "✓ $name@$VERSION is live"
+                live=true
+                break
+              fi
+              echo "… $name@$VERSION not visible yet (attempt $attempt/5), retrying"
+              sleep 5
+            done
+            if [ "$live" = false ]; then
+              echo "::error::$name@$VERSION not found on the registry after publish"
+              status=1
+            fi
+          done
+          exit $status

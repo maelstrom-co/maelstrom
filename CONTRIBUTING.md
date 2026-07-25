@@ -136,63 +136,119 @@ See the [README](./README.md) for the package architecture and core concepts.
 
 ## Releasing
 
-Releases are **manual and local** for now — a maintainer who is a member of the
-`@maelstrom-co` npm org runs them from their own machine. There is no CI release
-automation. Real releases publish to **public npm** (`registry.npmjs.org`);
-per-PR previews are a separate flow that targets GitHub Packages.
+Releases are **cut locally and published by CI**. A maintainer versions, tags,
+and pushes from their machine; pushing the `v*` tag triggers
+[`.github/workflows/release.yml`](.github/workflows/release.yml), which builds
+and publishes every package to **public npm** (`registry.npmjs.org`). Apart from
+the one-time bootstrap below, nobody publishes from a laptop — a provenance
+attestation is only meaningful when the build it describes ran somewhere
+auditable.
 
-### One-time setup
+Per-PR previews are a separate flow that targets GitHub Packages.
 
-Authenticate to public npm (you must be in the `@maelstrom-co` org with publish
-rights):
+CI authenticates to npm with **OIDC trusted publishing** — no token is stored
+anywhere. There is no `NPM_TOKEN` secret, and there should never be one: npm
+caps granular write tokens at 90 days, so a stored token means rotating a secret
+every quarter and a broken release the one time it's forgotten.
 
-```bash
-npm login --registry=https://registry.npmjs.org
-```
+Cutting a release needs `gh` authenticated (or `GITHUB_TOKEN` set) — the script
+creates the GitHub release. No npm credentials are needed locally after the
+bootstrap below.
 
-The release script also creates a GitHub release, so `gh` must be authenticated
-(or `GITHUB_TOKEN` set).
+### Bootstrap (once per package, already done for existing packages)
+
+Trusted publishing cannot be configured for a package that does not exist yet —
+npm only exposes the setting on a published package. So each **new** package
+needs one manual publish before CI can take it over:
+
+1. Log in to npm as a member of the `@maelstrom-co` org with publish rights.
+   Sessions are short-lived, so do this immediately before publishing:
+
+   ```bash
+   npm login --registry=https://registry.npmjs.org
+   ```
+
+2. Publish the first version with the release script, not bare `npm publish` —
+   the script rewrites `workspace:*` and `catalog:` specs to concrete versions,
+   which npm will not do for you:
+
+   ```bash
+   bun scripts/publish-packages.ts --tag alpha --skip-published
+   ```
+
+3. On npmjs.org, open each package → **Settings → Trusted publishing**, and add
+   a GitHub Actions publisher pointing at this repository and `release.yml`.
+
+4. Log out locally. Nothing else should ever publish from a laptop.
+
+This first version ships **without provenance** — attestation requires a build
+CI can vouch for. Every release after it is CI-published and attested.
 
 ### Release steps
 
-`scripts/release.ts` runs the entire release in one command — version (fixed,
-shared across all packages), changelog, commit (`chore(release): {version}`),
-tag, push, GitHub release, and npm publish.
+`scripts/release.ts --skip-publish` runs the local half — version (fixed, shared
+across all packages), changelog, commit (`chore(release): {version}`), tag, push,
+and GitHub release. CI does the publish.
 
 1. Sync `main`, ensure a clean working tree, and install: `bun install`.
 
-2. **Dry-run first.** `--dry-run` makes no commits, tags, or publishes — it only
-   reports what would happen:
+2. **Rehearse.** `--dry-run` makes no commits, tags, or publishes:
 
    ```bash
    bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha --dry-run
    ```
 
-3. **Release** (drop `--dry-run`):
+   To rehearse the CI half too, run the **Release** workflow via
+   `workflow_dispatch` with no tag and `dry_run` checked. It resolves, builds,
+   and packs every package without publishing.
+
+3. **Cut the release.** Drop `--dry-run` and add `--skip-publish`; pushing the
+   tag hands off to CI:
 
    ```bash
-   bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha
+   bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha --skip-publish
    ```
 
    For the very first release (no prior `v*` tag exists yet), add
    `--first-release`.
 
+4. Watch the **Release** workflow. It refuses to publish if any package manifest
+   disagrees with the tag, and verifies every package is live on the registry
+   before going green.
+
+### Recovering a partial release
+
+If the publish fails partway, **re-run the workflow** — do not re-cut. The
+publish step passes `--skip-published`, so packages that already landed are
+skipped and only the missing ones go out. npm versions are immutable, so
+re-publishing one that succeeded is a hard error; that flag is what makes the
+re-run work.
+
 ### Flags and gotchas
 
-- **Git state is pushed before the npm publish.** `scripts/release.ts` runs
-  version → changelog → commit → tag → push → GitHub release **before** it
-  publishes to npm. If the publish fails midway, the commit, tag, and GitHub
-  release already exist on the remote while npm has no matching version —
-  recovery is manual: fix the cause and re-publish that same version (do **not**
-  re-run the full release, which would bump the version again). Always
-  `--dry-run` first to reduce the risk.
+- **Git state is pushed before the npm publish**, and now by a different actor:
+  the tag, commit, and GitHub release exist the moment you push, while npm
+  publishes seconds later in CI. A failed publish leaves that gap — close it by
+  re-running the workflow (see "Recovering a partial release"), never by
+  re-cutting, which would bump the version again.
 - **`RELEASE_REGISTRY` is an override, not a requirement.** Publishing defaults
   to public npm (`https://registry.npmjs.org`). Set it only to aim somewhere
   else — a local Verdaccio (`nx local-registry`, `http://localhost:4873`) to
   rehearse the whole flow without touching the real registry.
-- **npm provenance is off.** `--provenance` requires publishing from GitHub
-  Actions with `id-token: write`; releases are still manual and local, so there
-  is no trusted build to attest to. It gets enabled with CI publishing.
+- **Provenance turns itself on when the repo goes public.** npm refuses to
+  attest a build it cannot link to public source, so the release job passes
+  `--provenance` only when the repository is public and warns when it does not.
+  Nothing to change on the day it flips.
+- **`--dry-run` does not exercise provenance.** npm skips attestation entirely
+  under `--dry-run`, so a green rehearsal says nothing about whether provenance
+  works. The first real publish is the first real test.
+- **A new package will fail its first CI release.** It has no trusted publisher
+  yet, and it cannot have one until it exists on the registry. Run the bootstrap
+  above for it before adding it to a release.
+- **Never add an `NPM_TOKEN` secret to work around an auth failure.** A token in
+  `.npmrc` can stop npm from attempting the OIDC exchange at all, so it turns a
+  fixable misconfiguration into a permanent one — and reintroduces the 90-day
+  rotation. Fix the trusted publisher instead.
 - **`--preid` sets both the prerelease identifier and the npm dist-tag.** While
   in prerelease, pass `--preid alpha` so the release publishes under the `alpha`
   dist-tag and `npm install @maelstrom-co/<pkg>` does not resolve to a
