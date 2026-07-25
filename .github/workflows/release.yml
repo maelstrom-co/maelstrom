@@ -30,6 +30,11 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # A tag push publishes to public npm with no human in the loop. Naming an
+    # environment gives that an attachment point for required reviewers and
+    # wait timers; GitHub creates it on first run, and it carries no protection
+    # until one is configured in repository settings.
+    environment: production
     concurrency:
       # One run per tag, and never cancel a publish mid-flight: a half-published
       # release has to be finished, not restarted from scratch.

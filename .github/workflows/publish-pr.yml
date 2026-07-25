@@ -46,8 +46,12 @@ jobs:
 
       - name: Set preview version
         id: version
+        # run_attempt is part of the version because run_number does not change
+        # when a run is retried. Without it, re-running after a partial publish
+        # would reuse a version that already exists, and registry versions are
+        # immutable — the retry could never succeed.
         run: |
-          VERSION="0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}"
+          VERSION="0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}.${{ github.run_attempt }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Publishing version: $VERSION"
 
@@ -97,15 +101,25 @@ jobs:
 
       - name: Minimize previous preview comment
         if: steps.find-comment.outputs.comment-id != ''
+        # Cosmetic, and it runs after a successful publish. A GitHub API hiccup
+        # must not turn a green publish red or suppress the install
+        # instructions below, so failures surface as a warning instead.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_NODE_ID: ${{ steps.find-comment.outputs.comment-node-id }}
         run: |
+          # $id is a GraphQL variable bound by -f, not a shell variable, so it
+          # must stay unexpanded inside the single-quoted query. Binding it
+          # keeps step output out of the query string entirely.
+          # shellcheck disable=SC2016
           gh api graphql -f query='
-            mutation {
-              minimizeComment(input: {subjectId: "${{ steps.find-comment.outputs.comment-node-id }}", classifier: OUTDATED}) {
+            mutation ($id: ID!) {
+              minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
                 minimizedComment { isMinimized }
               }
-            }'
+            }' -f id="$COMMENT_NODE_ID" \
+            || echo "::warning::Could not minimize the previous preview comment (non-fatal); continuing."
 
       # Derived from the workspace rather than hardcoded: the previous fixed
       # list silently went stale every time a package was added or renamed, and
