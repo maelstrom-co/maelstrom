@@ -39,20 +39,17 @@ WebRTC, microphone capture — and a provider surface most Maelstrom apps never
 touch. The *seam* lives in `client` as types; the *implementation* lives in
 `realtime`. An app that never speaks pays nothing for the option.
 
-**`realtime-server` apart from `realtime`.** These run on opposite sides of an
-HTTP boundary, and only one of them may ever hold a provider key. The edge
-between them runs one way: `realtime-server` imports failure types from
-`realtime`, and `realtime` imports nothing from `realtime-server`. That
-direction is the property worth keeping. Nothing reachable from a browser bundle
-can reach code that touches a key, because the browser package has no path to
-the server package at all. Reverse that edge and key custody stops being
-structural.
+**Provider adapters apart from their server minters.** These run on opposite
+sides of an HTTP boundary, and only the server package may hold a provider key.
+Both sides import wire and failure types from `realtime-protocol`; the adapter
+never imports its server sibling. Nothing reachable from a browser bundle can
+reach code that touches a key, because the browser package has no path to the
+server package at all. Reverse that edge and key custody stops being structural.
 
-**Providers as subpath exports** (`@maelstrom-co/realtime/openai`, and a
-reserved `/google`). Importing one provider does not drag another provider's SDK
-into the bundle, and the root package stays provider-neutral — it never branches
-on provider identity, so a second adapter is an addition rather than a
-conditional.
+**Providers as sibling packages.** `realtime-openai` and `realtime-livekit`
+implement the provider-neutral seam from `realtime`. Importing one provider does
+not drag another provider's SDK into the bundle, and the core never branches on
+provider identity, so another adapter is an addition rather than a conditional.
 
 **`realtime-livekit` apart from `realtime`.** LiveKit and the browser VAD assets
 are optional transport weight. The adapter owns the microphone and turn
@@ -187,9 +184,9 @@ input.
 
 ## What we deliberately have not built
 
-The reserved `/google` subpath is a stub. It exists to keep the provider-neutral
-claim honest, and it will only be proven by a second speech-native adapter
-actually landing behind the seam.
+A future Gemini Live adapter remains unimplemented. The provider-neutral claim
+will only be proven fully when another speech-native adapter lands behind the
+seam.
 
 The `VoiceSession` seam shipped thinner than its exports suggest.
 `SpeakableResult` and `GroundingUpdate` are exported but not referenced by the

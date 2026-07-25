@@ -27,12 +27,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./openai": {
-      "@maelstrom-co/source": "./src/openai.ts",
-      "types": "./dist/openai.d.ts",
-      "import": "./dist/openai.js",
-      "default": "./dist/openai.js"
-    },
     "./google": {
       "@maelstrom-co/source": "./src/google.ts",
       "types": "./dist/google.d.ts",
@@ -59,8 +53,7 @@
   },
   "dependencies": {
     "@maelstrom-co/client": "0.1.0-alpha.0",
-    "@maelstrom-co/protocol": "0.1.0-alpha.0",
-    "@maelstrom-co/realtime-protocol": "0.0.0"
+    "@maelstrom-co/protocol": "0.1.0-alpha.0"
   },
   "devDependencies": {
     "@sinonjs/fake-timers": "catalog:"

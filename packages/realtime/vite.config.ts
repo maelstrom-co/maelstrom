@@ -17,7 +17,6 @@ export default defineConfig(() => ({
     lib: {
       entry: {
         index: 'src/index.ts',
-        openai: 'src/openai.ts',
         google: 'src/google.ts',
       },
       name: '@maelstrom-co/realtime',
@@ -28,7 +27,6 @@ export default defineConfig(() => ({
         '@maelstrom-co/client',
         '@maelstrom-co/protocol',
         '@maelstrom-co/realtime-protocol',
-        '@maelstrom-co/realtime-protocol/openai',
       ],
     },
   },

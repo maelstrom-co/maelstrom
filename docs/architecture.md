@@ -387,7 +387,7 @@ These enable:
          │
     ┌────┼───────────────┐
     ▼    ▼               ▼
-@maelstrom-co/client  @maelstrom-co/engine  @maelstrom-co/realtime-server
+@maelstrom-co/client  @maelstrom-co/engine  @maelstrom-co/realtime-openai-server
     │
     ├──────────┐
     ▼          ▼
@@ -401,7 +401,7 @@ These enable:
 - **engine**: Server-side only, has LLM provider dependencies
 - **react**: React-specific bindings, optional
 - **realtime**: browser-side realtime voice core; talks to the provider directly with ephemeral tokens, feeds intents into the client
-- **realtime-server**: mints ephemeral provider tokens; the sole holder of provider API keys; shares only protocol schemas with the browser side (no code crosses the HTTP boundary)
+- **realtime-openai-server**: mints ephemeral OpenAI realtime tokens; the sole holder of `OPENAI_API_KEY`; shares only protocol schemas with the browser side (no code crosses the HTTP boundary)
 
 ---
 

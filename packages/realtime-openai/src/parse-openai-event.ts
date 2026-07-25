@@ -1,6 +1,5 @@
 import { ToolCallId } from '@maelstrom-co/protocol';
-
-import type { RealtimeAdapterEvent } from '../realtime-session/provider-adapter.types.js';
+import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;

@@ -37,7 +37,10 @@
       "path": "./packages/realtime-livekit-agent"
     },
     {
-      "path": "./packages/realtime-server"
+      "path": "./packages/realtime-openai"
+    },
+    {
+      "path": "./packages/realtime-openai-server"
     },
     {
       "path": "./packages/react-realtime"

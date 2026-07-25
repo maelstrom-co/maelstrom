@@ -43,7 +43,7 @@ vi.mock('@maelstrom-co/realtime', async (importOriginal) => {
   };
 });
 
-vi.mock('@maelstrom-co/realtime/openai', () => ({
+vi.mock('@maelstrom-co/realtime-openai', () => ({
   OpenAIAdapter: class {},
 }));
 

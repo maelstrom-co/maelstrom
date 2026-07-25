@@ -12,13 +12,15 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime @maelstrom-co/
 
 ## What it does
 
-This package hosts the provider-neutral session logic that turns adapter events into Maelstrom intents, waits for successful UI updates to render before returning their result, and keeps structural grounding separate from Engine planning. It ships these entry points:
+This package hosts the provider-neutral session logic that turns adapter events
+into Maelstrom intents, waits for successful UI updates to render before
+returning their result, and keeps structural grounding separate from Engine
+planning. Provider transports ship as sibling packages such as
+`@maelstrom-co/realtime-openai` and `@maelstrom-co/realtime-livekit`.
 
 - **`@maelstrom-co/realtime`** — provider-neutral `RealtimeSession`, adapter contract, and typed fatal errors
-- **`@maelstrom-co/realtime/openai`** — OpenAI Realtime adapter
-- **`@maelstrom-co/realtime/google`** — reserved package subpath
-
-`@maelstrom-co/realtime/google` is reserved but not implemented. Do not import it as a usable adapter.
+- **`@maelstrom-co/realtime-openai`** — OpenAI Realtime browser adapter
+- **`@maelstrom-co/realtime-livekit`** — LiveKit browser adapter
 
 Application code supplies a `RealtimeProviderAdapter` to `RealtimeSession`, or passes an adapter factory to [`@maelstrom-co/react-realtime`](https://docs.maelstrom-ai.co/reference/react-realtime/readme/). Provider adapters may expose different turn controls and state progressions; the core does not define a universal retry sequence.
 

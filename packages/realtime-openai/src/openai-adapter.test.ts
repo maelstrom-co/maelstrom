@@ -4,16 +4,15 @@ import type {
   UIStructuralSnapshot,
 } from '@maelstrom-co/client';
 import { SessionId, ToolCallId } from '@maelstrom-co/protocol';
+import type {
+  AdapterConnectOptions,
+  RealtimeInstance,
+  RealtimeProviderAdapter,
+} from '@maelstrom-co/realtime';
+import { RealtimeSession, RealtimeVoiceError } from '@maelstrom-co/realtime';
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type { OpenAITokenGrant } from '@maelstrom-co/realtime-protocol/openai';
 import FakeTimers from '@sinonjs/fake-timers';
-import type {
-  AdapterConnectOptions,
-  RealtimeProviderAdapter,
-} from '../realtime-session/provider-adapter.types.js';
-import { RealtimeSession } from '../realtime-session/realtime-session.js';
-import type { RealtimeInstance } from '../realtime-session/realtime-session.types.js';
-import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import { OpenAIAdapter } from './openai-adapter.js';
 
 function flushMicrotasks(): Promise<void> {
@@ -624,7 +623,7 @@ function makeInertInstance(): RealtimeInstance {
   };
   const capabilitySnapshot: CapabilitySnapshot = { vessels: [] };
   return {
-    submitIntent: async () => ({}),
+    submitIntent: async () => {},
     waitForIdle: async () => {},
     getStructuralSnapshot: () => snapshot,
     getCapabilitySnapshot: () => capabilitySnapshot,

@@ -75,17 +75,20 @@ Packages are private and published under the `@maelstrom-co` scope on GitHub Pac
     ├──────────┐
     ▼          ▼
 @maelstrom-co/react  @maelstrom-co/realtime
-(React bindings)     (browser realtime-voice core)
+(React bindings)     (provider-neutral realtime-voice core)
                           │
                      ┌────┴──────────────────┐
                      ▼                        ▼
-          @maelstrom-co/realtime-server  @maelstrom-co/realtime-livekit
-          (mints ephemeral realtime      (LiveKit browser adapter)
-           tokens)                            │
-                                          ┌────┴──────────────────────────┐
-                                          ▼                                ▼
-                          @maelstrom-co/realtime-livekit-server  @maelstrom-co/realtime-livekit-agent
-                          (mints LiveKit access tokens)          (Node voice-agent worker)
+          @maelstrom-co/realtime-openai  @maelstrom-co/realtime-livekit
+          (OpenAI browser adapter)       (LiveKit browser adapter)
+                     │                         │
+                     ▼                         ▼
+   @maelstrom-co/realtime-openai-server  @maelstrom-co/realtime-livekit-server
+   (mints ephemeral OpenAI tokens)       (mints LiveKit access tokens)
+                                               │
+                                               ▼
+                                    @maelstrom-co/realtime-livekit-agent
+                                    (Node voice-agent worker)
 ```
 
 ### Package Locations
@@ -96,8 +99,9 @@ Packages are private and published under the `@maelstrom-co` scope on GitHub Pac
 | `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Command Processor, Vessel Manager, Orchestrator, voice-session seam |
 | `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
-| `@maelstrom-co/realtime` | `packages/realtime/` | Browser realtime-voice core: RealtimeSession, RealtimeProviderAdapter seam, OpenAI adapter via `/openai` subpath (ephemeral tokens only — never holds provider keys) |
-| `@maelstrom-co/realtime-server` | `packages/realtime-server/` | Server-side mint of ephemeral OpenAI realtime tokens; each provider owns its own token minting, either via a Node-only subpath or a sibling server package |
+| `@maelstrom-co/realtime` | `packages/realtime/` | Provider-neutral browser realtime-voice core: RealtimeSession, RealtimeProviderAdapter seam, ConnectRaceGuard, groundedDebounce, RealtimeVoiceError. No provider-specific code — every provider ships as a sibling package |
+| `@maelstrom-co/realtime-openai` | `packages/realtime-openai/` | OpenAI browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; declares the token-grant contract minted by `@maelstrom-co/realtime-openai-server` |
+| `@maelstrom-co/realtime-openai-server` | `packages/realtime-openai-server/` | Server-side mint of ephemeral OpenAI realtime tokens; the sibling of `@maelstrom-co/realtime-openai`, exactly as `realtime-livekit-server` is the sibling of `realtime-livekit` |
 | `@maelstrom-co/realtime-livekit` | `packages/realtime-livekit/` | LiveKit browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; declares the token-grant contract minted by `@maelstrom-co/realtime-livekit-server` |
 | `@maelstrom-co/realtime-livekit-server` | `packages/realtime-livekit-server/` | Server-side mint of LiveKit access tokens; Node-only sibling implementing the grant contract declared by `@maelstrom-co/realtime-livekit` |
 | `@maelstrom-co/realtime-livekit-agent` | `packages/realtime-livekit-agent/` | Node voice-agent worker: Deepgram STT / Cartesia TTS pipeline over LiveKit Agents, speaks engine responses back into the room |

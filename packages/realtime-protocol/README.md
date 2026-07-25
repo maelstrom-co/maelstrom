@@ -15,10 +15,11 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-protocol`
 This package holds only types, zod schemas, and constants — zero runtime
 behavior, no browser or Node APIs. It is the contract leaf both the
 browser-side realtime packages (`@maelstrom-co/realtime`,
-`@maelstrom-co/realtime-livekit`) and the server/worker-side ones
-(`@maelstrom-co/realtime-server`, `@maelstrom-co/realtime-livekit-server`,
-`@maelstrom-co/realtime-livekit-agent`) depend on, so a Node-only package can
-declare the vocabulary it needs without pulling in a browser SDK.
+`@maelstrom-co/realtime-openai`, `@maelstrom-co/realtime-livekit`) and the
+server/worker-side ones (`@maelstrom-co/realtime-openai-server`,
+`@maelstrom-co/realtime-livekit-server`, `@maelstrom-co/realtime-livekit-agent`)
+depend on, so a Node-only package can declare the vocabulary it needs without
+pulling in a browser SDK.
 
 It ships three entry points:
 

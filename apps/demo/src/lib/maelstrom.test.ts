@@ -32,8 +32,8 @@ vi.mock('@maelstrom-co/react-realtime', async (importOriginal) => ({
     return state.extension;
   },
 }));
-vi.mock('@maelstrom-co/realtime/openai', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@maelstrom-co/realtime/openai')>()),
+vi.mock('@maelstrom-co/realtime-openai', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/realtime-openai')>()),
   OpenAIAdapter: class {
     constructor(options: unknown) {
       state.openAIAdapterOptions.push(options);
@@ -90,7 +90,7 @@ describe('demo voice provider wiring', () => {
     const [react, reactRealtime, openAI, liveKit] = await Promise.all([
       import('@maelstrom-co/react'),
       import('@maelstrom-co/react-realtime'),
-      import('@maelstrom-co/realtime/openai'),
+      import('@maelstrom-co/realtime-openai'),
       import('@maelstrom-co/realtime-livekit'),
     ]);
 

@@ -78,7 +78,7 @@ export type MintResult = Result<OpenAITokenGrant, MintFailure>;
  * import {
  *   createOpenAIMinter,
  *   mintFailureHttpStatus,
- * } from '@maelstrom-co/realtime-server';
+ * } from '@maelstrom-co/realtime-openai-server';
  * import { requireAuthenticatedRealtimeSession } from './auth';
  * import {
  *   areRealtimeMintAuthAndCsrfCheapAndConstantTime,

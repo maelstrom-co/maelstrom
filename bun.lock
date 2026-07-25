@@ -67,8 +67,9 @@
         "@maelstrom-co/realtime-livekit": "workspace:*",
         "@maelstrom-co/realtime-livekit-agent": "workspace:*",
         "@maelstrom-co/realtime-livekit-server": "workspace:*",
+        "@maelstrom-co/realtime-openai": "workspace:*",
+        "@maelstrom-co/realtime-openai-server": "workspace:*",
         "@maelstrom-co/realtime-protocol": "workspace:*",
-        "@maelstrom-co/realtime-server": "workspace:*",
         "@tanstack/ai": "catalog:",
         "@tanstack/ai-openai": "catalog:",
         "@tanstack/react-router": "catalog:",
@@ -236,7 +237,6 @@
       "dependencies": {
         "@maelstrom-co/client": "0.0.0",
         "@maelstrom-co/protocol": "0.0.0",
-        "@maelstrom-co/realtime-protocol": "0.0.0",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
@@ -286,20 +286,33 @@
         "zod": "catalog:",
       },
     },
+    "packages/realtime-openai": {
+      "name": "@maelstrom-co/realtime-openai",
+      "version": "0.0.0",
+      "dependencies": {
+        "@maelstrom-co/client": "0.0.0",
+        "@maelstrom-co/protocol": "0.0.0",
+        "@maelstrom-co/realtime": "0.0.0",
+        "@maelstrom-co/realtime-protocol": "0.0.0",
+      },
+      "devDependencies": {
+        "@sinonjs/fake-timers": "catalog:",
+      },
+    },
+    "packages/realtime-openai-server": {
+      "name": "@maelstrom-co/realtime-openai-server",
+      "version": "0.0.0",
+      "dependencies": {
+        "@maelstrom-co/protocol": "0.0.0",
+        "@maelstrom-co/realtime-protocol": "0.0.0",
+        "zod": "catalog:",
+      },
+    },
     "packages/realtime-protocol": {
       "name": "@maelstrom-co/realtime-protocol",
       "version": "0.0.0",
       "dependencies": {
         "@maelstrom-co/protocol": "0.0.0",
-        "zod": "catalog:",
-      },
-    },
-    "packages/realtime-server": {
-      "name": "@maelstrom-co/realtime-server",
-      "version": "0.0.0",
-      "dependencies": {
-        "@maelstrom-co/protocol": "0.0.0",
-        "@maelstrom-co/realtime-protocol": "0.0.0",
         "zod": "catalog:",
       },
     },
@@ -1058,9 +1071,11 @@
 
     "@maelstrom-co/realtime-livekit-server": ["@maelstrom-co/realtime-livekit-server@workspace:packages/realtime-livekit-server"],
 
-    "@maelstrom-co/realtime-protocol": ["@maelstrom-co/realtime-protocol@workspace:packages/realtime-protocol"],
+    "@maelstrom-co/realtime-openai": ["@maelstrom-co/realtime-openai@workspace:packages/realtime-openai"],
 
-    "@maelstrom-co/realtime-server": ["@maelstrom-co/realtime-server@workspace:packages/realtime-server"],
+    "@maelstrom-co/realtime-openai-server": ["@maelstrom-co/realtime-openai-server@workspace:packages/realtime-openai-server"],
+
+    "@maelstrom-co/realtime-protocol": ["@maelstrom-co/realtime-protocol@workspace:packages/realtime-protocol"],
 
     "@maelstrom-co/www": ["@maelstrom-co/www@workspace:apps/www"],
 

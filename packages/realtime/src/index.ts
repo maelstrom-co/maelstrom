@@ -6,9 +6,10 @@
  * Maelstrom-shaped logic — tool routing, speak-after-render ordering,
  * latest-wins grounding, barge-in handling, and sidechannel events — fully
  * provider-agnostic and unit-tested against a mock adapter. Concrete
- * provider transports live behind `./openai`; additional providers ship as
- * sibling subpaths — import from those entry points, not this barrel, to
- * pull one in.
+ * provider transports ship as sibling packages (`@maelstrom-co/realtime-openai`,
+ * `@maelstrom-co/realtime-livekit`, …) that implement
+ * {@link RealtimeProviderAdapter} — import from those packages, not this
+ * barrel, to pull one in.
  */
 
 export type { ConnectAttempt } from './lib/connect-race-guard.js';

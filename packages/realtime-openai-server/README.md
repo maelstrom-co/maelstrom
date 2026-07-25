@@ -1,4 +1,4 @@
-# @maelstrom-co/realtime-server
+# @maelstrom-co/realtime-openai-server
 
 Server-only handlers for minting ephemeral realtime provider credentials.
 
@@ -8,10 +8,10 @@ This is the only Maelstrom package that touches raw provider API keys
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime-server @maelstrom-co/protocol
+bun add @maelstrom-co/realtime-openai-server @maelstrom-co/protocol
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-server @maelstrom-co/protocol`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-openai-server @maelstrom-co/protocol`
 
 ## What it does
 
@@ -32,7 +32,7 @@ import { isOk } from '@maelstrom-co/protocol';
 import {
   createOpenAIMinter,
   mintFailureHttpStatus,
-} from '@maelstrom-co/realtime-server';
+} from '@maelstrom-co/realtime-openai-server';
 
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY ?? '',
@@ -72,7 +72,7 @@ upstream-header option, so adding that support remains a follow-up.
 ## Docs
 
 - OpenAI Realtime guide: https://docs.maelstrom-ai.co/guides/voice/openai-realtime/
-- Package API reference: https://docs.maelstrom-ai.co/reference/realtime-server/readme/
+- Package API reference: https://docs.maelstrom-ai.co/reference/realtime-openai-server/readme/
 - OpenAI Realtime WebRTC docs: https://platform.openai.com/docs/guides/realtime-webrtc
 - OpenAI Realtime API docs: https://platform.openai.com/docs/guides/realtime
 
