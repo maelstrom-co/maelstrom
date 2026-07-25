@@ -178,11 +178,19 @@ needs one manual publish before CI can take it over:
 
 3. On npmjs.org, open each package → **Settings → Trusted publishing**, and add
    a GitHub Actions publisher pointing at this repository and `release.yml`.
+   The publisher's **environment** field must either be left empty or say
+   `production`, because that is the environment `release.yml` declares — a
+   mismatch here is rejected at publish time, and the error does not say which
+   side is wrong.
 
 4. Log out locally. Nothing else should ever publish from a laptop.
 
 This first version ships **without provenance** — attestation requires a build
 CI can vouch for. Every release after it is CI-published and attested.
+
+Naming the `production` environment buys nothing on its own. Required
+reviewers and wait timers are configured in **Settings → Environments**; until
+someone does that, a `v*` tag push publishes with no human in the loop.
 
 ### Release steps
 

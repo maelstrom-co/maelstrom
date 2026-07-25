@@ -140,14 +140,26 @@ export type PublishOptions = {
 
 export type PublishResult = {
   failures: string[];
-  published: string[];
+  /**
+   * Packages whose npm invocation succeeded. Under `dryRun` nothing was
+   * uploaded, so read this together with `dryRun` rather than as a record of
+   * what is on the registry.
+   */
+  succeeded: string[];
   skipped: string[];
+  dryRun: boolean;
 };
 
 // A version already on the registry is immutable, so re-publishing it is a
 // hard error rather than a no-op. Treating "already there" as success is what
 // makes a re-run after a partial publish able to finish the remaining
 // packages instead of dying on the first one that succeeded last time.
+//
+// Only a genuine "not found" answers the question. Any other failure — DNS,
+// a proxy, a bad registry URL — means we do not know, and guessing "not
+// published" would turn a network blip into a spurious publish attempt that
+// then fails on immutability, which is precisely the resilience
+// `--skip-published` exists to provide.
 function isAlreadyPublished(
   name: string,
   version: string,
@@ -167,12 +179,24 @@ function isAlreadyPublished(
         '--registry',
         registry,
         '--json',
+        // One retry, not npm's default three. The default backoff costs ~70s
+        // per unreachable lookup, which across every package outruns the job
+        // timeout — turning a dead registry into a build that hangs rather
+        // than one that reports. A single retry still absorbs a blip.
+        '--fetch-retries=1',
       ],
-      { stdio: ['ignore', 'pipe', 'ignore'] },
+      { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    const stderr = String(
+      (err as { stderr?: Buffer | string })?.stderr ?? '',
+    );
+    if (/E404|404 Not Found|code E404/.test(stderr)) return false;
+    throw new Error(
+      `${name}: could not determine whether ${version} is already published on ${registry}. ` +
+        `Refusing to guess.\n${stderr.trim()}`,
+    );
   }
 }
 
@@ -192,7 +216,7 @@ export async function publishWorkspacePackages(
   const ctx = buildSubstitutionContext(cwd);
   const projectGraph = await createProjectGraphAsync();
   const failures: string[] = [];
-  const published: string[] = [];
+  const succeeded: string[] = [];
   const skipped: string[] = [];
 
   for (const node of Object.values(projectGraph.nodes)) {
@@ -209,16 +233,25 @@ export async function publishWorkspacePackages(
       console.log(`Skipping ${pkgJson.name} (private).`);
       continue;
     }
-    if (
-      skipPublished &&
-      !dryRun &&
-      isAlreadyPublished(pkgJson.name, pkgJson.version, registry)
-    ) {
-      console.log(
-        `Skipping ${pkgJson.name}@${pkgJson.version} (already on ${registry}).`,
-      );
-      skipped.push(pkgJson.name);
-      continue;
+    if (skipPublished && !dryRun) {
+      let already: boolean;
+      try {
+        already = isAlreadyPublished(pkgJson.name, pkgJson.version, registry);
+      } catch (err) {
+        // An indeterminate check is this package's failure, not the run's:
+        // the rest can still go out, and the summary reports the whole
+        // picture instead of stopping at the first unreachable lookup.
+        console.error(err instanceof Error ? err.message : String(err));
+        failures.push(pkgJson.name);
+        continue;
+      }
+      if (already) {
+        console.log(
+          `Skipping ${pkgJson.name}@${pkgJson.version} (already on ${registry}).`,
+        );
+        skipped.push(pkgJson.name);
+        continue;
+      }
     }
     const args = ['publish', '--tag', tag, '--registry', registry];
     if (dryRun) args.push('--dry-run');
@@ -238,7 +271,7 @@ export async function publishWorkspacePackages(
         cwd: join(cwd, projectRoot),
         stdio: verbose ? 'inherit' : ['ignore', 'inherit', 'inherit'],
       });
-      published.push(pkgJson.name);
+      succeeded.push(pkgJson.name);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith(`${pkgJson.name}: `)) {
         console.error(err.message);
@@ -249,7 +282,7 @@ export async function publishWorkspacePackages(
     }
   }
 
-  return { failures, published, skipped };
+  return { failures, succeeded, skipped, dryRun };
 }
 
 // CLI entrypoint. Invoked directly (e.g. by the PR-preview workflow) the
@@ -281,20 +314,21 @@ if (isDirectInvocation) {
     process.env.RELEASE_REGISTRY ??
     'https://registry.npmjs.org';
 
-  const { failures, published, skipped } = await publishWorkspacePackages({
-    tag,
-    registry,
-    dryRun: values['dry-run'],
-    verbose: values.verbose,
-    provenance: values.provenance,
-    skipPublished: values['skip-published'],
-  });
+  const { failures, succeeded, skipped, dryRun } =
+    await publishWorkspacePackages({
+      tag,
+      registry,
+      dryRun: values['dry-run'],
+      verbose: values.verbose,
+      provenance: values.provenance,
+      skipPublished: values['skip-published'],
+    });
 
-  // A dry run publishes nothing. Reporting "Published 10" for one invites
+  // A dry run uploads nothing. Reporting "Published 10" for one invites
   // exactly the misreading that makes a rehearsal feel like a release.
-  const verb = values['dry-run'] ? 'Would publish' : 'Published';
+  const verb = dryRun ? 'Would publish' : 'Published';
   console.log(
-    `\n${verb} ${published.length}, skipped ${skipped.length}, failed ${failures.length}.`,
+    `\n${verb} ${succeeded.length}, skipped ${skipped.length}, failed ${failures.length}.`,
   );
 
   if (failures.length > 0) {
