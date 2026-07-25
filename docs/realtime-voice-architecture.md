@@ -198,7 +198,7 @@ Tracked in Linear, all under Soft Preview Release:
 
 - **[MAE-311](https://linear.app/maelstrom-vortex/issue/MAE-311)** — Gemini Live adapter (`/google` subpath), the seam's first real pressure test, plus its minter.
 - **[MAE-330](https://linear.app/maelstrom-vortex/issue/MAE-330) / [MAE-331](https://linear.app/maelstrom-vortex/issue/MAE-331)** — rebase the LiveKit cascade voice track onto the `VoiceSession` seam and the token-handshake contract.
-- **[MAE-332](https://linear.app/maelstrom-vortex/issue/MAE-332)** — generalize `@maelstrom-co/react-realtime`'s `maelstromRealtime()` extension (shipped for the realtime track; session ownership already lives in the extension closure, out of component state) into a single `maelstromVoice(sessionFactory)` extension shared with the cascade track, and migrate the demo off its local spike extension.
+- **[MAE-332](https://linear.app/maelstrom-vortex/issue/MAE-332)** — generalize `@maelstrom-co/react-realtime`'s `maelstromRealtime()` extension (shipped for the realtime track; session ownership already lives in the extension closure, out of component state) into a single `maelstromVoice(sessionFactory)` extension shared with the cascade track.
 - **[MAE-333](https://linear.app/maelstrom-vortex/issue/MAE-333)** — docs reconciliation across the voice packages.
 - **[MAE-334](https://linear.app/maelstrom-vortex/issue/MAE-334)** — acoustic false barge-in (noise triggering `speech_started`).
 - **[MAE-335](https://linear.app/maelstrom-vortex/issue/MAE-335)** — the sidechannel *receiver*: wire `onEvent` to a transport and a storage-agnostic server handler.

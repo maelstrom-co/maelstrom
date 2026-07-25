@@ -68,9 +68,9 @@ export function resetCalendarStore(): void {
 // unchanged so a genuinely unexpected format still shows up as-is somewhere
 // rather than being dropped.
 function normalizeTime(time: string): string {
-  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i.exec(time.trim());
+  const match = /^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i.exec(time.trim());
   if (!match) return time.trim();
-  const [, hourStr, minute, meridiem] = match;
+  const [, hourStr, minute = '00', meridiem] = match;
   let hour = Number(hourStr);
   if (meridiem) {
     if (hour < 1 || hour > 12) return time.trim();

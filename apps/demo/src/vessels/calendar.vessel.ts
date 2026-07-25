@@ -67,7 +67,10 @@ export const calendarVessel = defineVessel({
           description: 'Switch to day view for hourly schedule',
           transitionsTo: 'day',
         },
-        ...EVENT_ACTIONS,
+        ...EVENT_ACTIONS.map((action) => ({
+          ...action,
+          transitionsTo: 'day' as const,
+        })),
       ],
     },
     week: {

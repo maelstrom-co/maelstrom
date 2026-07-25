@@ -364,6 +364,22 @@ describe('OpenAIAdapter — failed SDP exchange', () => {
     expect((err as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
     expect((err as RealtimeVoiceError).cause).toBe(boom);
   });
+
+  it('wraps a response.text() rejection (broken/aborted stream) as CONNECTION_FAILED instead of letting the raw error escape', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const boom = new Error('body stream broken');
+    fetchImpl = async () => ({
+      ok: true,
+      status: 200,
+      text: () => Promise.reject(boom),
+    });
+
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+    expect((err as RealtimeVoiceError).cause).toBe(boom);
+  });
 });
 
 // ============================================================================

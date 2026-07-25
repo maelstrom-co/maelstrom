@@ -14,6 +14,14 @@ interface TouchableInstance {
 /** Minimal shape this hook needs from `orchestrator.commandProcessor.store` — kept narrow so tests can pass a fake store instead of a real Orchestrator. */
 export interface InstancesStoreState {
   readonly instances: ReadonlyMap<string, TouchableInstance>;
+  /**
+   * Command-processor batch status, when the caller's store exposes one
+   * (the real `orchestrator.commandProcessor.store` always does). Used only
+   * to detect an idle -> processing transition — the start of a fresh
+   * command batch — so a still-lingering flash from a prior batch doesn't
+   * carry forward into one that never touched it.
+   */
+  readonly status?: string;
 }
 
 export interface InstancesStoreLike {
@@ -96,14 +104,27 @@ export function useTouchedInstances(
   const snapshotRef = useRef<Map<string, TouchableInstance> | null>(null);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pendingActionTargetsRef = useRef<Set<string>>(new Set());
+  const statusRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     // Fresh baseline on (re)subscribe — a swapped store must not report its
     // entire initial instance set as "just touched".
     snapshotRef.current = snapshotOf(store.state.instances);
     pendingActionTargetsRef.current = new Set();
+    statusRef.current = store.state.status;
 
     const subscription = store.subscribe((next) => {
+      // A batch produces several notifications (status transitions, the
+      // shape-changing one, the terminal empty-diff one that folds in a
+      // pending action target) — union each into the accumulated set rather
+      // than replacing it, or a later empty-diff notification would clobber
+      // an earlier one's flash. The idle -> processing transition marks a
+      // fresh batch starting, so any flash still lingering from a prior
+      // batch (not yet cleared by the debounce timer below) is dropped
+      // rather than carried into a batch that never touched it.
+      const startingNewBatch = statusRef.current === 'idle' && next.status === 'processing';
+      statusRef.current = next.status;
+
       const nextSnapshot = snapshotOf(next.instances);
       const prevSnapshot = snapshotRef.current ?? new Map();
       const changed = diff(prevSnapshot, nextSnapshot);
@@ -115,11 +136,17 @@ export function useTouchedInstances(
 
       snapshotRef.current = nextSnapshot;
 
-      if (changed.size === 0) return;
+      if (changed.size === 0 && !startingNewBatch) return;
 
-      setTouched(changed);
-      clearTimeout(clearTimerRef.current);
-      clearTimerRef.current = setTimeout(() => setTouched(EMPTY_SET), clearAfterMs);
+      setTouched((prev) => {
+        const base = startingNewBatch ? EMPTY_SET : prev;
+        return changed.size === 0 ? base : new Set([...base, ...changed]);
+      });
+
+      if (changed.size > 0) {
+        clearTimeout(clearTimerRef.current);
+        clearTimerRef.current = setTimeout(() => setTouched(EMPTY_SET), clearAfterMs);
+      }
     });
 
     const unsubscribeEvents = events?.on('command_complete', ({ command }) => {
@@ -147,6 +174,20 @@ export function useTouchedInstances(
  * before paint, letting the CSS animation start on the same frame the
  * vessel's new content does.
  */
+// Instance ids can be influenced by LLM output, so they must never be
+// interpolated raw into a selector string — an id containing `"` or `]`
+// (e.g. `foo"]bar`) produces an invalid selector and throws a SyntaxError.
+// CSS.escape() neutralizes that for any spec-compliant selector engine; the
+// try/catch is an extra backstop so a still-malformed selector can never
+// crash the app, only skip that one flash.
+function select(id: string): Element | null {
+  try {
+    return document.querySelector(`[data-instance-id="${CSS.escape(id)}"]`);
+  } catch {
+    return null;
+  }
+}
+
 export function useFlashInstances(touchedIds: ReadonlySet<string>): void {
   const previousRef = useRef<ReadonlySet<string>>(EMPTY_SET);
 
@@ -155,12 +196,19 @@ export function useFlashInstances(touchedIds: ReadonlySet<string>): void {
 
     for (const id of previous) {
       if (touchedIds.has(id)) continue;
-      document.querySelector(`[data-instance-id="${id}"]`)?.removeAttribute('data-flash');
+      select(id)?.removeAttribute('data-flash');
     }
     for (const id of touchedIds) {
-      document.querySelector(`[data-instance-id="${id}"]`)?.setAttribute('data-flash', 'true');
+      select(id)?.setAttribute('data-flash', 'true');
     }
 
     previousRef.current = touchedIds;
+
+    return () => {
+      for (const id of touchedIds) {
+        select(id)?.removeAttribute('data-flash');
+      }
+      previousRef.current = EMPTY_SET;
+    };
   }, [touchedIds]);
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fakeFetch } from './__tests__/fake-fetch';
 import { fetchRoute } from './osrm';
 
@@ -62,6 +62,7 @@ describe('fetchRoute', () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       'https://router.project-osrm.org/route/v1/driving/' +
         '-122.433,37.7648;-122.4194,37.7793?overview=full&geometries=geojson',
+      { signal: expect.any(AbortSignal) },
     );
   });
 
@@ -97,5 +98,40 @@ describe('fetchRoute', () => {
     await expect(
       fetchRoute(HOME, OFFICE, fakeFetch({ code: 'InvalidQuery' })),
     ).rejects.toThrow(/InvalidQuery/);
+  });
+
+  it('passes an abort signal through to fetch so a stalled request can be cancelled', async () => {
+    const fetchImpl = fakeFetch(REAL_OSRM_RESPONSE);
+    await fetchRoute(HOME, OFFICE, fetchImpl);
+    const [, options] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
+    expect(options?.signal.aborted).toBe(false);
+  });
+
+  it('rejects instead of hanging forever when the connection stalls past the timeout', async () => {
+    const controller = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(controller.signal);
+    try {
+      const neverResolvingFetch = vi.fn(
+        (_url: string, options?: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+              reject(
+                new DOMException('The operation was aborted.', 'AbortError'),
+              );
+            });
+          }),
+      ) as unknown as typeof fetch;
+
+      const routePromise = fetchRoute(HOME, OFFICE, neverResolvingFetch);
+      // Simulates the 8s timeout firing, without waiting 8 real seconds.
+      controller.abort();
+      await expect(routePromise).rejects.toThrow(/aborted/i);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 });

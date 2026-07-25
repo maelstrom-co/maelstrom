@@ -399,7 +399,12 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       );
     }
 
-    const answerSdp = await response.text();
+    let answerSdp: string;
+    try {
+      answerSdp = await response.text();
+    } catch (error) {
+      throw new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to read the remote SDP answer', error);
+    }
     this.#logger.debug('connect timing', { step: 'sdpExchange', ms: Date.now() - connectStart });
     try {
       await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp });

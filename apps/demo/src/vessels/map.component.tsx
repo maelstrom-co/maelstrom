@@ -7,7 +7,7 @@ import { VesselCard } from '../components/vessel-card';
 import { m } from '../lib/maelstrom';
 import { DEMO_LOCATIONS, findLocationByFuzzyName, HOME } from '../lib/locations';
 import { fetchRoute } from '../lib/osrm';
-import { getMapSnapshot, mapActions, useMapStore, type MapState } from './map.store';
+import { mapActions, useMapStore, type MapState } from './map.store';
 import type { mapVessel } from './map.vessel';
 
 function noMatchError(name: string): Error {
@@ -121,10 +121,26 @@ export default function MapComponent({
   const effectiveVariant = resolveVariant(variant, state);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const pendingLoadSyncRef = useRef(false);
-  const latestSyncRef = useRef<{ variant: MapVariant; state: MapState }>({
-    variant,
-    state,
+  // One-shot latch: MapLibre's own `Map.isStyleLoaded()` delegates to
+  // `Style.loaded()`, which reports false while tiles/sources are still
+  // streaming — long after 'load' already fired. Gating on that would
+  // register a `once('load', ...)` that never runs (the event fires exactly
+  // once and was already consumed by the mount effect below), dropping every
+  // sync attempted while tiles stream in for the rest of the session. This
+  // ref instead flips permanently true the moment 'load' fires.
+  const styleReadyRef = useRef(false);
+  // Mirrors the latest variant/state so the mount effect's 'load' handler
+  // (registered once, with no deps) can perform the initial sync without
+  // closing over a stale first-render variant.
+  const syncRef = useRef<() => void>(() => {});
+  // Assigned in an effect rather than during render: a render-phase ref write
+  // is a side effect concurrent rendering doesn't guarantee. The only caller is
+  // the 'load' handler, which fires long after commit, so this always wins.
+  useEffect(() => {
+    syncRef.current = () => {
+      const map = mapRef.current;
+      if (map) syncMapToState(map, variant, state);
+    };
   });
 
   m.useActions('map', instanceId, mapActionRunner);
@@ -165,7 +181,11 @@ export default function MapComponent({
       // here rather than on every state sync, which only needs to touch the
       // route layer data and the viewport bounds.
       addLocationMarkers(map);
-      syncMapToState(map, variantProps.variant, getMapSnapshot());
+      styleReadyRef.current = true;
+      // Performs the initial sync via the ref above, not a direct call here:
+      // this handler is registered once on mount and would otherwise close
+      // over the first render's variant, silently mismatching later state.
+      syncRef.current();
     });
 
     return () => {
@@ -187,23 +207,8 @@ export default function MapComponent({
   }, []);
 
   useEffect(() => {
-    latestSyncRef.current = { variant, state };
     const map = mapRef.current;
-    if (!map) return;
-    if (!map.isStyleLoaded()) {
-      // Coalesce: while the style is still loading, repeated state changes
-      // would otherwise stack up multiple `once('load', ...)` closures, each
-      // replaying its own stale snapshot when 'load' finally fires. Register
-      // at most one, and have it read the ref for whatever's latest by then.
-      if (pendingLoadSyncRef.current) return;
-      pendingLoadSyncRef.current = true;
-      map.once('load', () => {
-        pendingLoadSyncRef.current = false;
-        const latest = latestSyncRef.current;
-        syncMapToState(map, latest.variant, latest.state);
-      });
-      return;
-    }
+    if (!map || !styleReadyRef.current) return;
     syncMapToState(map, variant, state);
   }, [variant, state]);
 

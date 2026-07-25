@@ -15,7 +15,7 @@ export const Route = createFileRoute('/')({
 
 function HomePage() {
   const connector = useMemo(() => createDemoConnector(), []);
-  const debug = useMemo(() => import.meta.env.DEV && isDebugRequested(), []);
+  const debug = useMemo(() => isDebugRequested(), []);
 
   return (
     <m.Provider connector={connector} debug={debug}>

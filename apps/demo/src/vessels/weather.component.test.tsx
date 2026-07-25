@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { cleanup, render } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import type { LiveWeather } from '../lib/weather-data';
+import { cleanup, render, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fetchLiveWeather, type LiveWeather } from '../lib/weather-data';
 import WeatherComponent from './weather.component';
 import type { weatherVessel } from './weather.vessel';
 
@@ -54,5 +55,35 @@ describe('hourly variant with a flat temperature curve', () => {
     for (const bar of bars) {
       expect(Number.parseFloat(bar.style.height)).toBeGreaterThan(0);
     }
+  });
+});
+
+function currentProps(): TypedVesselProps<typeof weatherVessel> {
+  return {
+    instanceId: 'weather-test-current',
+    variantProps: { variant: 'current' },
+    executeAction: vi.fn(),
+  } as unknown as TypedVesselProps<typeof weatherVessel>;
+}
+
+describe('useLiveWeather cancellation', () => {
+  it('aborts the in-flight fetch on unmount instead of merely ignoring it', async () => {
+    const mockFetch = vi.mocked(fetchLiveWeather);
+    mockFetch.mockClear();
+
+    const { unmount } = render(<WeatherComponent {...currentProps()} />);
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+    const [, , , signal] = mockFetch.mock.calls[0] as [
+      number,
+      number,
+      typeof fetch,
+      AbortSignal,
+    ];
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+
+    unmount();
+    expect(signal.aborted).toBe(true);
   });
 });

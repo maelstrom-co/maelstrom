@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react';
 import type { VoiceSessionState } from '@maelstrom-co/client';
-import type { AdapterTurnControl } from '@maelstrom-co/realtime';
+import type { AdapterTurnControl, RealtimeSession } from '@maelstrom-co/realtime';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
+import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 
 // voice-control.tsx only touches `m.useVoice` and `m.VoiceOrb` — faking the
 // module boundary here isolates these tests from the real Provider/session
@@ -45,24 +46,17 @@ function makeVoiceResult(
     error: undefined,
     userTranscript: undefined,
     assistantTranscript: undefined,
-    session: {} as never,
+    session: new FakeRealtimeSession(undefined) as unknown as RealtimeSession,
     turnControl,
     connect: async () => {},
     disconnect: async () => {},
   };
 }
 
-function must<T>(value: T | null | undefined): T {
-  if (value === null || value === undefined) throw new Error('expected value to be defined');
-  return value;
-}
-
-// container's root is the wrapping <div>; the hold-to-talk button is its
-// last child (VoiceOrb is mocked to render null).
+// Queried by role and accessible name (its "Hold to talk" text content)
+// rather than DOM position, so the test survives a sibling being added.
 function getHoldButton(container: HTMLElement): HTMLButtonElement {
-  const root = must(container.firstChild as HTMLElement | null);
-  const button = root.lastElementChild as HTMLButtonElement | null;
-  return must(button);
+  return within(container).getByRole('button', { name: /hold to talk/i });
 }
 
 afterEach(() => {
@@ -318,8 +312,7 @@ describe('VoiceControl hold-to-talk button', () => {
     holder.voiceResult = makeVoiceResult('connected', undefined);
 
     const { container } = render(<VoiceControl />);
-    const root = must(container.firstChild as HTMLElement | null);
 
-    expect(Array.from(root.children).some((el) => el.tagName === 'BUTTON')).toBe(false);
+    expect(within(container).queryByRole('button')).toBeNull();
   });
 });

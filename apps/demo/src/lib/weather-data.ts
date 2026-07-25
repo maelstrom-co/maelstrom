@@ -1,3 +1,5 @@
+import { withFetchTimeout } from './fetch-timeout';
+
 export interface LiveWeather {
   readonly current: {
     temperatureF: number;
@@ -51,7 +53,13 @@ function formatHour(isoLocal: string): string {
 }
 
 function formatDay(isoDate: string): string {
-  return WEEKDAYS[new Date(`${isoDate}T00:00:00Z`).getUTCDay()];
+  const day = new Date(`${isoDate}T00:00:00Z`).getUTCDay();
+  if (Number.isNaN(day)) {
+    throw new Error(
+      `Open-Meteo response has an unparseable daily.time entry: ${isoDate}`,
+    );
+  }
+  return WEEKDAYS[day];
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -109,6 +117,9 @@ function assertValidOpenMeteoResponse(
   if (!isStringArray(h.time)) {
     throw new Error('Open-Meteo response has a non-array hourly.time');
   }
+  if (h.time.length === 0) {
+    throw new Error('Open-Meteo response has an empty hourly.time');
+  }
   if (!isFiniteNumberArray(h.temperature_2m)) {
     throw new Error(
       'Open-Meteo response has a non-numeric hourly.temperature_2m',
@@ -119,7 +130,10 @@ function assertValidOpenMeteoResponse(
       'Open-Meteo response has a non-numeric hourly.weather_code',
     );
   }
-  if (h.temperature_2m.length !== h.time.length || h.weather_code.length !== h.time.length) {
+  if (
+    h.temperature_2m.length !== h.time.length ||
+    h.weather_code.length !== h.time.length
+  ) {
     throw new Error('Open-Meteo response has mismatched hourly array lengths');
   }
 
@@ -129,6 +143,9 @@ function assertValidOpenMeteoResponse(
   const d = daily as Record<string, unknown>;
   if (!isStringArray(d.time)) {
     throw new Error('Open-Meteo response has a non-array daily.time');
+  }
+  if (d.time.length === 0) {
+    throw new Error('Open-Meteo response has an empty daily.time');
   }
   if (!isFiniteNumberArray(d.temperature_2m_max)) {
     throw new Error(
@@ -141,9 +158,7 @@ function assertValidOpenMeteoResponse(
     );
   }
   if (!isFiniteNumberArray(d.weather_code)) {
-    throw new Error(
-      'Open-Meteo response has a non-numeric daily.weather_code',
-    );
+    throw new Error('Open-Meteo response has a non-numeric daily.weather_code');
   }
   if (
     d.temperature_2m_max.length !== d.time.length ||
@@ -170,9 +185,7 @@ function mapResponse(data: OpenMeteoResponse): LiveWeather {
       .slice(hourlyStart, hourlyStart + 12)
       .map((time, i) => ({
         hour: formatHour(time),
-        temperatureF: Math.round(
-          data.hourly.temperature_2m[hourlyStart + i],
-        ),
+        temperatureF: Math.round(data.hourly.temperature_2m[hourlyStart + i]),
         weatherCode: data.hourly.weather_code[hourlyStart + i],
       })),
     daily: data.daily.time.slice(0, 7).map((date, i) => ({
@@ -187,14 +200,16 @@ function mapResponse(data: OpenMeteoResponse): LiveWeather {
 /**
  * Fetches live weather for the given coordinates from Open-Meteo (no API
  * key required) and maps it to the {@link LiveWeather} shape the weather
- * vessel renders. Rejects on any network failure, non-200 response, or
- * malformed payload — callers should catch and keep using
- * {@link FALLBACK_WEATHER} rather than surfacing an error state.
+ * vessel renders. Rejects on any network failure, non-200 response,
+ * malformed payload, or a stalled connection past the timeout — callers
+ * should catch and keep using {@link FALLBACK_WEATHER} rather than
+ * surfacing an error state.
  */
 export async function fetchLiveWeather(
   lat: number,
   lng: number,
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<LiveWeather> {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
@@ -203,7 +218,7 @@ export async function fetchLiveWeather(
     '&daily=temperature_2m_max,temperature_2m_min,weather_code' +
     '&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_days=7&timezone=auto';
 
-  const response = await fetchImpl(url);
+  const response = await fetchImpl(url, { signal: withFetchTimeout(signal) });
   if (!response.ok) {
     throw new Error(`Open-Meteo request failed with status ${response.status}`);
   }

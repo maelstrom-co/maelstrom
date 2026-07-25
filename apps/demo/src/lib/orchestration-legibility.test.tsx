@@ -24,13 +24,17 @@ function fakeContext(): MaelstromExtensionContext {
 }
 
 describe('useInstanceCount', () => {
-  it('server-renders without throwing (needs a getServerSnapshot)', () => {
+  it('server-renders the empty-instances count without throwing (needs a getServerSnapshot)', () => {
     const { useInstanceCount } = orchestrationLegibility(fakeContext());
 
     function InstanceCount() {
       return <>{useInstanceCount()}</>;
     }
 
-    expect(() => renderToString(<InstanceCount />)).not.toThrow();
+    let rendered = '';
+    expect(() => {
+      rendered = renderToString(<InstanceCount />);
+    }).not.toThrow();
+    expect(rendered).toBe('0');
   });
 });

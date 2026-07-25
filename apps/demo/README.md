@@ -54,7 +54,7 @@ This runs the WebSocket engine host (`ws-server.ts`, port 3001) and Vite
 3. From the repo root:
 
    ```bash
-   nx dev-livekit demo
+   bunx nx dev-livekit demo
    ```
 
    Run it through Nx (not `bun run dev-livekit` from `apps/demo/`) so the
@@ -81,14 +81,14 @@ The browser holds the OpenAI realtime session directly, authenticated by a short
 
 ## Debug overlays
 
-Append `?debug` to the URL (e.g. `http://localhost:3000/?debug`) to show the grid/tiling overlay and instance-id/size labels on every vessel. Off by default, so a plain `nx dev demo` renders clean.
+Append `?debug` to the URL (e.g. `http://localhost:3000/?debug`) to show the grid/tiling overlay and instance-id/size labels on every vessel. Off by default, so a plain `bunx nx dev demo` renders clean.
 
 **Recording tip:** macOS's "Reduce Motion" setting (System Settings → Accessibility → Display) disables all of the demo's choreography via `prefers-reduced-motion` — turn it off before recording the launch video.
 
 ## Troubleshooting
 
 - **Mic blocked** — allow microphone access for this site in your browser's site settings, then click the orb to retry.
-- **Voice error: "couldn't start"** — `OPENAI_API_KEY` isn't set in `.env` for the dev server (`nx dev demo`), which mints the realtime token via `/api/realtime-token`.
+- **Voice error: "couldn't start"** — `OPENAI_API_KEY` isn't set in `.env` for the dev server (`bunx nx dev demo`), which mints the realtime token via `/api/realtime-token`.
 - **Weather shows fixture data** — the demo is offline (no network to Open-Meteo); it falls back to canned values silently rather than erroring.
 - **Map tiles blank** — no network to `tiles.openfreemap.org`.
 
@@ -104,10 +104,11 @@ LiveKit-specific failure modes:
 - `MAELSTROM_STT_FLUSH_TIMEOUT_MS` (optional, default `2000`) tunes the agent's
   push-to-talk turn-flush fallback; a non-numeric or non-positive value fails
   the agent worker's startup with a clear error naming the bad value.
-- Because the three processes are chained with `&`, a worker that dies (e.g.
-  on a missing `DEEPGRAM_API_KEY`/`CARTESIA_API_KEY`) leaves the other two
-  running — voice will silently never respond, so check the terminal output
-  for the agent worker's error.
+- The three processes run under `concurrently --kill-others-on-fail`, so a
+  worker that dies (e.g. on a missing `DEEPGRAM_API_KEY`/`CARTESIA_API_KEY`)
+  takes the other two down with it and the command exits non-zero. The failure
+  is visible rather than silent — check the terminal output for the agent
+  worker's error.
 
 ## Further reading
 

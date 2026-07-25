@@ -243,6 +243,99 @@ describe('useTouchedInstances', () => {
 
     expect(result.current).toEqual(new Set());
   });
+
+  it('keeps a moved instance flashed after a later empty-diff notification reports an action target (real [set_layout, execute_actions] batch shape)', () => {
+    // Regression: the command-processor batch for [set_layout, execute_actions]
+    // notifies the store multiple times — 'a' moves on the set_layout
+    // notification, then the batch's terminal `status: 'idle'` notification
+    // carries no shape diff of its own but is where the execute_actions
+    // command_complete's pending action target ('b') gets folded in. Both
+    // must still be flashed at the end of the batch.
+    const store = createFakeStore({
+      status: 'idle',
+      instances: new Map([
+        ['a', makeInstance()],
+        ['b', makeInstance()],
+      ]),
+    });
+    const events = createFakeEvents();
+    const { result } = renderHook(() =>
+      useTouchedInstances(store, DEFAULT_CLEAR_AFTER_MS, events),
+    );
+
+    act(() => {
+      // set_layout notification: 'a' moves.
+      store.setState({
+        status: 'processing',
+        instances: new Map([
+          ['a', makeInstance({ position: { row: 1, column: 1 } })],
+          ['b', makeInstance()],
+        ]),
+      });
+    });
+    expect(result.current).toEqual(new Set(['a']));
+
+    act(() => {
+      // execute_actions targets 'b', then the batch's terminal idle
+      // notification lands with no shape change of its own.
+      events.emitCommandComplete({
+        command: { kind: 'execute_actions', executionPlan: [{ instanceId: 'b' }] },
+      });
+      store.setState({
+        status: 'idle',
+        instances: new Map([
+          ['a', makeInstance({ position: { row: 1, column: 1 } })],
+          ['b', makeInstance()],
+        ]),
+      });
+    });
+
+    expect(result.current).toEqual(new Set(['a', 'b']));
+  });
+
+  it('does not carry a stale flash into a new batch that starts before the old one clears', () => {
+    const store = createFakeStore({
+      status: 'idle',
+      instances: new Map([
+        ['a', makeInstance()],
+        ['c', makeInstance()],
+      ]),
+    });
+    const { result } = renderHook(() => useTouchedInstances(store));
+
+    act(() => {
+      store.setState({
+        status: 'idle',
+        instances: new Map([
+          ['a', makeInstance({ variant: 'expanded' })],
+          ['c', makeInstance()],
+        ]),
+      });
+    });
+    expect(result.current).toEqual(new Set(['a']));
+
+    act(() => {
+      // A fresh batch begins (idle -> processing) before 'a''s flash has
+      // been cleared by the debounce timer — 'a' must not linger into a
+      // batch that never touched it.
+      store.setState({
+        status: 'processing',
+        instances: new Map([
+          ['a', makeInstance({ variant: 'expanded' })],
+          ['c', makeInstance()],
+        ]),
+      });
+      store.setState({
+        status: 'idle',
+        instances: new Map([
+          ['a', makeInstance({ variant: 'expanded' })],
+          ['c', makeInstance({ variant: 'expanded' })],
+        ]),
+      });
+    });
+
+    expect(result.current).toEqual(new Set(['c']));
+  });
 });
 
 describe('useFlashInstances', () => {
@@ -294,6 +387,72 @@ describe('useFlashInstances', () => {
         <Flasher touched={new Set()} />
       </>,
     );
+
+    expect(container.querySelector('[data-instance-id="abc"]')?.getAttribute('data-flash')).toBeNull();
+  });
+
+  it('does not throw for an instanceId containing a raw double-quote (would prematurely close a naive selector string)', () => {
+    // Instance ids can be influenced by LLM output. Interpolating one raw
+    // into `[data-instance-id="${id}"]` lets an embedded `"` terminate the
+    // string early, leaving the rest as malformed selector syntax that
+    // throws a SyntaxError and crashes the app.
+    const dangerousId = 'foo"]bar';
+    function Flasher({ touched }: { touched: ReadonlySet<string> }) {
+      useFlashInstances(touched);
+      return null;
+    }
+
+    expect(() =>
+      render(
+        <>
+          <Fixture id={dangerousId} />
+          <Flasher touched={new Set([dangerousId])} />
+        </>,
+      ),
+    ).not.toThrow();
+  });
+
+  it('flashes an instanceId containing a selector-metacharacter once escaped', () => {
+    // A closing bracket alone doesn't defeat the *string* quoting, but it's
+    // still a selector metacharacter CSS.escape() must neutralize so the
+    // attribute-selector lookup keeps matching the exact instance id.
+    const idWithBracket = 'foo]bar';
+    function Flasher({ touched }: { touched: ReadonlySet<string> }) {
+      useFlashInstances(touched);
+      return null;
+    }
+
+    const { container } = render(
+      <>
+        <Fixture id={idWithBracket} />
+        <Flasher touched={new Set([idWithBracket])} />
+      </>,
+    );
+
+    const node = container.querySelector(`[data-instance-id="${idWithBracket}"]`);
+    expect(node?.getAttribute('data-flash')).toBe('true');
+  });
+
+  it('clears data-flash for the touched ids when the hook unmounts, leaving the DOM node in place', () => {
+    function Flasher({ touched }: { touched: ReadonlySet<string> }) {
+      useFlashInstances(touched);
+      return null;
+    }
+
+    const { container, rerender } = render(
+      <>
+        <Fixture id="abc" />
+        <Flasher touched={new Set(['abc'])} />
+      </>,
+    );
+    expect(container.querySelector('[data-instance-id="abc"]')?.getAttribute('data-flash')).toBe(
+      'true',
+    );
+
+    // Unmount only the Flasher (e.g. ActionFlash unmounting) — the Chart-owned
+    // DOM wrapper stays in place, so the stale data-flash attribute must not
+    // stick around after the hook that wrote it is gone.
+    rerender(<Fixture id="abc" />);
 
     expect(container.querySelector('[data-instance-id="abc"]')?.getAttribute('data-flash')).toBeNull();
   });

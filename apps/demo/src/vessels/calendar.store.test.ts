@@ -48,6 +48,24 @@ describe('calendarActions', () => {
     expect(getCalendarSnapshot().events.at(-1)?.time).toBe('13:00 PM');
   });
 
+  it('addEvent normalizes a minute-less AM time to 24-hour format', () => {
+    calendarActions.addEvent('Coffee with Sam', '9 AM');
+    expect(getCalendarSnapshot().events.at(-1)?.time).toBe('9:00');
+  });
+
+  it('addEvent normalizes a minute-less lowercase PM time to 24-hour format', () => {
+    calendarActions.addEvent('Retro', '7pm');
+    expect(getCalendarSnapshot().events.at(-1)?.time).toBe('19:00');
+  });
+
+  it('addEvent still normalizes existing 24-hour and minute-bearing 12-hour forms', () => {
+    calendarActions.addEvent('A', '14:30');
+    calendarActions.addEvent('B', '9:00');
+    calendarActions.addEvent('C', '10:00 AM');
+    const times = getCalendarSnapshot().events.slice(-3).map((e) => e.time);
+    expect(times).toEqual(['14:30', '9:00', '10:00']);
+  });
+
   it('removeEvent fuzzy-matches a title and removes it', () => {
     const removed = calendarActions.removeEvent('gym');
     expect(removed).toBe(true);

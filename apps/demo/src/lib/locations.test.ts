@@ -10,6 +10,17 @@ describe('DEMO_LOCATIONS', () => {
     expect(DEMO_LOCATIONS).toHaveLength(4);
     const ids = DEMO_LOCATIONS.map((loc) => loc.id).sort();
     expect(ids).toEqual(['cafe', 'gym', 'home', 'office']);
+
+    // Bounds check (rather than pinning exact values) catches a swapped
+    // lat/lng, a wrong city, or NaN, without being brittle to fixture tweaks.
+    for (const loc of DEMO_LOCATIONS) {
+      expect(Number.isFinite(loc.lat)).toBe(true);
+      expect(Number.isFinite(loc.lng)).toBe(true);
+      expect(loc.lat).toBeGreaterThanOrEqual(37.7);
+      expect(loc.lat).toBeLessThanOrEqual(37.85);
+      expect(loc.lng).toBeGreaterThanOrEqual(-122.52);
+      expect(loc.lng).toBeLessThanOrEqual(-122.35);
+    }
   });
 
   it('exports HOME as the home location', () => {

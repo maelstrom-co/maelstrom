@@ -151,6 +151,42 @@ describe('CalendarComponent day view rendering', () => {
     expect(container.textContent).toContain('9:30');
   });
 
+  it('clamps a late out-of-range event into the last day-view slot', async () => {
+    const { container } = render(<CalendarComponent {...props('day')} />);
+    const handlers = latestHandlers();
+    await act(async () => {
+      await handlers.addEvent({ title: 'Design review', time: '19:00' });
+    });
+
+    const slots = Array.from(
+      container.querySelectorAll('.flex.items-center.gap-3.py-1\\.5'),
+    );
+    const lastSlot = slots.at(-1) as HTMLElement;
+    expect(lastSlot.textContent).toContain('Design review');
+    expect(lastSlot.textContent).toContain('19:00');
+  });
+
+  it('clamps an early out-of-range event into the first day-view slot', async () => {
+    const { container } = render(<CalendarComponent {...props('day')} />);
+    const handlers = latestHandlers();
+    await act(async () => {
+      await handlers.addEvent({ title: 'Early Bird', time: '6:00' });
+    });
+
+    const slots = Array.from(
+      container.querySelectorAll('.flex.items-center.gap-3.py-1\\.5'),
+    );
+    const firstSlot = slots[0] as HTMLElement;
+    expect(firstSlot.textContent).toContain('Early Bird');
+    expect(firstSlot.textContent).toContain('6:00');
+  });
+
+  it('leaves in-range events in their own slot, unaffected by clamping', async () => {
+    const { container } = render(<CalendarComponent {...props('day')} />);
+    expect(container.textContent).toContain('Gym');
+    expect(container.textContent).toContain('Design review');
+  });
+
   it('renders events added out of order chronologically within an hour slot', async () => {
     const { container } = render(<CalendarComponent {...props('day')} />);
     const handlers = latestHandlers();
@@ -168,6 +204,34 @@ describe('CalendarComponent day view rendering', () => {
 });
 
 describe('CalendarComponent week view rendering', () => {
+  it("keeps a DOM node attached to its own event across a sortByTime reorder (id-keyed, not index-keyed)", async () => {
+    const { container } = render(<CalendarComponent {...props('week')} />);
+    const handlers = latestHandlers();
+
+    const todayColumn = container.querySelector('[data-today]') as HTMLElement | null;
+    if (todayColumn === null) throw new Error('expected a today column');
+    const entrySelector = '.px-1\\.5.py-1.rounded';
+    // Hold a reference to the actual DOM node currently rendering "Gym" —
+    // not a re-query — so we can tell whether React reused that exact node
+    // for a different event after the list reorders.
+    const gymNodeBefore = todayColumn.querySelector(entrySelector);
+    expect(gymNodeBefore?.textContent).toContain('Gym');
+
+    await act(async () => {
+      // Adding an event earlier than existing ones forces sortByTime to put
+      // it first, pushing Gym to the second slot. With `key={j}` (array
+      // index), React reuses the first position's DOM node in place and
+      // just patches its text/props — so this exact node would end up
+      // showing "Early Add" instead of "Gym". Keying by `event.id` makes
+      // React create a new node for the new first entry and leaves Gym's
+      // node associated with Gym.
+      await handlers.addEvent({ title: 'Early Add', time: '5:00' });
+    });
+
+    expect(gymNodeBefore?.textContent).toContain('Gym');
+    expect(gymNodeBefore?.isConnected).toBe(true);
+  });
+
   it('renders today\'s events chronologically even when added out of order', async () => {
     const { container } = render(<CalendarComponent {...props('week')} />);
     const handlers = latestHandlers();

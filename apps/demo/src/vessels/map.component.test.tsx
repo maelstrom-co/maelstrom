@@ -130,7 +130,7 @@ vi.stubGlobal('ResizeObserver', FakeResizeObserver);
 const { mapActionRunner } = await import('./map.component');
 const { mapActions, getMapSnapshot } = await import('./map.store');
 const MapComponent = (await import('./map.component')).default;
-const { DEMO_LOCATIONS } = await import('../lib/locations');
+const { DEMO_LOCATIONS, HOME } = await import('../lib/locations');
 
 function props(): TypedVesselProps<typeof mapVessel> {
   return {
@@ -266,30 +266,78 @@ describe('MapComponent resize handling', () => {
   });
 });
 
-describe('MapComponent pending load sync', () => {
-  it('applies only the latest state once the style finishes loading, not every stale state in between', () => {
-    const gym = DEMO_LOCATIONS.find((loc) => loc.id === 'gym');
-    const cafe = DEMO_LOCATIONS.find((loc) => loc.id === 'cafe');
-    if (!gym || !cafe) throw new Error('fixture location not found');
+describe('MapComponent style-ready latch', () => {
+  // MapLibre's `Map.isStyleLoaded()` delegates to `Style.loaded()`, which
+  // reports false while tiles/sources are still streaming — long after the
+  // 'load' event already fired once. A sync gated on `isStyleLoaded()` would
+  // register a `once('load', ...)` that never runs (the event already fired
+  // and won't recur), dropping the sync forever. These tests pin that an
+  // app-owned one-shot latch — not `isStyleLoaded()` — gates the sync.
 
+  it('syncs to the map for a state change after load has already fired, even though isStyleLoaded() still reports false', () => {
     const { rerender } = render(<MapComponent {...props()} />);
     const map = mapInstances[0];
+
+    // 'load' fires exactly once per map instance; it already happened.
+    map.trigger('load');
+
+    const office = DEMO_LOCATIONS.find((loc) => loc.id === 'office');
+    if (!office) throw new Error('fixture location "office" not found');
+    mapActions.showRoute(office);
+    rerender(<MapComponent {...props()} variantProps={{ variant: 'route' }} />);
+
+    // The route branch extends exactly 2 points (HOME + destination).
+    const routeCalls = map.fitBoundsCalls.filter((b) => b.points.length === 2);
+    expect(routeCalls).toHaveLength(1);
+    expect(routeCalls[0]?.points).toEqual([
+      [HOME.lng, HOME.lat],
+      [office.lng, office.lat],
+    ]);
+  });
+
+  it('applies a second post-load sync too — the latch is not single-use', () => {
+    const { rerender } = render(<MapComponent {...props()} />);
+    const map = mapInstances[0];
+    map.trigger('load');
+
+    const office = DEMO_LOCATIONS.find((loc) => loc.id === 'office');
+    const gym = DEMO_LOCATIONS.find((loc) => loc.id === 'gym');
+    if (!office || !gym) throw new Error('fixture location not found');
+
+    mapActions.showRoute(office);
+    rerender(<MapComponent {...props()} variantProps={{ variant: 'route' }} />);
 
     mapActions.showRoute(gym);
     rerender(<MapComponent {...props()} variantProps={{ variant: 'route' }} />);
 
-    mapActions.showRoute(cafe);
+    const routeCalls = map.fitBoundsCalls.filter((b) => b.points.length === 2);
+    expect(routeCalls).toHaveLength(2);
+    expect(routeCalls[1]?.points).toEqual([
+      [HOME.lng, HOME.lat],
+      [gym.lng, gym.lat],
+    ]);
+  });
+
+  it('still performs the initial sync once the style loads, reflecting state that changed before load fired — not a stale variant from the first render', () => {
+    const office = DEMO_LOCATIONS.find((loc) => loc.id === 'office');
+    if (!office) throw new Error('fixture location "office" not found');
+
+    const { rerender } = render(<MapComponent {...props()} />);
+    const map = mapInstances[0];
+
+    mapActions.showRoute(office);
     rerender(<MapComponent {...props()} variantProps={{ variant: 'route' }} />);
 
     map.trigger('load');
 
-    // The route branch extends exactly 2 points (HOME + destination); the
-    // overview branch (from the mount-time 'load' handler) extends all 4
-    // demo locations. Only one route-shaped fitBounds call should have
-    // fired, and it must reflect the LATEST destination (cafe), not gym.
-    const routeCalls = map.fitBoundsCalls.filter((b) => b.points.length === 2);
-    expect(routeCalls).toHaveLength(1);
-    expect(routeCalls[0]?.points).toContainEqual([cafe.lng, cafe.lat]);
-    expect(routeCalls[0]?.points).not.toContainEqual([gym.lng, gym.lat]);
+    // Exactly one fitBounds call should have fired: the route-shaped one
+    // reflecting `office`. A stale variant captured from the first render
+    // (variant='overview') would additionally produce a wrong overview-shaped
+    // fitBounds call over all demo locations.
+    expect(map.fitBoundsCalls).toHaveLength(1);
+    expect(map.fitBoundsCalls[0]?.points).toEqual([
+      [HOME.lng, HOME.lat],
+      [office.lng, office.lat],
+    ]);
   });
 });

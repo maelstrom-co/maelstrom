@@ -166,6 +166,84 @@ describe('fetchLiveWeather', () => {
       fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
     ).rejects.toThrow();
   });
+
+  it('falls back rather than rendering "undefined" when daily.time has an unparseable date', async () => {
+    const garbled = {
+      ...OPEN_METEO_FIXTURE,
+      daily: {
+        ...OPEN_METEO_FIXTURE.daily,
+        time: ['not-a-date', ...OPEN_METEO_FIXTURE.daily.time.slice(1)],
+      },
+    };
+    await expect(
+      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
+    ).rejects.toThrow();
+  });
+
+  it('rejects a well-shaped 200 whose hourly.time is empty (vacuous length check)', async () => {
+    const garbled = {
+      ...OPEN_METEO_FIXTURE,
+      hourly: { time: [], temperature_2m: [], weather_code: [] },
+    };
+    await expect(
+      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
+    ).rejects.toThrow();
+  });
+
+  it('rejects a well-shaped 200 whose daily.time is empty (vacuous length check)', async () => {
+    const garbled = {
+      ...OPEN_METEO_FIXTURE,
+      daily: {
+        time: [],
+        temperature_2m_max: [],
+        temperature_2m_min: [],
+        weather_code: [],
+      },
+    };
+    await expect(
+      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
+    ).rejects.toThrow();
+  });
+
+  it('passes an abort signal through to fetch so a stalled request can be cancelled', async () => {
+    const fetchImpl = fakeFetch(OPEN_METEO_FIXTURE);
+    await fetchLiveWeather(37.7648, -122.433, fetchImpl);
+    const [, options] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
+    expect(options?.signal.aborted).toBe(false);
+  });
+
+  it('rejects instead of hanging forever when the connection stalls past the timeout', async () => {
+    const controller = new AbortController();
+    // AbortSignal.timeout ignores vi.useFakeTimers, so stub it directly rather
+    // than leaving a test that either waits 8 real seconds or never fires.
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(controller.signal);
+    try {
+      const neverResolvingFetch = vi.fn(
+        (_url: string, options?: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+              reject(
+                new DOMException('The operation was aborted.', 'AbortError'),
+              );
+            });
+          }),
+      ) as unknown as typeof fetch;
+
+      const weatherPromise = fetchLiveWeather(
+        37.7648,
+        -122.433,
+        neverResolvingFetch,
+      );
+      controller.abort();
+      await expect(weatherPromise).rejects.toThrow(/aborted/i);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
 });
 
 describe('weatherCodeToEmoji', () => {
@@ -214,7 +292,7 @@ describe('weatherCodeToEmoji', () => {
 });
 
 describe('FALLBACK_WEATHER', () => {
-  it('matches today\'s hardcoded current conditions', () => {
+  it("matches today's hardcoded current conditions", () => {
     expect(FALLBACK_WEATHER.current).toEqual({
       temperatureF: 72,
       weatherCode: 0,
@@ -226,7 +304,7 @@ describe('FALLBACK_WEATHER', () => {
     expect(FALLBACK_WEATHER.hourly).toHaveLength(12);
   });
 
-  it('provides 7 daily entries starting with today\'s 75/58', () => {
+  it("provides 7 daily entries starting with today's 75/58", () => {
     expect(FALLBACK_WEATHER.daily).toHaveLength(7);
     expect(FALLBACK_WEATHER.daily[0]).toMatchObject({
       day: 'Mon',

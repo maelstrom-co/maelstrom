@@ -11,6 +11,7 @@ import { journalEntry } from '../vessels/journal.vessel';
 import { mapEntry } from '../vessels/map.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
+import { isDebugRequested } from './debug-mode';
 import { mintOpenAIToken } from './mint-token';
 import { orchestrationLegibility } from './orchestration-legibility';
 import { getLivekitToken } from './voice/get-livekit-token';
@@ -26,7 +27,7 @@ const vessels = [
 export const m = createMaelstrom({
   vessels,
 })
-  .with(maelstromRealtime({ createAdapter, debug: true }))
+  .with(maelstromRealtime({ createAdapter, debug: isDebugRequested() }))
   .with(orchestrationLegibility);
 
 // Provider is chosen at build time by VITE_VOICE_PROVIDER: `livekit` selects the
@@ -40,11 +41,11 @@ function createAdapter({
     return new LiveKitAdapter({
       mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
       roomName: `maelstrom-${sessionId}`,
-      debug: true,
+      debug: isDebugRequested(),
     });
   }
   return new OpenAIAdapter({
     mintToken: () => mintOpenAIToken(sessionId),
-    debug: true,
+    debug: isDebugRequested(),
   });
 }

@@ -14,16 +14,18 @@ function useLiveWeather(): LiveWeather {
   const [weather, setWeather] = useState<LiveWeather>(FALLBACK_WEATHER);
 
   useEffect(() => {
-    let cancelled = false;
-    fetchLiveWeather(HOME.lat, HOME.lng)
+    const controller = new AbortController();
+    fetchLiveWeather(HOME.lat, HOME.lng, fetch, controller.signal)
       .then((live) => {
-        if (!cancelled) setWeather(live);
+        setWeather(live);
       })
       .catch(() => {
         // Offline demo must still look perfect — stay on FALLBACK_WEATHER.
+        // This also swallows the AbortError from unmount/timeout, which is
+        // expected and not an error worth surfacing.
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, []);
 

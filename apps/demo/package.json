@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --env-file=../../.env run src/server/ws-server.ts & vite dev --port 3000",
-    "dev-livekit": "bun --env-file=../../.env run src/server/ws-server.ts & bun run dev-agent & vite dev --port 3000 --mode livekit",
+    "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"vite dev --port 3000\"",
+    "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"vite dev --port 3000 --mode livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
     "dev:client": "vite dev --port 3000",
     "dev-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start",
@@ -45,6 +45,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@tailwindcss/vite": "catalog:",
+    "concurrently": "^9.1.2",
     "happy-dom": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",

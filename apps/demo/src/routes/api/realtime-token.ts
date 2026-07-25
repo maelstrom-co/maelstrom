@@ -11,7 +11,7 @@ import { createFileRoute } from '@tanstack/react-router';
  */
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY ?? '',
-  model: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime-2',
+  model: process.env.OPENAI_REALTIME_MODEL?.trim() || 'gpt-realtime-2',
 });
 
 export async function handleRealtimeTokenRequest(request: Request): Promise<Response> {

@@ -65,6 +65,18 @@ function hourOf(time: string): number {
   return Number(time.split(':')[0]);
 }
 
+// The day view only renders DAY_HOURS' fixed slots (7:30-17:00). An event
+// outside that window would match no slot and vanish here while still
+// showing in the week view's today column, so clamp its hour into the
+// slot range and let it land in the first/last slot instead of disappearing.
+function clampHourToDayView(hour: number): number {
+  const first = hourOf(DAY_HOURS[0]);
+  const last = hourOf(DAY_HOURS[DAY_HOURS.length - 1]);
+  if (hour < first) return first;
+  if (hour > last) return last;
+  return hour;
+}
+
 // addEvent appends, so store order isn't display order — sort by clock
 // time whenever events render together.
 function sortByTime<T extends { time: string }>(items: T[]): T[] {
@@ -117,11 +129,20 @@ export default function CalendarComponent({
             // across both views. Other days stay on the static fixture.
             const dayEvents = isToday
               ? sortByTime(events).map((e) => ({
+                  // Key by the store id, not the array index: sortByTime
+                  // re-sorts on every render, so an index key would let React
+                  // rebind a node to a different event on reorder.
+                  id: e.id,
                   time: e.time,
                   title: eventLabel(e),
                   color: eventColors.get(e.id) ?? EVENT_COLORS[0],
                 }))
-              : (EVENTS[day] ?? []);
+              : (EVENTS[day] ?? []).map((e) => ({
+                  id: `${day}-${e.title}`,
+                  time: e.time,
+                  title: e.title,
+                  color: e.color,
+                }));
             return (
               <div
                 key={day}
@@ -144,9 +165,9 @@ export default function CalendarComponent({
                       : 'flex-1 rounded-lg bg-white/[0.02] p-1.5 space-y-1'
                   }
                 >
-                  {dayEvents.map((event, j) => (
+                  {dayEvents.map((event) => (
                     <div
-                      key={j}
+                      key={event.id}
                       className="px-1.5 py-1 rounded"
                       style={{
                         background: `${event.color}15`,
@@ -176,7 +197,9 @@ export default function CalendarComponent({
         <div className="flex-1 overflow-y-auto space-y-0.5">
           {DAY_HOURS.map((hour) => {
             const slotEvents = sortByTime(
-              events.filter((e) => hourOf(e.time) === hourOf(hour)),
+              events.filter(
+                (e) => clampHourToDayView(hourOf(e.time)) === hourOf(hour),
+              ),
             );
             return (
               <div key={hour} className="flex items-center gap-3 py-1.5">

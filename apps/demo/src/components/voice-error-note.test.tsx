@@ -22,8 +22,8 @@ vi.mock('@maelstrom-co/realtime/openai', () => ({
 }));
 
 vi.mock('../lib/mint-token', () => ({
-  mintToken: async () => {
-    throw new Error('mintToken should not be called in tests');
+  mintOpenAIToken: async () => {
+    throw new Error('mintOpenAIToken should not be called in tests');
   },
 }));
 

@@ -27,7 +27,10 @@ export const weatherVessel = defineVessel({
     },
     hourly: {
       props: {},
-      minSize: { width: 6, height: 4 },
+      // 12 bars need ~29px per text-xs font-mono hour label; at the default
+      // 80px cell size, 6 cells leaves only ~25px per column after
+      // padding/gaps, so labels overflow and collide at that minimum.
+      minSize: { width: 9, height: 4 },
       actions: [
         {
           name: 'showCurrent',
