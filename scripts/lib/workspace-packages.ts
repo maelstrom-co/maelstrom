@@ -23,9 +23,16 @@ export function listWorkspacePackages(
 
   const found: WorkspacePackage[] = [];
   for (const glob of rootPkg.workspaces ?? []) {
-    // Expect "<dir>/*" style entries; anything fancier is out of scope here.
+    // Only "<dir>/*" entries are understood. Skipping a fancier glob silently
+    // would make a publishable package invisible to the release checks that
+    // are supposed to guard it, so say so loudly instead.
     const match = /^(.+)\/\*$/.exec(glob);
-    if (!match) continue;
+    if (!match) {
+      console.warn(
+        `::warning::Workspace glob "${glob}" is not of the form "<dir>/*" and was not scanned for packages.`,
+      );
+      continue;
+    }
     const parent = join(cwd, match[1]);
     let entries: string[] = [];
     try {

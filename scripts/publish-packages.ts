@@ -290,8 +290,11 @@ if (isDirectInvocation) {
     skipPublished: values['skip-published'],
   });
 
+  // A dry run publishes nothing. Reporting "Published 10" for one invites
+  // exactly the misreading that makes a rehearsal feel like a release.
+  const verb = values['dry-run'] ? 'Would publish' : 'Published';
   console.log(
-    `\nPublished ${published.length}, skipped ${skipped.length}, failed ${failures.length}.`,
+    `\n${verb} ${published.length}, skipped ${skipped.length}, failed ${failures.length}.`,
   );
 
   if (failures.length > 0) {

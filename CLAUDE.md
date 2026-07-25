@@ -60,7 +60,7 @@ Copy `.env.example` to `.env` and configure API keys for LLM providers:
 - `OPENAI_API_KEY` - OpenAI
 - `ANTHROPIC_API_KEY` - Anthropic Claude
 
-Packages are published to public npm (`registry.npmjs.org`) under the `@maelstrom-co` scope. No registry or auth config is needed to install or develop — the root `.npmrc` maps no `@maelstrom-co` scope and holds no token. Per-PR preview packages are the one exception: they go to GitHub Packages and need a `read:packages` PAT, supplied by `.github/workflows/publish-pr.yml` rather than by the repo.
+Packages are published to public npm (`registry.npmjs.org`) under the `@maelstrom-co` scope. No registry or auth config is needed to install or develop — the root `.npmrc` maps no `@maelstrom-co` scope and holds no token. Per-PR preview packages are the one exception: they go to GitHub Packages. CI publishes them with the workflow's own `GITHUB_TOKEN`; installing one is what requires a `read:packages` PAT, supplied by whoever installs it.
 
 ## Architecture
 

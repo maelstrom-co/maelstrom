@@ -51,6 +51,10 @@ jobs:
           ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '') && format('refs/tags/{0}', inputs.tag) || github.ref }}
           filter: tree:0
           fetch-depth: 0
+          # This job never pushes, and it runs a full install plus build — any
+          # lifecycle script in the dependency tree would otherwise be able to
+          # read the Actions token out of .git/config.
+          persist-credentials: false
 
       - name: Setup Node
         # Deliberately no registry-url. With it, setup-node writes an .npmrc
@@ -86,17 +90,26 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: bun scripts/resolve-release-target.ts
 
+      # Every tag-derived value below reaches the shell through `env:` rather
+      # than `${{ }}` interpolation. The values are already constrained to
+      # semver by resolve-release-target, but expressions are spliced into the
+      # script *before* the shell parses it, so interpolation would make that
+      # validation the only thing standing between a tag name and execution.
       - name: Assert manifests match the tag
         # Skipped when rehearsing a branch, which has no tag to agree with.
         if: steps.meta.outputs.version != ''
-        run: bun scripts/assert-manifest-versions.ts --version "${{ steps.meta.outputs.version }}"
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: bun scripts/assert-manifest-versions.ts --version "$VERSION"
 
       - name: Build packages
         run: bunx nx run-many -t build --projects='packages/*'
 
       - name: Warn that provenance is unavailable
         if: github.event.repository.visibility != 'public'
-        run: echo "::warning::Repository is ${{ github.event.repository.visibility }}; publishing without provenance (npm requires a public repo to attest a build)."
+        env:
+          VISIBILITY: ${{ github.event.repository.visibility }}
+        run: echo "::warning::Repository is $VISIBILITY; publishing without provenance (npm requires a public repo to attest a build)."
 
       - name: Publish
         # No token, by design. Auth is npm OIDC trusted publishing: npm trades
@@ -113,15 +126,21 @@ jobs:
         # build it cannot link to public source. Under OIDC npm also emits
         # provenance on its own for public repos, so the flag is belt and
         # braces — and it turns itself on when this repo goes public.
+        env:
+          DIST_TAG: ${{ steps.meta.outputs.dist_tag }}
+          PROVENANCE: ${{ github.event.repository.visibility == 'public' && '--provenance' || '' }}
+          DRY_RUN: ${{ steps.meta.outputs.dry_run == 'true' && '--dry-run' || '' }}
         run: >-
           bun scripts/publish-packages.ts
-          --tag "${{ steps.meta.outputs.dist_tag }}"
+          --tag "$DIST_TAG"
           --skip-published
-          ${{ github.event.repository.visibility == 'public' && '--provenance' || '' }}
-          ${{ steps.meta.outputs.dry_run == 'true' && '--dry-run' || '' }}
+          $PROVENANCE
+          $DRY_RUN
 
       - name: Verify packages are live
         # A green publish step is not proof the registry serves the packages.
         # Confirm every one, so a partial publish fails loudly.
         if: steps.meta.outputs.dry_run != 'true'
-        run: bun scripts/verify-published.ts --version "${{ steps.meta.outputs.version }}"
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: bun scripts/verify-published.ts --version "$VERSION"
