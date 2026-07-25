@@ -114,6 +114,12 @@
           }
         ]
       },
+      "typecheck": {
+        "command": "tsc -p scripts/tsconfig.json"
+      },
+      "test": {
+        "command": "bun test scripts"
+      },
       "local-registry": {
         "executor": "@nx/js:verdaccio",
         "options": {

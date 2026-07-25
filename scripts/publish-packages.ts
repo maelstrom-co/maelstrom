@@ -1,8 +1,9 @@
 import { execSync } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createProjectGraphAsync } from 'nx/src/project-graph/project-graph';
+import { listWorkspacePackages } from './lib/workspace-packages.ts';
 
 // `workspace:*` and `catalog:` are Bun/pnpm-only protocols. npm doesn't
 // rewrite them at pack time when publishing from inside the package dir,
@@ -45,40 +46,14 @@ export function buildSubstitutionContext(
 ): SubstitutionContext {
   const rootPkg = JSON.parse(
     readFileSync(join(cwd, 'package.json'), 'utf8'),
-  ) as { catalog?: DepMap; workspaces?: string[] };
+  ) as { catalog?: DepMap };
   const catalog: DepMap = rootPkg.catalog ?? {};
 
-  // Walk the workspaces globs and read each package's name+version. We do
-  // this without Nx so the substitution logic can be exercised from tests
-  // or CI guards without booting a project graph.
-  const workspaceVersions = new Map<string, string>();
-  const globs = rootPkg.workspaces ?? [];
-  for (const glob of globs) {
-    // Expect "<dir>/*" style entries. Anything fancier we just skip — Nx
-    // covers it at publish time via the project graph.
-    const match = /^(.+)\/\*$/.exec(glob);
-    if (!match) continue;
-    const dir = join(cwd, match[1]);
-    let entries: string[] = [];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const pkgPath = join(dir, entry, 'package.json');
-      try {
-        const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
-          name?: string;
-          version?: string;
-        };
-        if (pkg.name && pkg.version)
-          workspaceVersions.set(pkg.name, pkg.version);
-      } catch {
-        // Not every directory under packages/* needs to be a package.
-      }
-    }
-  }
+  // Private packages are included: a `workspace:` dep can point at one, and it
+  // still needs a concrete version written into the published manifest.
+  const workspaceVersions = new Map<string, string>(
+    listWorkspacePackages(cwd).map((pkg) => [pkg.name, pkg.version]),
+  );
 
   return { catalog, workspaceVersions };
 }
@@ -307,6 +282,16 @@ if (isDirectInvocation) {
 
   if (failures.length > 0) {
     console.error(`\nPublish failed for: ${failures.join(', ')}`);
+    // "A brand-new package cannot publish from CI" is a baffling failure
+    // without this: npm refuses to configure a trusted publisher for a package
+    // that does not exist yet, so the first version of each has to go out by
+    // hand before CI can ever own it.
+    console.error(
+      'If this was an authentication error, check that every package above has a ' +
+        'trusted publisher on npmjs.org pointing at this repository and release.yml. ' +
+        'A package that has never been published cannot have one — see the bootstrap ' +
+        'procedure in CONTRIBUTING.md.',
+    );
     process.exit(1);
   }
 }

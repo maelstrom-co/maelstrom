@@ -104,6 +104,14 @@ if (changelogResult.workspaceChangelog) {
     hostname: 'github.com',
     apiBaseUrl: 'https://api.github.com',
   });
+  // Nx returns null when it cannot build a client (unauthenticated `gh`, no
+  // GITHUB_TOKEN). Fail here rather than at a property access: by this point
+  // the commit and tag are already pushed, so a clear cause matters.
+  if (!remoteReleaseClient) {
+    throw new Error(
+      'Could not create a GitHub release client. Authenticate `gh` or set GITHUB_TOKEN.',
+    );
+  }
   const latestCommit = await getCommitHash('HEAD');
   await remoteReleaseClient.createOrUpdateRelease(
     changelogResult.workspaceChangelog.releaseVersion,

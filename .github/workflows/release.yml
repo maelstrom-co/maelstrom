@@ -36,71 +36,14 @@ jobs:
       group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag || github.ref }}
       cancel-in-progress: false
     steps:
-      - name: Resolve release target
-        id: meta
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_TAG: ${{ inputs.tag }}
-          INPUT_DRY_RUN: ${{ inputs.dry_run }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "push" ]; then
-            TAG="$REF_NAME"
-            DRY_RUN=false
-          else
-            TAG="$INPUT_TAG"
-            DRY_RUN="$INPUT_DRY_RUN"
-          fi
-
-          # No tag is only meaningful as a rehearsal: it means "prove the
-          # release resolves off the current branch", with nothing to publish.
-          if [ -z "$TAG" ]; then
-            if [ "$DRY_RUN" != "true" ]; then
-              echo "::error::A real publish needs a tag. Pass one, or set dry_run."
-              exit 1
-            fi
-            echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
-            echo "version=" >> "$GITHUB_OUTPUT"
-            echo "dist_tag=dry-run" >> "$GITHUB_OUTPUT"
-            echo "dry_run=true" >> "$GITHUB_OUTPUT"
-            echo "Dry run against ${{ github.ref }} (no tag, no version assertion)"
-            exit 0
-          fi
-
-          # nx.json releaseTag.pattern is `v{version}` and versioning is fixed,
-          # so one tag covers every package.
-          if [[ ! "$TAG" =~ ^v(.+)$ ]]; then
-            echo "::error::Unrecognized release tag '$TAG' (expected vX.Y.Z)"
-            exit 1
-          fi
-          VERSION="${BASH_REMATCH[1]}"
-
-          # Prereleases publish under their own preid as the dist-tag, so a
-          # plain `npm install @maelstrom-co/react` never resolves to one.
-          # 0.1.0-alpha.0 -> alpha; 0.1.0 -> latest.
-          case "$VERSION" in
-            *-*)
-              PREID="${VERSION#*-}"
-              DIST_TAG="${PREID%%.*}"
-              ;;
-            *)
-              DIST_TAG="latest"
-              ;;
-          esac
-
-          {
-            echo "ref=refs/tags/$TAG"
-            echo "version=$VERSION"
-            echo "dist_tag=$DIST_TAG"
-            echo "dry_run=$DRY_RUN"
-          } >> "$GITHUB_OUTPUT"
-          echo "Publishing $VERSION under dist-tag $DIST_TAG (dry_run=$DRY_RUN)"
-
+      # Resolved as an expression rather than a script because it decides what
+      # to check out — nothing from the repo is available yet. A tag push is
+      # already on the right ref; a dispatch either names a tag or rehearses
+      # whatever branch it was launched from.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.meta.outputs.ref }}
+          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '') && format('refs/tags/{0}', inputs.tag) || github.ref }}
           filter: tree:0
           fetch-depth: 0
 
@@ -132,31 +75,26 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Assert manifests match the tag
-        # Versioning is fixed, so every publishable package must already carry
-        # the tag's version — the release commit is the tagged commit. A
-        # mismatch means the tag points at the wrong tree and we are about to
-        # publish something nobody reviewed.
-        if: steps.meta.outputs.version != ''
+      - name: Resolve release target
+        id: meta
         env:
-          EXPECTED: ${{ steps.meta.outputs.version }}
-        run: |
-          set -euo pipefail
-          status=0
-          for manifest in packages/*/package.json; do
-            name=$(node -p "require('./$manifest').name")
-            private=$(node -p "require('./$manifest').private === true")
-            version=$(node -p "require('./$manifest').version")
-            [ "$private" = "true" ] && continue
-            if [ "$version" != "$EXPECTED" ]; then
-              echo "::error file=$manifest::$name is at $version but the tag says $EXPECTED"
-              status=1
-            fi
-          done
-          exit $status
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: bun scripts/resolve-release-target.ts
+
+      - name: Assert manifests match the tag
+        # Skipped when rehearsing a branch, which has no tag to agree with.
+        if: steps.meta.outputs.version != ''
+        run: bun scripts/assert-manifest-versions.ts --version "${{ steps.meta.outputs.version }}"
 
       - name: Build packages
         run: bunx nx run-many -t build --projects='packages/*'
+
+      - name: Warn that provenance is unavailable
+        if: github.event.repository.visibility != 'public'
+        run: echo "::warning::Repository is ${{ github.event.repository.visibility }}; publishing without provenance (npm requires a public repo to attest a build)."
 
       - name: Publish
         # No token, by design. Auth is npm OIDC trusted publishing: npm trades
@@ -173,47 +111,15 @@ jobs:
         # build it cannot link to public source. Under OIDC npm also emits
         # provenance on its own for public repos, so the flag is belt and
         # braces — and it turns itself on when this repo goes public.
-        env:
-          PROVENANCE: ${{ github.event.repository.visibility == 'public' && '--provenance' || '' }}
-          DRY_RUN: ${{ steps.meta.outputs.dry_run == 'true' && '--dry-run' || '' }}
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event.repository.visibility }}" != "public" ]; then
-            echo "::warning::Repository is ${{ github.event.repository.visibility }}; publishing without provenance (npm requires a public repo to attest a build)."
-          fi
-          trap 'echo "::error::Publish failed. If this is an auth error, check that every package has a trusted publisher configured on npmjs.org pointing at this repo and release.yml — npm cannot configure one for a package that does not exist yet, so each package needs its first version published manually. See CONTRIBUTING.md."' ERR
-          bun scripts/publish-packages.ts \
-            --tag "${{ steps.meta.outputs.dist_tag }}" \
-            --skip-published \
-            $PROVENANCE \
-            $DRY_RUN
+        run: >-
+          bun scripts/publish-packages.ts
+          --tag "${{ steps.meta.outputs.dist_tag }}"
+          --skip-published
+          ${{ github.event.repository.visibility == 'public' && '--provenance' || '' }}
+          ${{ steps.meta.outputs.dry_run == 'true' && '--dry-run' || '' }}
 
       - name: Verify packages are live
         # A green publish step is not proof the registry serves the packages.
         # Confirm every one, so a partial publish fails loudly.
         if: steps.meta.outputs.dry_run != 'true'
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          set -euo pipefail
-          status=0
-          for manifest in packages/*/package.json; do
-            private=$(node -p "require('./$manifest').private === true")
-            [ "$private" = "true" ] && continue
-            name=$(node -p "require('./$manifest').name")
-            live=false
-            for attempt in 1 2 3 4 5; do
-              if npm view "$name@$VERSION" version >/dev/null 2>&1; then
-                echo "✓ $name@$VERSION is live"
-                live=true
-                break
-              fi
-              echo "… $name@$VERSION not visible yet (attempt $attempt/5), retrying"
-              sleep 5
-            done
-            if [ "$live" = false ]; then
-              echo "::error::$name@$VERSION not found on the registry after publish"
-              status=1
-            fi
-          done
-          exit $status
+        run: bun scripts/verify-published.ts --version "${{ steps.meta.outputs.version }}"
