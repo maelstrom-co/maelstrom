@@ -63,19 +63,16 @@ jobs:
         # safe choice under either reading.
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          # Matches .nvmrc and `engines`. Node 24 also bundles npm 11, clearing
+          # the >= 11.5.1 that OIDC trusted publishing needs — on Node 22 this
+          # step had to be followed by a global npm upgrade, which meant
+          # fetching an unpinned npm into the one job that can publish.
+          node-version: 24
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
-
-      - name: Upgrade npm
-        # Node 22 ships npm 10.x. npm 11 is required for OIDC trusted
-        # publishing (>= 11.5.1) and is the current provenance implementation;
-        # installing it now means the migration off tokens is a config change
-        # on npmjs.org rather than another workflow edit.
-        run: npm install -g npm@11
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
