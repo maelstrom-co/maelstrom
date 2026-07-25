@@ -2,7 +2,7 @@ import type { SessionId } from '@maelstrom-co/protocol';
 import {
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
-} from '@maelstrom-co/realtime/openai';
+} from '@maelstrom-co/realtime-protocol/openai';
 import { withFetchTimeout } from './fetch-timeout';
 
 /**

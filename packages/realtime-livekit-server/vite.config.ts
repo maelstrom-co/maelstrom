@@ -28,10 +28,8 @@ export default defineConfig(() => ({
       external: [
         /^node:/,
         '@maelstrom-co/protocol',
-        '@maelstrom-co/realtime',
-        '@maelstrom-co/realtime-livekit',
-        '@maelstrom-co/realtime-livekit/protocol',
-        '@maelstrom-co/realtime-livekit/token',
+        '@maelstrom-co/realtime-protocol',
+        '@maelstrom-co/realtime-protocol/livekit',
         'livekit-server-sdk',
         'zod',
       ],

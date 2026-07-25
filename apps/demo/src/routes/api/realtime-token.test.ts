@@ -1,4 +1,4 @@
-import type { UnixSeconds } from '@maelstrom-co/realtime';
+import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type {
   MintFailureReason,
   MintResult,

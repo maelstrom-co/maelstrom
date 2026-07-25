@@ -35,12 +35,3 @@ export type {
 } from './lib/realtime-session/realtime-session.types.js';
 export type { RealtimeVoiceErrorCode } from './lib/realtime-voice-error.js';
 export { RealtimeVoiceError } from './lib/realtime-voice-error.js';
-export type {
-  MintFailure,
-  MintFailureReason,
-  MintFetch,
-} from './lib/token/mint.js';
-export { mintFailureHttpStatus } from './lib/token/mint.js';
-export type { TokenGrant } from './lib/token/token-grant.js';
-export type { UnixSeconds } from './lib/token/unix-seconds.js';
-export { UnixSecondsSchema } from './lib/token/unix-seconds.js';

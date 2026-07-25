@@ -1,6 +1,5 @@
+import type { LiveKitTokenGrant } from '@maelstrom-co/realtime-protocol/livekit';
 import type { RealTimeVADOptions } from '@ricky0123/vad-web';
-
-import type { LiveKitTokenGrant } from './livekit-token.js';
 
 /**
  * Detection tuning passed through to the VAD provider.

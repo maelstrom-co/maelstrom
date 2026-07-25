@@ -56,7 +56,7 @@
     "@livekit/agents-plugin-cartesia": "^1.4.8",
     "@livekit/agents-plugin-deepgram": "^1.4.8",
     "@livekit/rtc-node": "^0.13.29",
-    "@maelstrom-co/realtime-livekit": "0.1.0-alpha.0"
+    "@maelstrom-co/realtime-protocol": "0.0.0"
   },
   "nx": {
     "targets": {

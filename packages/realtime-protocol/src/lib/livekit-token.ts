@@ -1,9 +1,8 @@
-import {
-  type TokenGrant,
-  type UnixSeconds,
-  UnixSecondsSchema,
-} from '@maelstrom-co/realtime';
 import { z } from 'zod';
+
+import type { TokenGrant } from './token-grant.js';
+import type { UnixSeconds } from './unix-seconds.js';
+import { UnixSecondsSchema } from './unix-seconds.js';
 
 /**
  * A LiveKit access token and room URL for a single room.
@@ -28,8 +27,8 @@ export interface LiveKitTokenGrant extends TokenGrant {
    * refreshed token for managed reconnects. Expiry alone does not disconnect an
    * active participant or end the room.
    *
-   * {@link LiveKitAdapter} does not read this value or schedule an automatic
-   * refresh or impose a maximum active-room duration. Each fresh `connect()`
+   * The browser adapter does not read this value, schedule an automatic
+   * refresh, or impose a maximum active-room duration. Each fresh `connect()`
    * invokes `mintToken`. Production hosts must enforce session-duration and
    * cleanup policy independently of this timestamp.
    */

@@ -1,6 +1,7 @@
 import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
 import { Logger } from '@maelstrom-co/client';
 import type { ToolCallId } from '@maelstrom-co/protocol';
+import type { OpenAITokenGrant } from '@maelstrom-co/realtime-protocol/openai';
 import { ConnectRaceGuard } from '../connect-race-guard.js';
 
 import type {
@@ -13,7 +14,6 @@ import type {
 } from '../realtime-session/provider-adapter.types.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
-import type { OpenAITokenGrant } from './openai-token.js';
 import {
   asString,
   isRecord,

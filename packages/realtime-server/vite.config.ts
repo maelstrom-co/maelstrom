@@ -37,8 +37,8 @@ export default defineConfig(() => ({
       // External packages that should not be bundled into your library.
       external: [
         '@maelstrom-co/protocol',
-        '@maelstrom-co/realtime',
-        '@maelstrom-co/realtime/openai',
+        '@maelstrom-co/realtime-protocol',
+        '@maelstrom-co/realtime-protocol/openai',
       ],
     },
   },

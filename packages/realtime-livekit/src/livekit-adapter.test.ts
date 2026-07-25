@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import type { RealtimeAdapterEvent, UnixSeconds } from '@maelstrom-co/realtime';
+import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
+import type { LiveKitTokenGrant } from '@maelstrom-co/realtime-protocol/livekit';
 import './__tests__/setup.js';
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
-import type { LiveKitTokenGrant } from './livekit-token.js';
 import type { LocalAudioPreRoll } from './local-audio-pre-roll.js';
 
 // --- Mocks for livekit-client ---
@@ -169,7 +170,7 @@ mock.module('@ricky0123/vad-web', () => ({
 
 const { LiveKitAdapter } = await import('./livekit-adapter');
 const { SPEAK_TOPIC, SPEAK_UTTERANCE_ID_ATTR, TURN_TOPIC, TTS_TOPIC } =
-  await import('./protocol');
+  await import('@maelstrom-co/realtime-protocol/livekit');
 
 // The utterance id the client stamped on the most recent speak text stream — the
 // worker echoes this on its TTS status packets, so tests read it back to forge a

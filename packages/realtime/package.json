@@ -60,7 +60,7 @@
   "dependencies": {
     "@maelstrom-co/client": "0.1.0-alpha.0",
     "@maelstrom-co/protocol": "0.1.0-alpha.0",
-    "zod": "catalog:"
+    "@maelstrom-co/realtime-protocol": "0.0.0"
   },
   "devDependencies": {
     "@sinonjs/fake-timers": "catalog:"

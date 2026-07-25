@@ -11,11 +11,15 @@
  * {@link mintLiveKitToken}.
  */
 
-// The shared mint vocabulary lives in `@maelstrom-co/realtime`; re-exported
-// here so a consumer wiring a LiveKit mint route pulls everything it needs
-// from one entry point.
-export type { MintFailure, MintFailureReason } from '@maelstrom-co/realtime';
-export { mintFailureHttpStatus } from '@maelstrom-co/realtime';
+// The shared mint vocabulary lives in `@maelstrom-co/realtime-protocol` (the
+// dependency-free contract leaf both the browser and server sides depend on);
+// re-exported here so a consumer wiring a LiveKit mint route pulls everything
+// it needs from one entry point.
+export type {
+  MintFailure,
+  MintFailureReason,
+} from '@maelstrom-co/realtime-protocol';
+export { mintFailureHttpStatus } from '@maelstrom-co/realtime-protocol';
 export type {
   LiveKitMintResult,
   LiveKitTokenRequest,

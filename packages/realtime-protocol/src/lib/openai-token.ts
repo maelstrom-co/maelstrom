@@ -1,8 +1,8 @@
 import { type SessionId, SessionIdSchema } from '@maelstrom-co/protocol';
 import { z } from 'zod';
 
-import type { TokenGrant } from '../token/token-grant.js';
-import { UnixSecondsSchema } from '../token/unix-seconds.js';
+import type { TokenGrant } from './token-grant.js';
+import { UnixSecondsSchema } from './unix-seconds.js';
 
 /**
  * What the browser sends to the OpenAI token-mint endpoint to bootstrap a

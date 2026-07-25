@@ -34,8 +34,6 @@ export default defineConfig(() => {
       lib: {
         entry: {
           index: 'src/index.ts',
-          protocol: 'src/protocol.ts',
-          'livekit-token': 'src/livekit-token.ts',
           'vad-assets': 'src/vad-assets.ts',
           'bin/maelstrom-livekit-assets': 'src/bin/maelstrom-livekit-assets.ts',
         },
@@ -50,6 +48,8 @@ export default defineConfig(() => {
           '@maelstrom-co/client',
           '@maelstrom-co/protocol',
           '@maelstrom-co/realtime',
+          '@maelstrom-co/realtime-protocol',
+          '@maelstrom-co/realtime-protocol/livekit',
           'livekit-client',
           'zod',
         ],

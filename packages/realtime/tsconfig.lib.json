@@ -17,6 +17,9 @@
     },
     {
       "path": "../client/tsconfig.lib.json"
+    },
+    {
+      "path": "../realtime-protocol/tsconfig.lib.json"
     }
   ],
   "exclude": [

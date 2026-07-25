@@ -3,12 +3,12 @@ import type {
   MintFailure,
   MintFetch,
   UnixSeconds,
-} from '@maelstrom-co/realtime';
+} from '@maelstrom-co/realtime-protocol';
 import {
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
   OpenAITokenRequestSchema,
-} from '@maelstrom-co/realtime/openai';
+} from '@maelstrom-co/realtime-protocol/openai';
 import { z } from 'zod';
 
 /** Options for {@link createOpenAIMinter}. */

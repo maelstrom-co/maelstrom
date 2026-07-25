@@ -1,4 +1,4 @@
-import type { OpenAITokenGrant } from './openai-token.js';
+import type { OpenAITokenGrant } from '@maelstrom-co/realtime-protocol/openai';
 
 /** Options for constructing an {@link OpenAIAdapter}. */
 export interface OpenAIAdapterOptions {

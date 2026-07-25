@@ -4,6 +4,8 @@ import type {
   UIStructuralSnapshot,
 } from '@maelstrom-co/client';
 import { SessionId, ToolCallId } from '@maelstrom-co/protocol';
+import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
+import type { OpenAITokenGrant } from '@maelstrom-co/realtime-protocol/openai';
 import FakeTimers from '@sinonjs/fake-timers';
 import type {
   AdapterConnectOptions,
@@ -12,9 +14,7 @@ import type {
 import { RealtimeSession } from '../realtime-session/realtime-session.js';
 import type { RealtimeInstance } from '../realtime-session/realtime-session.types.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
-import type { UnixSeconds } from '../token/unix-seconds.js';
 import { OpenAIAdapter } from './openai-adapter.js';
-import type { OpenAITokenGrant } from './openai-token.js';
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));

@@ -4,7 +4,7 @@ import { isErr, isOk } from '@maelstrom-co/protocol';
 import {
   type MintFailureReason,
   mintFailureHttpStatus,
-} from '@maelstrom-co/realtime';
+} from '@maelstrom-co/realtime-protocol';
 
 import { createOpenAIMinter } from './openai-mint.js';
 

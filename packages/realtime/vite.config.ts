@@ -24,7 +24,12 @@ export default defineConfig(() => ({
       formats: ['es' as const],
     },
     rolldownOptions: {
-      external: ['@maelstrom-co/client', '@maelstrom-co/protocol', 'zod'],
+      external: [
+        '@maelstrom-co/client',
+        '@maelstrom-co/protocol',
+        '@maelstrom-co/realtime-protocol',
+        '@maelstrom-co/realtime-protocol/openai',
+      ],
     },
   },
 }));

@@ -28,6 +28,9 @@
       "path": "./packages/realtime"
     },
     {
+      "path": "./packages/realtime-protocol"
+    },
+    {
       "path": "./packages/realtime-livekit"
     },
     {

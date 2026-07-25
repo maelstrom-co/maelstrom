@@ -31,18 +31,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./protocol": {
-      "@maelstrom-co/source": "./src/protocol.ts",
-      "types": "./dist/protocol.d.ts",
-      "import": "./dist/protocol.js",
-      "default": "./dist/protocol.js"
-    },
-    "./token": {
-      "@maelstrom-co/source": "./src/livekit-token.ts",
-      "types": "./dist/livekit-token.d.ts",
-      "import": "./dist/livekit-token.js",
-      "default": "./dist/livekit-token.js"
-    },
     "./vad-assets": {
       "@maelstrom-co/source": "./src/vad-assets.ts",
       "types": "./dist/vad-assets.d.ts",
@@ -71,6 +59,7 @@
     "@maelstrom-co/client": "0.1.0-alpha.0",
     "@maelstrom-co/protocol": "0.1.0-alpha.0",
     "@maelstrom-co/realtime": "0.1.0-alpha.0",
+    "@maelstrom-co/realtime-protocol": "0.0.0",
     "@ricky0123/vad-web": "catalog:",
     "onnxruntime-web": "catalog:",
     "zod": "catalog:"

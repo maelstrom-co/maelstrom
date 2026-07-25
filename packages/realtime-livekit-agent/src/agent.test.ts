@@ -50,7 +50,7 @@ const {
   createTurnControlHandler,
 } = await import('./agent');
 const { SPEAK_UTTERANCE_ID_ATTR, TURN_TOPIC } = await import(
-  '@maelstrom-co/realtime-livekit/protocol'
+  '@maelstrom-co/realtime-protocol/livekit'
 );
 
 describe('privacy-safe worker diagnostics', () => {

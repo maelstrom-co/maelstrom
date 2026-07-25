@@ -67,6 +67,7 @@
         "@maelstrom-co/realtime-livekit": "workspace:*",
         "@maelstrom-co/realtime-livekit-agent": "workspace:*",
         "@maelstrom-co/realtime-livekit-server": "workspace:*",
+        "@maelstrom-co/realtime-protocol": "workspace:*",
         "@maelstrom-co/realtime-server": "workspace:*",
         "@tanstack/ai": "catalog:",
         "@tanstack/ai-openai": "catalog:",
@@ -235,7 +236,7 @@
       "dependencies": {
         "@maelstrom-co/client": "0.0.0",
         "@maelstrom-co/protocol": "0.0.0",
-        "zod": "catalog:",
+        "@maelstrom-co/realtime-protocol": "0.0.0",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
@@ -251,6 +252,7 @@
         "@maelstrom-co/client": "0.0.0",
         "@maelstrom-co/protocol": "0.0.0",
         "@maelstrom-co/realtime": "0.0.0",
+        "@maelstrom-co/realtime-protocol": "0.0.0",
         "@ricky0123/vad-web": "catalog:",
         "onnxruntime-web": "catalog:",
         "zod": "catalog:",
@@ -271,7 +273,7 @@
         "@livekit/agents-plugin-cartesia": "^1.4.8",
         "@livekit/agents-plugin-deepgram": "^1.4.8",
         "@livekit/rtc-node": "^0.13.29",
-        "@maelstrom-co/realtime-livekit": "0.0.0",
+        "@maelstrom-co/realtime-protocol": "0.0.0",
       },
     },
     "packages/realtime-livekit-server": {
@@ -279,9 +281,16 @@
       "version": "0.0.0",
       "dependencies": {
         "@maelstrom-co/protocol": "0.0.0",
-        "@maelstrom-co/realtime": "0.0.0",
-        "@maelstrom-co/realtime-livekit": "0.0.0",
+        "@maelstrom-co/realtime-protocol": "0.0.0",
         "livekit-server-sdk": "^2.13.1",
+        "zod": "catalog:",
+      },
+    },
+    "packages/realtime-protocol": {
+      "name": "@maelstrom-co/realtime-protocol",
+      "version": "0.0.0",
+      "dependencies": {
+        "@maelstrom-co/protocol": "0.0.0",
         "zod": "catalog:",
       },
     },
@@ -290,7 +299,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@maelstrom-co/protocol": "0.0.0",
-        "@maelstrom-co/realtime": "0.0.0",
+        "@maelstrom-co/realtime-protocol": "0.0.0",
         "zod": "catalog:",
       },
     },
@@ -1048,6 +1057,8 @@
     "@maelstrom-co/realtime-livekit-agent": ["@maelstrom-co/realtime-livekit-agent@workspace:packages/realtime-livekit-agent"],
 
     "@maelstrom-co/realtime-livekit-server": ["@maelstrom-co/realtime-livekit-server@workspace:packages/realtime-livekit-server"],
+
+    "@maelstrom-co/realtime-protocol": ["@maelstrom-co/realtime-protocol@workspace:packages/realtime-protocol"],
 
     "@maelstrom-co/realtime-server": ["@maelstrom-co/realtime-server@workspace:packages/realtime-server"],
 
