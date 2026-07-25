@@ -128,7 +128,11 @@ See the [README](./README.md) for the package architecture and core concepts.
   commit subject, so the title is the permanent changelog entry.
 - To publish preview packages for a PR, add the `publish-preview` label. CI
   publishes versioned previews to GitHub Packages and comments install
-  instructions on the PR. This is separate from a real release (below).
+  instructions on the PR. This is separate from a real release (below):
+  previews deliberately stay off public npm, because an npm publish is
+  permanent once the 72-hour unpublish window closes and `0.0.0-pr.*` versions
+  would accumulate on the public registry forever. Installing a preview needs a
+  `read:packages` PAT; installing a release needs nothing.
 
 ## Releasing
 
@@ -161,15 +165,13 @@ tag, push, GitHub release, and npm publish.
    reports what would happen:
 
    ```bash
-   RELEASE_REGISTRY=https://registry.npmjs.org \
-     bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha --dry-run
+   bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha --dry-run
    ```
 
 3. **Release** (drop `--dry-run`):
 
    ```bash
-   RELEASE_REGISTRY=https://registry.npmjs.org \
-     bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha
+   bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha
    ```
 
    For the very first release (no prior `v*` tag exists yet), add
@@ -184,10 +186,13 @@ tag, push, GitHub release, and npm publish.
   recovery is manual: fix the cause and re-publish that same version (do **not**
   re-run the full release, which would bump the version again). Always
   `--dry-run` first to reduce the risk.
-- **`RELEASE_REGISTRY` is mandatory for public npm.** It defaults to GitHub
-  Packages (`npm.pkg.github.com`) — the registry the root `.npmrc` maps the
-  `@maelstrom-co` scope to, and what per-PR previews use. Set it to
-  `https://registry.npmjs.org` to publish a real release to public npm.
+- **`RELEASE_REGISTRY` is an override, not a requirement.** Publishing defaults
+  to public npm (`https://registry.npmjs.org`). Set it only to aim somewhere
+  else — a local Verdaccio (`nx local-registry`, `http://localhost:4873`) to
+  rehearse the whole flow without touching the real registry.
+- **npm provenance is off.** `--provenance` requires publishing from GitHub
+  Actions with `id-token: write`; releases are still manual and local, so there
+  is no trusted build to attest to. It gets enabled with CI publishing.
 - **`--preid` sets both the prerelease identifier and the npm dist-tag.** While
   in prerelease, pass `--preid alpha` so the release publishes under the `alpha`
   dist-tag and `npm install @maelstrom-co/<pkg>` does not resolve to a

@@ -119,15 +119,13 @@ if (values['skip-publish']) {
 }
 
 // Step 7: Publish each non-private project. The publish step bypasses Nx's
-// `releasePublish` because its dist-tag pre-check runs
-// `npm view <pkg> versions dist-tags --json` against the registry; GitHub
-// Packages returns a manifest with an empty `_id`, npm 10.x silently emits
-// no output for that, and Nx then `JSON.parse('')` throws "Unexpected EOF".
-// `publishWorkspacePackages` also rewrites `workspace:*` and `catalog:`
-// specs to concrete versions in the manifest before `npm publish`, which
-// neither npm nor a from-package-dir invocation does for us.
+// `releasePublish` because `publishWorkspacePackages` rewrites `workspace:*`
+// and `catalog:` specs to concrete versions in the manifest before
+// `npm publish`, which neither npm nor a from-package-dir invocation does for
+// us — consumers would otherwise get literal protocol strings they can't
+// resolve.
 const npmTag = preid ?? 'latest';
-const registry = process.env.RELEASE_REGISTRY ?? 'https://npm.pkg.github.com';
+const registry = process.env.RELEASE_REGISTRY ?? 'https://registry.npmjs.org';
 
 const { failures } = await publishWorkspacePackages({
   tag: npmTag,

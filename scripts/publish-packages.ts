@@ -18,12 +18,17 @@ type Manifest = {
   version: string;
   private?: boolean;
   dependencies?: DepMap;
+  devDependencies?: DepMap;
   peerDependencies?: DepMap;
   optionalDependencies?: DepMap;
 };
 
+// `devDependencies` is included even though installers ignore it: npm ships it
+// in the published manifest verbatim, so an unrewritten `catalog:` there is
+// still a literal a consumer can read off the registry.
 export const PUBLISHED_DEP_FIELDS = [
   'dependencies',
+  'devDependencies',
   'peerDependencies',
   'optionalDependencies',
 ] as const;
@@ -127,20 +132,12 @@ export function substituteManifest(
   ctx: SubstitutionContext,
   manifest: Manifest,
 ): Manifest {
-  return {
-    ...manifest,
-    dependencies: substituteDeps(ctx, manifest.name, manifest.dependencies),
-    peerDependencies: substituteDeps(
-      ctx,
-      manifest.name,
-      manifest.peerDependencies,
-    ),
-    optionalDependencies: substituteDeps(
-      ctx,
-      manifest.name,
-      manifest.optionalDependencies,
-    ),
-  };
+  const out: Manifest = { ...manifest };
+  for (const field of PUBLISHED_DEP_FIELDS) {
+    const substituted = substituteDeps(ctx, manifest.name, manifest[field]);
+    if (substituted) out[field] = substituted;
+  }
+  return out;
 }
 
 export function assertNoProtocolLiterals(manifest: Manifest): void {
@@ -245,7 +242,7 @@ if (isDirectInvocation) {
   const registry =
     values.registry ??
     process.env.RELEASE_REGISTRY ??
-    'https://npm.pkg.github.com';
+    'https://registry.npmjs.org';
 
   const { failures } = await publishWorkspacePackages({
     tag,
