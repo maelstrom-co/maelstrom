@@ -11,6 +11,17 @@ export class ReleaseTargetError extends Error {}
 // nx.json's releaseTag.pattern is `v{version}`.
 const TAG_PATTERN = /^v(.+)$/;
 
+// A tag name, or a workflow_dispatch input, is the least trusted thing in the
+// release. Both end up on a command line and in GITHUB_OUTPUT, so constrain
+// them to semver's own character set rather than trusting downstream quoting:
+// no shell metacharacters, no newlines, nothing that can start a second
+// output line.
+const SEMVER_PATTERN =
+  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+// npm dist-tags may not look like a version and may not lead with punctuation.
+const DIST_TAG_PATTERN = /^[A-Za-z][0-9A-Za-z._-]*$/;
+
 /**
  * A prerelease publishes under its own preid, never `latest`, so that a plain
  * `npm install @maelstrom-co/react` cannot resolve to one. `0.1.0-alpha.0`
@@ -21,9 +32,9 @@ export function distTagForVersion(version: string): string {
   if (dashIndex === -1) return 'latest';
   const preid = version.slice(dashIndex + 1);
   const identifier = preid.split('.')[0];
-  if (!identifier) {
+  if (!identifier || !DIST_TAG_PATTERN.test(identifier)) {
     throw new ReleaseTargetError(
-      `Cannot derive a dist-tag from prerelease version "${version}"`,
+      `Cannot derive a usable dist-tag from prerelease version "${version}"`,
     );
   }
   return identifier;
@@ -36,7 +47,13 @@ export function versionFromTag(tag: string): string {
       `Unrecognized release tag "${tag}" (expected vX.Y.Z)`,
     );
   }
-  return match[1];
+  const version = match[1];
+  if (!SEMVER_PATTERN.test(version)) {
+    throw new ReleaseTargetError(
+      `Release tag "${tag}" does not carry a plain semver version`,
+    );
+  }
+  return version;
 }
 
 export type ResolveInput = {

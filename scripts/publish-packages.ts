@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -154,8 +154,20 @@ function isAlreadyPublished(
   registry: string,
 ): boolean {
   try {
-    execSync(
-      `npm view ${name}@${version} version --registry ${registry} --json`,
+    // execFileSync, never a shell string: `version` derives from a git tag or
+    // a workflow_dispatch input, so interpolating it into a command line would
+    // let anyone who can push a tag run arbitrary code in the release job —
+    // which holds an OIDC identity that can publish to npm.
+    execFileSync(
+      'npm',
+      [
+        'view',
+        `${name}@${version}`,
+        'version',
+        '--registry',
+        registry,
+        '--json',
+      ],
       { stdio: ['ignore', 'pipe', 'ignore'] },
     );
     return true;
@@ -220,7 +232,9 @@ export async function publishWorkspacePackages(
       const transformed = substituteManifest(ctx, pkgJson);
       assertNoProtocolLiterals(transformed);
       writeFileSync(pkgJsonPath, `${JSON.stringify(transformed, null, 2)}\n`);
-      execSync(`npm ${args.join(' ')}`, {
+      // No shell: `tag` comes from a git tag name, and a shell string here was
+      // a confirmed injection into a job that can publish to npm.
+      execFileSync('npm', args, {
         cwd: join(cwd, projectRoot),
         stdio: verbose ? 'inherit' : ['ignore', 'inherit', 'inherit'],
       });
