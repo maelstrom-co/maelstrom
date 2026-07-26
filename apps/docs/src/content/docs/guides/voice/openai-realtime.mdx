@@ -1,0 +1,206 @@
+---
+title: OpenAI Realtime
+description: Connect OpenAI Realtime to Maelstrom with a server-minted credential and browser-direct WebRTC.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+OpenAI Realtime adds speech-native voice to a Maelstrom app. Your server mints a short-lived client credential, the browser connects directly to OpenAI over WebRTC, and `RealtimeSession` turns provider tool calls into ordinary Maelstrom intents.
+
+## Prerequisites
+
+Before wiring the track, provide:
+
+- a Maelstrom React instance with its normal Engine Connector
+- a server runtime that can read `OPENAI_API_KEY`
+- a browser secure context with microphone permission
+- the `@maelstrom-co/react`, `@maelstrom-co/protocol`, `@maelstrom-co/realtime`, `@maelstrom-co/react-realtime`, and `@maelstrom-co/realtime-server` packages
+
+OpenAI manages voice activity and turn detection for this track. `OpenAIAdapter` therefore does not expose `turnControl`; render an always-on connect/disconnect control rather than hold-to-talk controls.
+
+## Separate package responsibilities
+
+The browser owns `RealtimeSession`, the OpenAI adapter, and the React binding. The application server owns the minter and the long-lived OpenAI API key. The Engine remains unchanged and receives the same client-built request that typed intent uses.
+
+## Add the server mint route
+
+Create the minter once in server-only code, then map its `Result` to your framework's HTTP response.
+
+```ts title="server/realtime-token.ts"
+import { isOk } from '@maelstrom-co/protocol';
+import {
+  createOpenAIMinter,
+  mintFailureHttpStatus,
+} from '@maelstrom-co/realtime-server';
+
+const mint = createOpenAIMinter({
+  apiKey: process.env.OPENAI_API_KEY ?? '',
+  model: 'gpt-realtime-2',
+});
+
+export async function POST(request: Request): Promise<Response> {
+  let input: unknown;
+  try {
+    input = await request.json();
+  } catch {
+    return Response.json(
+      { error: 'Malformed JSON request body' },
+      { status: 400 },
+    );
+  }
+
+  const result = await mint(input);
+
+  if (isOk(result)) {
+    return Response.json(result.value);
+  }
+
+  return Response.json(
+    { error: result.error.reason },
+    { status: mintFailureHttpStatus(result.error.reason) },
+  );
+}
+```
+
+<Aside type="danger" title="The minter does not authenticate callers">
+  `createOpenAIMinter` validates the request and exchanges credentials, but it
+  does not decide who may mint one. Before production, require caller
+  authentication and authorization, enforce trusted session and model policy,
+  restrict origins, rate-limit mint attempts, and monitor abuse. Keep
+  `OPENAI_API_KEY` in server-only configuration.
+</Aside>
+
+The minter requests a credential with a 600-second lifetime, scoped to the selected model. OpenAI returns the authoritative `expiresAt` timestamp in the grant. A model in a valid request overrides the minter's configured default, so the route must enforce its own model policy before calling the minter when clients cannot choose freely.
+
+## Validate the browser grant
+
+Treat the route response as unknown data. Validate it before handing the opaque credential to `OpenAIAdapter`.
+
+```ts title="src/voice/mint-openai-token.ts"
+import {
+  OpenAITokenGrantSchema,
+  type OpenAITokenGrant,
+} from '@maelstrom-co/realtime/openai';
+
+export async function mintOpenAIToken(
+  sessionId: string,
+): Promise<OpenAITokenGrant> {
+  const response = await fetch('/api/realtime-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'openai', sessionId }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Token mint failed with status ${response.status}`);
+  }
+
+  return OpenAITokenGrantSchema.parse(await response.json());
+}
+```
+
+Schema validation proves that the response has the expected wire shape. It does not authenticate the user or authorize the requested session.
+
+## Connect the adapter and React binding
+
+Build one adapter per Maelstrom session. `maelstromRealtime` creates one shared `RealtimeSession` for all `useVoice()` consumers under that Maelstrom Provider.
+
+```ts title="src/maelstrom.ts"
+import { createMaelstrom } from '@maelstrom-co/react';
+import { maelstromRealtime } from '@maelstrom-co/react-realtime';
+import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';
+import { mintOpenAIToken } from './voice/mint-openai-token';
+import { vessels } from './vessels';
+
+export const m = createMaelstrom({ vessels }).with(
+  maelstromRealtime({
+    createAdapter: ({ sessionId }) =>
+      new OpenAIAdapter({
+        mintToken: () => mintOpenAIToken(sessionId),
+      }),
+  }),
+);
+```
+
+Calling `connect()` mints a fresh credential, requests microphone access, and opens the WebRTC session. A second session-level `connect()` while the session is already live is a no-op; the adapter itself rejects a direct duplicate connection.
+
+## Render state and transcripts
+
+Use the extension's hook for lifecycle state, connection controls, and the latest user and assistant transcript entries. The following custom control calls the public `connect()` and `disconnect()` functions from `UseVoiceResult`. Use `m.VoiceOrb` instead when its built-in button and audio-reactive meter fit your UI.
+
+```tsx title="src/VoiceControl.tsx"
+import { m } from './maelstrom';
+
+export function VoiceControl() {
+  const {
+    state,
+    error,
+    userTranscript,
+    assistantTranscript,
+    connect,
+    disconnect,
+  } = m.useVoice();
+  const canStart = state === 'idle' || state === 'error';
+
+  return (
+    <section aria-label="Voice controls">
+      <button
+        type="button"
+        disabled={state === 'connecting'}
+        onClick={() => {
+          void (canStart ? connect() : disconnect()).catch(() => {});
+        }}
+      >
+        {canStart ? 'Start voice' : 'Stop voice'}
+      </button>
+      <p>Voice: {state}</p>
+      {userTranscript && <p>You: {userTranscript.text}</p>}
+      {assistantTranscript && <p>Assistant: {assistantTranscript.text}</p>}
+      {state === 'error' && <p role="alert">Voice is unavailable. Try again.</p>}
+      {error && <details><summary>Diagnostic details</summary>{String(error)}</details>}
+    </section>
+  );
+}
+```
+
+The session accumulates non-final transcript fragments and replaces them with the final entry. The control starts from `idle` or `error`, stops any live session, and disables itself while a connection is being established. A failed `connect()` moves the session to `error`, so the rendered alert provides a retry path. Both controls return promises; the `catch` prevents an unhandled rejection. Replace the empty handler with application telemetry or local error state if the UI must also report a rejected `disconnect()`.
+
+## Preserve speak-after-render and grounding
+
+`RealtimeSession` exposes `update_ui`, `get_ui_state`, and `get_capabilities` to the provider. For `update_ui`, it withholds the tool result until the client reports that rendering has settled. OpenAI can narrate the change only after that result confirms the rendered UI.
+
+Grounding follows a separate, weaker channel. Settled UI changes produce a debounced, latest-wins structural summary. The adapter deletes the previous grounding item and recreates it at the conversation tail, while `get_ui_state` lets the model pull current structural state when it needs certainty. Grounding contains structure, not Vessel domain data, and never becomes Engine planning input.
+
+## Harden the deployment
+
+Before exposing the mint route:
+
+1. authenticate and authorize the caller
+2. bind the caller to an allowed Maelstrom session and trusted model policy
+3. allow only expected origins and HTTP methods
+4. rate-limit by caller and origin
+5. monitor mint failures, unusual session volume, and abuse
+6. avoid logging the API key or returned client credential
+
+Browser-direct WebRTC means audio travels between the browser and OpenAI rather than through Maelstrom infrastructure. Review OpenAI's data handling for your deployment requirements.
+
+## Recover from failures
+
+| Failure | Recovery |
+| --- | --- |
+| Mint route rejects the request | Keep voice disconnected, inspect the HTTP status, and retry only after authentication, policy, or server configuration is corrected |
+| Grant validation fails | Reject the response; do not pass partial data to the adapter |
+| Microphone permission is denied | Explain how to enable site microphone permission, then let the user call `connect()` again |
+| WebRTC connection fails | Show the session's `error` state, disconnect stale UI controls, and offer a deliberate reconnect |
+| A UI update is superseded | Let the latest voice correction proceed; the superseded call still receives a result |
+
+## API reference
+
+Use the generated reference for the public contracts used in this guide:
+
+- [`RealtimeSession`](/reference/realtime/packages/realtime/src/classes/realtimesession/) from `@maelstrom-co/realtime`
+- [`OpenAIAdapter`](/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/) and [`OpenAITokenGrantSchema`](/reference/realtime/packages/realtime/src/openai/variables/openaitokengrantschema/) from `@maelstrom-co/realtime/openai`
+- [`maelstromRealtime`](/reference/react-realtime/functions/maelstromrealtime/) and [`UseVoiceResult`](/reference/react-realtime/interfaces/usevoiceresult/) from `@maelstrom-co/react-realtime`
+- [`createOpenAIMinter`](/reference/realtime-server/functions/createopenaiminter/) from `@maelstrom-co/realtime-server`
+
+Continue with the [Voice overview](/guides/voice/overview/) to compare the two shipped tracks.
