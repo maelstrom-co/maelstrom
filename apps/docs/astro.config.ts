@@ -22,6 +22,12 @@ const [reactRealtimeTypeDoc, reactRealtimeTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeServerTypeDoc, realtimeServerTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [realtimeLivekitTypeDoc, realtimeLivekitTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeLivekitServerTypeDoc, realtimeLivekitServerTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeLivekitAgentTypeDoc, realtimeLivekitAgentTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 
 // TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
 // the workspace root on every plugin call, so {path} carries the full
@@ -286,6 +292,58 @@ export default defineConfig({
             sourceLinkTemplate,
           },
         }),
+        realtimeLivekitTypeDoc({
+          entryPoints: [
+            '../../packages/realtime-livekit/src/index.ts',
+            '../../packages/realtime-livekit/src/protocol.ts',
+            '../../packages/realtime-livekit/src/livekit-token.ts',
+          ],
+          tsconfig: '../../packages/realtime-livekit/tsconfig.lib.json',
+          output: 'reference/realtime-livekit',
+          sidebar: {
+            label: '@maelstrom-co/realtime-livekit',
+            collapsed: true,
+          },
+          typeDoc: {
+            entryPointStrategy: 'resolve',
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        realtimeLivekitServerTypeDoc({
+          entryPoints: ['../../packages/realtime-livekit-server/src/index.ts'],
+          tsconfig: '../../packages/realtime-livekit-server/tsconfig.lib.json',
+          output: 'reference/realtime-livekit-server',
+          sidebar: {
+            label: '@maelstrom-co/realtime-livekit-server',
+            collapsed: true,
+          },
+          typeDoc: {
+            entryPointStrategy: 'resolve',
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        realtimeLivekitAgentTypeDoc({
+          entryPoints: ['../../packages/realtime-livekit-agent/src/index.ts'],
+          tsconfig: '../../packages/realtime-livekit-agent/tsconfig.lib.json',
+          output: 'reference/realtime-livekit-agent',
+          sidebar: {
+            label: '@maelstrom-co/realtime-livekit-agent',
+            collapsed: true,
+          },
+          typeDoc: {
+            entryPointStrategy: 'resolve',
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
       ],
       customCss: ['./src/styles/custom.css'],
       // Code blocks render through Expressive Code: native title frames
@@ -345,6 +403,7 @@ export default defineConfig({
               items: [
                 { slug: 'guides/voice/overview' },
                 { slug: 'guides/voice/openai-realtime' },
+                { slug: 'guides/voice/livekit-cascade' },
               ],
             },
             {
@@ -404,6 +463,9 @@ export default defineConfig({
                 realtimeTypeDocSidebarGroup,
                 reactRealtimeTypeDocSidebarGroup,
                 realtimeServerTypeDocSidebarGroup,
+                realtimeLivekitTypeDocSidebarGroup,
+                realtimeLivekitServerTypeDocSidebarGroup,
+                realtimeLivekitAgentTypeDocSidebarGroup,
               ],
             },
           ],

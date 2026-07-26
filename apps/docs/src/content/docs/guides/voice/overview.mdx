@@ -23,7 +23,7 @@ Maelstrom ships two tracks behind the same session boundary:
 | OpenAI Realtime | Speech-native conversation with provider-managed turn detection | Browser-direct WebRTC using a short-lived credential minted by your server | The realtime model receives debounced structural summaries and can pull current UI state |
 | LiveKit cascade | Hold-to-talk | LiveKit carries audio to a worker for Deepgram speech-to-text and Cartesia text-to-speech | The worker has no LLM and receives no grounding |
 
-[Choose OpenAI Realtime](/guides/voice/openai-realtime/) when you want a speech-native model to manage the conversation. Choose the LiveKit cascade when you want explicit hold-to-talk turns and a worker that performs only speech recognition and synthesis.
+[Choose OpenAI Realtime](/guides/voice/openai-realtime/) when you want a speech-native model to manage the conversation. [Choose the LiveKit cascade](/guides/voice/livekit-cascade/) when you want explicit hold-to-talk turns and a worker that performs only speech recognition and synthesis.
 
 ## Follow the shared intent boundary
 
@@ -39,7 +39,7 @@ The provider never supplies Vessel IDs, Actions, or layout coordinates as planni
 
 ## Know the package boundaries
 
-The OpenAI track separates browser and server responsibilities:
+The voice packages separate browser, server, and worker responsibilities:
 
 | Package | Runtime | Responsibility |
 | --- | --- | --- |
@@ -47,9 +47,12 @@ The OpenAI track separates browser and server responsibilities:
 | [`@maelstrom-co/realtime/openai`](/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/) | Browser | OpenAI WebRTC transport and token grant schemas |
 | [`@maelstrom-co/react-realtime`](/reference/react-realtime/readme/) | Browser | Shared React session, `useVoice()`, transcripts, state, and `VoiceOrb` |
 | [`@maelstrom-co/realtime-server`](/reference/realtime-server/readme/) | Server | Exchange a server-held OpenAI API key for a short-lived client credential |
+| [`@maelstrom-co/realtime-livekit`](/reference/realtime-livekit/readme/) | Browser | LiveKit room transport, final-transcript intent conversion, and hold-to-talk control |
+| [`@maelstrom-co/realtime-livekit-server`](/reference/realtime-livekit-server/readme/) | Server | Sign a short-lived grant for one LiveKit room and participant identity |
+| [`@maelstrom-co/realtime-livekit-agent`](/reference/realtime-livekit-agent/readme/) | Worker | Run Deepgram STT and Cartesia TTS without an LLM or UI grounding |
 
-This boundary keeps `OPENAI_API_KEY` out of browser code and keeps provider transport details out of the Engine.
+These boundaries keep `OPENAI_API_KEY`, LiveKit secrets, and speech-provider keys out of browser code. They also keep provider transport details out of the Engine.
 
 ## Next step
 
-Follow [OpenAI Realtime](/guides/voice/openai-realtime/) to add the server mint route, validate its browser response, and connect voice to a Maelstrom instance.
+Follow [OpenAI Realtime](/guides/voice/openai-realtime/) for speech-native voice, or [LiveKit cascade](/guides/voice/livekit-cascade/) for hold-to-talk STT and TTS.

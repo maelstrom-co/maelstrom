@@ -38,7 +38,10 @@
       "@maelstrom-co/react",
       "@maelstrom-co/realtime",
       "@maelstrom-co/react-realtime",
-      "@maelstrom-co/realtime-server"
+      "@maelstrom-co/realtime-server",
+      "@maelstrom-co/realtime-livekit",
+      "@maelstrom-co/realtime-livekit-server",
+      "@maelstrom-co/realtime-livekit-agent"
     ],
     "targets": {
       "test": {
