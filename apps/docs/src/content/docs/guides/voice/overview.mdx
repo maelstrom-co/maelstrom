@@ -1,0 +1,55 @@
+---
+title: Voice
+description: Choose a Maelstrom voice track without creating a second planning path.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Voice gives users another way to express intent. It does not give a speech provider control of the Chart: both shipped voice tracks submit a natural-language intent through `RealtimeSession`, and the Engine still plans from the client-built Chart snapshot.
+
+<Aside type="caution" title="Keep credentials on the server">
+  Never send provider API keys or LiveKit secrets to the browser. Token minters
+  are unauthenticated bootstrap primitives; put caller authentication and
+  authorization, trusted session policy, origin or room controls, rate limits,
+  and abuse monitoring in front of them before production use.
+</Aside>
+
+## Choose a voice track
+
+Maelstrom ships two tracks behind the same session boundary:
+
+| Track | Interaction | Provider path | Grounding |
+| --- | --- | --- | --- |
+| OpenAI Realtime | Speech-native conversation with provider-managed turn detection | Browser-direct WebRTC using a short-lived credential minted by your server | The realtime model receives debounced structural summaries and can pull current UI state |
+| LiveKit cascade | Hold-to-talk | LiveKit carries audio to a worker for Deepgram speech-to-text and Cartesia text-to-speech | The worker has no LLM and receives no grounding |
+
+[Choose OpenAI Realtime](/guides/voice/openai-realtime/) when you want a speech-native model to manage the conversation. Choose the LiveKit cascade when you want explicit hold-to-talk turns and a worker that performs only speech recognition and synthesis.
+
+## Follow the shared intent boundary
+
+The voice path rejoins the normal Maelstrom request loop before planning:
+
+1. A provider adapter produces a natural-language intent.
+2. `RealtimeSession` submits that intent through the client.
+3. The client captures the current Instances, Variants, and Chart dimensions.
+4. The Engine returns an Execution Plan and a Layout Directive for each affected Instance.
+5. The client applies the result and reports that rendering has settled.
+
+The provider never supplies Vessel IDs, Actions, or layout coordinates as planning input. Read the [Architecture Overview](/understanding/architecture/) for the request and render loop that voice reuses.
+
+## Know the package boundaries
+
+The OpenAI track separates browser and server responsibilities:
+
+| Package | Runtime | Responsibility |
+| --- | --- | --- |
+| [`@maelstrom-co/realtime`](/reference/realtime/readme/) | Browser | Provider-neutral session, intent routing, speak-after-render ordering, and structural grounding |
+| [`@maelstrom-co/realtime/openai`](/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/) | Browser | OpenAI WebRTC transport and token grant schemas |
+| [`@maelstrom-co/react-realtime`](/reference/react-realtime/readme/) | Browser | Shared React session, `useVoice()`, transcripts, state, and `VoiceOrb` |
+| [`@maelstrom-co/realtime-server`](/reference/realtime-server/readme/) | Server | Exchange a server-held OpenAI API key for a short-lived client credential |
+
+This boundary keeps `OPENAI_API_KEY` out of browser code and keeps provider transport details out of the Engine.
+
+## Next step
+
+Follow [OpenAI Realtime](/guides/voice/openai-realtime/) to add the server mint route, validate its browser response, and connect voice to a Maelstrom instance.
