@@ -22,7 +22,7 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && contains(github.event.pull_request.labels.*.name, 'publish-preview')
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
