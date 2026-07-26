@@ -14,6 +14,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
@@ -30,6 +32,7 @@
     "@tanstack/react-start": "catalog:",
     "clsx": "^2.1.1",
     "hono": "catalog:",
+    "lucide-react": "^1.24.0",
     "maplibre-gl": "^5.24.0",
     "nanoid": "catalog:",
     "react": "catalog:",

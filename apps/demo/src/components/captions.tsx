@@ -54,23 +54,29 @@ export function Captions() {
   return (
     <div
       data-testid="captions-overlay"
-      className="captions-overlay pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-4 bg-gradient-to-t from-gray-900/90 via-gray-900/50 to-transparent px-6 pb-3 pt-10 backdrop-blur-sm"
+      className="captions-overlay pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-4 bg-gradient-to-t from-bg-1/90 via-bg-1/50 to-transparent px-6 pb-3 pt-10 backdrop-blur-sm"
     >
       <p
         data-role="assistant"
         data-faded={Boolean(assistant?.faded)}
         className={cn(
-          'caption-line text-sm font-medium text-cyan-accent',
+          'caption-line flex items-center gap-2 text-sm font-medium text-ink',
           assistant?.faded && 'caption-line--faded',
         )}
       >
+        {assistant && (
+          <span
+            className="caption-dot inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-brand-2"
+            style={{ boxShadow: '0 0 8px var(--color-brand-2)' }}
+          />
+        )}
         {assistant?.text}
       </p>
       <p
         data-role="user"
         data-faded={Boolean(user?.faded)}
         className={cn(
-          'caption-line text-right text-sm text-gray-400',
+          'caption-line text-right text-sm text-ink-3',
           user?.faded && 'caption-line--faded',
         )}
       >

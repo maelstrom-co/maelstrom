@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { Wind } from 'lucide-react';
 import { VesselCard } from '../components/vessel-card';
+import { VESSEL_ACCENTS } from '../lib/design-tokens';
 import { HOME } from '../lib/locations';
 import {
   FALLBACK_WEATHER,
   fetchLiveWeather,
-  weatherCodeToEmoji,
+  weatherCodeToIcon,
+  weatherCodeToLabel,
+  weatherCodeToSkyClass,
   type LiveWeather,
 } from '../lib/weather-data';
 import type { weatherVessel } from './weather.vessel';
@@ -37,6 +41,7 @@ export default function WeatherComponent({
 }: TypedVesselProps<typeof weatherVessel>) {
   const variant = variantProps.variant;
   const weather = useLiveWeather();
+  const skyClass = weatherCodeToSkyClass(weather.current.weatherCode);
 
   if (variant === 'hourly') {
     const hourlyTemps = weather.hourly.map((h) => h.temperatureF);
@@ -45,17 +50,15 @@ export default function WeatherComponent({
     const hourlyTempRange = Math.max(1, hourlyMaxTemp - hourlyMinTemp);
 
     return (
-      <VesselCard accent="cyan" label="Hourly Forecast" meta="San Francisco">
-        <div className="flex items-baseline gap-1 mb-4">
-          <span
-            className="text-5xl font-bold tracking-tight"
-            style={{ textShadow: '0 0 30px rgba(0, 240, 255, 0.15)' }}
-          >
+      <VesselCard accent={VESSEL_ACCENTS.weather} label="Hourly Forecast" meta="San Francisco">
+        <div className={`sky-wash sky-wash--${skyClass}`} />
+        <div className="relative flex items-baseline gap-1 mb-4">
+          <span className="temp-numeral text-5xl font-bold tracking-tight">
             {weather.current.temperatureF}°
           </span>
-          <span className="text-sm text-gray-500">F</span>
+          <span className="text-sm text-ink-3">F</span>
         </div>
-        <div className="flex-1 flex items-end gap-3">
+        <div className="relative flex-1 flex items-end gap-3">
           {weather.hourly.map((h) => {
             // Floor keeps bars visible on a flat curve (all pct would be 0).
             const pct = Math.max(
@@ -63,28 +66,34 @@ export default function WeatherComponent({
               8,
             );
             const isMax = h.temperatureF === hourlyMaxTemp;
+            const HourIcon = weatherCodeToIcon(h.weatherCode);
             return (
               <div
                 key={h.hour}
                 className="flex-1 flex flex-col items-center gap-1.5"
               >
-                <span className="text-base">
-                  {weatherCodeToEmoji(h.weatherCode)}
+                <HourIcon
+                  aria-hidden="true"
+                  size={14}
+                  strokeWidth={1.75}
+                  className="text-ink-2"
+                />
+                <span className="sr-only">
+                  {weatherCodeToLabel(h.weatherCode)}
                 </span>
-                <span className="text-xs text-gray-400 font-mono">
+                <span className="text-xs text-ink-2 font-mono">
                   {h.temperatureF}°
                 </span>
                 <div
-                  className="w-full rounded-sm border border-cyan-accent/10"
+                  className="w-full rounded-sm border border-white/10"
                   style={{
                     height: `${pct}%`,
-                    background: `linear-gradient(to top, rgba(0, 240, 255, ${isMax ? '0.3' : '0.15'}), rgba(0, 240, 255, 0.04))`,
-                    boxShadow: isMax
-                      ? '0 0 8px rgba(0, 240, 255, 0.15)'
-                      : 'none',
+                    background: isMax
+                      ? 'linear-gradient(to top, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03))'
+                      : 'linear-gradient(to top, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02))',
                   }}
                 />
-                <span className="text-xs text-gray-500 font-mono">
+                <span className="text-xs text-ink-3 font-mono">
                   {h.hour}
                 </span>
               </div>
@@ -97,21 +106,33 @@ export default function WeatherComponent({
 
   if (variant === 'weekly') {
     return (
-      <VesselCard accent="cyan" label="Weekly Forecast" meta="San Francisco">
-        <div className="flex-1 grid grid-cols-7 gap-2">
-          {weather.daily.map((d) => (
-            <div
-              key={d.day}
-              className="flex flex-col items-center justify-center gap-1.5 rounded-lg bg-cyan-accent/5 p-2"
-            >
-              <span className="text-xs text-gray-500 font-mono">{d.day}</span>
-              <span className="text-xl">{weatherCodeToEmoji(d.weatherCode)}</span>
-              <div className="text-sm">
-                <span className="text-white font-medium">{d.highF}°</span>
-                <span className="text-gray-500"> / {d.lowF}°</span>
+      <VesselCard accent={VESSEL_ACCENTS.weather} label="Weekly Forecast" meta="San Francisco">
+        <div className={`sky-wash sky-wash--${skyClass}`} />
+        <div className="relative flex-1 grid grid-cols-7 gap-2">
+          {weather.daily.map((d) => {
+            const DayIcon = weatherCodeToIcon(d.weatherCode);
+            return (
+              <div
+                key={d.day}
+                className="flex flex-col items-center justify-center gap-1.5 rounded-lg bg-white/[0.03] p-2"
+              >
+                <span className="text-xs text-ink-3 font-mono">{d.day}</span>
+                <DayIcon
+                  aria-hidden="true"
+                  size={20}
+                  strokeWidth={1.75}
+                  className="text-ink-2"
+                />
+                <span className="sr-only">
+                  {weatherCodeToLabel(d.weatherCode)}
+                </span>
+                <div className="text-sm">
+                  <span className="text-ink font-medium">{d.highF}°</span>
+                  <span className="text-ink-3"> / {d.lowF}°</span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </VesselCard>
     );
@@ -119,28 +140,34 @@ export default function WeatherComponent({
 
   // Current (default)
   const today = weather.daily[0];
+  const CurrentIcon = weatherCodeToIcon(weather.current.weatherCode);
   return (
-    <VesselCard accent="cyan" label="Weather" meta="San Francisco">
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <div className="text-5xl mb-3">
-          {weatherCodeToEmoji(weather.current.weatherCode)}
-        </div>
+    <VesselCard accent={VESSEL_ACCENTS.weather} label="Weather" meta="San Francisco">
+      <div className={`sky-wash sky-wash--${skyClass}`} />
+      <div className="relative flex-1 flex flex-col items-center justify-center">
+        <CurrentIcon
+          aria-hidden="true"
+          size={44}
+          strokeWidth={1.75}
+          className="text-ink-2 mb-3"
+        />
+        <span className="sr-only">
+          {weatherCodeToLabel(weather.current.weatherCode)}
+        </span>
         <div className="flex items-baseline gap-1">
-          <span
-            className="text-6xl font-bold tracking-tight"
-            style={{ textShadow: '0 0 30px rgba(0, 240, 255, 0.15)' }}
-          >
+          <span className="temp-numeral text-6xl font-bold tracking-tight">
             {weather.current.temperatureF}°
           </span>
-          <span className="text-sm text-gray-500">F</span>
+          <span className="text-sm text-ink-3">F</span>
         </div>
         {today && (
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="text-xs text-ink-3 mt-1">
             H: {today.highF}° L: {today.lowF}°
           </div>
         )}
-        <div className="mt-4 text-sm text-gray-400">
-          💨 {weather.current.windMph} mph
+        <div className="mt-4 flex items-center gap-1.5 text-sm text-ink-2">
+          <Wind size={14} strokeWidth={1.75} />
+          {weather.current.windMph} mph
         </div>
       </div>
     </VesselCard>

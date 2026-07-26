@@ -3,6 +3,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isErr, isOk, type Result } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { ACCENT_HEX, CALENDAR_EVENT_ACCENTS } from '../lib/design-tokens';
 import type { calendarVessel } from './calendar.vessel';
 
 vi.mock('../lib/maelstrom', () => ({
@@ -200,6 +201,67 @@ describe('CalendarComponent day view rendering', () => {
     expect(earlierIdx).toBeGreaterThanOrEqual(0);
     expect(laterIdx).toBeGreaterThanOrEqual(0);
     expect(earlierIdx).toBeLessThan(laterIdx);
+  });
+
+  it('shows an empty state on the day view with zero events', async () => {
+    const { container } = render(<CalendarComponent {...props('day')} />);
+    const handlers = latestHandlers();
+    await act(async () => {
+      await handlers.removeEvent({ title: 'Gym' });
+      await handlers.removeEvent({ title: 'Design review' });
+      await handlers.removeEvent({ title: 'Sprint planning' });
+    });
+    expect(container.textContent).toContain('Nothing scheduled');
+  });
+
+  it('cycles each event sliver accent by store index through CALENDAR_EVENT_ACCENTS', () => {
+    // Normalize both sides through the DOM's own CSSStyleDeclaration so the
+    // comparison doesn't depend on how the engine serializes a hex color.
+    function borderLeftFor(hex: string): string {
+      const probe = document.createElement('div');
+      probe.style.borderLeft = `2px solid ${hex}`;
+      return probe.style.borderLeft;
+    }
+
+    const { getByText } = render(<CalendarComponent {...props('day')} />);
+    const titlesInStoreOrder = [
+      'Gym',
+      'Design review — Studio Vortex HQ',
+      'Sprint planning',
+    ];
+    titlesInStoreOrder.forEach((title, i) => {
+      const accent = CALENDAR_EVENT_ACCENTS[i % CALENDAR_EVENT_ACCENTS.length];
+      const sliver = getByText(title).parentElement as HTMLElement;
+      expect(sliver.style.borderLeft).toBe(borderLeftFor(ACCENT_HEX[accent]));
+    });
+  });
+});
+
+describe('empty-state onboarding hint truncation', () => {
+  it('drops the "Try: ..." hint from the week view\'s today-cell empty state (too narrow to render it) but keeps "Nothing scheduled"', async () => {
+    const { container } = render(<CalendarComponent {...props('week')} />);
+    const handlers = latestHandlers();
+    await act(async () => {
+      await handlers.removeEvent({ title: 'Gym' });
+      await handlers.removeEvent({ title: 'Design review' });
+      await handlers.removeEvent({ title: 'Sprint planning' });
+    });
+    const todayColumn = container.querySelector('[data-today]') as HTMLElement | null;
+    if (todayColumn === null) throw new Error('expected a today column');
+    expect(todayColumn.textContent).toContain('Nothing scheduled');
+    expect(todayColumn.textContent).not.toContain('Try:');
+  });
+
+  it('keeps the "Try: ..." hint on the day view\'s empty state, which has room for it', async () => {
+    const { container } = render(<CalendarComponent {...props('day')} />);
+    const handlers = latestHandlers();
+    await act(async () => {
+      await handlers.removeEvent({ title: 'Gym' });
+      await handlers.removeEvent({ title: 'Design review' });
+      await handlers.removeEvent({ title: 'Sprint planning' });
+    });
+    expect(container.textContent).toContain('Nothing scheduled');
+    expect(container.textContent).toContain('Try:');
   });
 });
 

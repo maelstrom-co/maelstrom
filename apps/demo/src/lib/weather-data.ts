@@ -1,3 +1,13 @@
+import {
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  Sun,
+  type LucideIcon,
+} from 'lucide-react';
 import { withFetchTimeout } from './fetch-timeout';
 
 export interface LiveWeather {
@@ -227,45 +237,109 @@ export async function fetchLiveWeather(
   return mapResponse(data);
 }
 
-const DEFAULT_EMOJI = '🌡️';
-
-// WMO weather codes (https://open-meteo.com/en/docs) mapped onto the
-// component's existing emoji vocabulary; codes not covered by today's demo
-// (fog/drizzle/snow/thunder) get a sensible addition in the same style.
-const CODE_EMOJI: Record<number, string> = {
-  0: '☀️',
-  1: '🌤️',
-  2: '🌤️',
-  3: '🌤️',
-  45: '🌫️',
-  48: '🌫️',
-  51: '🌦️',
-  53: '🌦️',
-  55: '🌦️',
-  56: '🌦️',
-  57: '🌦️',
-  61: '🌧️',
-  63: '🌧️',
-  65: '🌧️',
-  66: '🌧️',
-  67: '🌧️',
-  80: '🌧️',
-  81: '🌧️',
-  82: '🌧️',
-  71: '🌨️',
-  73: '🌨️',
-  75: '🌨️',
-  77: '🌨️',
-  85: '🌨️',
-  86: '🌨️',
-  95: '⛈️',
-  96: '⛈️',
-  99: '⛈️',
+// WMO weather codes (https://open-meteo.com/en/docs) mapped onto lucide
+// icons; codes not covered by today's demo (fog/drizzle/snow/thunder) get a
+// sensible icon in the same family the old emoji table used.
+const CODE_ICON: Record<number, LucideIcon> = {
+  0: Sun,
+  1: Cloud,
+  2: Cloud,
+  3: Cloud,
+  45: CloudFog,
+  48: CloudFog,
+  51: CloudDrizzle,
+  53: CloudDrizzle,
+  55: CloudDrizzle,
+  56: CloudDrizzle,
+  57: CloudDrizzle,
+  61: CloudRain,
+  63: CloudRain,
+  65: CloudRain,
+  66: CloudRain,
+  67: CloudRain,
+  80: CloudRain,
+  81: CloudRain,
+  82: CloudRain,
+  71: CloudSnow,
+  73: CloudSnow,
+  75: CloudSnow,
+  77: CloudSnow,
+  85: CloudSnow,
+  86: CloudSnow,
+  95: CloudLightning,
+  96: CloudLightning,
+  99: CloudLightning,
 };
 
-/** Maps a WMO weather code (Open-Meteo's `weather_code`) to a display emoji. */
-export function weatherCodeToEmoji(code: number): string {
-  return CODE_EMOJI[code] ?? DEFAULT_EMOJI;
+/** Maps a WMO weather code (Open-Meteo's `weather_code`) to a lucide icon component. */
+export function weatherCodeToIcon(code: number): LucideIcon {
+  return CODE_ICON[code] ?? Cloud;
+}
+
+// Mirrors CODE_ICON's grouping so the accessible label always names the same
+// condition the icon depicts.
+const CODE_LABEL: Record<number, string> = {
+  0: 'Clear',
+  1: 'Cloudy',
+  2: 'Cloudy',
+  3: 'Cloudy',
+  45: 'Fog',
+  48: 'Fog',
+  51: 'Drizzle',
+  53: 'Drizzle',
+  55: 'Drizzle',
+  56: 'Drizzle',
+  57: 'Drizzle',
+  61: 'Rain',
+  63: 'Rain',
+  65: 'Rain',
+  66: 'Rain',
+  67: 'Rain',
+  80: 'Rain',
+  81: 'Rain',
+  82: 'Rain',
+  71: 'Snow',
+  73: 'Snow',
+  75: 'Snow',
+  77: 'Snow',
+  85: 'Snow',
+  86: 'Snow',
+  95: 'Thunderstorm',
+  96: 'Thunderstorm',
+  99: 'Thunderstorm',
+};
+
+/** Maps a WMO weather code to a human-readable condition label, for the accessible text alongside an icon-only rendering. */
+export function weatherCodeToLabel(code: number): string {
+  return CODE_LABEL[code] ?? 'Cloudy';
+}
+
+export type SkyClass = 'clear' | 'cloud' | 'fog' | 'rain';
+
+// Coarser than CODE_ICON — the sky-wash background only renders 4 distinct
+// washes, so every precipitation code (drizzle/rain/snow/thunder) shares the
+// 'rain' wash rather than each getting its own.
+const CODE_SKY_CLASS: Record<number, SkyClass> = {
+  0: 'clear',
+  1: 'cloud',
+  2: 'cloud',
+  3: 'cloud',
+  45: 'fog',
+  48: 'fog',
+};
+
+// The real WMO precipitation codes (drizzle/rain/snow/thunder) — membership,
+// not a `>= 51` range check, so an unhandled future code falls to 'cloud'
+// instead of silently reading as rain the way weatherCodeToIcon already
+// falls back to Cloud.
+const PRECIPITATION_CODES = new Set([
+  51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86,
+  95, 96, 99,
+]);
+
+export function weatherCodeToSkyClass(code: number): SkyClass {
+  if (CODE_SKY_CLASS[code]) return CODE_SKY_CLASS[code];
+  return PRECIPITATION_CODES.has(code) ? 'rain' : 'cloud';
 }
 
 /**

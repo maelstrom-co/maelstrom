@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fakeFetch } from './__tests__/fake-fetch';
+import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun } from 'lucide-react';
 import {
   FALLBACK_WEATHER,
   fetchLiveWeather,
-  weatherCodeToEmoji,
+  weatherCodeToIcon,
+  weatherCodeToLabel,
+  weatherCodeToSkyClass,
 } from './weather-data';
 
 // Real Open-Meteo response shape (field names/nesting) captured via:
@@ -246,48 +249,138 @@ describe('fetchLiveWeather', () => {
   });
 });
 
-describe('weatherCodeToEmoji', () => {
-  it('maps clear sky (0)', () => {
-    expect(weatherCodeToEmoji(0)).toBe('☀️');
+const ALL_HANDLED_CODES = [
+  0, 1, 2, 3, 45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77,
+  80, 81, 82, 85, 86, 95, 96, 99,
+];
+
+describe('weatherCodeToIcon', () => {
+  it('maps clear sky (0) to Sun', () => {
+    expect(weatherCodeToIcon(0)).toBe(Sun);
   });
 
-  it('maps partly cloudy (1-3)', () => {
-    expect(weatherCodeToEmoji(1)).toBe('🌤️');
-    expect(weatherCodeToEmoji(2)).toBe('🌤️');
-    expect(weatherCodeToEmoji(3)).toBe('🌤️');
+  it('maps partly cloudy (1-3) to Cloud', () => {
+    expect(weatherCodeToIcon(1)).toBe(Cloud);
+    expect(weatherCodeToIcon(2)).toBe(Cloud);
+    expect(weatherCodeToIcon(3)).toBe(Cloud);
   });
 
-  it('maps fog (45, 48)', () => {
-    expect(weatherCodeToEmoji(45)).toBe('🌫️');
-    expect(weatherCodeToEmoji(48)).toBe('🌫️');
+  it('maps fog (45, 48) to CloudFog', () => {
+    expect(weatherCodeToIcon(45)).toBe(CloudFog);
+    expect(weatherCodeToIcon(48)).toBe(CloudFog);
   });
 
-  it('maps drizzle (51-57)', () => {
+  it('maps drizzle (51-57) to CloudDrizzle', () => {
     for (const code of [51, 53, 55, 56, 57]) {
-      expect(weatherCodeToEmoji(code)).toBe('🌦️');
+      expect(weatherCodeToIcon(code)).toBe(CloudDrizzle);
     }
   });
 
-  it('maps rain (61-67, 80-82)', () => {
+  it('maps rain (61-67, 80-82) to CloudRain', () => {
     for (const code of [61, 63, 65, 66, 67, 80, 81, 82]) {
-      expect(weatherCodeToEmoji(code)).toBe('🌧️');
+      expect(weatherCodeToIcon(code)).toBe(CloudRain);
     }
   });
 
-  it('maps snow (71-77, 85-86)', () => {
+  it('maps snow (71-77, 85-86) to CloudSnow', () => {
     for (const code of [71, 73, 75, 77, 85, 86]) {
-      expect(weatherCodeToEmoji(code)).toBe('🌨️');
+      expect(weatherCodeToIcon(code)).toBe(CloudSnow);
     }
   });
 
-  it('maps thunderstorms (95-99)', () => {
+  it('maps thunderstorms (95-99) to CloudLightning', () => {
     for (const code of [95, 96, 99]) {
-      expect(weatherCodeToEmoji(code)).toBe('⛈️');
+      expect(weatherCodeToIcon(code)).toBe(CloudLightning);
     }
   });
 
-  it('falls back to a default emoji for unrecognized codes', () => {
-    expect(weatherCodeToEmoji(-1)).toBe('🌡️');
+  it('is total over every WMO code the app handles', () => {
+    for (const code of ALL_HANDLED_CODES) {
+      expect(weatherCodeToIcon(code)).toBeDefined();
+    }
+  });
+
+  it('falls back to a default icon for unrecognized codes', () => {
+    expect(weatherCodeToIcon(-1)).toBe(Cloud);
+  });
+});
+
+describe('weatherCodeToSkyClass', () => {
+  it('is total over every WMO code the app handles, returning one of the 4 wash variants', () => {
+    const VALID = new Set(['clear', 'cloud', 'fog', 'rain']);
+    for (const code of ALL_HANDLED_CODES) {
+      expect(VALID.has(weatherCodeToSkyClass(code))).toBe(true);
+    }
+  });
+
+  it('maps clear sky (0) to clear and fog codes (45, 48) to fog', () => {
+    expect(weatherCodeToSkyClass(0)).toBe('clear');
+    expect(weatherCodeToSkyClass(45)).toBe('fog');
+    expect(weatherCodeToSkyClass(48)).toBe('fog');
+  });
+
+  it('maps every real precipitation code to rain', () => {
+    const PRECIPITATION_CODES = [
+      51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85,
+      86, 95, 96, 99,
+    ];
+    for (const code of PRECIPITATION_CODES) {
+      expect(weatherCodeToSkyClass(code)).toBe('rain');
+    }
+  });
+
+  it('falls back to cloud for an unrecognized code instead of assuming rain', () => {
+    expect(weatherCodeToSkyClass(100)).toBe('cloud');
+  });
+
+  it('falls back to cloud for a negative code', () => {
+    expect(weatherCodeToSkyClass(-1)).toBe('cloud');
+  });
+});
+
+describe('weatherCodeToLabel', () => {
+  it('maps clear sky (0) to Clear', () => {
+    expect(weatherCodeToLabel(0)).toBe('Clear');
+  });
+
+  it('maps partly cloudy (1-3) to Cloudy', () => {
+    expect(weatherCodeToLabel(1)).toBe('Cloudy');
+    expect(weatherCodeToLabel(2)).toBe('Cloudy');
+    expect(weatherCodeToLabel(3)).toBe('Cloudy');
+  });
+
+  it('maps fog (45, 48) to Fog', () => {
+    expect(weatherCodeToLabel(45)).toBe('Fog');
+    expect(weatherCodeToLabel(48)).toBe('Fog');
+  });
+
+  it('maps drizzle (51-57) to Drizzle', () => {
+    for (const code of [51, 53, 55, 56, 57]) {
+      expect(weatherCodeToLabel(code)).toBe('Drizzle');
+    }
+  });
+
+  it('maps rain (61-67, 80-82) to Rain', () => {
+    for (const code of [61, 63, 65, 66, 67, 80, 81, 82]) {
+      expect(weatherCodeToLabel(code)).toBe('Rain');
+    }
+  });
+
+  it('maps snow (71-77, 85-86) to Snow', () => {
+    for (const code of [71, 73, 75, 77, 85, 86]) {
+      expect(weatherCodeToLabel(code)).toBe('Snow');
+    }
+  });
+
+  it('maps thunderstorms (95-99) to Thunderstorm', () => {
+    for (const code of [95, 96, 99]) {
+      expect(weatherCodeToLabel(code)).toBe('Thunderstorm');
+    }
+  });
+
+  it('falls back to Cloudy for an unrecognized code', () => {
+    expect(weatherCodeToLabel(-1)).toBe('Cloudy');
+    expect(weatherCodeToLabel(100)).toBe('Cloudy');
   });
 });
 

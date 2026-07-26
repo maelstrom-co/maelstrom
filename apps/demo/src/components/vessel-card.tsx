@@ -1,50 +1,14 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
+import { ACCENT_HEX, accentAlpha, type AccentToken } from '../lib/design-tokens';
 import { cn } from '../lib/cn';
 
-type Accent = 'cyan' | 'blue' | 'seafoam' | 'violet';
-
 interface VesselCardProps {
-  accent: Accent;
+  accent: AccentToken;
   label: string;
   meta?: string;
   children: ReactNode;
   className?: string;
 }
-
-const accentStyles: Record<
-  Accent,
-  {
-    bg: string;
-    border: string;
-    glow: string;
-    text: string;
-  }
-> = {
-  cyan: {
-    bg: 'from-cyan-accent/8 to-cyan-accent/4',
-    border: 'border-cyan-accent/12',
-    glow: 'via-cyan-accent/12',
-    text: 'text-cyan-accent/90',
-  },
-  blue: {
-    bg: 'from-blue-accent/8 to-blue-accent/4',
-    border: 'border-blue-accent/12',
-    glow: 'via-blue-accent/12',
-    text: 'text-blue-accent/90',
-  },
-  seafoam: {
-    bg: 'from-seafoam-accent/8 to-seafoam-accent/4',
-    border: 'border-seafoam-accent/12',
-    glow: 'via-seafoam-accent/12',
-    text: 'text-seafoam-accent/90',
-  },
-  violet: {
-    bg: 'from-violet-accent/8 to-violet-accent/4',
-    border: 'border-violet-accent/12',
-    glow: 'via-violet-accent/12',
-    text: 'text-violet-accent/90',
-  },
-};
 
 export function VesselCard({
   accent,
@@ -53,41 +17,28 @@ export function VesselCard({
   children,
   className,
 }: VesselCardProps) {
-  const styles = accentStyles[accent];
+  const hex = ACCENT_HEX[accent];
+  const style = {
+    '--accent': hex,
+    '--edge': accentAlpha(hex, 0.35),
+    '--glow': accentAlpha(hex, 0.22),
+  } as CSSProperties;
 
   return (
-    <div
-      className={cn(
-        'relative h-full overflow-hidden rounded-xl border',
-        `bg-gradient-to-br ${styles.bg} ${styles.border}`,
-        className,
-      )}
-    >
-      {/* Top edge glow */}
-      <div
-        className={cn(
-          'absolute top-0 inset-x-0 h-px',
-          `bg-gradient-to-r from-transparent ${styles.glow} to-transparent`,
-        )}
-      />
-
+    <div className={cn('vessel-card relative h-full overflow-hidden', className)} style={style}>
+      <div className="vessel-card-edge absolute top-0 inset-x-0 h-px" />
       <div className="p-5 h-full flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <span
-            className={cn(
-              'text-xs font-mono tracking-wider uppercase',
-              styles.text,
-            )}
-          >
-            {label}
+        <div className="relative flex items-center justify-between mb-3">
+          <span className="flex items-center gap-2">
+            <span className="vessel-card-dot h-[5px] w-[5px] rounded-full shrink-0" />
+            <span className="text-xs font-mono tracking-[.16em] uppercase text-ink-2">
+              {label}
+            </span>
           </span>
           {meta && (
-            <span className="text-[11px] text-gray-500 font-mono">{meta}</span>
+            <span className="text-xs font-mono text-ink-3 leading-none">{meta}</span>
           )}
         </div>
-
-        {/* Content */}
         {children}
       </div>
     </div>

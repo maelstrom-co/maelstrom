@@ -26,6 +26,22 @@ describe('findByFuzzyTitle', () => {
     ).toBe('2');
   });
 
+  it('picks the most specific (longest title) reverse-substring match rather than the first in list order', () => {
+    // Gym is seeded before Design review, so a naive `list.find` would stop
+    // at the shorter, less-specific "Gym" match instead of "Design review".
+    expect(
+      findByFuzzyTitle(items, 'Design review — Gym')?.id,
+    ).toBe('2');
+  });
+
+  it('breaks a same-length reverse-substring tie by keeping the first match in list order', () => {
+    const tied = [
+      { id: 'a', title: 'Gym' },
+      { id: 'b', title: 'Spa' },
+    ];
+    expect(findByFuzzyTitle(tied, 'Gym or Spa today')?.id).toBe('a');
+  });
+
   it('returns undefined for a genuinely unrelated query', () => {
     expect(findByFuzzyTitle(items, 'nonexistent event')).toBeUndefined();
   });
