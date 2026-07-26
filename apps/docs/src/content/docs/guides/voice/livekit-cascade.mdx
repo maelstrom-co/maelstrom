@@ -1,0 +1,345 @@
+---
+title: LiveKit cascade
+description: Add hold-to-talk voice with browser-side intent routing and a no-LLM STT/TTS worker.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The LiveKit cascade adds hold-to-talk voice without adding another planning model. A worker transcribes speech with Deepgram and synthesizes settled results with Cartesia, while the browser sends each final transcript through `RealtimeSession` as an ordinary `update_ui` intent.
+
+## Prerequisites
+
+Before wiring the track, provide:
+
+- a Maelstrom React instance with its normal Engine Connector
+- a LiveKit server and credentials for both the token service and worker
+- Deepgram and Cartesia credentials for the worker
+- a browser secure context with microphone permission
+- the `@maelstrom-co/realtime-livekit`, `@maelstrom-co/realtime-livekit-server`, `@maelstrom-co/realtime-livekit-agent`, and `@maelstrom-co/react-realtime` packages
+
+## Follow the cascade
+
+One hold-to-talk turn follows this path:
+
+1. The microphone publishes audio to a LiveKit room.
+2. The Deepgram STT worker publishes one final transcript for the turn.
+3. The browser's `LiveKitAdapter` converts that transcript to an `update_ui` tool call.
+4. `RealtimeSession` submits the natural-language intent to the Maelstrom client.
+5. The Engine plans against the client-built Chart snapshot and returns the normal Execution Plan and Layout Directives.
+6. After rendering settles, `RealtimeSession` returns the result to the adapter.
+7. The adapter sends the result text on the LiveKit `speak` topic.
+8. The Cartesia TTS worker publishes audio back to the room.
+
+<Aside type="note" title="The worker has no planning model">
+  The worker performs only Deepgram STT and Cartesia TTS. It receives no Vessel,
+  Instance, Variant, Action, Chart, or grounding context. The Maelstrom Engine is
+  the only planning LLM, and `LiveKitAdapter.injectGrounding()` is intentionally
+  a no-op.
+</Aside>
+
+## Validate the token contract in the browser
+
+The `/token` entry point contains the grant schema without importing the LiveKit browser transport. Treat the token endpoint's response as unknown data and validate it before joining a room.
+
+```ts title="src/voice/mint-livekit-token.ts"
+import {
+  LiveKitTokenGrantSchema,
+  type LiveKitTokenGrant,
+} from '@maelstrom-co/realtime-livekit/token';
+
+export async function fetchLiveKitToken(
+  roomName: string,
+): Promise<LiveKitTokenGrant> {
+  const response = await fetch('/api/livekit-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomName }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`LiveKit token mint failed with status ${response.status}`);
+  }
+
+  return LiveKitTokenGrantSchema.parse(await response.json());
+}
+```
+
+The schema requires a non-empty token, a `ws:` or `wss:` LiveKit URL, and an absolute expiry in Unix seconds. Shape validation does not authenticate the caller or authorize room access.
+
+## Add the server token route
+
+Keep LiveKit signing credentials in server-only code. The minter validates the request, trims the room name, signs a token scoped to that room, and returns a typed `Result`.
+
+```ts title="server/livekit-token.ts"
+import { isOk } from '@maelstrom-co/protocol';
+import {
+  LiveKitTokenRequestSchema,
+  mintFailureHttpStatus,
+  mintLiveKitToken,
+} from '@maelstrom-co/realtime-livekit-server';
+
+export async function POST(request: Request): Promise<Response> {
+  let input: unknown;
+  try {
+    input = await request.json();
+  } catch {
+    return Response.json({ error: 'Malformed JSON request body' }, { status: 400 });
+  }
+
+  const parsed = LiveKitTokenRequestSchema.safeParse(input);
+  if (!parsed.success) {
+    return Response.json({ error: 'invalid-request' }, { status: 400 });
+  }
+
+  const result = await mintLiveKitToken(parsed.data);
+  if (isOk(result)) return Response.json(result.value);
+
+  return Response.json(
+    { error: result.error.reason },
+    { status: mintFailureHttpStatus(result.error.reason) },
+  );
+}
+```
+
+<Aside type="danger" title="The minter is a bootstrap primitive">
+  `mintLiveKitToken` validates shape and signs a room token, but it does not
+  authenticate or authorize callers. Before production, bind authenticated
+  callers to trusted room names and identities, restrict origins and rooms,
+  rate-limit attempts, and monitor abuse. Never expose `LIVEKIT_API_KEY` or
+  `LIVEKIT_API_SECRET` to browser code.
+</Aside>
+
+The server process requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`. `LIVEKIT_TOKEN_TTL` is optional and defaults to `15m`; supported values are a positive integer number of seconds or one `<int><unit>` value using `s`, `m`, `h`, or `d`. Unsupported or unsafe values fail closed as `invalid-config`.
+
+## Start the STT/TTS worker
+
+Run the agent in a process separate from the application server and browser.
+
+```ts title="voice-worker.ts"
+import { runVoiceAgent } from '@maelstrom-co/realtime-livekit-agent';
+
+runVoiceAgent();
+```
+
+When a custom worker harness needs the underlying definition, export the factory result instead:
+
+```ts title="embedded-voice-agent.ts"
+import { defineMaelstromVoiceAgent } from '@maelstrom-co/realtime-livekit-agent';
+
+export default defineMaelstromVoiceAgent();
+```
+
+The worker requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `DEEPGRAM_API_KEY`, and `CARTESIA_API_KEY`. Keep all five values in worker-only or server-only configuration. The optional `MAELSTROM_STT_FLUSH_TIMEOUT_MS` defaults to `2000`; it must be a positive number and bounds only the empty-turn fallback when a flush-produced final transcript never arrives.
+
+## Connect the browser adapter
+
+Create one room name and adapter per Maelstrom session. A stable per-session room name lets a reconnect join the same room.
+
+```ts title="src/maelstrom.ts"
+import { createMaelstrom } from '@maelstrom-co/react';
+import { maelstromRealtime } from '@maelstrom-co/react-realtime';
+import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
+import { fetchLiveKitToken } from './voice/mint-livekit-token';
+import { vessels } from './vessels';
+
+export const m = createMaelstrom({ vessels }).with(
+  maelstromRealtime({
+    createAdapter: ({ sessionId }) => {
+      const roomName = `maelstrom-${sessionId}`;
+      return new LiveKitAdapter({
+        roomName,
+        mintToken: fetchLiveKitToken,
+      });
+    },
+  }),
+);
+```
+
+`connect()` joins the room, publishes the microphone track, and immediately mutes it. The hold-to-talk control is the only mechanism that opens and closes turns; this track has no provider-managed voice activity detection.
+
+## Use the protocol entry point
+
+The `/protocol` entry point is shared by the browser adapter and worker. It defines the topics without pulling browser dependencies into the worker.
+
+```ts
+import {
+  SPEAK_TOPIC,
+  TURN_TOPIC,
+  TTS_TOPIC,
+} from '@maelstrom-co/realtime-livekit/protocol';
+```
+
+`TURN_TOPIC` carries turn-end and TTS-cancel data messages. `SPEAK_TOPIC` carries settled result text to the worker, and `TTS_TOPIC` carries playout-complete or synthesis-error status back to the browser. Application code normally lets the adapter and worker publish these messages.
+
+## Render a safe hold-to-talk control
+
+Disable hold-to-talk until the transport is connected. Pair every pointer or keyboard press with one release, prevent repeated starts, and close the turn when the pointer leaves, the browser cancels the pointer, the connection fails, or the component unmounts.
+
+```tsx title="src/HoldToTalk.tsx"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
+import { m } from './maelstrom';
+
+const LIVE_STATES = new Set(['connected', 'listening', 'thinking', 'speaking']);
+
+export function HoldToTalk() {
+  const { state, error, turnControl } = m.useVoice();
+  const pressRequested = useRef(false);
+  const requestSequence = useRef(0);
+  const turnActive = useRef(false);
+  const lifecycle = useRef<Promise<void>>(Promise.resolve());
+  const connected = LIVE_STATES.has(state);
+
+  const serialize = useCallback(
+    (phase: 'start' | 'end', operation: () => Promise<void>) => {
+      const run = lifecycle.current.then(operation);
+      lifecycle.current = run.catch((error) => {
+        console.error(`Hold-to-talk ${phase} failed`, error);
+      });
+      return lifecycle.current;
+    },
+    [],
+  );
+
+  const begin = useCallback(async () => {
+    if (pressRequested.current || !turnControl || !connected) return;
+    pressRequested.current = true;
+    requestSequence.current += 1;
+    const request = requestSequence.current;
+
+    await serialize('start', async () => {
+      // A release can arrive before this queued operation begins. In that case
+      // no microphone turn was opened, so the queued end operation is a no-op.
+      if (
+        !pressRequested.current ||
+        requestSequence.current !== request ||
+        turnActive.current
+      )
+        return;
+      await turnControl.startTurn();
+      turnActive.current = true;
+    });
+  }, [connected, serialize, turnControl]);
+
+  const stopTurn = useCallback(
+    async (force: boolean) => {
+      if (!force && !pressRequested.current) return;
+      pressRequested.current = false;
+      requestSequence.current += 1;
+
+      await serialize('end', async () => {
+        // This runs after any queued or pending startTurn() has settled.
+        if (!turnActive.current) return;
+        await turnControl?.endTurn();
+        turnActive.current = false;
+      });
+    },
+    [serialize, turnControl],
+  );
+
+  useEffect(() => {
+    if (!connected) void stopTurn(true);
+  }, [connected, stopTurn]);
+
+  useEffect(
+    () => () => {
+      void stopTurn(true);
+    },
+    [stopTurn],
+  );
+
+  const endPress = () => void stopTurn(false);
+  const isTurnKey = (key: string) => key === 'Enter' || key === ' ';
+  let sessionError: string | undefined;
+  if (error !== undefined) {
+    sessionError = error instanceof Error ? error.message : 'The voice session failed.';
+  }
+
+  if (!turnControl) return null;
+
+  return (
+    <div>
+      <button
+        type="button"
+        disabled={!connected}
+        aria-describedby={sessionError ? 'voice-turn-error' : undefined}
+        onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
+          if (pressRequested.current) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          void begin();
+        }}
+        onPointerUp={endPress}
+        onPointerLeave={endPress}
+        onPointerCancel={endPress}
+        onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+          if (!isTurnKey(event.key) || event.repeat || pressRequested.current) return;
+          event.preventDefault();
+          void begin();
+        }}
+        onKeyUp={(event: KeyboardEvent<HTMLButtonElement>) => {
+          if (isTurnKey(event.key)) endPress();
+        }}
+      >
+        Hold to talk
+      </button>
+      {sessionError && (
+        <p id="voice-turn-error" role="alert">
+          Voice stopped: {sessionError} Release the control, reconnect voice,
+          then try again.
+        </p>
+      )}
+    </div>
+  );
+}
+```
+
+`lifecycle` serializes every turn operation. If release, pointer cancellation, disconnect, or unmount happens while `startTurn()` is pending, the queued end waits for that start to settle and calls `endTurn()` only when the local queue recorded a started turn. `pressRequested` prevents duplicate pointer and keyboard starts, and `requestSequence` prevents a later press from reviving a start invalidated by an earlier release.
+
+There are two error paths. A directly rejected `startTurn()` or `endTurn()` promise is caught by `serialize` and logged with its lifecycle phase so the queue can continue. The LiveKit adapter instead reports microphone and data-channel failures by emitting a typed session error; after emitting, the turn-control promise can resolve normally. `useVoice().error` exposes that separate channel, so the alert derives from `error` rather than treating promise fulfillment as success. It announces the failure and tells the user to release the control and reconnect before another attempt.
+
+`turnActive` is local ordering bookkeeping, not provider status. Because an adapter-emitted failure can resolve the operation, `turnActive` may briefly record a failed start, and an emitted failed end still clears it. The session error tears down the connection. The disconnect effect queues a cleanup attempt through the same serializer, so it runs after pending turn work; whether it calls `endTurn()` depends on the local `turnActive` bookkeeping and adapter state. The control remains disabled until the shared session connects again.
+
+## Preserve the runtime boundaries
+
+Each final transcript becomes one `update_ui` call. `RealtimeSession` still waits for rendering to settle before it calls `sendToolResult()`, so the Cartesia read-back describes the rendered result rather than a prediction. Failed TTS is non-fatal because the UI update has already applied.
+
+Unlike the OpenAI track, the LiveKit worker has no model session to ground. Settled structural summaries may reach `LiveKitAdapter.injectGrounding()`, but the method deliberately does nothing. Do not forward Chart structure or Vessel domain data to the worker.
+
+## Harden the deployment
+
+Before exposing the token route or worker:
+
+1. authenticate and authorize every mint caller
+2. derive trusted room names and participant identities on the server
+3. restrict allowed origins, rooms, methods, and session policy
+4. use short token lifetimes and rate-limit mint attempts
+5. monitor room creation, mint failures, worker failures, and unusual usage
+6. avoid logging room tokens, LiveKit secrets, or provider API keys
+
+## Recover from failures
+
+| Failure | Recovery |
+| --- | --- |
+| Token request or grant validation fails | Keep voice disconnected, reject partial data, and correct caller policy or server configuration before retrying |
+| LiveKit URL uses `http:` or `https:` | Configure a `ws:` or `wss:` URL; the grant schema rejects unsupported schemes |
+| Microphone permission is denied | Explain how to allow microphone access, then reconnect before enabling hold-to-talk |
+| Worker does not answer | Check the worker process, LiveKit connectivity, and the Deepgram and Cartesia keys; do not move planning into the worker |
+| A press is cancelled or the connection drops | Call `endTurn()` from cancellation cleanup so the microphone does not remain active |
+| TTS fails after rendering | Keep the session usable and report that spoken confirmation was lost; the UI result is already applied |
+
+## API reference
+
+Use the generated reference for the public contracts used in this guide:
+
+- [`LiveKitAdapter`](/reference/realtime-livekit/packages/realtime-livekit/src/classes/livekitadapter/) from the `@maelstrom-co/realtime-livekit` root
+- [`SPEAK_TOPIC`](/reference/realtime-livekit/packages/realtime-livekit/src/protocol/variables/speak_topic/) from `@maelstrom-co/realtime-livekit/protocol`
+- [`LiveKitTokenGrantSchema`](/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/variables/livekittokengrantschema/) from `@maelstrom-co/realtime-livekit/token`
+- [`mintLiveKitToken`](/reference/realtime-livekit-server/functions/mintlivekittoken/) and [`LiveKitTokenRequestSchema`](/reference/realtime-livekit-server/variables/livekittokenrequestschema/) from `@maelstrom-co/realtime-livekit-server`
+- [`defineMaelstromVoiceAgent`](/reference/realtime-livekit-agent/functions/definemaelstromvoiceagent/) and [`runVoiceAgent`](/reference/realtime-livekit-agent/functions/runvoiceagent/) from `@maelstrom-co/realtime-livekit-agent`
+
+Return to the [Voice overview](/guides/voice/overview/) to compare this cascade with OpenAI Realtime.
