@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare:voice-assets": "maelstrom-livekit-assets public/vad-web",
+    "prepare:voice-assets": "maelstrom-vad-assets public/vad-web",
     "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev:client\"",
     "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"bun run dev:client:livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
@@ -45,7 +45,7 @@
           "...",
           {
             "projects": [
-              "@maelstrom-co/realtime-livekit"
+              "@maelstrom-co/realtime-vad"
             ],
             "target": "build"
           }
@@ -142,7 +142,7 @@
     "@maelstrom-co/realtime-openai": "workspace:*",
     "@maelstrom-co/realtime-openai-server": "workspace:*",
     "@maelstrom-co/realtime-protocol": "workspace:*",
-    "livekit-client": "^2.13.1",
+    "@maelstrom-co/realtime-vad": "workspace:*",
     "@tanstack/ai": "catalog:",
     "@tanstack/ai-openai": "catalog:",
     "@tanstack/react-router": "catalog:",

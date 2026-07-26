@@ -20,6 +20,11 @@ import {
   TTS_TOPIC,
   TURN_TOPIC,
 } from '@maelstrom-co/realtime-protocol/livekit';
+import {
+  type BrowserVad,
+  createBrowserVad,
+  resolveBrowserVadConfig,
+} from '@maelstrom-co/realtime-vad';
 import type {
   LocalAudioTrack,
   RemoteTrack,
@@ -33,11 +38,6 @@ import {
   Track,
 } from 'livekit-client';
 
-import {
-  type BrowserVad,
-  createBrowserVad,
-  resolveBrowserVadConfig,
-} from './browser-vad.js';
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
 import {
   createLocalAudioPreRoll,

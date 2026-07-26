@@ -51,9 +51,14 @@ implement the provider-neutral seam from `realtime`. Importing one provider does
 not drag another provider's SDK into the bundle, and the core never branches on
 provider identity, so another adapter is an addition rather than a conditional.
 
-**`realtime-livekit` apart from `realtime`.** LiveKit and the browser VAD assets
-are optional transport weight. The adapter owns the microphone and turn
-mechanics without imposing them on apps using a different provider.
+**`realtime-livekit` apart from `realtime`.** LiveKit is optional transport
+weight. The adapter owns the microphone and turn mechanics without imposing
+them on apps using a different provider.
+
+**`realtime-vad` apart from `realtime-livekit`.** Browser VAD consumes a
+`MediaStream` and emits speech edges without knowing about LiveKit rooms or
+publications. Its package owns the runtime and matching asset copier so another
+transport can reuse detection without depending on LiveKit.
 
 **The LiveKit adapter apart from its agent.** These sit on opposite sides of the
 room. The adapter owns local capture and the privacy gate; the worker owns the
@@ -177,7 +182,7 @@ and redirect-free: browser-to-mint routes use HTTPS, LiveKit connections use
 `wss://`, and credential-bearing requests reject redirects. Plain HTTP and
 `ws://` are local-development options, not production transports.
 
-The same reasoning governs the browser's VAD assets. The browser executes
+The same reasoning governs `realtime-vad`'s browser assets. The browser executes
 worklet, JavaScript, and WebAssembly code from whatever directory is configured,
 so that directory is trusted infrastructure. It may never be derived from user
 input.

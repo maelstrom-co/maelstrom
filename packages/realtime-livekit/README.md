@@ -30,17 +30,10 @@ STT (Deepgram) and TTS (Cartesia), and holds no LLM of its own.
 
 ## Entry points
 
-Every subpath this package exports:
-
-- **`@maelstrom-co/realtime-livekit`** — `LiveKitAdapter` (browser), plus
-  `LiveKitTokenGrant` and `LiveKitTokenGrantSchema` re-exported from `./token`.
-- **`@maelstrom-co/realtime-livekit/protocol`** — wire topic constants shared
-  with the worker.
-- **`@maelstrom-co/realtime-livekit/token`** — the grant type and schema on
-  their own, for code that validates a grant without pulling in the adapter.
-- **`@maelstrom-co/realtime-livekit/vad-assets`** — `copyLiveKitVadAssets`, the
-  Node-only helper behind the build step in
-  [Deploy browser VAD assets](#deploy-browser-vad-assets).
+This package exports `@maelstrom-co/realtime-livekit`, the browser
+`LiveKitAdapter` and its configuration types. Shared grants and room topics live
+in `@maelstrom-co/realtime-protocol/livekit`. The provider-neutral VAD engine and
+its Node-only asset helper live in `@maelstrom-co/realtime-vad`.
 
 The Node-only token minter is a **separate package**, not a subpath here:
 `@maelstrom-co/realtime-livekit-server` (`mintLiveKitToken`).
@@ -48,13 +41,13 @@ The Node-only token minter is a **separate package**, not a subpath here:
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
+bun add @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
 ```
 
 ```bash
-npm install @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
-pnpm add @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
-yarn add @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
+npm install @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
+pnpm add @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
+yarn add @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
 ```
 
 `@maelstrom-co/realtime` is listed explicitly because the usage below imports
@@ -66,10 +59,8 @@ application owns its version.
 
 ```ts
 import { RealtimeSession } from '@maelstrom-co/realtime';
-import {
-  LiveKitAdapter,
-  LiveKitTokenGrantSchema,
-} from '@maelstrom-co/realtime-livekit';
+import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
+import { LiveKitTokenGrantSchema } from '@maelstrom-co/realtime-protocol/livekit';
 
 const adapter = new LiveKitAdapter({
   mintToken: async (roomName) => {
@@ -105,10 +96,10 @@ enabled track on the wire before the gate is applied. It stays muted until
 
 ## Deploy browser VAD assets
 
-Default-on VAD still requires a build-time asset step. The default
-`/vad-web/` URL does not create or publish files for the application. Use the
-package-owned Node subpath or CLI so the copied assets match this adapter's
-pinned VAD and ONNX Runtime dependencies. The workspace catalog pins
+Default-on VAD still requires a build-time asset step. The default `/vad-web/`
+URL does not create or publish files for the application. Use the
+`@maelstrom-co/realtime-vad` Node subpath or CLI so copied assets match the
+engine's pinned VAD and ONNX Runtime dependencies. The workspace catalog pins
 `@ricky0123/vad-web` to `0.0.30` and `onnxruntime-web` to `1.27.0` exactly.
 Keeping both pins exact ensures that the copied worklet and model files stay
 aligned with the ONNX Runtime JavaScript and WebAssembly files that load them.
@@ -116,9 +107,9 @@ aligned with the ONNX Runtime JavaScript and WebAssembly files that load them.
 ### Node API
 
 ```ts
-import { copyLiveKitVadAssets } from '@maelstrom-co/realtime-livekit/vad-assets';
+import { copyBrowserVadAssets } from '@maelstrom-co/realtime-vad/assets';
 
-const copied = await copyLiveKitVadAssets({ outputDir: 'public/vad-web' });
+const copied = await copyBrowserVadAssets({ outputDir: 'public/vad-web' });
 ```
 
 Relative destinations resolve from the caller's current working directory. The
@@ -133,7 +124,7 @@ non-directory targets are rejected.
 ### CLI
 
 ```sh
-maelstrom-livekit-assets public/vad-web
+maelstrom-vad-assets public/vad-web
 ```
 
 The CLI applies the same replacement rules. It prints the copied-file count on
@@ -143,7 +134,7 @@ runs it before its normal build:
 ```json
 {
   "scripts": {
-    "prepare:vad": "maelstrom-livekit-assets public/vad-web",
+    "prepare:vad": "maelstrom-vad-assets public/vad-web",
     "build": "bun run prepare:vad && vite build"
   }
 }

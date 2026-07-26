@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { runLiveKitAssetsCli } from './maelstrom-livekit-assets.js';
+import { runVadAssetsCli } from './maelstrom-vad-assets.js';
 
 function captureOutput() {
   const stdout: string[] = [];
@@ -20,23 +20,23 @@ function captureOutput() {
   };
 }
 
-describe('runLiveKitAssetsCli', () => {
+describe('runVadAssetsCli', () => {
   test('requires exactly one output directory argument', async () => {
     const output = captureOutput();
 
-    const exitCode = await runLiveKitAssetsCli([], output.io);
+    const exitCode = await runVadAssetsCli([], output.io);
 
     expect(exitCode).toBe(1);
     expect(output.stdout).toEqual([]);
     expect(output.stderr).toEqual([
-      'Usage: maelstrom-livekit-assets <outputDir>',
+      'Usage: maelstrom-vad-assets <outputDir>',
     ]);
   });
 
   test('prints only the copied-file count after success', async () => {
     const output = captureOutput();
 
-    const exitCode = await runLiveKitAssetsCli(
+    const exitCode = await runVadAssetsCli(
       ['public/vad-web'],
       output.io,
       async () => ['a.mjs', 'b.wasm'],
@@ -50,7 +50,7 @@ describe('runLiveKitAssetsCli', () => {
   test('prints a concise error and no copied-file count after failure', async () => {
     const output = captureOutput();
 
-    const exitCode = await runLiveKitAssetsCli(
+    const exitCode = await runVadAssetsCli(
       ['public/vad-web'],
       output.io,
       async () => {
@@ -68,7 +68,7 @@ describe('runLiveKitAssetsCli', () => {
   test('redacts absolute paths and control characters from failures', async () => {
     const output = captureOutput();
 
-    const exitCode = await runLiveKitAssetsCli(
+    const exitCode = await runVadAssetsCli(
       ['public/vad-web'],
       output.io,
       async () => {
@@ -99,7 +99,7 @@ describe('runLiveKitAssetsCli', () => {
 if (process.platform !== 'win32') {
   test('builds package artifacts with an executable bin and external VAD runtimes', () => {
     const packageRoot = resolve(import.meta.dir, '../..');
-    const outputDir = mkdtempSync(join(tmpdir(), 'maelstrom-livekit-cli-'));
+    const outputDir = mkdtempSync(join(tmpdir(), 'maelstrom-vad-cli-'));
 
     try {
       const build = spawnSync(
@@ -119,7 +119,7 @@ if (process.platform !== 'win32') {
 
       expect(build.status, build.stderr || build.stdout).toBe(0);
 
-      const binPath = resolve(outputDir, 'bin/maelstrom-livekit-assets.js');
+      const binPath = resolve(outputDir, 'bin/maelstrom-vad-assets.js');
       expect(statSync(binPath).mode & 0o111).not.toBe(0);
       expect(readFileSync(binPath, 'utf8')).toStartWith(
         '#!/usr/bin/env node\n',
@@ -133,7 +133,7 @@ if (process.platform !== 'win32') {
         'utf8',
       );
       expect(assetEntry).toContain(
-        'import { t as e } from "./vad-assets-B-lNL3ng.js";\nexport { e as copyLiveKitVadAssets };\n',
+        'import { t as e } from "./vad-assets-B-lNL3ng.js";\nexport { e as copyBrowserVadAssets };\n',
       );
     } finally {
       rmSync(outputDir, { recursive: true, force: true });

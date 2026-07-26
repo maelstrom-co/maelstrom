@@ -41,7 +41,7 @@ const transactionIdPattern =
   /^(?:backup|stage)-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Options for package-owned browser VAD asset deployment. */
-export interface CopyLiveKitVadAssetsOptions {
+export interface CopyBrowserVadAssetsOptions {
   /**
    * Dedicated child directory for generated VAD assets. Relative paths are
    * resolved from the caller's current working directory. The working
@@ -146,9 +146,9 @@ function errorWithCleanupFailures(
  * @returns Copied paths relative to the resolved destination, sorted
  * lexicographically and normalized to `/` separators.
  */
-export async function copyLiveKitVadAssets({
+export async function copyBrowserVadAssets({
   outputDir,
-}: CopyLiveKitVadAssetsOptions): Promise<readonly string[]> {
+}: CopyBrowserVadAssetsOptions): Promise<readonly string[]> {
   const resolvedOutputDir = isAbsolute(outputDir)
     ? resolve(outputDir)
     : resolve(process.cwd(), outputDir);

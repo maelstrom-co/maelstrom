@@ -29,6 +29,10 @@ Render the current `state` rather than inferring success from a fixed order. The
 
 `turnControl` is a capability, not a constant. Speech-native adapters leave it undefined because the provider owns turn detection. Adapters that require explicit turn boundaries expose it, and application code should render hold-to-talk only while it is present.
 
+The React binding does not create a VAD controller. `LiveKitAdapter` drives the
+provider-neutral engine from `@maelstrom-co/realtime-vad`; applications deploy
+that package's matching browser assets during their build.
+
 ## Docs
 
 - [Voice guide](https://docs.maelstrom-ai.co/guides/voice/overview/)

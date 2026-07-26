@@ -20,9 +20,6 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "maelstrom-livekit-assets": "./dist/bin/maelstrom-livekit-assets.js"
-  },
   "exports": {
     "./package.json": "./package.json",
     ".": {
@@ -30,12 +27,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./vad-assets": {
-      "@maelstrom-co/source": "./src/vad-assets.ts",
-      "types": "./dist/vad-assets.d.ts",
-      "import": "./dist/vad-assets.js",
-      "default": "./dist/vad-assets.js"
     }
   },
   "files": [
@@ -60,8 +51,7 @@
     "@maelstrom-co/protocol": "0.1.0-alpha.0",
     "@maelstrom-co/realtime": "0.1.0-alpha.0",
     "@maelstrom-co/realtime-protocol": "0.0.0",
-    "@ricky0123/vad-web": "catalog:",
-    "onnxruntime-web": "catalog:",
+    "@maelstrom-co/realtime-vad": "0.0.0",
     "zod": "catalog:"
   },
   "peerDependencies": {

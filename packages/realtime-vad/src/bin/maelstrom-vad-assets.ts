@@ -2,14 +2,14 @@
 
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { copyLiveKitVadAssets } from '../vad-assets.js';
+import { copyBrowserVadAssets } from '../vad-assets.js';
 
 interface CliOutput {
   readonly stdout: (message: string) => void;
   readonly stderr: (message: string) => void;
 }
 
-type CopyAssets = typeof copyLiveKitVadAssets;
+type CopyAssets = typeof copyBrowserVadAssets;
 
 const ANSI_ESCAPE_SEQUENCE = new RegExp(
   `${String.fromCodePoint(27)}\\[[0-?]*[ -/]*[@-~]`,
@@ -52,13 +52,13 @@ function sanitizeFailureMessage(error: unknown): string {
  *
  * @returns `0` after a successful replacement, otherwise `1`.
  */
-export async function runLiveKitAssetsCli(
+export async function runVadAssetsCli(
   args: readonly string[],
   output: CliOutput = consoleOutput,
-  copyAssets: CopyAssets = copyLiveKitVadAssets,
+  copyAssets: CopyAssets = copyBrowserVadAssets,
 ): Promise<number> {
   if (args.length !== 1) {
-    output.stderr('Usage: maelstrom-livekit-assets <outputDir>');
+    output.stderr('Usage: maelstrom-vad-assets <outputDir>');
     return 1;
   }
 
@@ -84,5 +84,5 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  process.exitCode = await runLiveKitAssetsCli(process.argv.slice(2));
+  process.exitCode = await runVadAssetsCli(process.argv.slice(2));
 }

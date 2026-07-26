@@ -128,6 +128,11 @@ The LiveKit cascade is also optional. It requires a local LiveKit server plus re
 
    Run this variant through Nx so its build dependencies run first. It starts the Bun Engine host, the LiveKit voice-agent worker, and Vite in `livekit` mode.
 
+   The build dependencies also run `maelstrom-vad-assets` from
+   `@maelstrom-co/realtime-vad`. This installs the package-matched VAD and ONNX
+   Runtime assets into the ignored `public/vad-web/` directory before Vite
+   starts. The default `/vad-web/` URL does not create these assets at runtime.
+
 ## Things to type or say
 
 - "Clear all this — just show me today"

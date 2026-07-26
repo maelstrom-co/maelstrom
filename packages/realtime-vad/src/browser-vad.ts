@@ -1,8 +1,8 @@
 import type { RealTimeVADOptions } from '@ricky0123/vad-web';
 import type {
-  LiveKitBrowserVadOptions,
-  LiveKitBrowserVadProviderOptions,
-} from './livekit-adapter.types.js';
+  BrowserVadOptions,
+  BrowserVadProviderOptions,
+} from './browser-vad.types.js';
 
 const DEFAULT_ASSET_BASE_URL = '/vad-web/';
 const DEFAULT_PRE_ROLL_MS = 250;
@@ -14,7 +14,7 @@ type ResolvedBrowserVadConfig =
       readonly enabled: true;
       readonly assetBaseUrl: string;
       readonly preRollMs: number;
-      readonly providerOptions: LiveKitBrowserVadProviderOptions;
+      readonly providerOptions: BrowserVadProviderOptions;
     };
 
 type EnabledBrowserVadConfig = Extract<
@@ -211,7 +211,7 @@ function isFinalizedTurnError(
   );
 }
 
-const PROVIDER_OPTION_KEYS = new Set<keyof LiveKitBrowserVadProviderOptions>([
+const PROVIDER_OPTION_KEYS = new Set<keyof BrowserVadProviderOptions>([
   'model',
   'positiveSpeechThreshold',
   'negativeSpeechThreshold',
@@ -224,7 +224,7 @@ const PROVIDER_OPTION_KEYS = new Set<keyof LiveKitBrowserVadProviderOptions>([
 
 /**
  * Resolves adapter-owned VAD configuration before initialization. Runtime
- * values outside `undefined | true | false | LiveKitBrowserVadOptions`, unsafe
+ * values outside `undefined | true | false | BrowserVadOptions`, unsafe
  * asset URLs, and unsupported or malformed provider tuning throw `TypeError`;
  * the adapter converts that setup error into diagnostic manual degradation.
  */
@@ -236,7 +236,7 @@ export function resolveBrowserVadConfig(
     throw new TypeError('vad must be false, true, or an options object');
   }
   const options =
-    vad === undefined || vad === true ? {} : (vad as LiveKitBrowserVadOptions);
+    vad === undefined || vad === true ? {} : (vad as BrowserVadOptions);
   const assetBaseUrl = normalizeAssetBaseUrl(
     options.assetBaseUrl ?? DEFAULT_ASSET_BASE_URL,
   );
@@ -296,18 +296,18 @@ function normalizeAssetBaseUrl(value: string): string {
  */
 function validateProviderOptions(
   value: unknown,
-): LiveKitBrowserVadProviderOptions {
+): BrowserVadProviderOptions {
   if (!isPlainObject(value)) {
     throw new TypeError('vad.providerOptions must be an object');
   }
   for (const key of Object.keys(value)) {
     if (
-      !PROVIDER_OPTION_KEYS.has(key as keyof LiveKitBrowserVadProviderOptions)
+      !PROVIDER_OPTION_KEYS.has(key as keyof BrowserVadProviderOptions)
     ) {
       throw new TypeError(`vad.providerOptions.${key} is not supported`);
     }
   }
-  const options = value as LiveKitBrowserVadProviderOptions;
+  const options = value as BrowserVadProviderOptions;
   if (
     options.model !== undefined &&
     options.model !== 'v5' &&
@@ -334,7 +334,7 @@ function validateProviderOptions(
   }
   return Object.fromEntries(
     Object.entries(options).filter(([, option]) => option !== undefined),
-  ) as LiveKitBrowserVadProviderOptions;
+  ) as BrowserVadProviderOptions;
 }
 
 function validateRatio(value: number | undefined, name: string): void {

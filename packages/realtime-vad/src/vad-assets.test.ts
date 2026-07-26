@@ -13,7 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, parse, relative } from 'node:path';
 
-import { copyLiveKitVadAssets } from './vad-assets.js';
+import { copyBrowserVadAssets } from './vad-assets.js';
 
 const realFs = {
   copyFile: actualFs.copyFile.bind(actualFs),
@@ -40,7 +40,7 @@ const expectedAssets = [
 const tempDirectories: string[] = [];
 
 async function createTempDirectory(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'maelstrom-livekit-assets-'));
+  const directory = await mkdtemp(join(tmpdir(), 'maelstrom-vad-assets-'));
   tempDirectories.push(directory);
   return directory;
 }
@@ -53,12 +53,12 @@ afterEach(async () => {
   );
 });
 
-describe('copyLiveKitVadAssets', () => {
+describe('copyBrowserVadAssets', () => {
   test('copies the complete pinned manifest and returns sorted relative slash paths', async () => {
     const root = await createTempDirectory();
     const outputDir = join(root, 'public', 'vad-web');
 
-    const copiedPaths = await copyLiveKitVadAssets({ outputDir });
+    const copiedPaths = await copyBrowserVadAssets({ outputDir });
 
     expect(copiedPaths).toEqual(expectedAssets);
     expect((await readdir(outputDir)).sort()).toEqual(expectedAssets);
@@ -78,7 +78,7 @@ describe('copyLiveKitVadAssets', () => {
     process.chdir(root);
 
     try {
-      await copyLiveKitVadAssets({ outputDir: 'public/vad-web' });
+      await copyBrowserVadAssets({ outputDir: 'public/vad-web' });
     } finally {
       process.chdir(previousCwd);
     }
@@ -98,7 +98,7 @@ describe('copyLiveKitVadAssets', () => {
 
     let error: unknown;
     try {
-      await copyLiveKitVadAssets({ outputDir: '.' });
+      await copyBrowserVadAssets({ outputDir: '.' });
     } catch (caught) {
       error = caught;
     } finally {
@@ -129,7 +129,7 @@ describe('copyLiveKitVadAssets', () => {
 
     let error: unknown;
     try {
-      await copyLiveKitVadAssets({ outputDir });
+      await copyBrowserVadAssets({ outputDir });
     } catch (caught) {
       error = caught;
     } finally {
@@ -150,7 +150,7 @@ describe('copyLiveKitVadAssets', () => {
     await mkdir(outputDir);
     await writeFile(join(outputDir, 'stale.wasm'), 'stale');
 
-    await copyLiveKitVadAssets({ outputDir });
+    await copyBrowserVadAssets({ outputDir });
 
     expect((await readdir(outputDir)).sort()).toEqual(expectedAssets);
   });
@@ -158,7 +158,7 @@ describe('copyLiveKitVadAssets', () => {
   test('rejects a filesystem root', async () => {
     const root = parse(process.cwd()).root;
 
-    await expect(copyLiveKitVadAssets({ outputDir: root })).rejects.toThrow(
+    await expect(copyBrowserVadAssets({ outputDir: root })).rejects.toThrow(
       'outputDir must not be a filesystem root',
     );
   });
@@ -171,7 +171,7 @@ describe('copyLiveKitVadAssets', () => {
     await writeFile(join(target, 'keep.txt'), 'keep');
     await symlink(target, outputDir);
 
-    await expect(copyLiveKitVadAssets({ outputDir })).rejects.toThrow(
+    await expect(copyBrowserVadAssets({ outputDir })).rejects.toThrow(
       'outputDir must not be a symbolic link',
     );
     expect(await readFile(join(target, 'keep.txt'), 'utf8')).toBe('keep');
@@ -182,7 +182,7 @@ describe('copyLiveKitVadAssets', () => {
     const outputDir = join(root, 'vad-web');
     await writeFile(outputDir, 'keep');
 
-    await expect(copyLiveKitVadAssets({ outputDir })).rejects.toThrow(
+    await expect(copyBrowserVadAssets({ outputDir })).rejects.toThrow(
       'outputDir must be a directory',
     );
     expect(await readFile(outputDir, 'utf8')).toBe('keep');
@@ -192,7 +192,7 @@ describe('copyLiveKitVadAssets', () => {
     const root = await createTempDirectory();
     const outputDir = join(root, 'vad-web');
 
-    await copyLiveKitVadAssets({ outputDir });
+    await copyBrowserVadAssets({ outputDir });
 
     expect(
       (await readdir(root)).filter((name) => name.startsWith('.vad-web.')),
@@ -209,14 +209,17 @@ describe('copyLiveKitVadAssets', () => {
     expect(rootEntry).not.toContain('vad-assets');
     expect(rootEntry).not.toContain('node:fs');
     expect(rootEntry).not.toContain('node:path');
-    expect(packageJson.exports['./vad-assets']).toBeDefined();
+    // Named `./assets` rather than `./vad-assets`: inside a package already
+    // called realtime-vad, the longer name stutters. The invariant that matters
+    // is that the Node helper sits behind a non-root entry point at all.
+    expect(packageJson.exports['./assets']).toBeDefined();
   });
 
   test('does not write outside the requested destination', async () => {
     const root = await createTempDirectory();
     const outputDir = join(root, 'nested', 'vad-web');
 
-    const copiedPaths = await copyLiveKitVadAssets({ outputDir });
+    const copiedPaths = await copyBrowserVadAssets({ outputDir });
 
     for (const path of copiedPaths) {
       expect(relative(outputDir, join(outputDir, path)).startsWith('..')).toBe(
@@ -237,7 +240,7 @@ describe('copyLiveKitVadAssets', () => {
     await writeFile(join(outputDir, 'prior.txt'), 'prior');
     await mkdir(join(root, artifactName));
 
-    await expect(copyLiveKitVadAssets({ outputDir })).rejects.toThrow(
+    await expect(copyBrowserVadAssets({ outputDir })).rejects.toThrow(
       'stale browser VAD asset transaction artifact',
     );
 
@@ -253,7 +256,7 @@ describe('copyLiveKitVadAssets', () => {
     const unrelatedName = '.vad-web.backup-interrupted';
     await mkdir(join(root, unrelatedName));
 
-    await copyLiveKitVadAssets({ outputDir });
+    await copyBrowserVadAssets({ outputDir });
 
     expect((await readdir(outputDir)).sort()).toEqual(expectedAssets);
     expect((await lstat(join(root, unrelatedName))).isDirectory()).toBe(true);
@@ -356,7 +359,7 @@ describe('copyLiveKitVadAssets', () => {
         if (point === 'backup-removal') {
           await writeFile(join(outputDir, 'prior-retained.txt'), 'retained');
           await expect(
-            faultInjectedModule.copyLiveKitVadAssets({ outputDir }),
+            faultInjectedModule.copyBrowserVadAssets({ outputDir }),
           ).rejects.toThrow('backup cleanup failed');
 
           expect((await readdir(outputDir)).sort()).toEqual(expectedAssets);
@@ -375,7 +378,7 @@ describe('copyLiveKitVadAssets', () => {
           ).rejects.toThrow();
         } else {
           await expect(
-            faultInjectedModule.copyLiveKitVadAssets({ outputDir }),
+            faultInjectedModule.copyBrowserVadAssets({ outputDir }),
           ).rejects.toThrow(`injected ${point}`);
 
           expect(await readFile(join(outputDir, 'prior.txt'), 'utf8')).toBe(

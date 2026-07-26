@@ -36,10 +36,16 @@
   ],
   "references": [
     {
-      "path": "../../packages/realtime-openai/tsconfig.lib.json"
+      "path": "../../packages/realtime-protocol/tsconfig.lib.json"
     },
     {
       "path": "../../packages/realtime-openai-server/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/realtime-openai/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/realtime-livekit-server/tsconfig.lib.json"
     },
     {
       "path": "../../packages/realtime-livekit-agent/tsconfig.lib.json"
@@ -48,13 +54,7 @@
       "path": "../../packages/realtime-livekit/tsconfig.lib.json"
     },
     {
-      "path": "../../packages/realtime-livekit-server/tsconfig.lib.json"
-    },
-    {
       "path": "../../packages/realtime/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/realtime-protocol/tsconfig.lib.json"
     },
     {
       "path": "../../packages/react-realtime/tsconfig.lib.json"

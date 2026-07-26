@@ -1,0 +1,61 @@
+{
+  "name": "@maelstrom-co/realtime-vad",
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "maelstrom-vad-assets": "./dist/bin/maelstrom-vad-assets.js"
+  },
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./assets": {
+      "@maelstrom-co/source": "./src/vad-assets.ts",
+      "types": "./dist/vad-assets.d.ts",
+      "import": "./dist/vad-assets.js",
+      "default": "./dist/vad-assets.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/realtime-vad"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "dependencies": {
+    "@ricky0123/vad-web": "catalog:",
+    "onnxruntime-web": "catalog:"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

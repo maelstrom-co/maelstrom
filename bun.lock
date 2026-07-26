@@ -70,6 +70,7 @@
         "@maelstrom-co/realtime-openai": "workspace:*",
         "@maelstrom-co/realtime-openai-server": "workspace:*",
         "@maelstrom-co/realtime-protocol": "workspace:*",
+        "@maelstrom-co/realtime-vad": "workspace:*",
         "@tanstack/ai": "catalog:",
         "@tanstack/ai-openai": "catalog:",
         "@tanstack/react-router": "catalog:",
@@ -245,19 +246,16 @@
     "packages/realtime-livekit": {
       "name": "@maelstrom-co/realtime-livekit",
       "version": "0.0.0",
-      "bin": {
-        "maelstrom-livekit-assets": "./dist/bin/maelstrom-livekit-assets.js",
-      },
       "dependencies": {
         "@maelstrom-co/client": "0.0.0",
         "@maelstrom-co/protocol": "0.0.0",
         "@maelstrom-co/realtime": "0.0.0",
         "@maelstrom-co/realtime-protocol": "0.0.0",
-        "@ricky0123/vad-web": "catalog:",
-        "onnxruntime-web": "catalog:",
+        "@maelstrom-co/realtime-vad": "0.0.0",
         "zod": "catalog:",
       },
       "devDependencies": {
+        "@ricky0123/vad-web": "0.0.30",
         "happy-dom": "catalog:",
         "livekit-client": "^2.13.1",
       },
@@ -314,6 +312,17 @@
       "dependencies": {
         "@maelstrom-co/protocol": "0.0.0",
         "zod": "catalog:",
+      },
+    },
+    "packages/realtime-vad": {
+      "name": "@maelstrom-co/realtime-vad",
+      "version": "0.0.0",
+      "bin": {
+        "maelstrom-vad-assets": "./dist/bin/maelstrom-vad-assets.js",
+      },
+      "dependencies": {
+        "@ricky0123/vad-web": "catalog:",
+        "onnxruntime-web": "catalog:",
       },
     },
     "tools/astro-plugin": {
@@ -1076,6 +1085,8 @@
     "@maelstrom-co/realtime-openai-server": ["@maelstrom-co/realtime-openai-server@workspace:packages/realtime-openai-server"],
 
     "@maelstrom-co/realtime-protocol": ["@maelstrom-co/realtime-protocol@workspace:packages/realtime-protocol"],
+
+    "@maelstrom-co/realtime-vad": ["@maelstrom-co/realtime-vad@workspace:packages/realtime-vad"],
 
     "@maelstrom-co/www": ["@maelstrom-co/www@workspace:apps/www"],
 
@@ -4324,6 +4335,8 @@
     "@maelstrom-co/react/@sinonjs/fake-timers": ["@sinonjs/fake-timers@15.4.0", "", { "dependencies": { "@sinonjs/commons": "^3.0.1" } }, "sha512-DsG+8/LscQIQg68J6Ef3dv10u6nVyetYn923s3/sus5eaGfTo1of5WMZSLf0UJc9KDuKPilPH0UDJCjvNbDNCA=="],
 
     "@maelstrom-co/realtime/@sinonjs/fake-timers": ["@sinonjs/fake-timers@15.4.0", "", { "dependencies": { "@sinonjs/commons": "^3.0.1" } }, "sha512-DsG+8/LscQIQg68J6Ef3dv10u6nVyetYn923s3/sus5eaGfTo1of5WMZSLf0UJc9KDuKPilPH0UDJCjvNbDNCA=="],
+
+    "@maelstrom-co/realtime-openai/@sinonjs/fake-timers": ["@sinonjs/fake-timers@15.4.0", "", { "dependencies": { "@sinonjs/commons": "^3.0.1" } }, "sha512-DsG+8/LscQIQg68J6Ef3dv10u6nVyetYn923s3/sus5eaGfTo1of5WMZSLf0UJc9KDuKPilPH0UDJCjvNbDNCA=="],
 
     "@maplibre/maplibre-gl-style-spec/@mapbox/unitbezier": ["@mapbox/unitbezier@1.0.0", "", {}, "sha512-fqd515fjBmANKGGsQ286E2Wvj/XvDFpGzwJxq4CI6jMQue6Oy04uCKp+JWKF00xRTmk6cEu1jPJ9p3xqH8YWqQ=="],
 
