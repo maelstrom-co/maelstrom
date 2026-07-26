@@ -17,17 +17,12 @@ export default defineConfig(() => ({
     lib: {
       entry: {
         index: 'src/index.ts',
-        google: 'src/google.ts',
       },
       name: '@maelstrom-co/realtime',
       formats: ['es' as const],
     },
     rolldownOptions: {
-      external: [
-        '@maelstrom-co/client',
-        '@maelstrom-co/protocol',
-        '@maelstrom-co/realtime-protocol',
-      ],
+      external: ['@maelstrom-co/client', '@maelstrom-co/protocol'],
     },
   },
 }));

@@ -24,6 +24,9 @@ planning. Provider transports ship as sibling packages such as
 
 Application code supplies a `RealtimeProviderAdapter` to `RealtimeSession`, or passes an adapter factory to [`@maelstrom-co/react-realtime`](https://docs.maelstrom-ai.co/reference/react-realtime/readme/). Provider adapters may expose different turn controls and state progressions; the core does not define a universal retry sequence.
 
+The core has a single entry point and carries no provider-specific code. Add a
+provider through its own packages, never through a subpath here.
+
 ## Docs
 
 - Voice guide: https://docs.maelstrom-ai.co/guides/voice/overview/

@@ -26,12 +26,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./google": {
-      "@maelstrom-co/source": "./src/google.ts",
-      "types": "./dist/google.d.ts",
-      "import": "./dist/google.js",
-      "default": "./dist/google.js"
     }
   },
   "files": [
