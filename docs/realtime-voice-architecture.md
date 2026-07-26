@@ -34,6 +34,13 @@ explains how that holds at runtime. Everything below is a consequence of it.
 Voice is one capability with several implementations, so the split follows the
 boundaries that would otherwise be honour-system conventions.
 
+The durable package rules are recorded in
+[the provider taxonomy ADR](./adr/0001-realtime-providers-come-in-two-kinds.md),
+[the credential custody ADR](./adr/0002-credential-custody-is-a-dependency-edge.md),
+and [the turn-taking ADR](./adr/0003-turn-taking-is-provider-neutral.md).
+`packages/realtime-protocol/src/layer-boundary.test.ts` is the executable
+authority for dependency direction.
+
 **`realtime` apart from `client`.** The voice core carries browser-only weight —
 WebRTC, microphone capture — and a provider surface most Maelstrom apps never
 touch. The *seam* lives in `client` as types; the *implementation* lives in
