@@ -1,11 +1,14 @@
-import { expect, it, mock } from 'bun:test';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { UnixSeconds } from '@maelstrom-co/realtime';
 import type { MintFailureReason, MintResult } from '@maelstrom-co/realtime-server';
+
+// Mirrors the default in realtime-token.ts; this branch has no shared constant.
+const DEFAULT_REALTIME_MODEL = 'gpt-realtime-2';
 
 // Regression test for the error-precedence bug: with no OPENAI_API_KEY
 // configured, a malformed request body must still surface as a server
 // misconfiguration (500), not a client error (400) — otherwise 5xx
-// alerting never fires. This import must happen before `mock.module` below
+// alerting never fires. This import must happen before `vi.doMock` below
 // runs, so the route's minter singleton binds to the REAL createOpenAIMinter
 // rather than the mock the rest of this file installs. An empty apiKey
 // short-circuits before any upstream fetch, so this is network-safe.
@@ -26,10 +29,12 @@ it('reports a 500 for a malformed body when no API key is configured (real minte
 // controls the minter's result without touching real OpenAI credentials or
 // network. Re-imported below under a distinct specifier so this picks up a
 // fresh module instance bound to the mock, independent of the real-minter
-// import above.
+// import above. `vi.doMock` (unlike `vi.mock`) is not hoisted, matching
+// Bun's `mock.module` runtime-application semantics this test relies on.
 let mintResult: MintResult = { ok: false, error: { reason: 'invalid-request' } };
 let lastMintInput: unknown;
 let mintCallCount = 0;
+let lastMinterOptions: { apiKey: string; model: string } | undefined;
 
 const STATUS: Record<MintFailureReason, number> = {
   'invalid-request': 400,
@@ -39,11 +44,14 @@ const STATUS: Record<MintFailureReason, number> = {
   'upstream-failure': 502,
 };
 
-mock.module('@maelstrom-co/realtime-server', () => ({
-  createOpenAIMinter: () => (input: unknown) => {
-    lastMintInput = input;
-    mintCallCount += 1;
-    return Promise.resolve(mintResult);
+vi.doMock('@maelstrom-co/realtime-server', () => ({
+  createOpenAIMinter: (options: { apiKey: string; model: string }) => {
+    lastMinterOptions = options;
+    return (input: unknown) => {
+      lastMintInput = input;
+      mintCallCount += 1;
+      return Promise.resolve(mintResult);
+    };
   },
   mintFailureHttpStatus: (reason: MintFailureReason) => STATUS[reason],
 }));
@@ -151,4 +159,56 @@ it('passes the upstream status through on an upstream-failure result', async () 
   const body = await res.json();
   expect(res.status).toBe(502);
   expect((body as { upstreamStatus: unknown }).upstreamStatus).toBe(401);
+});
+
+// Regression test: `.env.example` ships `OPENAI_REALTIME_MODEL=` (blank),
+// and the README's documented onboarding path is `cp .env.example .env`. A
+// bare `??` fallback only triggers on null/undefined, so a blank string
+// would survive and reach the minter, which never validates it — OpenAI
+// then rejects the mint and the route surfaces TOKEN_MINT_FAILED on the
+// default setup. Each case re-imports the route module under a distinct
+// specifier so the module-scoped `mint` singleton is rebuilt against the
+// env value set immediately beforehand.
+describe('OPENAI_REALTIME_MODEL env fallback', () => {
+  const originalEnv = process.env.OPENAI_REALTIME_MODEL;
+
+  afterAll(() => {
+    if (originalEnv === undefined) {
+      delete process.env.OPENAI_REALTIME_MODEL;
+    } else {
+      process.env.OPENAI_REALTIME_MODEL = originalEnv;
+    }
+  });
+
+  // Built at runtime (not a string literal), same as `mockedRouteSpecifier`
+  // above, so tsc treats the specifier as opaque instead of statically
+  // resolving it — a literal `?query` suffix fails module resolution
+  // (TS2307) even though Bun/Vite resolve it fine at runtime.
+  function freshRouteSpecifier(tag: string): string {
+    return `./realtime-token.js?${tag}`;
+  }
+
+  it('falls back to DEFAULT_REALTIME_MODEL for a blank string', async () => {
+    process.env.OPENAI_REALTIME_MODEL = '';
+    await import(freshRouteSpecifier('model-blank'));
+    expect(lastMinterOptions?.model).toBe(DEFAULT_REALTIME_MODEL);
+  });
+
+  it('falls back to DEFAULT_REALTIME_MODEL for a whitespace-only string', async () => {
+    process.env.OPENAI_REALTIME_MODEL = '   ';
+    await import(freshRouteSpecifier('model-whitespace'));
+    expect(lastMinterOptions?.model).toBe(DEFAULT_REALTIME_MODEL);
+  });
+
+  it('uses the env value when it is a real, non-blank string', async () => {
+    process.env.OPENAI_REALTIME_MODEL = 'gpt-realtime-custom';
+    await import(freshRouteSpecifier('model-real'));
+    expect(lastMinterOptions?.model).toBe('gpt-realtime-custom');
+  });
+
+  it('falls back to DEFAULT_REALTIME_MODEL when unset', async () => {
+    delete process.env.OPENAI_REALTIME_MODEL;
+    await import(freshRouteSpecifier('model-unset'));
+    expect(lastMinterOptions?.model).toBe(DEFAULT_REALTIME_MODEL);
+  });
 });

@@ -14,20 +14,34 @@ interface JournalState {
   activeEntryId: string | null;
 }
 
+function formatDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function daysAgo(n: number): Date {
+  const date = new Date();
+  date.setDate(date.getDate() - n);
+  return date;
+}
+
 const SEED_ENTRIES: JournalEntry[] = [
   {
     id: '1',
-    title: 'Project kickoff',
+    title: 'Sprint kickoff',
     content:
-      'Discussed roadmap and milestones for Q2. Team aligned on priorities.',
-    date: 'Apr 3, 2026',
+      'Kicked off this sprint — the design review is the big milestone. Team aligned on priorities.',
+    date: formatDate(daysAgo(2)),
   },
   {
     id: '2',
     title: 'Architecture review',
     content:
-      'Reviewed the new module boundaries. Agreed to split the auth service.',
-    date: 'Apr 4, 2026',
+      'Reviewed the module boundaries ahead of the design review. Agreed to split the auth service.',
+    date: formatDate(daysAgo(1)),
   },
 ];
 
@@ -52,14 +66,6 @@ function setState(next: JournalState): void {
   for (const l of listeners) l();
 }
 
-function formatToday(): string {
-  return new Date().toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 export function useJournalStore(): JournalState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
@@ -74,7 +80,7 @@ export const journalActions = {
       id: nanoid(),
       title,
       content: '',
-      date: formatToday(),
+      date: formatDate(new Date()),
     };
     setState({
       entries: [entry, ...state.entries],

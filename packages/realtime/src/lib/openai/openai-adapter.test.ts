@@ -103,7 +103,7 @@ class FakeRTCPeerConnection {
   }
 
   async createOffer(): Promise<{ type: string; sdp: string }> {
-    return { type: 'offer', sdp: 'fake-offer-sdp' };
+    return createOfferImpl();
   }
 
   async setLocalDescription(desc: {
@@ -113,10 +113,9 @@ class FakeRTCPeerConnection {
     this.localDescription = desc;
   }
 
-  async setRemoteDescription(_desc: {
-    type: string;
-    sdp: string;
-  }): Promise<void> {}
+  async setRemoteDescription(desc: { type: string; sdp: string }): Promise<void> {
+    return setRemoteDescriptionImpl(desc);
+  }
 
   close(): void {
     this.closed = true;
@@ -176,6 +175,8 @@ let fetchImpl: () => Promise<{
   status: number;
   text: () => Promise<string>;
 }>;
+let createOfferImpl: () => Promise<{ type: string; sdp: string }>;
+let setRemoteDescriptionImpl: (desc: { type: string; sdp: string }) => Promise<void>;
 
 let originalRTCPeerConnection: unknown;
 let originalAudio: unknown;
@@ -204,6 +205,8 @@ beforeEach(() => {
     status: 200,
     text: async () => 'fake-answer-sdp',
   });
+  createOfferImpl = async () => ({ type: 'offer', sdp: 'fake-offer-sdp' });
+  setRemoteDescriptionImpl = async () => {};
 
   originalRTCPeerConnection = Reflect.get(globalThis, 'RTCPeerConnection');
   originalAudio = Reflect.get(globalThis, 'Audio');
@@ -324,6 +327,58 @@ describe('OpenAIAdapter — failed SDP exchange', () => {
     expect(pc?.closed).toBe(true);
     expect(pc?.dataChannel?.closed).toBe(true);
     expect(stream?.tracks.every((track) => track.stopped)).toBe(true);
+  });
+
+  it('wraps a createOffer rejection as CONNECTION_FAILED instead of letting the raw error escape', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const boom = new Error('createOffer exploded');
+    createOfferImpl = () => Promise.reject(boom);
+
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+    expect((err as RealtimeVoiceError).cause).toBe(boom);
+  });
+
+  it('wraps a fetch rejection (network failure) as CONNECTION_FAILED instead of letting the raw error escape', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const boom = new Error('network down');
+    fetchImpl = () => Promise.reject(boom);
+
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+    expect((err as RealtimeVoiceError).cause).toBe(boom);
+  });
+
+  it('wraps a setRemoteDescription rejection as CONNECTION_FAILED instead of letting the raw error escape', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const boom = new Error('bad answer sdp');
+    setRemoteDescriptionImpl = () => Promise.reject(boom);
+
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+    expect((err as RealtimeVoiceError).cause).toBe(boom);
+  });
+
+  it('wraps a response.text() rejection (broken/aborted stream) as CONNECTION_FAILED instead of letting the raw error escape', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const boom = new Error('body stream broken');
+    fetchImpl = async () => ({
+      ok: true,
+      status: 200,
+      text: () => Promise.reject(boom),
+    });
+
+    const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(RealtimeVoiceError);
+    expect((err as RealtimeVoiceError).code).toBe('CONNECTION_FAILED');
+    expect((err as RealtimeVoiceError).cause).toBe(boom);
   });
 });
 

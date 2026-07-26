@@ -1,34 +1,49 @@
+import { useEffect, useState } from 'react';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
+import { HOME } from '../lib/locations';
+import {
+  FALLBACK_WEATHER,
+  fetchLiveWeather,
+  weatherCodeToEmoji,
+  type LiveWeather,
+} from '../lib/weather-data';
 import type { weatherVessel } from './weather.vessel';
 
-const HOURLY = [
-  { hour: '9AM', temp: 68, icon: '🌤️' },
-  { hour: '12PM', temp: 72, icon: '☀️' },
-  { hour: '3PM', temp: 75, icon: '☀️' },
-  { hour: '6PM', temp: 70, icon: '🌤️' },
-  { hour: '9PM', temp: 65, icon: '🌙' },
-];
+function useLiveWeather(): LiveWeather {
+  const [weather, setWeather] = useState<LiveWeather>(FALLBACK_WEATHER);
 
-const WEEKLY = [
-  { day: 'Mon', high: 75, low: 58, icon: '☀️' },
-  { day: 'Tue', high: 72, low: 55, icon: '🌤️' },
-  { day: 'Wed', high: 68, low: 52, icon: '🌧️' },
-  { day: 'Thu', high: 70, low: 54, icon: '⛅' },
-  { day: 'Fri', high: 73, low: 56, icon: '☀️' },
-  { day: 'Sat', high: 76, low: 59, icon: '☀️' },
-  { day: 'Sun', high: 74, low: 57, icon: '🌤️' },
-];
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchLiveWeather(HOME.lat, HOME.lng, fetch, controller.signal)
+      .then((live) => {
+        setWeather(live);
+      })
+      .catch(() => {
+        // Offline demo must still look perfect — stay on FALLBACK_WEATHER.
+        // This also swallows the AbortError from unmount/timeout, which is
+        // expected and not an error worth surfacing.
+      });
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
-const MIN_TEMP = 52;
-const MAX_TEMP = 76;
+  return weather;
+}
 
 export default function WeatherComponent({
   variantProps,
 }: TypedVesselProps<typeof weatherVessel>) {
   const variant = variantProps.variant;
+  const weather = useLiveWeather();
 
   if (variant === 'hourly') {
+    const hourlyTemps = weather.hourly.map((h) => h.temperatureF);
+    const hourlyMinTemp = Math.min(...hourlyTemps);
+    const hourlyMaxTemp = Math.max(...hourlyTemps);
+    const hourlyTempRange = Math.max(1, hourlyMaxTemp - hourlyMinTemp);
+
     return (
       <VesselCard accent="cyan" label="Hourly Forecast" meta="San Francisco">
         <div className="flex items-baseline gap-1 mb-4">
@@ -36,22 +51,28 @@ export default function WeatherComponent({
             className="text-5xl font-bold tracking-tight"
             style={{ textShadow: '0 0 30px rgba(0, 240, 255, 0.15)' }}
           >
-            72°
+            {weather.current.temperatureF}°
           </span>
           <span className="text-sm text-gray-500">F</span>
         </div>
         <div className="flex-1 flex items-end gap-3">
-          {HOURLY.map((h) => {
-            const pct = ((h.temp - MIN_TEMP) / (MAX_TEMP - MIN_TEMP)) * 100;
-            const isMax = h.temp === 75;
+          {weather.hourly.map((h) => {
+            // Floor keeps bars visible on a flat curve (all pct would be 0).
+            const pct = Math.max(
+              ((h.temperatureF - hourlyMinTemp) / hourlyTempRange) * 100,
+              8,
+            );
+            const isMax = h.temperatureF === hourlyMaxTemp;
             return (
               <div
                 key={h.hour}
                 className="flex-1 flex flex-col items-center gap-1.5"
               >
-                <span className="text-base">{h.icon}</span>
+                <span className="text-base">
+                  {weatherCodeToEmoji(h.weatherCode)}
+                </span>
                 <span className="text-xs text-gray-400 font-mono">
-                  {h.temp}°
+                  {h.temperatureF}°
                 </span>
                 <div
                   className="w-full rounded-sm border border-cyan-accent/10"
@@ -78,16 +99,16 @@ export default function WeatherComponent({
     return (
       <VesselCard accent="cyan" label="Weekly Forecast" meta="San Francisco">
         <div className="flex-1 grid grid-cols-7 gap-2">
-          {WEEKLY.map((d) => (
+          {weather.daily.map((d) => (
             <div
               key={d.day}
               className="flex flex-col items-center justify-center gap-1.5 rounded-lg bg-cyan-accent/5 p-2"
             >
               <span className="text-xs text-gray-500 font-mono">{d.day}</span>
-              <span className="text-xl">{d.icon}</span>
+              <span className="text-xl">{weatherCodeToEmoji(d.weatherCode)}</span>
               <div className="text-sm">
-                <span className="text-white font-medium">{d.high}°</span>
-                <span className="text-gray-500"> / {d.low}°</span>
+                <span className="text-white font-medium">{d.highF}°</span>
+                <span className="text-gray-500"> / {d.lowF}°</span>
               </div>
             </div>
           ))}
@@ -97,24 +118,29 @@ export default function WeatherComponent({
   }
 
   // Current (default)
+  const today = weather.daily[0];
   return (
     <VesselCard accent="cyan" label="Weather" meta="San Francisco">
       <div className="flex-1 flex flex-col items-center justify-center">
-        <div className="text-5xl mb-3">☀️</div>
+        <div className="text-5xl mb-3">
+          {weatherCodeToEmoji(weather.current.weatherCode)}
+        </div>
         <div className="flex items-baseline gap-1">
           <span
             className="text-6xl font-bold tracking-tight"
             style={{ textShadow: '0 0 30px rgba(0, 240, 255, 0.15)' }}
           >
-            72°
+            {weather.current.temperatureF}°
           </span>
           <span className="text-sm text-gray-500">F</span>
         </div>
-        <div className="text-sm text-cyan-accent/60 mt-1">Sunny</div>
-        <div className="text-xs text-gray-500 mt-1">H: 75° L: 64°</div>
-        <div className="flex gap-6 mt-4 text-sm text-gray-400">
-          <span>💧 45%</span>
-          <span>💨 8 mph</span>
+        {today && (
+          <div className="text-xs text-gray-500 mt-1">
+            H: {today.highF}° L: {today.lowF}°
+          </div>
+        )}
+        <div className="mt-4 text-sm text-gray-400">
+          💨 {weather.current.windMph} mph
         </div>
       </div>
     </VesselCard>

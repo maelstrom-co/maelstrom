@@ -20,13 +20,22 @@ const CONNECTED_STATES: ReadonlySet<VoiceSessionState> = new Set([
   'speaking',
 ]);
 
+interface VoiceControlProps {
+  /**
+   * Render the orb inline. The launch shell already shows a hero orb next to
+   * the intent input, so it mounts this control with `showOrb={false}` to keep
+   * the status label and hold-to-talk affordance without a second orb.
+   */
+  readonly showOrb?: boolean;
+}
+
 /**
  * Provider-agnostic voice control. The orb toggles the shared session; the
  * hold-to-talk button renders only when the active adapter exposes
  * `turnControl` (push-to-talk cascades like LiveKit) and stays absent for
  * speech-native providers that manage turns server-side.
  */
-export function VoiceControl() {
+export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   const { state, turnControl } = m.useVoice();
   const isConnected = CONNECTED_STATES.has(state);
   // Single source of truth for "this press owns an active turn" — both the
@@ -70,10 +79,10 @@ export function VoiceControl() {
 
   return (
     <div className="flex items-center gap-2">
-      <m.VoiceOrb size={20} />
+      {showOrb && <m.VoiceOrb size={20} />}
       <span
         className={`text-xs font-medium ${
-          state === 'error' ? 'text-red-400' : 'text-gray-300'
+          state === 'error' ? 'text-red-400' : 'text-ink-2'
         }`}
       >
         {STATE_LABEL[state]}
@@ -91,7 +100,7 @@ export function VoiceControl() {
           onPointerCancel={endPress}
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
-          className="text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-purple-800 hover:bg-purple-700 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed select-none touch-none"
+          className="status-pill flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-xs uppercase tracking-[.1em] text-ink-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none touch-none"
         >
           Hold to talk
         </button>

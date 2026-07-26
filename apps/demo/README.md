@@ -1,9 +1,10 @@
-# @maelstrom-co/demo
+# Maelstrom Demo
 
-Demo app for Maelstrom (TanStack Start + React) — shows the Engine and Chart
-driving real Vessels, with optional voice control.
+A day-planner UI — calendar, weather, map, journal, tasks — arranged entirely by an LLM. Talk or type: the engine reads your intent and the current state of the board, then decides what to show, where, and how big. Voice is client-direct WebRTC straight to OpenAI's realtime model (the default), or a self-hosted LiveKit cascade; the engine can't tell whether an intent came from your keyboard or your mouth.
 
-## Run (default: OpenAI realtime voice)
+<!-- screenshot: busy board mid-rearrange, orb active -->
+
+## Quickstart (default: OpenAI realtime voice)
 
 From the repo root:
 
@@ -13,17 +14,22 @@ cp .env.example .env
 ```
 
 Fill in `.env`:
-- `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) — the demo engine (`@tanstack/ai-gemini`)
-- `OPENAI_API_KEY` — realtime voice (OpenAI, the default provider)
 
-Then:
+| Key | Required for | Notes |
+| --- | --- | --- |
+| `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) | Text planning engine | Powers the engine's Gemini adapter |
+| `OPENAI_API_KEY` | Voice | Mints ephemeral realtime tokens server-side; never reaches the browser |
+| `OPENAI_REALTIME_MODEL` | Voice (optional) | Overrides the realtime model; defaults to `gpt-realtime-2` |
+| `ANTHROPIC_API_KEY` | Optional | For the engine's custom LLM provider support |
+
+One command runs both the WebSocket engine server and the Vite dev server:
 
 ```bash
-nx dev demo
+bunx nx dev demo
 ```
 
 This runs the WebSocket engine host (`ws-server.ts`, port 3001) and Vite
-(port 3000) together.
+(port 3000) together. Open http://localhost:3000.
 
 ## Run (LiveKit voice)
 
@@ -48,7 +54,7 @@ This runs the WebSocket engine host (`ws-server.ts`, port 3001) and Vite
 3. From the repo root:
 
    ```bash
-   nx dev-livekit demo
+   bunx nx dev-livekit demo
    ```
 
    Run it through Nx (not `bun run dev-livekit` from `apps/demo/`) so the
@@ -60,7 +66,33 @@ and Vite (port 3000) in `livekit` mode. Vite mode loads `.env.livekit`, which
 sets `VITE_VOICE_PROVIDER=livekit` so the client selects `LiveKitAdapter`
 instead of the OpenAI realtime adapter.
 
-Expected failure modes:
+## Things to say
+
+Type these into the input, or say them to the orb:
+
+- "Clear all this — just show me today"
+- "What's my morning look like? I need to be at the design review by 10"
+- "Actually skip the gym, add coffee with Sam at 9"
+- "Start a journal entry about today's plan and jot down the key points"
+
+## How voice works
+
+The browser holds the OpenAI realtime session directly, authenticated by a short-lived token minted by `/api/realtime-token` — `OPENAI_API_KEY` never leaves the server. The model has one write path: an `update_ui` tool call carrying a plain-text intent, which flows through the same path as typed input — the engine plans against the app's own state, never the model's beliefs about the screen. The model only narrates a change after the render has settled, so it never talks ahead of what you see. Full design: [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md).
+
+## Debug overlays
+
+Append `?debug` to the URL (e.g. `http://localhost:3000/?debug`) to show the grid/tiling overlay and instance-id/size labels on every vessel. Off by default, so a plain `bunx nx dev demo` renders clean.
+
+**Recording tip:** macOS's "Reduce Motion" setting (System Settings → Accessibility → Display) disables all of the demo's choreography via `prefers-reduced-motion` — turn it off before recording the launch video.
+
+## Troubleshooting
+
+- **Mic blocked** — allow microphone access for this site in your browser's site settings, then click the orb to retry.
+- **Voice error: "couldn't start"** — `OPENAI_API_KEY` isn't set in `.env` for the dev server (`bunx nx dev demo`), which mints the realtime token via `/api/realtime-token`.
+- **Weather shows fixture data** — the demo is offline (no network to Open-Meteo); it falls back to canned values silently rather than erroring.
+- **Map tiles blank** — no network to `tiles.openfreemap.org`.
+
+LiveKit-specific failure modes:
 - Missing `DEEPGRAM_API_KEY` / `CARTESIA_API_KEY` / LiveKit credentials → the
   agent worker prints a clear missing-env-var error and exits.
 - No `livekit-server` running → `ECONNREFUSED ws://localhost:7880` from the
@@ -72,10 +104,11 @@ Expected failure modes:
 - `MAELSTROM_STT_FLUSH_TIMEOUT_MS` (optional, default `2000`) tunes the agent's
   push-to-talk turn-flush fallback; a non-numeric or non-positive value fails
   the agent worker's startup with a clear error naming the bad value.
-- Because the three processes are chained with `&`, a worker that dies (e.g.
-  on a missing `DEEPGRAM_API_KEY`/`CARTESIA_API_KEY`) leaves the other two
-  running — voice will silently never respond, so check the terminal output
-  for the agent worker's error.
+- The three processes run under `concurrently --kill-others-on-fail`, so a
+  worker that dies (e.g. on a missing `DEEPGRAM_API_KEY`/`CARTESIA_API_KEY`)
+  takes the other two down with it and the command exits non-zero. The failure
+  is visible rather than silent — check the terminal output for the agent
+  worker's error.
 
 ## Further reading
 

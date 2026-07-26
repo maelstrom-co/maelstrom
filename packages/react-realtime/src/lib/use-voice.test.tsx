@@ -82,8 +82,24 @@ function must<T>(value: T | undefined): T {
   return value;
 }
 
+// Implements every required RealtimeProviderAdapter member as a typed no-op
+// so tests exercising only a slice of the contract (e.g. turnControl) still
+// typecheck against the real interface — adding a required method to the
+// contract must fail these tests, not silently pass behind a cast.
+function makeFakeAdapter(overrides?: Partial<RealtimeProviderAdapter>): RealtimeProviderAdapter {
+  return {
+    connect: async () => {},
+    disconnect: async () => {},
+    getAudioStreams: () => ({}),
+    sendToolResult: async () => {},
+    injectGrounding: () => {},
+    on: () => () => {},
+    ...overrides,
+  };
+}
+
 function setup(
-  createAdapter: (ctx: CreateAdapterContext) => RealtimeProviderAdapter = () => ({}) as never,
+  createAdapter: (ctx: CreateAdapterContext) => RealtimeProviderAdapter = () => makeFakeAdapter(),
 ) {
   const entry = vessel(testVessel, () => null);
   const m = createMaelstrom({ vessels: [entry] }).with(maelstromRealtime({ createAdapter }));
@@ -402,7 +418,7 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
       startTurn: async () => {},
       endTurn: async () => {},
     };
-    const { m, connector } = setup(() => ({ turnControl }) as never);
+    const { m, connector } = setup(() => makeFakeAdapter({ turnControl }));
     let api: UseVoiceResult | undefined;
     function Consumer() {
       api = m.useVoice();
@@ -446,7 +462,7 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
       maelstromRealtime({
         createAdapter: (ctx) => {
           receivedContexts.push(ctx);
-          return {} as never;
+          return makeFakeAdapter();
         },
       }),
     );
