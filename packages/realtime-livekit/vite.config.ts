@@ -45,6 +45,8 @@ export default defineConfig(() => {
       rollupOptions: {
         external: [
           /^node:/,
+          /^@ricky0123\/vad-web(?:\/|$)/,
+          /^onnxruntime-web(?:\/|$)/,
           '@maelstrom-co/client',
           '@maelstrom-co/protocol',
           '@maelstrom-co/realtime',

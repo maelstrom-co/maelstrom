@@ -41,6 +41,18 @@ import {
   TURN_TOPIC,
 } from './protocol.js';
 
+/** Microphone resources acquired and owned by one asynchronous connect attempt. */
+interface ConnectMicrophoneResources {
+  /** LiveKit local track created and published for this attempt. */
+  readonly micTrack: LocalAudioTrack;
+  /** Native capture track replaced after the generated bridge is ready. */
+  readonly rawMicTrack: MediaStreamTrack;
+  /** Enabled browser-local clone retained for metering, VAD, and pre-roll. */
+  readonly clone: MediaStreamTrack;
+  /** Browser-local stream wrapping the enabled clone. */
+  readonly stream: MediaStream;
+}
+
 // Quiet the livekit-client SDK's verbose signal/connection logging (which dumps
 // the full connect URL on every join). Warnings and errors still surface.
 setLogLevel('warn');
@@ -133,10 +145,11 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   // Monotonic id stamped on each speak request; the worker echoes it on the
   // matching TTS status packet so stale status can be correlated and dropped.
   #utteranceSeq = 0;
-  // The utterance whose TTS status the client currently accepts. Set when a speak
-  // is handed off; cleared on a barge-in (tts_cancel) so the cancelled
-  // utterance's late `tts_done` is recognized as stale and ignored — without
-  // this, that late packet clears the empty-turn fallback and wedges `thinking`.
+  // The utterance whose TTS status the client currently accepts. Set before a
+  // speak handoff and retained while its worker response is outstanding; cleared
+  // when that handoff fails, an accepted terminal status arrives, or a barge-in
+  // invalidates it. Keeping unrelated status from clearing this id fences stale
+  // worker packets from newer turns.
   #currentUtteranceId: number | undefined;
   // Rescues an empty push-to-talk turn (no speech) that would otherwise wedge
   // the UI in `thinking` — see #startThinkingFallback.
@@ -175,7 +188,9 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * `startTurn` resumes upstream audio before unmuting native capture or emitting
    * generated audio and drives the session into `listening`. `endTurn` mutes
    * native capture or drains the generated tail, pauses upstream, signals the
-   * worker to flush STT, and drives `thinking`. These state emissions are
+   * worker to flush STT, and drives `thinking`. A bounded local-tail drain
+   * failure is warning-only once pause and `turn_end` finalize the manual turn;
+   * pause and signaling failures remain fatal. These state emissions are
    * load-bearing — with no VAD, this control surface is the only thing that
    * advances the sub-state machine.
    *
@@ -259,27 +274,42 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       // Capture locally so the raw microphone can be disabled before its first
       // publication. The enabled clone remains browser-local for metering, VAD,
       // and pre-roll while the publication starts muted and upstream-paused.
+      let microphone: ConnectMicrophoneResources;
       try {
         const micTrack = await createLocalAudioTrack();
         if (!attempt.isCurrent) micTrack.stop();
         attempt.assertCurrent();
         const rawMicTrack = micTrack.mediaStreamTrack;
-        this.#rawMicTrack = rawMicTrack;
         const clone = rawMicTrack.clone();
         clone.enabled = true;
+        const stream = new MediaStream([clone]);
+        microphone = { micTrack, rawMicTrack, clone, stream };
+        this.#rawMicTrack = rawMicTrack;
         this.#micClone = clone;
-        this.#micStream = new MediaStream([clone]);
+        this.#micStream = stream;
         await micTrack.mute();
+        attempt.assertCurrent();
         await room.localParticipant.publishTrack(micTrack);
+        attempt.assertCurrent();
         await micTrack.pauseUpstream();
+        attempt.assertCurrent();
       } catch (error) {
         if (error instanceof RealtimeVoiceError) throw error;
         throw this.#micEnableError(error);
       }
       if (this.#vadConfig?.enabled) {
-        const vadError = await this.#initializeMicGeneration(room);
+        const vadError = await this.#initializeMicGeneration(
+          room,
+          generation,
+          microphone,
+        );
+        attempt.assertCurrent();
         if (vadError === undefined) {
-          const browserVadError = await this.#initializeBrowserVad(generation);
+          const browserVadError = await this.#initializeBrowserVad(
+            generation,
+            microphone.stream,
+          );
+          attempt.assertCurrent();
           if (browserVadError === undefined) {
             this.#emit({ type: 'turn_mode', mode: 'automatic' });
           } else {
@@ -290,6 +320,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
         }
       } else {
         await this.#initializeManualMic(room);
+        attempt.assertCurrent();
         this.#establishManualMode(this.#vadConfigError);
       }
       attempt.assertCurrent();
@@ -364,8 +395,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * an intentional teardown raced the result: the adapter warns once, collapses
    * any transient `speaking` state, and returns without emitting an adapter error.
    * If a room exists but `sendText` fails, the adapter emits a plain, non-fatal
-   * `Error` (never a `RealtimeVoiceError`) and collapses `speaking`; genuine
-   * connection loss is reported separately by the room's connection-state events.
+   * `Error` (never a `RealtimeVoiceError`). If the failed handoff is still
+   * current, the adapter discards it and collapses `speaking`. A concurrent newer
+   * handoff stays outstanding and keeps its active state; genuine connection
+   * loss is reported separately by the room's connection-state events.
    *
    * If a prior barge-in muted the persistent remote sink, this new
    * assistant-turn handoff is the only normal path that unmutes it. TTS
@@ -376,7 +409,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       'ok' in output
         ? (output.userMessage ?? output.summary ?? JSON.stringify(output))
         : JSON.stringify(output);
-    this.#logger.debug('→ speak', { callId, speakText });
+    this.#logger.debug('→ speak', {
+      callId,
+      resultKind: 'ok' in output ? 'update_ui' : 'read_only',
+    });
     const room = this.#room;
     if (!room) {
       // Non-fatal: the update_ui this reads back already applied, and nothing
@@ -422,7 +458,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
           cause: error,
         }),
       });
-      this.#collapseSpeaking();
+      if (this.#currentUtteranceId === utteranceId) {
+        this.#currentUtteranceId = undefined;
+        this.#collapseSpeaking();
+      }
     }
   }
 
@@ -486,13 +525,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     });
   }
 
-  // Worker→client TTS status on TTS_TOPIC: a `tts_done` collapses `speaking`
-  // (guarded, so a barge-in that already moved to `listening` isn't stomped).
-  // A `tts_error` or malformed packet is non-fatal — the `update_ui` it was
-  // reading back already rendered, so only the spoken confirmation was lost;
-  // raising a RealtimeVoiceError would tear the whole session down over lost
-  // audio. Warn once per distinct kind and collapse `speaking` so the UI does
-  // not hang waiting for audio that will never arrive.
+  // Worker→client TTS status on TTS_TOPIC: an accepted terminal status clears the
+  // outstanding utterance, and `tts_done` collapses `speaking` (guarded, so a
+  // barge-in that already moved to `listening` isn't stomped). An accepted
+  // `tts_error` or malformed packet is non-fatal — the `update_ui` it was reading
+  // back already rendered, so only the spoken confirmation was lost; raising a
+  // RealtimeVoiceError would tear the whole session down over lost audio. Warn
+  // once per distinct kind and collapse `speaking` so the UI does not hang
+  // waiting for audio that will never arrive.
   #handleTtsSignal(payload: Uint8Array): void {
     let type: string | undefined;
     let utteranceId: number | undefined;
@@ -509,13 +549,27 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     // Drop status for an utterance the client has already barged past: a
     // cancelled utterance's late `tts_done` must be a full no-op — not clear the
     // empty-turn fallback, not move state — or the UI wedges in `thinking`. Only
-    // correlate when the packet actually carries an id; an id-less/malformed
-    // packet can't be attributed, so it falls through to the non-fatal path.
+    // correlate when the packet actually carries an id. Legacy id-less terminal
+    // status is accepted only while an utterance remains outstanding below.
     if (
       typeof utteranceId === 'number' &&
       utteranceId !== this.#currentUtteranceId
     ) {
       return;
+    }
+    const isTerminal = type === 'tts_done' || type === 'tts_error';
+    // Older workers omit utteranceId. Preserve compatibility only while a worker
+    // response is outstanding; after barge-in invalidates that response, a late
+    // id-less terminal packet is indistinguishable from stale and must be ignored.
+    if (
+      isTerminal &&
+      utteranceId === undefined &&
+      this.#currentUtteranceId === undefined
+    ) {
+      return;
+    }
+    if (isTerminal) {
+      this.#currentUtteranceId = undefined;
     }
     // A live TTS signal means the worker is alive and driving state — the turn
     // was not empty, so cancel the empty-turn fallback.
@@ -659,6 +713,11 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * Resumes upstream before selecting automatic pre-roll or manual live audio.
    * Automatic ordering is load-bearing: the generated track must be live before
    * the bridge emits buffered samples, or the utterance prefix is dropped.
+   * Starting over an outstanding assistant utterance first invalidates and
+   * cancels it. Playback is muted only when that utterance is already speaking;
+   * a pending response in `thinking` has no active audio to mute. Cancellation
+   * publication is reliable but best-effort: failure warns once without blocking
+   * the new turn, and invalidation still fences late status for the old utterance.
    */
   async #startTransportTurn(
     generation: number,
@@ -673,11 +732,15 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     }
 
     this.#clearThinkingFallback();
-    const isBargeIn = this.#lastState === 'speaking';
+    const shouldMutePlayback = this.#lastState === 'speaking';
+    const isBargeIn =
+      shouldMutePlayback ||
+      (this.#lastState === 'thinking' &&
+        this.#currentUtteranceId !== undefined);
     if (isBargeIn && this.#bargeInInProgress) return;
     if (isBargeIn) {
       this.#bargeInInProgress = true;
-      this.#mutePlaybackForBargeIn();
+      if (shouldMutePlayback) this.#mutePlaybackForBargeIn();
       // The worker may still report completion after cancellation. Invalidate
       // this utterance before publishing so that late status is ignored.
       this.#currentUtteranceId = undefined;
@@ -736,7 +799,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
           );
         }
       }
-      if (isBargeIn) this.#unmutePlaybackAfterFailedBargeIn();
+      if (shouldMutePlayback) this.#unmutePlaybackAfterFailedBargeIn();
       this.#bargeInInProgress = false;
       if (mode === 'automatic') throw turnStartError;
       const fatalError =
@@ -752,7 +815,13 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#emit({ type: 'state', state: 'listening' });
   }
 
-  /** Mutes native audio or drains generated tail, then pauses before finalization. */
+  /**
+   * Mutes native audio or drains the generated tail, then pauses upstream and
+   * reliably signals `turn_end`. A drain rejection is deferred until the turn
+   * is finalized: automatic mode rethrows it for manual degradation, while an
+   * already-manual turn warns and remains usable. Pause and signaling failures
+   * are fatal in both modes because safe upstream closure is no longer proven.
+   */
   async #endTransportTurn(
     generation: number,
     mode: 'manual' | 'automatic',
@@ -842,29 +911,42 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
           { turnFinalized: true as const },
         );
       }
-      this.#emit({ type: 'error', error: this.#micEnableError(tailError) });
+      const kind = 'manual_audio_drain';
+      if (!this.#warnedNonFatalKinds.has(kind)) {
+        this.#warnedNonFatalKinds.add(kind);
+        this.#logger.warn(
+          'Manual turn finalized after local audio drain failed (non-fatal)',
+        );
+      }
     }
   }
 
   /**
    * Creates one raw local generation plus its generated LiveKit publication.
+   * Capture, clone, stream, and publication references come from this connect
+   * attempt rather than mutable adapter fields, so a superseded continuation
+   * can only inspect or release resources that belonged to its own attempt.
    * The raw publication is disabled and upstream-paused before asynchronous
    * bridge setup, while its enabled clone remains local for VAD and buffering.
    * Bridge ownership transfers before replacement awaits, allowing concurrent
-   * teardown to destroy it. LiveKit 2.13.1 resumes upstream as a replacement
-   * side effect, so the generated track stays disabled through replacement and
-   * upstream is explicitly paused again before the replacement is unmuted and
-   * automatic or degraded-manual control becomes available. Unmuting while the
-   * sender is paused clears LiveKit's persistent logical mute without sending
-   * idle audio.
+   * teardown to destroy it. A continuation revalidates its room, generation,
+   * and bridge ownership around each publication mutation; if unmute finishes
+   * after ownership is lost, it disables the stale generated track again and
+   * aborts without mutating replacement resources or exposing stale turn mode.
+   * LiveKit 2.13.1 resumes upstream as a replacement side effect, so the
+   * generated track stays disabled through replacement and upstream is explicitly
+   * paused again before the replacement is unmuted and automatic or
+   * degraded-manual control becomes available. Unmuting while the sender is
+   * paused clears LiveKit's persistent logical mute without sending idle audio.
    * Success explicitly stops the old raw track; failure destroys the bridge and
    * raw track before connection teardown cleans the clone.
    */
-  async #initializeMicGeneration(room: Room): Promise<unknown | undefined> {
-    const micTrack = this.#getPublishedMicTrack(room);
-    const mediaStreamTrack = this.#rawMicTrack;
-    const clone = this.#micClone;
-    if (!micTrack || !mediaStreamTrack || !clone) return undefined;
+  async #initializeMicGeneration(
+    room: Room,
+    generation: number,
+    microphone: ConnectMicrophoneResources,
+  ): Promise<unknown | undefined> {
+    const { micTrack, rawMicTrack: mediaStreamTrack, clone } = microphone;
     let bridge: LocalAudioPreRoll;
     try {
       bridge = await createLocalAudioPreRoll(clone);
@@ -890,12 +972,33 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#localAudioPreRoll = bridge;
     try {
       await micTrack.replaceTrack(bridge.track, true);
+      if (
+        !this.#isCurrentRoom(generation, room) ||
+        this.#localAudioPreRoll !== bridge
+      ) {
+        return undefined;
+      }
       await micTrack.pauseUpstream();
+      if (
+        !this.#isCurrentRoom(generation, room) ||
+        this.#localAudioPreRoll !== bridge
+      ) {
+        return undefined;
+      }
       await micTrack.unmute();
+      if (
+        !this.#isCurrentRoom(generation, room) ||
+        this.#localAudioPreRoll !== bridge
+      ) {
+        bridge.track.enabled = false;
+        return undefined;
+      }
     } catch (error) {
       mediaStreamTrack.enabled = false;
       mediaStreamTrack.stop();
-      this.#rawMicTrack = undefined;
+      if (this.#rawMicTrack === mediaStreamTrack) {
+        this.#rawMicTrack = undefined;
+      }
       if (this.#localAudioPreRoll === bridge) {
         this.#localAudioPreRoll = undefined;
         await bridge.destroy().catch(() => {});
@@ -907,7 +1010,9 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     }
     mediaStreamTrack.enabled = false;
     mediaStreamTrack.stop();
-    this.#rawMicTrack = undefined;
+    if (this.#rawMicTrack === mediaStreamTrack) {
+      this.#rawMicTrack = undefined;
+    }
     return undefined;
   }
 
@@ -928,10 +1033,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    */
   async #initializeBrowserVad(
     generation: number,
+    stream: MediaStream,
   ): Promise<unknown | undefined> {
     const config = this.#vadConfig;
-    const stream = this.#micStream;
-    if (!config?.enabled || !stream) {
+    if (!config?.enabled) {
       return new Error('Automatic VAD requires a local microphone stream');
     }
 

@@ -97,7 +97,7 @@ describe('runLiveKitAssetsCli', () => {
 });
 
 if (process.platform !== 'win32') {
-  test('builds an executable package-manager bin artifact', () => {
+  test('builds package artifacts with an executable bin and external VAD runtimes', () => {
     const packageRoot = resolve(import.meta.dir, '../..');
     const outputDir = mkdtempSync(join(tmpdir(), 'maelstrom-livekit-cli-'));
 
@@ -124,8 +124,19 @@ if (process.platform !== 'win32') {
       expect(readFileSync(binPath, 'utf8')).toStartWith(
         '#!/usr/bin/env node\n',
       );
+
+      const browserEntry = readFileSync(resolve(outputDir, 'index.js'), 'utf8');
+      expect(browserEntry).toContain('import("@ricky0123/vad-web")');
+
+      const assetEntry = readFileSync(
+        resolve(outputDir, 'vad-assets.js'),
+        'utf8',
+      );
+      expect(assetEntry).toContain(
+        'import.meta.resolve("onnxruntime-web/wasm")',
+      );
     } finally {
       rmSync(outputDir, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 30_000);
 }

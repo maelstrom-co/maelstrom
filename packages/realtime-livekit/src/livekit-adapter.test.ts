@@ -20,6 +20,7 @@ const mockMuteLocalMic = mock(async () => {});
 const mockUnmuteLocalMic = mock(async () => {});
 const mockCreateLocalAudioTrack = mock(async () => mockMicPublication.track);
 const mockPublishTrack = mock(async (_track: unknown) => mockMicPublication);
+const mockGetTrackPublication = mock((_source: string) => mockMicPublication);
 const mockBridgeStartAutomaticTurn = mock(async (_preRollMs: number) => {});
 const mockBridgeStartManualTurn = mock(async () => {});
 const mockBridgeEndTurn = mock(async () => {});
@@ -106,7 +107,7 @@ const mockLocalParticipant = {
   publishData: mockPublishData,
   sendText: mockSendText,
   startAudio: mockStartAudio,
-  getTrackPublication: mock((_source: string) => mockMicPublication),
+  getTrackPublication: mockGetTrackPublication,
 };
 
 function makeMockRoom() {
@@ -201,7 +202,10 @@ const DEFAULT_GRANT: LiveKitTokenGrant = {
 function makeAdapter(
   mintToken: (roomName: string) => Promise<LiveKitTokenGrant> = async () =>
     DEFAULT_GRANT,
-  options: Pick<LiveKitAdapterOptions, 'thinkingFallbackMs' | 'vad'> = {},
+  options: Pick<
+    LiveKitAdapterOptions,
+    'debug' | 'thinkingFallbackMs' | 'vad'
+  > = {},
 ) {
   const events: RealtimeAdapterEvent[] = [];
   // Default the thinking fallback OFF so tests don't leak a real timer; the
@@ -243,6 +247,8 @@ describe('LiveKitAdapter connect', () => {
     );
     mockPublishTrack.mockReset();
     mockPublishTrack.mockImplementation(async () => mockMicPublication);
+    mockGetTrackPublication.mockReset();
+    mockGetTrackPublication.mockImplementation(() => mockMicPublication);
     mockMuteLocalMic.mockReset();
     mockMuteLocalMic.mockImplementation(async () => {
       mockPublishedMicTrack.enabled = false;
@@ -408,6 +414,48 @@ describe('LiveKitAdapter connect', () => {
     await connecting;
     expect(events).toContainEqual({ type: 'turn_mode', mode: 'automatic' });
     expect(adapter.turnControl).toBeUndefined();
+  });
+
+  test('does not let superseded VAD initialization overwrite reconnect manual mode', async () => {
+    const staleStart = deferred<void>();
+    const winnerCause = new Error('winner VAD start failed');
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => mockBridge);
+    mockVadStart
+      .mockImplementationOnce(() => staleStart.promise)
+      .mockImplementationOnce(async () => {
+        throw winnerCause;
+      });
+    const { adapter, events } = makeAdapter();
+
+    const staleConnect = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 100; attempts += 1) {
+      if (mockVadStart.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+    expect(mockVadStart).toHaveBeenCalledTimes(1);
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    expect(adapter.turnControl).toBeDefined();
+    expect(events.filter((event) => event.type === 'turn_mode').at(-1)).toEqual(
+      {
+        type: 'turn_mode',
+        mode: 'manual',
+        error: winnerCause,
+      },
+    );
+
+    staleStart.resolve();
+    await expect(staleConnect).rejects.toMatchObject({
+      code: 'CONNECT_SUPERSEDED',
+    });
+
+    expect(events.filter((event) => event.type === 'turn_mode')).toEqual([
+      { type: 'turn_mode', mode: 'manual', error: winnerCause },
+    ]);
+    expect(adapter.turnControl).toBeDefined();
   });
 
   test('serializes automatic speech callbacks and sends pre-roll once per turn', async () => {
@@ -1035,6 +1083,33 @@ describe('LiveKitAdapter connect', () => {
     });
   });
 
+  test('does not announce turn mode until generated-track unmute settles', async () => {
+    const unmute = deferred<void>();
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockUnmuteLocalMic.mockImplementationOnce(async () => {
+      await unmute.promise;
+      mockGeneratedTrack.enabled = true;
+      mockMicPublication.track.isMuted = false;
+    });
+    const { adapter, events } = makeAdapter();
+
+    const connecting = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (mockUnmuteLocalMic.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+
+    expect(mockUnmuteLocalMic).toHaveBeenCalledTimes(1);
+    expect(events.some((event) => event.type === 'turn_mode')).toBe(false);
+
+    unmute.resolve();
+    await connecting;
+
+    expect(events.filter((event) => event.type === 'turn_mode')).toEqual([
+      { type: 'turn_mode', mode: 'automatic' },
+    ]);
+  });
+
   test('pauses the raw publication before asynchronous bridge initialization', async () => {
     const order: string[] = [];
     let rawEnabledDuringBridgeInitialization: boolean | undefined;
@@ -1118,10 +1193,36 @@ describe('LiveKitAdapter connect', () => {
 
   test('owns and destroys the generated bridge while track replacement is pending', async () => {
     let releaseReplace!: () => void;
-    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    let staleContinuationReleased = false;
+    const staleTrack = {
+      enabled: true,
+      stop: mock(() => {}),
+    } as unknown as MediaStreamTrack;
+    const staleBridgeDestroy = mock(async () => {});
+    const staleBridge = {
+      ...mockBridge,
+      track: staleTrack,
+      destroy: staleBridgeDestroy,
+    };
+    const currentTrack = {
+      enabled: true,
+      stop: mock(() => {}),
+    } as unknown as MediaStreamTrack;
+    const currentBridgeDestroy = mock(async () => {});
+    const currentBridge = {
+      ...mockBridge,
+      track: currentTrack,
+      destroy: currentBridgeDestroy,
+    };
+    mockCreateLocalAudioPreRoll
+      .mockImplementationOnce(async () => staleBridge)
+      .mockImplementationOnce(async () => currentBridge);
     mockReplaceTrack.mockImplementationOnce(
       () => new Promise<void>((resolve) => (releaseReplace = resolve)),
     );
+    mockUnmuteLocalMic.mockImplementation(async () => {
+      if (staleContinuationReleased) staleTrack.enabled = true;
+    });
     const { adapter } = makeAdapter();
 
     const connecting = adapter.connect({ tools: [], instructions: '' });
@@ -1133,12 +1234,152 @@ describe('LiveKitAdapter connect', () => {
 
     await adapter.disconnect();
 
-    expect(mockBridgeDestroy).toHaveBeenCalledTimes(1);
+    expect(staleBridgeDestroy).toHaveBeenCalledTimes(1);
+    expect(staleTrack.enabled).toBe(false);
     expect(mockMicCloneTrack.stop).toHaveBeenCalledTimes(1);
+
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    const pauseCallsBeforeStaleContinuation =
+      mockPauseUpstream.mock.calls.length;
+    const unmuteCallsBeforeStaleContinuation =
+      mockUnmuteLocalMic.mock.calls.length;
+
+    staleContinuationReleased = true;
     releaseReplace();
     await expect(connecting).rejects.toMatchObject({
       code: 'CONNECT_SUPERSEDED',
     });
+
+    expect(staleTrack.enabled).toBe(false);
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(
+      pauseCallsBeforeStaleContinuation,
+    );
+    expect(mockUnmuteLocalMic).toHaveBeenCalledTimes(
+      unmuteCallsBeforeStaleContinuation,
+    );
+    expect(currentTrack.enabled).toBe(true);
+    expect(currentBridgeDestroy).not.toHaveBeenCalled();
+    expect(adapter.getAudioStreams().mic).toBeDefined();
+  });
+
+  test('does not unmute a stale generated track after its replacement pause settles', async () => {
+    const stalePause = deferred<void>();
+    let pauseCount = 0;
+    let staleContinuationReleased = false;
+    const staleTrack = {
+      enabled: true,
+      stop: mock(() => {}),
+    } as unknown as MediaStreamTrack;
+    const staleBridge = { ...mockBridge, track: staleTrack };
+    const currentTrack = {
+      enabled: true,
+      stop: mock(() => {}),
+    } as unknown as MediaStreamTrack;
+    const currentBridge = { ...mockBridge, track: currentTrack };
+    mockCreateLocalAudioPreRoll
+      .mockImplementationOnce(async () => staleBridge)
+      .mockImplementationOnce(async () => currentBridge);
+    mockPauseUpstream.mockImplementation(() => {
+      pauseCount += 1;
+      return pauseCount === 2 ? stalePause.promise : Promise.resolve();
+    });
+    mockUnmuteLocalMic.mockImplementation(async () => {
+      if (staleContinuationReleased) staleTrack.enabled = true;
+    });
+    const { adapter, events } = makeAdapter();
+
+    const staleConnect = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (mockPauseUpstream.mock.calls.length === 2) break;
+      await Promise.resolve();
+    }
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(2);
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    const unmuteCallsBeforeStaleContinuation =
+      mockUnmuteLocalMic.mock.calls.length;
+    const turnModesBeforeStaleContinuation = events.filter(
+      (event) => event.type === 'turn_mode',
+    );
+
+    staleContinuationReleased = true;
+    stalePause.resolve();
+    await expect(staleConnect).rejects.toMatchObject({
+      code: 'CONNECT_SUPERSEDED',
+    });
+
+    expect(staleTrack.enabled).toBe(false);
+    expect(mockUnmuteLocalMic).toHaveBeenCalledTimes(
+      unmuteCallsBeforeStaleContinuation,
+    );
+    expect(currentTrack.enabled).toBe(true);
+    expect(events.filter((event) => event.type === 'turn_mode')).toEqual(
+      turnModesBeforeStaleContinuation,
+    );
+  });
+
+  test('disables a stale generated track when disconnect wins a pending unmute', async () => {
+    const staleUnmute = deferred<void>();
+    const staleTrack = {
+      enabled: true,
+      stop: mock(() => {}),
+    } as unknown as MediaStreamTrack;
+    const staleBridge = { ...mockBridge, track: staleTrack };
+    const currentTrack = {
+      enabled: true,
+      stop: mock(() => {}),
+    } as unknown as MediaStreamTrack;
+    const currentBridge = { ...mockBridge, track: currentTrack };
+    mockCreateLocalAudioPreRoll
+      .mockImplementationOnce(async () => staleBridge)
+      .mockImplementationOnce(async () => currentBridge);
+    mockUnmuteLocalMic
+      .mockImplementationOnce(async () => {
+        await staleUnmute.promise;
+        staleTrack.enabled = true;
+      })
+      .mockImplementationOnce(async () => {
+        currentTrack.enabled = true;
+      });
+    const { adapter, events } = makeAdapter();
+
+    const staleConnect = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (mockUnmuteLocalMic.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+    expect(mockUnmuteLocalMic).toHaveBeenCalledTimes(1);
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    const pauseCallsBeforeStaleContinuation =
+      mockPauseUpstream.mock.calls.length;
+    const unmuteCallsBeforeStaleContinuation =
+      mockUnmuteLocalMic.mock.calls.length;
+    const turnModesBeforeStaleContinuation = events.filter(
+      (event) => event.type === 'turn_mode',
+    );
+
+    staleUnmute.resolve();
+    await expect(staleConnect).rejects.toMatchObject({
+      code: 'CONNECT_SUPERSEDED',
+    });
+
+    expect(staleTrack.enabled).toBe(false);
+    expect(currentTrack.enabled).toBe(true);
+    expect(mockPauseUpstream).toHaveBeenCalledTimes(
+      pauseCallsBeforeStaleContinuation,
+    );
+    expect(mockUnmuteLocalMic).toHaveBeenCalledTimes(
+      unmuteCallsBeforeStaleContinuation,
+    );
+    expect(events.filter((event) => event.type === 'turn_mode')).toEqual(
+      turnModesBeforeStaleContinuation,
+    );
   });
 
   test('destroys a bridge that finishes initializing after disconnect', async () => {
@@ -1384,6 +1625,183 @@ describe('LiveKitAdapter connect', () => {
     // The winner is fully connected and was not driven into 'error' by the loser.
     expect(states(events).at(-1)).toBe('connected');
   });
+
+  test('a stale replacement rejection cannot release reconnect microphone ownership', async () => {
+    let rejectStaleReplacement!: (error: Error) => void;
+    const staleReplacement = new Promise<void>((_resolve, reject) => {
+      rejectStaleReplacement = reject;
+    });
+    const winnerBridge = deferred<LocalAudioPreRoll>();
+    const makeMic = (replaceTrack: () => Promise<void>) => {
+      const clone = {
+        enabled: false,
+        stop: mock(() => {}),
+      };
+      const raw = {
+        enabled: false,
+        clone: mock(() => clone as unknown as MediaStreamTrack),
+        stop: mock(() => {}),
+      };
+      const track = {
+        isMuted: false,
+        mediaStream: { id: 'attempt-mic-stream' } as unknown as MediaStream,
+        mediaStreamTrack: raw as unknown as MediaStreamTrack,
+        mute: mock(async () => {}),
+        unmute: mock(async () => {}),
+        pauseUpstream: mock(async () => {}),
+        resumeUpstream: mock(async () => {}),
+        replaceTrack: mock(replaceTrack),
+        stop: raw.stop,
+      };
+      return { clone, raw, track };
+    };
+    const stale = makeMic(() => staleReplacement);
+    const winner = makeMic(async () => {});
+    let acquired = 0;
+    mockCreateLocalAudioTrack.mockImplementation(async () =>
+      acquired++ === 0 ? stale.track : winner.track,
+    );
+    mockPublishTrack.mockImplementation(async () => mockMicPublication);
+    mockCreateLocalAudioPreRoll
+      .mockImplementationOnce(async () => mockBridge)
+      .mockImplementationOnce(() => winnerBridge.promise);
+    const { adapter } = makeAdapter();
+
+    const staleConnect = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (stale.track.replaceTrack.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+    expect(stale.track.replaceTrack).toHaveBeenCalledTimes(1);
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    const winnerConnect = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (mockCreateLocalAudioPreRoll.mock.calls.length === 2) break;
+      await Promise.resolve();
+    }
+    expect(mockCreateLocalAudioPreRoll).toHaveBeenCalledTimes(2);
+
+    const staleFailure = new Error('stale replacement failed');
+    rejectStaleReplacement(staleFailure);
+    await expect(staleConnect).rejects.toBe(staleFailure);
+
+    expect(winner.raw.stop).not.toHaveBeenCalled();
+    expect(winner.clone.stop).not.toHaveBeenCalled();
+    expect(adapter.getAudioStreams().mic?.getAudioTracks()).toEqual([
+      winner.clone as unknown as MediaStreamTrack,
+    ]);
+
+    await adapter.disconnect();
+    expect(winner.raw.stop).toHaveBeenCalledTimes(1);
+    expect(winner.clone.stop).toHaveBeenCalledTimes(1);
+
+    winnerBridge.resolve(mockBridge);
+    await expect(winnerConnect).rejects.toMatchObject({
+      code: 'CONNECT_SUPERSEDED',
+    });
+  });
+
+  test('a stale initial pause continuation cannot touch reconnect microphone resources or emit turn mode', async () => {
+    const stalePause = deferred<void>();
+    const winnerPause = deferred<void>();
+    const makeMic = (pauseUpstream: () => Promise<void>) => {
+      const clone = {
+        enabled: false,
+        stop: mock(() => {}),
+      };
+      const raw = {
+        enabled: false,
+        clone: mock(() => clone as unknown as MediaStreamTrack),
+        stop: mock(() => {}),
+      };
+      const track = {
+        isMuted: false,
+        mediaStream: { id: 'attempt-mic-stream' } as unknown as MediaStream,
+        mediaStreamTrack: raw as unknown as MediaStreamTrack,
+        mute: mock(async () => {}),
+        unmute: mock(async () => {}),
+        pauseUpstream: mock(pauseUpstream),
+        resumeUpstream: mock(async () => {}),
+        replaceTrack: mock(async () => {}),
+        stop: raw.stop,
+      };
+      const publication = { track };
+      return { clone, raw, track, publication };
+    };
+    const stale = makeMic(() => stalePause.promise);
+    const winner = makeMic(() => winnerPause.promise);
+    let acquired = 0;
+    let published = stale.publication;
+    mockCreateLocalAudioTrack.mockImplementation(async () =>
+      acquired++ === 0 ? stale.track : winner.track,
+    );
+    mockPublishTrack.mockImplementation(async (track) => {
+      published =
+        track === stale.track ? stale.publication : winner.publication;
+      return published;
+    });
+    mockGetTrackPublication.mockImplementation(() => published);
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => mockBridge);
+    const { adapter, events } = makeAdapter();
+    const snapshotWinner = () => ({
+      cloneReads: winner.raw.clone.mock.calls.length,
+      rawStops: winner.raw.stop.mock.calls.length,
+      cloneStops: winner.clone.stop.mock.calls.length,
+      mutes: winner.track.mute.mock.calls.length,
+      unmutes: winner.track.unmute.mock.calls.length,
+      pauses: winner.track.pauseUpstream.mock.calls.length,
+      resumes: winner.track.resumeUpstream.mock.calls.length,
+      replacements: winner.track.replaceTrack.mock.calls.length,
+      bridges: mockCreateLocalAudioPreRoll.mock.calls.length,
+      rawEnabled: winner.raw.enabled,
+      cloneEnabled: winner.clone.enabled,
+      publicationMuted: winner.track.isMuted,
+      turnModes: events.filter((event) => event.type === 'turn_mode'),
+    });
+
+    const staleConnect = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (stale.track.pauseUpstream.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+    expect(stale.track.pauseUpstream).toHaveBeenCalledTimes(1);
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    const winnerConnect = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 10; attempts += 1) {
+      if (winner.track.pauseUpstream.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+    expect(winner.track.pauseUpstream).toHaveBeenCalledTimes(1);
+    const winnerSnapshot = snapshotWinner();
+
+    stalePause.resolve();
+    await expect(staleConnect).rejects.toMatchObject({
+      code: 'CONNECT_SUPERSEDED',
+    });
+    const afterStale = snapshotWinner();
+    winnerPause.resolve();
+    await winnerConnect;
+
+    expect(afterStale).toEqual(winnerSnapshot);
+    expect(adapter.getAudioStreams().mic?.getAudioTracks()).toEqual([
+      winner.clone as unknown as MediaStreamTrack,
+    ]);
+
+    await adapter.disconnect();
+    mockCreateLocalAudioTrack.mockImplementation(
+      async () => mockMicPublication.track,
+    );
+    mockPublishTrack.mockImplementation(async () => mockMicPublication);
+    mockGetTrackPublication.mockImplementation(() => mockMicPublication);
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => {
+      throw new Error('AudioWorklet unavailable');
+    });
+    mockBridgeDestroy.mockClear();
+  });
 });
 
 describe('LiveKitAdapter disconnect teardown', () => {
@@ -1554,6 +1972,38 @@ describe('LiveKitAdapter sendToolResult → speak topic', () => {
     expectSpoke('Here is your weather.');
   });
 
+  test('debug logging excludes speech-derived and credential-like content', async () => {
+    const debug = spyOn(console, 'debug').mockImplementation(() => {});
+    const sensitiveText =
+      'transcript-private speak-private audio-private token-private secret-private';
+
+    try {
+      const { adapter } = makeAdapter(undefined, { debug: true });
+      await adapter.connect({ tools: [], instructions: '' });
+
+      await adapter.sendToolResult('call-privacy' as never, {
+        ok: true,
+        summary: 'structural-summary-private',
+        userMessage: sensitiveText,
+      });
+
+      expect(debug).toHaveBeenCalledWith('[LiveKitAdapter]', '→ speak', {
+        callId: 'call-privacy',
+        resultKind: 'update_ui',
+      });
+      const loggedArguments = JSON.stringify(debug.mock.calls);
+      expect(loggedArguments).not.toContain(sensitiveText);
+      expect(loggedArguments).not.toContain('structural-summary-private');
+      expect(loggedArguments).not.toContain('transcript-private');
+      expect(loggedArguments).not.toContain('speak-private');
+      expect(loggedArguments).not.toContain('audio-private');
+      expect(loggedArguments).not.toContain('token-private');
+      expect(loggedArguments).not.toContain('secret-private');
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
   test('collapses speaking → connected only when the worker signals tts_done', async () => {
     const { adapter, events } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
@@ -1701,6 +2151,85 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     await adapter.turnControl?.endTurn();
 
     expect(order).toEqual(['mute', 'pause', 'publish']);
+  });
+
+  test('a finalized manual bridge drain failure warns but preserves ordering and the next turn', async () => {
+    const drainCause = new Error('bounded local drain failed');
+    const order: string[] = [];
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    mockCreateLocalAudioPreRoll.mockReset();
+    mockCreateLocalAudioPreRoll.mockImplementationOnce(async () => mockBridge);
+    mockVadStart.mockReset();
+    mockVadStart.mockImplementationOnce(async () => {
+      throw new Error('VAD unavailable');
+    });
+    mockBridgeEndTurn.mockReset();
+    mockBridgeEndTurn.mockImplementation(async () => {});
+    mockBridgeEndTurn.mockImplementationOnce(async () => {
+      order.push('drain');
+      throw drainCause;
+    });
+
+    try {
+      const { adapter, events } = makeAdapter();
+      adapter.on((event) => {
+        if (event.type === 'state' && event.state === 'thinking') {
+          order.push('thinking');
+        }
+      });
+      await adapter.connect({ tools: [], instructions: '' });
+      expect(adapter.turnControl).toBeDefined();
+      const eventCountBeforeTurn = events.length;
+      mockPauseUpstream.mockImplementationOnce(async () => {
+        order.push('pause');
+      });
+      mockPublishData.mockImplementationOnce(async () => {
+        order.push('turn_end');
+      });
+
+      await adapter.turnControl?.startTurn();
+      await adapter.turnControl?.endTurn();
+
+      expect(order).toEqual(['drain', 'pause', 'turn_end', 'thinking']);
+      const [payload] = mockPublishData.mock.calls.at(-1) as unknown as [
+        Uint8Array,
+      ];
+      expect(JSON.parse(new TextDecoder().decode(payload))).toEqual({
+        type: 'turn_end',
+      });
+      expect(mockRoomDisconnect).not.toHaveBeenCalled();
+      const drainWarnings = () =>
+        warnSpy.mock.calls.filter(
+          (call) =>
+            typeof call[1] === 'string' && call[1].includes('audio drain'),
+        );
+      expect(drainWarnings()).toHaveLength(1);
+      expect(drainWarnings()[0]).not.toContain(drainCause);
+
+      order.length = 0;
+      mockBridgeEndTurn.mockImplementationOnce(async () => {
+        throw drainCause;
+      });
+      await adapter.turnControl?.startTurn();
+      await adapter.turnControl?.endTurn();
+
+      expect(states(events).slice(-2)).toEqual(['listening', 'thinking']);
+      expect(mockBridgeStartManualTurn).toHaveBeenCalledTimes(2);
+      expect(mockBridgeEndTurn).toHaveBeenCalledTimes(2);
+      expect(drainWarnings()).toHaveLength(1);
+      expect(
+        events
+          .slice(eventCountBeforeTurn)
+          .some((event) => event.type === 'error'),
+      ).toBe(false);
+      expect(adapter.turnControl).toBeDefined();
+    } finally {
+      mockCreateLocalAudioPreRoll.mockReset();
+      mockCreateLocalAudioPreRoll.mockImplementation(async () => {
+        throw new Error('AudioWorklet unavailable');
+      });
+      warnSpy.mockRestore();
+    }
   });
 
   test('a native upstream resume failure is fatal and never enables the microphone', async () => {
@@ -1865,6 +2394,64 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     });
     expect(mockSetMicrophoneEnabled).toHaveBeenCalledWith(true);
     expect(states(events).at(-1)).toBe('listening');
+  });
+
+  test('a turn started while thinking cancels its outstanding utterance exactly once', async () => {
+    const { adapter, events } = makeAdapter(undefined, {
+      thinkingFallbackMs: 10,
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    let audio!: HTMLAudioElement;
+    currentRoom._emit('trackSubscribed', {
+      kind: 'audio',
+      mediaStream: { id: 'tts-stream' },
+      attach: (element: HTMLAudioElement) => {
+        audio = element;
+      },
+    });
+    Object.defineProperty(audio, 'paused', {
+      configurable: true,
+      value: true,
+    });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Pending response.',
+    });
+    const outstandingUtterance = lastUtteranceId();
+    await adapter.turnControl?.endTurn();
+    expect(states(events).at(-1)).toBe('thinking');
+    mockPublishData.mockClear();
+
+    await Promise.all([
+      adapter.turnControl?.startTurn(),
+      adapter.turnControl?.startTurn(),
+    ]);
+
+    expect(mockPublishData).toHaveBeenCalledTimes(1);
+    const [payload, options] = mockPublishData.mock.calls[0] as unknown as [
+      Uint8Array,
+      { reliable: boolean; topic: string },
+    ];
+    expect(JSON.parse(new TextDecoder().decode(payload))).toEqual({
+      type: 'tts_cancel',
+    });
+    expect(options).toEqual({ reliable: true, topic: TURN_TOPIC });
+    expect(audio.muted).toBe(false);
+    expect(states(events).at(-1)).toBe('listening');
+
+    for (const type of ['tts_done', 'tts_error'] as const) {
+      currentRoom._emit(
+        'dataReceived',
+        encodeTtsWithId(type, outstandingUtterance),
+        undefined,
+        undefined,
+        TTS_TOPIC,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(states(events).at(-1)).toBe('listening');
+    expect(audio.muted).toBe(false);
   });
 
   test('mutes already-playing remote audio before awaiting the cancel publish', async () => {
@@ -2151,6 +2738,20 @@ describe('LiveKitAdapter turnControl (push-to-talk) state mapping', () => {
     expect(mockPublishData).not.toHaveBeenCalled();
   });
 
+  test('a startTurn from thinking without an outstanding utterance does not publish tts_cancel', async () => {
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.turnControl?.startTurn();
+    await adapter.turnControl?.endTurn();
+    expect(states(events).at(-1)).toBe('thinking');
+    mockPublishData.mockClear();
+
+    await adapter.turnControl?.startTurn();
+
+    expect(mockPublishData).not.toHaveBeenCalled();
+    expect(states(events).at(-1)).toBe('listening');
+  });
+
   test('a tts_cancel publish rejection is non-fatal: no error event, warns once, and the turn still proceeds', async () => {
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -2360,6 +2961,121 @@ describe('LiveKitAdapter TTS utterance-id staleness', () => {
     expect(states(events).at(-1)).toBe('connected');
   });
 
+  for (const terminalType of ['tts_done', 'tts_error'] as const) {
+    test(`a matching ${terminalType} does not leave a phantom utterance for a later empty turn`, async () => {
+      const { adapter, events } = makeAdapter();
+      await adapter.connect({ tools: [], instructions: '' });
+      await adapter.sendToolResult('call-1' as never, {
+        ok: true,
+        summary: 'Finished.',
+      });
+
+      currentRoom._emit(
+        'dataReceived',
+        encodeTtsWithId(terminalType, lastUtteranceId()),
+        undefined,
+        undefined,
+        TTS_TOPIC,
+      );
+      expect(states(events).at(-1)).toBe('connected');
+
+      await adapter.turnControl?.endTurn();
+      expect(states(events).at(-1)).toBe('thinking');
+      mockPublishData.mockClear();
+      await adapter.turnControl?.startTurn();
+
+      expect(mockPublishData).not.toHaveBeenCalled();
+      expect(states(events).at(-1)).toBe('listening');
+    });
+
+    test(`an id-less ${terminalType} accepted for the current utterance does not leave a phantom cancel`, async () => {
+      const { adapter, events } = makeAdapter();
+      await adapter.connect({ tools: [], instructions: '' });
+      await adapter.sendToolResult('call-1' as never, {
+        ok: true,
+        summary: 'Finished.',
+      });
+
+      currentRoom._emit(
+        'dataReceived',
+        encodeTts(terminalType),
+        undefined,
+        undefined,
+        TTS_TOPIC,
+      );
+      expect(states(events).at(-1)).toBe('connected');
+
+      await adapter.turnControl?.endTurn();
+      expect(states(events).at(-1)).toBe('thinking');
+      mockPublishData.mockClear();
+      await adapter.turnControl?.startTurn();
+
+      expect(mockPublishData).not.toHaveBeenCalled();
+      expect(states(events).at(-1)).toBe('listening');
+    });
+  }
+
+  test('a failed speak handoff does not leave a phantom utterance for a later empty turn', async () => {
+    mockSendText.mockImplementationOnce(async () => {
+      throw new Error('speak handoff failed');
+    });
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Not handed off.',
+    });
+    expect(states(events).at(-1)).toBe('connected');
+
+    await adapter.turnControl?.endTurn();
+    expect(states(events).at(-1)).toBe('thinking');
+    mockPublishData.mockClear();
+    await adapter.turnControl?.startTurn();
+
+    expect(mockPublishData).not.toHaveBeenCalled();
+    expect(states(events).at(-1)).toBe('listening');
+  });
+
+  test('an older failed handoff neither clears nor collapses the newer utterance', async () => {
+    const handoffA = deferred<void>();
+    mockSendText
+      .mockImplementationOnce(async () => {
+        await handoffA.promise;
+        throw new Error('older speak handoff failed');
+      })
+      .mockImplementationOnce(async () => ({}));
+    const { adapter, events } = makeAdapter();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    const sendingA = adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Older response.',
+    });
+    const sendingB = adapter.sendToolResult('call-2' as never, {
+      ok: true,
+      summary: 'Current response.',
+    });
+    await sendingB;
+    const utteranceB = lastUtteranceId();
+
+    handoffA.resolve();
+    await sendingA;
+
+    expect(states(events).at(-1)).toBe('speaking');
+    mockPublishData.mockClear();
+    await adapter.turnControl?.startTurn();
+
+    expect(mockPublishData).toHaveBeenCalledTimes(1);
+    currentRoom._emit(
+      'dataReceived',
+      encodeTtsWithId('tts_done', utteranceB),
+      undefined,
+      undefined,
+      TTS_TOPIC,
+    );
+    expect(states(events).at(-1)).toBe('listening');
+  });
+
   test('client stamps the utterance id on the speak text stream', async () => {
     const { adapter } = makeAdapter();
     await adapter.connect({ tools: [], instructions: '' });
@@ -2415,6 +3131,35 @@ describe('LiveKitAdapter TTS utterance-id staleness', () => {
     await settle(50);
     expect(states(events).at(-1)).toBe('connected');
   });
+
+  for (const terminalType of ['tts_done', 'tts_error'] as const) {
+    test(`a late id-less ${terminalType} after barge-in does not cancel the replacement empty-turn fallback`, async () => {
+      const { adapter, events } = makeAdapter(undefined, {
+        thinkingFallbackMs: 20,
+      });
+      await adapter.connect({ tools: [], instructions: '' });
+      await adapter.sendToolResult('call-1' as never, {
+        ok: true,
+        summary: 'Superseded response.',
+      });
+
+      await adapter.turnControl?.startTurn();
+      await adapter.turnControl?.endTurn();
+      expect(states(events).at(-1)).toBe('thinking');
+
+      currentRoom._emit(
+        'dataReceived',
+        encodeTts(terminalType),
+        undefined,
+        undefined,
+        TTS_TOPIC,
+      );
+      expect(states(events).at(-1)).toBe('thinking');
+
+      await settle(50);
+      expect(states(events).at(-1)).toBe('connected');
+    });
+  }
 });
 
 describe('LiveKitAdapter thinking fallback', () => {
@@ -2457,14 +3202,19 @@ describe('LiveKitAdapter thinking fallback', () => {
     expect(states(events).at(-1)).toBe('thinking');
   });
 
-  test('a tts signal cancels the thinking fallback', async () => {
+  test('a current id-less tts signal cancels the thinking fallback', async () => {
     const { adapter, events } = makeAdapter(undefined, {
       thinkingFallbackMs: 10,
     });
     await adapter.connect({ tools: [], instructions: '' });
+    await adapter.sendToolResult('call-1' as never, {
+      ok: true,
+      summary: 'Current response.',
+    });
 
     await adapter.turnControl?.endTurn();
-    // A tts signal means the worker is alive and driving state.
+    // Legacy workers omit the id, so the outstanding utterance establishes that
+    // this terminal status is current and may cancel the empty-turn fallback.
     currentRoom._emit(
       'dataReceived',
       encodeTts('tts_error'),

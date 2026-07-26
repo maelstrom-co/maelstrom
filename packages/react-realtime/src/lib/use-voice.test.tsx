@@ -17,6 +17,8 @@ import type {
 } from './maelstrom-realtime.js';
 
 let sessionConnectGate: Promise<void> | undefined;
+let sessionDisconnectGate: Promise<void> | undefined;
+const nativeQueueMicrotask = globalThis.queueMicrotask;
 
 class FakeRealtimeSession {
   static instances: FakeRealtimeSession[] = [];
@@ -44,6 +46,7 @@ class FakeRealtimeSession {
 
   async disconnect(): Promise<void> {
     this.disconnectCalls += 1;
+    if (sessionDisconnectGate) await sessionDisconnectGate;
     this.turnControl = undefined;
     this.emitState('idle');
   }
@@ -161,9 +164,14 @@ function setup(
 beforeEach(() => {
   FakeRealtimeSession.instances = [];
   sessionConnectGate = undefined;
+  sessionDisconnectGate = undefined;
+  globalThis.queueMicrotask = nativeQueueMicrotask;
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  globalThis.queueMicrotask = nativeQueueMicrotask;
+  cleanup();
+});
 
 describe('maelstromRealtime() useVoice lifecycle', () => {
   it('shares one session between consumers under one Provider', async () => {
@@ -287,7 +295,109 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
     expect(FakeRealtimeSession.instances).toHaveLength(2);
   });
 
-  it('propagates state and transcript updates', async () => {
+  it('cancels queued retirement when a consumer remounts first', async () => {
+    const { m, connector } = setup();
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    const queuedMicrotasks: VoidFunction[] = [];
+    // Hold the retirement boundary until the replacement consumer is live.
+    globalThis.queueMicrotask = (callback) => queuedMicrotasks.push(callback);
+
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+    });
+    await act(async () => {
+      rerender(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(queuedMicrotasks.length).toBeGreaterThan(0);
+    expect(FakeRealtimeSession.instances).toEqual([session]);
+
+    globalThis.queueMicrotask = nativeQueueMicrotask;
+    await act(async () => {
+      for (const callback of queuedMicrotasks) callback();
+    });
+
+    expect(FakeRealtimeSession.instances).toEqual([session]);
+    expect(session.disconnectCalls).toBe(0);
+  });
+
+  it('replaces a retired session before its delayed disconnect can update the winner', async () => {
+    const disconnect = deferred<void>();
+    sessionDisconnectGate = disconnect.promise;
+    const { m, connector } = setup();
+    let replacementVoice: UseVoiceResult | undefined;
+    function First() {
+      m.useVoice();
+      return null;
+    }
+    function Replacement() {
+      replacementVoice = m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <First />
+        </m.Provider>,
+      ));
+    });
+    const retired = must(FakeRealtimeSession.instances[0]);
+    const queuedMicrotasks: VoidFunction[] = [];
+    // Commit retirement before mounting a winner, but keep old teardown pending.
+    globalThis.queueMicrotask = (callback) => queuedMicrotasks.push(callback);
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+    });
+
+    expect(queuedMicrotasks.length).toBeGreaterThan(0);
+    globalThis.queueMicrotask = nativeQueueMicrotask;
+    await act(async () => {
+      for (const callback of queuedMicrotasks) callback();
+    });
+    expect(retired.disconnectCalls).toBe(1);
+
+    await act(async () => {
+      rerender(
+        <m.Provider connector={connector}>
+          <Replacement />
+        </m.Provider>,
+      );
+    });
+    const replacement = must(FakeRealtimeSession.instances[1]);
+    expect(FakeRealtimeSession.instances).toHaveLength(2);
+    await act(async () => replacement.emitState('speaking'));
+
+    disconnect.resolve();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(retired.state).toBe('idle');
+    expect(must(replacementVoice).session as unknown).toBe(replacement);
+    expect(must(replacementVoice).state).toBe('speaking');
+    expect(replacement.disconnectCalls).toBe(0);
+  });
+
+  it('concatenates assistant transcript partials', async () => {
     const { m, connector } = setup();
     let voice: UseVoiceResult | undefined;
     function Consumer() {
@@ -304,13 +414,217 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
     });
     const session = must(FakeRealtimeSession.instances[0]);
     await act(async () => {
-      session.emitState('speaking');
       session.emitTranscript({ role: 'assistant', text: 'On ', final: false });
       session.emitTranscript({ role: 'assistant', text: 'it', final: false });
     });
 
-    expect(must(voice).state).toBe('speaking');
-    expect(must(voice).assistantTranscript?.text).toBe('On it');
+    expect(must(voice).assistantTranscript).toEqual({
+      role: 'assistant',
+      text: 'On it',
+      final: false,
+    });
+  });
+
+  it('replaces assistant partials with the final transcript', async () => {
+    const { m, connector } = setup();
+    let voice: UseVoiceResult | undefined;
+    function Consumer() {
+      voice = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      session.emitTranscript({ role: 'assistant', text: 'On ', final: false });
+      session.emitTranscript({
+        role: 'assistant',
+        text: 'On it.',
+        final: true,
+      });
+    });
+
+    expect(must(voice).assistantTranscript).toEqual({
+      role: 'assistant',
+      text: 'On it.',
+      final: true,
+    });
+  });
+
+  it('starts a new assistant transcript after a final transcript', async () => {
+    const { m, connector } = setup();
+    let voice: UseVoiceResult | undefined;
+    function Consumer() {
+      voice = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      session.emitTranscript({ role: 'assistant', text: 'Done.', final: true });
+      session.emitTranscript({
+        role: 'assistant',
+        text: 'Next ',
+        final: false,
+      });
+      session.emitTranscript({ role: 'assistant', text: 'step', final: false });
+    });
+
+    expect(must(voice).assistantTranscript).toEqual({
+      role: 'assistant',
+      text: 'Next step',
+      final: false,
+    });
+  });
+
+  it('accumulates user and assistant transcripts independently', async () => {
+    const { m, connector } = setup();
+    let voice: UseVoiceResult | undefined;
+    function Consumer() {
+      voice = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      session.emitTranscript({ role: 'user', text: 'Show ', final: false });
+      session.emitTranscript({
+        role: 'assistant',
+        text: 'Opening ',
+        final: false,
+      });
+      session.emitTranscript({ role: 'user', text: 'weather', final: false });
+      session.emitTranscript({ role: 'assistant', text: 'it', final: false });
+    });
+
+    expect(must(voice).userTranscript?.text).toBe('Show weather');
+    expect(must(voice).assistantTranscript?.text).toBe('Opening it');
+  });
+
+  it('initializes a late-mounted consumer from retained session state', async () => {
+    const { m, connector } = setup();
+    let first: UseVoiceResult | undefined;
+    let late: UseVoiceResult | undefined;
+    function First() {
+      first = m.useVoice();
+      return null;
+    }
+    function Late() {
+      late = m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <First />
+        </m.Provider>,
+      ));
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    const turnModeError = new Error('automatic turns unavailable');
+    const control = { startTurn: async () => {}, endTurn: async () => {} };
+    await act(async () => {
+      session.emitState('speaking');
+      session.emitTurnMode('manual', {
+        error: turnModeError,
+        turnControl: control,
+      });
+      rerender(
+        <m.Provider connector={connector}>
+          <First />
+          <Late />
+        </m.Provider>,
+      );
+    });
+
+    expect(must(first).state).toBe('speaking');
+    expect(must(late).state).toBe('speaking');
+    expect(must(late).turnMode).toBe('manual');
+    expect(must(late).turnModeError).toBe(turnModeError);
+    expect(must(late).turnControl).toBe(control);
+  });
+
+  it('exposes a fatal session error emitted after mount', async () => {
+    const { m, connector } = setup();
+    let voice: UseVoiceResult | undefined;
+    function Consumer() {
+      voice = m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const fatalError = new Error('transport failed');
+    await act(async () => {
+      must(FakeRealtimeSession.instances[0]).emitFatalError(fatalError);
+    });
+
+    expect(must(voice).state).toBe('error');
+    expect(must(voice).error).toBe(fatalError);
+    expect(must(voice).turnModeError).toBeUndefined();
+  });
+
+  it('initializes a late-mounted consumer from an errored session', async () => {
+    const { m, connector } = setup();
+    let late: UseVoiceResult | undefined;
+    function First() {
+      m.useVoice();
+      return null;
+    }
+    function Late() {
+      late = m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <First />
+        </m.Provider>,
+      ));
+    });
+    const fatalError = new Error('transport failed before mount');
+    await act(async () => {
+      must(FakeRealtimeSession.instances[0]).emitFatalError(fatalError);
+      rerender(
+        <m.Provider connector={connector}>
+          <First />
+          <Late />
+        </m.Provider>,
+      );
+    });
+
+    expect(must(late).state).toBe('error');
+    expect(must(late).error).toBe(fatalError);
+    expect(must(late).turnModeError).toBeUndefined();
   });
 
   it('passes the orchestrator sessionId to createAdapter', async () => {
