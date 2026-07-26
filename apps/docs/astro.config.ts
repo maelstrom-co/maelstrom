@@ -16,6 +16,12 @@ const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [realtimeTypeDoc, realtimeTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [reactRealtimeTypeDoc, reactRealtimeTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeServerTypeDoc, realtimeServerTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 
 // TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
 // the workspace root on every plugin call, so {path} carries the full
@@ -232,6 +238,54 @@ export default defineConfig({
             sourceLinkTemplate,
           },
         }),
+        realtimeTypeDoc({
+          entryPoints: [
+            '../../packages/realtime/src/index.ts',
+            '../../packages/realtime/src/openai.ts',
+          ],
+          tsconfig: '../../packages/realtime/tsconfig.lib.json',
+          output: 'reference/realtime',
+          sidebar: { label: '@maelstrom-co/realtime', collapsed: true },
+          typeDoc: {
+            entryPointStrategy: 'resolve',
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        reactRealtimeTypeDoc({
+          entryPoints: ['../../packages/react-realtime/src/index.ts'],
+          tsconfig: '../../packages/react-realtime/tsconfig.lib.json',
+          output: 'reference/react-realtime',
+          sidebar: {
+            label: '@maelstrom-co/react-realtime',
+            collapsed: true,
+          },
+          typeDoc: {
+            entryPointStrategy: 'resolve',
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        realtimeServerTypeDoc({
+          entryPoints: ['../../packages/realtime-server/src/index.ts'],
+          tsconfig: '../../packages/realtime-server/tsconfig.lib.json',
+          output: 'reference/realtime-server',
+          sidebar: {
+            label: '@maelstrom-co/realtime-server',
+            collapsed: true,
+          },
+          typeDoc: {
+            entryPointStrategy: 'resolve',
+            excludeInternal: true,
+            disableGit: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
       ],
       customCss: ['./src/styles/custom.css'],
       // Code blocks render through Expressive Code: native title frames
@@ -287,6 +341,13 @@ export default defineConfig({
           label: 'Guides',
           items: [
             {
+              label: 'Voice',
+              items: [
+                { slug: 'guides/voice/overview' },
+                { slug: 'guides/voice/openai-realtime' },
+              ],
+            },
+            {
               label: 'React',
               items: [
                 { slug: 'guides/react/creating-vessels' },
@@ -337,6 +398,14 @@ export default defineConfig({
             clientTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
+            {
+              label: 'Voice',
+              items: [
+                realtimeTypeDocSidebarGroup,
+                reactRealtimeTypeDocSidebarGroup,
+                realtimeServerTypeDocSidebarGroup,
+              ],
+            },
           ],
         },
         {
