@@ -113,6 +113,32 @@ describe('Captions', () => {
     expect(line.className).toContain('text-ink-3');
   });
 
+  it('omits the assistant caption dot when only a user transcript is present', async () => {
+    const { container, session } = renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitTranscript({ role: 'user', text: 'show labs', final: true });
+    });
+
+    const assistantLine = must(
+      container.querySelector('[data-role="assistant"]'),
+    );
+    expect(assistantLine.querySelector('.caption-dot')).toBeNull();
+  });
+
+  it('keeps the assistant caption dot when an assistant transcript is present', async () => {
+    const { container, session } = renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitTranscript({ role: 'assistant', text: 'On it', final: false });
+    });
+
+    const assistantLine = must(
+      container.querySelector('[data-role="assistant"]'),
+    );
+    expect(assistantLine.querySelector('.caption-dot')).not.toBeNull();
+  });
+
   it('keeps a finalized caption visible for ~3.5s then marks it faded', async () => {
     vi.useFakeTimers();
     const { container, session } = renderCaptions();

@@ -58,4 +58,18 @@ describe('TasksComponent empty state', () => {
     const fill = container.querySelector('.task-tube-fill') as HTMLElement;
     expect(fill.style.width).toBe('50%');
   });
+
+  it('renders a done task\'s checkmark in the dark-ink color, not white, for WCAG contrast against the amber fill', () => {
+    // Subtasks have no public action to mark them done (tasks.vessel.ts has
+    // no checkSubtask), so only the top-level task's Check is exercisable
+    // through the store; the sub-task Check (~line 99) carries the identical
+    // `text-bg` className by inspection.
+    tasksActions.addTask('Write the launch post');
+    tasksActions.checkTask('Write the launch post');
+    const { container } = render(<TasksComponent {...props()} />);
+    const check = container.querySelector('.task-check--done svg') as SVGElement;
+    expect(check).not.toBeNull();
+    expect(check.classList.contains('text-bg')).toBe(true);
+    expect(check.classList.contains('text-white')).toBe(false);
+  });
 });

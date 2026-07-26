@@ -5,6 +5,7 @@ import {
   FALLBACK_WEATHER,
   fetchLiveWeather,
   weatherCodeToIcon,
+  weatherCodeToLabel,
   weatherCodeToSkyClass,
 } from './weather-data';
 
@@ -316,6 +317,70 @@ describe('weatherCodeToSkyClass', () => {
     expect(weatherCodeToSkyClass(0)).toBe('clear');
     expect(weatherCodeToSkyClass(45)).toBe('fog');
     expect(weatherCodeToSkyClass(48)).toBe('fog');
+  });
+
+  it('maps every real precipitation code to rain', () => {
+    const PRECIPITATION_CODES = [
+      51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85,
+      86, 95, 96, 99,
+    ];
+    for (const code of PRECIPITATION_CODES) {
+      expect(weatherCodeToSkyClass(code)).toBe('rain');
+    }
+  });
+
+  it('falls back to cloud for an unrecognized code instead of assuming rain', () => {
+    expect(weatherCodeToSkyClass(100)).toBe('cloud');
+  });
+
+  it('falls back to cloud for a negative code', () => {
+    expect(weatherCodeToSkyClass(-1)).toBe('cloud');
+  });
+});
+
+describe('weatherCodeToLabel', () => {
+  it('maps clear sky (0) to Clear', () => {
+    expect(weatherCodeToLabel(0)).toBe('Clear');
+  });
+
+  it('maps partly cloudy (1-3) to Cloudy', () => {
+    expect(weatherCodeToLabel(1)).toBe('Cloudy');
+    expect(weatherCodeToLabel(2)).toBe('Cloudy');
+    expect(weatherCodeToLabel(3)).toBe('Cloudy');
+  });
+
+  it('maps fog (45, 48) to Fog', () => {
+    expect(weatherCodeToLabel(45)).toBe('Fog');
+    expect(weatherCodeToLabel(48)).toBe('Fog');
+  });
+
+  it('maps drizzle (51-57) to Drizzle', () => {
+    for (const code of [51, 53, 55, 56, 57]) {
+      expect(weatherCodeToLabel(code)).toBe('Drizzle');
+    }
+  });
+
+  it('maps rain (61-67, 80-82) to Rain', () => {
+    for (const code of [61, 63, 65, 66, 67, 80, 81, 82]) {
+      expect(weatherCodeToLabel(code)).toBe('Rain');
+    }
+  });
+
+  it('maps snow (71-77, 85-86) to Snow', () => {
+    for (const code of [71, 73, 75, 77, 85, 86]) {
+      expect(weatherCodeToLabel(code)).toBe('Snow');
+    }
+  });
+
+  it('maps thunderstorms (95-99) to Thunderstorm', () => {
+    for (const code of [95, 96, 99]) {
+      expect(weatherCodeToLabel(code)).toBe('Thunderstorm');
+    }
+  });
+
+  it('falls back to Cloudy for an unrecognized code', () => {
+    expect(weatherCodeToLabel(-1)).toBe('Cloudy');
+    expect(weatherCodeToLabel(100)).toBe('Cloudy');
   });
 });
 

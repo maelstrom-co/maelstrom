@@ -56,6 +56,27 @@ describe('hourly variant with a flat temperature curve', () => {
       expect(Number.parseFloat(bar.style.height)).toBeGreaterThan(0);
     }
   });
+
+  it('gives each hourly icon an accessible condition label since the icon alone is not', async () => {
+    const { findAllByText } = render(<WeatherComponent {...hourlyProps()} />);
+    // FLAT_WEATHER uses weatherCode 45 (fog) for every hourly entry.
+    expect(await findAllByText('Fog')).toHaveLength(12);
+  });
+});
+
+function weeklyProps(): TypedVesselProps<typeof weatherVessel> {
+  return {
+    instanceId: 'weather-test-weekly',
+    variantProps: { variant: 'weekly' },
+    executeAction: vi.fn(),
+  } as unknown as TypedVesselProps<typeof weatherVessel>;
+}
+
+describe('weekly variant', () => {
+  it('gives each daily icon an accessible condition label', async () => {
+    const { findAllByText } = render(<WeatherComponent {...weeklyProps()} />);
+    expect(await findAllByText('Fog')).toHaveLength(7);
+  });
 });
 
 function currentProps(): TypedVesselProps<typeof weatherVessel> {
@@ -65,6 +86,13 @@ function currentProps(): TypedVesselProps<typeof weatherVessel> {
     executeAction: vi.fn(),
   } as unknown as TypedVesselProps<typeof weatherVessel>;
 }
+
+describe('current variant', () => {
+  it('gives the current condition icon an accessible label', async () => {
+    const { findByText } = render(<WeatherComponent {...currentProps()} />);
+    expect(await findByText('Fog')).toBeTruthy();
+  });
+});
 
 describe('useLiveWeather cancellation', () => {
   it('aborts the in-flight fetch on unmount instead of merely ignoring it', async () => {

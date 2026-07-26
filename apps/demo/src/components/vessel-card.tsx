@@ -28,7 +28,7 @@ export function VesselCard({
     <div className={cn('vessel-card relative h-full overflow-hidden', className)} style={style}>
       <div className="vessel-card-edge absolute top-0 inset-x-0 h-px" />
       <div className="p-5 h-full flex flex-col">
-        <div className="flex items-center justify-between mb-3">
+        <div className="relative flex items-center justify-between mb-3">
           <span className="flex items-center gap-2">
             <span className="vessel-card-dot h-[5px] w-[5px] rounded-full shrink-0" />
             <span className="text-xs font-mono tracking-[.16em] uppercase text-ink-2">

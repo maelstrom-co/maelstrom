@@ -23,10 +23,10 @@
   --color-ink-2: #9aa3b2;
   --color-ink-3: #737d8c;
   /* radius scale (www --r-*) */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 28px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 28px;
   /* fonts */
   --font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont,
     system-ui, sans-serif;
@@ -55,8 +55,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Fixed full-viewport grain, same recipe as apps/www's `.noise` — sits above
-   the body ground, below content (z-index 1). */
+/* Fixed full-viewport grain, same recipe as apps/www's `.noise` (z-index 1).
+   It sits below content only because the shell root opts into
+   `relative z-[2]` (routes/index.tsx) — this layer has no z-index floor of
+   its own, so any positioned ancestor without that opt-in would end up
+   underneath it. */
 .noise {
   position: fixed;
   inset: 0;
@@ -237,7 +240,7 @@ body {
    regardless of source order or specificity. */
 @layer components {
   .vessel-card {
-    border-radius: var(--radius-md);
+    border-radius: var(--r-md);
     border: 1px solid var(--line-2);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01));
     backdrop-filter: blur(8px);
@@ -312,7 +315,7 @@ body {
       0 8px 24px -8px rgba(0, 145, 255, 0.6),
       inset 0 1px 0 rgba(255, 255, 255, 0.25);
   }
-  .btn-primary:hover {
+  .btn-primary:hover:not(:disabled) {
     background: #1a9eff;
     box-shadow:
       0 14px 36px -10px rgba(0, 145, 255, 0.8),
@@ -324,7 +327,7 @@ body {
     border: 1px solid var(--line-2);
     backdrop-filter: blur(10px);
   }
-  .btn-ghost:hover {
+  .btn-ghost:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.07);
     border-color: var(--line-strong);
   }
@@ -332,7 +335,7 @@ body {
   .surface {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.01));
     border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
+    border-radius: var(--r-lg);
     backdrop-filter: blur(8px);
   }
 
@@ -408,7 +411,11 @@ body {
   .task-tube-fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(180deg, #ffc85c, #d98a10);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent), white 30%),
+      color-mix(in srgb, var(--accent), black 22%)
+    );
     box-shadow: 0 0 10px var(--glow);
     position: relative;
     transition: width 500ms ease;
@@ -461,7 +468,7 @@ body {
      class only owns the parts that don't depend on the accent. */
   .ruled-paper {
     border: 1px solid var(--line-2);
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-sm);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     padding: 12px 14px;
   }

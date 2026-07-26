@@ -1,7 +1,12 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
-import { ACCENT_HEX, CALENDAR_EVENT_ACCENTS, type AccentToken } from '../lib/design-tokens';
+import {
+  ACCENT_HEX,
+  CALENDAR_EVENT_ACCENTS,
+  VESSEL_ACCENTS,
+  type AccentToken,
+} from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import {
   calendarActions,
@@ -122,7 +127,7 @@ export default function CalendarComponent({
     const todayMonIdx = todayIdx === 0 ? 6 : todayIdx - 1;
 
     return (
-      <VesselCard accent="brand" label="Week View" meta="This Week">
+      <VesselCard accent={VESSEL_ACCENTS.calendar} label="Week View" meta="This Week">
         <div className="flex-1 grid grid-cols-7 gap-1.5">
           {WEEK_DAYS.map((day, i) => {
             const isToday = i === todayMonIdx;
@@ -190,9 +195,6 @@ export default function CalendarComponent({
                   {isToday && dayEvents.length === 0 && (
                     <div className="flex flex-col items-center gap-0.5 text-center py-2">
                       <p className="text-xs text-ink-3">Nothing scheduled</p>
-                      <p className="text-xs font-mono text-ink-3 truncate w-full">
-                        Try: &ldquo;Add an event&rdquo;
-                      </p>
                     </div>
                   )}
                 </div>
@@ -207,7 +209,7 @@ export default function CalendarComponent({
   if (variant === 'day') {
     if (events.length === 0) {
       return (
-        <VesselCard accent="brand" label="Day View" meta="Today">
+        <VesselCard accent={VESSEL_ACCENTS.calendar} label="Day View" meta="Today">
           <div className="flex-1 flex flex-col items-center justify-center text-center gap-1">
             <p className="text-sm text-ink-3">Nothing scheduled</p>
             <p className="text-xs font-mono text-ink-3">
@@ -219,7 +221,7 @@ export default function CalendarComponent({
     }
 
     return (
-      <VesselCard accent="brand" label="Day View" meta="Today">
+      <VesselCard accent={VESSEL_ACCENTS.calendar} label="Day View" meta="Today">
         <div className="flex-1 overflow-y-auto space-y-0.5">
           {DAY_HOURS.map((hour) => {
             const slotEvents = sortByTime(
@@ -290,7 +292,7 @@ export default function CalendarComponent({
 
   return (
     <VesselCard
-      accent="brand"
+      accent={VESSEL_ACCENTS.calendar}
       label={`${monthNames[today.getMonth()]} ${today.getFullYear()}`}
       meta="Calendar"
     >

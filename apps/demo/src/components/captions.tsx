@@ -64,10 +64,12 @@ export function Captions() {
           assistant?.faded && 'caption-line--faded',
         )}
       >
-        <span
-          className="caption-dot inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-brand-2"
-          style={{ boxShadow: '0 0 8px var(--color-brand-2)' }}
-        />
+        {assistant && (
+          <span
+            className="caption-dot inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-brand-2"
+            style={{ boxShadow: '0 0 8px var(--color-brand-2)' }}
+          />
+        )}
         {assistant?.text}
       </p>
       <p

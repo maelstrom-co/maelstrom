@@ -31,7 +31,7 @@ function DemoApp() {
   const thinking = isProcessing || voiceState === 'thinking';
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col relative z-[2]">
       {/* Header */}
       <header
         className="border-b px-6 py-4 bg-bg-1"

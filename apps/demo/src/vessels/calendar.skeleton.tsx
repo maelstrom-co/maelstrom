@@ -1,8 +1,9 @@
 import { VesselCard } from '../components/vessel-card';
+import { VESSEL_ACCENTS } from '../lib/design-tokens';
 
 export function CalendarSkeleton(_props: { vesselId: string }) {
   return (
-    <VesselCard accent="brand" label="Calendar" meta="Loading...">
+    <VesselCard accent={VESSEL_ACCENTS.calendar} label="Calendar" meta="Loading...">
       <div className="flex-1 flex flex-col gap-2 animate-pulse">
         <div className="grid grid-cols-7 gap-1">
           {Array.from({ length: 7 }, (_, i) => (

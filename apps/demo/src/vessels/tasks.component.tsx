@@ -3,6 +3,7 @@ import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
 import { cn } from '../lib/cn';
+import { VESSEL_ACCENTS } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import { getTasksSnapshot, tasksActions, useTasksStore } from './tasks.store';
 import type { tasksVessel } from './tasks.vessel';
@@ -51,7 +52,7 @@ export default function TasksComponent({
 
   return (
     <VesselCard
-      accent="amber"
+      accent={VESSEL_ACCENTS.tasks}
       label="Tasks"
       meta={`${doneCount}/${totalCount}`}
     >
@@ -74,7 +75,7 @@ export default function TasksComponent({
               {/* Task */}
               <div className="flex items-center gap-2.5">
                 <div className={cn('task-check shrink-0', task.done && 'task-check--done')}>
-                  {task.done && <Check size={10} strokeWidth={1.75} className="text-white" />}
+                  {task.done && <Check size={10} strokeWidth={1.75} className="text-bg" />}
                 </div>
                 <span className={task.done ? 'text-sm text-ink-3 line-through' : 'text-sm text-ink'}>
                   {task.title}
@@ -95,7 +96,7 @@ export default function TasksComponent({
                           sub.done && 'task-check--done',
                         )}
                       >
-                        {sub.done && <Check size={9} strokeWidth={1.75} className="text-white" />}
+                        {sub.done && <Check size={9} strokeWidth={1.75} className="text-bg" />}
                       </div>
                       <span className={sub.done ? 'text-xs text-ink-3 line-through' : 'text-xs text-ink-2'}>
                         {sub.title}

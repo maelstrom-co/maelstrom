@@ -1,7 +1,7 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
-import { ACCENT_HEX, accentAlpha } from '../lib/design-tokens';
+import { ACCENT_HEX, VESSEL_ACCENTS, accentAlpha } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import {
   getJournalSnapshot,
@@ -10,7 +10,7 @@ import {
 } from './journal.store';
 import type { journalVessel } from './journal.vessel';
 
-const RULE_COLOR = accentAlpha(ACCENT_HEX.green, 0.1);
+const RULE_COLOR = accentAlpha(ACCENT_HEX[VESSEL_ACCENTS.journal], 0.1);
 
 export default function JournalComponent({
   instanceId,
@@ -61,7 +61,7 @@ export default function JournalComponent({
   if (isEntryView) {
     if (!activeEntry) {
       return (
-        <VesselCard accent="green" label="Journal" meta="Entry">
+        <VesselCard accent={VESSEL_ACCENTS.journal} label="Journal" meta="Entry">
           <div className="flex-1 flex flex-col items-center justify-center text-center gap-2">
             <div className="text-sm text-ink">No entry selected.</div>
             <div className="text-xs text-ink-3 max-w-xs">
@@ -73,7 +73,7 @@ export default function JournalComponent({
     }
 
     return (
-      <VesselCard accent="green" label="Journal" meta="Entry">
+      <VesselCard accent={VESSEL_ACCENTS.journal} label="Journal" meta="Entry">
         <div className="flex-1 flex flex-col">
           <h2 className="text-base font-medium text-ink mb-1">
             {activeEntry.title}
@@ -82,9 +82,10 @@ export default function JournalComponent({
             {activeEntry.date}
           </div>
           <div
-            className="ruled-paper flex-1 text-sm text-ink-2 leading-relaxed whitespace-pre-wrap"
+            className="ruled-paper flex-1 text-sm text-ink-2 whitespace-pre-wrap"
             style={{
               backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent 25px, ${RULE_COLOR} 25px, ${RULE_COLOR} 26px)`,
+              lineHeight: '26px',
             }}
           >
             {activeEntry.content || (
@@ -108,7 +109,7 @@ export default function JournalComponent({
   // List view (default)
   return (
     <VesselCard
-      accent="green"
+      accent={VESSEL_ACCENTS.journal}
       label="Journal"
       meta={`${entries.length} entries`}
     >

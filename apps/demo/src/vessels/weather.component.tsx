@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Wind } from 'lucide-react';
 import { VesselCard } from '../components/vessel-card';
+import { VESSEL_ACCENTS } from '../lib/design-tokens';
 import { HOME } from '../lib/locations';
 import {
   FALLBACK_WEATHER,
   fetchLiveWeather,
   weatherCodeToIcon,
+  weatherCodeToLabel,
   weatherCodeToSkyClass,
   type LiveWeather,
 } from '../lib/weather-data';
@@ -48,7 +50,7 @@ export default function WeatherComponent({
     const hourlyTempRange = Math.max(1, hourlyMaxTemp - hourlyMinTemp);
 
     return (
-      <VesselCard accent="brand-2" label="Hourly Forecast" meta="San Francisco">
+      <VesselCard accent={VESSEL_ACCENTS.weather} label="Hourly Forecast" meta="San Francisco">
         <div className={`sky-wash sky-wash--${skyClass}`} />
         <div className="relative flex items-baseline gap-1 mb-4">
           <span className="temp-numeral text-5xl font-bold tracking-tight">
@@ -70,7 +72,15 @@ export default function WeatherComponent({
                 key={h.hour}
                 className="flex-1 flex flex-col items-center gap-1.5"
               >
-                <HourIcon size={14} strokeWidth={1.75} className="text-ink-2" />
+                <HourIcon
+                  aria-hidden="true"
+                  size={14}
+                  strokeWidth={1.75}
+                  className="text-ink-2"
+                />
+                <span className="sr-only">
+                  {weatherCodeToLabel(h.weatherCode)}
+                </span>
                 <span className="text-xs text-ink-2 font-mono">
                   {h.temperatureF}°
                 </span>
@@ -96,7 +106,7 @@ export default function WeatherComponent({
 
   if (variant === 'weekly') {
     return (
-      <VesselCard accent="brand-2" label="Weekly Forecast" meta="San Francisco">
+      <VesselCard accent={VESSEL_ACCENTS.weather} label="Weekly Forecast" meta="San Francisco">
         <div className={`sky-wash sky-wash--${skyClass}`} />
         <div className="relative flex-1 grid grid-cols-7 gap-2">
           {weather.daily.map((d) => {
@@ -107,7 +117,15 @@ export default function WeatherComponent({
                 className="flex flex-col items-center justify-center gap-1.5 rounded-lg bg-white/[0.03] p-2"
               >
                 <span className="text-xs text-ink-3 font-mono">{d.day}</span>
-                <DayIcon size={20} strokeWidth={1.75} className="text-ink-2" />
+                <DayIcon
+                  aria-hidden="true"
+                  size={20}
+                  strokeWidth={1.75}
+                  className="text-ink-2"
+                />
+                <span className="sr-only">
+                  {weatherCodeToLabel(d.weatherCode)}
+                </span>
                 <div className="text-sm">
                   <span className="text-ink font-medium">{d.highF}°</span>
                   <span className="text-ink-3"> / {d.lowF}°</span>
@@ -124,10 +142,18 @@ export default function WeatherComponent({
   const today = weather.daily[0];
   const CurrentIcon = weatherCodeToIcon(weather.current.weatherCode);
   return (
-    <VesselCard accent="brand-2" label="Weather" meta="San Francisco">
+    <VesselCard accent={VESSEL_ACCENTS.weather} label="Weather" meta="San Francisco">
       <div className={`sky-wash sky-wash--${skyClass}`} />
       <div className="relative flex-1 flex flex-col items-center justify-center">
-        <CurrentIcon size={44} strokeWidth={1.75} className="text-ink-2 mb-3" />
+        <CurrentIcon
+          aria-hidden="true"
+          size={44}
+          strokeWidth={1.75}
+          className="text-ink-2 mb-3"
+        />
+        <span className="sr-only">
+          {weatherCodeToLabel(weather.current.weatherCode)}
+        </span>
         <div className="flex items-baseline gap-1">
           <span className="temp-numeral text-6xl font-bold tracking-tight">
             {weather.current.temperatureF}°

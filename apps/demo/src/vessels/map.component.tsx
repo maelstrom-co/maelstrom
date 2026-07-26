@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
-import { ACCENT_HEX } from '../lib/design-tokens';
+import { ACCENT_HEX, VESSEL_ACCENTS } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import { DEMO_LOCATIONS, findLocationByFuzzyName, HOME } from '../lib/locations';
 import { fetchRoute } from '../lib/osrm';
@@ -235,7 +235,7 @@ export default function MapComponent({
 
   return (
     <VesselCard
-      accent="brand-3"
+      accent={VESSEL_ACCENTS.map}
       label="Map"
       meta={metaFor(effectiveVariant, state)}
     >
@@ -248,7 +248,7 @@ export default function MapComponent({
             sizing doesn't depend on `position`, so the override is harmless. */}
         <div ref={containerRef} className="h-full w-full" />
         {effectiveVariant === 'route' && state.route && (
-          <div className="eta-chip absolute bottom-2 left-2 right-2 rounded-[var(--radius-sm)] px-3 py-1.5 text-sm text-ink font-mono">
+          <div className="eta-chip absolute bottom-2 left-2 right-2 rounded-[var(--r-sm)] px-3 py-1.5 text-sm text-ink font-mono">
             {state.route.durationMin} min ·{' '}
             {state.route.distanceMi.toFixed(1)} mi
           </div>

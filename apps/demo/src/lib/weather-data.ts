@@ -276,6 +276,44 @@ export function weatherCodeToIcon(code: number): LucideIcon {
   return CODE_ICON[code] ?? Cloud;
 }
 
+// Mirrors CODE_ICON's grouping so the accessible label always names the same
+// condition the icon depicts.
+const CODE_LABEL: Record<number, string> = {
+  0: 'Clear',
+  1: 'Cloudy',
+  2: 'Cloudy',
+  3: 'Cloudy',
+  45: 'Fog',
+  48: 'Fog',
+  51: 'Drizzle',
+  53: 'Drizzle',
+  55: 'Drizzle',
+  56: 'Drizzle',
+  57: 'Drizzle',
+  61: 'Rain',
+  63: 'Rain',
+  65: 'Rain',
+  66: 'Rain',
+  67: 'Rain',
+  80: 'Rain',
+  81: 'Rain',
+  82: 'Rain',
+  71: 'Snow',
+  73: 'Snow',
+  75: 'Snow',
+  77: 'Snow',
+  85: 'Snow',
+  86: 'Snow',
+  95: 'Thunderstorm',
+  96: 'Thunderstorm',
+  99: 'Thunderstorm',
+};
+
+/** Maps a WMO weather code to a human-readable condition label, for the accessible text alongside an icon-only rendering. */
+export function weatherCodeToLabel(code: number): string {
+  return CODE_LABEL[code] ?? 'Cloudy';
+}
+
 export type SkyClass = 'clear' | 'cloud' | 'fog' | 'rain';
 
 // Coarser than CODE_ICON — the sky-wash background only renders 4 distinct
@@ -290,8 +328,18 @@ const CODE_SKY_CLASS: Record<number, SkyClass> = {
   48: 'fog',
 };
 
+// The real WMO precipitation codes (drizzle/rain/snow/thunder) — membership,
+// not a `>= 51` range check, so an unhandled future code falls to 'cloud'
+// instead of silently reading as rain the way weatherCodeToIcon already
+// falls back to Cloud.
+const PRECIPITATION_CODES = new Set([
+  51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86,
+  95, 96, 99,
+]);
+
 export function weatherCodeToSkyClass(code: number): SkyClass {
-  return CODE_SKY_CLASS[code] ?? (code >= 51 ? 'rain' : 'cloud');
+  if (CODE_SKY_CLASS[code]) return CODE_SKY_CLASS[code];
+  return PRECIPITATION_CODES.has(code) ? 'rain' : 'cloud';
 }
 
 /**
