@@ -35,7 +35,10 @@
       "@maelstrom-co/protocol",
       "@maelstrom-co/engine",
       "@maelstrom-co/client",
-      "@maelstrom-co/react"
+      "@maelstrom-co/react",
+      "@maelstrom-co/realtime",
+      "@maelstrom-co/react-realtime",
+      "@maelstrom-co/realtime-server"
     ],
     "targets": {
       "test": {
