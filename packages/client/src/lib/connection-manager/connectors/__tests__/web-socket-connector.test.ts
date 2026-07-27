@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from 'bun:test';
 import {
   ActionName,
   decodeClientEnvelope,
@@ -60,9 +68,11 @@ const buildResponse = (
 describe('WebSocketConnector onOpen hook', () => {
   test('invokes onOpen with a send function and the connecting sessionId before connect() resolves', async () => {
     const sent: string[] = [];
-    const onOpen = mock((send: (data: string) => void, sessionId: SessionId) => {
-      send(JSON.stringify({ type: 'test.hello', sessionId }));
-    });
+    const onOpen = mock(
+      (send: (data: string) => void, sessionId: SessionId) => {
+        send(JSON.stringify({ type: 'test.hello', sessionId }));
+      },
+    );
 
     const connector = new WebSocketConnector({ url: 'ws://test', onOpen });
 
@@ -96,7 +106,9 @@ describe('WebSocketConnector onOpen hook', () => {
     });
     const connector = new WebSocketConnector({ url: 'ws://test', onOpen });
 
-    const connectPromise = connector.connect(SessionId('session-onopen-throws'));
+    const connectPromise = connector.connect(
+      SessionId('session-onopen-throws'),
+    );
     await Promise.resolve();
     const ws = FakeWebSocket.instances.at(-1);
     if (!ws) throw new Error('FakeWebSocket was not constructed');
@@ -647,18 +659,28 @@ describe('WebSocketConnector heartbeatIntervalMs validation', () => {
   // the only call site hardcodes 30_000 or undefined — but an external
   // consumer could, so the constructor rejects it outright rather than
   // flooding pings at the server or silently never sending any.
-  test.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
-    'throws when heartbeatIntervalMs is %p',
-    (value) => {
-      expect(
-        () => new WebSocketConnector({ url: 'ws://test', heartbeatIntervalMs: value }),
-      ).toThrow(/heartbeatIntervalMs/);
-    },
-  );
+  test.each([
+    0,
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('throws when heartbeatIntervalMs is %p', (value) => {
+    expect(
+      () =>
+        new WebSocketConnector({
+          url: 'ws://test',
+          heartbeatIntervalMs: value,
+        }),
+    ).toThrow(/heartbeatIntervalMs/);
+  });
 
   test('accepts a valid positive heartbeatIntervalMs', () => {
     expect(
-      () => new WebSocketConnector({ url: 'ws://test', heartbeatIntervalMs: 30_000 }),
+      () =>
+        new WebSocketConnector({
+          url: 'ws://test',
+          heartbeatIntervalMs: 30_000,
+        }),
     ).not.toThrow();
   });
 
@@ -954,9 +976,7 @@ describe('WebSocketConnector disconnected retryable flag', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: 'disconnected', clean: false });
-    expect(
-      (events[0] as { retryable?: boolean }).retryable,
-    ).toBeUndefined();
+    expect((events[0] as { retryable?: boolean }).retryable).toBeUndefined();
   });
 
   test('a clean close (code 1000) leaves retryable unset (clean already prevents auto-reconnect)', async () => {
@@ -969,14 +989,12 @@ describe('WebSocketConnector disconnected retryable flag', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: 'disconnected', clean: true });
-    expect(
-      (events[0] as { retryable?: boolean }).retryable,
-    ).toBeUndefined();
+    expect((events[0] as { retryable?: boolean }).retryable).toBeUndefined();
   });
 });
 
 describe('WebSocketConnector disconnect() close notification', () => {
-  test('a belated close event from disconnect()\'s own socket still reaches subscribers as a clean disconnect', async () => {
+  test("a belated close event from disconnect()'s own socket still reaches subscribers as a clean disconnect", async () => {
     // Regression coverage for a stale-close guard that compared against
     // `#ws` identity: disconnect() nulls `#ws` synchronously, before the
     // browser's real close event for that same socket fires, so comparing

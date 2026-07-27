@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@tanstack/react-store';
+import { useEffect, useRef, useState } from 'react';
 import { playgroundKeyStore } from '../lib/playground-key-store';
 
 export interface KeyDrawerProps {
@@ -151,9 +151,9 @@ export function KeyDrawer({
         </label>
 
         <p className="mt-3 text-sm text-ink-3">
-          Voice connects to OpenAI directly from your browser. Text requests
-          go through our server, which holds your key in memory for the
-          session only — never written to disk or logs.
+          Voice connects to OpenAI directly from your browser. Text requests go
+          through our server, which holds your key in memory for the session
+          only — never written to disk or logs.
         </p>
 
         {errorMessage && (

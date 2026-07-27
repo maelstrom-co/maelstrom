@@ -3,7 +3,10 @@ import type { ChartRequest } from '@maelstrom-co/protocol';
 import { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SessionCapacityError, SessionEngineManager } from './session-engine-manager';
+import {
+  SessionCapacityError,
+  SessionEngineManager,
+} from './session-engine-manager';
 
 // createEngine's config validator (packages/engine/src/lib/validation/engine-config.ts)
 // requires kind/name/model plus callable chatStream/structuredOutput on the
@@ -34,12 +37,17 @@ const MINIMAL_CHART_REQUEST: ChartRequest = {
 const LIVENESS_WINDOW_MS = DEFAULT_HEARTBEAT_INTERVAL_MS * 2;
 
 function makeManager(
-  overrides: Partial<{ maxSessions: number; idleTtlMs: number; heartbeatIntervalMs: number }> = {},
+  overrides: Partial<{
+    maxSessions: number;
+    idleTtlMs: number;
+    heartbeatIntervalMs: number;
+  }> = {},
 ) {
   return new SessionEngineManager({
     maxSessions: overrides.maxSessions ?? 50,
     idleTtlMs: overrides.idleTtlMs ?? 30 * 60 * 1000,
-    heartbeatIntervalMs: overrides.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+    heartbeatIntervalMs:
+      overrides.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
     systemRules: 'test rules',
     createAdapter: () => fakeAdapter,
   });
@@ -74,7 +82,9 @@ describe('SessionEngineManager', () => {
     manager.getOrCreate('session-1', 'sk-1');
     manager.getOrCreate('session-2', 'sk-2');
 
-    expect(() => manager.getOrCreate('session-3', 'sk-3')).toThrow(SessionCapacityError);
+    expect(() => manager.getOrCreate('session-3', 'sk-3')).toThrow(
+      SessionCapacityError,
+    );
     // Neither existing session was touched to make room for the refused one.
     expect(manager.size()).toBe(2);
     expect(manager.has('session-1')).toBe(true);
@@ -190,9 +200,11 @@ describe('SessionEngineManager', () => {
 
   it('never logs or throws the API key in any console output', () => {
     const calls: unknown[] = [];
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args) => {
-      calls.push(args);
-    });
+    const errorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation((...args) => {
+        calls.push(args);
+      });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args) => {
       calls.push(args);
     });
@@ -219,14 +231,15 @@ describe('SessionEngineManager', () => {
     warnSpy.mockRestore();
     throwingManager.dispose();
 
-    const thrownMessage = thrown instanceof Error ? thrown.message : String(thrown);
+    const thrownMessage =
+      thrown instanceof Error ? thrown.message : String(thrown);
     expect(thrownMessage).not.toContain(secret);
     for (const call of calls) {
       expect(JSON.stringify(call)).not.toContain(secret);
     }
   });
 
-  it('never logs the API key via the engine.handle → LLM-call-failure path (createEngine\'s default logger)', async () => {
+  it("never logs the API key via the engine.handle → LLM-call-failure path (createEngine's default logger)", async () => {
     // Distinct from the construction-failure test above: this exercises the
     // engine's own logger.error('LLM call failed', ...) call, which only
     // happens if SessionEngineManager passed a redacting `logger` into
@@ -235,9 +248,11 @@ describe('SessionEngineManager', () => {
     // this is the test that would catch it; the construction-failure test
     // above can't, because it never reaches the LLM call.
     const calls: unknown[] = [];
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args) => {
-      calls.push(args);
-    });
+    const errorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation((...args) => {
+        calls.push(args);
+      });
 
     const secret = 'sk-secret-should-never-appear-anywhere';
     const throwingAdapter = {

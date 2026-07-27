@@ -1,5 +1,9 @@
 import { isHeartbeatPingFrame } from '@maelstrom-co/client';
-import { decodeClientEnvelope, EngineErrorMessage, isErr } from '@maelstrom-co/protocol';
+import {
+  decodeClientEnvelope,
+  EngineErrorMessage,
+  isErr,
+} from '@maelstrom-co/protocol';
 
 export interface PlaygroundHelloFrame {
   readonly type: 'playground.hello';
@@ -16,7 +20,9 @@ export interface PlaygroundHelloFrame {
 // API key" path a bad key should hit.
 const MIN_API_KEY_LENGTH = 20;
 
-export function isPlaygroundHello(value: unknown): value is PlaygroundHelloFrame {
+export function isPlaygroundHello(
+  value: unknown,
+): value is PlaygroundHelloFrame {
   if (typeof value !== 'object' || value === null) return false;
   const { type, sessionId, apiKey } = value as {
     type?: unknown;
@@ -38,7 +44,9 @@ export function isPlaygroundHello(value: unknown): value is PlaygroundHelloFrame
 // package that owns the client-side half of this handshake
 // (WebSocketConnector's heartbeat sender) — so the wire literal is defined
 // once, not reimplemented on each side of the connection.
-export function isHeartbeatPing(value: unknown): value is { type: 'heartbeat.ping' } {
+export function isHeartbeatPing(
+  value: unknown,
+): value is { type: 'heartbeat.ping' } {
   return isHeartbeatPingFrame(value);
 }
 
@@ -64,12 +72,17 @@ export function classifyIncomingFrame(
 ): IncomingFrameDecision {
   if (isHeartbeatPing(parsed)) return { kind: 'heartbeat' };
   if (helloReceived) return { kind: 'dispatch' };
-  return isPlaygroundHello(parsed) ? { kind: 'hello', frame: parsed } : { kind: 'hello-rejected' };
+  return isPlaygroundHello(parsed)
+    ? { kind: 'hello', frame: parsed }
+    : { kind: 'hello-rejected' };
 }
 
 export type PreHelloDispatchDecision =
   | { readonly kind: 'close' }
-  | { readonly kind: 'reply'; readonly message: ReturnType<typeof EngineErrorMessage> };
+  | {
+      readonly kind: 'reply';
+      readonly message: ReturnType<typeof EngineErrorMessage>;
+    };
 
 /**
  * Decides what a 'hello-rejected' frame (real traffic, not heartbeat/hello,
@@ -80,7 +93,9 @@ export type PreHelloDispatchDecision =
  * close the socket; it gets a correlated engine.error reply instead. Only a
  * frame that doesn't even decode as a protocol envelope earns the close.
  */
-export function resolvePreHelloDispatch(raw: unknown): PreHelloDispatchDecision {
+export function resolvePreHelloDispatch(
+  raw: unknown,
+): PreHelloDispatchDecision {
   const decoded = decodeClientEnvelope(raw);
   if (isErr(decoded)) return { kind: 'close' };
   return {

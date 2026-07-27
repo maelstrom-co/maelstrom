@@ -24,7 +24,10 @@ import {
   type EngineConnector,
   WireEngineError,
 } from '../connector.types.js';
-import { HEARTBEAT_PING_FRAME, isHeartbeatPongFrame } from './heartbeat-frame.js';
+import {
+  HEARTBEAT_PING_FRAME,
+  isHeartbeatPongFrame,
+} from './heartbeat-frame.js';
 
 // A ping is "missed" if its interval elapses with no pong seen since. Two
 // consecutive misses are required before the socket is closed: one miss is
@@ -99,7 +102,9 @@ export class WebSocketConnector implements EngineConnector {
   readonly #url: string;
   readonly #timeout: number;
   readonly #connectTimeoutMs: number;
-  readonly #onOpen: ((send: (data: string) => void, sessionId: SessionId) => void) | undefined;
+  readonly #onOpen:
+    | ((send: (data: string) => void, sessionId: SessionId) => void)
+    | undefined;
   readonly #heartbeatIntervalMs: number | undefined;
 
   readonly capabilities: ConnectorCapabilities = {
@@ -136,7 +141,10 @@ export class WebSocketConnector implements EngineConnector {
     this.#onOpen = options.onOpen;
     if (
       options.heartbeatIntervalMs !== undefined &&
-      !(Number.isFinite(options.heartbeatIntervalMs) && options.heartbeatIntervalMs > 0)
+      !(
+        Number.isFinite(options.heartbeatIntervalMs) &&
+        options.heartbeatIntervalMs > 0
+      )
     ) {
       // Guards a footgun in exported API, not a live incident: no current
       // caller passes anything but a hardcoded 30_000 or undefined. Left

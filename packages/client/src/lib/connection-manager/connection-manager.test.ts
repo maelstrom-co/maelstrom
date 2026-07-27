@@ -452,7 +452,10 @@ describe('ConnectionManager', () => {
       });
 
       await manager.connect();
-      const openedPayloads: Array<{ resetAfterMs: number; terminal?: boolean }> = [];
+      const openedPayloads: Array<{
+        resetAfterMs: number;
+        terminal?: boolean;
+      }> = [];
       manager.events.on('circuit_opened', (e) => {
         openedPayloads.push(e);
       });
@@ -1105,7 +1108,8 @@ describe('ConnectionManager', () => {
         attempts++;
         // The first two attempts exhaust maxRetries and open the breaker;
         // the third — the automatic half-open probe — succeeds.
-        if (attempts <= 2) return Promise.reject(new Error('Connection failed'));
+        if (attempts <= 2)
+          return Promise.reject(new Error('Connection failed'));
         return Promise.resolve();
       });
 
@@ -1149,7 +1153,8 @@ describe('ConnectionManager', () => {
       let releaseProbe: () => void = () => {};
       mockConnector.connect = mock(() => {
         attempts++;
-        if (attempts <= 2) return Promise.reject(new Error('Connection failed'));
+        if (attempts <= 2)
+          return Promise.reject(new Error('Connection failed'));
         // Hangs until the test releases it, pinning the probe in flight
         // across the dispose() below.
         return new Promise<void>((resolve) => {

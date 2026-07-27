@@ -64,7 +64,9 @@ export const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
  */
 export function isHeartbeatPingFrame(value: unknown): boolean {
   return (
-    typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'heartbeat.ping'
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { type?: unknown }).type === 'heartbeat.ping'
   );
 }
 
@@ -88,6 +90,8 @@ export function isHeartbeatPingFrame(value: unknown): boolean {
  */
 export function isHeartbeatPongFrame(value: unknown): boolean {
   return (
-    typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'heartbeat.pong'
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { type?: unknown }).type === 'heartbeat.pong'
   );
 }

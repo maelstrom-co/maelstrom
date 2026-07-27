@@ -1,4 +1,10 @@
-import { consoleLogger, createEngine, createInMemoryStore, type Engine, type Logger } from '@maelstrom-co/engine';
+import {
+  consoleLogger,
+  createEngine,
+  createInMemoryStore,
+  type Engine,
+  type Logger,
+} from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { redactSecrets } from './redact';
 
@@ -29,7 +35,9 @@ export interface SessionEngineManagerOptions {
  */
 export class SessionCapacityError extends Error {
   constructor() {
-    super('session at capacity: coldest session is still live, refusing to evict it');
+    super(
+      'session at capacity: coldest session is still live, refusing to evict it',
+    );
     this.name = 'SessionCapacityError';
   }
 }
@@ -75,7 +83,10 @@ function redactData(
 ): Record<string, unknown> | undefined {
   if (!data) return data;
   return Object.fromEntries(
-    Object.entries(data).map(([key, value]) => [key, redactUnknown(value, apiKey)]),
+    Object.entries(data).map(([key, value]) => [
+      key,
+      redactUnknown(value, apiKey),
+    ]),
   );
 }
 
@@ -89,9 +100,21 @@ function redactData(
  */
 function createRedactingLogger(apiKey: string): Logger {
   return {
-    debug: (message, data) => consoleLogger.debug(redactSecrets(message, apiKey), redactData(data, apiKey)),
-    info: (message, data) => consoleLogger.info(redactSecrets(message, apiKey), redactData(data, apiKey)),
-    warn: (message, data) => consoleLogger.warn(redactSecrets(message, apiKey), redactData(data, apiKey)),
+    debug: (message, data) =>
+      consoleLogger.debug(
+        redactSecrets(message, apiKey),
+        redactData(data, apiKey),
+      ),
+    info: (message, data) =>
+      consoleLogger.info(
+        redactSecrets(message, apiKey),
+        redactData(data, apiKey),
+      ),
+    warn: (message, data) =>
+      consoleLogger.warn(
+        redactSecrets(message, apiKey),
+        redactData(data, apiKey),
+      ),
     error: (message, error, data) =>
       consoleLogger.error(
         redactSecrets(message, apiKey),
@@ -169,7 +192,12 @@ export class SessionEngineManager {
     this.#evictLruIfFull();
 
     const ttlTimer = setTimeout(() => this.evict(sessionId), this.#idleTtlMs);
-    this.#sessions.set(sessionId, { engine, apiKey, lastUsedAt: Date.now(), ttlTimer });
+    this.#sessions.set(sessionId, {
+      engine,
+      apiKey,
+      lastUsedAt: Date.now(),
+      ttlTimer,
+    });
     return engine;
   }
 

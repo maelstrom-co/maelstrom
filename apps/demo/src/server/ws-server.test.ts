@@ -10,7 +10,11 @@ import {
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { describe, expect, it, vi } from 'vitest';
 import { SessionEngineManager } from './session-engine-manager';
-import { createWebSocketHandlers, truncateCloseReason, type SocketData } from './ws-server';
+import {
+  createWebSocketHandlers,
+  type SocketData,
+  truncateCloseReason,
+} from './ws-server';
 
 // ws-server.ts's production heartbeatIntervalMs is this same constant, so
 // the liveness window below (2x) matches what actually runs.
@@ -30,12 +34,17 @@ const fakeAdapter = {
 } as unknown as AnyTextAdapter;
 
 function makeSessionEngines(
-  overrides: Partial<{ maxSessions: number; idleTtlMs: number; heartbeatIntervalMs: number }> = {},
+  overrides: Partial<{
+    maxSessions: number;
+    idleTtlMs: number;
+    heartbeatIntervalMs: number;
+  }> = {},
 ) {
   return new SessionEngineManager({
     maxSessions: overrides.maxSessions ?? 50,
     idleTtlMs: overrides.idleTtlMs ?? 30 * 60 * 1000,
-    heartbeatIntervalMs: overrides.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+    heartbeatIntervalMs:
+      overrides.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
     systemRules: 'test rules',
     createAdapter: () => fakeAdapter,
   });
@@ -133,7 +142,8 @@ describe('createWebSocketHandlers close handler (Finding A)', () => {
     expect(isOk(decoded)).toBe(true);
     if (!isOk(decoded)) throw new Error('expected a decodable server envelope');
     expect(decoded.value.type).toBe('engine.history.response');
-    if (decoded.value.type !== 'engine.history.response') throw new Error('unreachable');
+    if (decoded.value.type !== 'engine.history.response')
+      throw new Error('unreachable');
     expect(decoded.value.entries).toContainEqual(
       expect.objectContaining({ kind: 'injection', content: 'seeded note' }),
     );
@@ -172,7 +182,9 @@ describe('truncateCloseReason (Finding #1)', () => {
     // A fatal decoder throws on a boundary landing mid-character instead of
     // silently emitting a U+FFFD replacement -- round-tripping through it
     // proves the cut point is valid.
-    expect(() => new TextDecoder('utf-8', { fatal: true }).decode(bytes)).not.toThrow();
+    expect(() =>
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+    ).not.toThrow();
     expect(truncated).toBe('a'.repeat(121));
   });
 
@@ -209,7 +221,9 @@ describe('createWebSocketHandlers hello-handler catch (Finding #1 integration)',
     expect(ws.closedWith?.code).toBe(1011);
     const reasonBytes = new TextEncoder().encode(ws.closedWith?.reason ?? '');
     expect(reasonBytes.length).toBeLessThanOrEqual(123);
-    expect(() => new TextDecoder('utf-8', { fatal: true }).decode(reasonBytes)).not.toThrow();
+    expect(() =>
+      new TextDecoder('utf-8', { fatal: true }).decode(reasonBytes),
+    ).not.toThrow();
 
     sessionEngines.dispose();
   });
@@ -319,7 +333,9 @@ describe('createWebSocketHandlers dispatch re-derives the engine from the regist
     // again — a brand-new, empty-history engine, never wsB's.
     await handlers.message(
       wsA as unknown as Parameters<typeof handlers.message>[0],
-      encodeEnvelope(HistoryGetMessage({ sessionId: SessionId('sess-shared') })),
+      encodeEnvelope(
+        HistoryGetMessage({ sessionId: SessionId('sess-shared') }),
+      ),
     );
 
     expect(wsA.closedWith).toBeNull();
@@ -327,7 +343,8 @@ describe('createWebSocketHandlers dispatch re-derives the engine from the regist
     expect(isOk(decoded)).toBe(true);
     if (!isOk(decoded)) throw new Error('expected a decodable reply');
     expect(decoded.value.type).toBe('engine.history.response');
-    if (decoded.value.type !== 'engine.history.response') throw new Error('unreachable');
+    if (decoded.value.type !== 'engine.history.response')
+      throw new Error('unreachable');
     // Empty, not just "missing wsB's entry": a fresh engine rebuilt for
     // KEY_A has no history at all, which is the actual proof wsA never
     // touched wsB's engine — a partial-match assertion could pass even if

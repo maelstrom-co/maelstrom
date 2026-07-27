@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearPlaygroundKey,
   playgroundKeyStore,
-  setPlaygroundKey,
   STORAGE_KEY,
+  setPlaygroundKey,
 } from './playground-key-store';
 
 describe('playgroundKeyStore', () => {
@@ -121,7 +121,10 @@ describe('module init when localStorage already holds a key', () => {
 
 describe('module init when localStorage access throws', () => {
   it('starts with no key instead of crashing the module', async () => {
-    const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    const original = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'localStorage',
+    );
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
       get() {

@@ -53,13 +53,20 @@ describe('createBrowserMintToken', () => {
   });
 
   it('maps OpenAI client_secrets response fields to TokenHandshakeResponse', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ value: 'ek_abc123', expires_at: 1_800_000_000 }), {
-        status: 200,
-      }),
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ value: 'ek_abc123', expires_at: 1_800_000_000 }),
+          {
+            status: 200,
+          },
+        ),
     ) as unknown as typeof fetch;
 
-    const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
+    const mintToken = createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+    );
     const result = await mintToken();
 
     expect(result).toEqual({
@@ -74,12 +81,16 @@ describe('createBrowserMintToken', () => {
     let capturedInit: RequestInit | undefined;
     globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
       capturedInit = init;
-      return new Response(JSON.stringify({ value: 'ek_x', expires_at: 1 }), { status: 200 });
+      return new Response(JSON.stringify({ value: 'ek_x', expires_at: 1 }), {
+        status: 200,
+      });
     }) as unknown as typeof fetch;
 
     await createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
 
-    expect(capturedInit?.headers).toMatchObject({ Authorization: 'Bearer sk-visitor-key' });
+    expect(capturedInit?.headers).toMatchObject({
+      Authorization: 'Bearer sk-visitor-key',
+    });
     const body = JSON.parse(String(capturedInit?.body));
     expect(JSON.stringify(body)).not.toContain('sk-visitor-key');
   });
@@ -92,7 +103,9 @@ describe('createBrowserMintToken', () => {
     let capturedInit: RequestInit | undefined;
     globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
       capturedInit = init;
-      return new Response(JSON.stringify({ value: 'ek_x', expires_at: 1 }), { status: 200 });
+      return new Response(JSON.stringify({ value: 'ek_x', expires_at: 1 }), {
+        status: 200,
+      });
     }) as unknown as typeof fetch;
 
     await createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
@@ -106,7 +119,10 @@ describe('createBrowserMintToken', () => {
       async () => new Response('unauthorized', { status: 401 }),
     ) as unknown as typeof fetch;
 
-    const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
+    const mintToken = createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+    );
     await expect(mintToken()).rejects.toThrow(/invalid api key/i);
   });
 
@@ -126,7 +142,10 @@ describe('createBrowserMintToken', () => {
       throw new TypeError('Failed to fetch');
     }) as unknown as typeof fetch;
 
-    const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
+    const mintToken = createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+    );
     let error: unknown;
     try {
       await mintToken();
@@ -146,7 +165,10 @@ describe('createBrowserMintToken', () => {
       async () => new Response('server error', { status: 500 }),
     ) as unknown as typeof fetch;
 
-    const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
+    const mintToken = createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+    );
     await expect(mintToken()).rejects.toThrow(/status 500/i);
   });
 
@@ -157,13 +179,17 @@ describe('createBrowserMintToken', () => {
     // the RealtimeVoiceError cause and renders in the key drawer as "your
     // key is broken" — telling the visitor to replace a perfectly good key.
     globalThis.fetch = vi.fn(
-      async () => new Response('<!DOCTYPE html><html>captive portal</html>', {
-        status: 200,
-        headers: { 'Content-Type': 'text/html' },
-      }),
+      async () =>
+        new Response('<!DOCTYPE html><html>captive portal</html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        }),
     ) as unknown as typeof fetch;
 
-    const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
+    const mintToken = createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+    );
     let error: unknown;
     try {
       await mintToken();
@@ -227,10 +253,11 @@ describe('mintOpenAIToken', () => {
 
   it('does not surface a raw SyntaxError when a 200 response body is not JSON', async () => {
     globalThis.fetch = vi.fn(
-      async () => new Response('<!DOCTYPE html><html>captive portal</html>', {
-        status: 200,
-        headers: { 'Content-Type': 'text/html' },
-      }),
+      async () =>
+        new Response('<!DOCTYPE html><html>captive portal</html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        }),
     ) as unknown as typeof fetch;
 
     let error: unknown;

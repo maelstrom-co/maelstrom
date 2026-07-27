@@ -10,7 +10,10 @@ import { withFetchTimeout } from './fetch-timeout';
  * `expires_at` safely — mirrors the local mint route's unknown-then-parse
  * idiom instead of asserting a shape the network response never promised.
  */
-function readOpenaiClientSecret(body: unknown): { value: string; expiresAt: number } {
+function readOpenaiClientSecret(body: unknown): {
+  value: string;
+  expiresAt: number;
+} {
   if (
     typeof body !== 'object' ||
     body === null ||
@@ -47,7 +50,9 @@ export async function mintOpenAIToken(
     // A 200 with a non-JSON body (captive portal / TLS-proxy interstitial)
     // throws SyntaxError from res.json() — that message otherwise propagates
     // verbatim into the caller's error surface.
-    throw new Error('Received an unexpected response from the token mint route.');
+    throw new Error(
+      'Received an unexpected response from the token mint route.',
+    );
   }
   return OpenAITokenGrantSchema.parse(body);
 }
@@ -91,14 +96,18 @@ export function createBrowserMintToken(
       // surfaces a raw 'Failed to fetch' otherwise — that reads as "your key
       // is bad" once it lands in the key drawer's error slot, which sends
       // visitors to replace a perfectly good key.
-      throw new Error('Could not reach OpenAI — check your connection and try again.');
+      throw new Error(
+        'Could not reach OpenAI — check your connection and try again.',
+      );
     }
 
     if (!res.ok) {
       if (res.status === 401) {
         throw new Error('Invalid API key.');
       }
-      throw new Error(`Failed to mint a realtime token (status ${res.status}).`);
+      throw new Error(
+        `Failed to mint a realtime token (status ${res.status}).`,
+      );
     }
 
     let json: unknown;
@@ -109,7 +118,9 @@ export function createBrowserMintToken(
       // interstitial — res.json() then throws a raw SyntaxError that reads
       // as "your key is broken" once it lands in the key drawer, which is
       // exactly the failure mode the surrounding try/catch exists to avoid.
-      throw new Error('Could not reach OpenAI — check your connection and try again.');
+      throw new Error(
+        'Could not reach OpenAI — check your connection and try again.',
+      );
     }
     const data = readOpenaiClientSecret(json);
     return OpenAITokenGrantSchema.parse({

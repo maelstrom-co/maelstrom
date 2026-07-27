@@ -46,7 +46,11 @@ describe('redactSecrets', () => {
   });
 
   it('passes through a wire string with no secrets unchanged', () => {
-    const wire = JSON.stringify({ type: 'chart.response', requestId: 'req-1', ok: true });
+    const wire = JSON.stringify({
+      type: 'chart.response',
+      requestId: 'req-1',
+      ok: true,
+    });
 
     const result = redactSecrets(wire, 'sk-live-abc123def456');
 
@@ -119,7 +123,11 @@ describe('redactSecrets', () => {
       const id = nanoidWithEmbeddedMarker(offset);
       expect(id).toHaveLength(NANOID_LENGTH);
 
-      const wire = JSON.stringify({ type: 'chart.response', requestId: id, ok: true });
+      const wire = JSON.stringify({
+        type: 'chart.response',
+        requestId: id,
+        ok: true,
+      });
       const result = redactSecrets(wire, undefined);
 
       expect(result).toBe(wire);
@@ -133,7 +141,10 @@ describe('redactSecrets', () => {
     // margin, or the pattern pass would miss genuine leaked keys.
     const classicKey = `sk-${'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV'}`;
     expect(classicKey).toHaveLength(51);
-    const wire = JSON.stringify({ type: 'engine.error', error: `leaked: ${classicKey}` });
+    const wire = JSON.stringify({
+      type: 'engine.error',
+      error: `leaked: ${classicKey}`,
+    });
 
     const result = redactSecrets(wire, undefined);
 
@@ -152,7 +163,10 @@ describe('redactSecrets', () => {
     const apiKeyWithQuote = 'sk-live-has"a-quote-in-it-1234567890';
     const apiKeyWithBackslash = 'sk-live-has\\a-backslash-in-it-1234567890';
 
-    const wireQuote = JSON.stringify({ type: 'engine.error', error: `bad key ${apiKeyWithQuote}` });
+    const wireQuote = JSON.stringify({
+      type: 'engine.error',
+      error: `bad key ${apiKeyWithQuote}`,
+    });
     const resultQuote = redactSecrets(wireQuote, apiKeyWithQuote);
     expect(resultQuote).not.toContain(apiKeyWithQuote);
     expect(JSON.parse(resultQuote).error).toContain('[redacted]');
@@ -173,7 +187,10 @@ describe('redactSecrets', () => {
     // of the {32,} floor in either generation.
     const projKey = `sk-proj-${'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0u1V2w3X4y5Z6'}`;
     expect(projKey.length).toBeGreaterThanOrEqual(56);
-    const wire = JSON.stringify({ type: 'engine.error', error: `leaked: ${projKey}` });
+    const wire = JSON.stringify({
+      type: 'engine.error',
+      error: `leaked: ${projKey}`,
+    });
 
     const result = redactSecrets(wire, undefined);
 

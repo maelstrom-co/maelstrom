@@ -22,7 +22,9 @@ export interface PlaygroundKeyState {
 // custody for the session.
 function readInitialKey(): string | null {
   try {
-    return typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_KEY);
+    return typeof localStorage === 'undefined'
+      ? null
+      : localStorage.getItem(STORAGE_KEY);
   } catch {
     return null;
   }
@@ -45,7 +47,8 @@ export function setPlaygroundKey(apiKey: string, remember: boolean): void {
     // it, or readInitialKey() resurrects it on the next load even though the
     // visitor just asked for this key to be session-only.
     try {
-      if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+      if (typeof localStorage !== 'undefined')
+        localStorage.removeItem(STORAGE_KEY);
     } catch {
       // Nothing further to do — the in-memory store already holds the
       // session-only key.
@@ -70,7 +73,8 @@ export function setPlaygroundKey(apiKey: string, remember: boolean): void {
 export function clearPlaygroundKey(): void {
   playgroundKeyStore.setState(() => ({ apiKey: null, persisted: false }));
   try {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+    if (typeof localStorage !== 'undefined')
+      localStorage.removeItem(STORAGE_KEY);
   } catch {
     // Nothing further to do — the in-memory store is already cleared.
   }

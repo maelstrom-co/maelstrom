@@ -3,14 +3,19 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+const repoRoot = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../..',
+);
 
 /** Root package.json's "workspaces" globs are always `<dir>/*`, one level deep. */
 function workspaceMembers(globs: readonly string[]): string[] {
   const members: string[] = [];
   for (const glob of globs) {
     const groupDir = glob.replace(/\/\*$/, '');
-    for (const entry of readdirSync(join(repoRoot, groupDir), { withFileTypes: true })) {
+    for (const entry of readdirSync(join(repoRoot, groupDir), {
+      withFileTypes: true,
+    })) {
       if (!entry.isDirectory()) continue;
       const relPath = `${groupDir}/${entry.name}`;
       if (existsSync(join(repoRoot, relPath, 'package.json'))) {
@@ -28,9 +33,10 @@ function workspaceMembers(globs: readonly string[]): string[] {
 function dockerfileManifestMembers(dockerfile: string): string[] {
   const members: string[] = [];
   for (const line of dockerfile.split('\n')) {
-    const match = /^COPY\s+(?:--chown=\S+\s+)?(\S+)\/package\.json\s+\S+\/package\.json\s*$/.exec(
-      line.trim(),
-    );
+    const match =
+      /^COPY\s+(?:--chown=\S+\s+)?(\S+)\/package\.json\s+\S+\/package\.json\s*$/.exec(
+        line.trim(),
+      );
     if (match) members.push(match[1]);
   }
   return members;
@@ -45,7 +51,9 @@ function dockerfileManifestMembers(dockerfile: string): string[] {
 function dockerfileFullSourceDirs(dockerfile: string): string[] {
   const dirs: string[] = [];
   for (const line of dockerfile.split('\n')) {
-    const match = /^COPY\s+(?:--chown=\S+\s+)?(\S+)\s+(\S+)\s*$/.exec(line.trim());
+    const match = /^COPY\s+(?:--chown=\S+\s+)?(\S+)\s+(\S+)\s*$/.exec(
+      line.trim(),
+    );
     if (match && match[1] === match[2] && !match[1].endsWith('package.json')) {
       dirs.push(match[1]);
     }
@@ -65,7 +73,10 @@ describe('apps/demo/Dockerfile manifest COPY list', () => {
     const rootPackageJson = JSON.parse(
       readFileSync(join(repoRoot, 'package.json'), 'utf-8'),
     ) as { workspaces: string[] };
-    const dockerfile = readFileSync(join(repoRoot, 'apps/demo/Dockerfile'), 'utf-8');
+    const dockerfile = readFileSync(
+      join(repoRoot, 'apps/demo/Dockerfile'),
+      'utf-8',
+    );
 
     const actualMembers = workspaceMembers(rootPackageJson.workspaces);
     const manifestOnlyMembers = dockerfileManifestMembers(dockerfile);
@@ -73,7 +84,11 @@ describe('apps/demo/Dockerfile manifest COPY list', () => {
 
     const coveredMembers = new Set(manifestOnlyMembers);
     for (const member of actualMembers) {
-      if (fullSourceDirs.some((dir) => member === dir || member.startsWith(`${dir}/`))) {
+      if (
+        fullSourceDirs.some(
+          (dir) => member === dir || member.startsWith(`${dir}/`),
+        )
+      ) {
         coveredMembers.add(member);
       }
     }

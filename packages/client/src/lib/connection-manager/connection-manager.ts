@@ -526,7 +526,10 @@ export class ConnectionManager {
         if (this.#isDisposed) return;
 
         const err = toError(error);
-        this.#logger.warn('Half-open probe failed, reopening circuit', err.message);
+        this.#logger.warn(
+          'Half-open probe failed, reopening circuit',
+          err.message,
+        );
 
         this.#emitter.emit('connection_error', { error: err, attempt: 1 });
         this.#setConnectionStatus('error');

@@ -92,9 +92,6 @@ export type {
   PushConnector,
 } from './lib/connection-manager/connector.types.js';
 export { WireEngineError } from './lib/connection-manager/connector.types.js';
-export type { HttpConnectorOptions } from './lib/connection-manager/connectors/http-connector.js';
-// Connectors
-export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';
 export {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_PING_FRAME,
@@ -102,6 +99,9 @@ export {
   isHeartbeatPingFrame,
   isHeartbeatPongFrame,
 } from './lib/connection-manager/connectors/heartbeat-frame.js';
+export type { HttpConnectorOptions } from './lib/connection-manager/connectors/http-connector.js';
+// Connectors
+export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';
 export type { WebSocketConnectorOptions } from './lib/connection-manager/connectors/web-socket-connector.js';
 export { WebSocketConnector } from './lib/connection-manager/connectors/web-socket-connector.js';
 // Orchestrator

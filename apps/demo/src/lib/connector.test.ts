@@ -2,7 +2,11 @@
 import { SessionId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isPlaygroundHello } from '../server/playground-frames';
-import { buildPlaygroundHello, buildWsUrl, createDemoConnector } from './connector';
+import {
+  buildPlaygroundHello,
+  buildWsUrl,
+  createDemoConnector,
+} from './connector';
 
 /**
  * Minimal in-memory WebSocket fake, just enough to drive
@@ -64,7 +68,11 @@ function installFakeWebSocket(): () => void {
 
 describe('buildWsUrl', () => {
   it('derives wss:// from an https origin in hosted mode', () => {
-    const url = buildWsUrl(true, { protocol: 'https:', host: 'playground.maelstrom.co' }, undefined);
+    const url = buildWsUrl(
+      true,
+      { protocol: 'https:', host: 'playground.maelstrom.co' },
+      undefined,
+    );
     expect(url).toBe('wss://playground.maelstrom.co/ws');
   });
 
@@ -72,17 +80,29 @@ describe('buildWsUrl', () => {
     // The exact bug observed on wrangler dev: a hard-coded `wss://` against
     // a plain-HTTP origin (e.g. http://localhost:8788) throws
     // ERR_SSL_PROTOCOL_ERROR on every connection attempt.
-    const url = buildWsUrl(true, { protocol: 'http:', host: 'localhost:8788' }, undefined);
+    const url = buildWsUrl(
+      true,
+      { protocol: 'http:', host: 'localhost:8788' },
+      undefined,
+    );
     expect(url).toBe('ws://localhost:8788/ws');
   });
 
   it('ignores location and uses VITE_WS_URL in local (non-hosted) mode', () => {
-    const url = buildWsUrl(false, { protocol: 'https:', host: 'example.com' }, 'ws://localhost:3001');
+    const url = buildWsUrl(
+      false,
+      { protocol: 'https:', host: 'example.com' },
+      'ws://localhost:3001',
+    );
     expect(url).toBe('ws://localhost:3001/ws');
   });
 
   it('falls back to ws://localhost:3001 in local mode when VITE_WS_URL is unset', () => {
-    const url = buildWsUrl(false, { protocol: 'https:', host: 'example.com' }, undefined);
+    const url = buildWsUrl(
+      false,
+      { protocol: 'https:', host: 'example.com' },
+      undefined,
+    );
     expect(url).toBe('ws://localhost:3001/ws');
   });
 
@@ -99,7 +119,11 @@ describe('buildWsUrl', () => {
   });
 
   it('omits the session query param entirely when none is given', () => {
-    const url = buildWsUrl(true, { protocol: 'https:', host: 'playground.maelstrom.co' }, undefined);
+    const url = buildWsUrl(
+      true,
+      { protocol: 'https:', host: 'playground.maelstrom.co' },
+      undefined,
+    );
     expect(url).toBe('wss://playground.maelstrom.co/ws');
   });
 
@@ -122,7 +146,9 @@ describe('buildWsUrl', () => {
       undefined,
       'has space&amp',
     );
-    expect(url).toBe('wss://playground.maelstrom.co/ws?session=has%20space%26amp');
+    expect(url).toBe(
+      'wss://playground.maelstrom.co/ws?session=has%20space%26amp',
+    );
   });
 });
 
@@ -146,10 +172,13 @@ describe('createDemoConnector', () => {
   it('does not send a handshake frame in local (non-hosted) mode', async () => {
     const restore = installFakeWebSocket();
     try {
-      const connector = createDemoConnector({ getApiKey: () => 'sk-visitor-key-1234567' });
+      const connector = createDemoConnector({
+        getApiKey: () => 'sk-visitor-key-1234567',
+      });
       const connectPromise = connector.connect(SessionId('session-1'));
       const socket = FakeWebSocket.instances[0];
-      if (!socket) throw new Error('expected a WebSocket to have been constructed');
+      if (!socket)
+        throw new Error('expected a WebSocket to have been constructed');
       socket.emitOpen();
       await connectPromise;
 
@@ -168,10 +197,13 @@ describe('createDemoConnector', () => {
       vi.stubEnv('VITE_HOSTED', '1');
       const restore = installFakeWebSocket();
       try {
-        const connector = createDemoConnector({ getApiKey: () => 'sk-visitor-key-1234567' });
+        const connector = createDemoConnector({
+          getApiKey: () => 'sk-visitor-key-1234567',
+        });
         const connectPromise = connector.connect(SessionId('session-1'));
         const socket = FakeWebSocket.instances[0];
-        if (!socket) throw new Error('expected a WebSocket to have been constructed');
+        if (!socket)
+          throw new Error('expected a WebSocket to have been constructed');
         socket.emitOpen();
         await connectPromise;
 
@@ -195,7 +227,8 @@ describe('createDemoConnector', () => {
         const connector = createDemoConnector({ getApiKey: () => null });
         const connectPromise = connector.connect(SessionId('session-1'));
         const socket = FakeWebSocket.instances[0];
-        if (!socket) throw new Error('expected a WebSocket to have been constructed');
+        if (!socket)
+          throw new Error('expected a WebSocket to have been constructed');
         socket.emitOpen();
         await connectPromise;
 
@@ -218,7 +251,8 @@ describe('createDemoConnector', () => {
         });
         const connectPromise = connector.connect(SessionId('session-1'));
         const socket = FakeWebSocket.instances[0];
-        if (!socket) throw new Error('expected a WebSocket to have been constructed');
+        if (!socket)
+          throw new Error('expected a WebSocket to have been constructed');
         socket.emitOpen();
         await connectPromise;
 
@@ -243,14 +277,16 @@ describe('createDemoConnector', () => {
         // instead of reporting what actually went wrong.
         const firstConnect = connector.connect(SessionId('session-1'));
         const firstSocket = FakeWebSocket.instances[0];
-        if (!firstSocket) throw new Error('expected a WebSocket to have been constructed');
+        if (!firstSocket)
+          throw new Error('expected a WebSocket to have been constructed');
         firstSocket.emitOpen();
         await firstConnect;
         const firstUrl = firstSocket.url;
 
         const secondConnect = connector.connect(SessionId('session-1'));
         const secondSocket = FakeWebSocket.instances[1];
-        if (!secondSocket) throw new Error('expected a second WebSocket on reconnect');
+        if (!secondSocket)
+          throw new Error('expected a second WebSocket on reconnect');
         secondSocket.emitOpen();
         await secondConnect;
         const secondUrl = secondSocket.url;

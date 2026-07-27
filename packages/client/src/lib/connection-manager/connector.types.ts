@@ -96,7 +96,12 @@ export interface ConnectorCapabilities {
  * signal that the connection is ready — no separate subscription needed.
  */
 export type ConnectorEvent =
-  | { type: 'disconnected'; clean: boolean; message: string; retryable?: boolean }
+  | {
+      type: 'disconnected';
+      clean: boolean;
+      message: string;
+      retryable?: boolean;
+    }
   | { type: 'error'; error: Error };
 
 // ============================================================================

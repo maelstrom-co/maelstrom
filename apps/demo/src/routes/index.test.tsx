@@ -1,14 +1,21 @@
 // @vitest-environment happy-dom
 
 import { WireEngineError } from '@maelstrom-co/client';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 import {
   clearPlaygroundKey,
-  setPlaygroundKey,
   STORAGE_KEY,
+  setPlaygroundKey,
 } from '../lib/playground-key-store';
 
 // Keeps RealtimeVoiceError real (the drawer-reopen effect's `instanceof`
@@ -131,10 +138,7 @@ describe('voice mint failures (hosted)', () => {
     render(<HomePage />);
 
     const session = must(FakeRealtimeSession.instances[0]);
-    session.lastError = new RealtimeVoiceError(
-      'MIC_PERMISSION_DENIED',
-      'boom',
-    );
+    session.lastError = new RealtimeVoiceError('MIC_PERMISSION_DENIED', 'boom');
     await act(async () => {
       session.emitState('error');
     });
@@ -327,18 +331,14 @@ describe('header "API key" affordance', () => {
     const { HomePage } = await import('./index');
     render(<HomePage />);
 
-    expect(
-      screen.queryByRole('button', { name: /api key/i }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: /api key/i })).toBeNull();
   });
 
   it('is visible when hosted', async () => {
     const { HomePage } = await import('./index');
     render(<HomePage />);
 
-    expect(
-      screen.getByRole('button', { name: /api key/i }),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: /api key/i })).toBeTruthy();
   });
 
   it('opens the drawer when clicked, with no key set', async () => {

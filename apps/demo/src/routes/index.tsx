@@ -1,8 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { useStore } from '@tanstack/react-store';
 import { WireEngineError } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import { createFileRoute } from '@tanstack/react-router';
+import { useStore } from '@tanstack/react-store';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Captions } from '../components/captions';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
@@ -103,7 +103,12 @@ export function HomePage() {
 
   return (
     <>
-      <m.Provider key={keyEpoch} sessionId={sessionId} connector={connector} debug={debug}>
+      <m.Provider
+        key={keyEpoch}
+        sessionId={sessionId}
+        connector={connector}
+        debug={debug}
+      >
         <DemoApp
           onRequireKey={() => setDrawerOpen(true)}
           onBlockedSubmit={() => {
@@ -187,7 +192,10 @@ function DemoApp({
   // signal, since that copy doesn't apply once there's no server-side key.
   useEffect(() => {
     if (!hosted || voiceState !== 'error') return;
-    if (!(voiceError instanceof RealtimeVoiceError) || voiceError.code !== 'TOKEN_MINT_FAILED') {
+    if (
+      !(voiceError instanceof RealtimeVoiceError) ||
+      voiceError.code !== 'TOKEN_MINT_FAILED'
+    ) {
       return;
     }
     const { cause } = voiceError;
@@ -302,7 +310,8 @@ function IntentInput({
   resumeIntent,
   onResumeIntentHandled,
 }: IntentInputProps) {
-  const { processIntent, isProcessing, lastError, connectionStatus } = m.useMaelstrom();
+  const { processIntent, isProcessing, lastError, connectionStatus } =
+    m.useMaelstrom();
   const hosted = isHosted();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const needsKey = hosted && !apiKey;

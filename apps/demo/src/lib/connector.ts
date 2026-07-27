@@ -1,4 +1,7 @@
-import { DEFAULT_HEARTBEAT_INTERVAL_MS, WebSocketConnector } from '@maelstrom-co/client';
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  WebSocketConnector,
+} from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
 import { isHosted } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
@@ -60,7 +63,10 @@ export function buildWsUrl(
  * exported so a test can assert the exact shape the server's
  * `isPlaygroundHello` guard expects, without needing a live WebSocket.
  */
-export function buildPlaygroundHello(sessionId: string, apiKey: string): string {
+export function buildPlaygroundHello(
+  sessionId: string,
+  apiKey: string,
+): string {
   return JSON.stringify({ type: 'playground.hello', sessionId, apiKey });
 }
 
@@ -73,14 +79,17 @@ export function buildPlaygroundHello(sessionId: string, apiKey: string): string 
  */
 export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
   const hosted = isHosted();
-  const getApiKey = options.getApiKey ?? (() => playgroundKeyStore.state.apiKey);
+  const getApiKey =
+    options.getApiKey ?? (() => playgroundKeyStore.state.apiKey);
 
   // Baked into wsUrl below rather than resolved per attempt, because
   // WebSocketConnector reuses its constructed URL for every reconnect — so
   // the shard stays pinned for the life of the session. Falling back to a
   // fresh id keeps a caller that omits sessionId routable, but such a
   // connector cannot resume a session across its own replacement.
-  const routingSession = hosted ? (options.sessionId ?? SessionId()) : undefined;
+  const routingSession = hosted
+    ? (options.sessionId ?? SessionId())
+    : undefined;
 
   // window.location is only touched in the hosted branch (short-circuited
   // below) — local (non-hosted) mode must keep working in non-DOM test

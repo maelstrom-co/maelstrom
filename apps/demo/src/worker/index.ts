@@ -54,7 +54,10 @@ export default {
       // across the container's `max_instances` provisions instead of
       // funneling all of them onto one.
       const session = url.searchParams.get('session') ?? '';
-      return getContainer(env.PLAYGROUND_SERVER, shardInstanceName(session)).fetch(request);
+      return getContainer(
+        env.PLAYGROUND_SERVER,
+        shardInstanceName(session),
+      ).fetch(request);
     }
 
     return env.ASSETS.fetch(request);

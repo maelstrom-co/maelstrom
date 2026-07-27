@@ -203,7 +203,12 @@ describe('KeyDrawer', () => {
     setPlaygroundKey('sk-stored-1234567890', true);
     const onRemove = vi.fn(() => clearPlaygroundKey());
     const { rerender } = render(
-      <KeyDrawer isOpen onClose={() => {}} onSave={() => {}} onRemove={onRemove} />,
+      <KeyDrawer
+        isOpen
+        onClose={() => {}}
+        onSave={() => {}}
+        onRemove={onRemove}
+      />,
     );
 
     const checkbox = screen.getByLabelText(
@@ -222,7 +227,12 @@ describe('KeyDrawer', () => {
       />,
     );
     rerender(
-      <KeyDrawer isOpen onClose={() => {}} onSave={() => {}} onRemove={onRemove} />,
+      <KeyDrawer
+        isOpen
+        onClose={() => {}}
+        onSave={() => {}}
+        onRemove={onRemove}
+      />,
     );
 
     const reopenedCheckbox = screen.getByLabelText(

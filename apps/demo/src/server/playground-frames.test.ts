@@ -1,5 +1,9 @@
 import type { ChartRequest } from '@maelstrom-co/protocol';
-import { ChartRequestMessage, encodeEnvelope, SessionId } from '@maelstrom-co/protocol';
+import {
+  ChartRequestMessage,
+  encodeEnvelope,
+  SessionId,
+} from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   classifyIncomingFrame,
@@ -28,17 +32,27 @@ const MINIMAL_CHART_REQUEST: ChartRequest = {
 describe('isPlaygroundHello', () => {
   it('accepts a well-formed handshake frame', () => {
     expect(
-      isPlaygroundHello({ type: 'playground.hello', sessionId: 's1', apiKey: VALID_API_KEY }),
+      isPlaygroundHello({
+        type: 'playground.hello',
+        sessionId: 's1',
+        apiKey: VALID_API_KEY,
+      }),
     ).toBe(true);
   });
 
   it('rejects missing fields', () => {
-    expect(isPlaygroundHello({ type: 'playground.hello', sessionId: 's1' })).toBe(false);
+    expect(
+      isPlaygroundHello({ type: 'playground.hello', sessionId: 's1' }),
+    ).toBe(false);
   });
 
   it('rejects the wrong type discriminant', () => {
     expect(
-      isPlaygroundHello({ type: 'chart_request', sessionId: 's1', apiKey: VALID_API_KEY }),
+      isPlaygroundHello({
+        type: 'chart_request',
+        sessionId: 's1',
+        apiKey: VALID_API_KEY,
+      }),
     ).toBe(false);
   });
 
@@ -53,14 +67,22 @@ describe('isPlaygroundHello', () => {
     // this frame directly against /ws, bypassing the shipped client (which
     // never produces an empty sessionId; it's nanoid-generated).
     expect(
-      isPlaygroundHello({ type: 'playground.hello', sessionId: '', apiKey: VALID_API_KEY }),
+      isPlaygroundHello({
+        type: 'playground.hello',
+        sessionId: '',
+        apiKey: VALID_API_KEY,
+      }),
     ).toBe(false);
   });
 
   it('rejects an empty apiKey', () => {
-    expect(isPlaygroundHello({ type: 'playground.hello', sessionId: 's1', apiKey: '' })).toBe(
-      false,
-    );
+    expect(
+      isPlaygroundHello({
+        type: 'playground.hello',
+        sessionId: 's1',
+        apiKey: '',
+      }),
+    ).toBe(false);
   });
 
   it('rejects an apiKey shorter than the 20-char floor', () => {
@@ -83,7 +105,11 @@ describe('isPlaygroundHello', () => {
     const exactlyTwenty = 'sk-exactly-20-chars0';
     expect(exactlyTwenty).toHaveLength(20);
     expect(
-      isPlaygroundHello({ type: 'playground.hello', sessionId: 's1', apiKey: exactlyTwenty }),
+      isPlaygroundHello({
+        type: 'playground.hello',
+        sessionId: 's1',
+        apiKey: exactlyTwenty,
+      }),
     ).toBe(true);
   });
 });
@@ -105,26 +131,45 @@ describe('classifyIncomingFrame', () => {
     // hello gate ran first, this frame would be misread as a failed
     // handshake and the socket would be closed on a visitor who was only
     // ever waiting to be prompted for a key.
-    expect(classifyIncomingFrame({ type: 'heartbeat.ping' }, false)).toEqual({ kind: 'heartbeat' });
+    expect(classifyIncomingFrame({ type: 'heartbeat.ping' }, false)).toEqual({
+      kind: 'heartbeat',
+    });
   });
 
   it('classifies heartbeat.ping as heartbeat after hello is received', () => {
-    expect(classifyIncomingFrame({ type: 'heartbeat.ping' }, true)).toEqual({ kind: 'heartbeat' });
+    expect(classifyIncomingFrame({ type: 'heartbeat.ping' }, true)).toEqual({
+      kind: 'heartbeat',
+    });
   });
 
   it('classifies a well-formed hello as hello when not yet received', () => {
-    const frame = { type: 'playground.hello' as const, sessionId: 's1', apiKey: VALID_API_KEY };
-    expect(classifyIncomingFrame(frame, false)).toEqual({ kind: 'hello', frame });
+    const frame = {
+      type: 'playground.hello' as const,
+      sessionId: 's1',
+      apiKey: VALID_API_KEY,
+    };
+    expect(classifyIncomingFrame(frame, false)).toEqual({
+      kind: 'hello',
+      frame,
+    });
   });
 
   it('classifies a malformed or non-hello frame as hello-rejected when not yet received', () => {
-    expect(classifyIncomingFrame({ type: 'chart_request' }, false)).toEqual({ kind: 'hello-rejected' });
-    expect(classifyIncomingFrame(undefined, false)).toEqual({ kind: 'hello-rejected' });
+    expect(classifyIncomingFrame({ type: 'chart_request' }, false)).toEqual({
+      kind: 'hello-rejected',
+    });
+    expect(classifyIncomingFrame(undefined, false)).toEqual({
+      kind: 'hello-rejected',
+    });
   });
 
   it('classifies any non-heartbeat frame as dispatch once hello is received', () => {
-    expect(classifyIncomingFrame({ type: 'chart_request' }, true)).toEqual({ kind: 'dispatch' });
-    expect(classifyIncomingFrame(undefined, true)).toEqual({ kind: 'dispatch' });
+    expect(classifyIncomingFrame({ type: 'chart_request' }, true)).toEqual({
+      kind: 'dispatch',
+    });
+    expect(classifyIncomingFrame(undefined, true)).toEqual({
+      kind: 'dispatch',
+    });
   });
 });
 
@@ -150,7 +195,9 @@ describe('resolvePreHelloDispatch', () => {
   });
 
   it('closes for a frame that does not even decode as a protocol envelope', () => {
-    expect(resolvePreHelloDispatch({ garbage: true })).toEqual({ kind: 'close' });
+    expect(resolvePreHelloDispatch({ garbage: true })).toEqual({
+      kind: 'close',
+    });
     expect(resolvePreHelloDispatch(undefined)).toEqual({ kind: 'close' });
   });
 });

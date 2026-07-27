@@ -18,7 +18,10 @@
  * @maelstrom-co/engine and @maelstrom-co/protocol once a session has an
  * engine.
  */
-import { DEFAULT_HEARTBEAT_INTERVAL_MS, HEARTBEAT_PONG_FRAME } from '@maelstrom-co/client';
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_PONG_FRAME,
+} from '@maelstrom-co/client';
 import {
   createEngine,
   createInMemoryStore,
@@ -37,9 +40,15 @@ import { geminiText } from '@tanstack/ai-gemini';
 // config?)), equivalent to ai-gemini's createGeminiChat, so no wrapper
 // adapter file is needed to hand each session its own visitor key.
 import { createOpenaiChat } from '@tanstack/ai-openai';
-import { classifyIncomingFrame, resolvePreHelloDispatch } from './playground-frames';
+import {
+  classifyIncomingFrame,
+  resolvePreHelloDispatch,
+} from './playground-frames';
 import { redactSecrets } from './redact';
-import { SessionCapacityError, SessionEngineManager } from './session-engine-manager';
+import {
+  SessionCapacityError,
+  SessionEngineManager,
+} from './session-engine-manager';
 
 const PORT = Number(process.env.WS_PORT ?? 3001);
 const HOSTED = process.env.HOSTED === '1';
@@ -52,7 +61,8 @@ const MAX_SESSIONS = 50;
 // so a session that outlives it was already gone for the more drastic reason.
 const IDLE_TTL_MS = 10 * 60 * 1000;
 
-const CAPACITY_CLOSE_REASON = 'Playground is at capacity — reload to start a new session.';
+const CAPACITY_CLOSE_REASON =
+  'Playground is at capacity — reload to start a new session.';
 
 // RFC 6455 caps a close reason at 123 UTF-8 bytes. Bun does not throw on a
 // longer one -- it silently truncates by raw byte count, with no regard for
@@ -246,7 +256,8 @@ export function createWebSocketHandlers(
           // redact() inside SessionEngineManager already scrubs the message
           // (exact-key pass + sk-* pattern pass), so this close reason (sent
           // to the client and logged) needs no second pass here.
-          const message = err instanceof Error ? err.message : 'engine unavailable';
+          const message =
+            err instanceof Error ? err.message : 'engine unavailable';
           console.warn(`[demo ws] session engine init failed: ${message}`);
           ws.close(1011, truncateCloseReason(message));
           return;
@@ -272,7 +283,10 @@ export function createWebSocketHandlers(
       if (hosted) {
         if (sessionEngines && ws.data.sessionId && ws.data.apiKey) {
           try {
-            engine = sessionEngines.getOrCreate(ws.data.sessionId, ws.data.apiKey);
+            engine = sessionEngines.getOrCreate(
+              ws.data.sessionId,
+              ws.data.apiKey,
+            );
           } catch (err) {
             // Capacity is the one getOrCreate failure a retry cannot fix —
             // the container is full, so a reconnect just adds load. Every

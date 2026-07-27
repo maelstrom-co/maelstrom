@@ -58,7 +58,9 @@ describe('worker /ws upgrade guard (Fix 7)', () => {
     // upgrade request (browsers send "websocket" lowercase; this checks a
     // differently-cased value isn't rejected either) must still reach the
     // container.
-    getContainerMock.mockReturnValue({ fetch: async () => new Response('container reached') });
+    getContainerMock.mockReturnValue({
+      fetch: async () => new Response('container reached'),
+    });
     getContainerMock.mockClear();
     const request = new Request('https://example.com/ws?session=visitor-1', {
       headers: { Upgrade: 'WebSocket' },
