@@ -1,3 +1,4 @@
+import { DEFAULT_HEARTBEAT_INTERVAL_MS } from '@maelstrom-co/client';
 import {
   AssistantInjectionMessage,
   decodeServerEnvelope,
@@ -11,9 +12,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { SessionEngineManager } from './session-engine-manager';
 import { createWebSocketHandlers, truncateCloseReason, type SocketData } from './ws-server';
 
-// Matches ws-server.ts's production HEARTBEAT_INTERVAL_MS.
-const HEARTBEAT_INTERVAL_MS = 30_000;
-const LIVENESS_WINDOW_MS = HEARTBEAT_INTERVAL_MS * 2;
+// ws-server.ts's production heartbeatIntervalMs is this same constant, so
+// the liveness window below (2x) matches what actually runs.
+const LIVENESS_WINDOW_MS = DEFAULT_HEARTBEAT_INTERVAL_MS * 2;
 
 // Same minimal real-shaped fixture as session-engine-manager.test.ts:
 // createEngine's zod validator requires kind/name/model plus callable
@@ -34,7 +35,7 @@ function makeSessionEngines(
   return new SessionEngineManager({
     maxSessions: overrides.maxSessions ?? 50,
     idleTtlMs: overrides.idleTtlMs ?? 30 * 60 * 1000,
-    heartbeatIntervalMs: overrides.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
+    heartbeatIntervalMs: overrides.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
     systemRules: 'test rules',
     createAdapter: () => fakeAdapter,
   });
@@ -186,7 +187,7 @@ describe('createWebSocketHandlers hello-handler catch (Finding #1 integration)',
     const sessionEngines = new SessionEngineManager({
       maxSessions: 50,
       idleTtlMs: 30 * 60 * 1000,
-      heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
+      heartbeatIntervalMs: DEFAULT_HEARTBEAT_INTERVAL_MS,
       systemRules: 'test rules',
       createAdapter: () => {
         throw new Error(longMessage);
@@ -529,7 +530,7 @@ describe('createWebSocketHandlers capacity handling', () => {
     const sessionEngines = new SessionEngineManager({
       maxSessions: 50,
       idleTtlMs: 30 * 60 * 1000,
-      heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
+      heartbeatIntervalMs: DEFAULT_HEARTBEAT_INTERVAL_MS,
       systemRules: 'test rules',
       createAdapter: () => {
         calls += 1;

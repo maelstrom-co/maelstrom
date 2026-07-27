@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { shardInstanceName } from './shard';
 
 // @cloudflare/containers' own entrypoint imports the 'cloudflare:workers'
 // virtual module, which only exists inside an actual Workers runtime -- not
@@ -59,13 +60,21 @@ describe('worker /ws upgrade guard (Fix 7)', () => {
     // container.
     getContainerMock.mockReturnValue({ fetch: async () => new Response('container reached') });
     getContainerMock.mockClear();
-    const request = new Request('https://example.com/ws', {
+    const request = new Request('https://example.com/ws?session=visitor-1', {
       headers: { Upgrade: 'WebSocket' },
     });
+    const env = makeEnv();
 
-    const response = await worker.fetch(request, makeEnv());
+    const response = await worker.fetch(request, env);
 
+    // Shard routing is the whole point of this call -- asserting only the
+    // call count would pass even if the `session` query param were dropped
+    // on the floor and every visitor landed on the same shard.
     expect(getContainerMock).toHaveBeenCalledTimes(1);
+    expect(getContainerMock).toHaveBeenCalledWith(
+      env.PLAYGROUND_SERVER,
+      shardInstanceName('visitor-1'),
+    );
     expect(await response.text()).toBe('container reached');
   });
 

@@ -49,15 +49,34 @@ describe('playgroundKeyStore', () => {
     clearPlaygroundKey();
     expect(playgroundKeyStore.state.apiKey).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(playgroundKeyStore.state.persisted).toBe(false);
+  });
+
+  it('marks persisted:true only for a remember:true save, so UI copy can tell "saved on this device" apart from "this session only"', () => {
+    setPlaygroundKey('sk-session-only', false);
+    expect(playgroundKeyStore.state.persisted).toBe(false);
+
+    setPlaygroundKey('sk-remembered', true);
+    expect(playgroundKeyStore.state.persisted).toBe(true);
   });
 
   it('setPlaygroundKey still updates state when localStorage.setItem throws', () => {
-    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    // Spies on the instance, not Storage.prototype: happy-dom lazily
+    // memoizes an own `setItem` property on `localStorage` the first time
+    // it's actually called (already happened in the tests above), which
+    // would silently shadow a prototype-level spy from here on and make
+    // this throw path untestable.
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new DOMException('blocked', 'SecurityError');
     });
     try {
       expect(() => setPlaygroundKey('sk-abc', true)).not.toThrow();
       expect(playgroundKeyStore.state.apiKey).toBe('sk-abc');
+      // remember:true asked for persistence, but the write actually failed —
+      // persisted must reflect what happened, not the caller's intent, or
+      // the UI would tell a visitor their key is "saved on this device" when
+      // it never touched storage.
+      expect(playgroundKeyStore.state.persisted).toBe(false);
     } finally {
       spy.mockRestore();
     }
@@ -65,7 +84,12 @@ describe('playgroundKeyStore', () => {
 
   it('clearPlaygroundKey still clears state when localStorage.removeItem throws', () => {
     setPlaygroundKey('sk-abc', true);
-    const spy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+    // Spies on the instance, not Storage.prototype: happy-dom lazily
+    // memoizes an own `removeItem` property on `localStorage` the first
+    // time it's actually called (already happened above, and in any test
+    // that ran earlier in this file), which would silently shadow a
+    // prototype-level spy from here on.
+    const spy = vi.spyOn(localStorage, 'removeItem').mockImplementation(() => {
       throw new DOMException('blocked', 'SecurityError');
     });
     try {
@@ -73,6 +97,24 @@ describe('playgroundKeyStore', () => {
       expect(playgroundKeyStore.state.apiKey).toBeNull();
     } finally {
       spy.mockRestore();
+    }
+  });
+});
+
+describe('module init when localStorage already holds a key', () => {
+  it('starts with persisted:true for a key that was already in localStorage at import time', async () => {
+    // The returning-visitor path (the flip side of the throw/blocked case
+    // above): a key that was genuinely persisted on a previous visit must
+    // read back as persisted, or the drawer would wrongly tell a returning
+    // visitor their key is session-only.
+    localStorage.setItem(STORAGE_KEY, 'sk-preexisting');
+    vi.resetModules();
+    try {
+      const fresh = await import('./playground-key-store');
+      expect(fresh.playgroundKeyStore.state.apiKey).toBe('sk-preexisting');
+      expect(fresh.playgroundKeyStore.state.persisted).toBe(true);
+    } finally {
+      vi.resetModules();
     }
   });
 });

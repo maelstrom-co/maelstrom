@@ -35,6 +35,7 @@ export function KeyDrawer({
   const [apiKey, setApiKey] = useState('');
   const [remember, setRemember] = useState(false);
   const storedKey = useStore(playgroundKeyStore, (state) => state.apiKey);
+  const keyPersisted = useStore(playgroundKeyStore, (state) => state.persisted);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const trimmedApiKey = apiKey.trim();
@@ -114,7 +115,13 @@ export function KeyDrawer({
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder={storedKey ? 'saved on this device' : 'sk-...'}
+          placeholder={
+            storedKey
+              ? keyPersisted
+                ? 'saved on this device'
+                : 'set for this session'
+              : 'sk-...'
+          }
           autoComplete="off"
           aria-describedby={isTooShort ? 'playground-api-key-hint' : undefined}
           className="mt-1 w-full rounded-md border px-3 py-2 text-sm text-ink"

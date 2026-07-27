@@ -213,7 +213,7 @@ describe('createDemoConnector', () => {
       const restore = installFakeWebSocket();
       try {
         const connector = createDemoConnector({
-          sessionId: 'session-1',
+          sessionId: SessionId('session-1'),
           getApiKey: () => null,
         });
         const connectPromise = connector.connect(SessionId('session-1'));

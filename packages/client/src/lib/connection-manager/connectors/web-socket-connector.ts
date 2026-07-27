@@ -109,6 +109,14 @@ export class WebSocketConnector implements EngineConnector {
   };
 
   #ws: WebSocket | null = null;
+  // Identifies the socket a close event is allowed to act on. Unlike `#ws`
+  // (which `disconnect()` nulls immediately, before the browser's close
+  // event for that same socket has actually fired), this is only ever
+  // reassigned by `connect()` -- so `disconnect()`'s own close event is
+  // still recognized as live and reaches subscribers, while a *replaced*
+  // socket's belated close (the StrictMode double-mount case below) is
+  // still correctly ignored.
+  #liveSocket: WebSocket | null = null;
   #sessionId: SessionId | null = null;
   #correlator = new RequestCorrelator();
   // Separate correlator so getHistory replies (typed as SessionHistoryEntry[]) cannot
@@ -151,6 +159,7 @@ export class WebSocketConnector implements EngineConnector {
     return new Promise((resolve, reject) => {
       try {
         this.#ws = new WebSocket(this.#url);
+        this.#liveSocket = this.#ws;
 
         const timeoutId = setTimeout(() => {
           cleanup();
@@ -217,7 +226,13 @@ export class WebSocketConnector implements EngineConnector {
     this.#correlator.rejectAll(disconnected);
     this.#historyCorrelator.rejectAll(disconnected);
     if (this.#ws) {
-      this.#ws.close();
+      // Explicit 1000, not a bare close(): closing without a status code
+      // sends an empty close frame, and the resulting close event reports
+      // 1005 ("no status received"). Now that this socket's own close
+      // reaches subscribers, that would surface an intentional disconnect
+      // as `clean: false` — the shape reserved for a connection that died
+      // on its own, and the one auto-reconnect keys off.
+      this.#ws.close(1000);
       this.#ws = null;
     }
   }
@@ -347,11 +362,15 @@ export class WebSocketConnector implements EngineConnector {
     };
 
     socket.onclose = (event) => {
-      // Ignore a close event from a socket that is no longer live — without
-      // this, a superseded socket's delayed close would clear the live
-      // socket's heartbeat, reject the live socket's pending requests, and
-      // emit a spurious `disconnected` that drives an unnecessary reconnect.
-      if (socket !== this.#ws) return;
+      // Ignore a close event from a socket a later connect() has already
+      // replaced — without this, a superseded socket's delayed close would
+      // clear the live socket's heartbeat, reject the live socket's pending
+      // requests, and emit a spurious `disconnected` that drives an
+      // unnecessary reconnect. Checked against `#liveSocket`, not `#ws`:
+      // `disconnect()` nulls `#ws` synchronously, before this socket's own
+      // close event fires, so comparing against `#ws` here would also
+      // swallow every intentional disconnect's `disconnected` notification.
+      if (socket !== this.#liveSocket) return;
 
       // An unexpected close leaves ConnectionManager's auto-reconnect
       // pending; stop here so the timer doesn't keep firing sends at a

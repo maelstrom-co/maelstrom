@@ -26,7 +26,18 @@ export type ConnectionManagerEvents = {
   };
   connection_attempt: { attempt: number; maxAttempts: number };
   connection_error: { error: Error; attempt: number };
-  circuit_opened: { resetAfterMs: number };
+  /**
+   * The breaker opened. `resetAfterMs` is when the half-open probe is due —
+   * unless `terminal` is true, in which case no probe is scheduled and
+   * `resetAfterMs` is not honoured.
+   *
+   * `terminal` means the server refused this client outright (a
+   * `retryable: false` disconnect, e.g. RFC 6455 close code 1008), so
+   * reconnecting on the same session cannot succeed and would only add load.
+   * Recovery there is an explicit user action — typically a reload, which
+   * mints a fresh session — not a timer.
+   */
+  circuit_opened: { resetAfterMs: number; terminal?: boolean };
   circuit_closed: Record<string, never>;
   circuit_half_open: Record<string, never>;
 };
@@ -265,10 +276,18 @@ export class ConnectionManager {
             // The connector has already determined retrying is pointless
             // (e.g. RFC 6455 close code 1008 — the server is rejecting this
             // client outright). Skip the retry budget entirely and open the
-            // circuit breaker immediately so the caller sees a terminal
-            // state instead of a silent reconnect loop.
+            // breaker permanently.
+            //
+            // Deliberately does NOT schedule a reset: that would arm the
+            // half-open probe, and a probe here reconnects into the same
+            // refusal — re-sending the handshake against a server that just
+            // said "do not come back", getting closed again, reopening, and
+            // probing again forever. A slow loop is still a loop, and it is
+            // exactly the load the refusal exists to shed. The other open
+            // paths (retry budget exhausted, probe failed) DO schedule one,
+            // because those close for reasons that clear on their own.
             this.#logger.warn(
-              'Non-retryable disconnect, opening circuit breaker',
+              'Non-retryable disconnect, opening circuit breaker permanently',
               event.message,
             );
             this.#setConnectionStatus('error');
@@ -279,8 +298,8 @@ export class ConnectionManager {
             }));
             this.#emitter.emit('circuit_opened', {
               resetAfterMs: this.#options.circuitBreakerTimeoutMs,
+              terminal: true,
             });
-            this.#scheduleCircuitBreakerReset();
             break;
           }
 

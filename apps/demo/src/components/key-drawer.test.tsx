@@ -116,6 +116,20 @@ describe('KeyDrawer', () => {
     expect(input.placeholder).toBe('saved on this device');
   });
 
+  it('does not claim a session-only key is "saved on this device", since it was never written to localStorage', () => {
+    // Same class of custody-copy bug this drawer's other text was already
+    // fixed for: a visitor who declined "Remember on this device" has a key
+    // in memory only, and telling them it's "saved on this device" misstates
+    // where it actually lives.
+    setPlaygroundKey('sk-session-only', false);
+    render(<KeyDrawer isOpen onClose={() => {}} onSave={() => {}} />);
+
+    const input = screen.getByLabelText(/api key/i) as HTMLInputElement;
+    expect(input.value).toBe('');
+    expect(input.placeholder).not.toBe('saved on this device');
+    expect(input.placeholder).toBe('set for this session');
+  });
+
   it('does not retain the typed key across a save/reopen cycle', () => {
     const onSave = vi.fn();
     const { rerender } = render(

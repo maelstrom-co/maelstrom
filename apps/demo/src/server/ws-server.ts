@@ -292,9 +292,10 @@ export function createWebSocketHandlers(
       }
 
       if (!engine) {
-        // Mirrors the engine-null branch: decode enough of the client
-        // envelope to reply with a correlated error instead of silently
-        // dropping the frame.
+        // No engine to dispatch this frame to, so it can't go through
+        // handleEnvelope below -- decode raw here too, so the reply is still
+        // correlated (requestId/sessionId recovered) instead of the frame
+        // being dropped silently.
         const decoded = decodeClientEnvelope(raw);
         const error = hosted
           ? 'session engine unavailable'

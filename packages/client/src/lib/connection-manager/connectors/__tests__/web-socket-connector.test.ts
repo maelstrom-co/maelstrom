@@ -15,6 +15,7 @@ import {
   type SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
+import FakeTimers from '@sinonjs/fake-timers';
 
 import type { ConnectorEvent } from '../../connector.types.js';
 import { WireEngineError } from '../../connector.types.js';
@@ -667,6 +668,21 @@ describe('WebSocketConnector heartbeatIntervalMs validation', () => {
 });
 
 describe('WebSocketConnector heartbeat', () => {
+  // Real setTimeout-based waits here would race the heartbeat interval under
+  // CI load (a slow tick could easily fall short of 2 pings in 35ms). Fake
+  // timers make the elapsed time exact regardless of how the host machine is
+  // scheduling this process, mirroring connection-manager.test.ts's own
+  // FakeTimers usage.
+  let clock: ReturnType<typeof FakeTimers.install>;
+
+  beforeEach(() => {
+    clock = FakeTimers.install({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    clock.uninstall();
+  });
+
   test('sends a frame every heartbeatIntervalMs while connected', async () => {
     const connector = new WebSocketConnector({
       url: 'ws://test',
@@ -674,7 +690,7 @@ describe('WebSocketConnector heartbeat', () => {
     });
     const ws = await connectAndOpen(connector);
 
-    await new Promise((resolve) => setTimeout(resolve, 35));
+    await clock.tickAsync(35);
     await connector.disconnect();
 
     const heartbeats = ws.sent.filter(
@@ -691,7 +707,7 @@ describe('WebSocketConnector heartbeat', () => {
     const ws = await connectAndOpen(connector);
     await connector.disconnect();
     const countAtDisconnect = ws.sent.length;
-    await new Promise((resolve) => setTimeout(resolve, 35));
+    await clock.tickAsync(35);
     expect(ws.sent.length).toBe(countAtDisconnect);
   });
 
@@ -765,6 +781,21 @@ describe('WebSocketConnector heartbeat', () => {
 });
 
 describe('WebSocketConnector heartbeat liveness', () => {
+  // The 45ms/60ms budgets below are tight enough relative to the 10ms/2ms
+  // intervals involved that a real timer would flake under CI load — a
+  // single delayed tick either side is enough to send one ping too few/many
+  // or miss the OPEN/CLOSED window entirely. Fake timers make every
+  // interval fire at the exact virtual millisecond it's scheduled for.
+  let clock: ReturnType<typeof FakeTimers.install>;
+
+  beforeEach(() => {
+    clock = FakeTimers.install({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    clock.uninstall();
+  });
+
   test('closes the socket after consecutive pings go unanswered (half-open tunnel detection)', async () => {
     const connector = new WebSocketConnector({
       url: 'ws://test',
@@ -777,7 +808,7 @@ describe('WebSocketConnector heartbeat liveness', () => {
     // browser (a Cloudflare edge drop, a vanished container). readyState
     // stays OPEN and no onclose fires on its own, so nothing but an active
     // liveness check can notice.
-    await new Promise((resolve) => setTimeout(resolve, 45));
+    await clock.tickAsync(45);
 
     expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
 
@@ -811,7 +842,7 @@ describe('WebSocketConnector heartbeat liveness', () => {
       }
     }, 2);
 
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await clock.tickAsync(60);
     clearInterval(responder);
 
     expect(ws.readyState).toBe(FakeWebSocket.OPEN);
@@ -826,58 +857,68 @@ describe('WebSocketConnector heartbeat liveness', () => {
 
 describe('WebSocketConnector superseded-socket close guard', () => {
   test('a close event from a socket the connector has already replaced does not stop the live socket heartbeat or reject its pending requests', async () => {
-    const connector = new WebSocketConnector({
-      url: 'ws://test',
-      heartbeatIntervalMs: 10,
-    });
+    // Fake timers here (rather than the real 25ms wait this used to run):
+    // that budget is only 2.5x the 10ms heartbeat interval, tight enough to
+    // occasionally send zero pings under CI load and fail the
+    // toBeGreaterThanOrEqual(1) assertion below for a reason that has
+    // nothing to do with the guard this test exists to cover.
+    const clock = FakeTimers.install({ shouldAdvanceTime: true });
+    try {
+      const connector = new WebSocketConnector({
+        url: 'ws://test',
+        heartbeatIntervalMs: 10,
+      });
 
-    // First connect — models the socket a disposed Orchestrator instance
-    // leaves behind (e.g. React StrictMode's dev double-mount sharing a
-    // memoized connector between a disposed and replacement instance).
-    const staleConnectPromise = connector.connect(SessionId('session-1'));
-    await Promise.resolve();
-    const staleWs = FakeWebSocket.instances.at(-1);
-    if (!staleWs) throw new Error('stale FakeWebSocket was not constructed');
-    staleWs.emitOpen();
-    await staleConnectPromise;
+      // First connect — models the socket a disposed Orchestrator instance
+      // leaves behind (e.g. React StrictMode's dev double-mount sharing a
+      // memoized connector between a disposed and replacement instance).
+      const staleConnectPromise = connector.connect(SessionId('session-1'));
+      await Promise.resolve();
+      const staleWs = FakeWebSocket.instances.at(-1);
+      if (!staleWs) throw new Error('stale FakeWebSocket was not constructed');
+      staleWs.emitOpen();
+      await staleConnectPromise;
 
-    // A second connect on the SAME connector, without disconnecting first —
-    // `this.#ws` now points at the live socket, but the stale socket's
-    // onclose handler (closed over `staleWs`, not read back through
-    // `this.#ws`) is still registered.
-    const liveWs = await connectAndOpen(connector);
+      // A second connect on the SAME connector, without disconnecting first —
+      // `this.#ws` now points at the live socket, but the stale socket's
+      // onclose handler (closed over `staleWs`, not read back through
+      // `this.#ws`) is still registered.
+      const liveWs = await connectAndOpen(connector);
 
-    const events: ConnectorEvent[] = [];
-    connector.subscribe((e) => events.push(e));
+      const events: ConnectorEvent[] = [];
+      connector.subscribe((e) => events.push(e));
 
-    const envelope = buildEnvelope(MessageId('live-pending'));
-    const pending = connector.process(envelope);
+      const envelope = buildEnvelope(MessageId('live-pending'));
+      const pending = connector.process(envelope);
 
-    // The superseded socket's close event arrives late.
-    staleWs.emitClose(1006, '');
+      // The superseded socket's close event arrives late.
+      staleWs.emitClose(1006, '');
 
-    expect(events).toHaveLength(0);
+      expect(events).toHaveLength(0);
 
-    // The live socket's heartbeat must still be running — a superseded
-    // socket's close must not be able to clear it.
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    const heartbeats = liveWs.sent.filter(
-      (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
-    );
-    expect(heartbeats.length).toBeGreaterThanOrEqual(1);
+      // The live socket's heartbeat must still be running — a superseded
+      // socket's close must not be able to clear it.
+      await clock.tickAsync(25);
+      const heartbeats = liveWs.sent.filter(
+        (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
+      );
+      expect(heartbeats.length).toBeGreaterThanOrEqual(1);
 
-    // The live socket's pending request must not have been rejected either.
-    emitServer(
-      liveWs,
-      MaelstromResponseMessage({
-        requestId: envelope.id,
-        response: buildResponse(envelope.id, { userMessage: 'still alive' }),
-      }),
-    );
-    const response = await pending;
-    expect(response.userMessage).toBe('still alive');
+      // The live socket's pending request must not have been rejected either.
+      emitServer(
+        liveWs,
+        MaelstromResponseMessage({
+          requestId: envelope.id,
+          response: buildResponse(envelope.id, { userMessage: 'still alive' }),
+        }),
+      );
+      const response = await pending;
+      expect(response.userMessage).toBe('still alive');
 
-    await connector.disconnect();
+      await connector.disconnect();
+    } finally {
+      clock.uninstall();
+    }
   });
 });
 
@@ -931,6 +972,37 @@ describe('WebSocketConnector disconnected retryable flag', () => {
     expect(
       (events[0] as { retryable?: boolean }).retryable,
     ).toBeUndefined();
+  });
+});
+
+describe('WebSocketConnector disconnect() close notification', () => {
+  test('a belated close event from disconnect()\'s own socket still reaches subscribers as a clean disconnect', async () => {
+    // Regression coverage for a stale-close guard that compared against
+    // `#ws` identity: disconnect() nulls `#ws` synchronously, before the
+    // browser's real close event for that same socket fires, so comparing
+    // against `#ws` swallowed every manual disconnect's notification too —
+    // not just a genuinely superseded socket's belated close (the case the
+    // "superseded-socket close guard" suite above covers).
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const events: ConnectorEvent[] = [];
+    connector.subscribe((e) => events.push(e));
+
+    await connector.disconnect();
+    // `clean: true` below is only meaningful if disconnect() actually asks
+    // for 1000: a bare close() would have the browser report 1005, and this
+    // test would be asserting a clean disconnect that production never
+    // produces. emitClose() fabricates whatever code it's given, so the
+    // request has to be checked separately from the reply.
+    expect(ws.closeCodes).toEqual([1000]);
+    // The real WebSocket API fires `close` asynchronously after `.close()`
+    // is called — FakeWebSocket mirrors that gap by requiring an explicit
+    // emitClose() rather than firing it inside close() itself.
+    ws.emitClose(1000, 'client disconnect');
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'disconnected', clean: true });
   });
 });
 

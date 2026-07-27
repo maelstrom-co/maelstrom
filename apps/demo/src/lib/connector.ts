@@ -20,7 +20,7 @@ export interface CreateDemoConnectorOptions {
    * used a different id could send a reconnect to a shard that has never
    * seen the session. Omitted in local mode, where nothing shards.
    */
-  readonly sessionId?: string;
+  readonly sessionId?: SessionId;
 }
 
 /**

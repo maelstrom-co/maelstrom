@@ -452,34 +452,45 @@ describe('ConnectionManager', () => {
       });
 
       await manager.connect();
-      let circuitOpened = false;
-      manager.events.on('circuit_opened', () => {
-        circuitOpened = true;
+      const openedPayloads: Array<{ resetAfterMs: number; terminal?: boolean }> = [];
+      manager.events.on('circuit_opened', (e) => {
+        openedPayloads.push(e);
+      });
+      let halfOpened = false;
+      manager.events.on('circuit_half_open', () => {
+        halfOpened = true;
       });
 
       mockConnector.connect = mock(() => Promise.resolve());
 
-      // A close code 1008 ("session evicted", "policy violation", etc.) —
-      // WebSocketConnector reports this as retryable: false. Reconnecting
-      // with the same session would just be rejected again.
+      // A close code 1008 (capacity refusal) — WebSocketConnector reports
+      // this as retryable: false. Reconnecting with the same session is
+      // refused again, so nothing may retry on the visitor's behalf.
       mockConnector.triggerEvent({
         type: 'disconnected',
         clean: false,
         retryable: false,
-        message: 'session evicted',
+        message: 'Playground is at capacity — reload to start a new session.',
       });
 
-      // No reconnect attempt should even be scheduled — advancing the clock
-      // past every backoff interval (but short of circuitBreakerTimeoutMs,
-      // which would transition the breaker to half_open on its own) must not
-      // produce a connect() call.
-      await clock.tickAsync(500);
+      // Well PAST circuitBreakerTimeoutMs, not short of it. The breaker now
+      // drives its own half-open probe, so stopping before the timeout would
+      // test nothing: a probe fired here would reconnect into the same
+      // refusal and loop forever at one attempt per timeout window. Terminal
+      // has to mean terminal even after the window elapses.
+      await clock.tickAsync(5000 * 4);
 
       expect(mockConnector.connect).not.toHaveBeenCalled();
+      expect(halfOpened).toBe(false);
       expect(manager.store.state.circuitBreakerStatus).toBe('open');
       expect(manager.store.state.connectionStatus).toBe('error');
-      expect(manager.store.state.connectionError?.message).toBe('session evicted');
-      expect(circuitOpened).toBe(true);
+      expect(manager.store.state.connectionError?.message).toBe(
+        'Playground is at capacity — reload to start a new session.',
+      );
+      expect(openedPayloads).toHaveLength(1);
+      // Flagged so a consumer can tell "will recover on a timer" from "needs
+      // a reload" without waiting out a reset that never comes.
+      expect(openedPayloads[0]?.terminal).toBe(true);
     });
 
     it('should pass the same sessionId to connector.connect() on auto-reconnect', async () => {

@@ -1,3 +1,4 @@
+import { DEFAULT_HEARTBEAT_INTERVAL_MS } from '@maelstrom-co/client';
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
@@ -28,10 +29,9 @@ const MINIMAL_CHART_REQUEST: ChartRequest = {
   layout: { type: 'grid', positions: [] },
 };
 
-// Matches ws-server.ts's production HEARTBEAT_INTERVAL_MS, so the liveness
-// window below (2x) matches what actually runs.
-const HEARTBEAT_INTERVAL_MS = 30_000;
-const LIVENESS_WINDOW_MS = HEARTBEAT_INTERVAL_MS * 2;
+// ws-server.ts's production heartbeatIntervalMs is this same constant, so
+// the liveness window below (2x) matches what actually runs.
+const LIVENESS_WINDOW_MS = DEFAULT_HEARTBEAT_INTERVAL_MS * 2;
 
 function makeManager(
   overrides: Partial<{ maxSessions: number; idleTtlMs: number; heartbeatIntervalMs: number }> = {},
@@ -39,7 +39,7 @@ function makeManager(
   return new SessionEngineManager({
     maxSessions: overrides.maxSessions ?? 50,
     idleTtlMs: overrides.idleTtlMs ?? 30 * 60 * 1000,
-    heartbeatIntervalMs: overrides.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
+    heartbeatIntervalMs: overrides.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
     systemRules: 'test rules',
     createAdapter: () => fakeAdapter,
   });
@@ -200,7 +200,7 @@ describe('SessionEngineManager', () => {
     const throwingManager = new SessionEngineManager({
       maxSessions: 50,
       idleTtlMs: 30 * 60 * 1000,
-      heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
+      heartbeatIntervalMs: DEFAULT_HEARTBEAT_INTERVAL_MS,
       systemRules: 'test rules',
       createAdapter: () => {
         throw new Error('boom with key sk-secret-should-never-appear-anywhere');
@@ -255,7 +255,7 @@ describe('SessionEngineManager', () => {
     manager = new SessionEngineManager({
       maxSessions: 50,
       idleTtlMs: 30 * 60 * 1000,
-      heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
+      heartbeatIntervalMs: DEFAULT_HEARTBEAT_INTERVAL_MS,
       systemRules: 'test rules',
       createAdapter: () => throwingAdapter,
     });

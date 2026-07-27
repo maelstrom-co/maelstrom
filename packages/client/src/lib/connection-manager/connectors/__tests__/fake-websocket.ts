@@ -24,6 +24,15 @@ export class FakeWebSocket {
   /** Captures every JSON / binary frame sent via `.send()`. */
   readonly sent: unknown[] = [];
 
+  /**
+   * Status code passed to each `.close(code)` call, `undefined` for a bare
+   * `close()`. Lets a test assert the code the connector actually requested
+   * instead of only the code the test itself hands back via `emitClose()` —
+   * the two are independent, and a fabricated close code proves nothing
+   * about what the browser would have reported.
+   */
+  readonly closeCodes: (number | undefined)[] = [];
+
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onclose: ((event: { code: number; reason: string }) => void) | null = null;
   onerror: (() => void) | null = null;
@@ -61,7 +70,8 @@ export class FakeWebSocket {
     this.sent.push(data);
   }
 
-  close(): void {
+  close(code?: number): void {
+    this.closeCodes.push(code);
     this.readyState = FakeWebSocket.CLOSED;
   }
 
