@@ -5,6 +5,13 @@ name: Release
 # workflow does the publish. That split is what makes provenance possible —
 # an attestation is only worth something if the build it describes ran
 # somewhere auditable.
+#
+# The workflow is split again internally, for a different reason. `prepare`
+# installs dependencies and builds; `publish` holds the npm OIDC identity.
+# Neither job does both. A lifecycle script in the dependency tree, or a
+# compromised build plugin, runs in a job that has no identity to steal, and
+# the job that has one runs nothing but `npm publish` against tarballs that
+# were already packed.
 on:
   push:
     tags:
@@ -21,25 +28,39 @@ on:
         default: true
         type: boolean
 
+# Deliberately not `id-token: write` at the workflow level: that would grant the
+# OIDC capability to every job, including the one that installs dependencies.
+# Only `publish` asks for it.
 permissions:
   contents: read
-  id-token: write # npm provenance; also the OIDC token for trusted publishing
+
+concurrency:
+  # One run per tag, and never cancel a publish mid-flight: a half-published
+  # release has to be finished, not restarted from scratch. Declared at the
+  # workflow level so `prepare` and `publish` share one lock rather than
+  # racing a second run's prepare against this run's publish.
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Pinned, not `latest`. This runs in the job that builds the artifacts the
+  # publish job uploads, so a mutable toolchain release is an unreviewed input
+  # to a release.
+  BUN_VERSION: '1.3.7'
+  NODE_VERSION: '24'
+  TARBALL_DIR: dist/tarballs
 
 jobs:
-  release:
-    name: Publish to npm
+  prepare:
+    name: Build and pack
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # A tag push publishes to public npm with no human in the loop. Naming an
-    # environment gives that an attachment point for required reviewers and
-    # wait timers; GitHub creates it on first run, and it carries no protection
-    # until one is configured in repository settings.
-    environment: production
-    concurrency:
-      # One run per tag, and never cancel a publish mid-flight: a half-published
-      # release has to be finished, not restarted from scratch.
-      group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag || github.ref }}
-      cancel-in-progress: false
+    # No `environment:` here. Approval belongs on the job that publishes; put
+    # it here and a reviewer would be waved through before anything is built.
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      dist_tag: ${{ steps.meta.outputs.dist_tag }}
+      dry_run: ${{ steps.meta.outputs.dry_run }}
     steps:
       # Resolved as an expression rather than a script because it decides what
       # to check out — nothing from the repo is available yet. A tag push is
@@ -56,27 +77,38 @@ jobs:
           # read the Actions token out of .git/config.
           persist-credentials: false
 
+      # A tag can be pushed to any commit, including one that never went
+      # through review. Checking ancestry here means a release can only ever
+      # describe a tree that reached the protected branch — the workflow's own
+      # backstop, independent of whether protected-tag rules are configured.
+      - name: Assert the release commit is on main
+        if: github.event_name == 'push' || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: main
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${BASE_BRANCH}...${sha}" --jq .status)"
+          case "$status" in
+            identical|behind)
+              echo "Release commit $sha is reachable from $BASE_BRANCH."
+              ;;
+            *)
+              echo "::error::Release commit $sha is not reachable from $BASE_BRANCH (compare status: $status). Refusing to publish an unmerged tree."
+              exit 1
+              ;;
+          esac
+
       - name: Setup Node
-        # Deliberately no registry-url. With it, setup-node writes an .npmrc
-        # carrying `_authToken=${NODE_AUTH_TOKEN}`; with no token in this
-        # tokenless flow that expands to an empty credential, which has been
-        # observed to stop npm from falling through to the OIDC exchange.
-        # npm's own example does pass registry-url, so this is contested — but
-        # the registry is already pinned explicitly by publishConfig and the
-        # publish script's --registry, so omitting it costs nothing and is the
-        # safe choice under either reading.
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # Matches .nvmrc and `engines`. Node 24 also bundles npm 11, clearing
-          # the >= 11.5.1 that OIDC trusted publishing needs — on Node 22 this
-          # step had to be followed by a global npm upgrade, which meant
-          # fetching an unpinned npm into the one job that can publish.
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -105,6 +137,75 @@ jobs:
       - name: Build packages
         run: bunx nx run-many -t build --projects='packages/*'
 
+      # Pack rather than publish: the tarball is the handoff. `packed.json`
+      # travels with it so the publish job knows what it is holding without
+      # booting a project graph it has no dependencies for.
+      - name: Pack packages
+        run: bun scripts/publish-packages.ts --pack-to "$TARBALL_DIR"
+
+      - name: Upload tarballs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-tarballs
+          path: ${{ env.TARBALL_DIR }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to npm
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # npm provenance; also the OIDC token for trusted publishing
+    # A tag push publishes to public npm with no human in the loop. Naming an
+    # environment gives that an attachment point for required reviewers and
+    # wait timers; GitHub creates it on first run, and it carries no protection
+    # until one is configured in repository settings.
+    environment: production
+    steps:
+      # Source is checked out for the publish scripts only. Nothing is
+      # installed and nothing is built here — that is the entire reason this
+      # job is separate from `prepare`.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '') && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          filter: tree:0
+          persist-credentials: false
+
+      - name: Setup Node
+        # Deliberately no registry-url. With it, setup-node writes an .npmrc
+        # carrying `_authToken=${NODE_AUTH_TOKEN}`; with no token in this
+        # tokenless flow that expands to an empty credential, which has been
+        # observed to stop npm from falling through to the OIDC exchange.
+        # npm's own example does pass registry-url, so this is contested — but
+        # the registry is already pinned explicitly by publishConfig and the
+        # publish script's --registry, so omitting it costs nothing and is the
+        # safe choice under either reading.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # Matches .nvmrc and `engines`. Node 24 also bundles npm 11, clearing
+          # the >= 11.5.1 that OIDC trusted publishing needs — on Node 22 this
+          # step had to be followed by a global npm upgrade, which meant
+          # fetching an unpinned npm into the one job that can publish.
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Bun
+        # Only to run the publish scripts. `bun install` is never called in
+        # this job, so no dependency lifecycle script executes next to the
+        # OIDC token.
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Download tarballs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-tarballs
+          path: ${{ env.TARBALL_DIR }}
+
       - name: Warn that provenance is unavailable
         if: github.event.repository.visibility != 'public'
         env:
@@ -127,11 +228,12 @@ jobs:
         # provenance on its own for public repos, so the flag is belt and
         # braces — and it turns itself on when this repo goes public.
         env:
-          DIST_TAG: ${{ steps.meta.outputs.dist_tag }}
+          DIST_TAG: ${{ needs.prepare.outputs.dist_tag }}
           PROVENANCE: ${{ github.event.repository.visibility == 'public' && '--provenance' || '' }}
-          DRY_RUN: ${{ steps.meta.outputs.dry_run == 'true' && '--dry-run' || '' }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run == 'true' && '--dry-run' || '' }}
         run: >-
-          bun scripts/publish-packages.ts
+          bun scripts/publish-tarballs.ts
+          --dir "$TARBALL_DIR"
           --tag "$DIST_TAG"
           --skip-published
           $PROVENANCE
@@ -140,7 +242,7 @@ jobs:
       - name: Verify packages are live
         # A green publish step is not proof the registry serves the packages.
         # Confirm every one, so a partial publish fails loudly.
-        if: steps.meta.outputs.dry_run != 'true'
+        if: needs.prepare.outputs.dry_run != 'true'
         env:
-          VERSION: ${{ steps.meta.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: bun scripts/verify-published.ts --version "$VERSION"

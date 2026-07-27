@@ -1,8 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createProjectGraphAsync } from 'nx/src/project-graph/project-graph';
+import {
+  PACKED_MANIFEST_FILENAME,
+  type PackedPackage,
+} from './lib/packed-manifest.ts';
+import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
 import { listWorkspacePackages } from './lib/workspace-packages.ts';
 
 // `workspace:*` and `catalog:` are Bun/pnpm-only protocols. npm doesn't
@@ -136,6 +141,12 @@ export type PublishOptions = {
   verbose?: boolean;
   provenance?: boolean;
   skipPublished?: boolean;
+  /**
+   * Pack tarballs into this directory instead of publishing. Used by the
+   * release workflow's prepare job, which builds without an npm identity and
+   * hands the artifacts to a publish job that has one.
+   */
+  packTo?: string;
 };
 
 export type PublishResult = {
@@ -148,56 +159,30 @@ export type PublishResult = {
   succeeded: string[];
   skipped: string[];
   dryRun: boolean;
+  /** Tarballs written under `packTo`; empty unless packing. */
+  packed: PackedPackage[];
 };
 
-// A version already on the registry is immutable, so re-publishing it is a
-// hard error rather than a no-op. Treating "already there" as success is what
-// makes a re-run after a partial publish able to finish the remaining
-// packages instead of dying on the first one that succeeded last time.
-//
-// Only a genuine "not found" answers the question. Any other failure — DNS,
-// a proxy, a bad registry URL — means we do not know, and guessing "not
-// published" would turn a network blip into a spurious publish attempt that
-// then fails on immutability, which is precisely the resilience
-// `--skip-published` exists to provide.
-function isAlreadyPublished(
-  name: string,
-  version: string,
-  registry: string,
-): boolean {
-  try {
-    // execFileSync, never a shell string: `version` derives from a git tag or
-    // a workflow_dispatch input, so interpolating it into a command line would
-    // let anyone who can push a tag run arbitrary code in the release job —
-    // which holds an OIDC identity that can publish to npm.
-    execFileSync(
-      'npm',
-      [
-        'view',
-        `${name}@${version}`,
-        'version',
-        '--registry',
-        registry,
-        '--json',
-        // One retry, not npm's default three. The default backoff costs ~70s
-        // per unreachable lookup, which across every package outruns the job
-        // timeout — turning a dead registry into a build that hangs rather
-        // than one that reports. A single retry still absorbs a blip.
-        '--fetch-retries=1',
-      ],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-    return true;
-  } catch (err) {
-    const stderr = String(
-      (err as { stderr?: Buffer | string })?.stderr ?? '',
-    );
-    if (/E404|404 Not Found|code E404/.test(stderr)) return false;
-    throw new Error(
-      `${name}: could not determine whether ${version} is already published on ${registry}. ` +
-        `Refusing to guess.\n${stderr.trim()}`,
-    );
+// `npm pack --json` prints an array of pack reports; the filename is the only
+// reliable way to know what landed, since npm — not us — decides how a scoped
+// name and version become a tarball name.
+function packTarball(
+  packageDir: string,
+  destination: string,
+  verbose: boolean,
+): string {
+  const stdout = execFileSync(
+    'npm',
+    ['pack', '--pack-destination', destination, '--json'],
+    { cwd: packageDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  const reports = JSON.parse(stdout) as Array<{ filename?: string }>;
+  const filename = reports[0]?.filename;
+  if (!filename) {
+    throw new Error(`npm pack reported no tarball for ${packageDir}`);
   }
+  if (verbose) console.log(`  packed ${filename}`);
+  return filename;
 }
 
 export async function publishWorkspacePackages(
@@ -210,14 +195,18 @@ export async function publishWorkspacePackages(
     verbose = false,
     provenance = false,
     skipPublished = false,
+    packTo,
   } = options;
   const cwd = process.cwd();
+  const packDestination = packTo ? resolve(cwd, packTo) : undefined;
+  if (packDestination) mkdirSync(packDestination, { recursive: true });
 
   const ctx = buildSubstitutionContext(cwd);
   const projectGraph = await createProjectGraphAsync();
   const failures: string[] = [];
   const succeeded: string[] = [];
   const skipped: string[] = [];
+  const packed: PackedPackage[] = [];
 
   for (const node of Object.values(projectGraph.nodes)) {
     const projectRoot = node.data.root;
@@ -233,7 +222,9 @@ export async function publishWorkspacePackages(
       console.log(`Skipping ${pkgJson.name} (private).`);
       continue;
     }
-    if (skipPublished && !dryRun) {
+    // Packing answers a different question than publishing, so the
+    // already-published probe is the publish job's business, not this one's.
+    if (skipPublished && !dryRun && !packDestination) {
       let already: boolean;
       try {
         already = isAlreadyPublished(pkgJson.name, pkgJson.version, registry);
@@ -257,20 +248,34 @@ export async function publishWorkspacePackages(
     if (dryRun) args.push('--dry-run');
     if (provenance) args.push('--provenance');
     console.log(
-      `\n→ ${pkgJson.name}@${pkgJson.version} → ${registry} [tag=${tag}]${
-        provenance ? ' (provenance)' : ''
-      }${dryRun ? ' (dry-run)' : ''}`,
+      packDestination
+        ? `\n→ packing ${pkgJson.name}@${pkgJson.version}`
+        : `\n→ ${pkgJson.name}@${pkgJson.version} → ${registry} [tag=${tag}]${
+            provenance ? ' (provenance)' : ''
+          }${dryRun ? ' (dry-run)' : ''}`,
     );
     try {
       const transformed = substituteManifest(ctx, pkgJson);
       assertNoProtocolLiterals(transformed);
       writeFileSync(pkgJsonPath, `${JSON.stringify(transformed, null, 2)}\n`);
-      // No shell: `tag` comes from a git tag name, and a shell string here was
-      // a confirmed injection into a job that can publish to npm.
-      execFileSync('npm', args, {
-        cwd: join(cwd, projectRoot),
-        stdio: verbose ? 'inherit' : ['ignore', 'inherit', 'inherit'],
-      });
+      if (packDestination) {
+        packed.push({
+          name: pkgJson.name,
+          version: pkgJson.version,
+          tarball: packTarball(
+            join(cwd, projectRoot),
+            packDestination,
+            verbose,
+          ),
+        });
+      } else {
+        // No shell: `tag` comes from a git tag name, and a shell string here
+        // was a confirmed injection into a job that can publish to npm.
+        execFileSync('npm', args, {
+          cwd: join(cwd, projectRoot),
+          stdio: verbose ? 'inherit' : ['ignore', 'inherit', 'inherit'],
+        });
+      }
       succeeded.push(pkgJson.name);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith(`${pkgJson.name}: `)) {
@@ -282,7 +287,14 @@ export async function publishWorkspacePackages(
     }
   }
 
-  return { failures, succeeded, skipped, dryRun };
+  if (packDestination) {
+    writeFileSync(
+      join(packDestination, PACKED_MANIFEST_FILENAME),
+      `${JSON.stringify(packed, null, 2)}\n`,
+    );
+  }
+
+  return { failures, succeeded, skipped, dryRun, packed };
 }
 
 // CLI entrypoint. Invoked directly (e.g. by the PR-preview workflow) the
@@ -300,19 +312,20 @@ if (isDirectInvocation) {
       verbose: { type: 'boolean', default: false },
       provenance: { type: 'boolean', default: false },
       'skip-published': { type: 'boolean', default: false },
+      'pack-to': { type: 'string' },
     },
   });
 
-  const tag = values.tag;
+  const packTo = values['pack-to'];
+  // Packing never reaches a registry, so a tag would only be decoration —
+  // the publish job applies the dist-tag when it uploads the tarball.
+  const tag = values.tag ?? (packTo ? 'pack' : undefined);
   if (!tag) {
     console.error('Missing required --tag');
     process.exit(1);
   }
 
-  const registry =
-    values.registry ??
-    process.env.RELEASE_REGISTRY ??
-    'https://registry.npmjs.org';
+  const registry = resolveRegistry(values.registry);
 
   const { failures, succeeded, skipped, dryRun } =
     await publishWorkspacePackages({
@@ -322,27 +335,32 @@ if (isDirectInvocation) {
       verbose: values.verbose,
       provenance: values.provenance,
       skipPublished: values['skip-published'],
+      packTo,
     });
 
   // A dry run uploads nothing. Reporting "Published 10" for one invites
   // exactly the misreading that makes a rehearsal feel like a release.
-  const verb = dryRun ? 'Would publish' : 'Published';
+  const verb = packTo ? 'Packed' : dryRun ? 'Would publish' : 'Published';
   console.log(
     `\n${verb} ${succeeded.length}, skipped ${skipped.length}, failed ${failures.length}.`,
   );
 
   if (failures.length > 0) {
-    console.error(`\nPublish failed for: ${failures.join(', ')}`);
+    console.error(
+      `\n${packTo ? 'Pack' : 'Publish'} failed for: ${failures.join(', ')}`,
+    );
     // "A brand-new package cannot publish from CI" is a baffling failure
     // without this: npm refuses to configure a trusted publisher for a package
     // that does not exist yet, so the first version of each has to go out by
     // hand before CI can ever own it.
-    console.error(
-      'If this was an authentication error, check that every package above has a ' +
-        'trusted publisher on npmjs.org pointing at this repository and release.yml. ' +
-        'A package that has never been published cannot have one — see the bootstrap ' +
-        'procedure in CONTRIBUTING.md.',
-    );
+    if (!packTo) {
+      console.error(
+        'If this was an authentication error, check that every package above has a ' +
+          'trusted publisher on npmjs.org pointing at this repository and release.yml. ' +
+          'A package that has never been published cannot have one — see the bootstrap ' +
+          'procedure in CONTRIBUTING.md.',
+      );
+    }
     process.exit(1);
   }
 }
