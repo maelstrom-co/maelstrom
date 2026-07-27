@@ -91,8 +91,9 @@ const SAFELY_PAUSED_MISFIRE_CANCELLATION = Symbol(
  * from each final user transcript so a
  * cascaded pipeline drives the exact same {@link RealtimeSession} machinery
  * (speak-after-render, barge-in, sidechannel events) as the OpenAI realtime
- * adapter. The worker has no voice-side LLM; the Engine remains the only UI
- * planner.
+ * adapter. The companion worker has no LLM and receives no UI grounding. The
+ * synthesized intent still reaches the Maelstrom Engine, which remains the
+ * planning LLM.
  *
  * Browser VAD is automatic by default. Idle microphone audio remains local;
  * the upstream publication opens only for an accepted turn and is paused again
@@ -430,12 +431,13 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   /**
    * Relays a tool result back to the user as speech over the `speak` text
    * stream, where the worker synthesizes it via Cartesia and plays it into the
-   * room. With no model in this cascaded pipeline the adapter picks the words
-   * itself: for an `update_ui` result it voices the engine's `userMessage` when
-   * present, else the structural `summary`; a read-only snapshot (get_ui_state /
-   * get_capabilities) is serialized. Speak-after-render ordering is not this
-   * adapter's concern — {@link RealtimeSession} only calls this once the render
-   * has settled.
+   * room. The companion worker has no LLM and receives no UI grounding, so the
+   * adapter picks the words itself: for an `update_ui` result it voices the
+   * engine's `userMessage` when present, else the structural `summary`; a
+   * read-only snapshot (get_ui_state / get_capabilities) is serialized. The
+   * Maelstrom Engine remains the planning LLM. Speak-after-render ordering is
+   * not this adapter's concern — {@link RealtimeSession} only calls this once
+   * the render has settled.
    *
    * Emits `speaking` on hand-off but does NOT collapse back here: the worker
    * publishes a `tts_done` packet on {@link TTS_TOPIC} when playout actually
@@ -518,10 +520,12 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   }
 
   /**
-   * No-op in phase 1: grounding is ambient context injected into a model's
-   * session, and there is no model in this cascaded pipeline to inject into.
-   * It lands here (rather than being dropped by the session) only once a
-   * worker-side LLM exists to receive it.
+   * No-op in phase 1: the companion worker has no LLM and receives no UI
+   * grounding. The Maelstrom Engine remains the planning LLM, but receives its
+   * request-embedded planning context through the normal intent path rather
+   * than this provider hook. The worker's STT and TTS models continue to handle
+   * transcription and synthesis without consuming grounding. This hook becomes
+   * active only if a worker-side LLM is added to receive it.
    */
   injectGrounding(_text: string): void {
     // Intentionally empty — see JSDoc.
