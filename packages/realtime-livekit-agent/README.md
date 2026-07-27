@@ -1,21 +1,17 @@
 # @maelstrom-co/realtime-livekit-agent
 
-[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-livekit-agent.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-livekit-agent)
-[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
-
 Node LiveKit voice agent worker for the Maelstrom LiveKit adapter spike — a
 separate process that relays STT (Deepgram) into the room and synthesizes TTS
 (Cartesia) back out.
-
-📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
 - **STT:** user mic audio → Deepgram → transcript → client via publishTranscription.
 - **TTS:** client `speak` text stream (the tool-result summary) → Cartesia → published
   back as an audio track the client attaches and plays.
 
-No LLM in the agent — the Maelstrom engine remains the only orchestrator. The
-browser's `LiveKitAdapter` synthesizes an `update_ui` tool call from each
-transcript, and `RealtimeSession` drives it. Imports only
+The worker has no planning LLM and receives no UI grounding. The Maelstrom
+Engine remains the only planning model. The browser's `LiveKitAdapter`
+synthesizes an `update_ui` tool call from each transcript, and
+`RealtimeSession` drives it. The worker imports only
 `@maelstrom-co/realtime-livekit/protocol` (the shared wire constants), so no
 browser dependencies are pulled into the worker.
 
@@ -46,6 +42,12 @@ not by consumers of the published package, who can run the plain `node
 `defineMaelstromVoiceAgent()` returns the underlying LiveKit agent definition if
 you need to embed it in your own worker harness.
 
+Deploy this entry as a long-running process separate from the application
+server that mints browser room tokens. The worker runs only Deepgram STT and
+Cartesia TTS; it does not convert transcripts into UI plans. The commands and
+APIs in this README are scoped to the locked `@livekit/agents`, Deepgram plugin,
+and Cartesia plugin 1.4.8 releases.
+
 ## Secret-to-process mapping
 
 | Process | Reads | Why |
@@ -66,14 +68,20 @@ CARTESIA_API_KEY=<your key>
 
 `livekit-server --dev` uses the well-known insecure key/secret (`devkey`/`secret`).
 These defaults are pre-filled — only Deepgram (STT) and Cartesia (TTS) require real keys.
+The development server and repository demo token route are local-only examples;
+do not deploy either one as a production authentication boundary.
 
 ### Optional tuning
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `MAELSTROM_STT_DRAIN_TIMEOUT_MS` | `5000` | Provider-drain deadline (ms) after `endInput()`. Expiry closes the stalled Deepgram stream, drops audio received while no stream is writable, and installs a clean successor when the track is still active. |
+| `MAELSTROM_STT_FLUSH_TIMEOUT_MS` | `2000` | Fallback ceiling (ms) for emitting a push-to-talk turn when the flush-produced final never arrives (an empty tap). A turn normally emits the instant its flush-final lands, so this only bounds the empty-turn case. Must be a positive number — a non-numeric or non-positive value fails worker startup. |
 
-The timeout must be a positive number. A non-numeric or non-positive value
-fails worker startup. The provider drain is the sole production completion
-authority: successful iterator completion emits all buffered finals once;
-timeout or failure salvages finals already received, then resets ownership.
+## Docs
+
+- Production guide: https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/
+- Voice overview: https://docs.maelstrom-ai.co/guides/voice/overview/
+- API reference: https://docs.maelstrom-ai.co/reference/realtime-livekit-agent/readme/
+- Architecture: https://docs.maelstrom-ai.co/understanding/architecture/
+- LiveKit token generation: https://docs.livekit.io/home/server/generating-tokens/
+- LiveKit voice AI worker guide: https://docs.livekit.io/agents/start/voice-ai/

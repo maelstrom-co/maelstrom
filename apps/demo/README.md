@@ -36,6 +36,12 @@ as `bun run ...` under the LiveKit section run from `apps/demo/`.
 
 ## Run (LiveKit voice)
 
+This is the repository's development-only LiveKit checkpoint. It exercises the
+browser adapter and local worker, but its mint route is not a production token
+boundary. For deployment, follow the
+[LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/)
+after validating the local path.
+
 1. Install and run a LiveKit server in dev mode:
 
    ```bash
@@ -214,6 +220,7 @@ presenting hold-to-talk as a safe fallback.
 
 ## Further reading
 
+- [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) — browser integration first, then the production token and worker checkpoint
 - [`packages/realtime-livekit-agent/README.md`](../../packages/realtime-livekit-agent/README.md) — voice agent worker internals
 - [`packages/realtime-livekit/README.md`](../../packages/realtime-livekit/README.md) — adapter VAD configuration and asset deployment
 - [`packages/react-realtime/README.md`](../../packages/react-realtime/README.md) — `useVoice()` turn-mode state

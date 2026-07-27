@@ -1,11 +1,6 @@
 # @maelstrom-co/realtime
 
-[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime)
-[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
-
 Framework-agnostic realtime voice foundation for Maelstrom.
-
-📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
 ## Install
 
@@ -17,21 +12,21 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime @maelstrom-co/
 
 ## What it does
 
-This package hosts the Maelstrom-shaped realtime voice logic that drives `VoiceSession` from
-browser-side voice providers. It ships two entry points:
+This package hosts the provider-neutral session logic that turns adapter events into Maelstrom intents, waits for successful UI updates to render before returning their result, and keeps structural grounding separate from Engine planning. It ships these entry points:
 
-- **`@maelstrom-co/realtime`** — provider-agnostic core
+- **`@maelstrom-co/realtime`** — provider-neutral `RealtimeSession`, adapter contract, and typed fatal errors
 - **`@maelstrom-co/realtime/openai`** — OpenAI Realtime adapter
+- **`@maelstrom-co/realtime/google`** — reserved package subpath
 
-A `/google` subpath is reserved for a Google Gemini Live adapter, but that adapter is not
-implemented yet and the subpath currently resolves to an empty module.
+`@maelstrom-co/realtime/google` is reserved but not implemented. Do not import it as a usable adapter.
 
-The core is under active development; exports will land as the realtime voice foundation is built out.
+Application code supplies a `RealtimeProviderAdapter` to `RealtimeSession`, or passes an adapter factory to [`@maelstrom-co/react-realtime`](https://docs.maelstrom-ai.co/reference/react-realtime/readme/). Provider adapters may expose different turn controls and state progressions; the core does not define a universal retry sequence.
 
 ## Docs
 
-- Quick start: https://docs.maelstrom-ai.co/getting-started/quick-start/
-- Core concepts: https://docs.maelstrom-ai.co/getting-started/core-concepts/
+- Voice guide: https://docs.maelstrom-ai.co/guides/voice/overview/
+- API reference: https://docs.maelstrom-ai.co/reference/realtime/readme/
+- Architecture: https://docs.maelstrom-ai.co/understanding/architecture/
 
 ## License
 
