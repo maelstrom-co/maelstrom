@@ -254,6 +254,41 @@ test('turn-control reference distinguishes explicit and speech-native turns', as
   await expect(reference).toContainText('Speech-native providers');
 });
 
+test('LiveKit reference preserves planning and credential-expiry boundaries', async ({
+  page,
+}) => {
+  await page.goto(
+    '/reference/realtime-livekit/packages/realtime-livekit/src/classes/livekitadapter/',
+  );
+  await expect(page.locator('main')).toContainText(
+    'The companion worker has no LLM and receives no UI grounding',
+  );
+  await expect(page.locator('main')).toContainText(
+    'the Maelstrom Engine, which remains the planning LLM',
+  );
+
+  await page.goto(
+    '/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/interfaces/livekittokengrant/',
+  );
+  const reference = page.locator('main');
+  await expect(reference).toContainText(
+    'cannot authenticate a new room connection',
+  );
+  await expect(reference).toContainText(
+    'Expiry does not end an established room',
+  );
+  await expect(reference).toContainText('LiveKit’s subsequent reconnects');
+  await expect(reference).toContainText(
+    'does not read this value or schedule an automatic',
+  );
+  await expect(reference).toContainText(
+    'callers must disconnect and call connect() again',
+  );
+  await expect(reference).toContainText(
+    'that call invokes mintToken before rejoining the room',
+  );
+});
+
 // Check only links directly present in the three guides. This intentionally
 // does not recurse through the generated TypeDoc graph.
 for (const guide of GUIDE_ROUTES) {
