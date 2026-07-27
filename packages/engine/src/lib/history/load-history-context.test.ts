@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { MessageId, SessionId, isErr, isOk } from '@maelstrom-co/protocol';
+import { isErr, isOk, MessageId, SessionId } from '@maelstrom-co/protocol';
 
 import type { Logger } from '../logger.js';
 import type { HistoryManager, LLMContextMessage } from './history-manager.js';

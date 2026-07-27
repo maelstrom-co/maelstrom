@@ -77,25 +77,37 @@ describe('parseOpenAIServerEvent — transcript', () => {
         type: 'conversation.item.input_audio_transcription.delta',
         delta: 'take me ',
       }),
-    ).toEqual({ type: 'transcript', role: 'user', text: 'take me ', final: false });
+    ).toEqual({
+      type: 'transcript',
+      role: 'user',
+      text: 'take me ',
+      final: false,
+    });
   });
 
   it('rejects a user transcription delta without a string delta', () => {
     expect(
-      parseOpenAIServerEvent({ type: 'conversation.item.input_audio_transcription.delta' }),
+      parseOpenAIServerEvent({
+        type: 'conversation.item.input_audio_transcription.delta',
+      }),
     ).toBeNull();
   });
 });
 
 describe('parseOpenAIServerEvent — speech and error', () => {
   it('maps input_audio_buffer.speech_started to a speech_started event', () => {
-    expect(parseOpenAIServerEvent({ type: 'input_audio_buffer.speech_started' })).toEqual({
+    expect(
+      parseOpenAIServerEvent({ type: 'input_audio_buffer.speech_started' }),
+    ).toEqual({
       type: 'speech_started',
     });
   });
 
   it('maps an error event to an error adapter event', () => {
-    const raw = { type: 'error', error: { message: 'boom', code: 'invalid_request' } };
+    const raw = {
+      type: 'error',
+      error: { message: 'boom', code: 'invalid_request' },
+    };
     expect(parseOpenAIServerEvent(raw)).toEqual({
       type: 'error',
       error: { message: 'boom', code: 'invalid_request' },

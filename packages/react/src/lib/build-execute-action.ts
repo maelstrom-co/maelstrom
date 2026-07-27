@@ -1,6 +1,6 @@
 import type { Orchestrator } from '@maelstrom-co/client';
-import { ActionName, toError } from '@maelstrom-co/protocol';
 import type { InstanceId } from '@maelstrom-co/protocol';
+import { ActionName, toError } from '@maelstrom-co/protocol';
 import type { MutableRefObject } from 'react';
 
 /**

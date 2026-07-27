@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-
-import { createAsyncMutex } from './async-mutex.js';
 import { defer } from '../__test-helpers__/defer.js';
+import { createAsyncMutex } from './async-mutex.js';
 
 describe('createAsyncMutex', () => {
   test('returns the value produced by the critical section', async () => {

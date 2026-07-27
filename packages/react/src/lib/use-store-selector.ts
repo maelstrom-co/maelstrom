@@ -13,8 +13,15 @@ interface Subscribable {
  * If `selector` is provided, it narrows the snapshot before returning.
  * Shallow equality prevents re-renders when the derived value hasn't changed.
  */
-export function useStoreSelector<T>(stores: Subscribable[], buildSnapshot: () => T): T;
-export function useStoreSelector<T, S>(stores: Subscribable[], buildSnapshot: () => T, selector: (snapshot: T) => S): S;
+export function useStoreSelector<T>(
+  stores: Subscribable[],
+  buildSnapshot: () => T,
+): T;
+export function useStoreSelector<T, S>(
+  stores: Subscribable[],
+  buildSnapshot: () => T,
+  selector: (snapshot: T) => S,
+): S;
 export function useStoreSelector<T, S>(
   stores: Subscribable[],
   buildSnapshot: () => T,
@@ -59,7 +66,10 @@ export function useStoreSelector<T, S>(
     const sel = selectorRef.current;
 
     if (!sel) {
-      if (cachedRef.current !== UNINITIALIZED && shallowEqual(cachedRef.current, snapshot)) {
+      if (
+        cachedRef.current !== UNINITIALIZED &&
+        shallowEqual(cachedRef.current, snapshot)
+      ) {
         return cachedRef.current as T;
       }
       cachedRef.current = snapshot;
@@ -67,7 +77,10 @@ export function useStoreSelector<T, S>(
     }
 
     const selected = sel(snapshot);
-    if (cachedRef.current !== UNINITIALIZED && shallowEqual(cachedRef.current, selected)) {
+    if (
+      cachedRef.current !== UNINITIALIZED &&
+      shallowEqual(cachedRef.current, selected)
+    ) {
       return cachedRef.current as S;
     }
     cachedRef.current = selected;
@@ -79,13 +92,29 @@ export function useStoreSelector<T, S>(
 
 function shallowEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-  if (Object.getPrototypeOf(a) !== Object.prototype || Object.getPrototypeOf(b) !== Object.prototype) return false;
+  if (
+    typeof a !== 'object' ||
+    typeof b !== 'object' ||
+    a === null ||
+    b === null
+  )
+    return false;
+  if (
+    Object.getPrototypeOf(a) !== Object.prototype ||
+    Object.getPrototypeOf(b) !== Object.prototype
+  )
+    return false;
   const keysA = Object.keys(a as Record<string, unknown>);
   const keysB = Object.keys(b as Record<string, unknown>);
   if (keysA.length !== keysB.length) return false;
   for (const key of keysA) {
-    if (!Object.is((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+    if (
+      !Object.is(
+        (a as Record<string, unknown>)[key],
+        (b as Record<string, unknown>)[key],
+      )
+    )
+      return false;
   }
   return true;
 }

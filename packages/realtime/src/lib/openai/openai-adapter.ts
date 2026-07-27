@@ -1,8 +1,7 @@
-import { Logger } from '@maelstrom-co/client';
 import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
+import { Logger } from '@maelstrom-co/client';
 import type { ToolCallId } from '@maelstrom-co/protocol';
-
-import type { OpenAITokenGrant } from './openai-token.js';
+import { ConnectRaceGuard } from '../connect-race-guard.js';
 
 import type {
   AdapterAudioStreams,
@@ -12,18 +11,25 @@ import type {
   RealtimeToolSpec,
   ToolResult,
 } from '../realtime-session/provider-adapter.types.js';
-import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
-import { ConnectRaceGuard } from '../connect-race-guard.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
-import { asString, isRecord, parseOpenAIServerEvent } from './parse-openai-event.js';
+import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
+import type { OpenAITokenGrant } from './openai-token.js';
+import {
+  asString,
+  isRecord,
+  parseOpenAIServerEvent,
+} from './parse-openai-event.js';
 import {
   INITIAL_RESPONSE_LIFECYCLE_STATE,
   markResponseActive,
   markResponseInactive,
-  requestResponseCreate,
   type ResponseLifecycleState,
+  requestResponseCreate,
 } from './response-lifecycle.js';
-import { createUnexpectedEventTracker, type UnexpectedEventTracker } from './unexpected-event-tracker.js';
+import {
+  createUnexpectedEventTracker,
+  type UnexpectedEventTracker,
+} from './unexpected-event-tracker.js';
 import { deriveVoiceActivity } from './voice-activity.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
@@ -100,7 +106,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
 
   async connect(opts: AdapterConnectOptions): Promise<void> {
     if (this.#pc || this.#connecting) {
-      throw new RealtimeVoiceError('ALREADY_CONNECTED', 'OpenAI realtime adapter is already connected');
+      throw new RealtimeVoiceError(
+        'ALREADY_CONNECTED',
+        'OpenAI realtime adapter is already connected',
+      );
     }
     this.#connecting = true;
     const attempt = this.#connectGuard.begin();
@@ -126,7 +135,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
         );
       }
       attempt.assertCurrent();
-      this.#logger.debug('connect timing', { step: 'mint', ms: Date.now() - connectStart });
+      this.#logger.debug('connect timing', {
+        step: 'mint',
+        ms: Date.now() - connectStart,
+      });
 
       connection = new RTCPeerConnection();
 
@@ -189,7 +201,9 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     if (!this.#dc || this.#dc.readyState !== 'open') {
       this.#emit({
         type: 'error',
-        error: new Error(`sendToolResult: data channel not open (callId=${callId})`),
+        error: new Error(
+          `sendToolResult: data channel not open (callId=${callId})`,
+        ),
       });
       return;
     }
@@ -228,7 +242,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     try {
       if (this.#groundingItemExists) {
         this.#dc.send(
-          JSON.stringify({ type: 'conversation.item.delete', item_id: GROUNDING_ITEM_ID }),
+          JSON.stringify({
+            type: 'conversation.item.delete',
+            item_id: GROUNDING_ITEM_ID,
+          }),
         );
       }
       this.#dc.send(
@@ -275,7 +292,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
         this.#clearIceGraceTimer();
         this.#emit({
           type: 'error',
-          error: new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed'),
+          error: new RealtimeVoiceError(
+            'CONNECTION_FAILED',
+            'ICE connection failed',
+          ),
         });
         return;
       }
@@ -289,7 +309,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
             if (connection !== this.#pc) return;
             this.#emit({
               type: 'error',
-              error: new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection disconnected'),
+              error: new RealtimeVoiceError(
+                'CONNECTION_FAILED',
+                'ICE connection disconnected',
+              ),
             });
           }, ICE_DISCONNECT_GRACE_MS);
         }
@@ -311,17 +334,31 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   // Returns the acquired stream rather than self-assigning `#micStream`, so
   // connect() can publish it to the shared field only after confirming this
   // attempt hasn't been superseded.
-  async #attachMicrophone(connection: RTCPeerConnection, connectStart: number): Promise<MediaStream> {
+  async #attachMicrophone(
+    connection: RTCPeerConnection,
+    connectStart: number,
+  ): Promise<MediaStream> {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (error) {
       const name = (error as { name?: unknown } | null)?.name;
       throw name === 'NotAllowedError' || name === 'PermissionDeniedError'
-        ? new RealtimeVoiceError('MIC_PERMISSION_DENIED', 'Microphone permission was denied', error)
-        : new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to acquire the microphone', error);
+        ? new RealtimeVoiceError(
+            'MIC_PERMISSION_DENIED',
+            'Microphone permission was denied',
+            error,
+          )
+        : new RealtimeVoiceError(
+            'CONNECTION_FAILED',
+            'Failed to acquire the microphone',
+            error,
+          );
     }
-    this.#logger.debug('connect timing', { step: 'getUserMedia', ms: Date.now() - connectStart });
+    this.#logger.debug('connect timing', {
+      step: 'getUserMedia',
+      ms: Date.now() - connectStart,
+    });
     for (const track of stream.getTracks()) {
       connection.addTrack(track, stream);
     }
@@ -336,7 +373,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     const channel = connection.createDataChannel('oai-events');
     this.#dc = channel;
     channel.onopen = () => {
-      this.#logger.debug('connect timing', { step: 'dataChannelOpen', ms: Date.now() - connectStart });
+      this.#logger.debug('connect timing', {
+        step: 'dataChannelOpen',
+        ms: Date.now() - connectStart,
+      });
       const sessionUpdate = {
         type: 'session.update',
         session: {
@@ -355,7 +395,10 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     channel.onerror = () => {
       this.#emit({
         type: 'error',
-        error: new RealtimeVoiceError('DATA_CHANNEL_ERROR', 'OpenAI realtime data channel error'),
+        error: new RealtimeVoiceError(
+          'DATA_CHANNEL_ERROR',
+          'OpenAI realtime data channel error',
+        ),
       });
     };
   }
@@ -370,12 +413,19 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
     } catch (error) {
-      throw new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to create a local SDP offer', error);
+      throw new RealtimeVoiceError(
+        'CONNECTION_FAILED',
+        'Failed to create a local SDP offer',
+        error,
+      );
     }
 
     const sdp = connection.localDescription?.sdp;
     if (!sdp) {
-      throw new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to create a local SDP offer');
+      throw new RealtimeVoiceError(
+        'CONNECTION_FAILED',
+        'Failed to create a local SDP offer',
+      );
     }
 
     let response: Response;
@@ -389,7 +439,11 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
         body: sdp,
       });
     } catch (error) {
-      throw new RealtimeVoiceError('CONNECTION_FAILED', 'OpenAI realtime call setup request failed', error);
+      throw new RealtimeVoiceError(
+        'CONNECTION_FAILED',
+        'OpenAI realtime call setup request failed',
+        error,
+      );
     }
 
     if (!response.ok) {
@@ -403,13 +457,24 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     try {
       answerSdp = await response.text();
     } catch (error) {
-      throw new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to read the remote SDP answer', error);
+      throw new RealtimeVoiceError(
+        'CONNECTION_FAILED',
+        'Failed to read the remote SDP answer',
+        error,
+      );
     }
-    this.#logger.debug('connect timing', { step: 'sdpExchange', ms: Date.now() - connectStart });
+    this.#logger.debug('connect timing', {
+      step: 'sdpExchange',
+      ms: Date.now() - connectStart,
+    });
     try {
       await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
     } catch (error) {
-      throw new RealtimeVoiceError('CONNECTION_FAILED', 'Failed to apply the remote SDP answer', error);
+      throw new RealtimeVoiceError(
+        'CONNECTION_FAILED',
+        'Failed to apply the remote SDP answer',
+        error,
+      );
     }
     this.#logger.debug('connect timing', {
       step: 'setRemoteDescription',

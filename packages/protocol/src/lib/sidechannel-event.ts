@@ -25,35 +25,37 @@ const sidechannelBaseShape = {
  * metering, or billing must stamp its own receipt time on ingest and use
  * that instead — `at` is diagnostic only.
  */
-export const SidechannelEventSchema = z.discriminatedUnion('type', [
-  z.object({
-    ...sidechannelBaseShape,
-    type: z.literal('transcript'),
-    role: z.enum(['user', 'assistant']),
-    text: z.string(),
-    final: z.boolean(),
-  }),
-  z.object({
-    ...sidechannelBaseShape,
-    type: z.literal('tool_call'),
-    name: z.string(),
-    callId: ToolCallIdSchema,
-    argumentsJson: z.string(),
-  }),
-  z.object({
-    ...sidechannelBaseShape,
-    type: z.literal('tool_result'),
-    callId: ToolCallIdSchema,
-    ok: z.boolean(),
-    latencyMs: z.number().nonnegative(),
-  }),
-  z.object({
-    ...sidechannelBaseShape,
-    type: z.literal('timing'),
-    label: z.string(),
-    ms: z.number().nonnegative(),
-  }),
-]).readonly();
+export const SidechannelEventSchema = z
+  .discriminatedUnion('type', [
+    z.object({
+      ...sidechannelBaseShape,
+      type: z.literal('transcript'),
+      role: z.enum(['user', 'assistant']),
+      text: z.string(),
+      final: z.boolean(),
+    }),
+    z.object({
+      ...sidechannelBaseShape,
+      type: z.literal('tool_call'),
+      name: z.string(),
+      callId: ToolCallIdSchema,
+      argumentsJson: z.string(),
+    }),
+    z.object({
+      ...sidechannelBaseShape,
+      type: z.literal('tool_result'),
+      callId: ToolCallIdSchema,
+      ok: z.boolean(),
+      latencyMs: z.number().nonnegative(),
+    }),
+    z.object({
+      ...sidechannelBaseShape,
+      type: z.literal('timing'),
+      label: z.string(),
+      ms: z.number().nonnegative(),
+    }),
+  ])
+  .readonly();
 
 /** A single sidechannel event. See {@link SidechannelEventSchema}. */
 export type SidechannelEvent = z.infer<typeof SidechannelEventSchema>;

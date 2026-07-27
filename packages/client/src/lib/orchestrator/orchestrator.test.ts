@@ -9,29 +9,27 @@ import {
 } from 'bun:test';
 import {
   ActionName,
+  type ChartRequestMessage,
+  err,
   InstanceId,
+  type MaelstromResponse,
   MessageId,
+  ok,
+  type SessionHistoryEntry,
   SessionId,
   VariantName,
-  VesselId,
-  err,
-  ok,
-  type ChartRequestMessage,
-  type MaelstromResponse,
-  type SessionHistoryEntry,
   type Vessel,
+  VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
-
-import type { ActionResult } from '../command-processor/action-result.js';
-import type { VesselInstance } from '../types.js';
-import { createMockResponse } from '../../../test-utils/mocks.js';
 import {
   createMockConnector,
   createTestOrchestrator,
 } from '../../../test-utils/connector-mocks.js';
+import { createMockResponse } from '../../../test-utils/mocks.js';
+import type { ActionResult } from '../command-processor/action-result.js';
 import type { PushConnector } from '../connection-manager/connector.types.js';
-import type { Unsubscribe } from '../types.js';
+import type { Unsubscribe, VesselInstance } from '../types.js';
 import type { Orchestrator } from './orchestrator.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
 import { RequestInFlightError } from './request-in-flight-error.js';
@@ -157,7 +155,10 @@ async function flushMicrotasks(): Promise<void> {
 // Polls until `predicate` holds, yielding microtasks between checks (without
 // advancing timers past a still-pending deferred runner). Fails loudly rather
 // than coupling assertions to a fixed microtask-hop count.
-async function waitFor(predicate: () => boolean, maxTicks = 100): Promise<void> {
+async function waitFor(
+  predicate: () => boolean,
+  maxTicks = 100,
+): Promise<void> {
   for (let i = 0; i < maxTicks; i++) {
     if (predicate()) return;
     await Promise.resolve();
@@ -1214,7 +1215,8 @@ describe('Orchestrator', () => {
       expect(scheduleSpy).not.toHaveBeenCalled();
       const warned = warnSpy.mock.calls.some((args) =>
         args.some(
-          (a) => typeof a === 'string' && a.includes('not available on variant'),
+          (a) =>
+            typeof a === 'string' && a.includes('not available on variant'),
         ),
       );
       expect(warned).toBe(true);
@@ -1246,7 +1248,9 @@ describe('Orchestrator', () => {
       expect(currentVariant(orchestrator, instanceId)).toBe('expanded');
 
       await orchestrator.commandProcessor.waitForIdle();
-      await waitFor(() => currentVariant(orchestrator, instanceId) === 'collapsed');
+      await waitFor(
+        () => currentVariant(orchestrator, instanceId) === 'collapsed',
+      );
 
       expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
       expect(actionErrors).toContain(instanceId);
@@ -1543,7 +1547,9 @@ describe('Orchestrator', () => {
       // The slow runner now fails, well after its mutation already shipped.
       resolveExpand?.(err(new Error('boom')));
       await orchestrator.commandProcessor.waitForIdle();
-      await waitFor(() => currentVariant(orchestrator, instanceId) === 'collapsed');
+      await waitFor(
+        () => currentVariant(orchestrator, instanceId) === 'collapsed',
+      );
 
       // The guarded revert restored the local store...
       expect(currentVariant(orchestrator, instanceId)).toBe('collapsed');
@@ -1622,8 +1628,8 @@ describe('Orchestrator', () => {
       await clock.tickAsync(400);
       expect(connector.process).toHaveBeenCalledTimes(2);
 
-      const secondEnvelope = (connector.process as ReturnType<typeof mock>)
-        .mock.calls[1][0] as ChartRequestMessage;
+      const secondEnvelope = (connector.process as ReturnType<typeof mock>).mock
+        .calls[1][0] as ChartRequestMessage;
       const updateReasons = secondEnvelope.request.context.updateReasons;
       expect(
         updateReasons.some(

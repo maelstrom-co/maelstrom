@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { safeGetItem, safeSetItem } from '../preferences';
 
 describe('safeGetItem', () => {
@@ -17,7 +17,9 @@ describe('safeGetItem', () => {
 
   it('returns null when localStorage throws', () => {
     const original = Storage.prototype.getItem;
-    Storage.prototype.getItem = () => { throw new Error('storage unavailable'); };
+    Storage.prototype.getItem = () => {
+      throw new Error('storage unavailable');
+    };
     expect(safeGetItem('any')).toBeNull();
     Storage.prototype.getItem = original;
   });
@@ -35,7 +37,9 @@ describe('safeSetItem', () => {
 
   it('does not throw when localStorage throws', () => {
     const original = Storage.prototype.setItem;
-    Storage.prototype.setItem = () => { throw new Error('storage unavailable'); };
+    Storage.prototype.setItem = () => {
+      throw new Error('storage unavailable');
+    };
     expect(() => safeSetItem('any', 'val')).not.toThrow();
     Storage.prototype.setItem = original;
   });

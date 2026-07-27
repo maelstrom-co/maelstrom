@@ -10,10 +10,6 @@ import {
   MessageId,
   SessionId,
 } from '@maelstrom-co/protocol';
-import type { EngineConfig } from './config.js';
-import { createEngine } from './engine.js';
-import type { HistoryEntry, HistoryStore } from './history/history-store.js';
-import { createInMemoryStore } from './history/in-memory-store.js';
 import {
   brandTilingResponse,
   buildGridResponse,
@@ -24,6 +20,10 @@ import {
   makeTilingRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
+import type { EngineConfig } from './config.js';
+import { createEngine } from './engine.js';
+import type { HistoryEntry, HistoryStore } from './history/history-store.js';
+import { createInMemoryStore } from './history/in-memory-store.js';
 
 // ---------------------------------------------------------------------------
 // Mock TanStack AI chat()

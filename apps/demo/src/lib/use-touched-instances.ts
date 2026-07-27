@@ -26,7 +26,9 @@ export interface InstancesStoreState {
 
 export interface InstancesStoreLike {
   readonly state: InstancesStoreState;
-  subscribe(listener: (value: InstancesStoreState) => void): { unsubscribe(): void };
+  subscribe(listener: (value: InstancesStoreState) => void): {
+    unsubscribe(): void;
+  };
 }
 
 interface ExecutedAction {
@@ -46,7 +48,9 @@ export interface CommandEventsLike {
   ): () => void;
 }
 
-function snapshotOf(instances: ReadonlyMap<string, TouchableInstance>): Map<string, TouchableInstance> {
+function snapshotOf(
+  instances: ReadonlyMap<string, TouchableInstance>,
+): Map<string, TouchableInstance> {
   return new Map(instances);
 }
 
@@ -102,7 +106,9 @@ export function useTouchedInstances(
 ): ReadonlySet<string> {
   const [touched, setTouched] = useState<ReadonlySet<string>>(EMPTY_SET);
   const snapshotRef = useRef<Map<string, TouchableInstance> | null>(null);
-  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const pendingActionTargetsRef = useRef<Set<string>>(new Set());
   const statusRef = useRef<string | undefined>(undefined);
 
@@ -122,7 +128,8 @@ export function useTouchedInstances(
       // fresh batch starting, so any flash still lingering from a prior
       // batch (not yet cleared by the debounce timer below) is dropped
       // rather than carried into a batch that never touched it.
-      const startingNewBatch = statusRef.current === 'idle' && next.status === 'processing';
+      const startingNewBatch =
+        statusRef.current === 'idle' && next.status === 'processing';
       statusRef.current = next.status;
 
       const nextSnapshot = snapshotOf(next.instances);
@@ -145,7 +152,10 @@ export function useTouchedInstances(
 
       if (changed.size > 0) {
         clearTimeout(clearTimerRef.current);
-        clearTimerRef.current = setTimeout(() => setTouched(EMPTY_SET), clearAfterMs);
+        clearTimerRef.current = setTimeout(
+          () => setTouched(EMPTY_SET),
+          clearAfterMs,
+        );
       }
     });
 

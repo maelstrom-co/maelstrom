@@ -21,9 +21,17 @@
  * ```
  */
 
+// Identity primitives re-exported from protocol for convenience.
+// Each name exports both the branded type and the factory function.
+export { MessageId, SessionId } from '@maelstrom-co/protocol';
 // Chart Manager
 export type { ChartManagerEvents } from './lib/chart-manager/chart-manager.js';
 export { ChartManager } from './lib/chart-manager/chart-manager.js';
+export {
+  type ChartManagerState,
+  createInitialChartManagerState,
+} from './lib/chart-manager/chart-manager.state.js';
+export type { ChartManagerOptions } from './lib/chart-manager/chart-manager.types.js';
 export type {
   ComputedTile,
   Rect,
@@ -35,11 +43,35 @@ export {
   computeTilingLayout,
   parseTilingTree,
 } from './lib/chart-manager/tiling.js';
+// Action Manager
+export { ActionManager } from './lib/command-processor/action-manager.js';
+export type { ActionResult } from './lib/command-processor/action-result.js';
+export type {
+  ActionHandler,
+  ActionNames,
+  ActionParams,
+  ActionRecord,
+  ActionRunner,
+  AnyActionRunner,
+  BatchExecutionResult,
+  VariantNames,
+} from './lib/command-processor/action-runner.types.js';
+// Command Processor
+export type {
+  Command,
+  ExecuteActionsCommand,
+  SetLayoutCommand,
+} from './lib/command-processor/command.types.js';
+export type { CommandProcessorEvents } from './lib/command-processor/command-processor.js';
+export { CommandProcessor } from './lib/command-processor/command-processor.js';
 export {
-  type ChartManagerState,
-  createInitialChartManagerState,
-} from './lib/chart-manager/chart-manager.state.js';
-export type { ChartManagerOptions } from './lib/chart-manager/chart-manager.types.js';
+  type CommandProcessingState,
+  type CommandProcessingStatus,
+  createInitialCommandProcessingState,
+} from './lib/command-processor/command-processor.state.js';
+export type { CommandProcessorOptions } from './lib/command-processor/command-processor.types.js';
+// Layout Manager
+export { applyLayout } from './lib/command-processor/layout-manager.js';
 // Connection Manager
 export type { ConnectionManagerEvents } from './lib/connection-manager/connection-manager.js';
 export { ConnectionManager } from './lib/connection-manager/connection-manager.js';
@@ -65,35 +97,6 @@ export type { HttpConnectorOptions } from './lib/connection-manager/connectors/h
 export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';
 export type { WebSocketConnectorOptions } from './lib/connection-manager/connectors/web-socket-connector.js';
 export { WebSocketConnector } from './lib/connection-manager/connectors/web-socket-connector.js';
-// Command Processor
-export type {
-  Command,
-  ExecuteActionsCommand,
-  SetLayoutCommand,
-} from './lib/command-processor/command.types.js';
-export type { CommandProcessorEvents } from './lib/command-processor/command-processor.js';
-export { CommandProcessor } from './lib/command-processor/command-processor.js';
-export {
-  type CommandProcessingState,
-  type CommandProcessingStatus,
-  createInitialCommandProcessingState,
-} from './lib/command-processor/command-processor.state.js';
-export type { CommandProcessorOptions } from './lib/command-processor/command-processor.types.js';
-// Action Manager
-export { ActionManager } from './lib/command-processor/action-manager.js';
-export type { ActionResult } from './lib/command-processor/action-result.js';
-export type {
-  ActionHandler,
-  ActionNames,
-  ActionParams,
-  ActionRecord,
-  ActionRunner,
-  AnyActionRunner,
-  BatchExecutionResult,
-  VariantNames,
-} from './lib/command-processor/action-runner.types.js';
-// Layout Manager
-export { applyLayout } from './lib/command-processor/layout-manager.js';
 // Orchestrator
 export { buildChartRequest } from './lib/orchestrator/build-chart-request.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';
@@ -102,9 +105,6 @@ export type {
   OrchestratorViewState,
   ResolvedOrchestratorOptions,
 } from './lib/orchestrator/orchestrator.types.js';
-// Identity primitives re-exported from protocol for convenience.
-// Each name exports both the branded type and the factory function.
-export { MessageId, SessionId } from '@maelstrom-co/protocol';
 export type {
   RequestCoordinatorEvents,
   RequestCoordinatorState,

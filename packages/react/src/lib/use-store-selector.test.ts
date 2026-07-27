@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { cleanup, renderHook, act } from '@testing-library/react';
-import { useStoreSelector } from './use-store-selector.js';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import { assertDefined } from './__tests__/assert-defined.js';
+import { useStoreSelector } from './use-store-selector.js';
 
 interface MockStore<T> {
   state: T;
@@ -128,7 +128,9 @@ describe('useStoreSelector', () => {
 
   describe('non-plain objects', () => {
     it('treats distinct Error instances as not equal', () => {
-      const store = createMockStore({ error: new Error('first') as Error | null });
+      const store = createMockStore({
+        error: new Error('first') as Error | null,
+      });
       const stores = [store];
 
       const { result } = renderHook(() =>
@@ -151,11 +153,17 @@ describe('useStoreSelector', () => {
     });
 
     it('treats distinct Date instances as not equal', () => {
-      const store = createMockStore({ ts: new Date('2026-01-01') as Date | null });
+      const store = createMockStore({
+        ts: new Date('2026-01-01') as Date | null,
+      });
       const stores = [store];
 
       const { result } = renderHook(() =>
-        useStoreSelector(stores, () => ({ ts: store.state.ts }), (s) => s.ts),
+        useStoreSelector(
+          stores,
+          () => ({ ts: store.state.ts }),
+          (s) => s.ts,
+        ),
       );
 
       const first = result.current;
@@ -172,7 +180,11 @@ describe('useStoreSelector', () => {
       const stores = [store];
 
       const { result } = renderHook(() =>
-        useStoreSelector(stores, () => ({ data: store.state.data }), (s) => s.data),
+        useStoreSelector(
+          stores,
+          () => ({ data: store.state.data }),
+          (s) => s.data,
+        ),
       );
 
       const first = result.current;
@@ -188,7 +200,11 @@ describe('useStoreSelector', () => {
       const stores = [store];
 
       const { result } = renderHook(() =>
-        useStoreSelector(stores, () => ({ pattern: store.state.pattern }), (s) => s.pattern),
+        useStoreSelector(
+          stores,
+          () => ({ pattern: store.state.pattern }),
+          (s) => s.pattern,
+        ),
       );
 
       const first = result.current;
@@ -202,7 +218,10 @@ describe('useStoreSelector', () => {
 
   describe('falsy selector returns', () => {
     it('memoizes when selector returns undefined', () => {
-      const store = createMockStore({ a: 1, b: undefined as string | undefined });
+      const store = createMockStore({
+        a: 1,
+        b: undefined as string | undefined,
+      });
       const stores = [store];
       let renderCount = 0;
 

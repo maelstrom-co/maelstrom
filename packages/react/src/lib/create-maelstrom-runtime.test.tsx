@@ -1,11 +1,10 @@
-import { describe, it, expect, afterEach } from 'bun:test';
-import { render, cleanup, act } from '@testing-library/react';
-
+import { afterEach, describe, expect, it } from 'bun:test';
+import { act, cleanup, render } from '@testing-library/react';
+import { assertDefined } from './__tests__/assert-defined.js';
+import { createMockConnector } from './__tests__/mock-connector.js';
+import { testVessel } from './__tests__/test-vessel.fixture.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
-import { testVessel } from './__tests__/test-vessel.fixture.js';
-import { createMockConnector } from './__tests__/mock-connector.js';
-import { assertDefined } from './__tests__/assert-defined.js';
 
 const entry = vessel(testVessel, () => null);
 
@@ -207,5 +206,4 @@ describe('m.useMaelstrom()', () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toBe('kaboom');
   });
-
 });

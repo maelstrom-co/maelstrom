@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { StrictMode, type ReactNode } from 'react';
-import { act, cleanup, render } from '@testing-library/react';
+import type { TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
+import { defineVessel, SessionId } from '@maelstrom-co/protocol';
 
 import { createMaelstrom, vessel } from '@maelstrom-co/react';
-import { defineVessel, SessionId } from '@maelstrom-co/protocol';
-import type { TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
-import type { AdapterTurnControl, RealtimeProviderAdapter } from '@maelstrom-co/realtime';
+import type {
+  AdapterTurnControl,
+  RealtimeProviderAdapter,
+} from '@maelstrom-co/realtime';
+import { act, cleanup, render } from '@testing-library/react';
+import { type ReactNode, StrictMode } from 'react';
 import { createMockConnector } from './__tests__/mock-connector.js';
-import type { CreateAdapterContext, UseVoiceResult } from './maelstrom-realtime.js';
+import type {
+  CreateAdapterContext,
+  UseVoiceResult,
+} from './maelstrom-realtime.js';
 
 // Fakes the module boundary maelstrom-realtime.ts constructs against —
 // RealtimeSession is never real here, so the assertions below observe this
@@ -38,7 +44,8 @@ class FakeRealtimeSession {
   }
 
   on(event: 'state' | 'transcript', handler: never): () => void {
-    const set = event === 'state' ? this.#stateHandlers : this.#transcriptHandlers;
+    const set =
+      event === 'state' ? this.#stateHandlers : this.#transcriptHandlers;
     set.add(handler);
     return () => set.delete(handler);
   }
@@ -66,7 +73,8 @@ const { maelstromRealtime } = await import('./maelstrom-realtime.js');
 const testVessel = defineVessel({
   id: 'use-voice-test-vessel',
   name: 'Use Voice Test Vessel',
-  description: 'Minimal vessel to satisfy createMaelstrom in useVoice hook tests',
+  description:
+    'Minimal vessel to satisfy createMaelstrom in useVoice hook tests',
   defaultVariant: 'default',
   variants: {
     default: {
@@ -86,7 +94,9 @@ function must<T>(value: T | undefined): T {
 // so tests exercising only a slice of the contract (e.g. turnControl) still
 // typecheck against the real interface — adding a required method to the
 // contract must fail these tests, not silently pass behind a cast.
-function makeFakeAdapter(overrides?: Partial<RealtimeProviderAdapter>): RealtimeProviderAdapter {
+function makeFakeAdapter(
+  overrides?: Partial<RealtimeProviderAdapter>,
+): RealtimeProviderAdapter {
   return {
     connect: async () => {},
     disconnect: async () => {},
@@ -99,10 +109,13 @@ function makeFakeAdapter(overrides?: Partial<RealtimeProviderAdapter>): Realtime
 }
 
 function setup(
-  createAdapter: (ctx: CreateAdapterContext) => RealtimeProviderAdapter = () => makeFakeAdapter(),
+  createAdapter: (ctx: CreateAdapterContext) => RealtimeProviderAdapter = () =>
+    makeFakeAdapter(),
 ) {
   const entry = vessel(testVessel, () => null);
-  const m = createMaelstrom({ vessels: [entry] }).with(maelstromRealtime({ createAdapter }));
+  const m = createMaelstrom({ vessels: [entry] }).with(
+    maelstromRealtime({ createAdapter }),
+  );
   const connector = createMockConnector();
   return { m, connector };
 }
@@ -271,13 +284,21 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
     expect(must(api).assistantTranscript?.final).toBe(false);
 
     await act(async () => {
-      session.emitTranscript({ role: 'assistant', text: 'it — ', final: false });
+      session.emitTranscript({
+        role: 'assistant',
+        text: 'it — ',
+        final: false,
+      });
     });
     expect(must(api).assistantTranscript?.text).toBe('On it — ');
     expect(must(api).assistantTranscript?.final).toBe(false);
 
     await act(async () => {
-      session.emitTranscript({ role: 'assistant', text: 'On it — done.', final: true });
+      session.emitTranscript({
+        role: 'assistant',
+        text: 'On it — done.',
+        final: true,
+      });
     });
     expect(must(api).assistantTranscript?.text).toBe('On it — done.');
     expect(must(api).assistantTranscript?.final).toBe(true);
@@ -285,7 +306,11 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
     // A fresh non-final fragment after a final starts a new accumulation
     // rather than appending onto the completed utterance.
     await act(async () => {
-      session.emitTranscript({ role: 'assistant', text: 'Next ', final: false });
+      session.emitTranscript({
+        role: 'assistant',
+        text: 'Next ',
+        final: false,
+      });
     });
     expect(must(api).assistantTranscript?.text).toBe('Next ');
     expect(must(api).assistantTranscript?.final).toBe(false);
@@ -482,6 +507,8 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
     });
 
     expect(receivedContexts).toHaveLength(1);
-    expect(must(receivedContexts[0]).sessionId).toBe(SessionId('fixed-session-id'));
+    expect(must(receivedContexts[0]).sessionId).toBe(
+      SessionId('fixed-session-id'),
+    );
   });
 });

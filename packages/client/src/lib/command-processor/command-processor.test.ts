@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import FakeTimers from '@sinonjs/fake-timers';
-
 import { InstanceId } from '@maelstrom-co/protocol';
+import FakeTimers from '@sinonjs/fake-timers';
 
 import {
   createExecuteActionsCommand,

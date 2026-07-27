@@ -23,7 +23,10 @@ process.on('uncaughtException', (err) => {
     code === 'MODULE_NOT_FOUND' &&
     OPTIONAL_NATIVE_MODULES.some((name) => message.includes(name))
   ) {
-    console.debug('[voice-agent] suppressed optional native module error:', message);
+    console.debug(
+      '[voice-agent] suppressed optional native module error:',
+      message,
+    );
     return;
   }
   throw err;

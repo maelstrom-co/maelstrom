@@ -1,16 +1,16 @@
+import { toError } from '@maelstrom-co/protocol';
 import { useCallback, useMemo, useRef, useState } from 'react';
-
 import type { MaelstromContextPair } from './context.js';
 import type { MaelstromState } from './maelstrom-state-types.js';
 import { useStoreSelector } from './use-store-selector.js';
-
-
-import { toError } from '@maelstrom-co/protocol';export function createUseMaelstrom(contextPair: MaelstromContextPair) {
+export function createUseMaelstrom(contextPair: MaelstromContextPair) {
   const { useMaelstromContext } = contextPair;
 
   function useMaelstrom(): MaelstromState;
   function useMaelstrom<T>(selector: (state: MaelstromState) => T): T;
-  function useMaelstrom<T>(selector?: (state: MaelstromState) => T): MaelstromState | T {
+  function useMaelstrom<T>(
+    selector?: (state: MaelstromState) => T,
+  ): MaelstromState | T {
     const { orchestrator, onErrorRef, config } = useMaelstromContext();
 
     const [lastError, setLastError] = useState<Error | null>(null);
@@ -40,7 +40,10 @@ import { toError } from '@maelstrom-co/protocol';export function createUseMaelst
     lastErrorRef.current = lastError;
 
     const stores = useMemo(
-      () => [orchestrator.connectionManager.store, orchestrator.requestCoordinator.store],
+      () => [
+        orchestrator.connectionManager.store,
+        orchestrator.requestCoordinator.store,
+      ],
       [orchestrator],
     );
 

@@ -12,8 +12,8 @@ import {
 } from '@maelstrom-co/protocol';
 
 import { makeGridRequest } from '../__test-helpers__/fixtures.js';
-import { createInMemoryStore } from './in-memory-store.js';
 import type { HistoryEntry } from './history-store.js';
+import { createInMemoryStore } from './in-memory-store.js';
 
 const turn = (
   sessionId: ReturnType<typeof SessionId>,

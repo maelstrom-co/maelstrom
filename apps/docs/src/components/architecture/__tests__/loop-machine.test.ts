@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import {
-  STEPS,
   APPLY_ORDER,
   initialLoopState,
-  loopReducer,
-  stepCaption,
   type LoopState,
+  loopReducer,
+  STEPS,
+  stepCaption,
 } from '../loop-machine';
 
 describe('apply order (load-bearing invariant)', () => {
@@ -53,7 +53,10 @@ describe('loopReducer', () => {
 
   it('play from the final step restarts at the top', () => {
     expect(
-      loopReducer({ index: STEPS.length - 1, playing: false }, { type: 'play' }),
+      loopReducer(
+        { index: STEPS.length - 1, playing: false },
+        { type: 'play' },
+      ),
     ).toEqual({ index: 0, playing: true });
   });
 

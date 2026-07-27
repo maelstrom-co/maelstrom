@@ -9,20 +9,19 @@ import {
   MessageId,
   SessionId,
 } from '@maelstrom-co/protocol';
-
-import type { DedupHistoryBinding } from './chart-request-dedup.js';
-import { createChartRequestDedup } from './chart-request-dedup.js';
-import { createEngine } from './engine.js';
-import type { HistoryStore } from './history/history-store.js';
-import { createInMemoryStore } from './history/in-memory-store.js';
-import type { Logger } from './logger.js';
+import { defer } from './__test-helpers__/defer.js';
 import {
   buildGridResponse,
   dummyAdapter,
   makeGridRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
-import { defer } from './__test-helpers__/defer.js';
+import type { DedupHistoryBinding } from './chart-request-dedup.js';
+import { createChartRequestDedup } from './chart-request-dedup.js';
+import { createEngine } from './engine.js';
+import type { HistoryStore } from './history/history-store.js';
+import { createInMemoryStore } from './history/in-memory-store.js';
+import type { Logger } from './logger.js';
 
 // ---------------------------------------------------------------------------
 // Mock TanStack AI chat()

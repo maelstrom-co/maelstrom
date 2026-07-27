@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-
-import { createMaelstrom } from './create-maelstrom.js';
-import { vessel } from './vessel.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
+import { createMaelstrom } from './create-maelstrom.js';
+import type {
+  MaelstromExtension,
+  MaelstromExtensionContext,
+} from './extension-types.js';
+import { vessel } from './vessel.js';
 import { resetWarnings } from './warn-once.js';
-import type { MaelstromExtension, MaelstromExtensionContext } from './extension-types.js';
 
 describe('createMaelstrom().with()', () => {
   const entry = vessel(testVessel, () => null);
@@ -26,7 +28,9 @@ describe('createMaelstrom().with()', () => {
   it('chained .with(a).with(b) exposes both extensions', () => {
     const extA: MaelstromExtension<{ a: number }> = () => ({ a: 1 });
     const extB: MaelstromExtension<{ b: string }> = () => ({ b: 'two' });
-    const m = createMaelstrom({ vessels: [entry] }).with(extA).with(extB);
+    const m = createMaelstrom({ vessels: [entry] })
+      .with(extA)
+      .with(extB);
     expect(m.a).toBe(1);
     expect(m.b).toBe('two');
   });
@@ -41,7 +45,9 @@ describe('createMaelstrom().with()', () => {
       capturedPairs.push(ctx);
       return { b: 2 };
     };
-    createMaelstrom({ vessels: [entry] }).with(extA).with(extB);
+    createMaelstrom({ vessels: [entry] })
+      .with(extA)
+      .with(extB);
     expect(capturedPairs).toHaveLength(2);
     expect(capturedPairs[0]).toBe(capturedPairs[1]);
   });
@@ -50,7 +56,10 @@ describe('createMaelstrom().with()', () => {
     const extA: MaelstromExtension<{ a: 1 }> = () => ({ a: 1 });
     const extB: MaelstromExtension<{ b: 2 }> = () => ({ b: 2 });
     const extC: MaelstromExtension<{ c: 3 }> = () => ({ c: 3 });
-    const m = createMaelstrom({ vessels: [entry] }).with(extA).with(extB).with(extC);
+    const m = createMaelstrom({ vessels: [entry] })
+      .with(extA)
+      .with(extB)
+      .with(extC);
     expect(m.a).toBe(1);
     expect(m.b).toBe(2);
     expect(m.c).toBe(3);
@@ -69,9 +78,15 @@ describe('createMaelstrom().with()', () => {
     });
 
     it('cross-extension collision: later extension wins and warns once', () => {
-      const extA: MaelstromExtension<{ shared: string }> = () => ({ shared: 'from-A' });
-      const extB: MaelstromExtension<{ shared: string }> = () => ({ shared: 'from-B' });
-      const m = createMaelstrom({ vessels: [entry] }).with(extA).with(extB);
+      const extA: MaelstromExtension<{ shared: string }> = () => ({
+        shared: 'from-A',
+      });
+      const extB: MaelstromExtension<{ shared: string }> = () => ({
+        shared: 'from-B',
+      });
+      const m = createMaelstrom({ vessels: [entry] })
+        .with(extA)
+        .with(extB);
 
       expect(m.shared).toBe('from-B');
       expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -79,11 +94,19 @@ describe('createMaelstrom().with()', () => {
     });
 
     it('cross-extension collision: warn fires only once per key across the lifetime', () => {
-      const extA: MaelstromExtension<{ shared: number }> = () => ({ shared: 1 });
-      const extB: MaelstromExtension<{ shared: number }> = () => ({ shared: 2 });
+      const extA: MaelstromExtension<{ shared: number }> = () => ({
+        shared: 1,
+      });
+      const extB: MaelstromExtension<{ shared: number }> = () => ({
+        shared: 2,
+      });
 
-      createMaelstrom({ vessels: [entry] }).with(extA).with(extB);
-      createMaelstrom({ vessels: [entry] }).with(extA).with(extB);
+      createMaelstrom({ vessels: [entry] })
+        .with(extA)
+        .with(extB);
+      createMaelstrom({ vessels: [entry] })
+        .with(extA)
+        .with(extB);
 
       expect(warnSpy).toHaveBeenCalledTimes(1);
     });

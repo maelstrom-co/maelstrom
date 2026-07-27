@@ -1,7 +1,6 @@
+import { assertNever } from './assert-never.js';
 import type { Logger } from './logger.js';
 import type { RetrySeverity } from './validation/llm-output/healed-layout.js';
-
-import { assertNever } from './assert-never.js';
 
 /**
  * Severity-driven log routing. `unrecoverable` deserves error-level visibility

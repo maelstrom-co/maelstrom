@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DEMO_LOCATIONS,
-  HOME,
-  findLocationByFuzzyName,
-} from './locations';
+import { DEMO_LOCATIONS, findLocationByFuzzyName, HOME } from './locations';
 
 describe('DEMO_LOCATIONS', () => {
   it('defines exactly the four demo locations with real SF coordinates', () => {

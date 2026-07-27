@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
+
+import type { TypedVesselProps } from '@maelstrom-co/react';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TypedVesselProps } from '@maelstrom-co/react';
 import { ACCENT_HEX, accentAlpha } from '../lib/design-tokens';
 import type { journalVessel } from './journal.vessel';
 
@@ -36,23 +37,30 @@ describe('JournalComponent entry view ruled-paper', () => {
     // actually follows the mapping.
     vi.resetModules();
     vi.doMock('../lib/design-tokens', async () => {
-      const actual = await vi.importActual<typeof import('../lib/design-tokens')>(
-        '../lib/design-tokens',
-      );
+      const actual = await vi.importActual<
+        typeof import('../lib/design-tokens')
+      >('../lib/design-tokens');
       return {
         ...actual,
         VESSEL_ACCENTS: { ...actual.VESSEL_ACCENTS, journal: 'amber' },
       };
     });
 
-    const { journalActions: mockedJournalActions } = await import('./journal.store');
+    const { journalActions: mockedJournalActions } = await import(
+      './journal.store'
+    );
     mockedJournalActions.openEntry('Sprint kickoff');
-    const MockedJournalComponent = (await import('./journal.component')).default;
+    const MockedJournalComponent = (await import('./journal.component'))
+      .default;
 
     const { container } = render(<MockedJournalComponent {...props()} />);
     const paper = container.querySelector('.ruled-paper') as HTMLElement;
-    expect(paper.style.backgroundImage).toContain(accentAlpha(ACCENT_HEX.amber, 0.1));
-    expect(paper.style.backgroundImage).not.toContain(accentAlpha(ACCENT_HEX.green, 0.1));
+    expect(paper.style.backgroundImage).toContain(
+      accentAlpha(ACCENT_HEX.amber, 0.1),
+    );
+    expect(paper.style.backgroundImage).not.toContain(
+      accentAlpha(ACCENT_HEX.green, 0.1),
+    );
 
     vi.doUnmock('../lib/design-tokens');
     vi.resetModules();

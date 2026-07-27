@@ -13,13 +13,13 @@
 import {
   cli,
   defineAgent,
+  type JobContext,
   ServerOptions,
   stt,
   tts,
-  type JobContext,
 } from '@livekit/agents';
-import { STT } from '@livekit/agents-plugin-deepgram';
 import { TTS } from '@livekit/agents-plugin-cartesia';
+import { STT } from '@livekit/agents-plugin-deepgram';
 import {
   type AudioFrame,
   AudioSource,
@@ -35,11 +35,11 @@ import {
 import {
   SPEAK_TOPIC,
   SPEAK_UTTERANCE_ID_ATTR,
-  TURN_TOPIC,
   TTS_TOPIC,
-  USER_PARTICIPANT_IDENTITY,
   type TtsDoneMessage,
   type TtsErrorMessage,
+  TURN_TOPIC,
+  USER_PARTICIPANT_IDENTITY,
 } from '@maelstrom-co/realtime-livekit/protocol';
 
 // Cap how long the agent holds a job waiting for the user to connect before it
@@ -128,7 +128,10 @@ const entry = async (ctx: JobContext) => {
     cartesiaTTS.sampleRate,
     cartesiaTTS.numChannels,
   );
-  const ttsTrack = LocalAudioTrack.createAudioTrack('assistant-voice', ttsSource);
+  const ttsTrack = LocalAudioTrack.createAudioTrack(
+    'assistant-voice',
+    ttsSource,
+  );
   const ttsPublishOptions = new TrackPublishOptions();
   ttsPublishOptions.source = TrackSource.SOURCE_MICROPHONE;
   await localParticipant.publishTrack(ttsTrack, ttsPublishOptions);
@@ -231,7 +234,10 @@ const entry = async (ctx: JobContext) => {
 
     // One combined intent per push-to-talk hold (not a chunk per Deepgram pause),
     // emitted on the flush-final with a fallback for empty taps.
-    const aggregator = createTurnAggregator({ flushTimeoutMs, emit: publishTranscript });
+    const aggregator = createTurnAggregator({
+      flushTimeoutMs,
+      emit: publishTranscript,
+    });
 
     // Route turn_end packets (received by the room-scoped listener) to THIS
     // track's stream while it is the active one.
@@ -312,7 +318,9 @@ export function runVoiceAgent() {
  * substituting insecure local-dev defaults that would point the worker at the
  * wrong server.
  */
-export function resolveLiveKitCredentials(env: NodeJS.ProcessEnv = process.env): {
+export function resolveLiveKitCredentials(
+  env: NodeJS.ProcessEnv = process.env,
+): {
   wsURL: string;
   apiKey: string;
   apiSecret: string;
@@ -342,7 +350,9 @@ export function resolveLiveKitCredentials(env: NodeJS.ProcessEnv = process.env):
  * Fails closed like credential resolution — a non-numeric or non-positive value
  * throws at startup rather than silently degrading turn emission.
  */
-export function resolveFlushTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+export function resolveFlushTimeoutMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
   const raw = env.MAELSTROM_STT_FLUSH_TIMEOUT_MS;
   if (raw === undefined || raw === '') return DEFAULT_FLUSH_TIMEOUT_MS;
   const ms = Number(raw);
@@ -439,7 +449,9 @@ export function createSpeakHandler(deps: {
     // Correlate this utterance with its later TTS status: the client stamps an id
     // on the stream attributes, and the worker echoes it on `tts_done`/`tts_error`
     // so the client can drop status for an utterance it already barged past.
-    const utteranceId = parseUtteranceId(reader.info?.attributes?.[SPEAK_UTTERANCE_ID_ATTR]);
+    const utteranceId = parseUtteranceId(
+      reader.info?.attributes?.[SPEAK_UTTERANCE_ID_ATTR],
+    );
     // Reading starts immediately, but the chain may not reach `text` until
     // prior turns settle — attach a no-op handler now so a rejection in the
     // meantime is never reported as unhandled; the real handling still runs
@@ -485,7 +497,11 @@ function parseUtteranceId(raw: string | undefined): number | undefined {
 export function createTurnAggregator(opts: {
   flushTimeoutMs: number;
   emit: (text: string) => void;
-}): { pushFinal: (text: string) => void; endTurn: () => void; dispose: () => void } {
+}): {
+  pushFinal: (text: string) => void;
+  endTurn: () => void;
+  dispose: () => void;
+} {
   const { flushTimeoutMs, emit } = opts;
   const buffer: Array<{ turnId: number; text: string }> = [];
   // The turn live speech currently accumulates into.

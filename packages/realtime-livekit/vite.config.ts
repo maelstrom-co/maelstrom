@@ -6,7 +6,10 @@ export default defineConfig(() => ({
   root: __dirname,
   cacheDir: '../../node_modules/.vite/packages/realtime-livekit',
   plugins: [
-    dts({ entryRoot: 'src', tsconfigPath: path.join(__dirname, 'tsconfig.lib.json') }),
+    dts({
+      entryRoot: 'src',
+      tsconfigPath: path.join(__dirname, 'tsconfig.lib.json'),
+    }),
   ],
   build: {
     outDir: './dist',

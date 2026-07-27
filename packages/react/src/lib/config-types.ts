@@ -1,5 +1,11 @@
-import type { ChartMotionConfig, ResolvedChartMotionConfig } from './chart/motion/motion-config.js';
-import { DEFAULT_MOTION, resolveMotionConfig } from './chart/motion/motion-config.js';
+import type {
+  ChartMotionConfig,
+  ResolvedChartMotionConfig,
+} from './chart/motion/motion-config.js';
+import {
+  DEFAULT_MOTION,
+  resolveMotionConfig,
+} from './chart/motion/motion-config.js';
 
 /** Resolved config after merging factory defaults + Provider overrides */
 export interface ResolvedMaelstromConfig {
@@ -14,7 +20,9 @@ export interface ResolvedMaelstromConfig {
  * `motion` is unresolved here — its leaf fields are all optional, unlike
  * `ResolvedMaelstromConfig.motion` where every field is required.
  */
-export type ConfigOverrides = Partial<Omit<ResolvedMaelstromConfig, 'motion'>> & {
+export type ConfigOverrides = Partial<
+  Omit<ResolvedMaelstromConfig, 'motion'>
+> & {
   motion?: ChartMotionConfig;
 };
 
@@ -31,14 +39,20 @@ export function resolveConfig(
   factory: ConfigOverrides,
   provider: ConfigOverrides,
 ): ResolvedMaelstromConfig {
-  const cellSizePx = provider.cellSizePx ?? factory.cellSizePx ?? CONFIG_DEFAULTS.cellSizePx;
+  const cellSizePx =
+    provider.cellSizePx ?? factory.cellSizePx ?? CONFIG_DEFAULTS.cellSizePx;
   if (cellSizePx <= 0) {
     throw new Error(`cellSizePx must be positive, got ${cellSizePx}`);
   }
 
-  const tilingPaddingPx = provider.tilingPaddingPx ?? factory.tilingPaddingPx ?? CONFIG_DEFAULTS.tilingPaddingPx;
+  const tilingPaddingPx =
+    provider.tilingPaddingPx ??
+    factory.tilingPaddingPx ??
+    CONFIG_DEFAULTS.tilingPaddingPx;
   if (tilingPaddingPx < 0) {
-    throw new Error(`tilingPaddingPx must be non-negative, got ${tilingPaddingPx}`);
+    throw new Error(
+      `tilingPaddingPx must be non-negative, got ${tilingPaddingPx}`,
+    );
   }
 
   return {

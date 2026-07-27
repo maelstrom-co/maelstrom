@@ -4,8 +4,8 @@ import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
 
 import {
   brandGridResponse,
-  makeGridRequest,
   type GridResponseAuthor,
+  makeGridRequest,
 } from '../../__test-helpers__/fixtures.js';
 import { healGridLayout } from './grid-layout.js';
 

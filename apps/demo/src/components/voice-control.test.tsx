@@ -1,18 +1,27 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, within } from '@testing-library/react';
 import type { VoiceSessionState } from '@maelstrom-co/client';
-import type { AdapterTurnControl, RealtimeSession } from '@maelstrom-co/realtime';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
+import type {
+  AdapterTurnControl,
+  RealtimeSession,
+} from '@maelstrom-co/realtime';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  within,
+} from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 
 // voice-control.tsx only touches `m.useVoice` and `m.VoiceOrb` — faking the
 // module boundary here isolates these tests from the real Provider/session
 // wiring already covered by react-realtime's own test suite.
-const holder = vi.hoisted(
-  () => ({ voiceResult: undefined as unknown as UseVoiceResult }),
-);
+const holder = vi.hoisted(() => ({
+  voiceResult: undefined as unknown as UseVoiceResult,
+}));
 
 vi.mock('../lib/maelstrom', () => ({
   m: {
@@ -23,7 +32,10 @@ vi.mock('../lib/maelstrom', () => ({
 
 const { VoiceControl } = await import('./voice-control');
 
-function makeTurnControl(): AdapterTurnControl & { startCalls: number; endCalls: number } {
+function makeTurnControl(): AdapterTurnControl & {
+  startCalls: number;
+  endCalls: number;
+} {
   const turnControl = {
     startCalls: 0,
     endCalls: 0,

@@ -2,16 +2,16 @@ import { describe, expect, test } from 'bun:test';
 import type { Result } from '@maelstrom-co/protocol';
 import {
   ActionName,
-  InstanceId,
-  VariantName,
-  VesselId,
   err,
+  InstanceId,
   isErr,
   isOk,
-  ok,
   MessageId,
+  ok,
+  VariantName,
+  VesselId,
 } from '@maelstrom-co/protocol';
-
+import { silentLogger } from '../__test-helpers__/fixtures.js';
 import type { EngineError } from '../errors.js';
 import {
   cancellationError,
@@ -22,7 +22,6 @@ import {
   validationError,
 } from '../errors.js';
 import type { Logger } from '../logger.js';
-import { silentLogger } from '../__test-helpers__/fixtures.js';
 import type { SkippedAction } from '../response/execution-plan/index.js';
 import type { InternalResponse } from '../response/response-processor.js';
 import type {

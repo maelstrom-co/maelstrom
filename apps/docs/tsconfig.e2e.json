@@ -5,13 +5,6 @@
     "outDir": "out-tsc/playwright",
     "sourceMap": false
   },
-  "include": [
-    "e2e/**/*.ts",
-    "e2e/**/*.js",
-    "playwright.config.ts"
-  ],
-  "exclude": [
-    "out-tsc",
-    "test-output"
-  ]
+  "include": ["e2e/**/*.ts", "e2e/**/*.js", "playwright.config.ts"],
+  "exclude": ["out-tsc", "test-output"]
 }

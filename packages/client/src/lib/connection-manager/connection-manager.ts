@@ -1,7 +1,7 @@
 import type { SessionId } from '@maelstrom-co/protocol';
 import { toError } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
-
+import type { Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
 import type { EventSubscriber } from '../utils/typed-emitter.js';
 import { TypedEmitter } from '../utils/typed-emitter.js';
@@ -15,7 +15,6 @@ import {
   DEFAULT_CONNECTION_OPTIONS,
 } from './connection-manager.types.js';
 import type { ConnectionStatus, EngineConnector } from './connector.types.js';
-import type { Unsubscribe } from '../types.js';
 
 /**
  * Event payloads emitted by ConnectionManager.

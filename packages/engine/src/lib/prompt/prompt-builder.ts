@@ -1,5 +1,6 @@
 import type { ChartRequest, LayoutMode } from '@maelstrom-co/protocol';
-
+import type { Logger } from '../logger.js';
+import { buildDefaultUserSections } from './request-serializer.js';
 import type {
   PromptSection,
   SectionCustomizer,
@@ -8,8 +9,6 @@ import type {
 } from './sections.js';
 import { isSectionExtension } from './sections.js';
 import { getDefaultSystemSections } from './system-prompts.js';
-import { buildDefaultUserSections } from './request-serializer.js';
-import type { Logger } from '../logger.js';
 
 const DEFAULT_VARS: PromptVars = {
   assistantName: 'Maelstrom',

@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { render, screen, fireEvent } from '@testing-library/react';
 import ArchitectureDiagram from '../ArchitectureDiagram';
-import { NODES } from '../nodes';
 import { STEPS, stepCaption } from '../loop-machine';
+import { NODES } from '../nodes';
 
 describe('ArchitectureDiagram — SSR fallback', () => {
   it('server-renders every package (scope + name) for no-JS and crawlers', () => {

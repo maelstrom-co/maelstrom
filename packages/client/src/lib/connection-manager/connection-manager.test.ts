@@ -1,16 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
+  type MaelstromResponse,
   MessageId,
   SessionId,
-  type MaelstromResponse,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
-
+import type { Unsubscribe } from '../types.js';
 import type { ConnectionManagerEvents } from './connection-manager.js';
 import { ConnectionManager } from './connection-manager.js';
 import { createInitialConnectionManagerState } from './connection-manager.state.js';
 import type { ConnectorEvent, EngineConnector } from './connector.types.js';
-import type { Unsubscribe } from '../types.js';
 
 /**
  * Creates a mock connector implementing the EngineConnector interface.

@@ -1,16 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import type {
+  CapabilitySnapshot,
+  UIStructuralSnapshot,
+} from '@maelstrom-co/client';
+import { SessionId, ToolCallId } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
-import { ToolCallId } from '@maelstrom-co/protocol';
-import type { UnixSeconds } from '../token/unix-seconds.js';
-import type { OpenAITokenGrant } from './openai-token.js';
-import { SessionId } from '@maelstrom-co/protocol';
-import type { CapabilitySnapshot, UIStructuralSnapshot } from '@maelstrom-co/client';
-
-import type { AdapterConnectOptions, RealtimeProviderAdapter } from '../realtime-session/provider-adapter.types.js';
-import { OpenAIAdapter } from './openai-adapter.js';
-import { RealtimeVoiceError } from '../realtime-voice-error.js';
-import type { RealtimeInstance } from '../realtime-session/realtime-session.types.js';
+import type {
+  AdapterConnectOptions,
+  RealtimeProviderAdapter,
+} from '../realtime-session/provider-adapter.types.js';
 import { RealtimeSession } from '../realtime-session/realtime-session.js';
+import type { RealtimeInstance } from '../realtime-session/realtime-session.types.js';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
+import type { UnixSeconds } from '../token/unix-seconds.js';
+import { OpenAIAdapter } from './openai-adapter.js';
+import type { OpenAITokenGrant } from './openai-token.js';
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -113,7 +117,10 @@ class FakeRTCPeerConnection {
     this.localDescription = desc;
   }
 
-  async setRemoteDescription(desc: { type: string; sdp: string }): Promise<void> {
+  async setRemoteDescription(desc: {
+    type: string;
+    sdp: string;
+  }): Promise<void> {
     return setRemoteDescriptionImpl(desc);
   }
 
@@ -176,7 +183,10 @@ let fetchImpl: () => Promise<{
   text: () => Promise<string>;
 }>;
 let createOfferImpl: () => Promise<{ type: string; sdp: string }>;
-let setRemoteDescriptionImpl: (desc: { type: string; sdp: string }) => Promise<void>;
+let setRemoteDescriptionImpl: (desc: {
+  type: string;
+  sdp: string;
+}) => Promise<void>;
 
 let originalRTCPeerConnection: unknown;
 let originalAudio: unknown;
@@ -244,7 +254,8 @@ async function connectWithChannel(): Promise<{
   await adapter.connect(connectOpts);
   const pc = FakeRTCPeerConnection.instances[0];
   const channel = pc?.dataChannel;
-  if (!channel || !pc) throw new Error('connectWithChannel: no data channel created');
+  if (!channel || !pc)
+    throw new Error('connectWithChannel: no data channel created');
   channel.triggerOpen();
   return { adapter, channel, connection: pc };
 }
@@ -437,13 +448,20 @@ describe('OpenAIAdapter — closed data channel', () => {
     expect(dc?.readyState).toBe('connecting');
 
     const events: Array<{ type: string; error?: unknown }> = [];
-    adapter.on((event) => events.push(event as { type: string; error?: unknown }));
+    adapter.on((event) =>
+      events.push(event as { type: string; error?: unknown }),
+    );
 
-    await adapter.sendToolResult(ToolCallId('call-1'), { ok: true, summary: 'done' });
+    await adapter.sendToolResult(ToolCallId('call-1'), {
+      ok: true,
+      summary: 'done',
+    });
 
     expect(events).toHaveLength(1);
     expect(events[0]?.type).toBe('error');
-    expect((events[0]?.error as Error)?.message).toContain('data channel not open');
+    expect((events[0]?.error as Error)?.message).toContain(
+      'data channel not open',
+    );
   });
 });
 
@@ -498,7 +516,9 @@ describe('OpenAIAdapter — typed errors', () => {
 
   it('wraps a mint rejection as TOKEN_MINT_FAILED with cause preserved', async () => {
     const boom = new Error('mint 500');
-    const adapter = new OpenAIAdapter({ mintToken: () => Promise.reject(boom) });
+    const adapter = new OpenAIAdapter({
+      mintToken: () => Promise.reject(boom),
+    });
     const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RealtimeVoiceError);
     expect((err as RealtimeVoiceError).code).toBe('TOKEN_MINT_FAILED');
@@ -506,7 +526,9 @@ describe('OpenAIAdapter — typed errors', () => {
   });
 
   it('maps getUserMedia NotAllowedError to MIC_PERMISSION_DENIED', async () => {
-    const denied = Object.assign(new Error('denied'), { name: 'NotAllowedError' });
+    const denied = Object.assign(new Error('denied'), {
+      name: 'NotAllowedError',
+    });
     getUserMediaImpl = async () => {
       throw denied;
     };
@@ -568,12 +590,17 @@ describe('OpenAIAdapter — audio streams', () => {
     expect(streams.playback).toBe(remote as unknown as MediaStream);
 
     await adapter.disconnect();
-    expect(adapter.getAudioStreams()).toEqual({ mic: undefined, playback: undefined });
+    expect(adapter.getAudioStreams()).toEqual({
+      mic: undefined,
+      playback: undefined,
+    });
   });
 
   it('pauses and detaches the playback audio element on teardown', async () => {
     const { adapter, connection } = await connectWithChannel();
-    connection.ontrack?.({ streams: [new FakeMediaStream()] } as unknown as RTCTrackEvent);
+    connection.ontrack?.({
+      streams: [new FakeMediaStream()],
+    } as unknown as RTCTrackEvent);
     const audio = FakeAudio.instances.at(-1);
     expect(audio?.paused).toBe(false);
     expect(audio?.srcObject).not.toBeNull();
@@ -634,7 +661,8 @@ describe('RealtimeSession + OpenAIAdapter — fatal in-session error recovery', 
 
     const pc = FakeRTCPeerConnection.instances[0];
     const micStream = FakeMediaStream.instances[0];
-    if (!pc || !micStream) throw new Error('expected a peer connection and mic stream');
+    if (!pc || !micStream)
+      throw new Error('expected a peer connection and mic stream');
 
     // Simulate an ICE failure mid-session — the fatal-error path the real
     // adapter takes for a dropped WebRTC connection.
@@ -720,7 +748,9 @@ describe('OpenAIAdapter — superseded connect abandonment', () => {
     // ...while the winner stays live and owns the shared fields.
     expect(pc2?.closed).toBe(false);
     expect(winnerMic?.tracks.some((track) => track.stopped)).toBe(false);
-    expect(adapter.getAudioStreams().mic).toBe(winnerMic as unknown as MediaStream);
+    expect(adapter.getAudioStreams().mic).toBe(
+      winnerMic as unknown as MediaStream,
+    );
   });
 });
 
@@ -821,14 +851,22 @@ describe('OpenAIAdapter — transcription config', () => {
 
   it('uses a caller-supplied transcription model', async () => {
     const update = await connectAndReadSessionUpdate(
-      new OpenAIAdapter({ mintToken: async () => fakeToken, transcription: { model: 'whisper-1' } }),
+      new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        transcription: { model: 'whisper-1' },
+      }),
     );
-    expect(update.session.audio.input.transcription).toEqual({ model: 'whisper-1' });
+    expect(update.session.audio.input.transcription).toEqual({
+      model: 'whisper-1',
+    });
   });
 
   it('falls back to the default model when the transcription object omits model', async () => {
     const update = await connectAndReadSessionUpdate(
-      new OpenAIAdapter({ mintToken: async () => fakeToken, transcription: {} }),
+      new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        transcription: {},
+      }),
     );
     expect(update.session.audio.input.transcription).toEqual({
       model: 'gpt-4o-mini-transcribe',
@@ -837,7 +875,10 @@ describe('OpenAIAdapter — transcription config', () => {
 
   it('omits input-audio transcription entirely when disabled', async () => {
     const update = await connectAndReadSessionUpdate(
-      new OpenAIAdapter({ mintToken: async () => fakeToken, transcription: false }),
+      new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        transcription: false,
+      }),
     );
     expect(update.session.audio).toBeUndefined();
   });

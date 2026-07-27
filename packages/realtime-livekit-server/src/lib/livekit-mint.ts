@@ -1,7 +1,10 @@
-import { type Result, err, ok } from '@maelstrom-co/protocol';
+import { err, ok, type Result } from '@maelstrom-co/protocol';
 import type { MintFailure, UnixSeconds } from '@maelstrom-co/realtime';
-import { type LiveKitTokenGrant, LiveKitTokenGrantSchema } from '@maelstrom-co/realtime-livekit/token';
 import { USER_PARTICIPANT_IDENTITY } from '@maelstrom-co/realtime-livekit/protocol';
+import {
+  type LiveKitTokenGrant,
+  LiveKitTokenGrantSchema,
+} from '@maelstrom-co/realtime-livekit/token';
 import { AccessToken } from 'livekit-server-sdk';
 import { z } from 'zod';
 
@@ -61,7 +64,9 @@ const DEFAULT_TTL = '15m';
  *   });
  * ```
  */
-export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResult> {
+export async function mintLiveKitToken(
+  input: unknown,
+): Promise<LiveKitMintResult> {
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
   if (!apiKey || !apiSecret) {
@@ -118,7 +123,8 @@ export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResul
     });
 
     const token = await at.toJwt();
-    const expiresAt = (Math.floor(Date.now() / 1000) + ttlSeconds) as UnixSeconds;
+    const expiresAt = (Math.floor(Date.now() / 1000) +
+      ttlSeconds) as UnixSeconds;
 
     // Validate the built grant against the contract the browser adapter
     // expects — most commonly a right-shaped-but-wrong-scheme LIVEKIT_URL
@@ -140,7 +146,12 @@ export async function mintLiveKitToken(input: unknown): Promise<LiveKitMintResul
   }
 }
 
-const TTL_UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+const TTL_UNIT_SECONDS: Record<string, number> = {
+  s: 1,
+  m: 60,
+  h: 3600,
+  d: 86400,
+};
 
 // `expiresAt` needs the absolute expiry, so parse the TTL the same way here.
 // Deliberately narrower than the SDK's vercel/ms grammar: only a bare integer
@@ -157,7 +168,9 @@ function ttlToSeconds(ttl: string): number | null {
   } else {
     const match = /^(\d+)([smhd])$/.exec(trimmed);
     if (!match) return null;
-    seconds = Number(match[1]) * TTL_UNIT_SECONDS[match[2] as keyof typeof TTL_UNIT_SECONDS];
+    seconds =
+      Number(match[1]) *
+      TTL_UNIT_SECONDS[match[2] as keyof typeof TTL_UNIT_SECONDS];
   }
   // `Number.isSafeInteger` rejects both an Infinity from an over-long digit
   // string and a finite-but-unsafe product of `<int> * unit` — either would

@@ -8,24 +8,23 @@
  * - Engine-initiated action fires runner handler
  * - User-initiated executeAction triggers the client store transition AND fires runner
  */
-import { describe, it, expect, afterEach, mock } from 'bun:test';
-import { render, cleanup, act } from '@testing-library/react';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import type { ActionRunner, VesselInstance } from '@maelstrom-co/client';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
   ActionName,
+  defineVessel,
   InstanceId,
   MessageId,
+  ok,
   VariantName,
   VesselId,
-  defineVessel,
 } from '@maelstrom-co/protocol';
-import { ok } from '@maelstrom-co/protocol';
-import type { VesselInstance, ActionRunner } from '@maelstrom-co/client';
-import type { MaelstromResponse } from '@maelstrom-co/protocol';
-
+import { act, cleanup, render } from '@testing-library/react';
+import { assertDefined } from './__tests__/assert-defined.js';
+import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
-import { createMockConnector } from './__tests__/mock-connector.js';
-import { assertDefined } from './__tests__/assert-defined.js';
 
 const orderVessel = defineVessel({
   id: 'orders',
@@ -41,7 +40,14 @@ const orderVessel = defineVessel({
           name: 'viewDetail',
           description: 'View detail',
           transitionsTo: 'detail',
-          parameters: [{ name: 'orderId', type: 'string' as const, description: 'Order ID', required: true as const }],
+          parameters: [
+            {
+              name: 'orderId',
+              type: 'string' as const,
+              description: 'Order ID',
+              required: true as const,
+            },
+          ],
         },
       ],
     },
@@ -59,7 +65,11 @@ afterEach(() => cleanup());
 
 function makeResponse(
   instances: VesselInstance[],
-  executionPlan: Array<{ instanceId: string; action: string; params?: Record<string, unknown> }> = [],
+  executionPlan: Array<{
+    instanceId: string;
+    action: string;
+    params?: Record<string, unknown>;
+  }> = [],
 ): MaelstromResponse {
   return {
     type: 'maelstrom_response',
@@ -93,8 +103,12 @@ const baseInstance: VesselInstance = {
 
 describe('useVessel + useActions integration', () => {
   it('engine-initiated action fires registered runner with correct params', async () => {
-    const viewDetailHandler = mock((_params: { orderId: string }) => ok(undefined));
-    const runner: ActionRunner<typeof orderVessel> = { viewDetail: viewDetailHandler };
+    const viewDetailHandler = mock((_params: { orderId: string }) =>
+      ok(undefined),
+    );
+    const runner: ActionRunner<typeof orderVessel> = {
+      viewDetail: viewDetailHandler,
+    };
     const m = createMaelstrom({ vessels: [entry] });
 
     let callCount = 0;
@@ -104,7 +118,13 @@ describe('useVessel + useActions integration', () => {
         if (callCount === 1) return makeResponse([baseInstance]);
         return makeResponse(
           [baseInstance],
-          [{ instanceId: 'inst-1', action: 'viewDetail', params: { orderId: 'order-99' } }],
+          [
+            {
+              instanceId: 'inst-1',
+              action: 'viewDetail',
+              params: { orderId: 'order-99' },
+            },
+          ],
         );
       },
     });
@@ -120,7 +140,11 @@ describe('useVessel + useActions integration', () => {
     }
 
     await act(async () => {
-      render(<m.Provider connector={connector}><App /></m.Provider>);
+      render(
+        <m.Provider connector={connector}>
+          <App />
+        </m.Provider>,
+      );
     });
 
     assertDefined(state);
@@ -144,8 +168,12 @@ describe('useVessel + useActions integration', () => {
   });
 
   it('user-initiated executeAction triggers the client transition and fires registered runner', async () => {
-    const viewDetailHandler = mock((_params: { orderId: string }) => ok(undefined));
-    const runner: ActionRunner<typeof orderVessel> = { viewDetail: viewDetailHandler };
+    const viewDetailHandler = mock((_params: { orderId: string }) =>
+      ok(undefined),
+    );
+    const runner: ActionRunner<typeof orderVessel> = {
+      viewDetail: viewDetailHandler,
+    };
     const m = createMaelstrom({ vessels: [entry] });
 
     const connector = createMockConnector({
@@ -163,7 +191,11 @@ describe('useVessel + useActions integration', () => {
     }
 
     await act(async () => {
-      render(<m.Provider connector={connector}><App /></m.Provider>);
+      render(
+        <m.Provider connector={connector}>
+          <App />
+        </m.Provider>,
+      );
     });
 
     assertDefined(state);

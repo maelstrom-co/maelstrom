@@ -75,9 +75,9 @@ describe('readCapabilitySnapshot', () => {
     const snapshot = readCapabilitySnapshot([vessel]);
     const [capability] = snapshot.vessels;
     expect(capability?.variants).toEqual([{ name: 'compact' }]);
-    expect(capability?.variants[0] && 'description' in capability.variants[0]).toBe(
-      false,
-    );
+    expect(
+      capability?.variants[0] && 'description' in capability.variants[0],
+    ).toBe(false);
   });
 
   it('deduplicates actions with the same name across variants', () => {

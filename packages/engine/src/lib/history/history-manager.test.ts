@@ -14,9 +14,9 @@ import {
 
 import { defer } from '../__test-helpers__/defer.js';
 import { makeGridRequest } from '../__test-helpers__/fixtures.js';
+import { createHistoryManager } from './history-manager.js';
 import type { HistoryEntry, HistoryStore } from './history-store.js';
 import { createInMemoryStore } from './in-memory-store.js';
-import { createHistoryManager } from './history-manager.js';
 
 // Adapts the shared makeGridRequest fixture, overriding the user_intent
 // reason. Dropping the local hand-rolled request removed an

@@ -2,17 +2,17 @@ import { describe, expect, test } from 'bun:test';
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 import {
-  buildGridChartState,
-  buildTilingChartState,
-  buildUpdateTriggersSection,
-  buildDefaultUserSections,
-  buildVesselsSection,
-} from './request-serializer.js';
-import type { Logger } from '../logger.js';
-import {
   makeGridRequest,
   makeTilingRequest,
 } from '../__test-helpers__/fixtures.js';
+import type { Logger } from '../logger.js';
+import {
+  buildDefaultUserSections,
+  buildGridChartState,
+  buildTilingChartState,
+  buildUpdateTriggersSection,
+  buildVesselsSection,
+} from './request-serializer.js';
 
 function createSpyLogger(): { logger: Logger; warns: string[] } {
   const warns: string[] = [];

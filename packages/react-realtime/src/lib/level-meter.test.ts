@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { createLevelMeter, resetLevelMeterAudioContextForTesting } from './level-meter.js';
+import {
+  createLevelMeter,
+  resetLevelMeterAudioContextForTesting,
+} from './level-meter.js';
 
 function makeFakeAudioContext(fillByte: number) {
   const analyser = {
@@ -14,7 +17,10 @@ function makeFakeAudioContext(fillByte: number) {
   let suspendCalls = 0;
   let closeCalls = 0;
   const context = {
-    createMediaStreamSource: () => ({ connect: () => {}, disconnect: () => {} }),
+    createMediaStreamSource: () => ({
+      connect: () => {},
+      disconnect: () => {},
+    }),
     createAnalyser: () => analyser,
     resume() {
       resumeCalls += 1;
@@ -38,7 +44,11 @@ function makeFakeAudioContext(fillByte: number) {
       return closeCalls;
     },
   };
-  return { context: context as unknown as AudioContext, analyser, raw: context };
+  return {
+    context: context as unknown as AudioContext,
+    analyser,
+    raw: context,
+  };
 }
 
 beforeEach(() => {

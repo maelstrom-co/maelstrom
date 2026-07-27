@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import type { Orchestrator, TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
-import type { MaelstromExtension, MaelstromExtensionContext } from '@maelstrom-co/react';
+import type {
+  Orchestrator,
+  TranscriptEntry,
+  VoiceSessionState,
+} from '@maelstrom-co/client';
+import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
+import type {
+  MaelstromExtension,
+  MaelstromExtensionContext,
+} from '@maelstrom-co/react';
 import type {
   AdapterTurnControl,
   RealtimeInstance,
@@ -8,7 +15,7 @@ import type {
   SummarizeFn,
 } from '@maelstrom-co/realtime';
 import { RealtimeSession } from '@maelstrom-co/realtime';
-import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
+import { type ReactElement, useCallback, useEffect, useState } from 'react';
 
 import { createVoiceOrb, type VoiceOrbProps } from './voice-orb.js';
 
@@ -33,7 +40,9 @@ export interface MaelstromRealtimeOptions {
    * adapter can scope per-session server resources (an ephemeral token mint
    * keyed to the session, a room name derived from it, …) to this session.
    */
-  readonly createAdapter: (ctx: CreateAdapterContext) => RealtimeProviderAdapter;
+  readonly createAdapter: (
+    ctx: CreateAdapterContext,
+  ) => RealtimeProviderAdapter;
   /**
    * Overrides the default snapshot-to-sentence summarizer used for grounding
    * pushes and as the `update_ui` tool-result fallback. It is only a fallback
@@ -144,7 +153,10 @@ export function maelstromRealtime(
       onEvent: options.onEvent,
       debug: options.debug,
     });
-    const entry: VoiceSessionEntry = { session, turnControl: adapter.turnControl };
+    const entry: VoiceSessionEntry = {
+      session,
+      turnControl: adapter.turnControl,
+    };
     sessions.set(orchestrator, entry);
     return entry;
   }
@@ -159,10 +171,12 @@ export function maelstromRealtime(
       // the shared session must not render a stale status.
       const [state, setState] = useState<VoiceSessionState>(session.state);
       const [error, setError] = useState<unknown>(session.lastError);
-      const [userTranscript, setUserTranscript] = useState<TranscriptEntry | undefined>(undefined);
-      const [assistantTranscript, setAssistantTranscript] = useState<TranscriptEntry | undefined>(
-        undefined,
-      );
+      const [userTranscript, setUserTranscript] = useState<
+        TranscriptEntry | undefined
+      >(undefined);
+      const [assistantTranscript, setAssistantTranscript] = useState<
+        TranscriptEntry | undefined
+      >(undefined);
 
       useEffect(() => {
         const unsubscribe = session.on('state', (next) => {
@@ -179,7 +193,8 @@ export function maelstromRealtime(
 
       useEffect(() => {
         return session.on('transcript', (entry) => {
-          const setTranscript = entry.role === 'user' ? setUserTranscript : setAssistantTranscript;
+          const setTranscript =
+            entry.role === 'user' ? setUserTranscript : setAssistantTranscript;
           setTranscript((prev) => {
             // A final entry replaces the accumulation with its own full text;
             // a non-final entry appends onto the building string, starting a

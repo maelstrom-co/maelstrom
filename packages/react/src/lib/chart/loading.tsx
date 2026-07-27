@@ -6,7 +6,10 @@ export interface VesselLoadingSkeletonProps {
   vesselName?: string | undefined;
 }
 
-export function VesselLoadingSkeleton({ vesselId, vesselName }: VesselLoadingSkeletonProps) {
+export function VesselLoadingSkeleton({
+  vesselId,
+  vesselName,
+}: VesselLoadingSkeletonProps) {
   const skeletonStyle: CSSProperties = {
     width: '100%',
     height: '100%',
@@ -20,8 +23,15 @@ export function VesselLoadingSkeleton({ vesselId, vesselName }: VesselLoadingSke
     gap: '8px',
   };
 
-  const spinnerStyle: CSSProperties = { width: '24px', height: '24px', opacity: 0.5 };
-  const textStyle: CSSProperties = { fontSize: '12px', color: 'rgba(128, 128, 128, 0.7)' };
+  const spinnerStyle: CSSProperties = {
+    width: '24px',
+    height: '24px',
+    opacity: 0.5,
+  };
+  const textStyle: CSSProperties = {
+    fontSize: '12px',
+    color: 'rgba(128, 128, 128, 0.7)',
+  };
 
   return (
     <div style={skeletonStyle} data-vessel-loading={vesselId}>
@@ -59,7 +69,12 @@ export interface VesselLoadErrorProps {
   retry?: (() => void) | undefined;
 }
 
-export function VesselLoadError({ vesselId, error, debug, retry }: VesselLoadErrorProps) {
+export function VesselLoadError({
+  vesselId,
+  error,
+  debug,
+  retry,
+}: VesselLoadErrorProps) {
   const errorStyle: CSSProperties = {
     width: '100%',
     height: '100%',

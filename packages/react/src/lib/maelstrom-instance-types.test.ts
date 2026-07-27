@@ -9,13 +9,10 @@
  */
 
 import { describe, it } from 'bun:test';
-
-import { defineVessel } from '@maelstrom-co/protocol';
-import { ok } from '@maelstrom-co/protocol';
-
+import { defineVessel, ok } from '@maelstrom-co/protocol';
+import { testVessel } from './__tests__/test-vessel.fixture.js';
 import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import { vessel } from './vessel.js';
-import { testVessel } from './__tests__/test-vessel.fixture.js';
 
 // ============================================================================
 // Test fixture: multi-vessel MaelstromInstance

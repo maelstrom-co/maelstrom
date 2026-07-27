@@ -22,14 +22,14 @@
 import {
   createEngine,
   createInMemoryStore,
+  type Engine,
   handleEnvelope,
   recoverCorrelation,
-  type Engine,
 } from '@maelstrom-co/engine';
 import {
   decodeClientEnvelope,
-  encodeEnvelope,
   EngineErrorMessage,
+  encodeEnvelope,
   isErr,
 } from '@maelstrom-co/protocol';
 import { geminiText } from '@tanstack/ai-gemini';

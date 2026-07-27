@@ -3,17 +3,17 @@ import {
   ActionName,
   decodeClientEnvelope,
   EngineErrorMessage,
-  encodeEnvelope,
   EnvelopeError,
+  encodeEnvelope,
   HistoryResponseMessage,
   InstanceId,
   isOk,
+  type MaelstromResponse,
   MaelstromResponseMessage,
   MessageId,
-  SessionId,
-  type MaelstromResponse,
   type ServerEnvelope,
   type SessionHistoryEntry,
+  SessionId,
 } from '@maelstrom-co/protocol';
 
 import { WireEngineError } from '../../connector.types.js';

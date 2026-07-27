@@ -23,7 +23,9 @@ export function asString(value: unknown): string | undefined {
  * shapes from prior Realtime API versions, isolated here so they're cheap to
  * correct once real traffic is observed.
  */
-export function parseOpenAIServerEvent(raw: unknown): RealtimeAdapterEvent | null {
+export function parseOpenAIServerEvent(
+  raw: unknown,
+): RealtimeAdapterEvent | null {
   if (!isRecord(raw)) return null;
   const type = asString(raw.type);
   if (type === undefined) return null;
@@ -50,25 +52,45 @@ export function parseOpenAIServerEvent(raw: unknown): RealtimeAdapterEvent | nul
       ) {
         return null;
       }
-      return { type: 'tool_call', callId: ToolCallId(callId), name, argumentsJson };
+      return {
+        type: 'tool_call',
+        callId: ToolCallId(callId),
+        name,
+        argumentsJson,
+      };
     }
 
     case 'response.audio_transcript.delta': {
       const delta = asString(raw.delta);
       if (delta === undefined) return null;
-      return { type: 'transcript', role: 'assistant', text: delta, final: false };
+      return {
+        type: 'transcript',
+        role: 'assistant',
+        text: delta,
+        final: false,
+      };
     }
 
     case 'response.audio_transcript.done': {
       const transcript = asString(raw.transcript);
       if (transcript === undefined) return null;
-      return { type: 'transcript', role: 'assistant', text: transcript, final: true };
+      return {
+        type: 'transcript',
+        role: 'assistant',
+        text: transcript,
+        final: true,
+      };
     }
 
     case 'conversation.item.input_audio_transcription.completed': {
       const transcript = asString(raw.transcript);
       if (transcript === undefined) return null;
-      return { type: 'transcript', role: 'user', text: transcript, final: true };
+      return {
+        type: 'transcript',
+        role: 'user',
+        text: transcript,
+        final: true,
+      };
     }
 
     case 'conversation.item.input_audio_transcription.delta': {

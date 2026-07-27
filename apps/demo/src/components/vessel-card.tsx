@@ -1,6 +1,10 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { ACCENT_HEX, accentAlpha, type AccentToken } from '../lib/design-tokens';
 import { cn } from '../lib/cn';
+import {
+  ACCENT_HEX,
+  type AccentToken,
+  accentAlpha,
+} from '../lib/design-tokens';
 
 interface VesselCardProps {
   accent: AccentToken;
@@ -25,7 +29,10 @@ export function VesselCard({
   } as CSSProperties;
 
   return (
-    <div className={cn('vessel-card relative h-full overflow-hidden', className)} style={style}>
+    <div
+      className={cn('vessel-card relative h-full overflow-hidden', className)}
+      style={style}
+    >
       <div className="vessel-card-edge absolute top-0 inset-x-0 h-px" />
       <div className="p-5 h-full flex flex-col">
         <div className="relative flex items-center justify-between mb-3">
@@ -36,7 +43,9 @@ export function VesselCard({
             </span>
           </span>
           {meta && (
-            <span className="text-xs font-mono text-ink-3 leading-none">{meta}</span>
+            <span className="text-xs font-mono text-ink-3 leading-none">
+              {meta}
+            </span>
           )}
         </div>
         {children}

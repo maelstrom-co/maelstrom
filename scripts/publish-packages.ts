@@ -35,7 +35,9 @@ export type SubstitutionContext = {
   workspaceVersions: Map<string, string>;
 };
 
-export function buildSubstitutionContext(cwd: string = process.cwd()): SubstitutionContext {
+export function buildSubstitutionContext(
+  cwd: string = process.cwd(),
+): SubstitutionContext {
   const rootPkg = JSON.parse(
     readFileSync(join(cwd, 'package.json'), 'utf8'),
   ) as { catalog?: DepMap; workspaces?: string[] };
@@ -65,7 +67,8 @@ export function buildSubstitutionContext(cwd: string = process.cwd()): Substitut
           name?: string;
           version?: string;
         };
-        if (pkg.name && pkg.version) workspaceVersions.set(pkg.name, pkg.version);
+        if (pkg.name && pkg.version)
+          workspaceVersions.set(pkg.name, pkg.version);
       } catch {
         // Not every directory under packages/* needs to be a package.
       }

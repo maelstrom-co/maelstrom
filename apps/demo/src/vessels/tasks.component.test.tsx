@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
+
+import type { TypedVesselProps } from '@maelstrom-co/react';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TypedVesselProps } from '@maelstrom-co/react';
 import type { tasksVessel } from './tasks.vessel';
 
 vi.mock('../lib/maelstrom', () => ({
@@ -59,7 +60,7 @@ describe('TasksComponent empty state', () => {
     expect(fill.style.width).toBe('50%');
   });
 
-  it('renders a done task\'s checkmark in the dark-ink color, not white, for WCAG contrast against the amber fill', () => {
+  it("renders a done task's checkmark in the dark-ink color, not white, for WCAG contrast against the amber fill", () => {
     // Subtasks have no public action to mark them done (tasks.vessel.ts has
     // no checkSubtask), so only the top-level task's Check is exercisable
     // through the store; the sub-task Check (~line 99) carries the identical
@@ -67,7 +68,9 @@ describe('TasksComponent empty state', () => {
     tasksActions.addTask('Write the launch post');
     tasksActions.checkTask('Write the launch post');
     const { container } = render(<TasksComponent {...props()} />);
-    const check = container.querySelector('.task-check--done svg') as SVGElement;
+    const check = container.querySelector(
+      '.task-check--done svg',
+    ) as SVGElement;
     expect(check).not.toBeNull();
     expect(check.classList.contains('text-bg')).toBe(true);
     expect(check.classList.contains('text-white')).toBe(false);

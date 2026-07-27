@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { domToMarkdown, initCopyForAi } from '../copy-for-ai';
 
 describe('domToMarkdown', () => {
@@ -35,7 +35,9 @@ describe('domToMarkdown', () => {
   });
 
   it('converts code blocks with language', () => {
-    const el = buildContent('<pre><code class="language-ts">const x = 1;</code></pre>');
+    const el = buildContent(
+      '<pre><code class="language-ts">const x = 1;</code></pre>',
+    );
     const md = domToMarkdown(el);
     expect(md).toContain('```ts');
     expect(md).toContain('const x = 1;');

@@ -1,7 +1,14 @@
-import { StrictMode, useEffect, useState, useMemo } from 'react';
-import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
-import type { VesselInstance } from '@maelstrom-co/client';
-import type { ActionRunner } from '@maelstrom-co/client';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test';
+import type { ActionRunner, VesselInstance } from '@maelstrom-co/client';
 import type {
   ChartRequestMessage,
   MaelstromResponse,
@@ -9,14 +16,15 @@ import type {
 } from '@maelstrom-co/protocol';
 import {
   ActionName,
+  defineVessel,
   InstanceId,
   MessageId,
+  ok,
   VariantName,
   VesselId,
-  defineVessel,
 } from '@maelstrom-co/protocol';
-import { ok } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
+import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
@@ -308,7 +316,7 @@ describe('m.registerVessel()', () => {
     expect(widgetInstanceProps?.vesselId).toBe(VesselId('widget'));
   });
 
-  it('handle.useActions disposer does not remove another component\'s runner', async () => {
+  it("handle.useActions disposer does not remove another component's runner", async () => {
     const m = createMaelstrom({ vessels: [orderEntry] });
     const widgetEntry = vessel(widgetVessel, () => null);
 
@@ -326,7 +334,9 @@ describe('m.registerVessel()', () => {
         requestCount++;
         return makeResponse(
           [widgetInstance],
-          requestCount >= 2 ? [{ instanceId: InstanceId('widget-1'), action: 'activate' }] : [],
+          requestCount >= 2
+            ? [{ instanceId: InstanceId('widget-1'), action: 'activate' }]
+            : [],
         );
       },
     });
@@ -431,7 +441,10 @@ describe('m.registerVessel()', () => {
 // lazyLoaderRegistry in sync with componentRegistry on the dynamic path.
 
 type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;
-let capturedObservers: Array<{ callback: ResizeObserverCallback; element: Element }> = [];
+let capturedObservers: Array<{
+  callback: ResizeObserverCallback;
+  element: Element;
+}> = [];
 
 beforeAll(() => {
   // @ts-expect-error
@@ -444,7 +457,9 @@ beforeAll(() => {
       capturedObservers.push({ callback: this.#callback, element });
     }
     disconnect() {
-      capturedObservers = capturedObservers.filter((o) => o.callback !== this.#callback);
+      capturedObservers = capturedObservers.filter(
+        (o) => o.callback !== this.#callback,
+      );
     }
     unobserve() {}
   };
@@ -456,7 +471,16 @@ afterEach(() => {
 
 function triggerResize(width: number, height: number) {
   const entry = {
-    contentRect: { width, height, x: 0, y: 0, top: 0, left: 0, bottom: height, right: width },
+    contentRect: {
+      width,
+      height,
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      bottom: height,
+      right: width,
+    },
   } as ResizeObserverEntry;
   for (const observer of capturedObservers) {
     observer.callback([entry]);
@@ -484,7 +508,13 @@ function connectorWithTilingInstance(
       layout: {
         type: 'tiling',
         tree: [brandedId],
-        instances: [{ instanceId: brandedId, vesselId: VesselId(vesselId), variant: VariantName(variant) }],
+        instances: [
+          {
+            instanceId: brandedId,
+            vesselId: VesselId(vesselId),
+            variant: VariantName(variant),
+          },
+        ],
       },
     }),
   });
@@ -518,7 +548,11 @@ describe('m.registerVessel() — lazy loader registry', () => {
     );
 
     const m = createMaelstrom({ vessels: [orderEntry], debug: true });
-    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+    const connector = connectorWithTilingInstance(
+      'widget-1',
+      'widget',
+      'default',
+    );
 
     let processIntent: ((intent: string) => Promise<void>) | undefined;
     function App() {
@@ -539,10 +573,14 @@ describe('m.registerVessel() — lazy loader registry', () => {
       ));
     });
 
-    await act(async () => { triggerResize(800, 600); });
+    await act(async () => {
+      triggerResize(800, 600);
+    });
     assertDefined(processIntent);
     const processIntentSnapshot = processIntent;
-    await act(async () => { await processIntentSnapshot('show widget'); });
+    await act(async () => {
+      await processIntentSnapshot('show widget');
+    });
 
     expect(container.innerHTML).toContain('dynamic lazy content');
     expect(warnSpy).not.toHaveBeenCalledWith(
@@ -560,7 +598,11 @@ describe('m.registerVessel() — lazy loader registry', () => {
     );
 
     const m = createMaelstrom({ vessels: [orderEntry], debug: true });
-    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+    const connector = connectorWithTilingInstance(
+      'widget-1',
+      'widget',
+      'default',
+    );
 
     let processIntent: ((intent: string) => Promise<void>) | undefined;
     let handle: { unregister: () => void } | undefined;
@@ -580,10 +622,14 @@ describe('m.registerVessel() — lazy loader registry', () => {
       ));
     });
 
-    await act(async () => { triggerResize(800, 600); });
+    await act(async () => {
+      triggerResize(800, 600);
+    });
     assertDefined(processIntent);
     const processIntentSnapshot = processIntent;
-    await act(async () => { await processIntentSnapshot('show widget'); });
+    await act(async () => {
+      await processIntentSnapshot('show widget');
+    });
 
     // Sanity: lazy vessel rendered first time round.
     expect(container.innerHTML).toContain('dynamic lazy content');
@@ -592,10 +638,14 @@ describe('m.registerVessel() — lazy loader registry', () => {
     // Unregister, then trigger a re-render via another processIntent.
     assertDefined(handle);
     const handleSnapshot = handle;
-    await act(async () => { handleSnapshot.unregister(); });
+    await act(async () => {
+      handleSnapshot.unregister();
+    });
     assertDefined(processIntent);
     const processIntentSnapshotAgain = processIntent;
-    await act(async () => { await processIntentSnapshotAgain('show widget again'); });
+    await act(async () => {
+      await processIntentSnapshotAgain('show widget again');
+    });
 
     // After unregister: nothing renders for that vessel id, and the negative
     // warning fires — confirms lazyLoaderRegistry.delete cleared the entry
@@ -623,7 +673,11 @@ describe('m.registerVessel() — lazy loader registry', () => {
     );
 
     const m = createMaelstrom({ vessels: [orderEntry], debug: true });
-    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+    const connector = connectorWithTilingInstance(
+      'widget-1',
+      'widget',
+      'default',
+    );
 
     let processIntent: ((intent: string) => Promise<void>) | undefined;
     function App() {
@@ -645,10 +699,14 @@ describe('m.registerVessel() — lazy loader registry', () => {
       ));
     });
 
-    await act(async () => { triggerResize(800, 600); });
+    await act(async () => {
+      triggerResize(800, 600);
+    });
     assertDefined(processIntent);
     const processIntentSnapshot = processIntent;
-    await act(async () => { await processIntentSnapshot('show widget'); });
+    await act(async () => {
+      await processIntentSnapshot('show widget');
+    });
 
     // Second loader wins — chart shows its content, not the first one's.
     expect(container.innerHTML).toContain('second content');
@@ -659,18 +717,21 @@ describe('m.registerVessel() — lazy loader registry', () => {
     // Loader that never resolves — if the chart still routes through the lazy
     // path after the eager re-register, the loading skeleton would stick
     // forever and the eager content would never appear.
-    const neverResolves: () => Promise<{ default: never }> = () => new Promise(() => {});
-    const stuckLazyEntry = vessel(
-      widgetVessel,
-      neverResolves,
-      () => <div data-testid="stuck-loading">stuck loading</div>,
-    );
+    const neverResolves: () => Promise<{ default: never }> = () =>
+      new Promise(() => {});
+    const stuckLazyEntry = vessel(widgetVessel, neverResolves, () => (
+      <div data-testid="stuck-loading">stuck loading</div>
+    ));
     const eagerEntry = vessel(widgetVessel, () => (
       <div data-testid="dyn-eager">eager dynamic content</div>
     ));
 
     const m = createMaelstrom({ vessels: [orderEntry], debug: true });
-    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+    const connector = connectorWithTilingInstance(
+      'widget-1',
+      'widget',
+      'default',
+    );
 
     let processIntent: ((intent: string) => Promise<void>) | undefined;
     function App() {
@@ -695,10 +756,14 @@ describe('m.registerVessel() — lazy loader registry', () => {
       ));
     });
 
-    await act(async () => { triggerResize(800, 600); });
+    await act(async () => {
+      triggerResize(800, 600);
+    });
     assertDefined(processIntent);
     const processIntentSnapshot = processIntent;
-    await act(async () => { await processIntentSnapshot('show widget'); });
+    await act(async () => {
+      await processIntentSnapshot('show widget');
+    });
 
     // Eager component renders directly — proves lazyVesselIds was cleared.
     expect(container.innerHTML).toContain('eager dynamic content');
@@ -723,7 +788,11 @@ describe('m.registerVessel() — lazy loader registry', () => {
     );
 
     const m = createMaelstrom({ vessels: [orderEntry], debug: true });
-    const connector = connectorWithTilingInstance('widget-1', 'widget', 'default');
+    const connector = connectorWithTilingInstance(
+      'widget-1',
+      'widget',
+      'default',
+    );
 
     let processIntent: ((intent: string) => Promise<void>) | undefined;
     function App() {
@@ -746,14 +815,20 @@ describe('m.registerVessel() — lazy loader registry', () => {
       ));
     });
 
-    await act(async () => { triggerResize(800, 600); });
+    await act(async () => {
+      triggerResize(800, 600);
+    });
     assertDefined(processIntent);
     const processIntentSnapshot = processIntent;
-    await act(async () => { await processIntentSnapshot('show widget'); });
+    await act(async () => {
+      await processIntentSnapshot('show widget');
+    });
 
     expect(container.innerHTML).toContain('dynamic lazy content');
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('vessel "widget" is already registered. Overwriting.'),
+      expect.stringContaining(
+        'vessel "widget" is already registered. Overwriting.',
+      ),
     );
   });
 });

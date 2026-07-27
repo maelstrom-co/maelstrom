@@ -9,11 +9,10 @@ import type {
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import { isInstanceIdNode } from '@maelstrom-co/protocol';
-
+import type { Logger } from '../logger.js';
+import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
 import { UserSection } from './sections.js';
-import { computeAvailableIslands, serializeIslands } from './islands.js';
-import type { Logger } from '../logger.js';
 
 const CHART_STATE_HEADING: readonly string[] = ['## Current Chart State', ''];
 

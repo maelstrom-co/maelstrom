@@ -1,12 +1,12 @@
 import type {
   ActionName,
   Result,
+  VariantName,
   Vessel,
   VesselAction,
   VesselId,
   VesselInstanceSnapshot,
   VesselVariant,
-  VariantName,
 } from '@maelstrom-co/protocol';
 import { err, ok } from '@maelstrom-co/protocol';
 

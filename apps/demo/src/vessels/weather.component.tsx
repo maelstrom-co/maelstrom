@@ -1,16 +1,16 @@
-import { useEffect, useState } from 'react';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Wind } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { VesselCard } from '../components/vessel-card';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
 import { HOME } from '../lib/locations';
 import {
   FALLBACK_WEATHER,
   fetchLiveWeather,
+  type LiveWeather,
   weatherCodeToIcon,
   weatherCodeToLabel,
   weatherCodeToSkyClass,
-  type LiveWeather,
 } from '../lib/weather-data';
 import type { weatherVessel } from './weather.vessel';
 
@@ -50,7 +50,11 @@ export default function WeatherComponent({
     const hourlyTempRange = Math.max(1, hourlyMaxTemp - hourlyMinTemp);
 
     return (
-      <VesselCard accent={VESSEL_ACCENTS.weather} label="Hourly Forecast" meta="San Francisco">
+      <VesselCard
+        accent={VESSEL_ACCENTS.weather}
+        label="Hourly Forecast"
+        meta="San Francisco"
+      >
         <div className={`sky-wash sky-wash--${skyClass}`} />
         <div className="relative flex items-baseline gap-1 mb-4">
           <span className="temp-numeral text-5xl font-bold tracking-tight">
@@ -93,9 +97,7 @@ export default function WeatherComponent({
                       : 'linear-gradient(to top, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02))',
                   }}
                 />
-                <span className="text-xs text-ink-3 font-mono">
-                  {h.hour}
-                </span>
+                <span className="text-xs text-ink-3 font-mono">{h.hour}</span>
               </div>
             );
           })}
@@ -106,7 +108,11 @@ export default function WeatherComponent({
 
   if (variant === 'weekly') {
     return (
-      <VesselCard accent={VESSEL_ACCENTS.weather} label="Weekly Forecast" meta="San Francisco">
+      <VesselCard
+        accent={VESSEL_ACCENTS.weather}
+        label="Weekly Forecast"
+        meta="San Francisco"
+      >
         <div className={`sky-wash sky-wash--${skyClass}`} />
         <div className="relative flex-1 grid grid-cols-7 gap-2">
           {weather.daily.map((d) => {
@@ -142,7 +148,11 @@ export default function WeatherComponent({
   const today = weather.daily[0];
   const CurrentIcon = weatherCodeToIcon(weather.current.weatherCode);
   return (
-    <VesselCard accent={VESSEL_ACCENTS.weather} label="Weather" meta="San Francisco">
+    <VesselCard
+      accent={VESSEL_ACCENTS.weather}
+      label="Weather"
+      meta="San Francisco"
+    >
       <div className={`sky-wash sky-wash--${skyClass}`} />
       <div className="relative flex-1 flex flex-col items-center justify-center">
         <CurrentIcon

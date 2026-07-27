@@ -1,5 +1,8 @@
 import type { SessionId } from '@maelstrom-co/protocol';
-import { type OpenAITokenGrant, OpenAITokenGrantSchema } from '@maelstrom-co/realtime/openai';
+import {
+  type OpenAITokenGrant,
+  OpenAITokenGrantSchema,
+} from '@maelstrom-co/realtime/openai';
 
 /**
  * Fetches an ephemeral OpenAI realtime credential from the demo's mint

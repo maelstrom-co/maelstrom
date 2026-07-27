@@ -1,5 +1,10 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
-import { resolveActiveIndex, buildSerpentinePath, initTocPath, cleanupTocPath } from '../toc-path';
+import { beforeEach, describe, expect, it } from 'bun:test';
+import {
+  buildSerpentinePath,
+  cleanupTocPath,
+  initTocPath,
+  resolveActiveIndex,
+} from '../toc-path';
 
 describe('resolveActiveIndex', () => {
   it('returns 0 for empty headings array', () => {

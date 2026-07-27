@@ -9,8 +9,8 @@ import {
   ClientEnvelopeSchema,
   decodeClientEnvelope,
   decodeServerEnvelope,
-  encodeEnvelope,
   EngineErrorMessage,
+  encodeEnvelope,
   HistoryGetMessage,
   HistoryResponseMessage,
   MaelstromResponseMessage,
@@ -20,8 +20,8 @@ import { InstanceId } from './instance.js';
 import { MessageId } from './message.js';
 import type { ChartRequest } from './request.js';
 import type { MaelstromResponse } from './response.js';
-import type { SessionHistoryEntry } from './session-history-entry.js';
 import { SessionId } from './session.js';
+import type { SessionHistoryEntry } from './session-history-entry.js';
 
 // A ChartRequest that passes ChartRequestSchema end-to-end (grid layout matching
 // layoutMode, no instances/vessels to cross-reference).

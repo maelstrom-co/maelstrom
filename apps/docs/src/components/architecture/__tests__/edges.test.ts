@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'bun:test';
-import { EDGES, channelDirectionForStep } from '../edges';
-import { NODES } from '../nodes';
+import { describe, expect, it } from 'bun:test';
+import { channelDirectionForStep, EDGES } from '../edges';
 import { STEPS } from '../loop-machine';
+import { NODES } from '../nodes';
 
 describe('EDGES', () => {
   it('every endpoint references a known node', () => {
@@ -37,7 +37,9 @@ describe('channelDirectionForStep', () => {
   });
 
   it('is null for every other beat (apply/observe/intent/decide/loop)', () => {
-    for (const step of STEPS.filter((s) => s !== 'request' && s !== 'respond')) {
+    for (const step of STEPS.filter(
+      (s) => s !== 'request' && s !== 'respond',
+    )) {
       expect(channelDirectionForStep(step)).toBeNull();
     }
   });

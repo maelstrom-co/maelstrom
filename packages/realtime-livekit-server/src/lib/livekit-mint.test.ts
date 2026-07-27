@@ -1,4 +1,12 @@
-import { test, expect, mock, spyOn, beforeEach, afterEach, describe } from 'bun:test';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from 'bun:test';
 import { isErr, isOk } from '@maelstrom-co/protocol';
 
 // Capture the grant passed to AccessToken so the test can assert the token is
@@ -155,7 +163,9 @@ describe('mintLiveKitToken', () => {
     if (!isOk(result)) return;
     // 3650d → ~315,360,000s out; operator's env, operator's choice.
     expect(result.value.expiresAt).toBeGreaterThan(nowSeconds + expected - 5);
-    expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + expected + 2);
+    expect(result.value.expiresAt).toBeLessThanOrEqual(
+      nowSeconds + expected + 2,
+    );
   });
 
   test('rejects a bare-integer LIVEKIT_TOKEN_TTL that overflows to Infinity', async () => {
@@ -273,7 +283,9 @@ describe('mintLiveKitToken', () => {
       expect(isErr(result)).toBe(true);
       if (!isErr(result)) return;
       expect(result.error.reason).toBe('invalid-config');
-      const logged = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      const logged = errorSpy.mock.calls
+        .map((call) => call.join(' '))
+        .join('\n');
       // Surfaces the concrete zod issue (the failing `url` field).
       expect(logged).toContain('failed validation');
       expect(logged).toContain('url');

@@ -18,9 +18,9 @@ import type {
 } from './response.js';
 import { err, ok, type Result } from './result.js';
 import { GridLayoutSchema, TilingLayoutSchema } from './schemas.js';
+import { type SessionId, SessionIdSchema } from './session.js';
 import type { SessionHistoryEntry } from './session-history-entry.js';
 import { SessionHistoryEntryArraySchema } from './session-history-entry.js';
-import { type SessionId, SessionIdSchema } from './session.js';
 
 // ---------------------------------------------------------------------------
 // MaelstromResponse wire parser
@@ -347,7 +347,8 @@ const decodeJson = (text: string): Result<unknown, EnvelopeError> => {
 // binary shapes WS runtimes deliver.
 const toValidatable = (raw: unknown): Result<unknown, EnvelopeError> => {
   if (typeof raw === 'string') return decodeJson(raw);
-  if (raw instanceof Uint8Array) return decodeJson(new TextDecoder().decode(raw));
+  if (raw instanceof Uint8Array)
+    return decodeJson(new TextDecoder().decode(raw));
   return ok(raw);
 };
 
@@ -478,10 +479,12 @@ const _glBwd: Mutable<GridLayout> extends _InferredGridLayout ? true : false =
   true;
 
 type _InferredTilingLayout = z.infer<typeof TilingLayoutParsedSchema>;
-const _tlFwd: _InferredTilingLayout extends Mutable<TilingLayout> ? true : false =
-  true;
-const _tlBwd: Mutable<TilingLayout> extends _InferredTilingLayout ? true : false =
-  true;
+const _tlFwd: _InferredTilingLayout extends Mutable<TilingLayout>
+  ? true
+  : false = true;
+const _tlBwd: Mutable<TilingLayout> extends _InferredTilingLayout
+  ? true
+  : false = true;
 
 type _InferredHistoryGet = z.infer<typeof HistoryGetMessageSchema>;
 const _hgFwd: _InferredHistoryGet extends Mutable<HistoryGetMessage>

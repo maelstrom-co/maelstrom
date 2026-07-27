@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { act, cleanup, render } from '@testing-library/react';
-
-import { createMaelstromContext } from './context.js';
-import { createProvider } from './provider.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
-import { vessel } from './vessel.js';
 import { DEFAULT_MOTION } from './chart/motion/motion-config.js';
 import type { ConfigOverrides } from './config-types.js';
+import { createMaelstromContext } from './context.js';
+import { createProvider } from './provider.js';
+import { vessel } from './vessel.js';
 
 const entry = vessel(testVessel, () => null);
 
@@ -44,7 +43,10 @@ async function renderAndCaptureConfig(
 
 describe('motion config resolution (Addendum 2b)', () => {
   it('Provider motion prop overrides individual fields, defaults fill the rest', async () => {
-    const config = await renderAndCaptureConfig({}, { motion: { durationMs: 200 } });
+    const config = await renderAndCaptureConfig(
+      {},
+      { motion: { durationMs: 200 } },
+    );
 
     expect(config?.motion.durationMs).toBe(200);
     expect(config?.motion.easing).toBe(DEFAULT_MOTION.easing);

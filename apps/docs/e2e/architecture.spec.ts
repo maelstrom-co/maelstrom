@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 // These assertions exercise what jsdom unit tests cannot: real CSS, hydration,
 // layout, and the camera. Each one maps to a requirement of the redesign.
@@ -50,7 +50,9 @@ test.describe('architecture diagram', () => {
     await openHydratedDiagram(page);
 
     await page.getByRole('button', { name: /protocol/ }).focus();
-    await expect(page.locator('.arch-detail')).toContainText('message contract');
+    await expect(page.locator('.arch-detail')).toContainText(
+      'message contract',
+    );
 
     await page.getByRole('button', { name: 'Next step' }).click();
     await expect(page.locator('.arch-subtitle')).toContainText('ChartRequest');

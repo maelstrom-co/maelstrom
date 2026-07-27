@@ -16,10 +16,13 @@ const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
 (globalThis as Record<string, unknown>).navigator = dom.window.navigator;
 (globalThis as Record<string, unknown>).localStorage = dom.window.localStorage;
 (globalThis as Record<string, unknown>).Storage = dom.window.Storage;
-(globalThis as Record<string, unknown>).KeyboardEvent = dom.window.KeyboardEvent;
-(globalThis as Record<string, unknown>).customElements = dom.window.customElements;
+(globalThis as Record<string, unknown>).KeyboardEvent =
+  dom.window.KeyboardEvent;
+(globalThis as Record<string, unknown>).customElements =
+  dom.window.customElements;
 (globalThis as Record<string, unknown>).HTMLElement = dom.window.HTMLElement;
-(globalThis as Record<string, unknown>).AbortController = dom.window.AbortController;
+(globalThis as Record<string, unknown>).AbortController =
+  dom.window.AbortController;
 (globalThis as Record<string, unknown>).AbortSignal = dom.window.AbortSignal;
 
 // ResizeObserver is not implemented in jsdom — provide a no-op stub.
@@ -37,7 +40,8 @@ beforeEach(() => {
 
   // Keep globalThis in sync (assignments above persist, but reassign for safety).
   (globalThis as Record<string, unknown>).document = dom.window.document;
-  (globalThis as Record<string, unknown>).localStorage = dom.window.localStorage;
+  (globalThis as Record<string, unknown>).localStorage =
+    dom.window.localStorage;
 });
 
 afterEach(() => {

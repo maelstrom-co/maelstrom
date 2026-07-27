@@ -2,15 +2,16 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import type { VesselInstance } from '@maelstrom-co/client';
 import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
+  defineVessel,
+  err,
   InstanceId,
   MessageId,
+  ok,
   VariantName,
   VesselId,
-  defineVessel,
 } from '@maelstrom-co/protocol';
-import { err, ok } from '@maelstrom-co/protocol';
-import { act, cleanup, render, renderHook } from '@testing-library/react';
 import FakeTimers from '@sinonjs/fake-timers';
+import { act, cleanup, render, renderHook } from '@testing-library/react';
 import { type ReactNode, useMemo } from 'react';
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
@@ -201,9 +202,9 @@ describe('m.useVessel() — basic', () => {
     assertDefined(props);
     expect(props.instanceId).toBe(InstanceId('inst-1'));
     expect(props.variantProps.variant).toBe('list');
-    expect(
-      (props.variantProps as { variant: 'list'; view: string }).view,
-    ).toBe('list');
+    expect((props.variantProps as { variant: 'list'; view: string }).view).toBe(
+      'list',
+    );
     expect(typeof props.executeAction).toBe('function');
   });
 
@@ -429,9 +430,9 @@ describe('m.useVessel() — store-authoritative transitions', () => {
 
     // Before: list variant props
     assertDefined(props);
-    expect(
-      (props.variantProps as { variant: 'list'; view: string }).view,
-    ).toBe('list');
+    expect((props.variantProps as { variant: 'list'; view: string }).view).toBe(
+      'list',
+    );
     const propsSnapshot = props;
 
     // Transition to detail
@@ -639,7 +640,8 @@ describe('m.useVessel() — store-authoritative transitions', () => {
   it('runner failure reverts the client transition', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
-      process: async () => makeResponse([makeInstance({ variant: VariantName('list') })]),
+      process: async () =>
+        makeResponse([makeInstance({ variant: VariantName('list') })]),
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -689,7 +691,8 @@ describe('m.useVessel() — store-authoritative transitions', () => {
   it('runner throw reverts the client transition', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const connector = createMockConnector({
-      process: async () => makeResponse([makeInstance({ variant: VariantName('list') })]),
+      process: async () =>
+        makeResponse([makeInstance({ variant: VariantName('list') })]),
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;

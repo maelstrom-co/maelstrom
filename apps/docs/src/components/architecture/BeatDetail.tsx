@@ -1,5 +1,5 @@
-import type { PackageNode } from './nodes';
 import type { LoopStep } from './loop-machine';
+import type { PackageNode } from './nodes';
 
 interface BeatInfo {
   title: string;
@@ -71,7 +71,9 @@ export function BeatDetail({
         <h3 className="arch-detail__title">{node.label}</h3>
         <p className="arch-detail__body">{node.role}</p>
         {node.dependsOn.length > 0 && (
-          <p className="arch-detail__meta">Depends on: {node.dependsOn.join(', ')}</p>
+          <p className="arch-detail__meta">
+            Depends on: {node.dependsOn.join(', ')}
+          </p>
         )}
         <a className="arch-detail__link" href={node.deepDiveHref}>
           Learn more →

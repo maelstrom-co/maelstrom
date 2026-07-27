@@ -130,7 +130,11 @@ describe('Captions', () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({ role: 'assistant', text: 'On it', final: false });
+      session.emitTranscript({
+        role: 'assistant',
+        text: 'On it',
+        final: false,
+      });
     });
 
     const assistantLine = must(

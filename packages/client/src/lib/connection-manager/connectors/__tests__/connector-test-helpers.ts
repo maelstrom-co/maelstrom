@@ -1,9 +1,9 @@
 import {
+  type ChartRequest,
   ChartRequestMessage,
+  type ChartRequestMessage as ChartRequestMessageType,
   type MessageId,
   SessionId,
-  type ChartRequest,
-  type ChartRequestMessage as ChartRequestMessageType,
 } from '@maelstrom-co/protocol';
 
 import { FakeWebSocket } from './fake-websocket.js';

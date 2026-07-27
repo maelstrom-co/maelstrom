@@ -15,9 +15,7 @@
     "**/*.test.ts",
     "**/__tests__/*.ts"
   ],
-  "include": [
-    "src/**/*.ts"
-  ],
+  "include": ["src/**/*.ts"],
   "references": [
     {
       "path": "../realtime-livekit/tsconfig.lib.json"

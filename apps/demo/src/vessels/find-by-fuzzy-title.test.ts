@@ -29,9 +29,7 @@ describe('findByFuzzyTitle', () => {
   it('picks the most specific (longest title) reverse-substring match rather than the first in list order', () => {
     // Gym is seeded before Design review, so a naive `list.find` would stop
     // at the shorter, less-specific "Gym" match instead of "Design review".
-    expect(
-      findByFuzzyTitle(items, 'Design review — Gym')?.id,
-    ).toBe('2');
+    expect(findByFuzzyTitle(items, 'Design review — Gym')?.id).toBe('2');
   });
 
   it('breaks a same-length reverse-substring tie by keeping the first match in list order', () => {

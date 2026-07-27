@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { z } from 'zod';
-
+import type { EngineError } from './errors.js';
 import {
   cancellationError,
   historyError,
@@ -10,7 +10,6 @@ import {
   timeoutError,
   validationError,
 } from './errors.js';
-import type { EngineError } from './errors.js';
 
 describe('Error constructors', () => {
   test('parseError creates tagged error with stack', () => {

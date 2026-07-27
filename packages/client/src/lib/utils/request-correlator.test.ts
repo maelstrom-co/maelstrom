@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { MessageId, type MaelstromResponse } from '@maelstrom-co/protocol';
+import { type MaelstromResponse, MessageId } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import { createMockEmptyResponse } from '../../../test-utils/mocks.js';

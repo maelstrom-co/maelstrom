@@ -1,6 +1,9 @@
-import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { UnixSeconds } from '@maelstrom-co/realtime';
-import type { MintFailureReason, MintResult } from '@maelstrom-co/realtime-server';
+import type {
+  MintFailureReason,
+  MintResult,
+} from '@maelstrom-co/realtime-server';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 // Mirrors the default in realtime-token.ts; this branch has no shared constant.
 const DEFAULT_REALTIME_MODEL = 'gpt-realtime-2';
@@ -13,11 +16,16 @@ const DEFAULT_REALTIME_MODEL = 'gpt-realtime-2';
 // rather than the mock the rest of this file installs. An empty apiKey
 // short-circuits before any upstream fetch, so this is network-safe.
 process.env.OPENAI_API_KEY = '';
-const { handleRealtimeTokenRequest: handleWithRealMinter } = await import('./realtime-token.js');
+const { handleRealtimeTokenRequest: handleWithRealMinter } = await import(
+  './realtime-token.js'
+);
 
 it('reports a 500 for a malformed body when no API key is configured (real minter)', async () => {
   const res = await handleWithRealMinter(
-    new Request('http://x/api/realtime-token', { method: 'POST', body: '{not valid json' }),
+    new Request('http://x/api/realtime-token', {
+      method: 'POST',
+      body: '{not valid json',
+    }),
   );
   const body = await res.json();
   expect(res.status).toBe(500);
@@ -31,7 +39,10 @@ it('reports a 500 for a malformed body when no API key is configured (real minte
 // fresh module instance bound to the mock, independent of the real-minter
 // import above. `vi.doMock` (unlike `vi.mock`) is not hoisted, matching
 // Bun's `mock.module` runtime-application semantics this test relies on.
-let mintResult: MintResult = { ok: false, error: { reason: 'invalid-request' } };
+let mintResult: MintResult = {
+  ok: false,
+  error: { reason: 'invalid-request' },
+};
 let lastMintInput: unknown;
 let mintCallCount = 0;
 let lastMinterOptions: { apiKey: string; model: string } | undefined;
@@ -62,7 +73,9 @@ vi.doMock('@maelstrom-co/realtime-server', () => ({
 // runtime. The `typeof import(...)` cast restores type-checking on the
 // result.
 const mockedRouteSpecifier = './realtime-token.js' + '?mocked';
-const { handleRealtimeTokenRequest } = (await import(mockedRouteSpecifier)) as typeof import('./realtime-token.js');
+const { handleRealtimeTokenRequest } = (await import(
+  mockedRouteSpecifier
+)) as typeof import('./realtime-token.js');
 
 it('rejects a non-POST method with a 400 and never calls the minter', async () => {
   mintCallCount = 0;
@@ -82,7 +95,10 @@ it('rejects a malformed JSON body with a 400 when a key is configured', async ()
   mintResult = { ok: false, error: { reason: 'invalid-request' } };
   mintCallCount = 0;
   const res = await handleRealtimeTokenRequest(
-    new Request('http://x/api/realtime-token', { method: 'POST', body: '{not valid json' }),
+    new Request('http://x/api/realtime-token', {
+      method: 'POST',
+      body: '{not valid json',
+    }),
   );
   const body = await res.json();
   expect(res.status).toBe(400);
@@ -95,7 +111,10 @@ it('reports a 500 misconfiguration status for a malformed JSON body when the key
   mintResult = { ok: false, error: { reason: 'missing-api-key' } };
   mintCallCount = 0;
   const res = await handleRealtimeTokenRequest(
-    new Request('http://x/api/realtime-token', { method: 'POST', body: '{not valid json' }),
+    new Request('http://x/api/realtime-token', {
+      method: 'POST',
+      body: '{not valid json',
+    }),
   );
   const body = await res.json();
   expect(res.status).toBe(500);
@@ -149,7 +168,10 @@ for (const [result, status] of REASON_STATUS) {
 }
 
 it('passes the upstream status through on an upstream-failure result', async () => {
-  mintResult = { ok: false, error: { reason: 'upstream-failure', upstreamStatus: 401 } };
+  mintResult = {
+    ok: false,
+    error: { reason: 'upstream-failure', upstreamStatus: 401 },
+  };
   const res = await handleRealtimeTokenRequest(
     new Request('http://x/api/realtime-token', {
       method: 'POST',

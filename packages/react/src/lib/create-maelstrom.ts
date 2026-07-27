@@ -1,20 +1,20 @@
-import type { AnyVesselEntry } from './vessel-entry-types.js';
+import { createChart } from './chart/chart.js';
 import type { ChartMotionConfig } from './chart/motion/motion-config.js';
-import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import type { MaelstromContextPair } from './context.js';
+import { createMaelstromContext } from './context.js';
 import type {
   ExtensionOutput,
   MaelstromExtension,
   MaelstromExtensionContext,
 } from './extension-types.js';
-import { createMaelstromContext } from './context.js';
+import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import { createProvider } from './provider.js';
-import { createUseMaelstrom } from './use-maelstrom.js';
-import { createChart } from './chart/chart.js';
-import { createUseVessel } from './use-vessel.js';
+import { createRegisterVessel } from './register-vessel.js';
 import { createUseActions } from './use-actions.js';
 import { createUseInstance } from './use-instance.js';
-import { createRegisterVessel } from './register-vessel.js';
+import { createUseMaelstrom } from './use-maelstrom.js';
+import { createUseVessel } from './use-vessel.js';
+import type { AnyVesselEntry } from './vessel-entry-types.js';
 import { warnOnce } from './warn-once.js';
 
 /** Compile-time guard: rejects entries where any vessel ID has widened to `string` */
@@ -81,7 +81,10 @@ function makeWithable<
       }
     }
     return makeWithable<T, Ext & NewExt>(
-      { ...instance, ...additions } as Omit<MaelstromInstance<T, Ext & NewExt>, 'with'>,
+      { ...instance, ...additions } as Omit<
+        MaelstromInstance<T, Ext & NewExt>,
+        'with'
+      >,
       contextPair,
     );
   }

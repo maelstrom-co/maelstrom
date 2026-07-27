@@ -10,7 +10,6 @@ import type {
 } from './vessel-entry-types.js';
 import { warnOnce } from './warn-once.js';
 
-
 /**
  * Factory that creates the m.useVessel() hook bound to a specific Maelstrom context.
  */

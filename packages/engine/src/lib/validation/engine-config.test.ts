@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-
-import { createInMemoryStore } from '../history/in-memory-store.js';
 import {
   dummyAdapter,
   invalid,
   silentLogger,
 } from '../__test-helpers__/fixtures.js';
+import { createInMemoryStore } from '../history/in-memory-store.js';
 import { validateEngineConfig } from './engine-config.js';
 
 describe('validateEngineConfig', () => {

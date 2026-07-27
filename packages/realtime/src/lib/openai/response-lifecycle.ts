@@ -24,9 +24,10 @@ export const INITIAL_RESPONSE_LIFECYCLE_STATE: ResponseLifecycleState = {
  * a burst of tool results behind one active response should only produce a
  * single follow-up response, not one per queued result.
  */
-export function requestResponseCreate(
-  state: ResponseLifecycleState,
-): { readonly next: ResponseLifecycleState; readonly sendNow: boolean } {
+export function requestResponseCreate(state: ResponseLifecycleState): {
+  readonly next: ResponseLifecycleState;
+  readonly sendNow: boolean;
+} {
   switch (state.status) {
     case 'idle':
       return { next: { status: 'active' }, sendNow: true };
@@ -55,9 +56,10 @@ export function markResponseActive(
  * flushes it immediately — `next` reflects the state after that flush, so
  * the caller only has to act on `flush`, not re-derive it.
  */
-export function markResponseInactive(
-  state: ResponseLifecycleState,
-): { readonly next: ResponseLifecycleState; readonly flush: boolean } {
+export function markResponseInactive(state: ResponseLifecycleState): {
+  readonly next: ResponseLifecycleState;
+  readonly flush: boolean;
+} {
   switch (state.status) {
     case 'active-pending':
       return { next: { status: 'active' }, flush: true };

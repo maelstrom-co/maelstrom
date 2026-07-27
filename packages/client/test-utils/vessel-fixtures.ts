@@ -3,7 +3,9 @@ import type { Vessel, VesselDefinition } from '@maelstrom-co/protocol';
 // Pre-validation author shape (raw strings); cast to `Vessel` at the
 // boundary so fixtures stay readable while the projection under test still
 // receives the branded post-validation type.
-export function createTestVessel(overrides?: Partial<VesselDefinition>): Vessel {
+export function createTestVessel(
+  overrides?: Partial<VesselDefinition>,
+): Vessel {
   const vessel: VesselDefinition = {
     id: 'test-vessel',
     name: 'Test Vessel',

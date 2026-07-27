@@ -1,7 +1,10 @@
 import { expect, it } from 'bun:test';
 
 import { isErr, isOk } from '@maelstrom-co/protocol';
-import { mintFailureHttpStatus, type MintFailureReason } from '@maelstrom-co/realtime';
+import {
+  type MintFailureReason,
+  mintFailureHttpStatus,
+} from '@maelstrom-co/realtime';
 
 import { createOpenAIMinter } from './openai-mint.js';
 
@@ -10,7 +13,11 @@ it('mints an ephemeral secret without leaking the api key', async () => {
   const fakeFetch = async (_url: string, init: RequestInit) => {
     sentAuth = (init.headers as Record<string, string>).Authorization;
     return new Response(
-      JSON.stringify({ value: 'ek-xyz', expires_at: 1712345678, session: { id: 's' } }),
+      JSON.stringify({
+        value: 'ek-xyz',
+        expires_at: 1712345678,
+        session: { id: 's' },
+      }),
       { status: 200 },
     );
   };
@@ -31,7 +38,9 @@ it('mints an ephemeral secret without leaking the api key', async () => {
 
 it('reports upstream-failure with the upstream status when upstream rejects the request', async () => {
   const fakeFetch = async (_url: string, _init: RequestInit) =>
-    new Response(JSON.stringify({ error: { message: 'bad key' } }), { status: 401 });
+    new Response(JSON.stringify({ error: { message: 'bad key' } }), {
+      status: 401,
+    });
   const mint = createOpenAIMinter({
     apiKey: 'sk-secret',
     model: 'gpt-realtime-1.5',
@@ -40,7 +49,10 @@ it('reports upstream-failure with the upstream status when upstream rejects the 
   const result = await mint({ provider: 'openai', sessionId: 'sess-1' });
   expect(isErr(result)).toBe(true);
   if (!isErr(result)) throw new Error('expected err result');
-  expect(result.error).toEqual({ reason: 'upstream-failure', upstreamStatus: 401 });
+  expect(result.error).toEqual({
+    reason: 'upstream-failure',
+    upstreamStatus: 401,
+  });
   expect(JSON.stringify(result)).not.toContain('sk-secret');
 });
 
@@ -55,7 +67,10 @@ it('reports upstream-failure when upstream returns 200 with a null body, instead
   const result = await mint({ provider: 'openai', sessionId: 'sess-1' });
   expect(isErr(result)).toBe(true);
   if (!isErr(result)) throw new Error('expected err result');
-  expect(result.error).toEqual({ reason: 'upstream-failure', upstreamStatus: 200 });
+  expect(result.error).toEqual({
+    reason: 'upstream-failure',
+    upstreamStatus: 200,
+  });
 });
 
 it('rejects a provider other than openai with invalid-request and never calls upstream fetch', async () => {
@@ -86,7 +101,11 @@ it('honors a model override in the request, in both the upstream call and the re
   const fakeFetch = async (_url: string, init: RequestInit) => {
     sentBody = init.body as string;
     return new Response(
-      JSON.stringify({ value: 'ek-xyz', expires_at: 1712345678, session: { id: 's' } }),
+      JSON.stringify({
+        value: 'ek-xyz',
+        expires_at: 1712345678,
+        session: { id: 's' },
+      }),
       { status: 200 },
     );
   };
@@ -111,7 +130,11 @@ it('falls back to the server-configured model when no override is provided', asy
   const fakeFetch = async (_url: string, init: RequestInit) => {
     sentBody = init.body as string;
     return new Response(
-      JSON.stringify({ value: 'ek-xyz', expires_at: 1712345678, session: { id: 's' } }),
+      JSON.stringify({
+        value: 'ek-xyz',
+        expires_at: 1712345678,
+        session: { id: 's' },
+      }),
       { status: 200 },
     );
   };
@@ -226,7 +249,9 @@ it('maps every MintFailureReason to its suggested HTTP status', () => {
     'upstream-failure': 502,
   };
 
-  for (const [reason, status] of Object.entries(expected) as Array<[MintFailureReason, number]>) {
+  for (const [reason, status] of Object.entries(expected) as Array<
+    [MintFailureReason, number]
+  >) {
     expect(mintFailureHttpStatus(reason)).toBe(status);
   }
 });

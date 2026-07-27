@@ -1,17 +1,18 @@
 ---
-import config from 'virtual:starlight/user-config';
 import Search from 'virtual:starlight/components/Search';
 import SocialIcons from 'virtual:starlight/components/SocialIcons';
 import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
+import config from 'virtual:starlight/user-config';
 import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.astro';
 import SidebarSublist from '@astrojs/starlight/components/SidebarSublist.astro';
-import MaelstromLogo from './MaelstromLogo.astro';
 import { icons } from './icons';
+import MaelstromLogo from './MaelstromLogo.astro';
 
 const { sidebar } = Astro.locals.starlightRoute;
 
 const shouldRenderSearch =
-  config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
+  config.pagefind ||
+  config.components.Search !== '@astrojs/starlight/components/Search.astro';
 
 const frameworks = [
   { id: 'react', label: 'React', icon: icons.react },

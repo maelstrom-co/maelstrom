@@ -5,13 +5,13 @@ import type {
   SessionId,
 } from '@maelstrom-co/protocol';
 import {
+  MessageId as brandMessageId,
+  SessionId as brandSessionId,
   decodeClientEnvelope,
   EngineErrorMessage,
   HistoryResponseMessage,
   isErr,
   MaelstromResponseMessage,
-  MessageId as brandMessageId,
-  SessionId as brandSessionId,
 } from '@maelstrom-co/protocol';
 
 import { assertNever } from './assert-never.js';
