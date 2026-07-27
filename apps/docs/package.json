@@ -44,6 +44,11 @@
       "@maelstrom-co/realtime-livekit-agent"
     ],
     "targets": {
+      "e2e": {
+        "dependsOn": [
+          "^build"
+        ]
+      },
       "test": {
         "command": "bun test src",
         "options": {

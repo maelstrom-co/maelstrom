@@ -3,7 +3,7 @@ title: Document a public symbol
 description: How to write JSDoc that renders correctly on the Maelstrom docs site.
 ---
 
-import { Steps, Aside } from '@astrojs/starlight/components';
+import { Steps, Aside } from "@astrojs/starlight/components";
 
 API reference pages on this site are generated from the exports of every source
 file listed in that package's `entryPoints` configuration in
@@ -13,9 +13,11 @@ change and a docs rebuild.
 
 `src/index.ts` is the conventional package-root entry point, but it is not the
 only supported entry point. A published subpath can have its own source entry
-point, such as `@maelstrom-co/realtime/openai` → `src/openai.ts`,
-`@maelstrom-co/realtime-livekit/protocol` → `src/protocol.ts`, or
-`@maelstrom-co/realtime-livekit/token` → `src/livekit-token.ts`.
+point, such as:
+
+- `@maelstrom-co/realtime/openai` → `src/openai.ts`.
+- `@maelstrom-co/realtime-livekit/protocol` → `src/protocol.ts`.
+- `@maelstrom-co/realtime-livekit/token` → `src/livekit-token.ts`.
 
 ## Before you start
 
@@ -67,16 +69,17 @@ point, such as `@maelstrom-co/realtime/openai` → `src/openai.ts`,
     not reachable from any configured entry point is already absent from the
     generated reference; `@internal` is unnecessary there.
 
-    ```ts
-    /**
-     * Wire helper for cross-package consumers.
-     *
-     * @internal
-     */
-    export function someBarrelExportedHelper(): SomeShape {
-      // ...
-    }
-    ```
+        ```ts
+        /**
+         * Wire helper for cross-package consumers.
+         *
+         * @internal
+         */
+        export function someBarrelExportedHelper(): SomeShape {
+          // ...
+        }
+        ```
+
 </Steps>
 
 ## Variations
@@ -86,7 +89,7 @@ point, such as `@maelstrom-co/realtime/openai` → `src/openai.ts`,
 Use `@example` followed by a fenced code block. The plugin renders it as an
 `## Example` section under the symbol.
 
-```ts
+````ts
 /**
  * Build the system + user prompt halves.
  *
@@ -97,8 +100,11 @@ Use `@example` followed by a fenced code block. The plugin renders it as an
  * });
  * ```
  */
-export function buildPrompt(request: ChartRequest, options?: PromptOptions): PromptResult;
-```
+export function buildPrompt(
+  request: ChartRequest,
+  options?: PromptOptions,
+): PromptResult;
+````
 
 ### Deprecate a symbol
 

@@ -1,17 +1,18 @@
 ---
 title: Core Concepts
-description: Understand Vessels, Charts, the Engine, and how they work together.
+description: Understand Vessels, Charts, the Engine, Voice, and how they work together.
 ---
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Maelstrom has four core concepts. The important invariant is that the LLM orchestrates declared UI capabilities; it does not generate arbitrary components at runtime.
+Maelstrom has five core concepts. The important invariant is that the LLM orchestrates declared UI capabilities; it does not generate arbitrary components at runtime.
 
 <CardGrid>
   <LinkCard title="Vessels" href="/understanding/vessel-state-machine/" description="Predefined UI components represented as state machines. Each Vessel declares variants, minimum sizes, and actions the engine may invoke."/>
   <LinkCard title="Chart" href="/understanding/grid-vs-tiling/" description="Layout surface that renders Vessels. The engine works with integer layout units, not raw pixels." />
   <LinkCard title="Engine" href="/understanding/engine/" description="Decision core. It reads user intent, current chart state, registered Vessels, and chart dimensions, then returns actions and layout."/>
   <LinkCard title="Protocol" href="/understanding/protocol/" description="Shared message contract between client and engine. It keeps transports swappable because every transport carries the same payloads."/>
+  <LinkCard title="Voice" href="/guides/voice/overview/" description="An effort to give adaptive interfaces senses beyond text-to-UI. Realtime and cascade routes both reduce speech to natural-language intent before the client snapshots the Chart for the Engine."/>
 </CardGrid>
 
 ## The turn lifecycle
@@ -90,6 +91,12 @@ The Engine runs server-side and processes user intent. When a user says "show me
 ## Protocol
 
 The Protocol defines the messages moving between client and engine. The client can use WebSocket, HTTP, or an in-memory connector, but the payload shape remains the same.
+
+## Voice
+
+Voice is Maelstrom's effort to add senses beyond text-to-UI: an adaptive interface can listen and speak without creating a second planning path. A realtime route connects the browser to a voice-to-voice model, while a cascade route separates speech-to-text and text-to-speech into worker stages. Both routes cross into Maelstrom as natural-language intent; the client still captures the current Chart snapshot, and the Engine still makes the UI decision from that client-owned truth.
+
+Start with the [Voice overview](/guides/voice/overview/) to compare the realtime and cascade routes and follow their shared intent boundary.
 
 ## Execution order
 
