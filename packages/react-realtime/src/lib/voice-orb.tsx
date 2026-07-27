@@ -1,5 +1,10 @@
-import { useEffect, useRef, type CSSProperties, type ReactElement } from 'react';
 import type { VoiceSessionState } from '@maelstrom-co/client';
+import {
+  type CSSProperties,
+  type ReactElement,
+  useEffect,
+  useRef,
+} from 'react';
 
 import { createLevelMeter } from './level-meter.js';
 import type { UseVoiceResult } from './maelstrom-realtime.js';
@@ -29,7 +34,10 @@ const STATE_COLORS: Record<VoiceSessionState, string> = {
  * instance) rather than exported as a standalone component.
  */
 export function createVoiceOrb(useVoice: () => UseVoiceResult) {
-  return function VoiceOrb({ size = 64, className }: VoiceOrbProps): ReactElement {
+  return function VoiceOrb({
+    size = 64,
+    className,
+  }: VoiceOrbProps): ReactElement {
     const { state, session, connect, disconnect } = useVoice();
     const orbRef = useRef<HTMLButtonElement>(null);
 

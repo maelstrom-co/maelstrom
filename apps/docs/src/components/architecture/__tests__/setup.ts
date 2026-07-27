@@ -7,9 +7,9 @@ import { cleanup } from '@testing-library/react';
 // jsdom does not implement matchMedia; components read it for prefers-reduced-motion.
 // Default to "no preference" (motion allowed). Individual tests override as needed.
 if (typeof window !== 'undefined' && !window.matchMedia) {
-  (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (
-    query: string,
-  ) =>
+  (
+    window as unknown as { matchMedia: (q: string) => MediaQueryList }
+  ).matchMedia = (query: string) =>
     ({
       matches: false,
       media: query,

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import type { ChartRequest, TilingNode } from '@maelstrom-co/protocol';
-import type { TilingResponse } from '@maelstrom-co/protocol';
+import type {
+  ChartRequest,
+  TilingNode,
+  TilingResponse,
+} from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 
 import {

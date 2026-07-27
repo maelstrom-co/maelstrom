@@ -14,7 +14,12 @@ export const testVessel = defineVessel({
           name: 'selectOrder',
           description: 'Select an order',
           parameters: [
-            { name: 'orderId', type: 'string', description: 'Order ID', required: true },
+            {
+              name: 'orderId',
+              type: 'string',
+              description: 'Order ID',
+              required: true,
+            },
           ],
         },
         {

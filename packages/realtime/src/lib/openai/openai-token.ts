@@ -67,11 +67,19 @@ export const OpenAITokenGrantSchema = z.object({
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 type _InferredRequest = z.infer<typeof OpenAITokenRequestSchema>;
-const _reqFwd: _InferredRequest extends Mutable<OpenAITokenRequest> ? true : false = true;
-const _reqBwd: Mutable<OpenAITokenRequest> extends _InferredRequest ? true : false = true;
+const _reqFwd: _InferredRequest extends Mutable<OpenAITokenRequest>
+  ? true
+  : false = true;
+const _reqBwd: Mutable<OpenAITokenRequest> extends _InferredRequest
+  ? true
+  : false = true;
 
 type _InferredGrant = z.infer<typeof OpenAITokenGrantSchema>;
-const _grantFwd: _InferredGrant extends Mutable<OpenAITokenGrant> ? true : false = true;
-const _grantBwd: Mutable<OpenAITokenGrant> extends _InferredGrant ? true : false = true;
+const _grantFwd: _InferredGrant extends Mutable<OpenAITokenGrant>
+  ? true
+  : false = true;
+const _grantBwd: Mutable<OpenAITokenGrant> extends _InferredGrant
+  ? true
+  : false = true;
 
 void [_reqFwd, _reqBwd, _grantFwd, _grantBwd];

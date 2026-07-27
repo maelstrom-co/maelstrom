@@ -1,4 +1,4 @@
-import { test, expect, mock, describe } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
 import type { JobContext } from '@livekit/agents';
 
 // Stub the LiveKit SDK + native plugins so importing the agent module never
@@ -23,7 +23,10 @@ mock.module('@livekit/rtc-node', () => ({
   AudioSource: Stub,
   AudioStream: Stub,
   LocalAudioTrack: { createAudioTrack: mock(() => ({})) },
-  RoomEvent: { DataReceived: 'dataReceived', TrackSubscribed: 'trackSubscribed' },
+  RoomEvent: {
+    DataReceived: 'dataReceived',
+    TrackSubscribed: 'trackSubscribed',
+  },
   TrackKind: { KIND_AUDIO: 'audio' },
   TrackPublishOptions: Stub,
   TrackSource: { SOURCE_MICROPHONE: 'mic' },
@@ -79,7 +82,9 @@ describe('resolveFlushTimeoutMs', () => {
   });
 
   test('parses a valid positive integer', () => {
-    expect(resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: '750' })).toBe(750);
+    expect(
+      resolveFlushTimeoutMs({ MAELSTROM_STT_FLUSH_TIMEOUT_MS: '750' }),
+    ).toBe(750);
   });
 
   test('fails closed on a non-numeric value', () => {
@@ -141,7 +146,7 @@ describe('createTurnAggregator', () => {
     agg.dispose();
   });
 
-  test('an empty turn does not swallow the next turn\'s first final', async () => {
+  test("an empty turn does not swallow the next turn's first final", async () => {
     const emitted: string[] = [];
     const agg = createTurnAggregator({
       flushTimeoutMs: 10,
@@ -198,7 +203,12 @@ function makeFakeTtsStream(items: unknown[]) {
 
 describe('pumpTtsStream', () => {
   test('captures frames until END_OF_STREAM then closes the stream', async () => {
-    const frames = [{ frame: 'a' }, { frame: 'b' }, END_OF_STREAM, { frame: 'c' }];
+    const frames = [
+      { frame: 'a' },
+      { frame: 'b' },
+      END_OF_STREAM,
+      { frame: 'c' },
+    ];
     const { stream, state } = makeFakeTtsStream(frames);
     const captured: unknown[] = [];
     // biome-ignore lint/suspicious/noExplicitAny: structural test double for SynthesizeStream
@@ -342,8 +352,12 @@ describe('runSpeechRecognition', () => {
   });
 
   test('closes the speech stream even when the consume loop throws', async () => {
-    const events = [{ type: 'final_transcript', alternatives: [{ text: 'hi' }] }];
-    const { stream, state } = makeFakeSpeechStream(events, { throwAfterFirst: true });
+    const events = [
+      { type: 'final_transcript', alternatives: [{ text: 'hi' }] },
+    ];
+    const { stream, state } = makeFakeSpeechStream(events, {
+      throwAfterFirst: true,
+    });
     await expect(
       runSpeechRecognition(
         // biome-ignore lint/suspicious/noExplicitAny: structural test doubles for AudioStream/SpeechStream
@@ -362,7 +376,9 @@ describe('runSpeechRecognition', () => {
     const onUnhandled = (err: unknown) => rejections.push(err);
     process.on('unhandledRejection', onUnhandled);
     try {
-      const events = [{ type: 'final_transcript', alternatives: [{ text: 'hi' }] }];
+      const events = [
+        { type: 'final_transcript', alternatives: [{ text: 'hi' }] },
+      ];
       const { stream, state } = makeFakeSpeechStream(events, {
         throwAfterFirst: true,
         throwWhenClosed: true,

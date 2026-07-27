@@ -1,4 +1,4 @@
-import { test, expect, describe } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { LiveKitTokenGrantSchema } from './livekit-token.js';
 
 const EXPIRES_AT = Math.floor(Date.now() / 1000) + 900;

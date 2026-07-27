@@ -8,9 +8,9 @@ export function domToMarkdown(root: Element): string {
       const tag = el.tagName.toLowerCase();
       if (tag === 'code' && el.parentElement?.tagName === 'PRE') {
         const lang = el.className?.match(/language-(\w+)/)?.[1] || '';
-        lines.push('```' + lang, el.textContent?.trim() || '', '```', '');
+        lines.push(`\`\`\`${lang}`, el.textContent?.trim() || '', '```', '');
       } else if (tag.startsWith('h')) {
-        const level = '#'.repeat(parseInt(tag[1]));
+        const level = '#'.repeat(Number.parseInt(tag[1], 10));
         lines.push(`${level} ${el.textContent?.trim()}`, '');
       } else if (tag === 'li') {
         lines.push(`- ${el.textContent?.trim()}`);

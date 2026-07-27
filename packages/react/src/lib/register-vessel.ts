@@ -6,9 +6,9 @@ import { type ComponentType, lazy, useEffect } from 'react';
 import type { MaelstromContextPair, MaelstromContextValue } from './context.js';
 import type { DynamicVesselHandle } from './dynamic-vessel-types.js';
 import { createUseVesselCore } from './use-vessel-core.js';
-import { warnOnce } from './warn-once.js';
 import type { AnyVesselEntry, TypedVesselProps } from './vessel-entry-types.js';
 import { isLazyEntry } from './vessel-entry-types.js';
+import { warnOnce } from './warn-once.js';
 
 /**
  * Factory that creates m.registerVessel() bound to a specific Maelstrom context.
@@ -79,7 +79,10 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
         const brandedInstanceId = InstanceId(instanceId);
 
         useEffect(() => {
-          return orchestrator.commandProcessor.registerRunner(brandedInstanceId, runner);
+          return orchestrator.commandProcessor.registerRunner(
+            brandedInstanceId,
+            runner,
+          );
         }, [orchestrator, brandedInstanceId, runner]);
       },
 

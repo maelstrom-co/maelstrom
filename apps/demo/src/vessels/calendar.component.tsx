@@ -3,16 +3,16 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
 import {
   ACCENT_HEX,
+  type AccentToken,
   CALENDAR_EVENT_ACCENTS,
   VESSEL_ACCENTS,
-  type AccentToken,
 } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import {
+  type CalendarEvent,
   calendarActions,
   getCalendarSnapshot,
   useCalendarStore,
-  type CalendarEvent,
 } from './calendar.store';
 import type { calendarVessel } from './calendar.vessel';
 
@@ -127,7 +127,11 @@ export default function CalendarComponent({
     const todayMonIdx = todayIdx === 0 ? 6 : todayIdx - 1;
 
     return (
-      <VesselCard accent={VESSEL_ACCENTS.calendar} label="Week View" meta="This Week">
+      <VesselCard
+        accent={VESSEL_ACCENTS.calendar}
+        label="Week View"
+        meta="This Week"
+      >
         <div className="flex-1 grid grid-cols-7 gap-1.5">
           {WEEK_DAYS.map((day, i) => {
             const isToday = i === todayMonIdx;
@@ -209,7 +213,11 @@ export default function CalendarComponent({
   if (variant === 'day') {
     if (events.length === 0) {
       return (
-        <VesselCard accent={VESSEL_ACCENTS.calendar} label="Day View" meta="Today">
+        <VesselCard
+          accent={VESSEL_ACCENTS.calendar}
+          label="Day View"
+          meta="Today"
+        >
           <div className="flex-1 flex flex-col items-center justify-center text-center gap-1">
             <p className="text-sm text-ink-3">Nothing scheduled</p>
             <p className="text-xs font-mono text-ink-3">
@@ -221,7 +229,11 @@ export default function CalendarComponent({
     }
 
     return (
-      <VesselCard accent={VESSEL_ACCENTS.calendar} label="Day View" meta="Today">
+      <VesselCard
+        accent={VESSEL_ACCENTS.calendar}
+        label="Day View"
+        meta="Today"
+      >
         <div className="flex-1 overflow-y-auto space-y-0.5">
           {DAY_HOURS.map((hour) => {
             const slotEvents = sortByTime(

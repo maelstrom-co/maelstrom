@@ -1,23 +1,21 @@
-import { describe, it, expect, afterEach, mock } from 'bun:test';
-import { useState } from 'react';
-import { render, cleanup, act } from '@testing-library/react';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import type { ActionRunner, VesselInstance } from '@maelstrom-co/client';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
   ActionName,
+  defineVessel,
   InstanceId,
   MessageId,
+  ok,
   VariantName,
   VesselId,
-  defineVessel,
 } from '@maelstrom-co/protocol';
-import { ok } from '@maelstrom-co/protocol';
-import type { VesselInstance } from '@maelstrom-co/client';
-import type { ActionRunner } from '@maelstrom-co/client';
-import type { MaelstromResponse } from '@maelstrom-co/protocol';
-
+import { act, cleanup, render } from '@testing-library/react';
+import { useState } from 'react';
+import { assertDefined } from './__tests__/assert-defined.js';
+import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
-import { createMockConnector } from './__tests__/mock-connector.js';
-import { assertDefined } from './__tests__/assert-defined.js';
 
 const orderVessel = defineVessel({
   id: 'orders',
@@ -32,7 +30,14 @@ const orderVessel = defineVessel({
         {
           name: 'selectOrder',
           description: 'Select order',
-          parameters: [{ name: 'orderId', type: 'string' as const, description: 'Order ID', required: true as const }],
+          parameters: [
+            {
+              name: 'orderId',
+              type: 'string' as const,
+              description: 'Order ID',
+              required: true as const,
+            },
+          ],
         },
         { name: 'refresh', description: 'Refresh' },
       ],
@@ -62,7 +67,11 @@ function makeInstance(override?: Partial<VesselInstance>): VesselInstance {
 
 function makeResponse(
   instances: VesselInstance[],
-  executionPlan: Array<{ instanceId: string; action: string; params?: Record<string, unknown> }> = [],
+  executionPlan: Array<{
+    instanceId: string;
+    action: string;
+    params?: Record<string, unknown>;
+  }> = [],
 ): MaelstromResponse {
   return {
     type: 'maelstrom_response',
@@ -90,11 +99,17 @@ describe('m.useActions()', () => {
   it('registers runner with ActionManager on mount', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const refreshHandler = mock(() => ok(undefined));
-    const runner: ActionRunner<typeof orderVessel> = { refresh: refreshHandler };
+    const runner: ActionRunner<typeof orderVessel> = {
+      refresh: refreshHandler,
+    };
 
     // Connector returns an execution plan that fires 'refresh'
     const connector = createMockConnector({
-      process: async () => makeResponse([makeInstance()], [{ instanceId: 'inst-1', action: 'refresh' }]),
+      process: async () =>
+        makeResponse(
+          [makeInstance()],
+          [{ instanceId: 'inst-1', action: 'refresh' }],
+        ),
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -106,7 +121,11 @@ describe('m.useActions()', () => {
     }
 
     await act(async () => {
-      render(<m.Provider connector={connector}><App /></m.Provider>);
+      render(
+        <m.Provider connector={connector}>
+          <App />
+        </m.Provider>,
+      );
     });
 
     assertDefined(state);
@@ -120,14 +139,24 @@ describe('m.useActions()', () => {
 
   it('runner handler receives typed params from engine execution plan', async () => {
     const m = createMaelstrom({ vessels: [entry] });
-    const selectOrderHandler = mock((_params: { orderId: string }) => ok(undefined));
-    const runner: ActionRunner<typeof orderVessel> = { selectOrder: selectOrderHandler };
+    const selectOrderHandler = mock((_params: { orderId: string }) =>
+      ok(undefined),
+    );
+    const runner: ActionRunner<typeof orderVessel> = {
+      selectOrder: selectOrderHandler,
+    };
 
     const connector = createMockConnector({
       process: async () =>
         makeResponse(
           [makeInstance()],
-          [{ instanceId: 'inst-1', action: 'selectOrder', params: { orderId: 'order-42' } }],
+          [
+            {
+              instanceId: 'inst-1',
+              action: 'selectOrder',
+              params: { orderId: 'order-42' },
+            },
+          ],
         ),
     });
 
@@ -140,7 +169,11 @@ describe('m.useActions()', () => {
     }
 
     await act(async () => {
-      render(<m.Provider connector={connector}><App /></m.Provider>);
+      render(
+        <m.Provider connector={connector}>
+          <App />
+        </m.Provider>,
+      );
     });
 
     assertDefined(state);
@@ -156,10 +189,16 @@ describe('m.useActions()', () => {
   it('unregisters runner on unmount so actions are not dispatched after unmount', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const refreshHandler = mock(() => ok(undefined));
-    const runner: ActionRunner<typeof orderVessel> = { refresh: refreshHandler };
+    const runner: ActionRunner<typeof orderVessel> = {
+      refresh: refreshHandler,
+    };
 
     const connector = createMockConnector({
-      process: async () => makeResponse([makeInstance()], [{ instanceId: 'inst-1', action: 'refresh' }]),
+      process: async () =>
+        makeResponse(
+          [makeInstance()],
+          [{ instanceId: 'inst-1', action: 'refresh' }],
+        ),
     });
 
     let state: { processIntent: (i: string) => Promise<void> } | undefined;
@@ -178,7 +217,11 @@ describe('m.useActions()', () => {
     }
 
     await act(async () => {
-      render(<m.Provider connector={connector}><App /></m.Provider>);
+      render(
+        <m.Provider connector={connector}>
+          <App />
+        </m.Provider>,
+      );
     });
 
     // Unmount only the child that calls useActions — provider stays alive
@@ -199,7 +242,9 @@ describe('m.useActions()', () => {
   it('only calls handlers for the registered instance, not other instances', async () => {
     const m = createMaelstrom({ vessels: [entry] });
     const refreshHandler = mock(() => ok(undefined));
-    const runner: ActionRunner<typeof orderVessel> = { refresh: refreshHandler };
+    const runner: ActionRunner<typeof orderVessel> = {
+      refresh: refreshHandler,
+    };
 
     // Engine fires 'refresh' on inst-2, but runner is registered on inst-1
     const connector = createMockConnector({
@@ -219,7 +264,11 @@ describe('m.useActions()', () => {
     }
 
     await act(async () => {
-      render(<m.Provider connector={connector}><App /></m.Provider>);
+      render(
+        <m.Provider connector={connector}>
+          <App />
+        </m.Provider>,
+      );
     });
 
     assertDefined(state);

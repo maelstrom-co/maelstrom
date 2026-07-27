@@ -3,11 +3,11 @@ import type { VesselInstance } from '@maelstrom-co/client';
 import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
   ActionName,
+  defineVessel,
   InstanceId,
   MessageId,
   VariantName,
   VesselId,
-  defineVessel,
 } from '@maelstrom-co/protocol';
 import { act, cleanup, render, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -26,7 +26,11 @@ const orderVessel = defineVessel({
       props: { view: 'list' as const, pageSize: 10 },
       minSize: { width: 2, height: 2 },
       actions: [
-        { name: 'viewDetail', description: 'View detail', transitionsTo: 'detail' },
+        {
+          name: 'viewDetail',
+          description: 'View detail',
+          transitionsTo: 'detail',
+        },
       ],
     },
     detail: {

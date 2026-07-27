@@ -3,7 +3,11 @@ import { VESSEL_ACCENTS } from '../lib/design-tokens';
 
 export function JournalSkeleton(_props: { vesselId: string }) {
   return (
-    <VesselCard accent={VESSEL_ACCENTS.journal} label="Journal" meta="Loading...">
+    <VesselCard
+      accent={VESSEL_ACCENTS.journal}
+      label="Journal"
+      meta="Loading..."
+    >
       <div className="flex-1 space-y-3 animate-pulse">
         {Array.from({ length: 3 }, (_, i) => (
           <div key={i} className="py-2.5 border-b border-white/[0.06]">

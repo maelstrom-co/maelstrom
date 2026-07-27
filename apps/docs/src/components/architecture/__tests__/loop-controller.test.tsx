@@ -1,5 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, expect, it, mock } from 'bun:test';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { LoopController } from '../LoopController';
 import type { LoopState } from '../loop-machine';
 
@@ -38,7 +38,10 @@ describe('LoopController', () => {
 
   it('reflects detail state and toggles it', () => {
     const onToggleDetail = mock(() => {});
-    renderController({ index: 0, playing: false }, { showDetail: true, onToggleDetail });
+    renderController(
+      { index: 0, playing: false },
+      { showDetail: true, onToggleDetail },
+    );
     const toggle = screen.getByRole('button', { name: /hide details/i });
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(toggle);

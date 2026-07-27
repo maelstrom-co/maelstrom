@@ -76,7 +76,9 @@ export function createLevelMeter(stream: MediaStream): LevelMeter {
 // factory stands in for `new AudioContext()` the next time a meter lazily
 // creates the shared context, letting tests inject a fake without a public
 // param on createLevelMeter itself.
-export function resetLevelMeterAudioContextForTesting(factory?: () => AudioContext): void {
+export function resetLevelMeterAudioContextForTesting(
+  factory?: () => AudioContext,
+): void {
   sharedContext = null;
   activeMeters = 0;
   contextFactory = factory ?? (() => new AudioContext());

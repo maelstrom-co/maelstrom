@@ -10,11 +10,17 @@
  * body parsing, status codes) is the caller's responsibility — see
  * {@link mintLiveKitToken}.
  */
-export type { LiveKitMintResult, LiveKitTokenRequest } from './lib/livekit-mint.js';
-export { LiveKitTokenRequestSchema, mintLiveKitToken } from './lib/livekit-mint.js';
 
 // The shared mint vocabulary lives in `@maelstrom-co/realtime`; re-exported
 // here so a consumer wiring a LiveKit mint route pulls everything it needs
 // from one entry point.
 export type { MintFailure, MintFailureReason } from '@maelstrom-co/realtime';
 export { mintFailureHttpStatus } from '@maelstrom-co/realtime';
+export type {
+  LiveKitMintResult,
+  LiveKitTokenRequest,
+} from './lib/livekit-mint.js';
+export {
+  LiveKitTokenRequestSchema,
+  mintLiveKitToken,
+} from './lib/livekit-mint.js';

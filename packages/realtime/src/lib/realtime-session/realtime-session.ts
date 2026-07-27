@@ -6,8 +6,12 @@ import type {
   VoiceSessionState,
 } from '@maelstrom-co/client';
 import { Logger, RequestInFlightError } from '@maelstrom-co/client';
-import type { SessionId, SidechannelEvent, ToolCallId } from '@maelstrom-co/protocol';
-
+import type {
+  SessionId,
+  SidechannelEvent,
+  ToolCallId,
+} from '@maelstrom-co/protocol';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import { groundedDebounce } from './grounding-debounce.js';
 import type {
   AdapterAudioStreams,
@@ -22,7 +26,6 @@ import type {
   SubmitIntentResult,
   SummarizeFn,
 } from './realtime-session.types.js';
-import { RealtimeVoiceError } from '../realtime-voice-error.js';
 
 // Single source of truth for tool names — the `tools` array passed to the
 // adapter and the dispatch table below are both keyed off this union, so a
@@ -584,7 +587,8 @@ export class RealtimeSession implements VoiceSession {
         const renderStart = Date.now();
         let userMessage: string | undefined;
         try {
-          ({ userMessage } = (await this.#instance.submitIntent(entry.intent)) ?? {});
+          ({ userMessage } =
+            (await this.#instance.submitIntent(entry.intent)) ?? {});
         } catch (error) {
           if (this.#queuedIntent !== entry) {
             attempt = 0;

@@ -1,4 +1,9 @@
-import type { ActionName, Vessel, VesselId, VariantName } from '@maelstrom-co/protocol';
+import type {
+  ActionName,
+  VariantName,
+  Vessel,
+  VesselId,
+} from '@maelstrom-co/protocol';
 
 /**
  * An action available on a vessel, deduplicated by name across all of its

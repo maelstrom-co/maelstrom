@@ -1,15 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import FakeTimers from '@sinonjs/fake-timers';
-
 import {
-  ActionName,
   type ActionExecution,
+  ActionName,
   defineVessel,
   err,
   InstanceId,
   isErr,
   ok,
 } from '@maelstrom-co/protocol';
+import FakeTimers from '@sinonjs/fake-timers';
 
 import { ActionManager } from './action-manager.js';
 import type {

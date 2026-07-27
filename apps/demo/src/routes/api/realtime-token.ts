@@ -1,5 +1,8 @@
 import { isOk } from '@maelstrom-co/protocol';
-import { createOpenAIMinter, mintFailureHttpStatus } from '@maelstrom-co/realtime-server';
+import {
+  createOpenAIMinter,
+  mintFailureHttpStatus,
+} from '@maelstrom-co/realtime-server';
 import { createFileRoute } from '@tanstack/react-router';
 
 /**
@@ -14,7 +17,9 @@ const mint = createOpenAIMinter({
   model: process.env.OPENAI_REALTIME_MODEL?.trim() || 'gpt-realtime-2',
 });
 
-export async function handleRealtimeTokenRequest(request: Request): Promise<Response> {
+export async function handleRealtimeTokenRequest(
+  request: Request,
+): Promise<Response> {
   if (request.method !== 'POST') {
     return Response.json({ error: 'Method not allowed' }, { status: 400 });
   }

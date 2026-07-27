@@ -2,12 +2,12 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { Captions } from '../components/captions';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
+import { VoiceControl } from '../components/voice-control';
 import { VoiceErrorNote } from '../components/voice-error-note';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { STATUS_COLORS } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
-import { VoiceControl } from '../components/voice-control';
 import { useFlashInstances } from '../lib/use-touched-instances';
 
 export const Route = createFileRoute('/')({
@@ -40,7 +40,9 @@ function DemoApp() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="eyebrow">Maelstrom Demo</h1>
-            <p className="text-sm text-ink-2 mt-1">AI-Orchestrated Dynamic UI</p>
+            <p className="text-sm text-ink-2 mt-1">
+              AI-Orchestrated Dynamic UI
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <VoiceControl showOrb={false} />
@@ -51,7 +53,10 @@ function DemoApp() {
 
       {/* Main content */}
       <main className="flex-1 relative">
-        <div className="chart-wrapper" data-thinking={thinking ? 'true' : undefined}>
+        <div
+          className="chart-wrapper"
+          data-thinking={thinking ? 'true' : undefined}
+        >
           <m.Chart />
         </div>
         <FirstRunHint />

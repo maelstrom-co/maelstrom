@@ -1,6 +1,6 @@
-import { createServerFn } from '@tanstack/react-start';
 import { isErr } from '@maelstrom-co/protocol';
 import { mintLiveKitToken } from '@maelstrom-co/realtime-livekit-server';
+import { createServerFn } from '@tanstack/react-start';
 
 /**
  * TanStack Start server fn wrapping the framework-free `mintLiveKitToken` from

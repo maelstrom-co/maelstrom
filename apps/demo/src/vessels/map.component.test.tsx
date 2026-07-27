@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { cleanup, render } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { isErr, isOk } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { cleanup, render } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { mapVessel } from './map.vessel';
 
 vi.mock('../lib/maelstrom', () => ({

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_MOTION, motionSuppressed, resolveMotionConfig } from './motion-config.js';
+import {
+  DEFAULT_MOTION,
+  motionSuppressed,
+  resolveMotionConfig,
+} from './motion-config.js';
 
 describe('resolveMotionConfig', () => {
   it('returns defaults for undefined input', () => {
@@ -7,7 +11,10 @@ describe('resolveMotionConfig', () => {
   });
 
   it('merges partial overrides onto defaults', () => {
-    expect(resolveMotionConfig({ durationMs: 200 })).toEqual({ ...DEFAULT_MOTION, durationMs: 200 });
+    expect(resolveMotionConfig({ durationMs: 200 })).toEqual({
+      ...DEFAULT_MOTION,
+      durationMs: 200,
+    });
   });
 
   it('throws a clear error for a negative durationMs', () => {
@@ -17,13 +24,19 @@ describe('resolveMotionConfig', () => {
   it('throws for a non-finite durationMs instead of letting NaN reach node.animate', () => {
     // `NaN < 0` is false, so a bare `< 0` guard would pass NaN through to
     // `node.animate({ duration: NaN })`, which throws an opaque runtime error.
-    expect(() => resolveMotionConfig({ durationMs: Number.NaN })).toThrow(/durationMs/);
-    expect(() => resolveMotionConfig({ durationMs: Number.POSITIVE_INFINITY })).toThrow(/durationMs/);
+    expect(() => resolveMotionConfig({ durationMs: Number.NaN })).toThrow(
+      /durationMs/,
+    );
+    expect(() =>
+      resolveMotionConfig({ durationMs: Number.POSITIVE_INFINITY }),
+    ).toThrow(/durationMs/);
   });
 
   it('throws for an invalid staggerMs', () => {
     expect(() => resolveMotionConfig({ staggerMs: -1 })).toThrow(/staggerMs/);
-    expect(() => resolveMotionConfig({ staggerMs: Number.NaN })).toThrow(/staggerMs/);
+    expect(() => resolveMotionConfig({ staggerMs: Number.NaN })).toThrow(
+      /staggerMs/,
+    );
   });
 
   it('still resolves a valid config after adding the guards', () => {
@@ -42,7 +55,9 @@ describe('motionSuppressed', () => {
 
   it('is true when the OS prefers reduced motion', () => {
     const original = window.matchMedia;
-    window.matchMedia = ((query: string) => ({ matches: query.includes('reduce') })) as never;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('reduce'),
+    })) as never;
     try {
       expect(motionSuppressed(DEFAULT_MOTION)).toBe(true);
     } finally {

@@ -5,8 +5,8 @@ import {
   CloudLightning,
   CloudRain,
   CloudSnow,
-  Sun,
   type LucideIcon,
+  Sun,
 } from 'lucide-react';
 import { withFetchTimeout } from './fetch-timeout';
 

@@ -57,8 +57,12 @@ async function createNodesInternal(
     projects: {
       [root]: {
         targets: {
+          // `--error-on-warnings` on every read-only target, so a warning
+          // fails the same way locally as it does in CI. Without it the two
+          // bars drift: warnings pile up unnoticed until someone runs the
+          // flag by hand and finds a backlog.
           [opts.lintTargetName]: {
-            command: 'biome lint {projectRoot}',
+            command: 'biome lint {projectRoot} --error-on-warnings',
             cache: true,
             inputs: baseInputs,
             metadata: {
@@ -66,20 +70,25 @@ async function createNodesInternal(
               technologies: ['biome'],
             },
           },
+          // The only writing target, and the reason it must never be what CI
+          // runs: in CI it would rewrite the checkout and report success,
+          // hiding exactly the drift it looks like it is guarding.
           [opts.formatTargetName]: {
             command: 'biome format {projectRoot} --write',
             cache: false,
             metadata: {
-              description: 'Format files with Biome',
+              description: 'Format files with Biome (writes)',
               technologies: ['biome'],
             },
           },
+          // Supersets `lint`: formatter and assists (import ordering) too.
+          // This is the CI gate.
           [opts.checkTargetName]: {
-            command: 'biome check {projectRoot}',
+            command: 'biome check {projectRoot} --error-on-warnings',
             cache: true,
             inputs: baseInputs,
             metadata: {
-              description: 'Check files with Biome (lint + format)',
+              description: 'Check files with Biome (lint + format + assists)',
               technologies: ['biome'],
             },
           },

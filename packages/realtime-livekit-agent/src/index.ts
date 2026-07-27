@@ -2,7 +2,7 @@
 // definition (LiveKit re-imports it in worker processes); `runVoiceAgent` boots
 // a standalone worker; `defineMaelstromVoiceAgent` builds the definition.
 export {
+  default,
   defineMaelstromVoiceAgent,
   runVoiceAgent,
-  default,
 } from './agent.ts';

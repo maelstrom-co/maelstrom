@@ -1,26 +1,40 @@
-import { useEffect } from 'react';
-import { describe, it, expect, afterEach, beforeAll, beforeEach, spyOn, mock } from 'bun:test';
-import { render, cleanup, act, fireEvent } from '@testing-library/react';
-import FakeTimers from '@sinonjs/fake-timers';
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test';
 import type {
   ChartRequestMessage,
   GridLayout,
   MaelstromResponse,
   TilingLayout,
 } from '@maelstrom-co/protocol';
-import { InstanceId, VesselId, VariantName, ok } from '@maelstrom-co/protocol';
-
+import { InstanceId, ok, VariantName, VesselId } from '@maelstrom-co/protocol';
+import FakeTimers from '@sinonjs/fake-timers';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { useEffect } from 'react';
+import { assertDefined } from '../__tests__/assert-defined.js';
+import { createMockConnector } from '../__tests__/mock-connector.js';
+import { testVessel } from '../__tests__/test-vessel.fixture.js';
 import { createMaelstrom } from '../create-maelstrom.js';
 import { vessel } from '../vessel.js';
-import { testVessel } from '../__tests__/test-vessel.fixture.js';
-import { createMockConnector } from '../__tests__/mock-connector.js';
-import { assertDefined } from '../__tests__/assert-defined.js';
 import type { TypedVesselProps } from '../vessel-entry-types.js';
-import { DEFAULT_MOTION, EXIT_CLEANUP_BUFFER_MS } from './motion/motion-config.js';
+import {
+  DEFAULT_MOTION,
+  EXIT_CLEANUP_BUFFER_MS,
+} from './motion/motion-config.js';
 
 // Mock ResizeObserver (happy-dom may not implement it)
 type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;
-let capturedObservers: Array<{ callback: ResizeObserverCallback; element: Element }> = [];
+let capturedObservers: Array<{
+  callback: ResizeObserverCallback;
+  element: Element;
+}> = [];
 
 beforeAll(() => {
   // @ts-expect-error
@@ -33,7 +47,9 @@ beforeAll(() => {
       capturedObservers.push({ callback: this.#callback, element });
     }
     disconnect() {
-      capturedObservers = capturedObservers.filter((o) => o.callback !== this.#callback);
+      capturedObservers = capturedObservers.filter(
+        (o) => o.callback !== this.#callback,
+      );
     }
     unobserve() {}
   };
@@ -47,7 +63,16 @@ afterEach(() => {
 /** Fire all captured ResizeObserver callbacks with the given dimensions */
 function triggerResize(width: number, height: number) {
   const entry = {
-    contentRect: { width, height, x: 0, y: 0, top: 0, left: 0, bottom: height, right: width },
+    contentRect: {
+      width,
+      height,
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      bottom: height,
+      right: width,
+    },
   } as ResizeObserverEntry;
   for (const observer of capturedObservers) {
     observer.callback([entry]);
@@ -60,7 +85,11 @@ function triggerResize(width: number, height: number) {
  * Second call: grid layout to apply CSS grid positioning.
  * (Grid layout relies on existing instances for vesselId/variant.)
  */
-function connectorWithGridInstance(instanceId: string, vesselId: string, variant: string) {
+function connectorWithGridInstance(
+  instanceId: string,
+  vesselId: string,
+  variant: string,
+) {
   let callCount = 0;
   return createMockConnector({
     process: async (msg: ChartRequestMessage): Promise<MaelstromResponse> => {
@@ -76,7 +105,13 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
           layout: {
             type: 'tiling',
             tree: [brandedId],
-            instances: [{ instanceId: brandedId, vesselId: VesselId(vesselId), variant: VariantName(variant) }],
+            instances: [
+              {
+                instanceId: brandedId,
+                vesselId: VesselId(vesselId),
+                variant: VariantName(variant),
+              },
+            ],
           },
         };
       }
@@ -89,7 +124,11 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
         layout: {
           type: 'grid',
           positions: [
-            { instanceId: brandedId, position: { column: 2, row: 1 }, size: { width: 3, height: 2 } },
+            {
+              instanceId: brandedId,
+              position: { column: 2, row: 1 },
+              size: { width: 3, height: 2 },
+            },
           ],
         },
       };
@@ -98,7 +137,11 @@ function connectorWithGridInstance(instanceId: string, vesselId: string, variant
 }
 
 /** Build a connector that responds with a tiling layout */
-function connectorWithTilingLayout(instanceId: string, vesselId: string, variant: string) {
+function connectorWithTilingLayout(
+  instanceId: string,
+  vesselId: string,
+  variant: string,
+) {
   const brandedId = InstanceId(instanceId);
   return createMockConnector({
     process: async (msg: ChartRequestMessage): Promise<MaelstromResponse> => ({
@@ -110,7 +153,13 @@ function connectorWithTilingLayout(instanceId: string, vesselId: string, variant
       layout: {
         type: 'tiling',
         tree: [brandedId],
-        instances: [{ instanceId: brandedId, vesselId: VesselId(vesselId), variant: VariantName(variant) }],
+        instances: [
+          {
+            instanceId: brandedId,
+            vesselId: VesselId(vesselId),
+            variant: VariantName(variant),
+          },
+        ],
       },
     }),
   });
@@ -220,9 +269,7 @@ describe('m.Chart — ResizeObserver', () => {
 
 describe('m.Chart — grid layout', () => {
   it('renders vessel instance wrapper after engine places it in grid layout', async () => {
-    const entry = vessel(testVessel, () => (
-      <div>content</div>
-    ));
+    const entry = vessel(testVessel, () => <div>content</div>);
     const m = createMaelstrom({ vessels: [entry] });
     const connector = connectorWithGridInstance('inst-1', 'orders', 'list');
 
@@ -245,11 +292,15 @@ describe('m.Chart — grid layout', () => {
     // First intent: tiling layout registers instance
     assertDefined(processIntent);
     const processTilingIntent = processIntent;
-    await act(async () => { await processTilingIntent('show orders'); });
+    await act(async () => {
+      await processTilingIntent('show orders');
+    });
     // Second intent: grid layout positions instance
     assertDefined(processIntent);
     const processGridIntent = processIntent;
-    await act(async () => { await processGridIntent('layout as grid'); });
+    await act(async () => {
+      await processGridIntent('layout as grid');
+    });
 
     // The vessel instance wrapper should appear in the DOM
     expect(container.innerHTML).toContain('data-instance-id="inst-1"');
@@ -281,11 +332,15 @@ describe('m.Chart — grid layout', () => {
     // First intent: tiling layout registers instance
     assertDefined(processIntent);
     const processTilingIntent = processIntent;
-    await act(async () => { await processTilingIntent('x'); });
+    await act(async () => {
+      await processTilingIntent('x');
+    });
     // Second intent: grid layout positions instance
     assertDefined(processIntent);
     const processGridIntent = processIntent;
-    await act(async () => { await processGridIntent('grid'); });
+    await act(async () => {
+      await processGridIntent('grid');
+    });
 
     expect(container.innerHTML).toContain('data-instance-id="inst-1"');
     // column=2 → gridColumnStart=3, width=3 → gridColumnEnd=6
@@ -297,9 +352,7 @@ describe('m.Chart — grid layout', () => {
 
 describe('m.Chart — tiling layout', () => {
   it('renders vessel instance with absolute positioning in tiling layout', async () => {
-    const entry = vessel(testVessel, () => (
-      <div>tiling</div>
-    ));
+    const entry = vessel(testVessel, () => <div>tiling</div>);
     const m = createMaelstrom({ vessels: [entry] });
     const connector = connectorWithTilingLayout('inst-1', 'orders', 'list');
 
@@ -369,10 +422,14 @@ describe('m.Chart — executeAction routing (regression)', () => {
       );
     });
 
-    await act(async () => { triggerResize(800, 600); });
+    await act(async () => {
+      triggerResize(800, 600);
+    });
     assertDefined(processIntent);
     const runIntent = processIntent;
-    await act(async () => { await runIntent('show orders'); });
+    await act(async () => {
+      await runIntent('show orders');
+    });
 
     // Chart has rendered the vessel, exposing its injected executeAction
     assertDefined(capturedExecuteAction);
@@ -435,11 +492,7 @@ describe('m.Chart — lazy vessel retry', () => {
       });
     };
 
-    const entry = vessel(
-      testVessel,
-      loader,
-      () => <div>loading...</div>,
-    );
+    const entry = vessel(testVessel, loader, () => <div>loading...</div>);
     const m = createMaelstrom({ vessels: [entry] });
     const connector = connectorWithTilingLayout('inst-1', 'orders', 'list');
 
@@ -459,10 +512,14 @@ describe('m.Chart — lazy vessel retry', () => {
       ));
     });
 
-    await act(async () => { triggerResize(800, 600); });
+    await act(async () => {
+      triggerResize(800, 600);
+    });
     assertDefined(processIntent);
     const processIntentSnapshot = processIntent;
-    await act(async () => { await processIntentSnapshot('show orders'); });
+    await act(async () => {
+      await processIntentSnapshot('show orders');
+    });
 
     // First load attempt failed — error UI should appear
     expect(container.innerHTML).toContain('data-vessel-error="orders"');
@@ -471,7 +528,9 @@ describe('m.Chart — lazy vessel retry', () => {
     // Click retry button
     const retryButton = container.getElementsByTagName('button')[0];
     assertDefined(retryButton);
-    await act(async () => { fireEvent.click(retryButton); });
+    await act(async () => {
+      fireEvent.click(retryButton);
+    });
 
     // Second load attempt should succeed
     expect(loadAttempt).toBe(2);
@@ -495,11 +554,9 @@ describe('m.Chart — lazy vessel retry', () => {
       });
     };
 
-    const dynamicLazyEntry = vessel(
-      testVessel,
-      loader,
-      () => <div>loading...</div>,
-    );
+    const dynamicLazyEntry = vessel(testVessel, loader, () => (
+      <div>loading...</div>
+    ));
 
     // Note: createMaelstrom is called with an empty vessel list — the entry
     // is added dynamically via registerVessel after mount.
@@ -525,10 +582,14 @@ describe('m.Chart — lazy vessel retry', () => {
       ));
     });
 
-    await act(async () => { triggerResize(800, 600); });
+    await act(async () => {
+      triggerResize(800, 600);
+    });
     assertDefined(processIntent);
     const processIntentSnapshot = processIntent;
-    await act(async () => { await processIntentSnapshot('show orders'); });
+    await act(async () => {
+      await processIntentSnapshot('show orders');
+    });
 
     // First load attempt failed — error UI should appear (proves the dynamic
     // entry was actually wired into lazyLoaderRegistry; otherwise the chart
@@ -538,7 +599,9 @@ describe('m.Chart — lazy vessel retry', () => {
 
     const retryButton = container.getElementsByTagName('button')[0];
     assertDefined(retryButton);
-    await act(async () => { fireEvent.click(retryButton); });
+    await act(async () => {
+      fireEvent.click(retryButton);
+    });
 
     expect(loadAttempt).toBe(2);
     expect(container.innerHTML).toContain('dynamic loaded');
@@ -619,7 +682,10 @@ describe('m.Chart — motion', () => {
         keyframes: keyframes as Keyframe[],
         options: options as KeyframeAnimationOptions,
       });
-      return { cancel() {}, finished: Promise.resolve() } as unknown as Animation;
+      return {
+        cancel() {},
+        finished: Promise.resolve(),
+      } as unknown as Animation;
     } as never;
 
     // Stub getBoundingClientRect: happy-dom has no layout engine, so every
@@ -656,8 +722,12 @@ describe('m.Chart — motion', () => {
     gridRow: string,
   ): { x: number; y: number; width: number; height: number } | null {
     if (!gridColumn || !gridRow) return null;
-    const [colStart, colEnd] = gridColumn.split('/').map((s) => parseInt(s.trim(), 10));
-    const [rowStart, rowEnd] = gridRow.split('/').map((s) => parseInt(s.trim(), 10));
+    const [colStart, colEnd] = gridColumn
+      .split('/')
+      .map((s) => parseInt(s.trim(), 10));
+    const [rowStart, rowEnd] = gridRow
+      .split('/')
+      .map((s) => parseInt(s.trim(), 10));
     if ([colStart, colEnd, rowStart, rowEnd].some(Number.isNaN)) {
       return null;
     }
@@ -673,7 +743,8 @@ describe('m.Chart — motion', () => {
   // which throws under this repo's bun+happy-dom combo.
   function findByInstanceId(root: Element, id: string): HTMLElement | null {
     for (const child of Array.from(root.children)) {
-      if (child.getAttribute('data-instance-id') === id) return child as HTMLElement;
+      if (child.getAttribute('data-instance-id') === id)
+        return child as HTMLElement;
       const nested = findByInstanceId(child, id);
       if (nested) return nested;
     }
@@ -693,7 +764,13 @@ describe('m.Chart — motion', () => {
   }
 
   function gridLayout(
-    entries: Array<{ id: string; column: number; row: number; width?: number; height?: number }>,
+    entries: Array<{
+      id: string;
+      column: number;
+      row: number;
+      width?: number;
+      height?: number;
+    }>,
   ): GridLayout {
     return {
       type: 'grid',
@@ -753,11 +830,17 @@ describe('m.Chart — motion', () => {
       );
     });
 
-    await act(async () => { await processIntent!('register'); });
-    await act(async () => { await processIntent!('layout1'); });
+    await act(async () => {
+      await processIntent!('register');
+    });
+    await act(async () => {
+      await processIntent!('layout1');
+    });
 
     animateCalls = [];
-    await act(async () => { await processIntent!('layout2'); });
+    await act(async () => {
+      await processIntent!('layout2');
+    });
 
     const aCalls = animateCalls.filter((c) => c.id === 'a');
     const bCalls = animateCalls.filter((c) => c.id === 'b');
@@ -779,7 +862,8 @@ describe('m.Chart — motion', () => {
     const baseRect = window.Element.prototype.getBoundingClientRect;
     const baseAnimate = window.Element.prototype.animate;
     window.Element.prototype.getBoundingClientRect = function (this: Element) {
-      if (this.hasAttribute('data-instance-id')) events.push('measure:' + this.getAttribute('data-instance-id'));
+      if (this.hasAttribute('data-instance-id'))
+        events.push(`measure:${this.getAttribute('data-instance-id')}`);
       return baseRect.call(this);
     } as never;
     window.Element.prototype.animate = function (
@@ -787,7 +871,7 @@ describe('m.Chart — motion', () => {
       keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
       options?: number | KeyframeAnimationOptions,
     ) {
-      events.push('animate:' + this.getAttribute('data-instance-id'));
+      events.push(`animate:${this.getAttribute('data-instance-id')}`);
       return baseAnimate.call(this, keyframes as Keyframe[], options);
     } as never;
 
@@ -818,15 +902,23 @@ describe('m.Chart — motion', () => {
       );
     });
 
-    await act(async () => { await processIntent!('register'); });
-    await act(async () => { await processIntent!('layout1'); });
+    await act(async () => {
+      await processIntent!('register');
+    });
+    await act(async () => {
+      await processIntent!('layout1');
+    });
 
     events.length = 0;
-    await act(async () => { await processIntent!('layout2'); });
+    await act(async () => {
+      await processIntent!('layout2');
+    });
 
     const firstAnimate = events.findIndex((e) => e.startsWith('animate'));
     expect(firstAnimate).toBeGreaterThan(-1);
-    const measuresAfterAnimate = events.slice(firstAnimate).filter((e) => e.startsWith('measure'));
+    const measuresAfterAnimate = events
+      .slice(firstAnimate)
+      .filter((e) => e.startsWith('measure'));
     expect(measuresAfterAnimate).toEqual([]);
   });
 
@@ -844,9 +936,18 @@ describe('m.Chart — motion', () => {
       const style = (this as HTMLElement).style;
       const rect = this.hasAttribute('data-instance-id')
         ? (() => {
-            const [colStart, colEnd] = style.gridColumn.split('/').map((s) => parseInt(s.trim(), 10));
-            const [rowStart, rowEnd] = style.gridRow.split('/').map((s) => parseInt(s.trim(), 10));
-            if (colStart === undefined || colEnd === undefined || rowStart === undefined || rowEnd === undefined) {
+            const [colStart, colEnd] = style.gridColumn
+              .split('/')
+              .map((s) => parseInt(s.trim(), 10));
+            const [rowStart, rowEnd] = style.gridRow
+              .split('/')
+              .map((s) => parseInt(s.trim(), 10));
+            if (
+              colStart === undefined ||
+              colEnd === undefined ||
+              rowStart === undefined ||
+              rowEnd === undefined
+            ) {
               return null;
             }
             return {
@@ -898,10 +999,16 @@ describe('m.Chart — motion', () => {
         ));
       });
 
-      await act(async () => { await processIntent!('register'); });
-      await act(async () => { await processIntent!('layout1'); });
+      await act(async () => {
+        await processIntent!('register');
+      });
+      await act(async () => {
+        await processIntent!('layout1');
+      });
       // 800x600 @ cellSizePx=100 -> 8 columns; 'a' baselines at width=200 (2 cells * 100px).
-      await act(async () => { triggerResize(800, 600); });
+      await act(async () => {
+        triggerResize(800, 600);
+      });
 
       // Same container pixels, but cellSizePx doubles -> 4 columns, so each
       // 1fr track (and thus 'a's real pixel width) doubles too, though the
@@ -915,10 +1022,14 @@ describe('m.Chart — motion', () => {
           </m.Provider>,
         );
       });
-      await act(async () => { triggerResize(800, 600); });
+      await act(async () => {
+        triggerResize(800, 600);
+      });
 
       animateCalls = [];
-      await act(async () => { await processIntent!('layout2'); });
+      await act(async () => {
+        await processIntent!('layout2');
+      });
 
       const aCalls = animateCalls.filter((c) => c.id === 'a');
       expect(aCalls).toHaveLength(1);
@@ -943,12 +1054,24 @@ describe('m.Chart — motion', () => {
     const entry = vessel(testVessel, () => <div>content</div>);
     const m = createMaelstrom({ vessels: [entry] });
     const instances = [
-      { instanceId: InstanceId('a'), vesselId: VesselId('orders'), variant: VariantName('list') },
-      { instanceId: InstanceId('b'), vesselId: VesselId('orders'), variant: VariantName('list') },
+      {
+        instanceId: InstanceId('a'),
+        vesselId: VesselId('orders'),
+        variant: VariantName('list'),
+      },
+      {
+        instanceId: InstanceId('b'),
+        vesselId: VesselId('orders'),
+        variant: VariantName('list'),
+      },
     ];
     const connector = connectorSeq([
       { type: 'tiling', tree: [InstanceId('a')], instances },
-      { type: 'tiling', tree: ['V', InstanceId('a'), InstanceId('b')], instances },
+      {
+        type: 'tiling',
+        tree: ['V', InstanceId('a'), InstanceId('b')],
+        instances,
+      },
     ]);
 
     let processIntent: ((intent: string) => Promise<void>) | undefined;
@@ -966,16 +1089,23 @@ describe('m.Chart — motion', () => {
       );
     });
 
-    await act(async () => { await processIntent!('layout1'); });
+    await act(async () => {
+      await processIntent!('layout1');
+    });
 
     animateCalls = [];
-    await act(async () => { await processIntent!('layout2'); });
+    await act(async () => {
+      await processIntent!('layout2');
+    });
 
     const aCalls = animateCalls.filter((c) => c.id === 'a');
     const bCalls = animateCalls.filter((c) => c.id === 'b');
     expect(aCalls.length).toBe(0);
     expect(bCalls.length).toBe(1);
-    expect(bCalls[0]!.keyframes[0]).toEqual({ opacity: 0, transform: 'scale(0.96)' });
+    expect(bCalls[0]!.keyframes[0]).toEqual({
+      opacity: 0,
+      transform: 'scale(0.96)',
+    });
   });
 
   it('(c) a removed instance keeps an exit node in the DOM and it disappears after the motion duration', async () => {
@@ -1008,18 +1138,28 @@ describe('m.Chart — motion', () => {
         ));
       });
 
-      await act(async () => { await processIntent!('register'); });
-      await act(async () => { await processIntent!('layout1'); });
-      await act(async () => { await processIntent!('layout2'); });
+      await act(async () => {
+        await processIntent!('register');
+      });
+      await act(async () => {
+        await processIntent!('layout1');
+      });
+      await act(async () => {
+        await processIntent!('layout2');
+      });
 
       // Exit node persists immediately after removal.
       expect(container!.innerHTML).toContain('data-instance-id="b"');
 
       // Just shy of the durationMs + buffer: still present.
-      await act(async () => { clock.tick(DEFAULT_MOTION.durationMs + EXIT_CLEANUP_BUFFER_MS - 1); });
+      await act(async () => {
+        clock.tick(DEFAULT_MOTION.durationMs + EXIT_CLEANUP_BUFFER_MS - 1);
+      });
       expect(container!.innerHTML).toContain('data-instance-id="b"');
 
-      await act(async () => { clock.tick(1); });
+      await act(async () => {
+        clock.tick(1);
+      });
       expect(container!.innerHTML).not.toContain('data-instance-id="b"');
     } finally {
       clock.uninstall();
@@ -1064,13 +1204,19 @@ describe('m.Chart — motion', () => {
       );
     });
 
-    await act(async () => { await processIntent!('register'); });
-    await act(async () => { await processIntent!('layout1'); });
+    await act(async () => {
+      await processIntent!('register');
+    });
+    await act(async () => {
+      await processIntent!('layout1');
+    });
 
     expect(mountCount).toBe(1);
 
     // Removing 'a' from the layout turns it into an exit ghost.
-    await act(async () => { await processIntent!('layout2'); });
+    await act(async () => {
+      await processIntent!('layout2');
+    });
 
     expect(mountCount).toBe(1);
   });
@@ -1102,11 +1248,17 @@ describe('m.Chart — motion', () => {
       );
     });
 
-    await act(async () => { await processIntent!('register'); });
-    await act(async () => { await processIntent!('layout1'); });
+    await act(async () => {
+      await processIntent!('register');
+    });
+    await act(async () => {
+      await processIntent!('layout1');
+    });
 
     animateCalls = [];
-    await act(async () => { await processIntent!('layout2'); });
+    await act(async () => {
+      await processIntent!('layout2');
+    });
 
     const exitShapedCalls = animateCalls.filter((c) => c.exiting);
     expect(exitShapedCalls.length).toBe(1);
@@ -1148,14 +1300,22 @@ describe('m.Chart — motion', () => {
       );
     });
 
-    await act(async () => { await processIntent!('register'); });
-    await act(async () => { await processIntent!('layout1'); });
+    await act(async () => {
+      await processIntent!('register');
+    });
+    await act(async () => {
+      await processIntent!('layout1');
+    });
     // Removing 'b' starts its exit animation.
-    await act(async () => { await processIntent!('removeB'); });
+    await act(async () => {
+      await processIntent!('removeB');
+    });
 
     animateCalls = [];
     // Unrelated layout update: 'a' moves, 'b' stays removed/exiting.
-    await act(async () => { await processIntent!('moveA'); });
+    await act(async () => {
+      await processIntent!('moveA');
+    });
 
     const exitShapedCalls = animateCalls.filter((c) => c.exiting);
     expect(exitShapedCalls.length).toBe(0);
@@ -1189,11 +1349,17 @@ describe('m.Chart — motion', () => {
       ));
     });
 
-    await act(async () => { await processIntent!('register'); });
-    await act(async () => { await processIntent!('layout1'); });
+    await act(async () => {
+      await processIntent!('register');
+    });
+    await act(async () => {
+      await processIntent!('layout1');
+    });
 
     animateCalls = [];
-    await act(async () => { await processIntent!('layout2'); });
+    await act(async () => {
+      await processIntent!('layout2');
+    });
 
     // 'a' moved and 'b' was removed — with motion disabled neither animates,
     // and the removed instance leaves no lingering exit node.
@@ -1225,11 +1391,17 @@ describe('m.Chart — motion', () => {
       );
     });
 
-    await act(async () => { await processIntent!('register'); });
-    await act(async () => { await processIntent!('layout1'); });
+    await act(async () => {
+      await processIntent!('register');
+    });
+    await act(async () => {
+      await processIntent!('layout1');
+    });
 
     animateCalls = [];
-    await act(async () => { await processIntent!('layout2'); });
+    await act(async () => {
+      await processIntent!('layout2');
+    });
 
     expect(animateCalls.length).toBe(0);
   });
@@ -1255,8 +1427,12 @@ describe('m.Chart — motion', () => {
       ));
     });
 
-    await act(async () => { await processIntent!('x'); });
-    await act(async () => { await processIntent!('grid'); });
+    await act(async () => {
+      await processIntent!('x');
+    });
+    await act(async () => {
+      await processIntent!('grid');
+    });
 
     const grid = container!.firstElementChild as HTMLElement;
     const wrapper = findByInstanceId(grid, 'inst-1')!;
@@ -1284,8 +1460,12 @@ describe('m.Chart — motion', () => {
       ));
     });
 
-    await act(async () => { triggerResize(800, 600); });
-    await act(async () => { await processIntent!('x'); });
+    await act(async () => {
+      triggerResize(800, 600);
+    });
+    await act(async () => {
+      await processIntent!('x');
+    });
 
     const tiling = container!.firstElementChild as HTMLElement;
     const wrapper = findByInstanceId(tiling, 'inst-1')!;

@@ -2,11 +2,11 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   InstanceId,
+  type LayoutMode,
   VariantName,
+  type Vessel,
   VesselId,
   validateVessel,
-  type LayoutMode,
-  type Vessel,
 } from '@maelstrom-co/protocol';
 
 import type { VesselInstance } from '../types.js';

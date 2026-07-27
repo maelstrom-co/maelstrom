@@ -1,5 +1,9 @@
-import { type Result, err, ok } from '@maelstrom-co/protocol';
-import type { MintFailure, MintFetch, UnixSeconds } from '@maelstrom-co/realtime';
+import { err, ok, type Result } from '@maelstrom-co/protocol';
+import type {
+  MintFailure,
+  MintFetch,
+  UnixSeconds,
+} from '@maelstrom-co/realtime';
 import {
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
@@ -96,25 +100,36 @@ export function createOpenAIMinter(
       // `/v1/realtime/client_secrets` nests the model under `session`, not at
       // top level (top-level `model` is rejected as unknown_parameter). Send the
       // documented nested shape so the model we configure is actually honored.
-      upstream = await doFetch('https://api.openai.com/v1/realtime/client_secrets', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
+      upstream = await doFetch(
+        'https://api.openai.com/v1/realtime/client_secrets',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            expires_after: { anchor: 'created_at', seconds: 600 },
+            session: { type: 'realtime', model: resolvedModel },
+          }),
         },
-        body: JSON.stringify({
-          expires_after: { anchor: 'created_at', seconds: 600 },
-          session: { type: 'realtime', model: resolvedModel },
-        }),
-      });
+      );
 
       if (!upstream.ok) {
-        return err({ reason: 'upstream-failure', upstreamStatus: upstream.status });
+        return err({
+          reason: 'upstream-failure',
+          upstreamStatus: upstream.status,
+        });
       }
 
-      const parsedBody = OpenAIClientSecretResponseSchema.safeParse(await upstream.json());
+      const parsedBody = OpenAIClientSecretResponseSchema.safeParse(
+        await upstream.json(),
+      );
       if (!parsedBody.success) {
-        return err({ reason: 'upstream-failure', upstreamStatus: upstream.status });
+        return err({
+          reason: 'upstream-failure',
+          upstreamStatus: upstream.status,
+        });
       }
       upstreamBody = parsedBody.data;
     } catch {

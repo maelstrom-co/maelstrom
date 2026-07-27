@@ -37,7 +37,13 @@ jobs:
         run: bunx playwright install --with-deps chromium
         working-directory: apps/docs
 
-      - name: Run lint, test, build, typecheck, e2e
-        run: bunx nx run-many -t format lint test build typecheck e2e
+      # `check` and not `format`: the format target writes. Running it here
+      # reformatted the checkout and then reported success, so formatting drift
+      # could never fail CI — it was silently fixed and thrown away. `check`
+      # is read-only and supersets lint, adding the formatter and import-order
+      # assists, and the biome plugin passes --error-on-warnings so a warning
+      # fails the build rather than scrolling past.
+      - name: Run check, test, build, typecheck, e2e
+        run: bunx nx run-many -t check test build typecheck e2e
       # - run: bunx nx fix-ci
       #   if: always()

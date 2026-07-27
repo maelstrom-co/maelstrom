@@ -8,15 +8,15 @@ import {
   MessageId,
 } from '@maelstrom-co/protocol';
 import {
+  type AuthorInstanceSnapshot,
+  type AuthorVessel,
   brandGridResponse,
   brandTilingResponse,
   buildSkippedAction,
+  type GridResponseAuthor,
   makeGridRequest,
   makeTilingRequest,
   silentLogger,
-  type AuthorInstanceSnapshot,
-  type AuthorVessel,
-  type GridResponseAuthor,
   type TilingResponseAuthor,
 } from '../__test-helpers__/fixtures.js';
 import type { Logger } from '../logger.js';

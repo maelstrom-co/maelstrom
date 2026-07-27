@@ -16,9 +16,9 @@ import {
 } from '@maelstrom-co/protocol';
 
 import type { Engine } from './engine.js';
+import { handleEnvelope } from './envelope-handler.js';
 import type { EngineError } from './errors.js';
 import { historyError, providerError, validationError } from './errors.js';
-import { handleEnvelope } from './envelope-handler.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -38,7 +38,9 @@ const validChartRequest = (): ChartRequest => ({
   layout: { type: 'grid', positions: [] },
 });
 
-const maelstromResponse = (requestId = MessageId('req-1')): MaelstromResponse => ({
+const maelstromResponse = (
+  requestId = MessageId('req-1'),
+): MaelstromResponse => ({
   type: 'maelstrom_response',
   requestId,
   userMessage: 'done',
@@ -60,12 +62,10 @@ const stubEngine = (overrides: Partial<Engine>): Engine => ({
   ...overrides,
 });
 
-const okOutput = (
-  value: EngineOutput,
-): Result<EngineOutput, EngineError> => ok(value);
-const errOutput = (
-  error: EngineError,
-): Result<EngineOutput, EngineError> => err(error);
+const okOutput = (value: EngineOutput): Result<EngineOutput, EngineError> =>
+  ok(value);
+const errOutput = (error: EngineError): Result<EngineOutput, EngineError> =>
+  err(error);
 
 // ---------------------------------------------------------------------------
 // chart_request
@@ -150,32 +150,33 @@ describe('handleEnvelope — chart_request', () => {
       code: 'ValidationError',
       message: 'bad prompt',
     },
-  ])(
-    'maps an engine Err ($name) to engine.error with the tag as code',
-    async ({ error, code, message }) => {
-      const sessionId = SessionId('sess-1');
-      const messageId = MessageId('req-err');
-      const engine = stubEngine({
-        handle: async () => errOutput(error),
-      });
+  ])('maps an engine Err ($name) to engine.error with the tag as code', async ({
+    error,
+    code,
+    message,
+  }) => {
+    const sessionId = SessionId('sess-1');
+    const messageId = MessageId('req-err');
+    const engine = stubEngine({
+      handle: async () => errOutput(error),
+    });
 
-      const reply = await handleEnvelope(
-        engine,
-        ChartRequestMessage({
-          sessionId,
-          id: messageId,
-          request: validChartRequest(),
-        }),
-      );
+    const reply = await handleEnvelope(
+      engine,
+      ChartRequestMessage({
+        sessionId,
+        id: messageId,
+        request: validChartRequest(),
+      }),
+    );
 
-      expect(reply?.type).toBe('engine.error');
-      if (reply?.type !== 'engine.error') return;
-      expect(reply.requestId).toBe(messageId);
-      expect(reply.sessionId).toBe(sessionId);
-      expect(reply.error).toBe(message);
-      expect(reply.code).toBe(code);
-    },
-  );
+    expect(reply?.type).toBe('engine.error');
+    if (reply?.type !== 'engine.error') return;
+    expect(reply.requestId).toBe(messageId);
+    expect(reply.sessionId).toBe(sessionId);
+    expect(reply.error).toBe(message);
+    expect(reply.code).toBe(code);
+  });
 
   test('does not reject when engine.handle throws — maps to engine.error with no code', async () => {
     const sessionId = SessionId('sess-1');

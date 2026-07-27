@@ -1,34 +1,34 @@
 import {
-  ChartRequestMessage,
-  MessageId,
   type ActionExecution,
   type ActionName,
+  ChartRequestMessage,
   type ChartResizeReason,
   type InstanceId,
   type MaelstromResponse,
+  MessageId,
   type SessionHistoryEntry,
   type SessionId,
+  toError,
   type UpdateReason,
   type VariantName,
   type VesselMutationReason,
-  toError,
 } from '@maelstrom-co/protocol';
 
 import { ChartManager } from '../chart-manager/chart-manager.js';
+import { CommandProcessor } from '../command-processor/command-processor.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
 import type {
   AssistantMessage,
   EngineConnector,
   PushConnector,
 } from '../connection-manager/connector.types.js';
-import { CommandProcessor } from '../command-processor/command-processor.js';
 import type { Unsubscribe } from '../types.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
 import {
-  readCapabilitySnapshot,
   type CapabilitySnapshot,
+  readCapabilitySnapshot,
 } from '../voice-session/capability-snapshot.js';
 import {
   readStructuralSnapshot,
@@ -325,9 +325,8 @@ export class Orchestrator {
       return;
     }
 
-    const instance = this.#commandProcessor.store.state.instances.get(
-      instanceId,
-    );
+    const instance =
+      this.#commandProcessor.store.state.instances.get(instanceId);
     if (!instance) {
       this.#logger.warn(`invokeAction: unknown instance "${instanceId}"`);
       return;
@@ -415,7 +414,8 @@ export class Orchestrator {
     // takeCoalesced() drains + clears the coordinator (buffer + timers) like
     // clear() did, but returns the pending updates so mutations can be retained.
     for (const update of this.#updateCoordinator.takeCoalesced()) {
-      if (update.type === 'vessel_mutation') this.#pendingMutations.push(update);
+      if (update.type === 'vessel_mutation')
+        this.#pendingMutations.push(update);
     }
     await this.#connectionManager.disconnect();
   }

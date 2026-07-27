@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { SessionId } from '@maelstrom-co/protocol';
 
-import { OpenAITokenGrantSchema, OpenAITokenRequestSchema } from './openai-token.js';
+import {
+  OpenAITokenGrantSchema,
+  OpenAITokenRequestSchema,
+} from './openai-token.js';
 
 describe('OpenAITokenRequestSchema', () => {
   it('accepts a valid openai mint request', () => {
@@ -14,12 +17,17 @@ describe('OpenAITokenRequestSchema', () => {
 
   it('rejects an unknown provider', () => {
     expect(() =>
-      OpenAITokenRequestSchema.parse({ provider: 'anthropic', sessionId: SessionId('s') }),
+      OpenAITokenRequestSchema.parse({
+        provider: 'anthropic',
+        sessionId: SessionId('s'),
+      }),
     ).toThrow();
   });
 
   it('rejects a request missing sessionId', () => {
-    expect(() => OpenAITokenRequestSchema.parse({ provider: 'openai' })).toThrow();
+    expect(() =>
+      OpenAITokenRequestSchema.parse({ provider: 'openai' }),
+    ).toThrow();
   });
 });
 

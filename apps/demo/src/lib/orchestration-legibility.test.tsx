@@ -10,7 +10,10 @@ function fakeContext(): MaelstromExtensionContext {
     state: { instances: new Map() },
   };
   const orchestrator = {
-    commandProcessor: { store, events: { subscribe: () => ({ unsubscribe: () => {} }) } },
+    commandProcessor: {
+      store,
+      events: { subscribe: () => ({ unsubscribe: () => {} }) },
+    },
   } as unknown as Orchestrator;
 
   return {

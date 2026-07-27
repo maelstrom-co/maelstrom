@@ -1,6 +1,6 @@
-import { Check } from 'lucide-react';
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { Check } from 'lucide-react';
 import { VesselCard } from '../components/vessel-card';
 import { cn } from '../lib/cn';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
@@ -74,10 +74,23 @@ export default function TasksComponent({
             <div key={task.id}>
               {/* Task */}
               <div className="flex items-center gap-2.5">
-                <div className={cn('task-check shrink-0', task.done && 'task-check--done')}>
-                  {task.done && <Check size={10} strokeWidth={1.75} className="text-bg" />}
+                <div
+                  className={cn(
+                    'task-check shrink-0',
+                    task.done && 'task-check--done',
+                  )}
+                >
+                  {task.done && (
+                    <Check size={10} strokeWidth={1.75} className="text-bg" />
+                  )}
                 </div>
-                <span className={task.done ? 'text-sm text-ink-3 line-through' : 'text-sm text-ink'}>
+                <span
+                  className={
+                    task.done
+                      ? 'text-sm text-ink-3 line-through'
+                      : 'text-sm text-ink'
+                  }
+                >
                   {task.title}
                 </span>
               </div>
@@ -96,9 +109,21 @@ export default function TasksComponent({
                           sub.done && 'task-check--done',
                         )}
                       >
-                        {sub.done && <Check size={9} strokeWidth={1.75} className="text-bg" />}
+                        {sub.done && (
+                          <Check
+                            size={9}
+                            strokeWidth={1.75}
+                            className="text-bg"
+                          />
+                        )}
                       </div>
-                      <span className={sub.done ? 'text-xs text-ink-3 line-through' : 'text-xs text-ink-2'}>
+                      <span
+                        className={
+                          sub.done
+                            ? 'text-xs text-ink-3 line-through'
+                            : 'text-xs text-ink-2'
+                        }
+                      >
                         {sub.title}
                       </span>
                     </div>

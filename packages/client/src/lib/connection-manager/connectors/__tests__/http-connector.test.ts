@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
   MessageId,
-  SessionId,
   type SessionHistoryEntry,
+  SessionId,
 } from '@maelstrom-co/protocol';
 
 import { HttpConnector } from '../http-connector.js';

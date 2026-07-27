@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { act, cleanup, render } from '@testing-library/react';
 import { useRef } from 'react';
-
-import { computeFlipDelta, enterKeyframes, flipKeyframes } from './flip.js';
 import type { MotionRect } from './flip.js';
-import { DEFAULT_MOTION } from './motion-config.js';
+import { computeFlipDelta, enterKeyframes, flipKeyframes } from './flip.js';
 import type { ResolvedChartMotionConfig } from './motion-config.js';
+import { DEFAULT_MOTION } from './motion-config.js';
 import { useChartMotion } from './use-chart-motion.js';
 
 interface AnimateCall {
@@ -42,7 +41,12 @@ interface Item {
 }
 
 function signatureOf(items: Item[]): string {
-  return items.map((item) => `${item.id}:${item.rect.x},${item.rect.y},${item.rect.width},${item.rect.height}`).join('|');
+  return items
+    .map(
+      (item) =>
+        `${item.id}:${item.rect.x},${item.rect.y},${item.rect.width},${item.rect.height}`,
+    )
+    .join('|');
 }
 
 function Harness({
@@ -57,7 +61,12 @@ function Harness({
   sizeKey?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  useChartMotion(containerRef, layoutKey ?? signatureOf(items), sizeKey, motion);
+  useChartMotion(
+    containerRef,
+    layoutKey ?? signatureOf(items),
+    sizeKey,
+    motion,
+  );
   return (
     <div ref={containerRef}>
       {items.map((item) => (
@@ -90,7 +99,12 @@ function stubRect(node: HTMLElement, rect: MotionRect) {
     }) as DOMRect;
 }
 
-const rect = (x: number, y: number, width: number, height: number): MotionRect => ({ x, y, width, height });
+const rect = (
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): MotionRect => ({ x, y, width, height });
 
 describe('useChartMotion', () => {
   it('does not animate on the first measurement pass', () => {
@@ -112,7 +126,9 @@ describe('useChartMotion', () => {
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
 
     act(() => {
@@ -140,7 +156,9 @@ describe('useChartMotion', () => {
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
 
     act(() => {
@@ -168,7 +186,9 @@ describe('useChartMotion', () => {
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
 
     act(() => {
@@ -197,12 +217,21 @@ describe('useChartMotion', () => {
       options?: number | KeyframeAnimationOptions,
     ) {
       const id = this.getAttribute('data-instance-id') ?? '';
-      animateCalls.push({ id, keyframes: keyframes as Keyframe[], options: options as KeyframeAnimationOptions });
+      animateCalls.push({
+        id,
+        keyframes: keyframes as Keyframe[],
+        options: options as KeyframeAnimationOptions,
+      });
       const list = liveAnimationsById.get(id) ?? [];
-      const animation = { cancel: () => list.splice(list.indexOf(animation), 1) };
+      const animation = {
+        cancel: () => list.splice(list.indexOf(animation), 1),
+      };
       list.push(animation);
       liveAnimationsById.set(id, list);
-      return { ...animation, finished: Promise.resolve() } as unknown as Animation;
+      return {
+        ...animation,
+        finished: Promise.resolve(),
+      } as unknown as Animation;
     } as never;
     window.Element.prototype.getAnimations = function (this: Element) {
       const id = this.getAttribute('data-instance-id') ?? '';
@@ -214,7 +243,9 @@ describe('useChartMotion', () => {
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
 
     // Trigger a FLIP so the child node has a running WAAPI animation.
@@ -226,14 +257,22 @@ describe('useChartMotion', () => {
 
     // Toggle motion to disabled only -- no layout/size key change.
     act(() => {
-      rerender(<Harness items={second} motion={{ ...DEFAULT_MOTION, disabled: true }} />);
+      rerender(
+        <Harness
+          items={second}
+          motion={{ ...DEFAULT_MOTION, disabled: true }}
+        />,
+      );
     });
 
     expect(liveAnimationsById.get('a')).toHaveLength(0);
   });
 
   it('does not animate when motion is suppressed', () => {
-    const disabled: ResolvedChartMotionConfig = { ...DEFAULT_MOTION, disabled: true };
+    const disabled: ResolvedChartMotionConfig = {
+      ...DEFAULT_MOTION,
+      disabled: true,
+    };
     const first: Item[] = [{ id: 'a', rect: rect(0, 0, 100, 100) }];
     const second: Item[] = [{ id: 'a', rect: rect(50, 20, 100, 100) }];
 
@@ -254,13 +293,18 @@ describe('useChartMotion', () => {
     const rectB: Item[] = [{ id: 'a', rect: rect(50, 20, 100, 100) }];
     const rectC: Item[] = [{ id: 'a', rect: rect(70, 10, 100, 100) }];
     const rectD: Item[] = [{ id: 'a', rect: rect(120, 60, 100, 100) }];
-    const disabled: ResolvedChartMotionConfig = { ...DEFAULT_MOTION, disabled: true };
+    const disabled: ResolvedChartMotionConfig = {
+      ...DEFAULT_MOTION,
+      disabled: true,
+    };
 
     let rerender!: (ui: React.ReactElement) => void;
 
     // Pass 1: baseline measurement at rectA, no animation (first pass).
     act(() => {
-      ({ rerender } = render(<Harness items={rectA} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={rectA} motion={DEFAULT_MOTION} />,
+      ));
     });
     expect(animateCalls).toHaveLength(0);
 
@@ -287,8 +331,14 @@ describe('useChartMotion', () => {
 
     expect(animateCalls).toHaveLength(1);
     const call = animateCalls[0]!;
-    const deltaFromFreshBaseline = computeFlipDelta(rectC[0]!.rect, rectD[0]!.rect);
-    const deltaFromStaleBaseline = computeFlipDelta(rectA[0]!.rect, rectD[0]!.rect);
+    const deltaFromFreshBaseline = computeFlipDelta(
+      rectC[0]!.rect,
+      rectD[0]!.rect,
+    );
+    const deltaFromStaleBaseline = computeFlipDelta(
+      rectA[0]!.rect,
+      rectD[0]!.rect,
+    );
     expect(call.keyframes).toEqual(flipKeyframes(deltaFromFreshBaseline!));
     expect(call.keyframes).not.toEqual(flipKeyframes(deltaFromStaleBaseline!));
   });
@@ -306,7 +356,9 @@ describe('useChartMotion', () => {
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={populated} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={populated} motion={DEFAULT_MOTION} />,
+      ));
     });
     act(() => {
       rerender(<Harness items={empty} motion={DEFAULT_MOTION} />);
@@ -334,26 +386,51 @@ describe('useChartMotion', () => {
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
       ({ rerender } = render(
-        <Harness items={initial} layoutKey="L1" sizeKey="800x600" motion={DEFAULT_MOTION} />,
+        <Harness
+          items={initial}
+          layoutKey="L1"
+          sizeKey="800x600"
+          motion={DEFAULT_MOTION}
+        />,
       ));
     });
 
     // Size-only change: no animation, but the rect map must be refreshed.
     act(() => {
-      rerender(<Harness items={resized} layoutKey="L1" sizeKey="1200x600" motion={DEFAULT_MOTION} />);
+      rerender(
+        <Harness
+          items={resized}
+          layoutKey="L1"
+          sizeKey="1200x600"
+          motion={DEFAULT_MOTION}
+        />,
+      );
     });
     expect(animateCalls).toHaveLength(0);
 
     // Layout change: FLIP baseline must be the POST-resize rect — proof the
     // size-only pass updated the map instead of skipping measurement.
     act(() => {
-      rerender(<Harness items={moved} layoutKey="L2" sizeKey="1200x600" motion={DEFAULT_MOTION} />);
+      rerender(
+        <Harness
+          items={moved}
+          layoutKey="L2"
+          sizeKey="1200x600"
+          motion={DEFAULT_MOTION}
+        />,
+      );
     });
 
     expect(animateCalls).toHaveLength(1);
     const call = animateCalls[0]!;
-    const deltaFromPostResize = computeFlipDelta(resized[0]!.rect, moved[0]!.rect);
-    const deltaFromPreResize = computeFlipDelta(initial[0]!.rect, moved[0]!.rect);
+    const deltaFromPostResize = computeFlipDelta(
+      resized[0]!.rect,
+      moved[0]!.rect,
+    );
+    const deltaFromPreResize = computeFlipDelta(
+      initial[0]!.rect,
+      moved[0]!.rect,
+    );
     expect(call.keyframes).toEqual(flipKeyframes(deltaFromPostResize!));
     expect(call.keyframes).not.toEqual(flipKeyframes(deltaFromPreResize!));
   });
@@ -370,7 +447,9 @@ describe('useChartMotion', () => {
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
 
     expect(() => {
@@ -386,14 +465,21 @@ describe('useChartMotion', () => {
     // or disabled toggle — the suppression cancel walk targets only vessels.
     const liveByKey = new Map<string, Array<{ cancel: () => void }>>();
     const keyOf = (el: Element) =>
-      el.getAttribute('data-instance-id') ?? el.getAttribute('data-overlay') ?? '';
+      el.getAttribute('data-instance-id') ??
+      el.getAttribute('data-overlay') ??
+      '';
     window.Element.prototype.animate = function (this: Element) {
       const key = keyOf(this);
       const list = liveByKey.get(key) ?? [];
-      const animation = { cancel: () => list.splice(list.indexOf(animation), 1) };
+      const animation = {
+        cancel: () => list.splice(list.indexOf(animation), 1),
+      };
       list.push(animation);
       liveByKey.set(key, list);
-      return { ...animation, finished: Promise.resolve() } as unknown as Animation;
+      return {
+        ...animation,
+        finished: Promise.resolve(),
+      } as unknown as Animation;
     } as never;
     window.Element.prototype.getAnimations = function (this: Element) {
       return (liveByKey.get(keyOf(this)) ?? []) as unknown as Animation[];
@@ -416,7 +502,8 @@ describe('useChartMotion', () => {
               if (!node) return;
               stubRect(node, rect(0, 0, 10, 10));
               // Consumer-owned animation, seeded once (ref reattaches each render).
-              if ((liveByKey.get('spinner') ?? []).length === 0) node.animate([], {});
+              if ((liveByKey.get('spinner') ?? []).length === 0)
+                node.animate([], {});
             }}
           />
         </div>
@@ -431,7 +518,9 @@ describe('useChartMotion', () => {
 
     // Suppress motion (disabled), no layout/size change: suppression cancel walk runs.
     act(() => {
-      rerender(<OverlayHarness motion={{ ...DEFAULT_MOTION, disabled: true }} />);
+      rerender(
+        <OverlayHarness motion={{ ...DEFAULT_MOTION, disabled: true }} />,
+      );
     });
 
     expect(liveByKey.get('spinner')).toHaveLength(1);
@@ -444,12 +533,24 @@ describe('useChartMotion', () => {
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
       ({ rerender } = render(
-        <Harness items={first} layoutKey="L1" sizeKey="800x600" motion={DEFAULT_MOTION} />,
+        <Harness
+          items={first}
+          layoutKey="L1"
+          sizeKey="800x600"
+          motion={DEFAULT_MOTION}
+        />,
       ));
     });
 
     act(() => {
-      rerender(<Harness items={second} layoutKey="L2" sizeKey="1200x600" motion={DEFAULT_MOTION} />);
+      rerender(
+        <Harness
+          items={second}
+          layoutKey="L2"
+          sizeKey="1200x600"
+          motion={DEFAULT_MOTION}
+        />,
+      );
     });
 
     expect(animateCalls).toHaveLength(1);

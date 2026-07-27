@@ -1,16 +1,15 @@
 import { describe, expect, test } from 'bun:test';
-
-import { MessageId } from './message.js';
-import { SessionId } from './session.js';
-import type { ChartRequest } from './request.js';
 import {
   AssistantInjectionMessage,
   AssistantInjectionMessageSchema,
   ChartRequestMessage,
   ChartRequestMessageSchema,
-  EngineMessageSchema,
   type EngineMessage,
+  EngineMessageSchema,
 } from './engine-message.js';
+import { MessageId } from './message.js';
+import type { ChartRequest } from './request.js';
+import { SessionId } from './session.js';
 
 const stubRequest = {} as ChartRequest;
 

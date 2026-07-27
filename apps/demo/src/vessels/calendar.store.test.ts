@@ -10,7 +10,7 @@ beforeEach(() => {
 });
 
 describe('calendarActions', () => {
-  it('starts seeded with today\'s events', () => {
+  it("starts seeded with today's events", () => {
     expect(getCalendarSnapshot().events.map((e) => e.title)).toEqual([
       'Gym',
       'Design review',
@@ -28,7 +28,7 @@ describe('calendarActions', () => {
     });
   });
 
-  it('addEvent normalizes a 12-hour time to the day view\'s 24-hour format', () => {
+  it("addEvent normalizes a 12-hour time to the day view's 24-hour format", () => {
     calendarActions.addEvent('Coffee with Sam', '9:00 AM');
     expect(getCalendarSnapshot().events.at(-1)?.time).toBe('9:00');
   });
@@ -62,7 +62,9 @@ describe('calendarActions', () => {
     calendarActions.addEvent('A', '14:30');
     calendarActions.addEvent('B', '9:00');
     calendarActions.addEvent('C', '10:00 AM');
-    const times = getCalendarSnapshot().events.slice(-3).map((e) => e.time);
+    const times = getCalendarSnapshot()
+      .events.slice(-3)
+      .map((e) => e.time);
     expect(times).toEqual(['14:30', '9:00', '10:00']);
   });
 
@@ -93,7 +95,9 @@ describe('calendarActions', () => {
   it('moveEvent returns false and leaves state untouched on no match', () => {
     const moved = calendarActions.moveEvent('nonexistent event', '9:00');
     expect(moved).toBe(false);
-    expect(getCalendarSnapshot().events.find((e) => e.time === '9:00')).toBeUndefined();
+    expect(
+      getCalendarSnapshot().events.find((e) => e.time === '9:00'),
+    ).toBeUndefined();
   });
 
   it('removeEvent with a blank title matches nothing (not the first event)', () => {
@@ -109,8 +113,8 @@ describe('calendarActions', () => {
   it('moveEvent with a blank title matches nothing (not the first event)', () => {
     const moved = calendarActions.moveEvent('', '9:00');
     expect(moved).toBe(false);
-    expect(getCalendarSnapshot().events.find((e) => e.title === 'Gym')?.time).toBe(
-      '7:30',
-    );
+    expect(
+      getCalendarSnapshot().events.find((e) => e.title === 'Gym')?.time,
+    ).toBe('7:30');
   });
 });

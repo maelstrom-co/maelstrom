@@ -1,16 +1,14 @@
 import { describe, it } from 'bun:test';
-import { InstanceId, defineVessel } from '@maelstrom-co/protocol';
-
 import type { ActionParams } from '@maelstrom-co/client';
-
+import { defineVessel, InstanceId } from '@maelstrom-co/protocol';
+import { type TestVessel, testVessel } from './__tests__/test-vessel.fixture';
+import { vessel } from './vessel.js';
 import type {
   ExtractVesselByIdFromEntries,
   TypedVesselProps,
   VariantProps,
   VesselIds,
 } from './vessel-entry-types.js';
-import { vessel } from './vessel.js';
-import { testVessel, type TestVessel } from './__tests__/test-vessel.fixture';
 
 describe('TypedVesselProps', () => {
   it('accepts valid action names and params', () => {
@@ -42,15 +40,21 @@ describe('TypedVesselProps', () => {
 
   it('rejects invalid action names in executeAction', () => {
     // @ts-expect-error - 'badAction' is not a valid action name
-    const _fn: TypedVesselProps<TestVessel>['executeAction'] = (_name: 'badAction') => {};
+    const _fn: TypedVesselProps<TestVessel>['executeAction'] = (
+      _name: 'badAction',
+    ) => {};
     void _fn;
   });
 
   it('constrains executeAction name to ActionNames<V>', () => {
     // @ts-expect-error - empty string is not a valid action name
-    const _fn1: TypedVesselProps<TestVessel>['executeAction'] = (_name: '') => {};
+    const _fn1: TypedVesselProps<TestVessel>['executeAction'] = (
+      _name: '',
+    ) => {};
     // @ts-expect-error - arbitrary string is not a valid action name
-    const _fn2: TypedVesselProps<TestVessel>['executeAction'] = (_name: 'nonExistent') => {};
+    const _fn2: TypedVesselProps<TestVessel>['executeAction'] = (
+      _name: 'nonExistent',
+    ) => {};
     void [_fn1, _fn2];
   });
 
@@ -121,8 +125,16 @@ const calendarDef = defineVessel({
   description: 'Calendar vessel',
   defaultVariant: 'month',
   variants: {
-    month: { props: { view: 'month' as const }, minSize: { width: 2, height: 2 }, actions: [] },
-    week: { props: { view: 'week' as const }, minSize: { width: 3, height: 2 }, actions: [] },
+    month: {
+      props: { view: 'month' as const },
+      minSize: { width: 2, height: 2 },
+      actions: [],
+    },
+    week: {
+      props: { view: 'week' as const },
+      minSize: { width: 3, height: 2 },
+      actions: [],
+    },
   },
 });
 
@@ -132,7 +144,11 @@ const weatherDef = defineVessel({
   description: 'Weather vessel',
   defaultVariant: 'compact',
   variants: {
-    compact: { props: { city: '' }, minSize: { width: 1, height: 1 }, actions: [] },
+    compact: {
+      props: { city: '' },
+      minSize: { width: 1, height: 1 },
+      actions: [],
+    },
   },
 });
 
@@ -145,24 +161,37 @@ type MultiEntries = typeof multiEntries;
 
 describe('ExtractVesselByIdFromEntries', () => {
   it('extracts the calendar vessel type by id', () => {
-    type CalendarVessel = ExtractVesselByIdFromEntries<MultiEntries, 'calendar'>;
-    type _HasMonthVariant = CalendarVessel['variants']['month'] extends object ? true : never;
+    type CalendarVessel = ExtractVesselByIdFromEntries<
+      MultiEntries,
+      'calendar'
+    >;
+    type _HasMonthVariant = CalendarVessel['variants']['month'] extends object
+      ? true
+      : never;
     const _check: _HasMonthVariant = true;
     void _check;
   });
 
   it('extracts the weather vessel type by id', () => {
     type WeatherVessel = ExtractVesselByIdFromEntries<MultiEntries, 'weather'>;
-    type _HasCompactVariant = WeatherVessel['variants']['compact'] extends object ? true : never;
+    type _HasCompactVariant =
+      WeatherVessel['variants']['compact'] extends object ? true : never;
     const _check: _HasCompactVariant = true;
     void _check;
   });
 
   it('preserves literal variant prop types', () => {
-    type CalendarVessel = ExtractVesselByIdFromEntries<MultiEntries, 'calendar'>;
+    type CalendarVessel = ExtractVesselByIdFromEntries<
+      MultiEntries,
+      'calendar'
+    >;
     type MonthView = CalendarVessel['variants']['month']['props']['view'];
     // Must be the literal 'month', not widened string
-    type _IsLiteral = MonthView extends 'month' ? ('month' extends MonthView ? true : never) : never;
+    type _IsLiteral = MonthView extends 'month'
+      ? 'month' extends MonthView
+        ? true
+        : never
+      : never;
     const _check: _IsLiteral = true;
     void _check;
   });

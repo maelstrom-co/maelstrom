@@ -68,9 +68,12 @@ export function initTocPath(): void {
 
   if (toc.parentElement?.classList.contains('toc-items-wrapper')) return;
 
+  const tocParent = toc.parentNode;
+  if (!tocParent) return;
+
   const wrapper = document.createElement('div');
   wrapper.className = 'toc-items-wrapper';
-  toc.parentNode!.insertBefore(wrapper, toc);
+  tocParent.insertBefore(wrapper, toc);
   wrapper.appendChild(toc);
 
   const ns = 'http://www.w3.org/2000/svg';
@@ -130,7 +133,9 @@ export function initTocPath(): void {
   function update() {
     const activeLink = getActiveLink();
 
-    links.forEach((l) => l.classList.remove('toc-active'));
+    links.forEach((l) => {
+      l.classList.remove('toc-active');
+    });
     activeLink.classList.add('toc-active');
 
     const idx = links.indexOf(activeLink);

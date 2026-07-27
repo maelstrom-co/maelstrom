@@ -1,24 +1,22 @@
-import { useState } from 'react';
-import { afterEach, describe, it, expect, mock } from 'bun:test';
-import { render, cleanup, act } from '@testing-library/react';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import type { ActionRunner, VesselInstance } from '@maelstrom-co/client';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import {
   ActionName,
+  defineVessel,
   InstanceId,
   MessageId,
+  ok,
   VariantName,
   VesselId,
-  defineVessel,
 } from '@maelstrom-co/protocol';
-import { ok } from '@maelstrom-co/protocol';
-import type { VesselInstance } from '@maelstrom-co/client';
-import type { ActionRunner } from '@maelstrom-co/client';
-import type { MaelstromResponse } from '@maelstrom-co/protocol';
-
+import { act, cleanup, render } from '@testing-library/react';
+import { useState } from 'react';
+import { assertDefined } from './__tests__/assert-defined.js';
+import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import { vessel } from './vessel.js';
-import { createMockConnector } from './__tests__/mock-connector.js';
 import { resetWarnings } from './warn-once.js';
-import { assertDefined } from './__tests__/assert-defined.js';
 
 const orderVessel = defineVessel({
   id: 'orders',
@@ -165,9 +163,10 @@ describe('useActions vesselId validation', () => {
 
     const connector = createMockConnector({
       process: async () =>
-        makeResponse([makeInstance()], [
-          { instanceId: 'inst-1', action: 'refresh' },
-        ]),
+        makeResponse(
+          [makeInstance()],
+          [{ instanceId: 'inst-1', action: 'refresh' }],
+        ),
     });
 
     // Use a runner for 'orders' actions so the handler is found
@@ -211,7 +210,7 @@ describe('useActions vesselId validation', () => {
 });
 
 describe('useActions disposer identity check', () => {
-  it('unmounting first component does not remove second component\'s runner', async () => {
+  it("unmounting first component does not remove second component's runner", async () => {
     const m = createMaelstrom({
       vessels: [orderEntry],
     });

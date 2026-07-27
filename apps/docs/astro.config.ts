@@ -1,16 +1,15 @@
+import { existsSync, rmSync } from 'node:fs';
+import path from 'node:path';
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, fontProviders } from 'astro/config';
-import { existsSync, rmSync } from 'node:fs';
-import path from 'node:path';
+import mermaid from 'astro-mermaid';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
-import mermaid from 'astro-mermaid';
 
-const [reactTypeDoc, reactTypeDocSidebarGroup] =
-  createStarlightTypeDocPlugin();
+const [reactTypeDoc, reactTypeDocSidebarGroup] = createStarlightTypeDocPlugin();
 const [clientTypeDoc, clientTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
@@ -26,7 +25,10 @@ const repoRoot = '../../';
 const sourceLinkTemplate =
   'https://github.com/maelstrom-co/maelstrom/blob/main/{path}#L{line}';
 
-const docsRoot = path.resolve(process.cwd(), 'apps/docs/src/content/docs/reference');
+const docsRoot = path.resolve(
+  process.cwd(),
+  'apps/docs/src/content/docs/reference',
+);
 const distRoot = path.resolve(process.cwd(), 'apps/docs/dist/reference');
 const prunedReferencePaths = [
   'voice',

@@ -39,7 +39,7 @@ describe('VesselCard', () => {
     expect(root.style.getPropertyValue('--glow')).toBe('#f5a52438');
   });
 
-  it('positions the header row so it stacks above a material layer like weather\'s sky-wash', () => {
+  it("positions the header row so it stacks above a material layer like weather's sky-wash", () => {
     // sky-wash is position:absolute inset:0 z-index:0 inside .vessel-card, and
     // being positioned it paints after non-positioned siblings — so the
     // unpositioned header row would render underneath it. Giving the header

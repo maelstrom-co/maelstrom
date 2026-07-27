@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { MessageId, defineVessel } from '@maelstrom-co/protocol';
+import { defineVessel, MessageId } from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
-import { vessel } from './vessel.js';
 import type { MaelstromState } from './maelstrom-state-types.js';
+import { vessel } from './vessel.js';
 
 const testVessel = defineVessel({
   id: 'widget',

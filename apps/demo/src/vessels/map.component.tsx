@@ -1,14 +1,18 @@
-import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
+import { useEffect, useRef } from 'react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../components/vessel-card';
 import { ACCENT_HEX, VESSEL_ACCENTS } from '../lib/design-tokens';
+import {
+  DEMO_LOCATIONS,
+  findLocationByFuzzyName,
+  HOME,
+} from '../lib/locations';
 import { m } from '../lib/maelstrom';
-import { DEMO_LOCATIONS, findLocationByFuzzyName, HOME } from '../lib/locations';
 import { fetchRoute } from '../lib/osrm';
-import { mapActions, useMapStore, type MapState } from './map.store';
+import { type MapState, mapActions, useMapStore } from './map.store';
 import type { mapVessel } from './map.vessel';
 
 function noMatchError(name: string): Error {
@@ -249,8 +253,8 @@ export default function MapComponent({
         <div ref={containerRef} className="h-full w-full" />
         {effectiveVariant === 'route' && state.route && (
           <div className="eta-chip absolute bottom-2 left-2 right-2 rounded-[var(--r-sm)] px-3 py-1.5 text-sm text-ink font-mono">
-            {state.route.durationMin} min ·{' '}
-            {state.route.distanceMi.toFixed(1)} mi
+            {state.route.durationMin} min · {state.route.distanceMi.toFixed(1)}{' '}
+            mi
           </div>
         )}
       </div>

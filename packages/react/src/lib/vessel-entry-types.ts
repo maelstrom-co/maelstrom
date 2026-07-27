@@ -1,16 +1,15 @@
-import type { ComponentType } from 'react';
-import type {
-  InstanceId,
-  VesselDefinition,
-  VesselId,
-} from '@maelstrom-co/protocol';
-
 import type {
   ActionNames,
   ActionParams,
   ActionRunner,
   VariantNames,
 } from '@maelstrom-co/client';
+import type {
+  InstanceId,
+  VesselDefinition,
+  VesselId,
+} from '@maelstrom-co/protocol';
+import type { ComponentType } from 'react';
 
 /**
  * Discriminated union of variant prop shapes for vessel `V`.
@@ -51,9 +50,10 @@ export interface VesselEntry<V extends VesselDefinition> {
 }
 
 /** Lazy loader function for a vessel component */
-export type LazyVesselComponentLoader<V extends VesselDefinition> = () => Promise<{
-  default: ComponentType<TypedVesselProps<V>>;
-}>;
+export type LazyVesselComponentLoader<V extends VesselDefinition> =
+  () => Promise<{
+    default: ComponentType<TypedVesselProps<V>>;
+  }>;
 
 /** Lazy vessel entry — component is loaded on demand */
 export interface LazyVesselEntry<V extends VesselDefinition> {
@@ -63,11 +63,15 @@ export interface LazyVesselEntry<V extends VesselDefinition> {
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: default erases T for heterogeneous entry arrays (readonly AnyVesselEntry[] holding many distinct vessel defs); `unknown` doesn't satisfy the `VesselDefinition` constraint, so downstream generics (ExtractVesselByIdFromEntries, VesselIds, ActionRunnerLookup) fail to resolve.
-export type AnyVesselEntry<T extends VesselDefinition = any> = VesselEntry<T> | LazyVesselEntry<T>;
+export type AnyVesselEntry<T extends VesselDefinition = any> =
+  | VesselEntry<T>
+  | LazyVesselEntry<T>;
 
 /** Discriminant: lazy entries carry a loadingComponent, eager ones don't. */
-// biome-ignore lint/suspicious/noExplicitAny: same erasure as AnyVesselEntry's default above — `unknown` doesn't satisfy the VesselDefinition constraint.
-export function isLazyEntry(entry: AnyVesselEntry): entry is LazyVesselEntry<any> {
+export function isLazyEntry(
+  entry: AnyVesselEntry,
+  // biome-ignore lint/suspicious/noExplicitAny: same erasure as AnyVesselEntry's default above — `unknown` doesn't satisfy the VesselDefinition constraint.
+): entry is LazyVesselEntry<any> {
   return 'loadingComponent' in entry;
 }
 

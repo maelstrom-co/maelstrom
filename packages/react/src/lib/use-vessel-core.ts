@@ -1,8 +1,4 @@
-import {
-  InstanceId,
-  type VariantName,
-  VesselId,
-} from '@maelstrom-co/protocol';
+import { InstanceId, type VariantName, VesselId } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 import { useMemo } from 'react';
 

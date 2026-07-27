@@ -25,7 +25,12 @@ const defaultOptions: Required<AstroPluginOptions> = {
 export const createNodesV2: CreateNodesV2<AstroPluginOptions> = [
   '**/astro.config.{ts,mjs}',
   (configFiles, options, context) =>
-    createNodesFromFiles(createNodesInternal, configFiles, options ?? {}, context),
+    createNodesFromFiles(
+      createNodesInternal,
+      configFiles,
+      options ?? {},
+      context,
+    ),
 ];
 
 function createNodesInternal(

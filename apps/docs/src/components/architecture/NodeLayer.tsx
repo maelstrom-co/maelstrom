@@ -1,5 +1,5 @@
 import { NODES } from './nodes';
-import { POS, nodeRect } from './stage';
+import { nodeRect, POS } from './stage';
 
 /**
  * Renders the package cards as `foreignObject`s positioned in the stage's

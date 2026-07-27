@@ -18,10 +18,6 @@ import type { EngineError } from '../errors.js';
 import { parseError, validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { LLMOutput } from '../pipeline/call-llm.js';
-import {
-  healGridLayout,
-  healTilingLayout,
-} from '../validation/llm-output/index.js';
 import type {
   DroppedLayoutEntry,
   HealedLayout,
@@ -29,6 +25,10 @@ import type {
   LayoutWarning,
   RetryHint,
 } from '../validation/llm-output/healed-layout.js';
+import {
+  healGridLayout,
+  healTilingLayout,
+} from '../validation/llm-output/index.js';
 import {
   deriveRetryHint,
   layoutEntryCount,

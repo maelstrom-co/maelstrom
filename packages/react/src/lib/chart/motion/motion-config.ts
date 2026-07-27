@@ -33,18 +33,24 @@ export const DEFAULT_MOTION: ResolvedChartMotionConfig = {
   disabled: false,
 };
 
-export function resolveMotionConfig(config: ChartMotionConfig | undefined): ResolvedChartMotionConfig {
+export function resolveMotionConfig(
+  config: ChartMotionConfig | undefined,
+): ResolvedChartMotionConfig {
   // `< 0` alone lets NaN through (`NaN < 0` is false), which then reaches
   // `node.animate({ duration: NaN })` and throws an opaque "non-finite
   // duration" at animation time instead of here at config setup.
   const durationMs = config?.durationMs ?? DEFAULT_MOTION.durationMs;
   if (!Number.isFinite(durationMs) || durationMs < 0) {
-    throw new Error(`durationMs must be a non-negative finite number, got ${durationMs}`);
+    throw new Error(
+      `durationMs must be a non-negative finite number, got ${durationMs}`,
+    );
   }
 
   const staggerMs = config?.staggerMs ?? DEFAULT_MOTION.staggerMs;
   if (!Number.isFinite(staggerMs) || staggerMs < 0) {
-    throw new Error(`staggerMs must be a non-negative finite number, got ${staggerMs}`);
+    throw new Error(
+      `staggerMs must be a non-negative finite number, got ${staggerMs}`,
+    );
   }
 
   return {
@@ -58,6 +64,7 @@ export function resolveMotionConfig(config: ChartMotionConfig | undefined): Reso
 /** True when motion must not run: disabled by config or by the user's OS preference. */
 export function motionSuppressed(resolved: ResolvedChartMotionConfig): boolean {
   if (resolved.disabled) return true;
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function')
+    return false;
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }

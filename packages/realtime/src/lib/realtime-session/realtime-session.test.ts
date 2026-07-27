@@ -1,7 +1,10 @@
 import { describe, expect, it, spyOn } from 'bun:test';
-import FakeTimers from '@sinonjs/fake-timers';
-import type { CapabilitySnapshot, UIStructuralSnapshot } from '@maelstrom-co/client';
+import type {
+  CapabilitySnapshot,
+  UIStructuralSnapshot,
+} from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
+import type { SidechannelEvent } from '@maelstrom-co/protocol';
 import {
   ActionName,
   InstanceId,
@@ -10,8 +13,8 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
-import type { SidechannelEvent } from '@maelstrom-co/protocol';
-
+import FakeTimers from '@sinonjs/fake-timers';
+import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {
   AdapterAudioStreams,
   RealtimeAdapterEvent,
@@ -19,9 +22,11 @@ import type {
   RealtimeToolSpec,
   UpdateUIToolResult,
 } from './provider-adapter.types.js';
-import type { RealtimeInstance, SubmitIntentResult } from './realtime-session.types.js';
 import { RealtimeSession } from './realtime-session.js';
-import { RealtimeVoiceError } from '../realtime-voice-error.js';
+import type {
+  RealtimeInstance,
+  SubmitIntentResult,
+} from './realtime-session.types.js';
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -44,9 +49,17 @@ interface MockAdapter extends RealtimeProviderAdapter {
   failNextConnect(): void;
   /** Makes `connect()` block until the returned function is called. */
   gateConnect(): () => void;
-  emitToolCall(call: { callId: string; name: string; argumentsJson: string }): void;
+  emitToolCall(call: {
+    callId: string;
+    name: string;
+    argumentsJson: string;
+  }): void;
   emitError(error: unknown): void;
-  emitTranscript(t: { role: 'user' | 'assistant'; text: string; final: boolean }): void;
+  emitTranscript(t: {
+    role: 'user' | 'assistant';
+    text: string;
+    final: boolean;
+  }): void;
   /** Sentinel returned by `getAudioStreams()` — identity-compared by tests. */
   readonly lastAudioStreams: AdapterAudioStreams;
 }
@@ -228,8 +241,12 @@ const populatedCapabilitySnapshot: CapabilitySnapshot = {
     {
       vesselId: VesselId('labs-chart'),
       description: 'A chart of lab results over time',
-      variants: [{ name: VariantName('default'), description: 'Standard view' }],
-      actions: [{ name: ActionName('zoom'), description: 'Zoom into a date range' }],
+      variants: [
+        { name: VariantName('default'), description: 'Standard view' },
+      ],
+      actions: [
+        { name: ActionName('zoom'), description: 'Zoom into a date range' },
+      ],
     },
   ],
 };
@@ -343,7 +360,11 @@ describe('RealtimeSession — get_ui_state', () => {
     const { session, adapter, instance } = makeHarness(populatedSnapshot);
     await session.connect();
 
-    adapter.emitToolCall({ callId: 'c2', name: 'get_ui_state', argumentsJson: '{}' });
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
     await flushMicrotasks();
 
     expect(instance.submitted).toEqual([]); // no engine round-trip
@@ -367,7 +388,11 @@ describe('RealtimeSession — get_capabilities', () => {
     );
     await session.connect();
 
-    adapter.emitToolCall({ callId: 'c3', name: 'get_capabilities', argumentsJson: '{}' });
+    adapter.emitToolCall({
+      callId: 'c3',
+      name: 'get_capabilities',
+      argumentsJson: '{}',
+    });
     await flushMicrotasks();
 
     // Pure read: neither an engine round-trip nor a wait on the barge-in
@@ -578,7 +603,11 @@ describe('RealtimeSession — domain-data boundary', () => {
     const { session, adapter } = makeHarness(populatedSnapshot);
     await session.connect();
 
-    adapter.emitToolCall({ callId: 'c2', name: 'get_ui_state', argumentsJson: '{}' });
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
     await flushMicrotasks();
 
     const output = adapter.toolResults[0].output as UIStructuralSnapshot;
@@ -639,10 +668,18 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
     expect(c2Result?.output).toEqual({ ok: true, summary: expect.any(String) });
 
     // Exactly one sendToolResult + one tool_result sidechannel event per callId.
-    expect(adapter.toolResults.filter((r) => r.callId === 'c1')).toHaveLength(1);
-    expect(adapter.toolResults.filter((r) => r.callId === 'c2')).toHaveLength(1);
-    expect(events.filter((e) => e.type === 'tool_result' && e.callId === 'c1')).toHaveLength(1);
-    expect(events.filter((e) => e.type === 'tool_result' && e.callId === 'c2')).toHaveLength(1);
+    expect(adapter.toolResults.filter((r) => r.callId === 'c1')).toHaveLength(
+      1,
+    );
+    expect(adapter.toolResults.filter((r) => r.callId === 'c2')).toHaveLength(
+      1,
+    );
+    expect(
+      events.filter((e) => e.type === 'tool_result' && e.callId === 'c1'),
+    ).toHaveLength(1);
+    expect(
+      events.filter((e) => e.type === 'tool_result' && e.callId === 'c2'),
+    ).toHaveLength(1);
   });
 
   it('supersedes a queued call with a newer one, answering the bumped call immediately', async () => {
@@ -696,10 +733,12 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
 
     // Exactly one answer + one sidechannel event per callId, even for the superseded one.
     for (const callId of ['c1', 'c2', 'c3']) {
-      expect(adapter.toolResults.filter((r) => r.callId === callId)).toHaveLength(1);
-      expect(events.filter((e) => e.type === 'tool_result' && e.callId === callId)).toHaveLength(
-        1,
-      );
+      expect(
+        adapter.toolResults.filter((r) => r.callId === callId),
+      ).toHaveLength(1);
+      expect(
+        events.filter((e) => e.type === 'tool_result' && e.callId === callId),
+      ).toHaveLength(1);
     }
   });
 
@@ -1174,7 +1213,11 @@ describe('RealtimeSession — sidechannel events', () => {
     const { session, adapter, events } = makeHarness();
     await session.connect();
 
-    adapter.emitToolCall({ callId: 'c1', name: 'get_ui_state', argumentsJson: '{}' });
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
     await flushMicrotasks();
 
     const call = events.find((e) => e.type === 'tool_call');
@@ -1293,7 +1336,11 @@ describe('RealtimeSession — connection lifecycle', () => {
     expect(adapter.listenerCount).toBe(1);
     expect(adapter.connectCalls).toBe(2);
 
-    adapter.emitToolCall({ callId: 'c1', name: 'get_ui_state', argumentsJson: '{}' });
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
     await flushMicrotasks();
 
     // Exactly one tool_result — a leaked handler from the failed attempt
@@ -1427,7 +1474,10 @@ describe('RealtimeSession — error surfacing', () => {
     const { session, adapter } = makeHarness();
     await session.connect();
 
-    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    const fatal = new RealtimeVoiceError(
+      'CONNECTION_FAILED',
+      'ICE connection failed',
+    );
     adapter.emitError(fatal);
 
     expect(session.state).toBe('error');
@@ -1457,7 +1507,10 @@ describe('RealtimeSession — error surfacing', () => {
     const { session, adapter } = makeHarness();
     await session.connect();
 
-    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    const fatal = new RealtimeVoiceError(
+      'CONNECTION_FAILED',
+      'ICE connection failed',
+    );
     adapter.emitError(fatal);
     expect(session.state).toBe('error');
     expect(session.lastError).toBe(fatal);
@@ -1482,7 +1535,10 @@ describe('RealtimeSession — error surfacing', () => {
     await flushMicrotasks();
     expect(session.state).toBe('connecting');
 
-    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    const fatal = new RealtimeVoiceError(
+      'CONNECTION_FAILED',
+      'ICE connection failed',
+    );
     adapter.emitError(fatal);
     expect(session.state).toBe('error');
     expect(session.lastError).toBe(fatal);
@@ -1503,7 +1559,10 @@ describe('RealtimeSession — error surfacing', () => {
     await session.connect();
     expect(adapter.listenerCount).toBe(1);
 
-    const fatal = new RealtimeVoiceError('CONNECTION_FAILED', 'ICE connection failed');
+    const fatal = new RealtimeVoiceError(
+      'CONNECTION_FAILED',
+      'ICE connection failed',
+    );
     adapter.emitError(fatal);
     expect(session.state).toBe('error');
 
@@ -1511,7 +1570,11 @@ describe('RealtimeSession — error surfacing', () => {
     expect(session.state).toBe('connected');
     expect(adapter.listenerCount).toBe(1); // not 2 — the dead subscription was torn down
 
-    adapter.emitToolCall({ callId: 'c1', name: 'get_ui_state', argumentsJson: '{}' });
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
     await flushMicrotasks();
 
     // Exactly one tool_result — a leaked handler from the errored session
@@ -1531,8 +1594,16 @@ describe('RealtimeSession — transcript subscription', () => {
     const seen: Array<{ role: string; text: string; final: boolean }> = [];
     session.on('transcript', (t) => seen.push(t));
 
-    adapter.emitTranscript({ role: 'assistant', text: 'On it — ', final: false });
-    adapter.emitTranscript({ role: 'assistant', text: 'On it — done.', final: true });
+    adapter.emitTranscript({
+      role: 'assistant',
+      text: 'On it — ',
+      final: false,
+    });
+    adapter.emitTranscript({
+      role: 'assistant',
+      text: 'On it — done.',
+      final: true,
+    });
 
     expect(seen).toEqual([
       { role: 'assistant', text: 'On it — ', final: false },

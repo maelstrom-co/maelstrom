@@ -1,17 +1,17 @@
 import { parseArgs } from 'node:util';
 import { releaseChangelog, releaseVersion } from 'nx/release';
 import {
+  getCommitHash,
   gitCommit,
   gitPush,
   gitTag,
-  getCommitHash,
 } from 'nx/src/command-line/release/utils/git';
+import { createRemoteReleaseClient } from 'nx/src/command-line/release/utils/remote-release-clients/remote-release-client';
 import {
   createCommitMessageValues,
   createGitTagValues,
   handleDuplicateGitTags,
 } from 'nx/src/command-line/release/utils/shared';
-import { createRemoteReleaseClient } from 'nx/src/command-line/release/utils/remote-release-clients/remote-release-client';
 import { publishWorkspacePackages } from './publish-packages.ts';
 
 const { values } = parseArgs({
@@ -127,8 +127,7 @@ if (values['skip-publish']) {
 // specs to concrete versions in the manifest before `npm publish`, which
 // neither npm nor a from-package-dir invocation does for us.
 const npmTag = preid ?? 'latest';
-const registry =
-  process.env.RELEASE_REGISTRY ?? 'https://npm.pkg.github.com';
+const registry = process.env.RELEASE_REGISTRY ?? 'https://npm.pkg.github.com';
 
 const { failures } = await publishWorkspacePackages({
   tag: npmTag,

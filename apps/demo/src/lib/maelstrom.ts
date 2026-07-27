@@ -1,7 +1,7 @@
 import { createMaelstrom } from '@maelstrom-co/react';
 import {
-  maelstromRealtime,
   type CreateAdapterContext,
+  maelstromRealtime,
 } from '@maelstrom-co/react-realtime';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';

@@ -225,7 +225,9 @@ export class WebSocketConnector implements EngineConnector {
     }
     const requestId = MessageId();
     const promise = this.#historyCorrelator.create(requestId, this.#timeout);
-    this.#ws.send(encodeEnvelope(HistoryGetMessage({ sessionId, id: requestId })));
+    this.#ws.send(
+      encodeEnvelope(HistoryGetMessage({ sessionId, id: requestId })),
+    );
     return promise;
   }
 

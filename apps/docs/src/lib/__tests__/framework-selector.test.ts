@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import {
   FRAMEWORK_LABELS,
   LABEL_TO_FRAMEWORK,
@@ -15,9 +15,9 @@ describe('FRAMEWORK_LABELS', () => {
 
 describe('LABEL_TO_FRAMEWORK', () => {
   it('maps display labels back to framework IDs', () => {
-    expect(LABEL_TO_FRAMEWORK['React']).toBe('react');
+    expect(LABEL_TO_FRAMEWORK.React).toBe('react');
     expect(LABEL_TO_FRAMEWORK['Vanilla JS']).toBe('vanilla');
-    expect(LABEL_TO_FRAMEWORK['Solid']).toBe('solid');
+    expect(LABEL_TO_FRAMEWORK.Solid).toBe('solid');
   });
 });
 
@@ -158,7 +158,9 @@ describe('FrameworkSelector custom element', () => {
     localStorage.setItem('maelstrom-framework', 'vanilla');
     buildSelector();
 
-    expect(localStorage.getItem('starlight-synced-tabs__framework')).toBe('Vanilla JS');
+    expect(localStorage.getItem('starlight-synced-tabs__framework')).toBe(
+      'Vanilla JS',
+    );
   });
 
   it('opens menu on trigger click', () => {
@@ -183,10 +185,14 @@ describe('FrameworkSelector custom element', () => {
     const trigger = el.querySelector('.framework-trigger') as HTMLElement;
     trigger.click(); // open menu
 
-    const vanillaOption = el.querySelector('[data-framework="vanilla"]') as HTMLElement;
+    const vanillaOption = el.querySelector(
+      '[data-framework="vanilla"]',
+    ) as HTMLElement;
     vanillaOption.click();
 
-    expect(el.querySelector('.framework-label')!.textContent).toBe('Vanilla JS');
+    expect(el.querySelector('.framework-label')!.textContent).toBe(
+      'Vanilla JS',
+    );
     expect(vanillaOption.getAttribute('aria-selected')).toBe('true');
     expect(localStorage.getItem('maelstrom-framework')).toBe('vanilla');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
@@ -197,7 +203,9 @@ describe('FrameworkSelector custom element', () => {
     const trigger = el.querySelector('.framework-trigger') as HTMLElement;
     trigger.click();
 
-    const solidOption = el.querySelector('[data-framework="solid"]') as HTMLElement;
+    const solidOption = el.querySelector(
+      '[data-framework="solid"]',
+    ) as HTMLElement;
     solidOption.click();
 
     // Should NOT change — solid is coming-soon
@@ -209,7 +217,9 @@ describe('FrameworkSelector custom element', () => {
     const trigger = el.querySelector('.framework-trigger') as HTMLElement;
     trigger.click();
 
-    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    el.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
   });
 
@@ -217,7 +227,9 @@ describe('FrameworkSelector custom element', () => {
     const el = buildSelector();
     const trigger = el.querySelector('.framework-trigger') as HTMLElement;
 
-    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    el.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    );
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
   });
 

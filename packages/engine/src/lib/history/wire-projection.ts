@@ -1,8 +1,7 @@
 import type { SessionHistoryEntry } from '@maelstrom-co/protocol';
-
+import { assertNever } from '../assert-never.js';
 import { extractUserIntent } from './history-manager.js';
 import type { HistoryEntry } from './history-store.js';
-import { assertNever } from '../assert-never.js';
 
 /**
  * Project the engine-internal {@link HistoryEntry} into the public wire DTO.

@@ -15,7 +15,8 @@ export const mapVessel = defineVessel({
       actions: [
         {
           name: 'showRoute',
-          description: 'Show driving directions and travel time to a destination',
+          description:
+            'Show driving directions and travel time to a destination',
           parameters: [
             {
               name: 'destination',
@@ -50,7 +51,8 @@ export const mapVessel = defineVessel({
         },
         {
           name: 'showRoute',
-          description: 'Show driving directions and travel time to a destination',
+          description:
+            'Show driving directions and travel time to a destination',
           parameters: [
             {
               name: 'destination',
@@ -84,7 +86,8 @@ export const mapVessel = defineVessel({
         },
         {
           name: 'showRoute',
-          description: 'Show driving directions and travel time to a destination',
+          description:
+            'Show driving directions and travel time to a destination',
           parameters: [
             {
               name: 'destination',

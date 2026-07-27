@@ -35,11 +35,21 @@ export default defineConfig(({ mode }) => {
     // separately. Vite 7 replaces (not merges) these arrays, so Vite's own
     // default conditions are spelled out here rather than dropped.
     resolve: {
-      conditions: ['module', 'browser', 'development|production', '@maelstrom-co/source'],
+      conditions: [
+        'module',
+        'browser',
+        'development|production',
+        '@maelstrom-co/source',
+      ],
     },
     ssr: {
       resolve: {
-        conditions: ['module', 'node', 'development|production', '@maelstrom-co/source'],
+        conditions: [
+          'module',
+          'node',
+          'development|production',
+          '@maelstrom-co/source',
+        ],
       },
     },
     plugins: [

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACCENT_HEX,
+  accentAlpha,
   CALENDAR_EVENT_ACCENTS,
   STATUS_COLORS,
-  VESSEL_ACCENTS,
-  accentAlpha,
   type StatusKey,
+  VESSEL_ACCENTS,
 } from './design-tokens';
 
 const ALL_VESSELS = ['calendar', 'weather', 'map', 'journal', 'tasks'] as const;

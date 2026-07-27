@@ -20,9 +20,16 @@ function stubRect(node: HTMLElement, rect: MotionRect) {
     }) as DOMRect;
 }
 
-const rect = (x: number, y: number, width: number, height: number): MotionRect => ({ x, y, width, height });
+const rect = (
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): MotionRect => ({ x, y, width, height });
 
-function makeContainer(children: Array<{ id?: string; rect: MotionRect }>): HTMLElement {
+function makeContainer(
+  children: Array<{ id?: string; rect: MotionRect }>,
+): HTMLElement {
   const container = document.createElement('div');
   stubRect(container, rect(10, 20, 800, 600));
   for (const child of children) {
@@ -30,7 +37,15 @@ function makeContainer(children: Array<{ id?: string; rect: MotionRect }>): HTML
     if (child.id) node.setAttribute('data-instance-id', child.id);
     // Rects are stubbed in absolute (viewport) space; the helper subtracts the
     // container origin, so add it here to assert the container-relative result.
-    stubRect(node, rect(child.rect.x + 10, child.rect.y + 20, child.rect.width, child.rect.height));
+    stubRect(
+      node,
+      rect(
+        child.rect.x + 10,
+        child.rect.y + 20,
+        child.rect.width,
+        child.rect.height,
+      ),
+    );
     container.appendChild(node);
   }
   return container;

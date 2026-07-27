@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { render } from '@testing-library/react';
 import { EdgeLayer } from '../EdgeLayer';
 import { EDGES } from '../edges';
@@ -9,6 +9,7 @@ import type { LoopStep } from '../loop-machine';
 function renderEdges(step: LoopStep) {
   return render(
     <svg>
+      <title>Architecture edge layer test harness</title>
       <EdgeLayer currentStep={step} />
     </svg>,
   );
@@ -31,7 +32,9 @@ describe('EdgeLayer', () => {
   it('classes the two spine segments as channel and the cluster as dependency', () => {
     const { container } = renderEdges('intent');
     expect(container.querySelectorAll('.arch-beam--channel')).toHaveLength(2);
-    expect(container.querySelectorAll('.arch-beam--dependency')).toHaveLength(2);
+    expect(container.querySelectorAll('.arch-beam--dependency')).toHaveLength(
+      2,
+    );
   });
 
   it('activates the channel and shows a packet during request (forward)', () => {

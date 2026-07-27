@@ -1,5 +1,10 @@
-import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import type { VoiceSessionState } from '@maelstrom-co/client';
+import {
+  type KeyboardEvent,
+  type PointerEvent,
+  useEffect,
+  useRef,
+} from 'react';
 import { m } from '../lib/maelstrom';
 
 const STATE_LABEL: Record<VoiceSessionState, string> = {

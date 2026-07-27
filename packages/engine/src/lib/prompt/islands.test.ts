@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { ChartDimensions, GridPosition } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
+import type { Logger } from '../logger.js';
 import {
   computeAvailableIslands,
-  serializeIslands,
   type Island,
+  serializeIslands,
 } from './islands.js';
-import type { Logger } from '../logger.js';
 
 const DIMS: ChartDimensions = { columns: 4, rows: 3 };
 

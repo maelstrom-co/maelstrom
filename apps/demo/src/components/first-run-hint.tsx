@@ -8,7 +8,10 @@ export const FIRST_RUN_EXAMPLES = [
 ] as const;
 
 /** Pure so the empty-chart threshold can be unit-tested without mounting a Provider. */
-export function isFirstRunHintVisible(instanceCount: number, isProcessing: boolean): boolean {
+export function isFirstRunHintVisible(
+  instanceCount: number,
+  isProcessing: boolean,
+): boolean {
   return instanceCount === 0 && !isProcessing;
 }
 

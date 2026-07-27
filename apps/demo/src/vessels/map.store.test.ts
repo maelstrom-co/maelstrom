@@ -34,7 +34,13 @@ describe('mapActions', () => {
     const route = {
       durationMin: 12,
       distanceMi: 2.3,
-      geometry: { type: 'LineString' as const, coordinates: [[0, 0], [1, 1]] },
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: [
+          [0, 0],
+          [1, 1],
+        ],
+      },
     };
     mapActions.setRoute(route);
     expect(getMapSnapshot()).toEqual({

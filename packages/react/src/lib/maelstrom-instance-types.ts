@@ -1,6 +1,13 @@
-import type { ComponentType } from 'react';
 import type { VesselDefinition } from '@maelstrom-co/protocol';
-
+import type { ComponentType } from 'react';
+import type { ChartProps } from './chart/chart.js';
+import type {
+  DynamicVesselHandle,
+  UntypedVesselProps,
+} from './dynamic-vessel-types.js';
+import type { ExtensionOutput, MaelstromExtension } from './extension-types.js';
+import type { MaelstromState } from './maelstrom-state-types.js';
+import type { MaelstromProviderProps } from './provider.js';
 import type {
   ActionRunnerLookup,
   AnyVesselEntry,
@@ -8,11 +15,6 @@ import type {
   TypedVesselProps,
   VesselIds,
 } from './vessel-entry-types.js';
-import type { DynamicVesselHandle, UntypedVesselProps } from './dynamic-vessel-types.js';
-import type { MaelstromProviderProps } from './provider.js';
-import type { MaelstromState } from './maelstrom-state-types.js';
-import type { ChartProps } from './chart/chart.js';
-import type { ExtensionOutput, MaelstromExtension } from './extension-types.js';
 
 /**
  * Reserved keys on the core instance shape. Extensions are forbidden from

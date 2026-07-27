@@ -7,7 +7,7 @@ import { defineConfig, devices } from '@playwright/test';
 // Note: this config intentionally avoids importing `@nx/devkit` / the Nx preset.
 // Playwright loads the config in a process where Nx's native binding fails under
 // the Bun runtime; the `@nx/playwright/plugin` still infers the `e2e` target.
-const baseURL = process.env['BASE_URL'] || 'http://localhost:4322';
+const baseURL = process.env.BASE_URL || 'http://localhost:4322';
 
 export default defineConfig({
   testDir: './e2e',

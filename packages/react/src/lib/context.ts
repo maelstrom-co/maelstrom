@@ -4,7 +4,10 @@ import type { ComponentType, MutableRefObject } from 'react';
 import { createContext, useContext } from 'react';
 
 import type { ResolvedMaelstromConfig } from './config-types.js';
-import type { LazyVesselComponentLoader, TypedVesselProps } from './vessel-entry-types.js';
+import type {
+  LazyVesselComponentLoader,
+  TypedVesselProps,
+} from './vessel-entry-types.js';
 
 /** Internal context value — not part of public API */
 export interface MaelstromContextValue {
@@ -37,7 +40,9 @@ export function createMaelstromContext() {
   Context.displayName = 'MaelstromContext';
 
   // Mutable ref for non-hook access (registerVessel)
-  const contextRef: MutableRefObject<MaelstromContextValue | null> = { current: null };
+  const contextRef: MutableRefObject<MaelstromContextValue | null> = {
+    current: null,
+  };
 
   function useMaelstromContext(): MaelstromContextValue {
     const ctx = useContext(Context);

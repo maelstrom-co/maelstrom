@@ -1,14 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  makeGridRequest,
+  makeTilingRequest,
+} from '../__test-helpers__/fixtures.js';
+import {
   buildPrompt,
   buildSystemPrompt,
   buildUserPrompt,
 } from './prompt-builder.js';
 import { SystemSection, UserSection } from './sections.js';
-import {
-  makeGridRequest,
-  makeTilingRequest,
-} from '../__test-helpers__/fixtures.js';
 
 // ---------------------------------------------------------------------------
 // Tests

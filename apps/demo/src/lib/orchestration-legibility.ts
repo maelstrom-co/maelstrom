@@ -1,6 +1,12 @@
+import type {
+  MaelstromExtension,
+  MaelstromExtensionContext,
+} from '@maelstrom-co/react';
 import { useCallback, useSyncExternalStore } from 'react';
-import type { MaelstromExtension, MaelstromExtensionContext } from '@maelstrom-co/react';
-import { DEFAULT_CLEAR_AFTER_MS, useTouchedInstances } from './use-touched-instances';
+import {
+  DEFAULT_CLEAR_AFTER_MS,
+  useTouchedInstances,
+} from './use-touched-instances';
 
 /**
  * Hooks the demo needs to make orchestration legible (shimmer, action
@@ -18,9 +24,9 @@ export interface OrchestrationLegibility {
   useInstanceCount: () => number;
 }
 
-export const orchestrationLegibility: MaelstromExtension<OrchestrationLegibility> = (
-  ctx: MaelstromExtensionContext,
-) => ({
+export const orchestrationLegibility: MaelstromExtension<
+  OrchestrationLegibility
+> = (ctx: MaelstromExtensionContext) => ({
   useTouchedInstances: () => {
     const { orchestrator } = ctx.useMaelstromContext();
     return useTouchedInstances(

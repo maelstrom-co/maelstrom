@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { isErr, isOk, type Result } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { act, cleanup, render } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ACCENT_HEX, CALENDAR_EVENT_ACCENTS } from '../lib/design-tokens';
 import type { calendarVessel } from './calendar.vessel';
 
@@ -246,7 +247,9 @@ describe('empty-state onboarding hint truncation', () => {
       await handlers.removeEvent({ title: 'Design review' });
       await handlers.removeEvent({ title: 'Sprint planning' });
     });
-    const todayColumn = container.querySelector('[data-today]') as HTMLElement | null;
+    const todayColumn = container.querySelector(
+      '[data-today]',
+    ) as HTMLElement | null;
     if (todayColumn === null) throw new Error('expected a today column');
     expect(todayColumn.textContent).toContain('Nothing scheduled');
     expect(todayColumn.textContent).not.toContain('Try:');
@@ -266,11 +269,13 @@ describe('empty-state onboarding hint truncation', () => {
 });
 
 describe('CalendarComponent week view rendering', () => {
-  it("keeps a DOM node attached to its own event across a sortByTime reorder (id-keyed, not index-keyed)", async () => {
+  it('keeps a DOM node attached to its own event across a sortByTime reorder (id-keyed, not index-keyed)', async () => {
     const { container } = render(<CalendarComponent {...props('week')} />);
     const handlers = latestHandlers();
 
-    const todayColumn = container.querySelector('[data-today]') as HTMLElement | null;
+    const todayColumn = container.querySelector(
+      '[data-today]',
+    ) as HTMLElement | null;
     if (todayColumn === null) throw new Error('expected a today column');
     const entrySelector = '.px-1\\.5.py-1.rounded';
     // Hold a reference to the actual DOM node currently rendering "Gym" —
@@ -294,7 +299,7 @@ describe('CalendarComponent week view rendering', () => {
     expect(gymNodeBefore?.isConnected).toBe(true);
   });
 
-  it('renders today\'s events chronologically even when added out of order', async () => {
+  it("renders today's events chronologically even when added out of order", async () => {
     const { container } = render(<CalendarComponent {...props('week')} />);
     const handlers = latestHandlers();
     await act(async () => {
@@ -306,8 +311,10 @@ describe('CalendarComponent week view rendering', () => {
     // Scope to today's column: the static week fixtures also carry a
     // 'Design review' (Wed) and 'Sprint planning' (Wed), so a document-wide
     // indexOf would match those on any weekday today falls after Wednesday.
-    const todayColumn = container.querySelector('[data-today]') as HTMLElement | null;
-    if (todayColumn === null) throw new Error("expected a today column");
+    const todayColumn = container.querySelector(
+      '[data-today]',
+    ) as HTMLElement | null;
+    if (todayColumn === null) throw new Error('expected a today column');
     const earlyIdx = todayColumn.textContent?.indexOf('Early Add') ?? -1;
     const designIdx = todayColumn.textContent?.indexOf('Design review') ?? -1;
     expect(earlyIdx).toBeGreaterThanOrEqual(0);

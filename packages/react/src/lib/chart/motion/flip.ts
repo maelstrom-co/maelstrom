@@ -17,7 +17,10 @@ const POSITION_EPSILON = 0.5;
 const SCALE_EPSILON = POSITION_EPSILON / 100;
 const ROW_EPSILON = 8;
 
-export function computeFlipDelta(prev: MotionRect, next: MotionRect): FlipDelta | null {
+export function computeFlipDelta(
+  prev: MotionRect,
+  next: MotionRect,
+): FlipDelta | null {
   // A zero-sized rect on either side would scale to/from zero, flashing
   // instead of animating, so skip the FLIP transform entirely.
   if (next.width <= 0 || next.height <= 0) return null;
@@ -65,7 +68,9 @@ export function exitKeyframes(): Keyframe[] {
 // comparator is non-transitive (A~B, B~C within the band but A and C are not),
 // and Array.sort with a non-transitive comparator is implementation-defined —
 // so tiling layouts could stagger in an order that differs between engines.
-export function staggerOrder(rects: ReadonlyArray<readonly [string, MotionRect]>): string[] {
+export function staggerOrder(
+  rects: ReadonlyArray<readonly [string, MotionRect]>,
+): string[] {
   const rowKey = (y: number) => Math.floor(y / ROW_EPSILON);
   return [...rects]
     .sort(([, a], [, b]) => {

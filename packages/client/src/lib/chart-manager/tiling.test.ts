@@ -1,6 +1,6 @@
-import { describe, it, expect, spyOn, beforeEach, afterEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { InstanceId } from '@maelstrom-co/protocol';
-import { parseTilingTree, computeTilingLayout, type Rect } from './tiling.js';
+import { computeTilingLayout, parseTilingTree, type Rect } from './tiling.js';
 
 let warnSpy: ReturnType<typeof spyOn>;
 

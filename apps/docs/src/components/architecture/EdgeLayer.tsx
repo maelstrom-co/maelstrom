@@ -1,6 +1,6 @@
-import { EDGES, channelDirectionForStep } from './edges';
-import { POS, anchor } from './stage';
+import { channelDirectionForStep, EDGES } from './edges';
 import type { LoopStep } from './loop-machine';
+import { anchor, POS } from './stage';
 
 /** The packet path: client edge → through the protocol contract → engine edge. */
 function channelPathD(): string {
@@ -15,7 +15,9 @@ function Packet({ reverse }: { reverse: boolean }) {
     <circle
       className="arch-packet"
       r={6}
-      style={{ color: reverse ? 'var(--arch-beam-res)' : 'var(--arch-beam-req)' }}
+      style={{
+        color: reverse ? 'var(--arch-beam-res)' : 'var(--arch-beam-req)',
+      }}
     >
       <animateMotion
         dur="1.4s"
@@ -42,6 +44,7 @@ export function EdgeLayer({ currentStep }: { currentStep: LoopStep }) {
   const reverse = dir === 'reverse';
 
   return (
+    // biome-ignore lint/a11y/noAriaHiddenOnFocusable: an SVG <g> carries no default tabindex and is not focusable; the rule misreads it. The beams are decorative and the same relationships are exposed in the role panel, so dropping aria-hidden would only add noise.
     <g className="arch-edges" aria-hidden="true">
       {EDGES.map((edge, i) => {
         const a = POS[edge.from];

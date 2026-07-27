@@ -1,6 +1,14 @@
+import {
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  Sun,
+} from 'lucide-react';
 import { describe, expect, it, vi } from 'vitest';
 import { fakeFetch } from './__tests__/fake-fetch';
-import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, Sun } from 'lucide-react';
 import {
   FALLBACK_WEATHER,
   fetchLiveWeather,

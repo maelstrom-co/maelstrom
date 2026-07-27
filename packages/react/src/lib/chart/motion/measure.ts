@@ -15,7 +15,9 @@ export interface MeasuredInstance {
 // grandchild), so they're excluded explicitly via `data-exiting` instead —
 // otherwise a ghost would be measured as if it were a live instance and
 // corrupt the FLIP rect map.
-export function measureInstances(container: HTMLElement): Map<string, MeasuredInstance> {
+export function measureInstances(
+  container: HTMLElement,
+): Map<string, MeasuredInstance> {
   const containerBox = container.getBoundingClientRect();
   const measured = new Map<string, MeasuredInstance>();
   for (const child of Array.from(container.children)) {
@@ -40,7 +42,9 @@ export function measureInstances(container: HTMLElement): Map<string, MeasuredIn
 // Rect-only view of the single walk above, for callers that don't need the
 // node handles (exit tracking looks ids up in this map instead of measuring
 // each one — a per-id walk is O(n²) with forced reflows on every layout change).
-export function measureInstanceRects(container: HTMLElement): Map<string, MotionRect> {
+export function measureInstanceRects(
+  container: HTMLElement,
+): Map<string, MotionRect> {
   const rects = new Map<string, MotionRect>();
   for (const [id, { rect }] of measureInstances(container)) rects.set(id, rect);
   return rects;

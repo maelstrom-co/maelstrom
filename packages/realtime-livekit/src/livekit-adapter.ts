@@ -1,5 +1,5 @@
-import { Logger } from '@maelstrom-co/client';
 import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
+import { Logger } from '@maelstrom-co/client';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
@@ -10,8 +10,8 @@ import type {
   ToolResult,
 } from '@maelstrom-co/realtime';
 import { ConnectRaceGuard, RealtimeVoiceError } from '@maelstrom-co/realtime';
-import { Room, RoomEvent, Track, setLogLevel } from 'livekit-client';
 import type { RemoteTrack, TranscriptionSegment } from 'livekit-client';
+import { Room, RoomEvent, setLogLevel, Track } from 'livekit-client';
 
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
 import type { TtsCancelMessage, TurnEndMessage } from './protocol.js';
@@ -104,7 +104,8 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#mintToken = options.mintToken;
     this.#roomName = options.roomName;
     this.#logger = new Logger(options.debug ?? false, 'LiveKitAdapter');
-    this.#thinkingFallbackMs = options.thinkingFallbackMs ?? THINKING_FALLBACK_MS;
+    this.#thinkingFallbackMs =
+      options.thinkingFallbackMs ?? THINKING_FALLBACK_MS;
   }
 
   /**
@@ -492,7 +493,10 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     // empty-turn fallback, not move state — or the UI wedges in `thinking`. Only
     // correlate when the packet actually carries an id; an id-less/malformed
     // packet can't be attributed, so it falls through to the non-fatal path.
-    if (typeof utteranceId === 'number' && utteranceId !== this.#currentUtteranceId) {
+    if (
+      typeof utteranceId === 'number' &&
+      utteranceId !== this.#currentUtteranceId
+    ) {
       return;
     }
     // A live TTS signal means the worker is alive and driving state — the turn

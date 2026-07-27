@@ -1,11 +1,15 @@
-import { useEffect } from 'react'
-import { useStore } from '@tanstack/react-store'
-import type { ActionRunner } from '@maelstrom-co/client'
-import { InstanceId } from '@maelstrom-co/protocol'
+import type { ActionRunner } from '@maelstrom-co/client';
+import { InstanceId } from '@maelstrom-co/protocol';
+import { useStore } from '@tanstack/react-store';
+import { useEffect } from 'react';
 
-import type { MaelstromContextPair } from './context.js'
-import type { AnyVesselEntry, ExtractVesselByIdFromEntries, VesselIds, } from './vessel-entry-types.js'
-import { warnOnce } from './warn-once.js'
+import type { MaelstromContextPair } from './context.js';
+import type {
+  AnyVesselEntry,
+  ExtractVesselByIdFromEntries,
+  VesselIds,
+} from './vessel-entry-types.js';
+import { warnOnce } from './warn-once.js';
 
 /**
  * Factory that creates the m.useActions() hook bound to a specific Maelstrom context.

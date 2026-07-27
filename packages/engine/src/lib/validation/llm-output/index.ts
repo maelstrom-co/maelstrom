@@ -1,5 +1,4 @@
 export { healGridLayout } from './grid-layout.js';
-export { healTilingLayout } from './tiling-layout.js';
 export type {
   DroppedLayoutEntry,
   HealedLayout,
@@ -7,3 +6,4 @@ export type {
   RetryHint,
   RetrySeverity,
 } from './healed-layout.js';
+export { healTilingLayout } from './tiling-layout.js';

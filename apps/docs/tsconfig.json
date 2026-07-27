@@ -10,10 +10,7 @@
     "src/**/*.astro",
     "astro.config.ts"
   ],
-  "exclude": [
-    "dist",
-    "node_modules"
-  ],
+  "exclude": ["dist", "node_modules"],
   "references": [
     {
       "path": "./tsconfig.e2e.json"

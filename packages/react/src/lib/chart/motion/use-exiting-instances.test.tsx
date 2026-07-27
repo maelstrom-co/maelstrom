@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { act, cleanup, render } from '@testing-library/react';
 import FakeTimers from '@sinonjs/fake-timers';
+import { act, cleanup, render } from '@testing-library/react';
 import { StrictMode, useRef } from 'react';
 
 import type { MotionRect } from './flip.js';
-import { DEFAULT_MOTION, EXIT_CLEANUP_BUFFER_MS } from './motion-config.js';
 import type { ResolvedChartMotionConfig } from './motion-config.js';
-import { useExitingInstances } from './use-exiting-instances.js';
+import { DEFAULT_MOTION, EXIT_CLEANUP_BUFFER_MS } from './motion-config.js';
 import type { ExitingEntry } from './use-exiting-instances.js';
+import { useExitingInstances } from './use-exiting-instances.js';
 
 afterEach(() => cleanup());
 
@@ -18,7 +18,12 @@ interface Item {
 }
 
 function signatureOf(items: Item[]): string {
-  return items.map((item) => `${item.id}:${item.rect.x},${item.rect.y},${item.rect.width},${item.rect.height}`).join('|');
+  return items
+    .map(
+      (item) =>
+        `${item.id}:${item.rect.x},${item.rect.y},${item.rect.width},${item.rect.height}`,
+    )
+    .join('|');
 }
 
 function stubRect(node: HTMLElement, rect: MotionRect) {
@@ -38,7 +43,12 @@ function stubRect(node: HTMLElement, rect: MotionRect) {
     }) as DOMRect;
 }
 
-const rect = (x: number, y: number, width: number, height: number): MotionRect => ({ x, y, width, height });
+const rect = (
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): MotionRect => ({ x, y, width, height });
 
 let capturedEntries: ReadonlyArray<ExitingEntry<Item>> = [];
 let measureCallCount = 0;
@@ -52,7 +62,13 @@ beforeEach(() => {
 // querySelectorAll, which throws under this repo's bun+happy-dom combo
 // (documented in use-chart-motion.test.tsx). One batch walk per call —
 // measureCallCount counts calls, so a single layout change is one measure.
-function Harness({ items, motion }: { items: Item[]; motion: ResolvedChartMotionConfig }) {
+function Harness({
+  items,
+  motion,
+}: {
+  items: Item[];
+  motion: ResolvedChartMotionConfig;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const measureRects = (): ReadonlyMap<string, MotionRect> => {
@@ -66,13 +82,23 @@ function Harness({ items, motion }: { items: Item[]; motion: ResolvedChartMotion
       const id = node.getAttribute('data-instance-id');
       if (!id) continue;
       const r = node.getBoundingClientRect();
-      rects.set(id, { x: r.x - containerRect.x, y: r.y - containerRect.y, width: r.width, height: r.height });
+      rects.set(id, {
+        x: r.x - containerRect.x,
+        y: r.y - containerRect.y,
+        width: r.width,
+        height: r.height,
+      });
     }
     return rects;
   };
 
   const current = items.map((item) => [item.id, item] as const);
-  capturedEntries = useExitingInstances(current, measureRects, motion, signatureOf(items));
+  capturedEntries = useExitingInstances(
+    current,
+    measureRects,
+    motion,
+    signatureOf(items),
+  );
 
   return (
     <div ref={containerRef}>
@@ -95,11 +121,15 @@ describe('useExitingInstances', () => {
       { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
       { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
     ];
-    const second: Item[] = [{ id: 'a', label: 'A', rect: rect(0, 0, 100, 100) }];
+    const second: Item[] = [
+      { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+    ];
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
     expect(capturedEntries).toHaveLength(0);
 
@@ -119,13 +149,23 @@ describe('useExitingInstances', () => {
     // a variant change with identical rects must not leave a stale cached
     // item -- a later removal should exit with the LATEST data, not the data
     // from whenever the signature last changed.
-    const original: Item = { id: 'a', label: 'original', rect: rect(0, 0, 100, 100) };
-    const updated: Item = { id: 'a', label: 'updated', rect: rect(0, 0, 100, 100) };
+    const original: Item = {
+      id: 'a',
+      label: 'original',
+      rect: rect(0, 0, 100, 100),
+    };
+    const updated: Item = {
+      id: 'a',
+      label: 'updated',
+      rect: rect(0, 0, 100, 100),
+    };
     const gone: Item[] = [];
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={[original]} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={[original]} motion={DEFAULT_MOTION} />,
+      ));
     });
 
     // Same signature (identical id/rect) -- only the label (item data) changes.
@@ -148,11 +188,15 @@ describe('useExitingInstances', () => {
         { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
         { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
       ];
-      const second: Item[] = [{ id: 'a', label: 'A', rect: rect(0, 0, 100, 100) }];
+      const second: Item[] = [
+        { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+      ];
 
       let rerender!: (ui: React.ReactElement) => void;
       act(() => {
-        ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+        ({ rerender } = render(
+          <Harness items={first} motion={DEFAULT_MOTION} />,
+        ));
       });
       act(() => {
         rerender(<Harness items={second} motion={DEFAULT_MOTION} />);
@@ -181,7 +225,9 @@ describe('useExitingInstances', () => {
         { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
         { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
       ];
-      const withoutB: Item[] = [{ id: 'a', label: 'A', rect: rect(0, 0, 100, 100) }];
+      const withoutB: Item[] = [
+        { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+      ];
       const bRestored: Item[] = [
         { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
         { id: 'b', label: 'B', rect: rect(120, 0, 100, 100) },
@@ -189,7 +235,9 @@ describe('useExitingInstances', () => {
 
       let rerender!: (ui: React.ReactElement) => void;
       act(() => {
-        ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+        ({ rerender } = render(
+          <Harness items={first} motion={DEFAULT_MOTION} />,
+        ));
       });
       act(() => {
         rerender(<Harness items={withoutB} motion={DEFAULT_MOTION} />);
@@ -212,16 +260,23 @@ describe('useExitingInstances', () => {
   });
 
   it('returns no entries and clears pending exits when motion is suppressed', () => {
-    const disabled: ResolvedChartMotionConfig = { ...DEFAULT_MOTION, disabled: true };
+    const disabled: ResolvedChartMotionConfig = {
+      ...DEFAULT_MOTION,
+      disabled: true,
+    };
     const first: Item[] = [
       { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
       { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
     ];
-    const second: Item[] = [{ id: 'a', label: 'A', rect: rect(0, 0, 100, 100) }];
+    const second: Item[] = [
+      { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+    ];
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
     act(() => {
       rerender(<Harness items={second} motion={DEFAULT_MOTION} />);
@@ -235,16 +290,23 @@ describe('useExitingInstances', () => {
   });
 
   it('preserves the pre-suppression rect for an id removed right after unsuppression', () => {
-    const disabled: ResolvedChartMotionConfig = { ...DEFAULT_MOTION, disabled: true };
+    const disabled: ResolvedChartMotionConfig = {
+      ...DEFAULT_MOTION,
+      disabled: true,
+    };
     const first: Item[] = [
       { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
       { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
     ];
-    const withoutB: Item[] = [{ id: 'a', label: 'A', rect: rect(0, 0, 100, 100) }];
+    const withoutB: Item[] = [
+      { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+    ];
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
 
     // Suppress motion while both ids are still present -- a snapshot exists for b.
@@ -274,7 +336,9 @@ describe('useExitingInstances', () => {
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
     expect(measureCallCount).toBeGreaterThan(0);
     measureCallCount = 0;
@@ -304,7 +368,9 @@ describe('useExitingInstances', () => {
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {
-      ({ rerender } = render(<Harness items={first} motion={DEFAULT_MOTION} />));
+      ({ rerender } = render(
+        <Harness items={first} motion={DEFAULT_MOTION} />,
+      ));
     });
     measureCallCount = 0;
 
@@ -330,7 +396,10 @@ describe('useExitingInstances', () => {
     });
     measureCallCount = 0;
 
-    const moved: Item[] = many.map((m) => ({ ...m, rect: rect(m.rect.x, 40, 20, 20) }));
+    const moved: Item[] = many.map((m) => ({
+      ...m,
+      rect: rect(m.rect.x, 40, 20, 20),
+    }));
     act(() => {
       rerender(<Harness items={moved} motion={DEFAULT_MOTION} />);
     });
@@ -349,7 +418,9 @@ describe('useExitingInstances', () => {
       { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
       { id: 'b', label: 'B', rect: rect(100, 0, 100, 100) },
     ];
-    const second: Item[] = [{ id: 'a', label: 'A', rect: rect(0, 0, 100, 100) }];
+    const second: Item[] = [
+      { id: 'a', label: 'A', rect: rect(0, 0, 100, 100) },
+    ];
 
     let rerender!: (ui: React.ReactElement) => void;
     act(() => {

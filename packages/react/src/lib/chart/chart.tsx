@@ -2,12 +2,12 @@ import type { ComputedTile, Rect, VesselInstance } from '@maelstrom-co/client';
 import { computeTilingLayout, parseTilingTree } from '@maelstrom-co/client';
 import { useStore } from '@tanstack/react-store';
 import {
-  type CSSProperties,
   type ComponentType,
-  type ReactNode,
-  Suspense,
+  type CSSProperties,
   lazy,
   memo,
+  type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -63,7 +63,9 @@ export interface ChartProps {
 }
 
 /** Create the Chart component bound to a Maelstrom context. Internal — called by `createMaelstrom()`. */
-export function createChart(contextPair: MaelstromContextPair): ComponentType<ChartProps> {
+export function createChart(
+  contextPair: MaelstromContextPair,
+): ComponentType<ChartProps> {
   const { useMaelstromContext } = contextPair;
 
   // ─── VesselRenderer ────────────────────────────────────────────────────────
@@ -79,137 +81,175 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     exiting?: ResolvedChartMotionConfig;
   }
 
-  const VesselRenderer = memo(function VesselRenderer({ instance, style, exiting }: VesselRendererProps) {
-    const { orchestrator, componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry, config, onErrorRef } =
-      useMaelstromContext();
+  const VesselRenderer = memo(
+    function VesselRenderer({ instance, style, exiting }: VesselRendererProps) {
+      const {
+        orchestrator,
+        componentRegistry,
+        loadingRegistry,
+        lazyVesselIds,
+        lazyLoaderRegistry,
+        config,
+        onErrorRef,
+      } = useMaelstromContext();
 
-    const ref = useRef<HTMLDivElement>(null);
+      const ref = useRef<HTMLDivElement>(null);
 
-    // Fires exactly once per live -> exiting transition: keyed on the boolean
-    // presence of `exiting` (not the config object, which is a fresh
-    // reference every render) so the animation isn't restarted mid-flight by
-    // an unrelated Chart re-render while this instance is already exiting.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on Boolean(exiting), not `exiting` itself or `instance` — see comment above.
-    useEffect(() => {
-      if (!exiting) return;
-      const node = ref.current;
-      if (!node || typeof node.animate !== 'function') return;
-      node.animate(exitKeyframes(), {
-        duration: exiting.durationMs,
-        easing: exiting.easing,
-        fill: 'forwards',
-      });
-    }, [Boolean(exiting)]);
+      // Fires exactly once per live -> exiting transition: keyed on the boolean
+      // presence of `exiting` (not the config object, which is a fresh
+      // reference every render) so the animation isn't restarted mid-flight by
+      // an unrelated Chart re-render while this instance is already exiting.
+      // biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on Boolean(exiting), not `exiting` itself or `instance` — see comment above.
+      useEffect(() => {
+        if (!exiting) return;
+        const node = ref.current;
+        if (!node || typeof node.animate !== 'function') return;
+        node.animate(exitKeyframes(), {
+          duration: exiting.durationMs,
+          easing: exiting.easing,
+          fill: 'forwards',
+        });
+      }, [Boolean(exiting)]);
 
-    const vessel = useStore(
-      orchestrator.vesselManager.store,
-      (s) => s.vessels.get(instance.vesselId),
-    );
-
-    const executeAction = useMemo(
-      () =>
-        buildExecuteAction(orchestrator, instance.instanceId, config.debug, onErrorRef),
-      [orchestrator, instance.instanceId, config.debug, onErrorRef],
-    );
-
-    const isLazy = lazyVesselIds.has(instance.vesselId);
-
-    // For lazy vessels, create React.lazy() locally so retry can bust the cache
-    // by incrementing lazyRetryKey, producing a fresh lazy() instance.
-    const [lazyRetryKey, setLazyRetryKey] = useState(0);
-    const lazyLoader = isLazy ? lazyLoaderRegistry.get(instance.vesselId) : undefined;
-    // biome-ignore lint/correctness/useExhaustiveDependencies: lazyRetryKey is intentionally in deps though unused in the body — incrementing it produces a fresh React.lazy() instance, busting the cached rejected Promise on retry.
-    const LazyComponent = useMemo(
-      () => (lazyLoader ? lazy(lazyLoader) : null),
-      [lazyLoader, lazyRetryKey],
-    );
-
-    const Component = isLazy ? LazyComponent : componentRegistry.get(instance.vesselId);
-    if (!Component) {
-      warnOnce(
-        `chart:no-component:${instance.vesselId}`,
-        `[Maelstrom] No component registered for vessel "${instance.vesselId}"`,
+      const vessel = useStore(orchestrator.vesselManager.store, (s) =>
+        s.vessels.get(instance.vesselId),
       );
-      return null;
-    }
-    if (!vessel) {
-      warnOnce(
-        `chart:no-vessel-def:${instance.vesselId}`,
-        `[Maelstrom] No vessel definition found for "${instance.vesselId}"`,
+
+      const executeAction = useMemo(
+        () =>
+          buildExecuteAction(
+            orchestrator,
+            instance.instanceId,
+            config.debug,
+            onErrorRef,
+          ),
+        [orchestrator, instance.instanceId, config.debug, onErrorRef],
       );
-      return null;
-    }
 
-    const variant = vessel.variants[instance.variant];
-    if (!variant) {
-      if (config.debug) console.warn(`[Maelstrom] Unknown variant "${instance.variant}" for vessel "${instance.vesselId}"`);
-      return null;
-    }
+      const isLazy = lazyVesselIds.has(instance.vesselId);
 
-    const props = {
-      instanceId: instance.instanceId,
-      variantProps: { variant: instance.variant, ...variant.props },
-      executeAction,
-    };
+      // For lazy vessels, create React.lazy() locally so retry can bust the cache
+      // by incrementing lazyRetryKey, producing a fresh lazy() instance.
+      const [lazyRetryKey, setLazyRetryKey] = useState(0);
+      const lazyLoader = isLazy
+        ? lazyLoaderRegistry.get(instance.vesselId)
+        : undefined;
+      // biome-ignore lint/correctness/useExhaustiveDependencies: lazyRetryKey is intentionally in deps though unused in the body — incrementing it produces a fresh React.lazy() instance, busting the cached rejected Promise on retry.
+      const LazyComponent = useMemo(
+        () => (lazyLoader ? lazy(lazyLoader) : null),
+        [lazyLoader, lazyRetryKey],
+      );
 
-    const LoadingComponent = loadingRegistry.get(instance.vesselId) ?? VesselLoadingSkeleton;
-    const loadingFallback = (
-      <LoadingComponent vesselId={instance.vesselId} vesselName={vessel.name} />
-    );
+      const Component = isLazy
+        ? LazyComponent
+        : componentRegistry.get(instance.vesselId);
+      if (!Component) {
+        warnOnce(
+          `chart:no-component:${instance.vesselId}`,
+          `[Maelstrom] No component registered for vessel "${instance.vesselId}"`,
+        );
+        return null;
+      }
+      if (!vessel) {
+        warnOnce(
+          `chart:no-vessel-def:${instance.vesselId}`,
+          `[Maelstrom] No vessel definition found for "${instance.vesselId}"`,
+        );
+        return null;
+      }
 
-    const content = isLazy ? (
-      <ErrorBoundary
-        key={lazyRetryKey}
-        fallback={(error) => (
-          <VesselLoadError vesselId={instance.vesselId} error={error} debug={config.debug} retry={() => setLazyRetryKey((k) => k + 1)} />
-        )}
-        onError={(error) => {
-          if (config.debug) {
-            console.error(
-              `[Maelstrom] Failed to load vessel component: ${instance.vesselId}`,
-              error,
-            );
-          }
-          onErrorRef.current?.(error);
-        }}
-      >
-        <Suspense fallback={loadingFallback}>
-          <Component {...props} />
-        </Suspense>
-      </ErrorBoundary>
-    ) : (
-      <Component {...props} />
-    );
+      const variant = vessel.variants[instance.variant];
+      if (!variant) {
+        if (config.debug)
+          console.warn(
+            `[Maelstrom] Unknown variant "${instance.variant}" for vessel "${instance.vesselId}"`,
+          );
+        return null;
+      }
 
-    return (
-      <div
-        style={style}
-        data-instance-id={instance.instanceId}
-        data-exiting={exiting ? '' : undefined}
-        ref={ref}
-      >
-        {content}
-      </div>
-    );
-  }, (prev, next) => {
-    if (prev.instance.instanceId !== next.instance.instanceId) return false;
-    if (prev.instance.variant !== next.instance.variant) return false;
-    if (prev.instance.vesselId !== next.instance.vesselId) return false;
-    // A change in exiting-ness (undefined <-> a resolved motion config) must
-    // force a re-render even if style hasn't settled yet — that's the render
-    // that mounts the ref the exit effect fires against. `config.motion`
-    // itself is a fresh object every Provider render, so comparing presence
-    // rather than reference avoids re-rendering (and re-diffing style) on
-    // every unrelated re-render once an instance is already exiting.
-    if ((prev.exiting === undefined) !== (next.exiting === undefined)) return false;
-    const prevStyle = prev.style;
-    const nextStyle = next.style;
-    const allKeys = new Set([...Object.keys(prevStyle), ...Object.keys(nextStyle)]);
-    for (const key of allKeys) {
-      if (prevStyle[key as keyof CSSProperties] !== nextStyle[key as keyof CSSProperties]) return false;
-    }
-    return true;
-  });
+      const props = {
+        instanceId: instance.instanceId,
+        variantProps: { variant: instance.variant, ...variant.props },
+        executeAction,
+      };
+
+      const LoadingComponent =
+        loadingRegistry.get(instance.vesselId) ?? VesselLoadingSkeleton;
+      const loadingFallback = (
+        <LoadingComponent
+          vesselId={instance.vesselId}
+          vesselName={vessel.name}
+        />
+      );
+
+      const content = isLazy ? (
+        <ErrorBoundary
+          key={lazyRetryKey}
+          fallback={(error) => (
+            <VesselLoadError
+              vesselId={instance.vesselId}
+              error={error}
+              debug={config.debug}
+              retry={() => setLazyRetryKey((k) => k + 1)}
+            />
+          )}
+          onError={(error) => {
+            if (config.debug) {
+              console.error(
+                `[Maelstrom] Failed to load vessel component: ${instance.vesselId}`,
+                error,
+              );
+            }
+            onErrorRef.current?.(error);
+          }}
+        >
+          <Suspense fallback={loadingFallback}>
+            <Component {...props} />
+          </Suspense>
+        </ErrorBoundary>
+      ) : (
+        <Component {...props} />
+      );
+
+      return (
+        <div
+          style={style}
+          data-instance-id={instance.instanceId}
+          data-exiting={exiting ? '' : undefined}
+          ref={ref}
+        >
+          {content}
+        </div>
+      );
+    },
+    (prev, next) => {
+      if (prev.instance.instanceId !== next.instance.instanceId) return false;
+      if (prev.instance.variant !== next.instance.variant) return false;
+      if (prev.instance.vesselId !== next.instance.vesselId) return false;
+      // A change in exiting-ness (undefined <-> a resolved motion config) must
+      // force a re-render even if style hasn't settled yet — that's the render
+      // that mounts the ref the exit effect fires against. `config.motion`
+      // itself is a fresh object every Provider render, so comparing presence
+      // rather than reference avoids re-rendering (and re-diffing style) on
+      // every unrelated re-render once an instance is already exiting.
+      if ((prev.exiting === undefined) !== (next.exiting === undefined))
+        return false;
+      const prevStyle = prev.style;
+      const nextStyle = next.style;
+      const allKeys = new Set([
+        ...Object.keys(prevStyle),
+        ...Object.keys(nextStyle),
+      ]);
+      for (const key of allKeys) {
+        if (
+          prevStyle[key as keyof CSSProperties] !==
+          nextStyle[key as keyof CSSProperties]
+        )
+          return false;
+      }
+      return true;
+    },
+  );
 
   // ─── Grid debug overlay ─────────────────────────────────────────────────────
 
@@ -238,7 +278,12 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
   function TilingDebugOverlay({ tiles }: { tiles: readonly ComputedTile[] }) {
     return (
       <div
-        style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 9999 }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          zIndex: 9999,
+        }}
         data-chart-debug="tiling"
       >
         {tiles.map((tile) => (
@@ -309,8 +354,14 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     });
 
     // Subscribe to layout and instances
-    const layout = useStore(orchestrator.commandProcessor.store, (s) => s.layout);
-    const instances = useStore(orchestrator.commandProcessor.store, (s) => s.instances);
+    const layout = useStore(
+      orchestrator.commandProcessor.store,
+      (s) => s.layout,
+    );
+    const instances = useStore(
+      orchestrator.commandProcessor.store,
+      (s) => s.instances,
+    );
 
     // Subscribe to grid dimensions (for CSS Grid template)
     const chartDimensions = useStore(
@@ -362,14 +413,20 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
       if (!layout || layout.type === 'grid') {
         const positions = layout?.positions ?? [];
         const key = positions
-          .map((p) => `${p.instanceId}:${p.position.row}:${p.position.column}:${p.size.width}:${p.size.height}`)
+          .map(
+            (p) =>
+              `${p.instanceId}:${p.position.row}:${p.position.column}:${p.size.width}:${p.size.height}`,
+          )
           .join('|');
         return `grid:${key}`;
       }
       if (layout.type === 'tiling') {
         const tiles = tilingComputed ?? [];
         const key = tiles
-          .map((t) => `${t.instanceId}:${t.rect.x}:${t.rect.y}:${t.rect.width}:${t.rect.height}`)
+          .map(
+            (t) =>
+              `${t.instanceId}:${t.rect.x}:${t.rect.y}:${t.rect.width}:${t.rect.height}`,
+          )
           .join('|');
         return `tiling:${key}`;
       }
@@ -380,7 +437,9 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
     // Instances currently rendered, keyed by instanceId — feeds exit tracking
     // so a instance dropped from the next layout response gets an exit entry.
-    const currentInstanceEntries = useMemo<ReadonlyArray<readonly [string, VesselInstance]>>(() => {
+    const currentInstanceEntries = useMemo<
+      ReadonlyArray<readonly [string, VesselInstance]>
+    >(() => {
       const out: Array<readonly [string, VesselInstance]> = [];
       if (!layout || layout.type === 'grid') {
         for (const pos of layout?.positions ?? []) {
@@ -400,7 +459,9 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     // exit-ghost snapshots never disagree about where an instance was.
     const measureRects = useCallback(
       (): ReadonlyMap<string, MotionRect> =>
-        containerRef.current ? measureInstanceRects(containerRef.current) : new Map(),
+        containerRef.current
+          ? measureInstanceRects(containerRef.current)
+          : new Map(),
       [],
     );
 
@@ -410,7 +471,12 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
     // computed style immediately — exit snapshots taken after useChartMotion
     // starts animating would capture pre-move rects and place a later exit
     // ghost at a stale position.
-    const exiting = useExitingInstances(currentInstanceEntries, measureRects, config.motion, layoutSignature);
+    const exiting = useExitingInstances(
+      currentInstanceEntries,
+      measureRects,
+      config.motion,
+      layoutSignature,
+    );
 
     useChartMotion(containerRef, layoutKey, sizeKey, config.motion);
 
@@ -427,8 +493,8 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
             fontSize: '14px',
           }}
         >
-          [Maelstrom] Only one {'<Chart>'} may be mounted per {'<Provider>'}. Create a
-          separate createMaelstrom() instance for multiple charts.
+          [Maelstrom] Only one {'<Chart>'} may be mounted per {'<Provider>'}.
+          Create a separate createMaelstrom() instance for multiple charts.
         </div>
       );
     }
@@ -454,15 +520,19 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
         .map((pos) => {
           const instance = instances.get(pos.instanceId);
           if (!instance && config.debug) {
-            console.warn(`[Maelstrom] Grid layout references unknown instance "${pos.instanceId}"`);
+            console.warn(
+              `[Maelstrom] Grid layout references unknown instance "${pos.instanceId}"`,
+            );
           }
           return instance ? { instance, pos } : null;
         })
         .filter(
           (
             item,
-          ): item is { instance: VesselInstance; pos: (typeof gridPositions)[number] } =>
-            item !== null,
+          ): item is {
+            instance: VesselInstance;
+            pos: (typeof gridPositions)[number];
+          } => item !== null,
         );
 
       // Live and exiting instances are combined into ONE array, rendered from
@@ -472,21 +542,23 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
       // mounts a fresh one for the fade — losing any local state, in-flight
       // effects, or subscriptions on the vessel. One slot with a stable key
       // lets React recognize it's the same element across the transition.
-      const renderEntries: RenderEntry[] = instancesToRender.map(({ instance, pos }) => {
-        const colStart = pos.position.column + 1;
-        const rowStart = pos.position.row + 1;
-        return {
-          id: instance.instanceId,
-          instance,
-          style: {
-            gridColumn: `${colStart} / ${colStart + pos.size.width}`,
-            gridRow: `${rowStart} / ${rowStart + pos.size.height}`,
-            zIndex: 1,
-            minWidth: 0,
-            minHeight: 0,
-          },
-        };
-      });
+      const renderEntries: RenderEntry[] = instancesToRender.map(
+        ({ instance, pos }) => {
+          const colStart = pos.position.column + 1;
+          const rowStart = pos.position.row + 1;
+          return {
+            id: instance.instanceId,
+            instance,
+            style: {
+              gridColumn: `${colStart} / ${colStart + pos.size.width}`,
+              gridRow: `${rowStart} / ${rowStart + pos.size.height}`,
+              zIndex: 1,
+              minWidth: 0,
+              minHeight: 0,
+            },
+          };
+        },
+      );
       for (const entry of exiting) {
         renderEntries.push({
           id: entry.id,
@@ -531,29 +603,34 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
         .map((tile) => {
           const instance = instances.get(tile.instanceId);
           if (!instance && config.debug) {
-            console.warn(`[Maelstrom] Tiling layout references unknown instance "${tile.instanceId}"`);
+            console.warn(
+              `[Maelstrom] Tiling layout references unknown instance "${tile.instanceId}"`,
+            );
           }
           return instance ? { instance, tile } : null;
         })
         .filter(
-          (item): item is { instance: VesselInstance; tile: ComputedTile } => item !== null,
+          (item): item is { instance: VesselInstance; tile: ComputedTile } =>
+            item !== null,
         );
 
       // See the grid branch above for why live and exiting instances must
       // render from one combined array/one .map() rather than two.
-      const renderEntries: RenderEntry[] = tilesToRender.map(({ instance, tile }) => ({
-        id: instance.instanceId,
-        instance,
-        style: {
-          position: 'absolute',
-          left: tile.rect.x,
-          top: tile.rect.y,
-          width: tile.rect.width,
-          height: tile.rect.height,
-          zIndex: 1,
-          overflow: 'hidden',
-        },
-      }));
+      const renderEntries: RenderEntry[] = tilesToRender.map(
+        ({ instance, tile }) => ({
+          id: instance.instanceId,
+          instance,
+          style: {
+            position: 'absolute',
+            left: tile.rect.x,
+            top: tile.rect.y,
+            width: tile.rect.width,
+            height: tile.rect.height,
+            zIndex: 1,
+            overflow: 'hidden',
+          },
+        }),
+      );
       for (const entry of exiting) {
         renderEntries.push({
           id: entry.id,
@@ -581,13 +658,20 @@ export function createChart(contextPair: MaelstromContextPair): ComponentType<Ch
 
     // Fallback: unknown layout type — render empty container
     if (config.debug) {
-      console.warn(`[Maelstrom] Unknown layout type "${(layout as { type: string }).type}", rendering empty container`);
+      console.warn(
+        `[Maelstrom] Unknown layout type "${(layout as { type: string }).type}", rendering empty container`,
+      );
     }
     return (
       <div
         ref={containerRef}
         className={className}
-        style={{ ...style, width: '100%', height: '100%', position: 'relative' }}
+        style={{
+          ...style,
+          width: '100%',
+          height: '100%',
+          position: 'relative',
+        }}
       >
         {children}
       </div>

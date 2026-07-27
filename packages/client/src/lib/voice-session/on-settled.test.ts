@@ -29,9 +29,10 @@ describe('Orchestrator.onSettled', () => {
       // The layout applied by set_layout must already be visible in the
       // store by the time settled fires (set_layout is processed before
       // the queue drains to idle within the same atomic dispatch batch).
-      snapshotAtSettle = orchestrator.commandProcessor.store.state.instances.get(
-        InstanceId('instance-1'),
-      );
+      snapshotAtSettle =
+        orchestrator.commandProcessor.store.state.instances.get(
+          InstanceId('instance-1'),
+        );
     });
 
     await orchestrator.processIntent('show labs');
@@ -48,9 +49,9 @@ describe('Orchestrator.onSettled', () => {
     // layout: set_layout is processed before the queue's idle transition
     // within the same atomic dispatch batch.
     expect(snapshotAtSettle).toBeDefined();
-    expect(
-      (snapshotAtSettle as { variant: string } | undefined)?.variant,
-    ).toBe('default');
+    expect((snapshotAtSettle as { variant: string } | undefined)?.variant).toBe(
+      'default',
+    );
   });
 
   it('fires on direct manipulation (executeActions called outside processIntent)', async () => {

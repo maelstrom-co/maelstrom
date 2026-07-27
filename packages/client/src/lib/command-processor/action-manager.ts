@@ -1,11 +1,11 @@
 import {
   type ActionExecution,
   type ActionName,
-  type InstanceId,
-  type VesselDefinition,
   err,
+  type InstanceId,
   ok,
   toError,
+  type VesselDefinition,
 } from '@maelstrom-co/protocol';
 
 import { isPromise, type Unsubscribe } from '../types.js';

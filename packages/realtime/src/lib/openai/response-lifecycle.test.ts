@@ -9,7 +9,9 @@ import {
 
 describe('requestResponseCreate', () => {
   it('sends immediately when no response is active', () => {
-    const { next, sendNow } = requestResponseCreate(INITIAL_RESPONSE_LIFECYCLE_STATE);
+    const { next, sendNow } = requestResponseCreate(
+      INITIAL_RESPONSE_LIFECYCLE_STATE,
+    );
     expect(sendNow).toBe(true);
     expect(next).toEqual({ status: 'active' });
   });
@@ -31,7 +33,9 @@ describe('requestResponseCreate', () => {
 
 describe('markResponseActive', () => {
   it('marks idle as active', () => {
-    expect(markResponseActive({ status: 'idle' })).toEqual({ status: 'active' });
+    expect(markResponseActive({ status: 'idle' })).toEqual({
+      status: 'active',
+    });
   });
 
   it('leaves an already-active-pending response as active-pending', () => {

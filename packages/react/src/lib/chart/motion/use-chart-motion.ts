@@ -1,11 +1,15 @@
-import { useLayoutEffect, useRef } from 'react';
 import type { RefObject } from 'react';
-
-import { computeFlipDelta, enterKeyframes, flipKeyframes, staggerOrder } from './flip.js';
+import { useLayoutEffect, useRef } from 'react';
 import type { MotionRect } from './flip.js';
+import {
+  computeFlipDelta,
+  enterKeyframes,
+  flipKeyframes,
+  staggerOrder,
+} from './flip.js';
 import { measureInstances } from './measure.js';
-import { motionSuppressed } from './motion-config.js';
 import type { ResolvedChartMotionConfig } from './motion-config.js';
+import { motionSuppressed } from './motion-config.js';
 
 // `layoutKey` (logical layout: type + per-instance placement) and `sizeKey`
 // (container pixel WxH) are deliberately separate params: on a size-only
@@ -87,20 +91,36 @@ export function useChartMotion(
     // on a node mid-FLIP reflects its current transform, so this is what lets
     // an interrupted animation re-FLIP continuously from where it visually
     // is instead of snapping to its resting layout position first.
-    const toAnimate: Array<{ id: string; keyframes: Keyframe[] }> = [];
+    //
+    // Each entry carries the rect it was measured from, so the stagger pass
+    // below needs no second lookup into nextRects — and cannot miss one.
+    const toAnimate: Array<{
+      id: string;
+      rect: MotionRect;
+      keyframes: Keyframe[];
+    }> = [];
     for (const [id, nextRect] of nextRects) {
       const prevRect = prevRects.get(id);
       if (prevRect) {
         const delta = computeFlipDelta(prevRect, nextRect);
-        if (delta) toAnimate.push({ id, keyframes: flipKeyframes(delta) });
+        if (delta)
+          toAnimate.push({
+            id,
+            rect: nextRect,
+            keyframes: flipKeyframes(delta),
+          });
       } else if (!isFirstPass) {
-        toAnimate.push({ id, keyframes: enterKeyframes() });
+        toAnimate.push({ id, rect: nextRect, keyframes: enterKeyframes() });
       }
     }
 
     if (toAnimate.length > 0) {
-      const order = staggerOrder(toAnimate.map(({ id }) => [id, nextRects.get(id)!] as const));
-      const delayById = new Map(order.map((id, index) => [id, index * motion.staggerMs]));
+      const order = staggerOrder(
+        toAnimate.map(({ id, rect }) => [id, rect] as const),
+      );
+      const delayById = new Map(
+        order.map((id, index) => [id, index * motion.staggerMs]),
+      );
 
       for (const { id, keyframes } of toAnimate) {
         const node = nodeById.get(id);
