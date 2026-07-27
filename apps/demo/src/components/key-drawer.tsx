@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@tanstack/react-store';
 import { playgroundKeyStore } from '../lib/playground-key-store';
 
@@ -28,8 +28,7 @@ export function KeyDrawer({
   const [apiKey, setApiKey] = useState('');
   const [remember, setRemember] = useState(false);
   const storedKey = useStore(playgroundKeyStore, (state) => state.apiKey);
-
-  if (!isOpen) return null;
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSave = () => {
     if (!apiKey.trim()) return;
@@ -48,11 +47,45 @@ export function KeyDrawer({
     onRemove?.();
   };
 
+  // Both effects are gated on isOpen rather than mounted/unmounted below it —
+  // the drawer stays mounted across open/close (see the save/reopen and
+  // Cancel/reopen tests), so hooks must run unconditionally on every render.
+  useEffect(() => {
+    if (isOpen) inputRef.current?.focus();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') handleClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+    // Deps deliberately narrowed to [isOpen]: handleClose is recreated every
+    // render but is stable in intent (always clears apiKey + calls onClose),
+    // so tracking it would just thrash the listener on unrelated re-renders.
+    // (No biome-ignore here — Biome's React domain detection doesn't fire on
+    // this app's "react": "catalog:" dependency, so useExhaustiveDependencies
+    // never flags this effect, and a suppression for a rule that isn't
+    // firing is itself flagged as an unused suppression under
+    // --error-on-warnings.)
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="key-drawer-heading"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+    >
       <div className="surface w-full max-w-md p-6">
         <p className="eyebrow">BYOK Playground</p>
-        <h2 className="mt-1 text-lg font-semibold text-ink">
+        <h2
+          id="key-drawer-heading"
+          className="mt-1 text-lg font-semibold text-ink"
+        >
           Add your OpenAI key
         </h2>
 
@@ -64,6 +97,7 @@ export function KeyDrawer({
         </label>
         <input
           id="playground-api-key"
+          ref={inputRef}
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
@@ -90,7 +124,7 @@ export function KeyDrawer({
         </label>
 
         <p className="mt-3 text-sm text-ink-3">
-          Your key goes to OpenAI — we never store it.
+          Your key goes straight to OpenAI — it never reaches our servers.
         </p>
 
         {errorMessage && (
@@ -105,6 +139,8 @@ export function KeyDrawer({
         <div className="mt-5 flex items-center justify-between">
           <a
             href="https://github.com/maelstrom-co/maelstrom/blob/main/README.md"
+            target="_blank"
+            rel="noreferrer noopener"
             className="text-sm text-ink-3 underline"
           >
             run it locally instead

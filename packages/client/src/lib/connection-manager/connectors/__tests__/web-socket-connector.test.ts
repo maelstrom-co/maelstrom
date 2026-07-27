@@ -16,6 +16,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 
+import type { ConnectorEvent } from '../../connector.types.js';
 import { WireEngineError } from '../../connector.types.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
@@ -638,6 +639,33 @@ describe('WebSocketConnector getHistory', () => {
   });
 });
 
+describe('WebSocketConnector heartbeatIntervalMs validation', () => {
+  // heartbeatIntervalMs is exported public API (WebSocketConnectorOptions),
+  // and setInterval coerces 0/negative/NaN to an effectively-immediate timer
+  // and never fires at all for Infinity. No current caller can hit this —
+  // the only call site hardcodes 30_000 or undefined — but an external
+  // consumer could, so the constructor rejects it outright rather than
+  // flooding pings at the server or silently never sending any.
+  test.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'throws when heartbeatIntervalMs is %p',
+    (value) => {
+      expect(
+        () => new WebSocketConnector({ url: 'ws://test', heartbeatIntervalMs: value }),
+      ).toThrow(/heartbeatIntervalMs/);
+    },
+  );
+
+  test('accepts a valid positive heartbeatIntervalMs', () => {
+    expect(
+      () => new WebSocketConnector({ url: 'ws://test', heartbeatIntervalMs: 30_000 }),
+    ).not.toThrow();
+  });
+
+  test('leaves heartbeatIntervalMs disabled when omitted (undefined remains valid)', () => {
+    expect(() => new WebSocketConnector({ url: 'ws://test' })).not.toThrow();
+  });
+});
+
 describe('WebSocketConnector heartbeat', () => {
   test('sends a frame every heartbeatIntervalMs while connected', async () => {
     const connector = new WebSocketConnector({
@@ -733,6 +761,59 @@ describe('WebSocketConnector heartbeat', () => {
     const response = await promise;
     expect(response.userMessage).toBe('ok');
     await connector.disconnect();
+  });
+});
+
+describe('WebSocketConnector disconnected retryable flag', () => {
+  test('a close code 1008 (policy violation) is reported as non-retryable', async () => {
+    // RFC 6455: 1008 means the server is deliberately rejecting this client.
+    // ws-server.ts uses it both for a rejected handshake and for an evicted
+    // session — in both cases reconnecting with the same session id would
+    // just be rejected again, so ConnectionManager must not auto-reconnect.
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const events: ConnectorEvent[] = [];
+    connector.subscribe((e) => events.push(e));
+
+    ws.emitClose(1008, 'session evicted');
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: 'disconnected',
+      clean: false,
+      message: 'session evicted',
+      retryable: false,
+    });
+  });
+
+  test('an abnormal closure (e.g. 1006, proxy/container drop) leaves retryable unset so auto-reconnect still applies', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const events: ConnectorEvent[] = [];
+    connector.subscribe((e) => events.push(e));
+
+    ws.emitClose(1006, '');
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'disconnected', clean: false });
+    expect(
+      (events[0] as { retryable?: boolean }).retryable,
+    ).toBeUndefined();
+  });
+
+  test('a clean close (code 1000) leaves retryable unset (clean already prevents auto-reconnect)', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const events: ConnectorEvent[] = [];
+    connector.subscribe((e) => events.push(e));
+
+    ws.emitClose(1000, 'bye');
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'disconnected', clean: true });
+    expect(
+      (events[0] as { retryable?: boolean }).retryable,
+    ).toBeUndefined();
   });
 });
 

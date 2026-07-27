@@ -20,6 +20,15 @@ export default defineConfig(({ mode }) => {
     process.env[key] ??= value;
   }
 
+  // Same VITE_HOSTED=1 switch every other hosted-mode branch in this app
+  // reads (see src/lib/hosted-mode.ts's isHosted()) — this file runs in
+  // Node, outside the client bundle, so it reads process.env directly
+  // rather than import.meta.env. The hosted (Cloudflare) build needs the
+  // SPA shell because the Worker serves static assets with no Node server
+  // behind it; the self-host path (`nx dev demo`, `bun run build && bun run
+  // start`) needs the opposite — real SSR — so this can't be unconditional.
+  const hosted = process.env.VITE_HOSTED === '1';
+
   return {
     root: rootDir,
     envDir: workspaceRoot,
@@ -58,14 +67,23 @@ export default defineConfig(({ mode }) => {
       }),
       tailwindcss(),
       tanstackStart({
-        spa: {
-          enabled: true,
-          // outputPath is the SPA shell's filename mask (relative to the
-          // client output dir), not an output directory — '/index' resolves
-          // to index.html at the root of dist/client so it can be served
-          // standalone as the SPA entry point.
-          prerender: { enabled: true, outputPath: '/index', crawlLinks: true, retryCount: 3 },
-        },
+        ...(hosted
+          ? {
+              spa: {
+                enabled: true,
+                // outputPath is the SPA shell's filename mask (relative to
+                // the client output dir), not an output directory — '/index'
+                // resolves to index.html at the root of dist/client so it
+                // can be served standalone as the SPA entry point.
+                prerender: {
+                  enabled: true,
+                  outputPath: '/index',
+                  crawlLinks: true,
+                  retryCount: 3,
+                },
+              },
+            }
+          : {}),
       }),
       // React's vite plugin must come after start's vite plugin
       react(),

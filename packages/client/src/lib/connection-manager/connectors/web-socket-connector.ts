@@ -52,6 +52,11 @@ export interface WebSocketConnectorOptions {
    * connection. Omitted: no heartbeat is sent (local dev default). The
    * connector consumes the server's `heartbeat.pong` replies itself — they
    * never reach subscribers or the envelope decode path.
+   *
+   * Must be a finite positive number when provided — the constructor throws
+   * otherwise. `0`, a negative value, and `NaN` would otherwise reach
+   * `setInterval` as an effectively-immediate timer (flooding pings at the
+   * server), and `Infinity` would silently never fire.
    */
   heartbeatIntervalMs?: number;
 }
@@ -107,6 +112,19 @@ export class WebSocketConnector implements EngineConnector {
     this.#timeout = options.timeout ?? 30000;
     this.#connectTimeoutMs = options.connectTimeoutMs ?? 10_000;
     this.#onOpen = options.onOpen;
+    if (
+      options.heartbeatIntervalMs !== undefined &&
+      !(Number.isFinite(options.heartbeatIntervalMs) && options.heartbeatIntervalMs > 0)
+    ) {
+      // Guards a footgun in exported API, not a live incident: no current
+      // caller passes anything but a hardcoded 30_000 or undefined. Left
+      // unvalidated, 0/negative/NaN get handed straight to setInterval,
+      // which coerces them to an effectively-immediate timer (flooding pings
+      // at the server), and Infinity never fires at all.
+      throw new Error(
+        `WebSocketConnector: heartbeatIntervalMs must be a finite positive number or undefined, got ${options.heartbeatIntervalMs}`,
+      );
+    }
     this.#heartbeatIntervalMs = options.heartbeatIntervalMs;
   }
 
@@ -302,11 +320,19 @@ export class WebSocketConnector implements EngineConnector {
       this.#correlator.rejectAll(closed);
       this.#historyCorrelator.rejectAll(closed);
       const isClean = event.code === 1000;
+      // RFC 6455: 1008 ("Policy Violation") is the server deliberately
+      // rejecting this client — ws-server.ts uses it for a rejected
+      // handshake and for an evicted session. Retrying is pointless by
+      // definition, so this is flagged non-retryable regardless of `clean`
+      // (a server-initiated close is never the 1000 "clean" case, but it is
+      // also not a transient failure ConnectionManager should retry).
+      const isPolicyViolation = event.code === 1008;
       this.#handlers.forEach((h) => {
         h({
           type: 'disconnected',
           clean: isClean,
           message: event.reason || `Connection closed with code ${event.code}`,
+          ...(isPolicyViolation ? { retryable: false } : {}),
         });
       });
     };

@@ -26,11 +26,37 @@ describe('KeyDrawer', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('shows the exact custody copy required by the spec', () => {
+  it('discloses that the key never reaches our servers, distinct from the local remember opt-in', () => {
+    // The old copy ("we never store it") was false once "Remember on this
+    // device" is ticked — that path writes the key to localStorage. This
+    // pins the corrected wording, which disclaims server custody only.
     render(<KeyDrawer isOpen onClose={() => {}} onSave={() => {}} />);
     expect(
-      screen.getByText('Your key goes to OpenAI — we never store it.'),
+      screen.getByText(
+        'Your key goes straight to OpenAI — it never reaches our servers.',
+      ),
     ).toBeTruthy();
+  });
+
+  it('exposes dialog semantics with an accessible name pointing at the heading', () => {
+    render(<KeyDrawer isOpen onClose={() => {}} onSave={() => {}} />);
+    const dialog = screen.getByRole('dialog', {
+      name: /add your openai key/i,
+    });
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('moves focus to the API key input when opened, so keyboard users are not left tabbing behind it', () => {
+    render(<KeyDrawer isOpen onClose={() => {}} onSave={() => {}} />);
+    const input = screen.getByLabelText(/api key/i);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('closes on Escape, so keyboard-only visitors are never stuck behind a mouse-only drawer', () => {
+    const onClose = vi.fn();
+    render(<KeyDrawer isOpen onClose={onClose} onSave={() => {}} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('calls onSave with the pasted key and the remember checkbox state', () => {
@@ -66,6 +92,14 @@ describe('KeyDrawer', () => {
     render(<KeyDrawer isOpen onClose={() => {}} onSave={() => {}} />);
     const link = screen.getByRole('link', { name: /run it locally instead/i });
     expect(link.getAttribute('href')).toContain('README');
+  });
+
+  it('opens "run it locally instead" in a new tab, so it does not discard the visitor\'s in-progress session', () => {
+    render(<KeyDrawer isOpen onClose={() => {}} onSave={() => {}} />);
+    const link = screen.getByRole('link', { name: /run it locally instead/i });
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    expect(link.getAttribute('rel')).toContain('noreferrer');
   });
 
   it('does not show a "Remove key" action when no key is stored', () => {

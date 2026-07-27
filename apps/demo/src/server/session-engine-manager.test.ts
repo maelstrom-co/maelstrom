@@ -42,6 +42,7 @@ describe('SessionEngineManager', () => {
 
   afterEach(() => {
     manager?.dispose();
+    vi.useRealTimers();
   });
 
   it('returns the same engine instance for the same sessionId', () => {
@@ -86,7 +87,7 @@ describe('SessionEngineManager', () => {
     manager = makeManager({ maxSessions: 2 });
     const first = manager.getOrCreate('session-1', 'sk-1');
     await tick();
-    manager.getOrCreate('session-2', 'sk-2');
+    const second = manager.getOrCreate('session-2', 'sk-2');
     await tick();
     // Touching session-1 makes session-2 the least-recently-used one.
     manager.getOrCreate('session-1', 'sk-1');
@@ -97,16 +98,20 @@ describe('SessionEngineManager', () => {
     // forces another eviction cycle, so order matters here too.
     expect(manager.getOrCreate('session-1', 'sk-1')).toBe(first);
     const rebuiltSession2 = manager.getOrCreate('session-2', 'sk-2');
-    // session-2 was evicted, so this must be a fresh engine.
-    expect(rebuiltSession2).not.toBe(first);
+    // session-2 was evicted, so this must be a fresh engine -- not the one
+    // captured before eviction. (Comparing against `first`, session-1's
+    // engine, would be tautologically true regardless of which session the
+    // LRU pass actually evicted, and so could never catch a regression.)
+    expect(rebuiltSession2).not.toBe(second);
   });
 
-  it('touch() resets the idle TTL so an actively-used session survives past the original deadline', async () => {
+  it('touch() resets the idle TTL so an actively-used session survives past the original deadline', () => {
+    vi.useFakeTimers();
     manager = makeManager({ idleTtlMs: 20 });
     const engine = manager.getOrCreate('session-a', 'sk-key-a');
-    await new Promise((resolve) => setTimeout(resolve, 12));
+    vi.advanceTimersByTime(12);
     manager.touch('session-a');
-    await new Promise((resolve) => setTimeout(resolve, 12));
+    vi.advanceTimersByTime(12);
     // 24ms have elapsed since creation (> the original 20ms TTL), but the
     // touch at 12ms reset the deadline to 32ms, so the session must still
     // be present and unchanged.
@@ -143,19 +148,21 @@ describe('SessionEngineManager', () => {
     expect(manager.has('session-b')).toBe(true);
   });
 
-  it('has() is false for a session evicted by the idle TTL', async () => {
+  it('has() is false for a session evicted by the idle TTL', () => {
+    vi.useFakeTimers();
     manager = makeManager({ idleTtlMs: 10 });
     manager.getOrCreate('session-a', 'sk-key-a');
     expect(manager.has('session-a')).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    vi.advanceTimersByTime(30);
     expect(manager.has('session-a')).toBe(false);
   });
 
-  it('evicts a session after the idle TTL elapses', async () => {
+  it('evicts a session after the idle TTL elapses', () => {
+    vi.useFakeTimers();
     manager = makeManager({ idleTtlMs: 10 });
     manager.getOrCreate('session-a', 'sk-key-a');
     expect(manager.size()).toBe(1);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    vi.advanceTimersByTime(30);
     expect(manager.size()).toBe(0);
   });
 

@@ -46,6 +46,34 @@ const HOSTED = process.env.HOSTED === '1';
 const MAX_SESSIONS = 50;
 const IDLE_TTL_MS = 30 * 60 * 1000;
 
+// RFC 6455 caps a close reason at 123 UTF-8 bytes. Bun does not throw on a
+// longer one -- it silently truncates by raw byte count, with no regard for
+// character boundaries. A cut landing mid-multibyte-character produces
+// invalid UTF-8, and Bun then reports close code 1003 ("invalid UTF8") to
+// the client instead of the code this call site actually passed. Close
+// codes are load-bearing here (WebSocketConnector branches reconnect
+// behavior on them), so a truncation bug silently rewrites 1011 into 1003.
+export function truncateCloseReason(reason: string, maxBytes = 123): string {
+  const encoded = new TextEncoder().encode(reason);
+  if (encoded.length <= maxBytes) return reason;
+
+  // Slicing on UTF-16 code units (String.prototype.slice) has no idea
+  // where UTF-8 character boundaries fall, so it is exactly the unsafe
+  // approach this guards against. Instead: cut the encoded bytes at
+  // maxBytes and back off one byte at a time until a fatal decoder accepts
+  // the result -- that is the nearest valid character boundary at or
+  // before the cap.
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  for (let end = maxBytes; end > 0; end--) {
+    try {
+      return decoder.decode(encoded.subarray(0, end));
+    } catch {
+      // Landed mid-character; back off and retry.
+    }
+  }
+  return '';
+}
+
 const SYSTEM_RULES = `
 - Try to always keep at least one vessel visible on the chart
 - Give each vessel adequate space for its content`;
@@ -90,43 +118,47 @@ const sessionEngines = HOSTED
     })
   : null;
 
-interface SocketData {
+export interface SocketData {
   engine: Engine | null;
   helloReceived: boolean;
   sessionId: string | null;
   apiKey: string | null;
 }
 
-/**
- * The single choke point every outbound frame passes through. In HOSTED
- * mode the visitor's own key lives in ws.data for the lifetime of the
- * connection, so any wire string reaching here — a handleEnvelope reply, an
- * engine-null error frame, anything — gets scrubbed before it leaves the
- * process. Local mode is untouched: send() is a passthrough there, byte for
- * byte.
- */
-function send(ws: Bun.ServerWebSocket<SocketData>, wire: string): void {
-  if (HOSTED) {
-    ws.send(redactSecrets(wire, ws.data.apiKey ?? undefined));
-    return;
-  }
-  ws.send(wire);
+export interface WebSocketHandlerDeps {
+  readonly hosted: boolean;
+  readonly sessionEngines: SessionEngineManager | null;
+  readonly sharedEngine: Engine | null;
+  readonly sharedEngineInitError: string | null;
 }
 
-const server = Bun.serve<SocketData>({
-  port: PORT,
-  fetch(req, srv) {
-    const url = new URL(req.url);
-    if (url.pathname === '/ws') {
-      return srv.upgrade(req, {
-        data: { engine: null, helloReceived: !HOSTED, sessionId: null, apiKey: null },
-      })
-        ? undefined
-        : new Response('WebSocket upgrade failed', { status: 400 });
+/**
+ * Builds the Bun WebSocket handler pair (`message`/`close`). Factored out of
+ * the module-scope `Bun.serve(...)` call (guarded by `import.meta.main`
+ * below) so the handshake/dispatch/eviction logic is importable and
+ * unit-testable against an injected `SessionEngineManager` — without pulling
+ * in `Bun.serve`'s own side effect of binding a real port.
+ */
+export function createWebSocketHandlers(
+  deps: WebSocketHandlerDeps,
+): Bun.WebSocketHandler<SocketData> {
+  const { hosted, sessionEngines, sharedEngine, sharedEngineInitError } = deps;
+
+  // The single choke point every outbound frame passes through. In hosted
+  // mode the visitor's own key lives in ws.data for the lifetime of the
+  // connection, so any wire string reaching here — a handleEnvelope reply, an
+  // engine-null error frame, anything — gets scrubbed before it leaves the
+  // process. Local mode is untouched: send() is a passthrough there, byte for
+  // byte.
+  function send(ws: Bun.ServerWebSocket<SocketData>, wire: string): void {
+    if (hosted) {
+      ws.send(redactSecrets(wire, ws.data.apiKey ?? undefined));
+      return;
     }
-    return new Response('Maelstrom demo engine server', { status: 200 });
-  },
-  websocket: {
+    ws.send(wire);
+  }
+
+  return {
     async message(ws, raw) {
       // Parsed once and routed through classifyIncomingFrame so the
       // heartbeat check always runs before the hello gate below — see that
@@ -145,7 +177,7 @@ const server = Bun.serve<SocketData>({
 
       // ws.data.helloReceived starts true in local mode (set at upgrade
       // time below), so this already resolves to 'dispatch' there without
-      // any HOSTED check here.
+      // any hosted check here.
       const decision = classifyIncomingFrame(parsed, ws.data.helloReceived);
 
       if (decision.kind === 'heartbeat') {
@@ -162,7 +194,11 @@ const server = Bun.serve<SocketData>({
         // reply instead of a close.
         const outcome = resolvePreHelloDispatch(raw);
         if (outcome.kind === 'close') {
-          ws.close(1008, 'expected playground.hello as the first frame');
+          // 1002 (protocol error), not 1008: the client flags 1008 as
+          // non-retryable, and a reconnect here would legitimately succeed —
+          // the fresh socket re-sends its handshake. Only a close the client
+          // must not retry at all (capacity, below) earns 1008.
+          ws.close(1002, 'expected playground.hello as the first frame');
           return;
         }
         send(ws, encodeEnvelope(outcome.message));
@@ -183,7 +219,7 @@ const server = Bun.serve<SocketData>({
           // to the client and logged) needs no second pass here.
           const message = err instanceof Error ? err.message : 'engine unavailable';
           console.warn(`[demo ws] session engine init failed: ${message}`);
-          ws.close(1011, message);
+          ws.close(1011, truncateCloseReason(message));
           return;
         }
         ws.data.helloReceived = true;
@@ -196,28 +232,32 @@ const server = Bun.serve<SocketData>({
       // active — touch resets the idle TTL and LRU recency here, not just
       // at hello, so a session mid-conversation past the TTL window doesn't
       // get evicted out from under a socket that's still working.
-      if (HOSTED && sessionEngines && ws.data.sessionId) {
+      if (hosted && sessionEngines && ws.data.sessionId) {
         sessionEngines.touch(ws.data.sessionId);
 
         // touch() is a no-op once the session is already gone (LRU cap or
         // idle TTL evicted it before this frame arrived) — dispatching
         // against ws.data.engine at that point would serve the stale cached
-        // engine forever, defeating the cap/TTL entirely. Close instead and
-        // force a fresh hello/engine on reconnect.
+        // engine forever, defeating the cap/TTL entirely. 1008 is the one
+        // code the client refuses to retry, which is what breaks the loop
+        // where every evicted session reconnects and evicts another. Since
+        // nothing will retry on the visitor's behalf, the reason doubles as
+        // the copy they read — hence a capacity message with an action,
+        // not the server's internal "session evicted".
         if (!sessionEngines.has(ws.data.sessionId)) {
-          ws.close(1008, 'session evicted');
+          ws.close(1008, 'Playground is at capacity — reload to start a new session.');
           return;
         }
       }
 
-      const engine = HOSTED ? ws.data.engine : sharedEngine;
+      const engine = hosted ? ws.data.engine : sharedEngine;
 
       if (!engine) {
         // Mirrors the engine-null branch: decode enough of the client
         // envelope to reply with a correlated error instead of silently
         // dropping the frame.
         const decoded = decodeClientEnvelope(raw);
-        const error = HOSTED
+        const error = hosted
           ? 'session engine unavailable'
           : (sharedEngineInitError ?? 'engine unavailable');
         send(
@@ -238,15 +278,48 @@ const server = Bun.serve<SocketData>({
       const reply = await handleEnvelope(engine, raw);
       if (reply) send(ws, encodeEnvelope(reply));
     },
-    close(ws) {
-      if (ws.data.sessionId && sessionEngines) {
-        sessionEngines.evict(ws.data.sessionId);
-      }
+    close() {
+      // A closed socket no longer evicts its session engine. WebSocketConnector
+      // treats a non-1000 close as reconnect-worthy (a Cloudflare proxy drop,
+      // a container sleep/restart) and rejoins on the SAME sessionId — evicting
+      // here used to destroy the engine (and its conversation history) on
+      // every one of those closes, so the very next `playground.hello` found
+      // no engine and silently started a blank one. The idle TTL and the LRU
+      // cap in SessionEngineManager already reclaim abandoned sessions; that
+      // is what they are for.
     },
-  },
+  };
+}
+
+const webSocketHandlers = createWebSocketHandlers({
+  hosted: HOSTED,
+  sessionEngines,
+  sharedEngine,
+  sharedEngineInitError,
 });
 
-console.log(
-  `[demo ws] engine server listening on ws://localhost:${server.port}/ws ` +
-    `(${HOSTED ? 'hosted/BYOK' : 'local/shared-engine'} mode)`,
-);
+// Guarded so importing this module (e.g. from a test) builds the handlers
+// above without binding a real port — Bun.serve is the only part of this
+// file that needs the Bun runtime to actually be running as the entrypoint.
+if (import.meta.main) {
+  const server = Bun.serve<SocketData>({
+    port: PORT,
+    fetch(req, srv) {
+      const url = new URL(req.url);
+      if (url.pathname === '/ws') {
+        return srv.upgrade(req, {
+          data: { engine: null, helloReceived: !HOSTED, sessionId: null, apiKey: null },
+        })
+          ? undefined
+          : new Response('WebSocket upgrade failed', { status: 400 });
+      }
+      return new Response('Maelstrom demo engine server', { status: 200 });
+    },
+    websocket: webSocketHandlers,
+  });
+
+  console.log(
+    `[demo ws] engine server listening on ws://localhost:${server.port}/ws ` +
+      `(${HOSTED ? 'hosted/BYOK' : 'local/shared-engine'} mode)`,
+  );
+}

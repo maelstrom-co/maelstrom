@@ -8,12 +8,20 @@ export interface PlaygroundHelloFrame {
 }
 
 export function isPlaygroundHello(value: unknown): value is PlaygroundHelloFrame {
+  if (typeof value !== 'object' || value === null) return false;
+  const { type, sessionId, apiKey } = value as {
+    type?: unknown;
+    sessionId?: unknown;
+    apiKey?: unknown;
+  };
+  // Non-empty, not just string-typed: an empty sessionId would collapse
+  // every crafted connection onto one shared SessionEngineManager map key.
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as { type?: unknown }).type === 'playground.hello' &&
-    typeof (value as { sessionId?: unknown }).sessionId === 'string' &&
-    typeof (value as { apiKey?: unknown }).apiKey === 'string'
+    type === 'playground.hello' &&
+    typeof sessionId === 'string' &&
+    sessionId.length > 0 &&
+    typeof apiKey === 'string' &&
+    apiKey.length > 0
   );
 }
 

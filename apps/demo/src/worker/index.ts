@@ -7,6 +7,7 @@
  * client-side and there is no /api/mint route here.
  */
 import { Container, getContainer } from '@cloudflare/containers';
+import { shardInstanceName } from './shard';
 
 export class PlaygroundServer extends Container<Env> {
   override defaultPort = 3001;
@@ -29,8 +30,13 @@ export default {
     if (url.pathname === '/ws') {
       // WebSocket proxying is transparent bidirectional pass-through via
       // the DO's fetch() only -- containerFetch() does not support
-      // WebSockets.
-      return getContainer(env.PLAYGROUND_SERVER).fetch(request);
+      // WebSockets. getContainer() defaults to a single fixed instance id
+      // when none is passed, so routing on the connector-supplied `session`
+      // query param (see connector.ts) is what actually spreads visitors
+      // across the container's `max_instances` provisions instead of
+      // funneling all of them onto one.
+      const session = url.searchParams.get('session') ?? '';
+      return getContainer(env.PLAYGROUND_SERVER, shardInstanceName(session)).fetch(request);
     }
 
     return env.ASSETS.fetch(request);

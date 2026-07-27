@@ -1,4 +1,3 @@
-// Shared between the hosted-mode browser-direct mint (maelstrom.ts) and the
-// local-mode server route's env fallback (routes/api/realtime-token.ts) so
-// both modes mint the same model without duplicating the literal.
+// Hosted browser-direct mint and the local server route's env fallback must
+// agree on the model, so the literal lives here rather than in both.
 export const DEFAULT_REALTIME_MODEL = 'gpt-realtime-2';

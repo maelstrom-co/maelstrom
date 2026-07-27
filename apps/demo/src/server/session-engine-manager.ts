@@ -40,7 +40,7 @@ function redactUnknown(value: unknown, apiKey: string): unknown {
   }
   if (value === undefined || value === null) return value;
   try {
-    return redactSecrets(JSON.stringify(value), apiKey);
+    return JSON.parse(redactSecrets(JSON.stringify(value), apiKey));
   } catch {
     return '[unloggable value]';
   }

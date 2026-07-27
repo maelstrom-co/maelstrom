@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useStore } from '@tanstack/react-store';
 import { WireEngineError } from '@maelstrom-co/client';
+import { SessionId } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Captions } from '../components/captions';
@@ -37,12 +38,12 @@ export const Route = createFileRoute('/')({
   component: HomePage,
 });
 
-// Exported (in addition to `Route`) so index.test.tsx can mount the real
-// component directly — `Route.options.component` only resolves inside an
-// actual router match (TanStack Start's root layout renders a full
-// html/head/body document via <Outlet>, which isn't practical to drive in
-// a component test). This is the only route in the app, so opting it out
-// of TanStack Router's per-route code-splitting costs nothing here.
+// Exported in addition to `Route` so a component test can mount it
+// directly — `Route.options.component` only resolves inside an actual
+// router match (TanStack Start's root layout renders a full html/head/body
+// document via <Outlet>, which isn't practical to drive in a component
+// test). This is the only route in the app, so opting it out of TanStack
+// Router's per-route code-splitting costs nothing here.
 export function HomePage() {
   const hosted = isHosted();
   // Bumping this forces a fresh <m.Provider key={keyEpoch}>, which remounts
@@ -81,16 +82,28 @@ export function HomePage() {
     setDrawerOpen(true);
   }, []);
 
+  // One id per session boundary, shared by the Provider — which keys the
+  // container-side engine and its conversation history — and the connector,
+  // which uses it to pin the shard. Minting them separately would let shard
+  // routing and session identity drift apart, so a reconnect could reach a
+  // container that has never seen the session.
+  // keyEpoch is the dependency even though the factory never reads it: the
+  // point is to mint a NEW id whenever the epoch bumps, which is exactly the
+  // session boundary the Provider remount defines. It is not a stale dep.
+  const sessionId = useMemo(() => SessionId(), [keyEpoch]);
   const connector = useMemo(
     () =>
-      createDemoConnector({ getApiKey: () => playgroundKeyStore.state.apiKey }),
-    [keyEpoch],
+      createDemoConnector({
+        sessionId,
+        getApiKey: () => playgroundKeyStore.state.apiKey,
+      }),
+    [sessionId],
   );
   const debug = useMemo(() => isDebugRequested(), []);
 
   return (
     <>
-      <m.Provider key={keyEpoch} connector={connector} debug={debug}>
+      <m.Provider key={keyEpoch} sessionId={sessionId} connector={connector} debug={debug}>
         <DemoApp
           onRequireKey={() => setDrawerOpen(true)}
           onBlockedSubmit={() => {
@@ -113,9 +126,18 @@ export function HomePage() {
             setBlockedSubmit(false);
           }}
           onSave={(key, remember) => {
+            // Re-entering (or merely viewing) the same key from the header
+            // pill must not remount <m.Provider> mid-session — that would
+            // mint a fresh sessionId and drop everything the LLM has
+            // arranged so far. Only a genuine key change earns the reset.
+            const keyChanged = key !== playgroundKeyStore.state.apiKey;
             setPlaygroundKey(key, remember);
             setDrawerOpen(false);
             setKeyErrorMessage(null);
+            if (!keyChanged) {
+              setBlockedSubmit(false);
+              return;
+            }
             setResumeIntent(blockedSubmit && intent.trim().length > 0);
             setBlockedSubmit(false);
             setKeyEpoch((e) => e + 1);
@@ -297,12 +319,24 @@ function IntentInput({
     if (!resumeIntent || connectionStatus !== 'connected') return;
     onResumeIntentHandled();
     if (!intent.trim() || isProcessing) return;
+    // Mirrors handleSubmit's write below — the invalid-key effect restores
+    // from this ref regardless of which path submitted, and the keyEpoch
+    // remount that got us here already reset it to ''.
+    submittedIntentRef.current = intent;
     // processIntent() never rejects (errors surface via lastError instead —
     // see useMaelstrom's contract), but a floating promise still needs a
     // .catch() as a backstop against that contract changing silently.
     void processIntent(intent)
       .then(() => onIntentChange(''))
       .catch(() => undefined);
+    // Deps deliberately narrowed to [resumeIntent, connectionStatus]: intent
+    // and isProcessing are read at fire time, not tracked, because
+    // re-running on every keystroke would resubmit the draft.
+    // (No biome-ignore here — Biome's React domain detection doesn't fire on
+    // this app's "react": "catalog:" dependency, so
+    // useExhaustiveDependencies never flags this effect, and a suppression
+    // for a rule that isn't firing is itself flagged as an unused
+    // suppression under --error-on-warnings.)
   }, [resumeIntent, connectionStatus]);
 
   // Text-path analogue of DemoApp's voice-mint-failure effect: a

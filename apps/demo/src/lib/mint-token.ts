@@ -3,6 +3,7 @@ import {
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
 } from '@maelstrom-co/realtime/openai';
+import { withFetchTimeout } from './fetch-timeout';
 
 /**
  * Narrows OpenAI's client_secrets response just enough to read `value` and
@@ -34,6 +35,7 @@ export async function mintOpenAIToken(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider: 'openai', sessionId }),
+    signal: withFetchTimeout(),
   });
   if (!res.ok) {
     throw new Error(`Token mint failed with status ${res.status}`);
@@ -66,7 +68,15 @@ export function createBrowserMintToken(
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ session: { type: 'realtime', model } }),
+        // expires_after is sent explicitly rather than left to OpenAI's
+        // default so both mint paths pin the same token lifetime — a
+        // default that shifts under us would silently change it for
+        // browser-direct visitors only.
+        body: JSON.stringify({
+          expires_after: { anchor: 'created_at', seconds: 600 },
+          session: { type: 'realtime', model },
+        }),
+        signal: withFetchTimeout(),
       });
     } catch {
       // A rejected fetch (offline, DNS, a proxy blocking api.openai.com)

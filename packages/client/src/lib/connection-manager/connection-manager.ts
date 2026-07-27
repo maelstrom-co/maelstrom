@@ -67,6 +67,7 @@ export class ConnectionManager {
   #sleepTimeoutId: ReturnType<typeof setTimeout> | null = null;
   #reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null;
   #circuitBreakerTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  #stabilityTimeoutId: ReturnType<typeof setTimeout> | null = null;
   #isDisposed = false;
   #isIntentionalDisconnect = false;
   readonly #logger: Logger;
@@ -87,6 +88,14 @@ export class ConnectionManager {
    *
    * If the circuit breaker is open, this will throw an error immediately.
    * Otherwise, it will attempt to connect with exponential backoff retry.
+   *
+   * This is the deliberate, user-initiated entry point, so it always starts
+   * with a full `maxRetries` budget: `connectionRetryCount` is reset to 0
+   * here regardless of what a previous connect/disconnect cycle left behind.
+   * (The automatic-reconnect path is different — it only resets the count
+   * after a connection survives `stabilityThresholdMs`, so a server that
+   * accepts-then-immediately-closes still exhausts the budget. That delayed
+   * reset is unaffected by this one.)
    */
   async connect(): Promise<void> {
     if (this.#isDisposed) {
@@ -100,6 +109,10 @@ export class ConnectionManager {
     this.#logger.info('Connecting...');
     this.#clearTimeouts();
     this.#isIntentionalDisconnect = false;
+    this.store.setState((state) => ({
+      ...state,
+      connectionRetryCount: 0,
+    }));
 
     await this.#connectWithRetries();
   }
@@ -172,13 +185,13 @@ export class ConnectionManager {
 
         this.store.setState((state) => ({
           ...state,
-          connectionRetryCount: 0,
           circuitBreakerStatus: 'closed',
           connectionError: null,
           lastConnectedAt: Date.now(),
         }));
 
         this.#emitter.emit('circuit_closed', {} as Record<string, never>);
+        this.#scheduleStabilityReset();
 
         return;
       } catch (error) {
@@ -232,19 +245,49 @@ export class ConnectionManager {
 
     this.#unsubscribeConnector = this.#connector.subscribe((event) => {
       switch (event.type) {
-        case 'disconnected':
+        case 'disconnected': {
+          // A connection that dies before proving stable must not have
+          // already reset the retry budget out from under it — cancel any
+          // pending reset before deciding what to do next.
+          this.#cancelStabilityReset();
           this.#setConnectionStatus('disconnected');
           this.store.setState((state) => ({
             ...state,
             lastDisconnectedAt: Date.now(),
           }));
-          if (!this.#isIntentionalDisconnect && !event.clean) {
+          if (this.#isIntentionalDisconnect) break;
+
+          if (event.retryable === false) {
+            // The connector has already determined retrying is pointless
+            // (e.g. RFC 6455 close code 1008 — the server is rejecting this
+            // client outright). Skip the retry budget entirely and open the
+            // circuit breaker immediately so the caller sees a terminal
+            // state instead of a silent reconnect loop.
+            this.#logger.warn(
+              'Non-retryable disconnect, opening circuit breaker',
+              event.message,
+            );
+            this.#setConnectionStatus('error');
+            this.store.setState((state) => ({
+              ...state,
+              connectionError: new Error(event.message),
+              circuitBreakerStatus: 'open',
+            }));
+            this.#emitter.emit('circuit_opened', {
+              resetAfterMs: this.#options.circuitBreakerTimeoutMs,
+            });
+            this.#scheduleCircuitBreakerReset();
+            break;
+          }
+
+          if (!event.clean) {
             this.#logger.warn(
               'Unexpected disconnect, attempting auto-reconnect',
             );
             this.#handleAutoReconnect();
           }
           break;
+        }
 
         case 'error':
           this.#setConnectionStatus('error');
@@ -300,13 +343,13 @@ export class ConnectionManager {
 
         this.store.setState((state) => ({
           ...state,
-          connectionRetryCount: 0,
           circuitBreakerStatus: 'closed',
           connectionError: null,
           lastConnectedAt: Date.now(),
         }));
 
         this.#emitter.emit('circuit_closed', {} as Record<string, never>);
+        this.#scheduleStabilityReset();
       } catch (error) {
         const err = toError(error);
 
@@ -365,7 +408,38 @@ export class ConnectionManager {
     });
   }
 
+  /**
+   * Schedules the retry budget reset once the connection has stayed up for
+   * `stabilityThresholdMs` without dropping. Called on every successful
+   * connect (initial or reconnect); `#cancelStabilityReset` is called first
+   * to guarantee at most one pending reset regardless of how many times a
+   * connection cycles through connect/disconnect.
+   */
+  #scheduleStabilityReset(): void {
+    this.#cancelStabilityReset();
+    this.#stabilityTimeoutId = setTimeout(() => {
+      this.#stabilityTimeoutId = null;
+      this.store.setState((state) => ({
+        ...state,
+        connectionRetryCount: 0,
+      }));
+    }, this.#options.stabilityThresholdMs);
+  }
+
+  #cancelStabilityReset(): void {
+    if (this.#stabilityTimeoutId) {
+      clearTimeout(this.#stabilityTimeoutId);
+      this.#stabilityTimeoutId = null;
+    }
+  }
+
   #scheduleCircuitBreakerReset(): void {
+    // Guards against leaking a previous timer if this is called more than
+    // once while the breaker is already open (e.g. two non-retryable
+    // disconnects back to back).
+    if (this.#circuitBreakerTimeoutId) {
+      clearTimeout(this.#circuitBreakerTimeoutId);
+    }
     this.#logger.debug(
       `Circuit breaker will reset in ${this.#options.circuitBreakerTimeoutMs}ms`,
     );
@@ -394,5 +468,6 @@ export class ConnectionManager {
       clearTimeout(this.#circuitBreakerTimeoutId);
       this.#circuitBreakerTimeoutId = null;
     }
+    this.#cancelStabilityReset();
   }
 }

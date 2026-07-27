@@ -85,6 +85,45 @@ describe('buildWsUrl', () => {
     const url = buildWsUrl(false, { protocol: 'https:', host: 'example.com' }, undefined);
     expect(url).toBe('ws://localhost:3001/ws');
   });
+
+  it('appends a session query param in hosted mode when one is given', () => {
+    // Worker-side shard routing (worker/shard.ts) reads this off the /ws
+    // request to pin a connection to one container across reconnects.
+    const url = buildWsUrl(
+      true,
+      { protocol: 'https:', host: 'playground.maelstrom.co' },
+      undefined,
+      'session-abc123',
+    );
+    expect(url).toBe('wss://playground.maelstrom.co/ws?session=session-abc123');
+  });
+
+  it('omits the session query param entirely when none is given', () => {
+    const url = buildWsUrl(true, { protocol: 'https:', host: 'playground.maelstrom.co' }, undefined);
+    expect(url).toBe('wss://playground.maelstrom.co/ws');
+  });
+
+  it('never appends a session query param in local (non-hosted) mode', () => {
+    // No Worker sits in front of local dev's ws-server.ts, so there is
+    // nothing to shard-route.
+    const url = buildWsUrl(
+      false,
+      { protocol: 'https:', host: 'example.com' },
+      'ws://localhost:3001',
+      'session-abc123',
+    );
+    expect(url).toBe('ws://localhost:3001/ws');
+  });
+
+  it('percent-encodes a session value that needs it', () => {
+    const url = buildWsUrl(
+      true,
+      { protocol: 'https:', host: 'playground.maelstrom.co' },
+      undefined,
+      'has space&amp',
+    );
+    expect(url).toBe('wss://playground.maelstrom.co/ws?session=has%20space%26amp');
+  });
 });
 
 describe('buildPlaygroundHello', () => {
@@ -95,15 +134,25 @@ describe('buildPlaygroundHello', () => {
 });
 
 describe('createDemoConnector', () => {
-  it('does not send a handshake frame in local (non-hosted) mode', () => {
-    // import.meta.env.VITE_HOSTED is unset in the test environment by
-    // default — this exercises the local-dev branch.
-    const connector = createDemoConnector({ getApiKey: () => null });
-    expect(connector).toBeTruthy();
-    // WebSocketConnector has no public way to inspect its onOpen option
-    // directly, so this test asserts the *contract*: constructing the
-    // connector must not throw even though getApiKey returns null, proving
-    // the local branch never dereferences it.
+  // Local dev's ws-server has no hello gate, so a stray handshake frame
+  // would reach handleEnvelope and be answered as a malformed request. The
+  // key must not leave the browser here either — local mode mints from the
+  // server's own env. import.meta.env.VITE_HOSTED is unset by default in
+  // the test environment, so this exercises the local-dev branch.
+  it('does not send a handshake frame in local (non-hosted) mode', async () => {
+    const restore = installFakeWebSocket();
+    try {
+      const connector = createDemoConnector({ getApiKey: () => 'sk-visitor-key' });
+      const connectPromise = connector.connect(SessionId('session-1'));
+      const socket = FakeWebSocket.instances[0];
+      if (!socket) throw new Error('expected a WebSocket to have been constructed');
+      socket.emitOpen();
+      await connectPromise;
+
+      expect(socket.sent).toHaveLength(0);
+    } finally {
+      restore();
+    }
   });
 
   describe('in hosted mode', () => {
@@ -147,6 +196,62 @@ describe('createDemoConnector', () => {
         await connectPromise;
 
         expect(socket.sent).toHaveLength(0);
+      } finally {
+        restore();
+      }
+    });
+
+    // The id the worker shards on must be the same id the container caches
+    // the engine under, or a reconnect can be routed to a shard that has
+    // never seen this session and the conversation history is silently gone.
+    it('shard-routes on the very session id it was given, not a separate one', async () => {
+      vi.stubEnv('VITE_HOSTED', '1');
+      const restore = installFakeWebSocket();
+      try {
+        const connector = createDemoConnector({
+          sessionId: 'session-1',
+          getApiKey: () => null,
+        });
+        const connectPromise = connector.connect(SessionId('session-1'));
+        const socket = FakeWebSocket.instances[0];
+        if (!socket) throw new Error('expected a WebSocket to have been constructed');
+        socket.emitOpen();
+        await connectPromise;
+
+        expect(socket.url).toContain('?session=session-1');
+      } finally {
+        restore();
+      }
+    });
+
+    it('reuses the same socket URL (and therefore the same session query param) across a reconnect', async () => {
+      // The whole point of shard routing: a connector that reconnects must
+      // keep landing on the same container, which only holds if repeated
+      // connect() calls on one connector instance open the same URL.
+      vi.stubEnv('VITE_HOSTED', '1');
+      const restore = installFakeWebSocket();
+      try {
+        const connector = createDemoConnector({ getApiKey: () => null });
+
+        // Resolved eagerly rather than with `?.` on each use: if a socket is
+        // never constructed, an optional call would silently no-op and leave
+        // the connect() promise pending forever, so the test would time out
+        // instead of reporting what actually went wrong.
+        const firstConnect = connector.connect(SessionId('session-1'));
+        const firstSocket = FakeWebSocket.instances[0];
+        if (!firstSocket) throw new Error('expected a WebSocket to have been constructed');
+        firstSocket.emitOpen();
+        await firstConnect;
+        const firstUrl = firstSocket.url;
+
+        const secondConnect = connector.connect(SessionId('session-1'));
+        const secondSocket = FakeWebSocket.instances[1];
+        if (!secondSocket) throw new Error('expected a second WebSocket on reconnect');
+        secondSocket.emitOpen();
+        await secondConnect;
+        const secondUrl = secondSocket.url;
+
+        expect(secondUrl).toBe(firstUrl);
       } finally {
         restore();
       }

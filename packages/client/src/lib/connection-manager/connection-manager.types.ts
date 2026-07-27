@@ -8,6 +8,25 @@ export interface ConnectionOptions {
   maxDelayMs: number;
   backoffMultiplier: number;
   circuitBreakerTimeoutMs: number;
+  /**
+   * How long (ms) a connection must stay up before `connectionRetryCount` is
+   * reset to 0. A successful `connect()` no longer resets the retry budget
+   * immediately — it only proves the connection *opened*, not that it's
+   * usable. A server that accepts a socket and immediately closes it again
+   * (a mis-set-up session engine, a rejected handshake) would otherwise reset
+   * the counter on every cycle and retry forever without ever exhausting
+   * `maxRetries` or opening the circuit breaker. If the connection drops
+   * before this elapses, the pending reset is cancelled and the retry count
+   * keeps climbing from where it left off.
+   *
+   * Default (5000ms) is chosen against the default backoff schedule
+   * (`initialDelayMs: 1000`, `backoffMultiplier: 2`): the first three
+   * reconnect delays sum to ~1000+2000+4000=7000ms, so a connection that
+   * keeps dying immediately after opening never accumulates 5s of uptime
+   * between drops and the counter never resets — while a connection that
+   * genuinely stays up for 5s is a reasonable bar for "stable."
+   */
+  stabilityThresholdMs: number;
 }
 
 export const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = {
@@ -16,6 +35,7 @@ export const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = {
   maxDelayMs: 30000,
   backoffMultiplier: 2,
   circuitBreakerTimeoutMs: 60000,
+  stabilityThresholdMs: 5000,
 };
 
 /**

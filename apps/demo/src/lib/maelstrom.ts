@@ -27,8 +27,6 @@ const vessels = [
   mapEntry,
 ] as const;
 
-const HOSTED = isHosted();
-
 const hostedMintToken = createBrowserMintToken(
   () => playgroundKeyStore.state.apiKey,
   DEFAULT_REALTIME_MODEL,
@@ -52,7 +50,8 @@ export const m = createMaelstrom({
 function createAdapter({
   sessionId,
 }: CreateAdapterContext): RealtimeProviderAdapter {
-  if (!HOSTED && import.meta.env.VITE_VOICE_PROVIDER === 'livekit') {
+  const hosted = isHosted();
+  if (!hosted && import.meta.env.VITE_VOICE_PROVIDER === 'livekit') {
     return new LiveKitAdapter({
       mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
       roomName: `maelstrom-${sessionId}`,
@@ -60,7 +59,7 @@ function createAdapter({
     });
   }
   return new OpenAIAdapter({
-    mintToken: HOSTED ? hostedMintToken : () => mintOpenAIToken(sessionId),
+    mintToken: hosted ? hostedMintToken : () => mintOpenAIToken(sessionId),
     debug: isDebugRequested(),
   });
 }

@@ -1,5 +1,6 @@
+import { SessionId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserMintToken } from './mint-token';
+import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {
@@ -7,6 +8,50 @@ afterEach(() => {
 });
 
 describe('createBrowserMintToken', () => {
+  it('passes an abort signal to fetch, so a stalled connection cannot hang mic/voice activation forever', async () => {
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      capturedInit = init;
+      return new Response(JSON.stringify({ value: 'ek_x', expires_at: 1 }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+
+    await createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
+
+    expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
+    expect(capturedInit?.signal?.aborted).toBe(false);
+  });
+
+  it('rejects instead of hanging forever when the connection to OpenAI stalls past the timeout', async () => {
+    const controller = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(controller.signal);
+    try {
+      globalThis.fetch = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              reject(
+                new DOMException('The operation was aborted.', 'AbortError'),
+              );
+            });
+          }),
+      ) as unknown as typeof fetch;
+
+      const mintPromise = createBrowserMintToken(
+        () => 'sk-visitor-key',
+        'gpt-realtime',
+      )();
+      // Simulates the 8s timeout firing, without waiting 8 real seconds.
+      controller.abort();
+      await expect(mintPromise).rejects.toThrow();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it('maps OpenAI client_secrets response fields to TokenHandshakeResponse', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ value: 'ek_abc123', expires_at: 1_800_000_000 }), {
@@ -37,6 +82,23 @@ describe('createBrowserMintToken', () => {
     expect(capturedInit?.headers).toMatchObject({ Authorization: 'Bearer sk-visitor-key' });
     const body = JSON.parse(String(capturedInit?.body));
     expect(JSON.stringify(body)).not.toContain('sk-visitor-key');
+  });
+
+  // The browser-direct and server-held mint paths hand out credentials for
+  // the same session; if only one pins a lifetime, a change to OpenAI's
+  // default silently gives hosted visitors a different-lived token than
+  // local ones. Keep this in step with realtime-server's openai-mint.
+  it('pins the same token lifetime the server-held mint sends', async () => {
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      capturedInit = init;
+      return new Response(JSON.stringify({ value: 'ek_x', expires_at: 1 }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
+
+    const body = JSON.parse(String(capturedInit?.body));
+    expect(body.expires_after).toEqual({ anchor: 'created_at', seconds: 600 });
   });
 
   it('throws a user-actionable error on a 401 without leaking the key in the message', async () => {
@@ -86,5 +148,54 @@ describe('createBrowserMintToken', () => {
 
     const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
     await expect(mintToken()).rejects.toThrow(/status 500/i);
+  });
+});
+
+describe('mintOpenAIToken', () => {
+  it('passes an abort signal to fetch, so a stalled mint route cannot hang mic/voice activation forever', async () => {
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      capturedInit = init;
+      return new Response(
+        JSON.stringify({
+          provider: 'openai',
+          value: 'ek_x',
+          expiresAt: 1,
+          model: 'gpt-realtime',
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    await mintOpenAIToken(SessionId('session-1'));
+
+    expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
+    expect(capturedInit?.signal?.aborted).toBe(false);
+  });
+
+  it('rejects instead of hanging forever when the mint route stalls past the timeout', async () => {
+    const controller = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(controller.signal);
+    try {
+      globalThis.fetch = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              reject(
+                new DOMException('The operation was aborted.', 'AbortError'),
+              );
+            });
+          }),
+      ) as unknown as typeof fetch;
+
+      const mintPromise = mintOpenAIToken(SessionId('session-1'));
+      // Simulates the 8s timeout firing, without waiting 8 real seconds.
+      controller.abort();
+      await expect(mintPromise).rejects.toThrow(/aborted/i);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 });

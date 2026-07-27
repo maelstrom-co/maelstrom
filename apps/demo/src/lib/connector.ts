@@ -1,4 +1,5 @@
 import { WebSocketConnector } from '@maelstrom-co/client';
+import { SessionId } from '@maelstrom-co/protocol';
 import { isHosted } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
 
@@ -11,6 +12,15 @@ export interface CreateDemoConnectorOptions {
    * session-only (`remember: false`) key that never touched storage.
    */
   readonly getApiKey?: () => string | null;
+  /**
+   * The session this connector belongs to, used in hosted mode to pin the
+   * connection to one container shard. Must be the same id handed to
+   * `<Provider sessionId>`: the container caches an engine (and its
+   * conversation history) under the protocol sessionId, so routing that
+   * used a different id could send a reconnect to a shard that has never
+   * seen the session. Omitted in local mode, where nothing shards.
+   */
+  readonly sessionId?: string;
 }
 
 /**
@@ -21,15 +31,26 @@ export interface CreateDemoConnectorOptions {
  * own protocol — a plain-HTTP origin cannot open a `wss://` socket
  * (ERR_SSL_PROTOCOL_ERROR) and an HTTPS origin cannot open a mixed-content
  * `ws://` one. Local mode is unaffected: it always uses `localWsUrl`.
+ *
+ * `routingSession`, when given, is appended as a `session` query param —
+ * the hosted Worker in front of `/ws` reads it to shard-route the
+ * connection onto one of a fixed set of container instances (see
+ * `worker/shard.ts`) instead of funneling every visitor onto the same one.
+ * Omitted in local mode: nothing sits in front of local dev's `ws-server.ts`
+ * to shard-route for.
  */
 export function buildWsUrl(
   hosted: boolean,
   location: Pick<Location, 'protocol' | 'host'>,
   localWsUrl: string | undefined,
+  routingSession?: string,
 ): string {
   if (hosted) {
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${scheme}://${location.host}/ws`;
+    const query = routingSession
+      ? `?session=${encodeURIComponent(routingSession)}`
+      : '';
+    return `${scheme}://${location.host}/ws${query}`;
   }
   return `${localWsUrl ?? 'ws://localhost:3001'}/ws`;
 }
@@ -54,6 +75,13 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
   const hosted = isHosted();
   const getApiKey = options.getApiKey ?? (() => playgroundKeyStore.state.apiKey);
 
+  // Baked into wsUrl below rather than resolved per attempt, because
+  // WebSocketConnector reuses its constructed URL for every reconnect — so
+  // the shard stays pinned for the life of the session. Falling back to a
+  // fresh id keeps a caller that omits sessionId routable, but such a
+  // connector cannot resume a session across its own replacement.
+  const routingSession = hosted ? (options.sessionId ?? SessionId()) : undefined;
+
   // window.location is only touched in the hosted branch (short-circuited
   // below) — local (non-hosted) mode must keep working in non-DOM test
   // environments. The `typeof window` guard covers hosted mode too: it's a
@@ -64,6 +92,7 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
       ? window.location
       : { protocol: '', host: '' },
     import.meta.env.VITE_WS_URL,
+    routingSession,
   );
 
   return new WebSocketConnector({

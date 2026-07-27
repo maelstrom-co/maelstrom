@@ -96,7 +96,7 @@ export interface ConnectorCapabilities {
  * signal that the connection is ready — no separate subscription needed.
  */
 export type ConnectorEvent =
-  | { type: 'disconnected'; clean: boolean; message: string }
+  | { type: 'disconnected'; clean: boolean; message: string; retryable?: boolean }
   | { type: 'error'; error: Error };
 
 // ============================================================================
@@ -133,6 +133,12 @@ export type ConnectorEvent =
  *
  * - `clean: true` → No auto-reconnect (user intentionally disconnected)
  * - `clean: false` → Triggers auto-reconnect with exponential backoff
+ * - `retryable: false` → Opens the circuit breaker immediately instead of
+ *   auto-reconnecting, regardless of `clean`. Set this when the server closed
+ *   the connection for a reason retrying cannot fix (e.g. WebSocket close code
+ *   1008 "Policy Violation" per RFC 6455 — the server is rejecting this
+ *   client, not failing transiently). Omit it (the default) to keep the
+ *   existing `clean`-based behavior.
  * - `error` events → Logged for monitoring, may trigger state change
  *
  * ### No 'connected' Event:
@@ -325,11 +331,18 @@ export interface EngineConnector {
    *
    * // Unexpected disconnect (network failure, server crash)
    * handler({ type: 'disconnected', clean: false, message: 'Network error' });
+   *
+   * // Server rejected this client outright (e.g. WebSocket close code 1008) —
+   * // retrying would just be rejected again, so flag it non-retryable.
+   * handler({ type: 'disconnected', clean: false, message: 'Policy violation', retryable: false });
    * ```
    *
    * ConnectionManager behavior:
    * - `clean: true` → No auto-reconnect (intentional disconnect)
    * - `clean: false` → Auto-reconnect with exponential backoff
+   * - `retryable: false` → Opens the circuit breaker immediately instead of
+   *   auto-reconnecting, regardless of `clean`. Omit for the default
+   *   `clean`-based behavior.
    *
    * ### `error` (Optional but recommended)
    * Emit when transport-level errors occur (distinct from disconnects).

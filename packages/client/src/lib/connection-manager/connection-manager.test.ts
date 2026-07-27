@@ -301,6 +301,9 @@ describe('ConnectionManager', () => {
         maxDelayMs: 100,
         backoffMultiplier: 1,
         circuitBreakerTimeoutMs: 5000,
+        // Small threshold so this test's tickAsync(50) comfortably covers
+        // both the reconnect delay and the stability window.
+        stabilityThresholdMs: 20,
       });
 
       await manager.connect();
@@ -320,6 +323,115 @@ describe('ConnectionManager', () => {
 
       expect(manager.store.state.connectionStatus).toBe('connected');
       expect(manager.store.state.connectionRetryCount).toBe(0);
+    });
+
+    it('does not reset connectionRetryCount immediately on reconnect — only after the connection survives stabilityThresholdMs', async () => {
+      // This is the core of the fix: connect() resolving only proves the
+      // socket opened, not that it's usable. Resetting the counter
+      // immediately (the pre-fix behavior) is what let a connection that
+      // dies right after opening retry forever without ever tripping the
+      // circuit breaker.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 5,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+        stabilityThresholdMs: 1000,
+      });
+
+      await manager.connect();
+
+      mockConnector.triggerEvent({
+        type: 'disconnected',
+        clean: false,
+        message: 'Dropped',
+      });
+      // Let the scheduled reconnect fire, well before stabilityThresholdMs.
+      await clock.tickAsync(10);
+
+      expect(manager.store.state.connectionStatus).toBe('connected');
+      // Reconnected, but not yet "stable" — the budget must still reflect
+      // the attempt it took to get here.
+      expect(manager.store.state.connectionRetryCount).toBe(1);
+
+      // Now let the stability window elapse with no further disconnects.
+      await clock.tickAsync(1000);
+      expect(manager.store.state.connectionRetryCount).toBe(0);
+    });
+
+    it('keeps the retry budget climbing across repeated immediate disconnects and opens the circuit breaker (never resets, since stability is never reached)', async () => {
+      // Reproduces the review's exact failure mode: a socket that opens and
+      // is torn down again right away (e.g. a session engine that fails to
+      // construct) must count against maxRetries like any other failure —
+      // not silently reset the budget on every "successful" open.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+        stabilityThresholdMs: 1000,
+      });
+
+      await manager.connect();
+
+      for (let i = 0; i < 3; i++) {
+        mockConnector.triggerEvent({
+          type: 'disconnected',
+          clean: false,
+          message: 'Dropped immediately',
+        });
+        // Far shorter than stabilityThresholdMs — the reconnect fires, but
+        // the connection never proves stable before the next drop.
+        await clock.tickAsync(10);
+      }
+
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
+      expect(manager.store.state.connectionStatus).toBe('error');
+    });
+
+    it('treats a retryable:false disconnected event as terminal: opens the circuit breaker instead of auto-reconnecting', async () => {
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 5,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+      });
+
+      await manager.connect();
+      let circuitOpened = false;
+      manager.events.on('circuit_opened', () => {
+        circuitOpened = true;
+      });
+
+      mockConnector.connect = mock(() => Promise.resolve());
+
+      // A close code 1008 ("session evicted", "policy violation", etc.) —
+      // WebSocketConnector reports this as retryable: false. Reconnecting
+      // with the same session would just be rejected again.
+      mockConnector.triggerEvent({
+        type: 'disconnected',
+        clean: false,
+        retryable: false,
+        message: 'session evicted',
+      });
+
+      // No reconnect attempt should even be scheduled — advancing the clock
+      // past every backoff interval (but short of circuitBreakerTimeoutMs,
+      // which would transition the breaker to half_open on its own) must not
+      // produce a connect() call.
+      await clock.tickAsync(500);
+
+      expect(mockConnector.connect).not.toHaveBeenCalled();
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
+      expect(manager.store.state.connectionStatus).toBe('error');
+      expect(manager.store.state.connectionError?.message).toBe('session evicted');
+      expect(circuitOpened).toBe(true);
     });
 
     it('should pass the same sessionId to connector.connect() on auto-reconnect', async () => {
@@ -599,6 +711,51 @@ describe('ConnectionManager', () => {
         'Connector disconnect failed',
         disconnectError,
       ]);
+    });
+
+    it('resets the retry budget on a deliberate connect() even when a stale count survived from a previous failed cycle', async () => {
+      // Reproduces the gap: a successful connect() no longer resets
+      // connectionRetryCount immediately (that now only happens after
+      // stabilityThresholdMs — see the "auto-reconnect" describe block).
+      // The deliberate, user-initiated connect() must not inherit that
+      // leftover budget on its own next call, or it can trip the circuit
+      // breaker on far fewer than maxRetries failures.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 5,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+        // Long enough that it never fires during this test, so the delayed
+        // stability reset can't be the thing that zeroes the counter.
+        stabilityThresholdMs: 5000,
+      });
+
+      // First cycle: two failures before succeeding on the 3rd attempt.
+      // Leaves connectionRetryCount at 2 in the store — success doesn't
+      // clear it, only the (never-fired) stability timer would.
+      let firstCycleAttempts = 0;
+      mockConnector.connect = mock(() => {
+        firstCycleAttempts++;
+        if (firstCycleAttempts < 3) return Promise.reject(new Error('flaky'));
+        return Promise.resolve();
+      });
+
+      const firstConnect = manager.connect();
+      await clock.tickAsync(20);
+      await firstConnect;
+
+      expect(manager.store.state.connectionRetryCount).toBe(2);
+
+      // Deliberate reconnect, well before stabilityThresholdMs elapses.
+      // Succeeding on the very first attempt means nothing else would touch
+      // connectionRetryCount during this call — so if connect() itself
+      // doesn't reset it, the stale 2 leaks through untouched.
+      mockConnector.connect = mock(() => Promise.resolve());
+      await manager.connect();
+
+      expect(manager.store.state.connectionRetryCount).toBe(0);
     });
 
     it('should reset retry count on disconnect', async () => {
@@ -932,6 +1089,24 @@ describe('ConnectionManager', () => {
       await manager.connect();
 
       expect(circuitClosed).toBe(true);
+    });
+  });
+
+  describe('stability reset teardown', () => {
+    it('clears the pending stability-reset timer on disconnect() so it cannot leak past teardown', async () => {
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        stabilityThresholdMs: 5000,
+      });
+
+      await manager.connect();
+      // The stability-reset timer scheduled by the successful connect above
+      // is the only pending timer at this point.
+      expect(clock.countTimers()).toBeGreaterThan(0);
+
+      await manager.disconnect();
+
+      expect(clock.countTimers()).toBe(0);
     });
   });
 

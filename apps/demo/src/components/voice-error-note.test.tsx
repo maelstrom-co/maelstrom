@@ -123,7 +123,11 @@ describe('VoiceErrorNote', () => {
     );
   });
 
-  it('shows the hosted-aware TOKEN_MINT_FAILED message in hosted mode instead of the server-env copy', async () => {
+  // A hosted mint failure already reopens the key drawer with the provider's
+  // reason. A toast beside it would point the visitor at a drawer that is
+  // open in front of them — and must never fall through to the local copy,
+  // which blames server env vars a BYOK visitor does not control.
+  it('stays silent on a hosted TOKEN_MINT_FAILED, leaving the drawer to explain', async () => {
     vi.stubEnv('VITE_HOSTED', '1');
     try {
       const { container, session } = renderNote();
@@ -132,14 +136,22 @@ describe('VoiceErrorNote', () => {
         session.emitState('error');
       });
 
-      const text = container.querySelector('[role="alert"]')?.textContent;
-      expect(text).toBe(
-        "Voice couldn't start with that key. Check it in the key drawer and try again.",
-      );
-      expect(text).not.toMatch(/OPENAI_API_KEY/);
+      expect(container.querySelector('[role="alert"]')).toBeNull();
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it('still explains a TOKEN_MINT_FAILED in local mode, where nothing else does', async () => {
+    const { container, session } = renderNote();
+    session.lastError = new RealtimeVoiceError('TOKEN_MINT_FAILED', 'boom');
+    await act(async () => {
+      session.emitState('error');
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toMatch(
+      /couldn't mint a session token/,
+    );
   });
 
   it('dismisses once state leaves error', async () => {

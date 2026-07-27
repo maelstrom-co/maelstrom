@@ -228,6 +228,84 @@ describe('text-path key failures (hosted)', () => {
   });
 });
 
+describe('resumed auto-submit rejected by an invalid key', () => {
+  it('restores the resumed draft instead of leaving it empty when the post-save reconnect is itself rejected', async () => {
+    // Regression: submittedIntentRef is only written by handleSubmit, and
+    // the keyEpoch remount that follows a drawer save resets it to '' via a
+    // fresh IntentInput mount. The resume effect (auto-submit after the
+    // reconnect) never re-recorded what it was about to submit, so when
+    // *that* submission was also rejected, the restore-the-draft effect had
+    // nothing to restore from and wiped the visitor's typed intent instead
+    // of preserving it.
+    connectorOverride.process = async () => {
+      throw new WireEngineError(
+        '401 Incorrect API key provided: [redacted]',
+        'ProviderError',
+      );
+    };
+
+    const { HomePage } = await import('./index');
+    render(<HomePage />);
+
+    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
+      target: { value: 'show me the weather in Lisbon' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/api key/i)).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByLabelText(/api key/i), {
+      target: { value: 'sk-still-rejected' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/api key/i)).toBeTruthy();
+    });
+    expect(screen.getByText('Invalid API key.')).toBeTruthy();
+    expect(
+      (screen.getByPlaceholderText(/tell maelstrom/i) as HTMLInputElement)
+        .value,
+    ).toBe('show me the weather in Lisbon');
+  });
+});
+
+describe('saving an unchanged key mid-session', () => {
+  it('does not remount the session when the saved key matches the key already in use', async () => {
+    // Regression: onSave used to bump keyEpoch unconditionally, remounting
+    // <m.Provider> (fresh sessionId, fresh voice session, chart wiped) even
+    // when the visitor opened the drawer from the header pill just to look,
+    // or re-entered the exact key already in use. A remount here is
+    // observable as a brand-new RealtimeSession instance, since the voice
+    // hook constructs one per Provider mount.
+    setPlaygroundKey('sk-existing', true);
+
+    const { HomePage } = await import('./index');
+    render(<HomePage />);
+
+    const sessionCountBeforeSave = FakeRealtimeSession.instances.length;
+
+    fireEvent.click(screen.getByRole('button', { name: /api key/i }));
+    expect(screen.getByLabelText(/api key/i)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/api key/i), {
+      target: { value: 'sk-existing' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/api key/i)).toBeNull();
+    });
+    expect(FakeRealtimeSession.instances.length).toBe(sessionCountBeforeSave);
+  });
+});
+
 describe('mic-path key gating (hosted, no key)', () => {
   it('opens the drawer instead of starting a voice session when the orb is clicked with no key set', async () => {
     const { HomePage } = await import('./index');
