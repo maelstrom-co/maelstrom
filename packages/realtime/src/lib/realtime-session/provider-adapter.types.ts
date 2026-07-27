@@ -86,15 +86,25 @@ export interface AdapterAudioStreams {
  * replace this control dynamically when automatic detection degrades; speech-
  * native providers detect turns themselves and omit it.
  *
+ * An implementation decides what starting and ending a turn means; for example,
+ * it may unmute a microphone, open an STT stream, or flush buffered audio.
+ * Depending on the provider, calls while disconnected or with no captured
+ * audio may be no-ops, and an empty turn may produce no transcript.
+ * Operational failures may arrive as adapter error events while these promises
+ * resolve. For a fatal {@link RealtimeVoiceError}, `RealtimeSession` exposes
+ * `state === 'error'` and preserves the cause in `lastError`, so consumers must
+ * observe both values.
+ * {@link OpenAIAdapter} omits `turnControl` because OpenAI owns turn detection.
+ *
  * Invariant: `RealtimeSession` NEVER calls these methods — they exist purely
  * for the binding/UI layer to drive. The session stays agnostic to whether a
  * provider is push-to-talk; only the surface that renders controls acts on
  * this capability.
  */
 export interface AdapterTurnControl {
-  /** Begin a user turn (e.g. unmute mic, start STT stream). */
+  /** Request the provider-defined start of a user turn; this may be a no-op. */
   startTurn(): Promise<void>;
-  /** End the turn (flush STT, mute mic). Triggers the provider's turn-final transcript. */
+  /** Request the provider-defined end of a turn; an empty turn may produce no transcript. */
   endTurn(): Promise<void>;
 }
 
