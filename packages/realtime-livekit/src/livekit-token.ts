@@ -1,18 +1,29 @@
-import { type TokenGrant, UnixSecondsSchema } from '@maelstrom-co/realtime';
+import {
+  type TokenGrant,
+  type UnixSeconds,
+  UnixSecondsSchema,
+} from '@maelstrom-co/realtime';
 import { z } from 'zod';
 
 /**
- * A LiveKit access token + room URL for a single room, plus the absolute
- * expiry a client can use to refresh proactively before the JWT lapses.
+ * A LiveKit access token and room URL for a single room.
  *
  * The server sibling (`@maelstrom-co/realtime-livekit-server`) mints this;
- * the browser adapter consumes `token`/`url` to join the room and can use
- * `expiresAt` to schedule a refresh — the LiveKit token TTL is a server-side
- * env setting the browser cannot otherwise see.
+ * the browser adapter consumes `token` and `url` to join the room.
  */
 export interface LiveKitTokenGrant extends TokenGrant {
   readonly token: string;
   readonly url: string;
+  /**
+   * Absolute Unix-epoch second after which this JWT cannot authenticate a new
+   * room connection. Expiry does not end an established room or LiveKit's
+   * subsequent reconnects.
+   *
+   * {@link LiveKitAdapter} does not read this value or schedule an automatic
+   * refresh. To obtain a fresh credential, callers must disconnect and call
+   * `connect()` again; that call invokes `mintToken` before rejoining the room.
+   */
+  readonly expiresAt: UnixSeconds;
 }
 
 /** Wire schema for {@link LiveKitTokenGrant}. */
