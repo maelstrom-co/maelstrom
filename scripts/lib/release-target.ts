@@ -28,9 +28,14 @@ const DIST_TAG_PATTERN = /^[A-Za-z][0-9A-Za-z._-]*$/;
  * carries preid `alpha`; a release version carries none.
  */
 export function distTagForVersion(version: string): string {
-  const dashIndex = version.indexOf('-');
+  // Build metadata is not part of the prerelease, and it may itself contain a
+  // `-`. Scanning the whole string for the first `-` therefore both dragged
+  // `+build` into the preid and read a stable `1.0.0+build-1` as a prerelease
+  // — either way a tag SEMVER_PATTERN accepted died at derivation.
+  const core = version.split('+')[0] ?? version;
+  const dashIndex = core.indexOf('-');
   if (dashIndex === -1) return 'latest';
-  const preid = version.slice(dashIndex + 1);
+  const preid = core.slice(dashIndex + 1);
   const identifier = preid.split('.')[0];
   if (!identifier || !DIST_TAG_PATTERN.test(identifier)) {
     throw new ReleaseTargetError(

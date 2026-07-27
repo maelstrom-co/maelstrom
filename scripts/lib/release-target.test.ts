@@ -20,9 +20,24 @@ describe('distTagForVersion', () => {
     expect(distTagForVersion('10.20.30')).toBe('latest');
   });
 
-  it('carries build metadata into the tag rather than guessing', () => {
+  it('derives the preid from the prerelease segment alone', () => {
     // `-` starts the prerelease segment; anything after it is the preid.
     expect(distTagForVersion('1.0.0-next')).toBe('next');
+  });
+
+  it('ignores build metadata when deriving the tag', () => {
+    // `+build` is not part of the prerelease. Reading it as one produced the
+    // dist-tag `next+build`, which npm rejects — so a tag that SEMVER_PATTERN
+    // accepted could still fail the release at the derivation step.
+    expect(distTagForVersion('1.0.0-next+build.1')).toBe('next');
+    expect(distTagForVersion('0.1.0-alpha.0+sha.abc123')).toBe('alpha');
+  });
+
+  it('does not mistake a dash inside build metadata for a prerelease', () => {
+    // `1.0.0+build-1` is a stable version: the only `-` lives in build
+    // metadata. Scanning for the first `-` across the whole string read `1` as
+    // the preid and rejected the release instead of publishing to `latest`.
+    expect(distTagForVersion('1.0.0+build-1')).toBe('latest');
   });
 
   it('rejects a version whose prerelease segment is empty', () => {
