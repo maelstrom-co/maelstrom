@@ -99,7 +99,7 @@ The engine isn't choosing what to render. It's reasoning about what *can happen 
 - **A checkable transition graph.** Every action names the variant it `transitionsTo`, so the whole state graph is known before anything runs. The protocol rejects a transition to a variant that doesn't exist, and the engine knows exactly which variant an action lands in without executing your component.
 - **Enforceable size per state.** Each variant carries its own `minSize`, and in grid mode the engine enforces it: the LLM plans in whole cells, and any placement that comes back smaller than the target variant's `minSize` is dropped before it renders. Each state gets to declare — and the engine to guarantee — its own footprint.
 
-A flat config — one component, one render function, one set of props — gives you none of that. You'd either pay for an LLM hallucination every turn or constrain the model so tightly it can't help you.
+A flat config — one component, one render function, one set of props — gives you none of that. Without explicit states and transitions, the engine has no closed set of legal actions to check a proposed action against — it can't tell a valid move from a hallucinated one.
 
 ## What the engine sees
 

@@ -3,9 +3,9 @@ title: Grid vs Tiling Layout
 description: The two layout algorithms the engine can return, and how each turns Vessel state into pixels.
 ---
 
-Maelstrom ships two layout modes. The `ChartRequest` names one via `layoutMode` and the engine returns a response in that mode, the client renders whichever it gets, and which one fits a given app is a design decision — not a runtime negotiation.
+Maelstrom ships two layout modes. The `ChartRequest` selects a mode through `layoutMode`, and the engine returns a response in that mode. The client renders the returned layout; choosing the appropriate mode is an application-design decision, not a runtime negotiation.
 
-Both modes describe the same screen — the set of visible Vessel instances and their current variants — and differ only in how they express placement. (Each variant also declares a `minSize`, but as we'll see it only bites in grid mode.)
+Both modes describe the same screen — the set of visible Vessel instances and their current variants — and differ only in how they express placement. (Each variant also declares a `minSize`, but as we'll see, it is enforced only in grid mode.)
 
 ## Grid layout: explicit coordinates
 
