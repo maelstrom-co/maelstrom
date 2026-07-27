@@ -36,6 +36,13 @@ const [realtimeLivekitAgentTypeDoc, realtimeLivekitAgentTypeDocSidebarGroup] =
 const repoRoot = '../../';
 const sourceLinkTemplate =
   'https://github.com/maelstrom-co/maelstrom/blob/main/{path}#L{line}';
+const multiEntryTypeDocOptions = {
+  entryPointStrategy: 'resolve' as const,
+  excludeInternal: true,
+  disableGit: true,
+  basePath: repoRoot,
+  sourceLinkTemplate,
+};
 
 const docsRoot = path.resolve(
   process.cwd(),
@@ -252,13 +259,7 @@ export default defineConfig({
           tsconfig: '../../packages/realtime/tsconfig.lib.json',
           output: 'reference/realtime',
           sidebar: { label: '@maelstrom-co/realtime', collapsed: true },
-          typeDoc: {
-            entryPointStrategy: 'resolve',
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
+          typeDoc: multiEntryTypeDocOptions,
         }),
         reactRealtimeTypeDoc({
           entryPoints: ['../../packages/react-realtime/src/index.ts'],
@@ -268,13 +269,7 @@ export default defineConfig({
             label: '@maelstrom-co/react-realtime',
             collapsed: true,
           },
-          typeDoc: {
-            entryPointStrategy: 'resolve',
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
+          typeDoc: multiEntryTypeDocOptions,
         }),
         realtimeServerTypeDoc({
           entryPoints: ['../../packages/realtime-server/src/index.ts'],
@@ -284,13 +279,7 @@ export default defineConfig({
             label: '@maelstrom-co/realtime-server',
             collapsed: true,
           },
-          typeDoc: {
-            entryPointStrategy: 'resolve',
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
+          typeDoc: multiEntryTypeDocOptions,
         }),
         realtimeLivekitTypeDoc({
           entryPoints: [
@@ -304,13 +293,7 @@ export default defineConfig({
             label: '@maelstrom-co/realtime-livekit',
             collapsed: true,
           },
-          typeDoc: {
-            entryPointStrategy: 'resolve',
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
+          typeDoc: multiEntryTypeDocOptions,
         }),
         realtimeLivekitServerTypeDoc({
           entryPoints: ['../../packages/realtime-livekit-server/src/index.ts'],
@@ -320,13 +303,7 @@ export default defineConfig({
             label: '@maelstrom-co/realtime-livekit-server',
             collapsed: true,
           },
-          typeDoc: {
-            entryPointStrategy: 'resolve',
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
+          typeDoc: multiEntryTypeDocOptions,
         }),
         realtimeLivekitAgentTypeDoc({
           entryPoints: ['../../packages/realtime-livekit-agent/src/index.ts'],
@@ -336,13 +313,7 @@ export default defineConfig({
             label: '@maelstrom-co/realtime-livekit-agent',
             collapsed: true,
           },
-          typeDoc: {
-            entryPointStrategy: 'resolve',
-            excludeInternal: true,
-            disableGit: true,
-            basePath: repoRoot,
-            sourceLinkTemplate,
-          },
+          typeDoc: multiEntryTypeDocOptions,
         }),
       ],
       customCss: ['./src/styles/custom.css'],
@@ -442,6 +413,7 @@ export default defineConfig({
               label: 'Architecture Overview',
               link: '/understanding/architecture/',
             },
+            { slug: 'understanding/voice-architecture' },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },

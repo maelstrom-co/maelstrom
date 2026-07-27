@@ -13,6 +13,27 @@
   "exclude": ["dist", "node_modules"],
   "references": [
     {
+      "path": "../../packages/react"
+    },
+    {
+      "path": "../../packages/realtime-server"
+    },
+    {
+      "path": "../../packages/realtime-livekit-server"
+    },
+    {
+      "path": "../../packages/protocol"
+    },
+    {
+      "path": "../../packages/realtime-livekit"
+    },
+    {
+      "path": "../../packages/realtime"
+    },
+    {
+      "path": "../../packages/react-realtime"
+    },
+    {
       "path": "./tsconfig.e2e.json"
     }
   ]
