@@ -71,7 +71,7 @@ export type ResolveInput = {
 
 export function resolveReleaseTarget(input: ResolveInput): ReleaseTarget {
   const isPush = input.eventName === 'push';
-  const tag = (isPush ? input.refName : input.inputTag ?? '').trim();
+  const tag = (isPush ? input.refName : (input.inputTag ?? '')).trim();
   // A tag push is always a real release; only a manual dispatch can rehearse.
   const dryRun = isPush ? false : input.inputDryRun === 'true';
 

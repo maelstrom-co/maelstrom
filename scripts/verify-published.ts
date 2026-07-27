@@ -23,7 +23,9 @@ if (!version) {
 }
 
 const registry =
-  values.registry ?? process.env.RELEASE_REGISTRY ?? 'https://registry.npmjs.org';
+  values.registry ??
+  process.env.RELEASE_REGISTRY ??
+  'https://registry.npmjs.org';
 const attempts = Number(values.attempts ?? 5);
 // Publishes are not immediately readable — the registry needs a moment to
 // serve a version it just accepted, so absence is only meaningful after retry.
