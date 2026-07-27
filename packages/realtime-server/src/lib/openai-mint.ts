@@ -15,7 +15,7 @@ import { z } from 'zod';
 export interface CreateOpenAIMinterOptions {
   /** Server-held OpenAI API key. Never forwarded to the caller. */
   readonly apiKey: string;
-  /** Realtime model the minted client secret is scoped to. */
+  /** Default realtime model; a validated request model overrides this value. */
   readonly model: string;
   /**
    * Fetch implementation used for the upstream call to OpenAI. Defaults to
@@ -39,7 +39,9 @@ export type MintResult = Result<OpenAITokenGrant, MintFailure>;
  * API key for a short-lived realtime client secret on behalf of the
  * browser, so the browser never sees `OPENAI_API_KEY`.
  *
- * The minter validates `input` against {@link OpenAITokenRequest}, calls
+ * The minter validates `input` against {@link OpenAITokenRequest}. When that
+ * request includes a model, the request model overrides the configured default.
+ * It then calls
  * OpenAI's `client_secrets` endpoint with the server-held key in the
  * `Authorization` header, and maps the upstream response to an
  * {@link OpenAITokenGrant}. The API key is only ever sent upstream —
@@ -48,9 +50,10 @@ export type MintResult = Result<OpenAITokenGrant, MintFailure>;
  * {@link MintResult} to a status code / response body.
  *
  * This mint operation is an **unauthenticated bootstrap**: anyone who can
- * invoke it can mint a short-lived OpenAI realtime credential. A real
- * deployment must add an origin allowlist, a rate limit, and caller
- * authentication in the transport layer in front of it before going live.
+ * invoke it can mint a short-lived OpenAI realtime credential. Production
+ * transport code must authenticate and authorize callers, enforce a trusted
+ * model policy instead of accepting arbitrary model overrides, and add origin
+ * controls, rate limits, and abuse controls before exposing the minter.
  *
  * Only handles `provider: 'openai'` requests — a `google` minter is a
  * sibling. `sessionId` is accepted and validated but currently unused by

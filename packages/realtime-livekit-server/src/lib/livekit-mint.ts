@@ -43,11 +43,21 @@ const DEFAULT_TTL = '15m';
  * `missing-api-key` failure and a malformed request an `invalid-request`
  * failure, so a misconfigured deploy surfaces a typed reason a transport can
  * map to a status instead of a raw throw. The returned grant carries
- * `expiresAt` (computed from the TTL) so the browser can refresh proactively
- * before the JWT lapses — the TTL is a server-side env the client can't
- * otherwise see. Unlike the OpenAI minter there is no upstream HTTP call to
- * inject a fake `fetch` into: the JWT is signed locally, so tests exercise it
- * by mocking `livekit-server-sdk`.
+ * `expiresAt` (computed from the TTL), which describes when the JWT can no
+ * longer authenticate a new room connection. It does not refresh an
+ * established adapter connection, and {@link LiveKitAdapter} does not schedule
+ * proactive renewal. To obtain a fresh grant, callers must disconnect and call
+ * `connect()` again; `connect()` invokes `mintToken` before rejoining. LiveKit's
+ * own transport reconnects are separate and do not call this minter.
+ *
+ * This mint operation is an **unauthenticated bootstrap**. Production transport
+ * code must authenticate and authorize callers, enforce a trusted room and
+ * identity policy instead of forwarding untrusted values, and add origin
+ * controls, rate limits, and abuse controls before exposing the minter.
+ *
+ * Unlike the OpenAI minter there is no upstream HTTP call to inject a fake
+ * `fetch` into: the JWT is signed locally, so tests exercise it by mocking
+ * `livekit-server-sdk`.
  *
  * @example
  * ```ts
