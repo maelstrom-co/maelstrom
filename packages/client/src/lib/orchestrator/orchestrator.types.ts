@@ -55,6 +55,7 @@ export function resolveOrchestratorOptions(
       backoffMultiplier: options.connection?.backoffMultiplier ?? 2,
       circuitBreakerTimeoutMs:
         options.connection?.circuitBreakerTimeoutMs ?? 60000,
+      stabilityThresholdMs: options.connection?.stabilityThresholdMs ?? 5000,
     },
   };
 }

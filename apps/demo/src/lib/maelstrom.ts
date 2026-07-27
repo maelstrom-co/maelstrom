@@ -12,8 +12,11 @@ import { mapEntry } from '../vessels/map.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
 import { isDebugRequested } from './debug-mode';
-import { mintOpenAIToken } from './mint-token';
+import { isHosted } from './hosted-mode';
+import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 import { orchestrationLegibility } from './orchestration-legibility';
+import { playgroundKeyStore } from './playground-key-store';
+import { DEFAULT_REALTIME_MODEL } from './realtime-model';
 import { getLivekitToken } from './voice/get-livekit-token';
 
 const vessels = [
@@ -23,6 +26,11 @@ const vessels = [
   tasksEntry,
   mapEntry,
 ] as const;
+
+const hostedMintToken = createBrowserMintToken(
+  () => playgroundKeyStore.state.apiKey,
+  DEFAULT_REALTIME_MODEL,
+);
 
 export const m = createMaelstrom({
   vessels,
@@ -34,10 +42,16 @@ export const m = createMaelstrom({
 // cascaded LiveKit transport (push-to-talk), anything else the speech-native
 // OpenAI transport. Runs once per session, so per-session server resources (the
 // token mint, the room name) are scoped by sessionId here.
+//
+// Hosted BYOK is OpenAI-only: the LiveKit path needs house-held server
+// credentials (LIVEKIT_API_KEY/secret) and a running agent worker that a
+// visitor's pasted OpenAI key can't reach, so the LiveKit branch is local-dev
+// only. In hosted mode the browser mints directly from the visitor's key.
 function createAdapter({
   sessionId,
 }: CreateAdapterContext): RealtimeProviderAdapter {
-  if (import.meta.env.VITE_VOICE_PROVIDER === 'livekit') {
+  const hosted = isHosted();
+  if (!hosted && import.meta.env.VITE_VOICE_PROVIDER === 'livekit') {
     return new LiveKitAdapter({
       mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
       roomName: `maelstrom-${sessionId}`,
@@ -45,7 +59,7 @@ function createAdapter({
     });
   }
   return new OpenAIAdapter({
-    mintToken: () => mintOpenAIToken(sessionId),
+    mintToken: hosted ? hostedMintToken : () => mintOpenAIToken(sessionId),
     debug: isDebugRequested(),
   });
 }

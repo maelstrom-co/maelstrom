@@ -101,6 +101,7 @@ const engineConfigSchema = z
     prompt: promptOptionsSchema.optional(),
     history: historySchema.optional(),
     maxRetries: z.number().int().nonnegative().optional(),
+    modelOptions: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 

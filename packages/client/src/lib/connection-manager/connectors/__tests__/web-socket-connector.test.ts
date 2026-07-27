@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from 'bun:test';
 import {
   ActionName,
   decodeClientEnvelope,
@@ -15,11 +23,13 @@ import {
   type SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
+import FakeTimers from '@sinonjs/fake-timers';
 
+import type { ConnectorEvent } from '../../connector.types.js';
 import { WireEngineError } from '../../connector.types.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
-import { type FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
+import { FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
 
 let teardown: (() => void) | null = null;
 
@@ -53,6 +63,60 @@ const buildResponse = (
   executionPlan: [],
   layout: { type: 'grid', positions: [] },
   ...overrides,
+});
+
+describe('WebSocketConnector onOpen hook', () => {
+  test('invokes onOpen with a send function and the connecting sessionId before connect() resolves', async () => {
+    const sent: string[] = [];
+    const onOpen = mock(
+      (send: (data: string) => void, sessionId: SessionId) => {
+        send(JSON.stringify({ type: 'test.hello', sessionId }));
+      },
+    );
+
+    const connector = new WebSocketConnector({ url: 'ws://test', onOpen });
+
+    const connectPromise = connector.connect(SessionId('session-onopen-test'));
+    await Promise.resolve();
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error('FakeWebSocket was not constructed');
+    ws.emitOpen();
+    if (typeof ws.sent[0] === 'string') sent.push(ws.sent[0]);
+    await connectPromise;
+
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0] as string)).toMatchObject({
+      type: 'test.hello',
+      sessionId: 'session-onopen-test',
+    });
+
+    await connector.disconnect();
+  });
+
+  test('does not require onOpen to be provided (default WebSocketConnectorOptions unaffected)', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    await connectAndOpen(connector);
+    await connector.disconnect();
+  });
+
+  test('rejects connect() and closes the socket when onOpen throws', async () => {
+    const onOpen = mock(() => {
+      throw new Error('onOpen boom');
+    });
+    const connector = new WebSocketConnector({ url: 'ws://test', onOpen });
+
+    const connectPromise = connector.connect(
+      SessionId('session-onopen-throws'),
+    );
+    await Promise.resolve();
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error('FakeWebSocket was not constructed');
+    ws.emitOpen();
+
+    await expect(connectPromise).rejects.toThrow('onOpen boom');
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+  });
 });
 
 describe('WebSocketConnector wire contract', () => {
@@ -585,6 +649,378 @@ describe('WebSocketConnector getHistory', () => {
     await expect(connector.getHistory(SessionId('s-1'))).rejects.toThrow(
       'WebSocket not connected',
     );
+  });
+});
+
+describe('WebSocketConnector heartbeatIntervalMs validation', () => {
+  // heartbeatIntervalMs is exported public API (WebSocketConnectorOptions),
+  // and setInterval coerces 0/negative/NaN to an effectively-immediate timer
+  // and never fires at all for Infinity. No current caller can hit this —
+  // the only call site hardcodes 30_000 or undefined — but an external
+  // consumer could, so the constructor rejects it outright rather than
+  // flooding pings at the server or silently never sending any.
+  test.each([
+    0,
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('throws when heartbeatIntervalMs is %p', (value) => {
+    expect(
+      () =>
+        new WebSocketConnector({
+          url: 'ws://test',
+          heartbeatIntervalMs: value,
+        }),
+    ).toThrow(/heartbeatIntervalMs/);
+  });
+
+  test('accepts a valid positive heartbeatIntervalMs', () => {
+    expect(
+      () =>
+        new WebSocketConnector({
+          url: 'ws://test',
+          heartbeatIntervalMs: 30_000,
+        }),
+    ).not.toThrow();
+  });
+
+  test('leaves heartbeatIntervalMs disabled when omitted (undefined remains valid)', () => {
+    expect(() => new WebSocketConnector({ url: 'ws://test' })).not.toThrow();
+  });
+});
+
+describe('WebSocketConnector heartbeat', () => {
+  // Real setTimeout-based waits here would race the heartbeat interval under
+  // CI load (a slow tick could easily fall short of 2 pings in 35ms). Fake
+  // timers make the elapsed time exact regardless of how the host machine is
+  // scheduling this process, mirroring connection-manager.test.ts's own
+  // FakeTimers usage.
+  let clock: ReturnType<typeof FakeTimers.install>;
+
+  beforeEach(() => {
+    clock = FakeTimers.install({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    clock.uninstall();
+  });
+
+  test('sends a frame every heartbeatIntervalMs while connected', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10,
+    });
+    const ws = await connectAndOpen(connector);
+
+    await clock.tickAsync(35);
+    await connector.disconnect();
+
+    const heartbeats = ws.sent.filter(
+      (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
+    );
+    expect(heartbeats.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('stops sending heartbeats after disconnect', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10,
+    });
+    const ws = await connectAndOpen(connector);
+    await connector.disconnect();
+    const countAtDisconnect = ws.sent.length;
+    await clock.tickAsync(35);
+    expect(ws.sent.length).toBe(countAtDisconnect);
+  });
+
+  test('does not start a heartbeat timer when heartbeatIntervalMs is omitted', async () => {
+    // No assertion beyond "doesn't throw" — omission must be a true no-op.
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    await connectAndOpen(connector);
+    await connector.disconnect();
+  });
+
+  test('swallows a heartbeat.pong frame silently when heartbeat is enabled', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10_000,
+    });
+    const ws = await connectAndOpen(connector);
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // Must never reach decodeServerEnvelope: a pong is demo-layer and would
+      // otherwise be logged as an undecodable frame every heartbeat tick.
+      ws.emitJson({ type: 'heartbeat.pong' });
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+      await connector.disconnect();
+    }
+  });
+
+  test('a heartbeat.pong frame follows the normal (undecodable-frame) path when heartbeat is disabled', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      ws.emitJson({ type: 'heartbeat.pong' });
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        '[WebSocketConnector] undecodable frame',
+      );
+    } finally {
+      warnSpy.mockRestore();
+      await connector.disconnect();
+    }
+  });
+
+  test('normal envelopes still flow when heartbeat is enabled', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10_000,
+    });
+    const ws = await connectAndOpen(connector);
+
+    const envelope = buildEnvelope(MessageId('heartbeat-coexist-1'));
+    const promise = connector.process(envelope);
+
+    emitServer(
+      ws,
+      MaelstromResponseMessage({
+        requestId: envelope.id,
+        response: buildResponse(envelope.id, { userMessage: 'ok' }),
+      }),
+    );
+
+    const response = await promise;
+    expect(response.userMessage).toBe('ok');
+    await connector.disconnect();
+  });
+});
+
+describe('WebSocketConnector heartbeat liveness', () => {
+  // The 45ms/60ms budgets below are tight enough relative to the 10ms/2ms
+  // intervals involved that a real timer would flake under CI load — a
+  // single delayed tick either side is enough to send one ping too few/many
+  // or miss the OPEN/CLOSED window entirely. Fake timers make every
+  // interval fire at the exact virtual millisecond it's scheduled for.
+  let clock: ReturnType<typeof FakeTimers.install>;
+
+  beforeEach(() => {
+    clock = FakeTimers.install({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    clock.uninstall();
+  });
+
+  test('closes the socket after consecutive pings go unanswered (half-open tunnel detection)', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10,
+    });
+    const ws = await connectAndOpen(connector);
+
+    // No pongs are ever delivered — this is the exact failure the heartbeat
+    // exists to catch: a tunnel that dies without a TCP FIN reaching the
+    // browser (a Cloudflare edge drop, a vanished container). readyState
+    // stays OPEN and no onclose fires on its own, so nothing but an active
+    // liveness check can notice.
+    await clock.tickAsync(45);
+
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+
+    const heartbeats = ws.sent.filter(
+      (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
+    );
+    // Exactly MAX_MISSED_HEARTBEATS (2) unanswered pings are sent before the
+    // connector gives up and closes rather than pinging into the void
+    // forever.
+    expect(heartbeats.length).toBe(2);
+
+    await connector.disconnect();
+  });
+
+  test('a pong resets the missed-heartbeat counter, so a link that keeps answering is never closed', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10,
+    });
+    const ws = await connectAndOpen(connector);
+
+    // Answer every ping as it arrives. If the counter didn't reset on a
+    // pong, this connection would still be closed after ~30ms (the same
+    // logic as the previous test) — running well past that with the socket
+    // still OPEN proves the reset actually happens.
+    let answered = 0;
+    const responder = setInterval(() => {
+      while (answered < ws.sent.length) {
+        ws.emitJson({ type: 'heartbeat.pong' });
+        answered++;
+      }
+    }, 2);
+
+    await clock.tickAsync(60);
+    clearInterval(responder);
+
+    expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+    const heartbeats = ws.sent.filter(
+      (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
+    );
+    expect(heartbeats.length).toBeGreaterThanOrEqual(4);
+
+    await connector.disconnect();
+  });
+});
+
+describe('WebSocketConnector superseded-socket close guard', () => {
+  test('a close event from a socket the connector has already replaced does not stop the live socket heartbeat or reject its pending requests', async () => {
+    // Fake timers here (rather than the real 25ms wait this used to run):
+    // that budget is only 2.5x the 10ms heartbeat interval, tight enough to
+    // occasionally send zero pings under CI load and fail the
+    // toBeGreaterThanOrEqual(1) assertion below for a reason that has
+    // nothing to do with the guard this test exists to cover.
+    const clock = FakeTimers.install({ shouldAdvanceTime: true });
+    try {
+      const connector = new WebSocketConnector({
+        url: 'ws://test',
+        heartbeatIntervalMs: 10,
+      });
+
+      // First connect — models the socket a disposed Orchestrator instance
+      // leaves behind (e.g. React StrictMode's dev double-mount sharing a
+      // memoized connector between a disposed and replacement instance).
+      const staleConnectPromise = connector.connect(SessionId('session-1'));
+      await Promise.resolve();
+      const staleWs = FakeWebSocket.instances.at(-1);
+      if (!staleWs) throw new Error('stale FakeWebSocket was not constructed');
+      staleWs.emitOpen();
+      await staleConnectPromise;
+
+      // A second connect on the SAME connector, without disconnecting first —
+      // `this.#ws` now points at the live socket, but the stale socket's
+      // onclose handler (closed over `staleWs`, not read back through
+      // `this.#ws`) is still registered.
+      const liveWs = await connectAndOpen(connector);
+
+      const events: ConnectorEvent[] = [];
+      connector.subscribe((e) => events.push(e));
+
+      const envelope = buildEnvelope(MessageId('live-pending'));
+      const pending = connector.process(envelope);
+
+      // The superseded socket's close event arrives late.
+      staleWs.emitClose(1006, '');
+
+      expect(events).toHaveLength(0);
+
+      // The live socket's heartbeat must still be running — a superseded
+      // socket's close must not be able to clear it.
+      await clock.tickAsync(25);
+      const heartbeats = liveWs.sent.filter(
+        (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
+      );
+      expect(heartbeats.length).toBeGreaterThanOrEqual(1);
+
+      // The live socket's pending request must not have been rejected either.
+      emitServer(
+        liveWs,
+        MaelstromResponseMessage({
+          requestId: envelope.id,
+          response: buildResponse(envelope.id, { userMessage: 'still alive' }),
+        }),
+      );
+      const response = await pending;
+      expect(response.userMessage).toBe('still alive');
+
+      await connector.disconnect();
+    } finally {
+      clock.uninstall();
+    }
+  });
+});
+
+describe('WebSocketConnector disconnected retryable flag', () => {
+  test('a close code 1008 (policy violation) is reported as non-retryable', async () => {
+    // RFC 6455: 1008 means the server is deliberately rejecting this client.
+    // ws-server.ts uses it both for a rejected handshake and for an evicted
+    // session — in both cases reconnecting with the same session id would
+    // just be rejected again, so ConnectionManager must not auto-reconnect.
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const events: ConnectorEvent[] = [];
+    connector.subscribe((e) => events.push(e));
+
+    ws.emitClose(1008, 'session evicted');
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: 'disconnected',
+      clean: false,
+      message: 'session evicted',
+      retryable: false,
+    });
+  });
+
+  test('an abnormal closure (e.g. 1006, proxy/container drop) leaves retryable unset so auto-reconnect still applies', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const events: ConnectorEvent[] = [];
+    connector.subscribe((e) => events.push(e));
+
+    ws.emitClose(1006, '');
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'disconnected', clean: false });
+    expect((events[0] as { retryable?: boolean }).retryable).toBeUndefined();
+  });
+
+  test('a clean close (code 1000) leaves retryable unset (clean already prevents auto-reconnect)', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const events: ConnectorEvent[] = [];
+    connector.subscribe((e) => events.push(e));
+
+    ws.emitClose(1000, 'bye');
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'disconnected', clean: true });
+    expect((events[0] as { retryable?: boolean }).retryable).toBeUndefined();
+  });
+});
+
+describe('WebSocketConnector disconnect() close notification', () => {
+  test("a belated close event from disconnect()'s own socket still reaches subscribers as a clean disconnect", async () => {
+    // Regression coverage for a stale-close guard that compared against
+    // `#ws` identity: disconnect() nulls `#ws` synchronously, before the
+    // browser's real close event for that same socket fires, so comparing
+    // against `#ws` swallowed every manual disconnect's notification too —
+    // not just a genuinely superseded socket's belated close (the case the
+    // "superseded-socket close guard" suite above covers).
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const events: ConnectorEvent[] = [];
+    connector.subscribe((e) => events.push(e));
+
+    await connector.disconnect();
+    // `clean: true` below is only meaningful if disconnect() actually asks
+    // for 1000: a bare close() would have the browser report 1005, and this
+    // test would be asserting a clean disconnect that production never
+    // produces. emitClose() fabricates whatever code it's given, so the
+    // request has to be checked separately from the reply.
+    expect(ws.closeCodes).toEqual([1000]);
+    // The real WebSocket API fires `close` asynchronously after `.close()`
+    // is called — FakeWebSocket mirrors that gap by requiring an explicit
+    // emitClose() rather than firing it inside close() itself.
+    ws.emitClose(1000, 'client disconnect');
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'disconnected', clean: true });
   });
 });
 

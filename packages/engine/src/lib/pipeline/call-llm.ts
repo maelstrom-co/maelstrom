@@ -33,6 +33,7 @@ export async function callLLM(
   outputSchema: typeof GridResponseSchema | typeof TilingResponseSchema,
   historyMessages: readonly LLMContextMessage[],
   signal?: AbortSignal,
+  modelOptions?: EngineConfig['modelOptions'],
 ): Promise<Result<LLMOutput, EngineError>> {
   const controller = new AbortController();
   const effectiveSignal = signal
@@ -56,6 +57,7 @@ export async function callLLM(
       outputSchema,
       stream: false,
       abortController: controller,
+      ...(modelOptions !== undefined && { modelOptions }),
     });
     // @tanstack/ai infers `chat()`'s output from the Zod schema's INPUT type
     // (pre-transform), but at runtime the schema's `.transform(<Brand>)` calls

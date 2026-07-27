@@ -2,11 +2,15 @@ import {
   RealtimeVoiceError,
   type RealtimeVoiceErrorCode,
 } from '@maelstrom-co/realtime';
+import { isHosted } from '../lib/hosted-mode';
 import { m } from '../lib/maelstrom';
 
 const CONNECTION_DROPPED_MESSAGE =
   'Voice connection dropped. Click the orb to reconnect.';
 
+// Local mode mints from a server-held OPENAI_API_KEY, so a mint failure
+// there really is a server misconfiguration and this copy is the only thing
+// that explains it.
 const MESSAGE_BY_CODE: Partial<Record<RealtimeVoiceErrorCode, string>> = {
   MIC_PERMISSION_DENIED:
     "Microphone access is blocked. Allow the mic in your browser's site settings, then click the orb to retry.",
@@ -30,6 +34,13 @@ export function VoiceErrorNote() {
   if (state !== 'error') return null;
 
   const code = error instanceof RealtimeVoiceError ? error.code : null;
+
+  // A hosted mint failure reopens the key drawer carrying the provider's own
+  // reason. Rendering a toast as well would tell the visitor to check a
+  // drawer that is already open in front of them, so the drawer owns this
+  // one alone.
+  if (code === 'TOKEN_MINT_FAILED' && isHosted()) return null;
+
   const message = (code && MESSAGE_BY_CODE[code]) ?? FALLBACK_MESSAGE;
 
   return (

@@ -168,6 +168,7 @@ export function createEngine(config: EngineConfig): Engine {
     prompt: promptOptions,
     history: historyConfig,
     maxRetries,
+    modelOptions,
   } = resolveConfig(validated);
   const history: HistoryManager | undefined = historyConfig
     ? createHistoryManager(historyConfig)
@@ -252,6 +253,7 @@ export function createEngine(config: EngineConfig): Engine {
         outputSchema,
         historyContext.value,
         attemptSignal,
+        modelOptions,
       );
       if (isErr(llmResult)) {
         logEngineError(logger, message.id, llmResult.error);

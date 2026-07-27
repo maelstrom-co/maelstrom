@@ -4,6 +4,7 @@ import {
   mintFailureHttpStatus,
 } from '@maelstrom-co/realtime-server';
 import { createFileRoute } from '@tanstack/react-router';
+import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
 
 /**
  * Mints ephemeral OpenAI realtime client secrets on behalf of the browser.
@@ -14,7 +15,7 @@ import { createFileRoute } from '@tanstack/react-router';
  */
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY ?? '',
-  model: process.env.OPENAI_REALTIME_MODEL?.trim() || 'gpt-realtime-2',
+  model: process.env.OPENAI_REALTIME_MODEL?.trim() || DEFAULT_REALTIME_MODEL,
 });
 
 export async function handleRealtimeTokenRequest(

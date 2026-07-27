@@ -301,6 +301,9 @@ describe('ConnectionManager', () => {
         maxDelayMs: 100,
         backoffMultiplier: 1,
         circuitBreakerTimeoutMs: 5000,
+        // Small threshold so this test's tickAsync(50) comfortably covers
+        // both the reconnect delay and the stability window.
+        stabilityThresholdMs: 20,
       });
 
       await manager.connect();
@@ -320,6 +323,177 @@ describe('ConnectionManager', () => {
 
       expect(manager.store.state.connectionStatus).toBe('connected');
       expect(manager.store.state.connectionRetryCount).toBe(0);
+    });
+
+    it('does not reset connectionRetryCount immediately on reconnect — only after the connection survives stabilityThresholdMs', async () => {
+      // This is the core of the fix: connect() resolving only proves the
+      // socket opened, not that it's usable. Resetting the counter
+      // immediately (the pre-fix behavior) is what let a connection that
+      // dies right after opening retry forever without ever tripping the
+      // circuit breaker.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 5,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+        stabilityThresholdMs: 1000,
+      });
+
+      await manager.connect();
+
+      mockConnector.triggerEvent({
+        type: 'disconnected',
+        clean: false,
+        message: 'Dropped',
+      });
+      // Let the scheduled reconnect fire, well before stabilityThresholdMs.
+      await clock.tickAsync(10);
+
+      expect(manager.store.state.connectionStatus).toBe('connected');
+      // Reconnected, but not yet "stable" — the budget must still reflect
+      // the attempt it took to get here.
+      expect(manager.store.state.connectionRetryCount).toBe(1);
+
+      // Now let the stability window elapse with no further disconnects.
+      await clock.tickAsync(1000);
+      expect(manager.store.state.connectionRetryCount).toBe(0);
+    });
+
+    it('keeps the retry budget climbing across repeated immediate disconnects and opens the circuit breaker (never resets, since stability is never reached)', async () => {
+      // Reproduces the review's exact failure mode: a socket that opens and
+      // is torn down again right away (e.g. a session engine that fails to
+      // construct) must count against maxRetries like any other failure —
+      // not silently reset the budget on every "successful" open.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+        stabilityThresholdMs: 1000,
+      });
+
+      await manager.connect();
+
+      for (let i = 0; i < 3; i++) {
+        mockConnector.triggerEvent({
+          type: 'disconnected',
+          clean: false,
+          message: 'Dropped immediately',
+        });
+        // Far shorter than stabilityThresholdMs — the reconnect fires, but
+        // the connection never proves stable before the next drop.
+        await clock.tickAsync(10);
+      }
+
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
+      expect(manager.store.state.connectionStatus).toBe('error');
+    });
+
+    it('recovers automatically once a flaky-but-usable link stops dropping: the breaker trips, then the automatic half-open probe succeeds and closes it again', async () => {
+      // Continues the "keeps the retry budget climbing" scenario above with
+      // the same repeated-immediate-drop pattern (proving the stability
+      // guard still trips the breaker), but models a link that is flaky —
+      // not permanently dead. Recovery has to happen with no external
+      // caller involved: nothing subscribes to `circuit_half_open` anywhere
+      // in the codebase, and `provider.tsx` calls `connect()` exactly once
+      // on mount. If the half-open transition doesn't self-drive a
+      // reconnect, this link would stay wedged in 'error' forever despite
+      // being perfectly usable again.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 1000,
+        stabilityThresholdMs: 1000,
+      });
+
+      await manager.connect();
+      expect(manager.store.state.connectionStatus).toBe('connected');
+
+      for (let i = 0; i < 3; i++) {
+        mockConnector.triggerEvent({
+          type: 'disconnected',
+          clean: false,
+          message: 'Dropped immediately',
+        });
+        await clock.tickAsync(10);
+      }
+
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
+      expect(manager.store.state.connectionStatus).toBe('error');
+
+      // From here on the link behaves — no more drops. The breaker must
+      // recover on its own once circuitBreakerTimeoutMs elapses.
+      await clock.tickAsync(1000);
+
+      expect(manager.store.state.circuitBreakerStatus).toBe('closed');
+      expect(manager.store.state.connectionStatus).toBe('connected');
+
+      // The recovered connection stays up past stabilityThresholdMs too, so
+      // the retry budget is fully restored, not just the breaker closed.
+      await clock.tickAsync(1000);
+      expect(manager.store.state.connectionRetryCount).toBe(0);
+    });
+
+    it('treats a retryable:false disconnected event as terminal: opens the circuit breaker instead of auto-reconnecting', async () => {
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 5,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+      });
+
+      await manager.connect();
+      const openedPayloads: Array<{
+        resetAfterMs: number;
+        terminal?: boolean;
+      }> = [];
+      manager.events.on('circuit_opened', (e) => {
+        openedPayloads.push(e);
+      });
+      let halfOpened = false;
+      manager.events.on('circuit_half_open', () => {
+        halfOpened = true;
+      });
+
+      mockConnector.connect = mock(() => Promise.resolve());
+
+      // A close code 1008 (capacity refusal) — WebSocketConnector reports
+      // this as retryable: false. Reconnecting with the same session is
+      // refused again, so nothing may retry on the visitor's behalf.
+      mockConnector.triggerEvent({
+        type: 'disconnected',
+        clean: false,
+        retryable: false,
+        message: 'Playground is at capacity — reload to start a new session.',
+      });
+
+      // Well PAST circuitBreakerTimeoutMs, not short of it. The breaker now
+      // drives its own half-open probe, so stopping before the timeout would
+      // test nothing: a probe fired here would reconnect into the same
+      // refusal and loop forever at one attempt per timeout window. Terminal
+      // has to mean terminal even after the window elapses.
+      await clock.tickAsync(5000 * 4);
+
+      expect(mockConnector.connect).not.toHaveBeenCalled();
+      expect(halfOpened).toBe(false);
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
+      expect(manager.store.state.connectionStatus).toBe('error');
+      expect(manager.store.state.connectionError?.message).toBe(
+        'Playground is at capacity — reload to start a new session.',
+      );
+      expect(openedPayloads).toHaveLength(1);
+      // Flagged so a consumer can tell "will recover on a timer" from "needs
+      // a reload" without waiting out a reset that never comes.
+      expect(openedPayloads[0]?.terminal).toBe(true);
     });
 
     it('should pass the same sessionId to connector.connect() on auto-reconnect', async () => {
@@ -601,6 +775,51 @@ describe('ConnectionManager', () => {
       ]);
     });
 
+    it('resets the retry budget on a deliberate connect() even when a stale count survived from a previous failed cycle', async () => {
+      // Reproduces the gap: a successful connect() no longer resets
+      // connectionRetryCount immediately (that now only happens after
+      // stabilityThresholdMs — see the "auto-reconnect" describe block).
+      // The deliberate, user-initiated connect() must not inherit that
+      // leftover budget on its own next call, or it can trip the circuit
+      // breaker on far fewer than maxRetries failures.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 5,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+        // Long enough that it never fires during this test, so the delayed
+        // stability reset can't be the thing that zeroes the counter.
+        stabilityThresholdMs: 5000,
+      });
+
+      // First cycle: two failures before succeeding on the 3rd attempt.
+      // Leaves connectionRetryCount at 2 in the store — success doesn't
+      // clear it, only the (never-fired) stability timer would.
+      let firstCycleAttempts = 0;
+      mockConnector.connect = mock(() => {
+        firstCycleAttempts++;
+        if (firstCycleAttempts < 3) return Promise.reject(new Error('flaky'));
+        return Promise.resolve();
+      });
+
+      const firstConnect = manager.connect();
+      await clock.tickAsync(20);
+      await firstConnect;
+
+      expect(manager.store.state.connectionRetryCount).toBe(2);
+
+      // Deliberate reconnect, well before stabilityThresholdMs elapses.
+      // Succeeding on the very first attempt means nothing else would touch
+      // connectionRetryCount during this call — so if connect() itself
+      // doesn't reset it, the stale 2 leaks through untouched.
+      mockConnector.connect = mock(() => Promise.resolve());
+      await manager.connect();
+
+      expect(manager.store.state.connectionRetryCount).toBe(0);
+    });
+
     it('should reset retry count on disconnect', async () => {
       const error = new Error('Connection failed');
       mockConnector.connect = mock(() => Promise.reject(error));
@@ -869,48 +1088,127 @@ describe('ConnectionManager', () => {
       expect(manager.connect()).rejects.toThrow('Circuit breaker is open');
     });
 
-    it('should transition to half_open after timeout', async () => {
-      const error = new Error('Connection failed');
-      mockConnector.connect = mock(() => Promise.reject(error));
+    it('transitions to half_open after timeout and immediately probes automatically — closing the circuit when the probe succeeds', async () => {
+      // circuitBreakerTimeoutMs: 0 (this describe's default) makes real-timer
+      // + real-wait timing indeterminate once the probe is automatic (the
+      // reopen-and-reschedule cycle can flap faster than a fixed real-time
+      // wait can reliably observe), so this test uses its own manager with a
+      // non-zero timeout and drives time deterministically via clock.tickAsync.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 2,
+        initialDelayMs: 0,
+        maxDelayMs: 0,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 1000,
+      });
 
-      expect(manager.connect()).rejects.toThrow();
-      expect(manager.store.state.circuitBreakerStatus).toBe('open');
-
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      expect(manager.store.state.circuitBreakerStatus).toBe('half_open');
-    });
-
-    it('should close circuit on successful connection in half_open state', async () => {
-      const error = new Error('Connection failed');
       let attempts = 0;
       mockConnector.connect = mock(() => {
         attempts++;
-        if (attempts < 3) return Promise.reject(error);
+        // The first two attempts exhaust maxRetries and open the breaker;
+        // the third — the automatic half-open probe — succeeds.
+        if (attempts <= 2)
+          return Promise.reject(new Error('Connection failed'));
         return Promise.resolve();
       });
 
-      expect(manager.connect()).rejects.toThrow();
+      const halfOpenEvents: Record<string, never>[] = [];
+      manager.events.on('circuit_half_open', (e) => halfOpenEvents.push(e));
 
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      expect(manager.store.state.circuitBreakerStatus).toBe('half_open');
+      await manager.connect().catch(() => {});
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
+      expect(attempts).toBe(2);
 
-      await manager.connect();
+      // No manual manager.connect() call anywhere below — recovery must be
+      // automatic, or the client is wedged until a page reload (circuit_half_open
+      // has no subscriber anywhere in the codebase, and Provider only calls
+      // connect() once, on mount).
+      await clock.tickAsync(1000);
 
+      expect(halfOpenEvents).toHaveLength(1);
+      expect(attempts).toBe(3);
       expect(manager.store.state.circuitBreakerStatus).toBe('closed');
+      expect(manager.store.state.connectionStatus).toBe('connected');
     });
 
-    it('should reopen circuit on failure in half_open state', async () => {
-      const error = new Error('Connection failed');
-      mockConnector.connect = mock(() => Promise.reject(error));
+    it('ignores a half-open probe that settles after dispose() instead of resurrecting a disposed manager', async () => {
+      // The probe is fired from a timer, so dispose() can land while its
+      // connect() is still in flight — a React StrictMode unmount does
+      // exactly this. The guard at the top of the probe only covers the
+      // synchronous entry, so without a second check in the continuations a
+      // late success re-subscribes to the connector and arms a stability
+      // timer that dispose()'s cleanup has already run past, and a late
+      // failure schedules probes forever against a dead manager.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 2,
+        initialDelayMs: 0,
+        maxDelayMs: 0,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 1000,
+      });
 
-      expect(manager.connect()).rejects.toThrow();
+      let attempts = 0;
+      let releaseProbe: () => void = () => {};
+      mockConnector.connect = mock(() => {
+        attempts++;
+        if (attempts <= 2)
+          return Promise.reject(new Error('Connection failed'));
+        // Hangs until the test releases it, pinning the probe in flight
+        // across the dispose() below.
+        return new Promise<void>((resolve) => {
+          releaseProbe = resolve;
+        });
+      });
 
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      expect(manager.store.state.circuitBreakerStatus).toBe('half_open');
+      await manager.connect().catch(() => {});
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
 
-      expect(manager.connect()).rejects.toThrow();
+      await clock.tickAsync(1000);
+      expect(attempts).toBe(3);
 
+      await manager.dispose();
+      releaseProbe();
+      await clock.tickAsync(0);
+
+      expect(manager.store.state.connectionStatus).not.toBe('connected');
+
+      // Nothing may be left armed: another full breaker window must not
+      // produce a further probe.
+      await clock.tickAsync(5000);
+      expect(attempts).toBe(3);
+    });
+
+    it('reopens the circuit when the half-open probe fails, and probes again once per circuitBreakerTimeoutMs — bounded, not a tight loop', async () => {
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 2,
+        initialDelayMs: 0,
+        maxDelayMs: 0,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 1000,
+      });
+
+      let attempts = 0;
+      mockConnector.connect = mock(() => {
+        attempts++;
+        return Promise.reject(new Error('Connection failed'));
+      });
+
+      await manager.connect().catch(() => {});
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
+      expect(attempts).toBe(2);
+
+      // A link that never recovers must still only be probed once per
+      // circuitBreakerTimeoutMs window — the breaker backs off, it doesn't
+      // hammer the connector.
+      await clock.tickAsync(1000);
+      expect(attempts).toBe(3);
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
+
+      await clock.tickAsync(1000);
+      expect(attempts).toBe(4);
       expect(manager.store.state.circuitBreakerStatus).toBe('open');
     });
 
@@ -932,6 +1230,24 @@ describe('ConnectionManager', () => {
       await manager.connect();
 
       expect(circuitClosed).toBe(true);
+    });
+  });
+
+  describe('stability reset teardown', () => {
+    it('clears the pending stability-reset timer on disconnect() so it cannot leak past teardown', async () => {
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        stabilityThresholdMs: 5000,
+      });
+
+      await manager.connect();
+      // The stability-reset timer scheduled by the successful connect above
+      // is the only pending timer at this point.
+      expect(clock.countTimers()).toBeGreaterThan(0);
+
+      await manager.disconnect();
+
+      expect(clock.countTimers()).toBe(0);
     });
   });
 

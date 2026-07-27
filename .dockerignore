@@ -1,0 +1,33 @@
+# Build context for apps/demo/Dockerfile is the repo root, and that Dockerfile
+# copies whole directories (`COPY packages packages`, `COPY apps/demo apps/demo`).
+# Without these excludes the image would vary with whatever happens to be sitting
+# in a developer's working tree, so a locally built image and the one CI builds
+# would not be the same artifact.
+#
+# Patterns are matched from the context root, so nested matches need `**/` --
+# a bare `node_modules` would exclude only the top-level one and still copy in
+# apps/demo/node_modules and packages/*/node_modules.
+
+# Installed in-image by `bun install`; copying host trees in would both bloat the
+# image and shadow that install with symlinks pointing at a store that isn't there.
+**/node_modules
+
+# The container runs TypeScript straight from packages/*/src via the CMD's
+# `--conditions @maelstrom-co/source`, so no build output belongs in it.
+**/dist
+**/.output
+**/.nx
+**/.wrangler
+**/*.tsbuildinfo
+
+# Nothing in the image reads these: the container takes HOSTED=1 from ENV and
+# the visitor's key over the playground.hello handshake. VITE_* vars are
+# build-time for the client bundle, which CI builds outside this image.
+**/.env
+**/.env.*
+
+.git
+.jj
+**/coverage
+**/*.log
+**/.DS_Store

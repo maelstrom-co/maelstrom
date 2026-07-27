@@ -26,7 +26,18 @@ export type ConnectionManagerEvents = {
   };
   connection_attempt: { attempt: number; maxAttempts: number };
   connection_error: { error: Error; attempt: number };
-  circuit_opened: { resetAfterMs: number };
+  /**
+   * The breaker opened. `resetAfterMs` is when the half-open probe is due —
+   * unless `terminal` is true, in which case no probe is scheduled and
+   * `resetAfterMs` is not honoured.
+   *
+   * `terminal` means the server refused this client outright (a
+   * `retryable: false` disconnect, e.g. RFC 6455 close code 1008), so
+   * reconnecting on the same session cannot succeed and would only add load.
+   * Recovery there is an explicit user action — typically a reload, which
+   * mints a fresh session — not a timer.
+   */
+  circuit_opened: { resetAfterMs: number; terminal?: boolean };
   circuit_closed: Record<string, never>;
   circuit_half_open: Record<string, never>;
 };
@@ -60,13 +71,18 @@ export class ConnectionManager {
   readonly #emitter = new TypedEmitter<ConnectionManagerEvents>();
   readonly events: EventSubscriber<ConnectionManagerEvents> = this.#emitter;
   #connector: EngineConnector;
-  #options: ConnectionOptions;
+  // Required<ConnectionOptions>, not the public ConnectionOptions: every field
+  // is guaranteed populated by the DEFAULT_CONNECTION_OPTIONS merge below, and
+  // the class body should see that guarantee in the type rather than treating
+  // an optional public field (e.g. stabilityThresholdMs) as possibly absent.
+  #options: Required<ConnectionOptions>;
   #sessionId: SessionId;
   /** Single unsubscribe for the connector's event stream. */
   #unsubscribeConnector: Unsubscribe | null = null;
   #sleepTimeoutId: ReturnType<typeof setTimeout> | null = null;
   #reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null;
   #circuitBreakerTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  #stabilityTimeoutId: ReturnType<typeof setTimeout> | null = null;
   #isDisposed = false;
   #isIntentionalDisconnect = false;
   readonly #logger: Logger;
@@ -87,6 +103,14 @@ export class ConnectionManager {
    *
    * If the circuit breaker is open, this will throw an error immediately.
    * Otherwise, it will attempt to connect with exponential backoff retry.
+   *
+   * This is the deliberate, user-initiated entry point, so it always starts
+   * with a full `maxRetries` budget: `connectionRetryCount` is reset to 0
+   * here regardless of what a previous connect/disconnect cycle left behind.
+   * (The automatic-reconnect path is different — it only resets the count
+   * after a connection survives `stabilityThresholdMs`, so a server that
+   * accepts-then-immediately-closes still exhausts the budget. That delayed
+   * reset is unaffected by this one.)
    */
   async connect(): Promise<void> {
     if (this.#isDisposed) {
@@ -100,6 +124,10 @@ export class ConnectionManager {
     this.#logger.info('Connecting...');
     this.#clearTimeouts();
     this.#isIntentionalDisconnect = false;
+    this.store.setState((state) => ({
+      ...state,
+      connectionRetryCount: 0,
+    }));
 
     await this.#connectWithRetries();
   }
@@ -172,13 +200,13 @@ export class ConnectionManager {
 
         this.store.setState((state) => ({
           ...state,
-          connectionRetryCount: 0,
           circuitBreakerStatus: 'closed',
           connectionError: null,
           lastConnectedAt: Date.now(),
         }));
 
         this.#emitter.emit('circuit_closed', {} as Record<string, never>);
+        this.#scheduleStabilityReset();
 
         return;
       } catch (error) {
@@ -232,19 +260,57 @@ export class ConnectionManager {
 
     this.#unsubscribeConnector = this.#connector.subscribe((event) => {
       switch (event.type) {
-        case 'disconnected':
+        case 'disconnected': {
+          // A connection that dies before proving stable must not have
+          // already reset the retry budget out from under it — cancel any
+          // pending reset before deciding what to do next.
+          this.#cancelStabilityReset();
           this.#setConnectionStatus('disconnected');
           this.store.setState((state) => ({
             ...state,
             lastDisconnectedAt: Date.now(),
           }));
-          if (!this.#isIntentionalDisconnect && !event.clean) {
+          if (this.#isIntentionalDisconnect) break;
+
+          if (event.retryable === false) {
+            // The connector has already determined retrying is pointless
+            // (e.g. RFC 6455 close code 1008 — the server is rejecting this
+            // client outright). Skip the retry budget entirely and open the
+            // breaker permanently.
+            //
+            // Deliberately does NOT schedule a reset: that would arm the
+            // half-open probe, and a probe here reconnects into the same
+            // refusal — re-sending the handshake against a server that just
+            // said "do not come back", getting closed again, reopening, and
+            // probing again forever. A slow loop is still a loop, and it is
+            // exactly the load the refusal exists to shed. The other open
+            // paths (retry budget exhausted, probe failed) DO schedule one,
+            // because those close for reasons that clear on their own.
+            this.#logger.warn(
+              'Non-retryable disconnect, opening circuit breaker permanently',
+              event.message,
+            );
+            this.#setConnectionStatus('error');
+            this.store.setState((state) => ({
+              ...state,
+              connectionError: new Error(event.message),
+              circuitBreakerStatus: 'open',
+            }));
+            this.#emitter.emit('circuit_opened', {
+              resetAfterMs: this.#options.circuitBreakerTimeoutMs,
+              terminal: true,
+            });
+            break;
+          }
+
+          if (!event.clean) {
             this.#logger.warn(
               'Unexpected disconnect, attempting auto-reconnect',
             );
             this.#handleAutoReconnect();
           }
           break;
+        }
 
         case 'error':
           this.#setConnectionStatus('error');
@@ -300,13 +366,13 @@ export class ConnectionManager {
 
         this.store.setState((state) => ({
           ...state,
-          connectionRetryCount: 0,
           circuitBreakerStatus: 'closed',
           connectionError: null,
           lastConnectedAt: Date.now(),
         }));
 
         this.#emitter.emit('circuit_closed', {} as Record<string, never>);
+        this.#scheduleStabilityReset();
       } catch (error) {
         const err = toError(error);
 
@@ -365,7 +431,38 @@ export class ConnectionManager {
     });
   }
 
+  /**
+   * Schedules the retry budget reset once the connection has stayed up for
+   * `stabilityThresholdMs` without dropping. Called on every successful
+   * connect (initial or reconnect); `#cancelStabilityReset` is called first
+   * to guarantee at most one pending reset regardless of how many times a
+   * connection cycles through connect/disconnect.
+   */
+  #scheduleStabilityReset(): void {
+    this.#cancelStabilityReset();
+    this.#stabilityTimeoutId = setTimeout(() => {
+      this.#stabilityTimeoutId = null;
+      this.store.setState((state) => ({
+        ...state,
+        connectionRetryCount: 0,
+      }));
+    }, this.#options.stabilityThresholdMs);
+  }
+
+  #cancelStabilityReset(): void {
+    if (this.#stabilityTimeoutId) {
+      clearTimeout(this.#stabilityTimeoutId);
+      this.#stabilityTimeoutId = null;
+    }
+  }
+
   #scheduleCircuitBreakerReset(): void {
+    // Guards against leaking a previous timer if this is called more than
+    // once while the breaker is already open (e.g. two non-retryable
+    // disconnects back to back).
+    if (this.#circuitBreakerTimeoutId) {
+      clearTimeout(this.#circuitBreakerTimeoutId);
+    }
     this.#logger.debug(
       `Circuit breaker will reset in ${this.#options.circuitBreakerTimeoutMs}ms`,
     );
@@ -377,8 +474,75 @@ export class ConnectionManager {
           circuitBreakerStatus: 'half_open',
         }));
         this.#emitter.emit('circuit_half_open', {} as Record<string, never>);
+        this.#attemptHalfOpenProbe();
       }
     }, this.#options.circuitBreakerTimeoutMs);
+  }
+
+  /**
+   * Half-open exists to mean "try again now" — nothing outside this class
+   * ever subscribes to `circuit_half_open` to drive that retry (there is no
+   * such subscriber anywhere in the codebase, and `provider.tsx` calls
+   * `connect()` exactly once, on mount), so without this the breaker opening
+   * once is terminal: the UI sticks on `error` until a manual page reload.
+   * This makes the transition self-driving — a single probe connection,
+   * closing the breaker on success or reopening (and rescheduling another
+   * `circuitBreakerTimeoutMs`-later probe) on failure — so the breaker
+   * behaves like backoff rather than a dead end.
+   */
+  #attemptHalfOpenProbe(): void {
+    if (this.#isDisposed) return;
+
+    this.#setConnectionStatus('connecting');
+    this.#emitter.emit('connection_attempt', { attempt: 1, maxAttempts: 1 });
+
+    this.#connector
+      .connect(this.#sessionId)
+      .then(() => {
+        // The probe outlives a dispose() that lands mid-flight: the guard at
+        // the top of this method only covers the synchronous entry. Without
+        // this, a late success re-subscribes to the connector and arms a
+        // stability timer on a manager whose dispose() has already run its
+        // cleanup, so neither is ever torn down.
+        if (this.#isDisposed) return;
+
+        this.#logger.info('Half-open probe succeeded, closing circuit');
+        this.#setConnectionStatus('connected');
+        this.#setupConnectorSubscription();
+
+        this.store.setState((state) => ({
+          ...state,
+          circuitBreakerStatus: 'closed',
+          connectionError: null,
+          lastConnectedAt: Date.now(),
+        }));
+
+        this.#emitter.emit('circuit_closed', {} as Record<string, never>);
+        this.#scheduleStabilityReset();
+      })
+      .catch((error: unknown) => {
+        // Same reason as the success path: a late failure would otherwise
+        // reschedule the next probe indefinitely on a disposed manager.
+        if (this.#isDisposed) return;
+
+        const err = toError(error);
+        this.#logger.warn(
+          'Half-open probe failed, reopening circuit',
+          err.message,
+        );
+
+        this.#emitter.emit('connection_error', { error: err, attempt: 1 });
+        this.#setConnectionStatus('error');
+        this.store.setState((state) => ({
+          ...state,
+          connectionError: err,
+          circuitBreakerStatus: 'open',
+        }));
+        this.#emitter.emit('circuit_opened', {
+          resetAfterMs: this.#options.circuitBreakerTimeoutMs,
+        });
+        this.#scheduleCircuitBreakerReset();
+      });
   }
 
   #clearTimeouts(): void {
@@ -394,5 +558,6 @@ export class ConnectionManager {
       clearTimeout(this.#circuitBreakerTimeoutId);
       this.#circuitBreakerTimeoutId = null;
     }
+    this.#cancelStabilityReset();
   }
 }
