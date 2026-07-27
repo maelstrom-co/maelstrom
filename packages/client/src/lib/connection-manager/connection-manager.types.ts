@@ -17,19 +17,25 @@ export interface ConnectionOptions {
    * the counter on every cycle and retry forever without ever exhausting
    * `maxRetries` or opening the circuit breaker. If the connection drops
    * before this elapses, the pending reset is cancelled and the retry count
-   * keeps climbing from where it left off.
+   * keeps climbing from where it left off — a reconnect that doesn't survive
+   * the window is treated as having failed, not recovered, so it still
+   * counts against the retry budget.
    *
-   * Default (5000ms) is chosen against the default backoff schedule
-   * (`initialDelayMs: 1000`, `backoffMultiplier: 2`): the first three
-   * reconnect delays sum to ~1000+2000+4000=7000ms, so a connection that
-   * keeps dying immediately after opening never accumulates 5s of uptime
-   * between drops and the counter never resets — while a connection that
-   * genuinely stays up for 5s is a reasonable bar for "stable."
+   * Optional — defaults to 5000ms, chosen against the default backoff
+   * schedule (`initialDelayMs: 1000`, `backoffMultiplier: 2`): the first
+   * three reconnect delays sum to ~1000+2000+4000=7000ms, so a connection
+   * that keeps dying immediately after opening never accumulates 5s of
+   * uptime between drops and the counter never resets — while a connection
+   * that genuinely stays up for 5s is a reasonable bar for "stable."
    */
-  stabilityThresholdMs: number;
+  stabilityThresholdMs?: number;
 }
 
-export const DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = {
+// Required<ConnectionOptions>, not the public ConnectionOptions: every field
+// below has a concrete value, and ConnectionManager's internal #options field
+// relies on that (see its own Required<ConnectionOptions> annotation) rather
+// than re-inheriting stabilityThresholdMs's public optionality.
+export const DEFAULT_CONNECTION_OPTIONS: Required<ConnectionOptions> = {
   maxRetries: 5,
   initialDelayMs: 1000,
   maxDelayMs: 30000,

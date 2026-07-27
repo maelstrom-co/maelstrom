@@ -10,6 +10,13 @@ export interface KeyDrawerProps {
   readonly errorMessage?: string | null;
 }
 
+// Real OpenAI keys run 40+ characters, so this floor can never reject a
+// genuine key. It exists to catch the case a too-short string still reaches
+// the server: the hello-gate redaction there matches by exact substring, so
+// a 1-3 char "key" rewrites unrelated wire content (e.g. "executionPlan")
+// and the client can no longer decode any reply.
+const MIN_API_KEY_LENGTH = 20;
+
 /**
  * BYOK key entry drawer, shown before the first Send/mic press in hosted
  * mode when no visitor key is on hand, or on demand via the header "API
@@ -30,20 +37,26 @@ export function KeyDrawer({
   const storedKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const trimmedApiKey = apiKey.trim();
+  const isTooShort =
+    trimmedApiKey.length > 0 && trimmedApiKey.length < MIN_API_KEY_LENGTH;
+
   const handleSave = () => {
-    if (!apiKey.trim()) return;
-    onSave(apiKey.trim(), remember);
+    if (trimmedApiKey.length < MIN_API_KEY_LENGTH) return;
+    onSave(trimmedApiKey, remember);
     setApiKey('');
     setRemember(false);
   };
 
   const handleClose = () => {
     setApiKey('');
+    setRemember(false);
     onClose();
   };
 
   const handleRemove = () => {
     setApiKey('');
+    setRemember(false);
     onRemove?.();
   };
 
@@ -103,12 +116,19 @@ export function KeyDrawer({
           onChange={(e) => setApiKey(e.target.value)}
           placeholder={storedKey ? 'saved on this device' : 'sk-...'}
           autoComplete="off"
+          aria-describedby={isTooShort ? 'playground-api-key-hint' : undefined}
           className="mt-1 w-full rounded-md border px-3 py-2 text-sm text-ink"
           style={{
             borderColor: 'var(--line-2)',
             background: 'rgba(255, 255, 255, 0.03)',
           }}
         />
+        {isTooShort && (
+          <p id="playground-api-key-hint" className="mt-1 text-xs text-pink">
+            API keys are at least {MIN_API_KEY_LENGTH} characters — check you
+            pasted the whole thing.
+          </p>
+        )}
 
         <label
           className="mt-3 flex items-center gap-2 text-sm text-ink-2"
@@ -124,7 +144,9 @@ export function KeyDrawer({
         </label>
 
         <p className="mt-3 text-sm text-ink-3">
-          Your key goes straight to OpenAI — it never reaches our servers.
+          Voice connects to OpenAI directly from your browser. Text requests
+          go through our server, which holds your key in memory for the
+          session only — never written to disk or logs.
         </p>
 
         {errorMessage && (
@@ -165,7 +187,7 @@ export function KeyDrawer({
             <button
               type="button"
               onClick={handleSave}
-              disabled={!apiKey.trim()}
+              disabled={trimmedApiKey.length < MIN_API_KEY_LENGTH}
               className="btn btn-primary px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
               Save

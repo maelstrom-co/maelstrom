@@ -128,7 +128,11 @@ describe('buildWsUrl', () => {
 
 describe('buildPlaygroundHello', () => {
   it('produces a frame the server accepts as a well-formed handshake', () => {
-    const wire = buildPlaygroundHello('s1', 'sk-x');
+    // The key must clear isPlaygroundHello's minimum-length floor: a short
+    // key would be rejected by the gate, so a fixture under it would assert
+    // the handshake is malformed rather than that buildPlaygroundHello and
+    // the server agree on the frame shape.
+    const wire = buildPlaygroundHello('s1', 'sk-x-1234567890123456');
     expect(isPlaygroundHello(JSON.parse(wire))).toBe(true);
   });
 });
@@ -142,7 +146,7 @@ describe('createDemoConnector', () => {
   it('does not send a handshake frame in local (non-hosted) mode', async () => {
     const restore = installFakeWebSocket();
     try {
-      const connector = createDemoConnector({ getApiKey: () => 'sk-visitor-key' });
+      const connector = createDemoConnector({ getApiKey: () => 'sk-visitor-key-1234567' });
       const connectPromise = connector.connect(SessionId('session-1'));
       const socket = FakeWebSocket.instances[0];
       if (!socket) throw new Error('expected a WebSocket to have been constructed');
@@ -164,7 +168,7 @@ describe('createDemoConnector', () => {
       vi.stubEnv('VITE_HOSTED', '1');
       const restore = installFakeWebSocket();
       try {
-        const connector = createDemoConnector({ getApiKey: () => 'sk-visitor-key' });
+        const connector = createDemoConnector({ getApiKey: () => 'sk-visitor-key-1234567' });
         const connectPromise = connector.connect(SessionId('session-1'));
         const socket = FakeWebSocket.instances[0];
         if (!socket) throw new Error('expected a WebSocket to have been constructed');
@@ -177,7 +181,7 @@ describe('createDemoConnector', () => {
         expect(frame).toMatchObject({
           type: 'playground.hello',
           sessionId: 'session-1',
-          apiKey: 'sk-visitor-key',
+          apiKey: 'sk-visitor-key-1234567',
         });
       } finally {
         restore();

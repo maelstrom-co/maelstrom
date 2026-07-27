@@ -1,4 +1,4 @@
-import { WebSocketConnector } from '@maelstrom-co/client';
+import { DEFAULT_HEARTBEAT_INTERVAL_MS, WebSocketConnector } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
 import { isHosted } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
@@ -100,7 +100,7 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
     // Cloudflare Containers only renew their idle timeout on socket traffic,
     // not on an open-but-silent connection — local dev has no such timeout,
     // so the heartbeat only runs in hosted mode.
-    heartbeatIntervalMs: hosted ? 30_000 : undefined,
+    heartbeatIntervalMs: hosted ? DEFAULT_HEARTBEAT_INTERVAL_MS : undefined,
     onOpen: hosted
       ? (send, sessionId) => {
           const apiKey = getApiKey();

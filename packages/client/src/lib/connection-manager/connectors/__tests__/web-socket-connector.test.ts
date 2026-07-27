@@ -764,6 +764,123 @@ describe('WebSocketConnector heartbeat', () => {
   });
 });
 
+describe('WebSocketConnector heartbeat liveness', () => {
+  test('closes the socket after consecutive pings go unanswered (half-open tunnel detection)', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10,
+    });
+    const ws = await connectAndOpen(connector);
+
+    // No pongs are ever delivered — this is the exact failure the heartbeat
+    // exists to catch: a tunnel that dies without a TCP FIN reaching the
+    // browser (a Cloudflare edge drop, a vanished container). readyState
+    // stays OPEN and no onclose fires on its own, so nothing but an active
+    // liveness check can notice.
+    await new Promise((resolve) => setTimeout(resolve, 45));
+
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+
+    const heartbeats = ws.sent.filter(
+      (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
+    );
+    // Exactly MAX_MISSED_HEARTBEATS (2) unanswered pings are sent before the
+    // connector gives up and closes rather than pinging into the void
+    // forever.
+    expect(heartbeats.length).toBe(2);
+
+    await connector.disconnect();
+  });
+
+  test('a pong resets the missed-heartbeat counter, so a link that keeps answering is never closed', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10,
+    });
+    const ws = await connectAndOpen(connector);
+
+    // Answer every ping as it arrives. If the counter didn't reset on a
+    // pong, this connection would still be closed after ~30ms (the same
+    // logic as the previous test) — running well past that with the socket
+    // still OPEN proves the reset actually happens.
+    let answered = 0;
+    const responder = setInterval(() => {
+      while (answered < ws.sent.length) {
+        ws.emitJson({ type: 'heartbeat.pong' });
+        answered++;
+      }
+    }, 2);
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    clearInterval(responder);
+
+    expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+    const heartbeats = ws.sent.filter(
+      (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
+    );
+    expect(heartbeats.length).toBeGreaterThanOrEqual(4);
+
+    await connector.disconnect();
+  });
+});
+
+describe('WebSocketConnector superseded-socket close guard', () => {
+  test('a close event from a socket the connector has already replaced does not stop the live socket heartbeat or reject its pending requests', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://test',
+      heartbeatIntervalMs: 10,
+    });
+
+    // First connect — models the socket a disposed Orchestrator instance
+    // leaves behind (e.g. React StrictMode's dev double-mount sharing a
+    // memoized connector between a disposed and replacement instance).
+    const staleConnectPromise = connector.connect(SessionId('session-1'));
+    await Promise.resolve();
+    const staleWs = FakeWebSocket.instances.at(-1);
+    if (!staleWs) throw new Error('stale FakeWebSocket was not constructed');
+    staleWs.emitOpen();
+    await staleConnectPromise;
+
+    // A second connect on the SAME connector, without disconnecting first —
+    // `this.#ws` now points at the live socket, but the stale socket's
+    // onclose handler (closed over `staleWs`, not read back through
+    // `this.#ws`) is still registered.
+    const liveWs = await connectAndOpen(connector);
+
+    const events: ConnectorEvent[] = [];
+    connector.subscribe((e) => events.push(e));
+
+    const envelope = buildEnvelope(MessageId('live-pending'));
+    const pending = connector.process(envelope);
+
+    // The superseded socket's close event arrives late.
+    staleWs.emitClose(1006, '');
+
+    expect(events).toHaveLength(0);
+
+    // The live socket's heartbeat must still be running — a superseded
+    // socket's close must not be able to clear it.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const heartbeats = liveWs.sent.filter(
+      (s) => typeof s === 'string' && JSON.parse(s).type === 'heartbeat.ping',
+    );
+    expect(heartbeats.length).toBeGreaterThanOrEqual(1);
+
+    // The live socket's pending request must not have been rejected either.
+    emitServer(
+      liveWs,
+      MaelstromResponseMessage({
+        requestId: envelope.id,
+        response: buildResponse(envelope.id, { userMessage: 'still alive' }),
+      }),
+    );
+    const response = await pending;
+    expect(response.userMessage).toBe('still alive');
+
+    await connector.disconnect();
+  });
+});
+
 describe('WebSocketConnector disconnected retryable flag', () => {
   test('a close code 1008 (policy violation) is reported as non-retryable', async () => {
     // RFC 6455: 1008 means the server is deliberately rejecting this client.

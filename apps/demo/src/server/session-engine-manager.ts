@@ -9,6 +9,29 @@ export interface SessionEngineManagerOptions {
   readonly createAdapter: (apiKey: string) => AnyTextAdapter;
   /** Forwarded verbatim to every session engine's `EngineConfig.modelOptions`. */
   readonly modelOptions?: Record<string, unknown>;
+  /**
+   * The client's heartbeat cadence (apps/demo/src/lib/connector.ts's hosted
+   * `heartbeatIntervalMs`). #evictLruIfFull derives its "is this session
+   * still live" cutoff from this value instead of a bare constant, so a
+   * caller can't silently drift the two apart.
+   */
+  readonly heartbeatIntervalMs: number;
+}
+
+/**
+ * Thrown by getOrCreate instead of evicting when the session that would be
+ * reclaimed to make room is still demonstrably live (touched within the
+ * liveness window). Callers must branch on this by type — not by matching
+ * on `.message` — because it's the one getOrCreate failure that means the
+ * container is genuinely full and a retry cannot succeed, as opposed to a
+ * construction failure (bad key, adapter error) that a caller should
+ * surface some other way.
+ */
+export class SessionCapacityError extends Error {
+  constructor() {
+    super('session at capacity: coldest session is still live, refusing to evict it');
+    this.name = 'SessionCapacityError';
+  }
 }
 
 interface SessionEntry {
@@ -85,6 +108,7 @@ export class SessionEngineManager {
   readonly #systemRules: string;
   readonly #createAdapter: (apiKey: string) => AnyTextAdapter;
   readonly #modelOptions: Record<string, unknown> | undefined;
+  readonly #livenessWindowMs: number;
 
   constructor(options: SessionEngineManagerOptions) {
     this.#maxSessions = options.maxSessions;
@@ -92,6 +116,11 @@ export class SessionEngineManager {
     this.#systemRules = options.systemRules;
     this.#createAdapter = options.createAdapter;
     this.#modelOptions = options.modelOptions;
+    // One heartbeat interval alone would false-positive on ordinary jitter
+    // (a single delayed or dropped heartbeat frame reads as "gone"); two
+    // intervals tolerates exactly one missed beat before a session counts
+    // as abandoned rather than merely quiet.
+    this.#livenessWindowMs = options.heartbeatIntervalMs * 2;
   }
 
   /**
@@ -107,6 +136,9 @@ export class SessionEngineManager {
    * offered key rather than handed to whoever presented it. This also covers
    * the legitimate case — a visitor rotates their key and reconnects on the
    * same sessionId — with the same code path.
+   *
+   * Building a brand new session can throw {@link SessionCapacityError}
+   * instead of returning — see #evictLruIfFull for when.
    */
   getOrCreate(sessionId: string, apiKey: string): Engine {
     const existing = this.#sessions.get(sessionId);
@@ -157,6 +189,13 @@ export class SessionEngineManager {
     if (!entry) return;
     clearTimeout(entry.ttlTimer);
     this.#sessions.delete(sessionId);
+    // Deleting the map entry doesn't guarantee the plaintext key string
+    // itself is collected promptly — zeroing the field removes the last
+    // reference this object holds to it, which matters because
+    // wrangler.jsonc's `persist: true` observability means a heap snapshot
+    // taken during the window before GC runs would otherwise still contain
+    // it.
+    entry.apiKey = '';
   }
 
   size(): number {
@@ -166,6 +205,8 @@ export class SessionEngineManager {
   dispose(): void {
     for (const entry of this.#sessions.values()) {
       clearTimeout(entry.ttlTimer);
+      // See evict()'s comment — same heap-residency concern applies here.
+      entry.apiKey = '';
     }
     this.#sessions.clear();
   }
@@ -186,6 +227,20 @@ export class SessionEngineManager {
         oldestId = id;
       }
     }
-    if (oldestId !== null) this.evict(oldestId);
+    if (oldestId === null) return;
+    // The heartbeat-driven touch() means every live session's lastUsedAt
+    // refreshes roughly every heartbeat interval, so under sustained
+    // capacity pressure the "oldest" entry is not necessarily abandoned —
+    // it may just be the one that happened to touch least recently among a
+    // room full of open tabs. Evicting it anyway would only relocate the
+    // pressure onto whichever session is oldest next, forever (every
+    // visitor losing history in turn, with no error to explain why).
+    // Refusing instead makes the one visitor who tried to open past
+    // capacity see a clear, terminal signal, while everyone already
+    // connected keeps their engine.
+    if (Date.now() - oldestAt < this.#livenessWindowMs) {
+      throw new SessionCapacityError();
+    }
+    this.evict(oldestId);
   }
 }

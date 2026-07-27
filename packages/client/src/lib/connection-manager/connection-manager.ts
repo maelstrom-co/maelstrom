@@ -60,7 +60,11 @@ export class ConnectionManager {
   readonly #emitter = new TypedEmitter<ConnectionManagerEvents>();
   readonly events: EventSubscriber<ConnectionManagerEvents> = this.#emitter;
   #connector: EngineConnector;
-  #options: ConnectionOptions;
+  // Required<ConnectionOptions>, not the public ConnectionOptions: every field
+  // is guaranteed populated by the DEFAULT_CONNECTION_OPTIONS merge below, and
+  // the class body should see that guarantee in the type rather than treating
+  // an optional public field (e.g. stabilityThresholdMs) as possibly absent.
+  #options: Required<ConnectionOptions>;
   #sessionId: SessionId;
   /** Single unsubscribe for the connector's event stream. */
   #unsubscribeConnector: Unsubscribe | null = null;
@@ -451,8 +455,72 @@ export class ConnectionManager {
           circuitBreakerStatus: 'half_open',
         }));
         this.#emitter.emit('circuit_half_open', {} as Record<string, never>);
+        this.#attemptHalfOpenProbe();
       }
     }, this.#options.circuitBreakerTimeoutMs);
+  }
+
+  /**
+   * Half-open exists to mean "try again now" — nothing outside this class
+   * ever subscribes to `circuit_half_open` to drive that retry (there is no
+   * such subscriber anywhere in the codebase, and `provider.tsx` calls
+   * `connect()` exactly once, on mount), so without this the breaker opening
+   * once is terminal: the UI sticks on `error` until a manual page reload.
+   * This makes the transition self-driving — a single probe connection,
+   * closing the breaker on success or reopening (and rescheduling another
+   * `circuitBreakerTimeoutMs`-later probe) on failure — so the breaker
+   * behaves like backoff rather than a dead end.
+   */
+  #attemptHalfOpenProbe(): void {
+    if (this.#isDisposed) return;
+
+    this.#setConnectionStatus('connecting');
+    this.#emitter.emit('connection_attempt', { attempt: 1, maxAttempts: 1 });
+
+    this.#connector
+      .connect(this.#sessionId)
+      .then(() => {
+        // The probe outlives a dispose() that lands mid-flight: the guard at
+        // the top of this method only covers the synchronous entry. Without
+        // this, a late success re-subscribes to the connector and arms a
+        // stability timer on a manager whose dispose() has already run its
+        // cleanup, so neither is ever torn down.
+        if (this.#isDisposed) return;
+
+        this.#logger.info('Half-open probe succeeded, closing circuit');
+        this.#setConnectionStatus('connected');
+        this.#setupConnectorSubscription();
+
+        this.store.setState((state) => ({
+          ...state,
+          circuitBreakerStatus: 'closed',
+          connectionError: null,
+          lastConnectedAt: Date.now(),
+        }));
+
+        this.#emitter.emit('circuit_closed', {} as Record<string, never>);
+        this.#scheduleStabilityReset();
+      })
+      .catch((error: unknown) => {
+        // Same reason as the success path: a late failure would otherwise
+        // reschedule the next probe indefinitely on a disposed manager.
+        if (this.#isDisposed) return;
+
+        const err = toError(error);
+        this.#logger.warn('Half-open probe failed, reopening circuit', err.message);
+
+        this.#emitter.emit('connection_error', { error: err, attempt: 1 });
+        this.#setConnectionStatus('error');
+        this.store.setState((state) => ({
+          ...state,
+          connectionError: err,
+          circuitBreakerStatus: 'open',
+        }));
+        this.#emitter.emit('circuit_opened', {
+          resetAfterMs: this.#options.circuitBreakerTimeoutMs,
+        });
+        this.#scheduleCircuitBreakerReset();
+      });
   }
 
   #clearTimeouts(): void {

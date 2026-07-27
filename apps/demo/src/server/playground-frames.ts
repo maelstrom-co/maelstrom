@@ -7,6 +7,15 @@ export interface PlaygroundHelloFrame {
   readonly apiKey: string;
 }
 
+// A real OpenAI key is 40+ characters, so this floor can never reject a
+// genuine key. Below it, redactSecrets's exact-match pass against a short
+// string (e.g. a 1-3 char apiKey) rewrites unrelated substrings throughout
+// every outbound frame — a key of "a" turns "executionPlan" into
+// "executionPl[redacted]n" — so the client can't decode any reply and the
+// request hangs to the correlator timeout instead of surfacing the "invalid
+// API key" path a bad key should hit.
+const MIN_API_KEY_LENGTH = 20;
+
 export function isPlaygroundHello(value: unknown): value is PlaygroundHelloFrame {
   if (typeof value !== 'object' || value === null) return false;
   const { type, sessionId, apiKey } = value as {
@@ -21,7 +30,7 @@ export function isPlaygroundHello(value: unknown): value is PlaygroundHelloFrame
     typeof sessionId === 'string' &&
     sessionId.length > 0 &&
     typeof apiKey === 'string' &&
-    apiKey.length > 0
+    apiKey.length >= MIN_API_KEY_LENGTH
   );
 }
 

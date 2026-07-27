@@ -18,7 +18,7 @@
  * @maelstrom-co/engine and @maelstrom-co/protocol once a session has an
  * engine.
  */
-import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/client';
+import { DEFAULT_HEARTBEAT_INTERVAL_MS, HEARTBEAT_PONG_FRAME } from '@maelstrom-co/client';
 import {
   createEngine,
   createInMemoryStore,
@@ -39,12 +39,20 @@ import { geminiText } from '@tanstack/ai-gemini';
 import { createOpenaiChat } from '@tanstack/ai-openai';
 import { classifyIncomingFrame, resolvePreHelloDispatch } from './playground-frames';
 import { redactSecrets } from './redact';
-import { SessionEngineManager } from './session-engine-manager';
+import { SessionCapacityError, SessionEngineManager } from './session-engine-manager';
 
 const PORT = Number(process.env.WS_PORT ?? 3001);
 const HOSTED = process.env.HOSTED === '1';
 const MAX_SESSIONS = 50;
-const IDLE_TTL_MS = 30 * 60 * 1000;
+// Coupled to `sleepAfter` on the PlaygroundServer container in wrangler.jsonc
+// — must never exceed it. The container's in-memory SessionEngineManager map
+// (and every engine in it) is destroyed outright when the container sleeps,
+// which happens well before this TTL if the two are allowed to drift apart.
+// Keeping this at or below sleepAfter makes the TTL the binding constraint,
+// so a session that outlives it was already gone for the more drastic reason.
+const IDLE_TTL_MS = 10 * 60 * 1000;
+
+const CAPACITY_CLOSE_REASON = 'Playground is at capacity — reload to start a new session.';
 
 // RFC 6455 caps a close reason at 123 UTF-8 bytes. Bun does not throw on a
 // longer one -- it silently truncates by raw byte count, with no regard for
@@ -104,6 +112,7 @@ const sessionEngines = HOSTED
   ? new SessionEngineManager({
       maxSessions: MAX_SESSIONS,
       idleTtlMs: IDLE_TTL_MS,
+      heartbeatIntervalMs: DEFAULT_HEARTBEAT_INTERVAL_MS,
       systemRules: SYSTEM_RULES,
       createAdapter: (apiKey) => createOpenaiChat('gpt-4o-mini', apiKey),
       // gpt-4o-mini's own ceiling (see @tanstack/ai-openai's model-meta).
@@ -119,7 +128,6 @@ const sessionEngines = HOSTED
   : null;
 
 export interface SocketData {
-  engine: Engine | null;
   helloReceived: boolean;
   sessionId: string | null;
   apiKey: string | null;
@@ -181,6 +189,16 @@ export function createWebSocketHandlers(
       const decision = classifyIncomingFrame(parsed, ws.data.helloReceived);
 
       if (decision.kind === 'heartbeat') {
+        // touch(), not getOrCreate(): a heartbeat proves the tab is still
+        // open, not that the visitor did anything, so it must not resurrect
+        // an engine for a session nobody is using — only real dispatch
+        // should do that. This is what makes it correct for the idle TTL to
+        // now mean "no live tab" rather than "no typing": the close handler
+        // below no longer evicts, so a heartbeating tab is the only signal
+        // that keeps a session alive indefinitely.
+        if (hosted && sessionEngines && ws.data.sessionId) {
+          sessionEngines.touch(ws.data.sessionId);
+        }
         send(ws, HEARTBEAT_PONG_FRAME);
         return;
       }
@@ -196,8 +214,9 @@ export function createWebSocketHandlers(
         if (outcome.kind === 'close') {
           // 1002 (protocol error), not 1008: the client flags 1008 as
           // non-retryable, and a reconnect here would legitimately succeed —
-          // the fresh socket re-sends its handshake. Only a close the client
-          // must not retry at all (capacity, below) earns 1008.
+          // the fresh socket re-sends its handshake. Only closes the client
+          // must not retry at all (capacity, in the hello and dispatch
+          // branches below) earn 1008.
           ws.close(1002, 'expected playground.hello as the first frame');
           return;
         }
@@ -212,8 +231,18 @@ export function createWebSocketHandlers(
           return;
         }
         try {
-          ws.data.engine = sessionEngines.getOrCreate(frame.sessionId, frame.apiKey);
+          // Validated here (not just left for the first dispatch) so a bad
+          // key closes the socket immediately with a decodable reason
+          // instead of the visitor waiting on a silent first request. The
+          // engine built here is discarded — dispatch below re-derives it
+          // from sessionEngines on every frame instead of trusting a cached
+          // reference, so this call's only job is the construction check.
+          sessionEngines.getOrCreate(frame.sessionId, frame.apiKey);
         } catch (err) {
+          if (err instanceof SessionCapacityError) {
+            ws.close(1008, truncateCloseReason(CAPACITY_CLOSE_REASON));
+            return;
+          }
           // redact() inside SessionEngineManager already scrubs the message
           // (exact-key pass + sk-* pattern pass), so this close reason (sent
           // to the client and logged) needs no second pass here.
@@ -228,29 +257,39 @@ export function createWebSocketHandlers(
         return;
       }
 
-      // Every dispatched frame in hosted mode proves the session is still
-      // active — touch resets the idle TTL and LRU recency here, not just
-      // at hello, so a session mid-conversation past the TTL window doesn't
-      // get evicted out from under a socket that's still working.
-      if (hosted && sessionEngines && ws.data.sessionId) {
-        sessionEngines.touch(ws.data.sessionId);
-
-        // touch() is a no-op once the session is already gone (LRU cap or
-        // idle TTL evicted it before this frame arrived) — dispatching
-        // against ws.data.engine at that point would serve the stale cached
-        // engine forever, defeating the cap/TTL entirely. 1008 is the one
-        // code the client refuses to retry, which is what breaks the loop
-        // where every evicted session reconnects and evicts another. Since
-        // nothing will retry on the visitor's behalf, the reason doubles as
-        // the copy they read — hence a capacity message with an action,
-        // not the server's internal "session evicted".
-        if (!sessionEngines.has(ws.data.sessionId)) {
-          ws.close(1008, 'Playground is at capacity — reload to start a new session.');
-          return;
+      // Re-derived fresh on every frame rather than trusting a cached
+      // ws.data.engine: another connection can call getOrCreate with a
+      // DIFFERENT apiKey for the same sessionId between this socket's frames
+      // (SessionEngineManager evicts and rebuilds on a key mismatch), which
+      // would otherwise leave this socket dispatching against an orphaned
+      // engine reference forever. getOrCreate also touches TTL/LRU on a hit
+      // and rebuilds on a miss, so it subsumes the old touch()/has() pair —
+      // a session evicted by the idle TTL or a genuinely stale LRU pick gets
+      // a fresh engine here instead of a hard close; losing conversation
+      // history is the accepted degradation there, not a reason to close the
+      // socket. The one exception is SessionCapacityError, handled below.
+      let engine: Engine | null;
+      if (hosted) {
+        if (sessionEngines && ws.data.sessionId && ws.data.apiKey) {
+          try {
+            engine = sessionEngines.getOrCreate(ws.data.sessionId, ws.data.apiKey);
+          } catch (err) {
+            // Capacity is the one getOrCreate failure a retry cannot fix —
+            // the container is full, so a reconnect just adds load. Every
+            // other failure (construction error, bad key) falls through to
+            // the engine-null branch below instead of closing the socket.
+            if (err instanceof SessionCapacityError) {
+              ws.close(1008, truncateCloseReason(CAPACITY_CLOSE_REASON));
+              return;
+            }
+            engine = null;
+          }
+        } else {
+          engine = null;
         }
+      } else {
+        engine = sharedEngine;
       }
-
-      const engine = hosted ? ws.data.engine : sharedEngine;
 
       if (!engine) {
         // Mirrors the engine-null branch: decode enough of the client
@@ -308,7 +347,7 @@ if (import.meta.main) {
       const url = new URL(req.url);
       if (url.pathname === '/ws') {
         return srv.upgrade(req, {
-          data: { engine: null, helloReceived: !HOSTED, sessionId: null, apiKey: null },
+          data: { helloReceived: !HOSTED, sessionId: null, apiKey: null },
         })
           ? undefined
           : new Response('WebSocket upgrade failed', { status: 400 });

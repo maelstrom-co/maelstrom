@@ -96,6 +96,7 @@ export type { HttpConnectorOptions } from './lib/connection-manager/connectors/h
 // Connectors
 export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';
 export {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,
   isHeartbeatPingFrame,

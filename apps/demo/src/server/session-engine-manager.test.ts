@@ -2,7 +2,7 @@ import type { ChartRequest } from '@maelstrom-co/protocol';
 import { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SessionEngineManager } from './session-engine-manager';
+import { SessionCapacityError, SessionEngineManager } from './session-engine-manager';
 
 // createEngine's config validator (packages/engine/src/lib/validation/engine-config.ts)
 // requires kind/name/model plus callable chatStream/structuredOutput on the
@@ -28,10 +28,18 @@ const MINIMAL_CHART_REQUEST: ChartRequest = {
   layout: { type: 'grid', positions: [] },
 };
 
-function makeManager(overrides: Partial<{ maxSessions: number; idleTtlMs: number }> = {}) {
+// Matches ws-server.ts's production HEARTBEAT_INTERVAL_MS, so the liveness
+// window below (2x) matches what actually runs.
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const LIVENESS_WINDOW_MS = HEARTBEAT_INTERVAL_MS * 2;
+
+function makeManager(
+  overrides: Partial<{ maxSessions: number; idleTtlMs: number; heartbeatIntervalMs: number }> = {},
+) {
   return new SessionEngineManager({
     maxSessions: overrides.maxSessions ?? 50,
     idleTtlMs: overrides.idleTtlMs ?? 30 * 60 * 1000,
+    heartbeatIntervalMs: overrides.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
     systemRules: 'test rules',
     createAdapter: () => fakeAdapter,
   });
@@ -52,57 +60,71 @@ describe('SessionEngineManager', () => {
     expect(first).toBe(second);
   });
 
-  it('evicts the least-recently-used session once maxSessions is exceeded', async () => {
-    // See the recency test below for why a tick is needed between creates.
-    const tick = () => new Promise((resolve) => setTimeout(resolve, 2));
-
+  it('refuses a new session with SessionCapacityError when every session at capacity is still live', () => {
+    // Heartbeats touch() every live session roughly every heartbeat
+    // interval, so once the container is full, the "least recently used"
+    // session is not necessarily abandoned — it may just be the one that
+    // last heartbeat-touched least recently among a room full of open tabs.
+    // Evicting it anyway would only relocate the same pressure onto whoever
+    // is oldest next, forever. This is the fix: getOrCreate must refuse
+    // instead, so the ONE visitor who tried to connect past capacity gets a
+    // clear, terminal error while everyone already connected keeps their
+    // engine and its history.
     manager = makeManager({ maxSessions: 2 });
-    const first = manager.getOrCreate('session-1', 'sk-1');
-    await tick();
-    const second = manager.getOrCreate('session-2', 'sk-2');
+    manager.getOrCreate('session-1', 'sk-1');
+    manager.getOrCreate('session-2', 'sk-2');
+
+    expect(() => manager.getOrCreate('session-3', 'sk-3')).toThrow(SessionCapacityError);
+    // Neither existing session was touched to make room for the refused one.
     expect(manager.size()).toBe(2);
-    manager.getOrCreate('session-3', 'sk-3');
-    expect(manager.size()).toBe(2);
-    // Identity, not just truthiness: getOrCreate returns *an* engine either
-    // way, so asserting only toBeTruthy() can't fail if eviction picked the
-    // wrong victim (or evicted nothing and just returned the cache hit).
-    // Check the survivor first — a cache hit is side-effect-free (no
-    // eviction), whereas rebuilding the evicted session-1 below adds a 3rd
-    // entry and forces another LRU eviction, which would otherwise disturb
-    // this assertion if checked afterward.
-    const survivorSession2 = manager.getOrCreate('session-2', 'sk-2');
-    expect(survivorSession2).toBe(second);
-    const rebuiltSession1 = manager.getOrCreate('session-1', 'sk-1');
-    expect(rebuiltSession1).not.toBe(first);
+    expect(manager.has('session-1')).toBe(true);
+    expect(manager.has('session-2')).toBe(true);
   });
 
-  it('LRU eviction follows recency (touch), not insertion order', async () => {
-    // Recency is stamped with Date.now(), which can tie at millisecond
-    // resolution for back-to-back synchronous calls — a tie would make the
-    // eviction pick ambiguous and defeat the point of this test, so a tiny
-    // real delay between each step guarantees strictly increasing
-    // timestamps.
-    const tick = () => new Promise((resolve) => setTimeout(resolve, 2));
-
+  it('evicts the coldest session once it is genuinely stale (older than the liveness window), and the new session succeeds', () => {
+    // The LRU cap must still do its job for an abandoned session — only a
+    // session a recent heartbeat still vouches for is protected.
+    vi.useFakeTimers();
     manager = makeManager({ maxSessions: 2 });
-    const first = manager.getOrCreate('session-1', 'sk-1');
-    await tick();
-    const second = manager.getOrCreate('session-2', 'sk-2');
-    await tick();
-    // Touching session-1 makes session-2 the least-recently-used one.
     manager.getOrCreate('session-1', 'sk-1');
-    await tick();
+    vi.advanceTimersByTime(1_000);
+    manager.getOrCreate('session-2', 'sk-2');
+    // Pushes session-1 (the oldest, last touched at t=0) past the liveness
+    // window; session-2 (touched at t=1_000) is also past it by the time
+    // session-3 is created, but that's irrelevant — only the single oldest
+    // entry's staleness is ever checked.
+    vi.advanceTimersByTime(LIVENESS_WINDOW_MS + 1);
+
     manager.getOrCreate('session-3', 'sk-3');
 
-    // Cache-hit check first (side-effect-free); the rebuild check below
-    // forces another eviction cycle, so order matters here too.
-    expect(manager.getOrCreate('session-1', 'sk-1')).toBe(first);
-    const rebuiltSession2 = manager.getOrCreate('session-2', 'sk-2');
-    // session-2 was evicted, so this must be a fresh engine -- not the one
-    // captured before eviction. (Comparing against `first`, session-1's
-    // engine, would be tautologically true regardless of which session the
-    // LRU pass actually evicted, and so could never catch a regression.)
-    expect(rebuiltSession2).not.toBe(second);
+    expect(manager.size()).toBe(2);
+    expect(manager.has('session-1')).toBe(false);
+    expect(manager.has('session-2')).toBe(true);
+    expect(manager.has('session-3')).toBe(true);
+  });
+
+  it('LRU eviction follows recency (touch), not insertion order, once the picked victim is stale', () => {
+    vi.useFakeTimers();
+    manager = makeManager({ maxSessions: 2 });
+    manager.getOrCreate('session-1', 'sk-1');
+    vi.advanceTimersByTime(1_000);
+    manager.getOrCreate('session-2', 'sk-2');
+    vi.advanceTimersByTime(1_000);
+    // Touching session-1 makes session-2 (last touched at t=1_000) the
+    // least-recently-used entry from here on, even though session-1 was
+    // created first (t=0).
+    manager.getOrCreate('session-1', 'sk-1');
+    // Pushes session-2's last touch (t=1_000) past the liveness window.
+    // session-1's much more recent touch (t=2_000) means it never becomes
+    // the eviction candidate -- proof the pick follows recency, not
+    // insertion order.
+    vi.advanceTimersByTime(LIVENESS_WINDOW_MS + 1);
+
+    manager.getOrCreate('session-3', 'sk-3');
+
+    expect(manager.has('session-1')).toBe(true);
+    expect(manager.has('session-2')).toBe(false);
+    expect(manager.has('session-3')).toBe(true);
   });
 
   it('touch() resets the idle TTL so an actively-used session survives past the original deadline', () => {
@@ -178,6 +200,7 @@ describe('SessionEngineManager', () => {
     const throwingManager = new SessionEngineManager({
       maxSessions: 50,
       idleTtlMs: 30 * 60 * 1000,
+      heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
       systemRules: 'test rules',
       createAdapter: () => {
         throw new Error('boom with key sk-secret-should-never-appear-anywhere');
@@ -232,6 +255,7 @@ describe('SessionEngineManager', () => {
     manager = new SessionEngineManager({
       maxSessions: 50,
       idleTtlMs: 30 * 60 * 1000,
+      heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
       systemRules: 'test rules',
       createAdapter: () => throwingAdapter,
     });

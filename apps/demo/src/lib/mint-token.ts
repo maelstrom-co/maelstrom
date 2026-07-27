@@ -40,7 +40,15 @@ export async function mintOpenAIToken(
   if (!res.ok) {
     throw new Error(`Token mint failed with status ${res.status}`);
   }
-  const body: unknown = await res.json();
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    // A 200 with a non-JSON body (captive portal / TLS-proxy interstitial)
+    // throws SyntaxError from res.json() — that message otherwise propagates
+    // verbatim into the caller's error surface.
+    throw new Error('Received an unexpected response from the token mint route.');
+  }
   return OpenAITokenGrantSchema.parse(body);
 }
 
@@ -93,7 +101,17 @@ export function createBrowserMintToken(
       throw new Error(`Failed to mint a realtime token (status ${res.status}).`);
     }
 
-    const data = readOpenaiClientSecret(await res.json());
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      // A captive portal or corporate TLS proxy can answer 200 with an HTML
+      // interstitial — res.json() then throws a raw SyntaxError that reads
+      // as "your key is broken" once it lands in the key drawer, which is
+      // exactly the failure mode the surrounding try/catch exists to avoid.
+      throw new Error('Could not reach OpenAI — check your connection and try again.');
+    }
+    const data = readOpenaiClientSecret(json);
     return OpenAITokenGrantSchema.parse({
       provider: 'openai',
       value: data.value,

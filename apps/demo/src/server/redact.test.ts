@@ -141,6 +141,31 @@ describe('redactSecrets', () => {
     expect(result).toContain('[redacted]');
   });
 
+  it('redacts a key containing a `"` or `\\` even though the wire string is already JSON-serialized', () => {
+    // Callers always pass an already-JSON.stringify'd wire string. If the
+    // apiKey contains a character JSON escapes, the wire holds the escaped
+    // form (e.g. `"` becomes `\"`) while an exact-match pass against the raw
+    // key looks for the unescaped form and finds zero occurrences — the key
+    // would ship verbatim. The {32,} pattern pass can't rescue this either:
+    // `"` and `\` both fall outside its character class, so a key built
+    // from them never matches it.
+    const apiKeyWithQuote = 'sk-live-has"a-quote-in-it-1234567890';
+    const apiKeyWithBackslash = 'sk-live-has\\a-backslash-in-it-1234567890';
+
+    const wireQuote = JSON.stringify({ type: 'engine.error', error: `bad key ${apiKeyWithQuote}` });
+    const resultQuote = redactSecrets(wireQuote, apiKeyWithQuote);
+    expect(resultQuote).not.toContain(apiKeyWithQuote);
+    expect(JSON.parse(resultQuote).error).toContain('[redacted]');
+
+    const wireBackslash = JSON.stringify({
+      type: 'engine.error',
+      error: `bad key ${apiKeyWithBackslash}`,
+    });
+    const resultBackslash = redactSecrets(wireBackslash, apiKeyWithBackslash);
+    expect(resultBackslash).not.toContain(apiKeyWithBackslash);
+    expect(JSON.parse(resultBackslash).error).toContain('[redacted]');
+  });
+
   it('still redacts a real sk-proj- format leaked key (56+ chars total)', () => {
     // Verified against OpenAI's current project-scoped key format:
     // "sk-proj-" followed by a long base64url payload (~48 chars in the

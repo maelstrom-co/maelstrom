@@ -8,6 +8,11 @@ import {
   resolvePreHelloDispatch,
 } from './playground-frames';
 
+// 24 chars — clears the 20-char floor with room to spare, well short of a
+// real OpenAI key (40+), but long enough that the tests below exercise the
+// length gate rather than accidentally passing on some other field.
+const VALID_API_KEY = 'sk-test-abcdefghijklm123';
+
 const MINIMAL_CHART_REQUEST: ChartRequest = {
   type: 'chart_request',
   context: {
@@ -23,7 +28,7 @@ const MINIMAL_CHART_REQUEST: ChartRequest = {
 describe('isPlaygroundHello', () => {
   it('accepts a well-formed handshake frame', () => {
     expect(
-      isPlaygroundHello({ type: 'playground.hello', sessionId: 's1', apiKey: 'sk-x' }),
+      isPlaygroundHello({ type: 'playground.hello', sessionId: 's1', apiKey: VALID_API_KEY }),
     ).toBe(true);
   });
 
@@ -33,7 +38,7 @@ describe('isPlaygroundHello', () => {
 
   it('rejects the wrong type discriminant', () => {
     expect(
-      isPlaygroundHello({ type: 'chart_request', sessionId: 's1', apiKey: 'sk-x' }),
+      isPlaygroundHello({ type: 'chart_request', sessionId: 's1', apiKey: VALID_API_KEY }),
     ).toBe(false);
   });
 
@@ -47,15 +52,39 @@ describe('isPlaygroundHello', () => {
     // shared SessionEngineManager map key ('') — a raw socket hand-crafting
     // this frame directly against /ws, bypassing the shipped client (which
     // never produces an empty sessionId; it's nanoid-generated).
-    expect(isPlaygroundHello({ type: 'playground.hello', sessionId: '', apiKey: 'sk-x' })).toBe(
-      false,
-    );
+    expect(
+      isPlaygroundHello({ type: 'playground.hello', sessionId: '', apiKey: VALID_API_KEY }),
+    ).toBe(false);
   });
 
   it('rejects an empty apiKey', () => {
     expect(isPlaygroundHello({ type: 'playground.hello', sessionId: 's1', apiKey: '' })).toBe(
       false,
     );
+  });
+
+  it('rejects an apiKey shorter than the 20-char floor', () => {
+    // A real OpenAI key is 40+ chars, so this floor never rejects a genuine
+    // key. Below it, redactSecrets's exact-match pass mangles unrelated
+    // wire content (a 1-char key turns "executionPlan" into
+    // "executionPl[redacted]n"), so a too-short key must never reach the
+    // point where a session engine gets built for it — the visitor should
+    // hit an "invalid API key" path, not a hung request.
+    expect(
+      isPlaygroundHello({
+        type: 'playground.hello',
+        sessionId: 's1',
+        apiKey: 'sk-short-19-chars12',
+      }),
+    ).toBe(false);
+  });
+
+  it('accepts an apiKey exactly at the 20-char floor', () => {
+    const exactlyTwenty = 'sk-exactly-20-chars0';
+    expect(exactlyTwenty).toHaveLength(20);
+    expect(
+      isPlaygroundHello({ type: 'playground.hello', sessionId: 's1', apiKey: exactlyTwenty }),
+    ).toBe(true);
   });
 });
 
@@ -84,7 +113,7 @@ describe('classifyIncomingFrame', () => {
   });
 
   it('classifies a well-formed hello as hello when not yet received', () => {
-    const frame = { type: 'playground.hello' as const, sessionId: 's1', apiKey: 'sk-x' };
+    const frame = { type: 'playground.hello' as const, sessionId: 's1', apiKey: VALID_API_KEY };
     expect(classifyIncomingFrame(frame, false)).toEqual({ kind: 'hello', frame });
   });
 

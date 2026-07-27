@@ -26,6 +26,17 @@ import {
 } from '../connector.types.js';
 import { HEARTBEAT_PING_FRAME, isHeartbeatPongFrame } from './heartbeat-frame.js';
 
+// A ping is "missed" if its interval elapses with no pong seen since. Two
+// consecutive misses are required before the socket is closed: one miss is
+// tolerated outright (a single delayed pong under load must not trip a
+// reconnect), and confirming a second requires the interval to elapse twice
+// more after the last good pong — so detection lands roughly two to three
+// heartbeat intervals after the tunnel actually went quiet. That is still
+// well inside RequestCorrelator's per-request timeout, so at most a couple of
+// in-flight requests fail before the reconnect machinery takes over, rather
+// than every request failing individually until a human notices.
+const MAX_MISSED_HEARTBEATS = 2;
+
 /**
  * Configuration options for WebSocket connector.
  */
@@ -106,6 +117,9 @@ export class WebSocketConnector implements EngineConnector {
   #historyCorrelator = new RequestCorrelator<readonly SessionHistoryEntry[]>();
   #handlers = new Set<(event: ConnectorEvent) => void>();
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  // Pings sent since the last pong was seen. Reset to 0 whenever a pong
+  // arrives; checked (and incremented) on every heartbeat tick.
+  #missedHeartbeats = 0;
 
   constructor(options: WebSocketConnectorOptions) {
     this.#url = options.url;
@@ -291,9 +305,22 @@ export class WebSocketConnector implements EngineConnector {
     if (this.#heartbeatIntervalMs === undefined) return;
     this.#stopHeartbeat();
     this.#heartbeatTimer = setInterval(() => {
-      if (this.#ws?.readyState === WebSocket.OPEN) {
-        this.#ws.send(HEARTBEAT_PING_FRAME);
+      if (this.#ws?.readyState !== WebSocket.OPEN) return;
+
+      if (this.#missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
+        // readyState still reports OPEN and no onclose has fired on its
+        // own — exactly the failure this heartbeat exists to catch (a
+        // Cloudflare edge drop, a vanished container: no TCP FIN reaches
+        // the browser). Closing it ourselves is what makes the existing
+        // onclose → `disconnected` → auto-reconnect path run at all;
+        // without this, pings fire into the void forever and every intent
+        // sits in RequestCorrelator until its own 30s timeout.
+        this.#ws.close();
+        return;
       }
+
+      this.#missedHeartbeats++;
+      this.#ws.send(HEARTBEAT_PING_FRAME);
     }, this.#heartbeatIntervalMs);
   }
 
@@ -302,16 +329,30 @@ export class WebSocketConnector implements EngineConnector {
       clearInterval(this.#heartbeatTimer);
       this.#heartbeatTimer = null;
     }
+    this.#missedHeartbeats = 0;
   }
 
   #setupEventHandlers(): void {
     if (!this.#ws) return;
+    // Captured by identity, not read back through `this.#ws`: if this
+    // connector ever holds two sockets in sequence (React StrictMode's dev
+    // double-mount shares a memoized connector between a disposed and
+    // replacement Orchestrator), a delayed close event from the superseded
+    // socket must not be able to act on the live one just because `this.#ws`
+    // has moved on by the time the event fires.
+    const socket = this.#ws;
 
-    this.#ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
       this.#handleMessage(event);
     };
 
-    this.#ws.onclose = (event) => {
+    socket.onclose = (event) => {
+      // Ignore a close event from a socket that is no longer live — without
+      // this, a superseded socket's delayed close would clear the live
+      // socket's heartbeat, reject the live socket's pending requests, and
+      // emit a spurious `disconnected` that drives an unnecessary reconnect.
+      if (socket !== this.#ws) return;
+
       // An unexpected close leaves ConnectionManager's auto-reconnect
       // pending; stop here so the timer doesn't keep firing sends at a
       // socket that's already gone.
@@ -337,7 +378,7 @@ export class WebSocketConnector implements EngineConnector {
       });
     };
 
-    this.#ws.onerror = () => {
+    socket.onerror = () => {
       this.#handlers.forEach((h) => {
         h({ type: 'error', error: new Error('WebSocket error occurred') });
       });
@@ -353,6 +394,7 @@ export class WebSocketConnector implements EngineConnector {
       this.#heartbeatIntervalMs !== undefined &&
       this.#isHeartbeatPong(event.data)
     ) {
+      this.#missedHeartbeats = 0;
       return;
     }
 

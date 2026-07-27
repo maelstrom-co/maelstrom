@@ -257,7 +257,7 @@ describe('resumed auto-submit rejected by an invalid key', () => {
     });
 
     fireEvent.change(screen.getByLabelText(/api key/i), {
-      target: { value: 'sk-still-rejected' },
+      target: { value: 'sk-still-rejected-1234567890' },
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
@@ -282,7 +282,7 @@ describe('saving an unchanged key mid-session', () => {
     // or re-entered the exact key already in use. A remount here is
     // observable as a brand-new RealtimeSession instance, since the voice
     // hook constructs one per Provider mount.
-    setPlaygroundKey('sk-existing', true);
+    setPlaygroundKey('sk-existing-1234567890', true);
 
     const { HomePage } = await import('./index');
     render(<HomePage />);
@@ -293,7 +293,7 @@ describe('saving an unchanged key mid-session', () => {
     expect(screen.getByLabelText(/api key/i)).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText(/api key/i), {
-      target: { value: 'sk-existing' },
+      target: { value: 'sk-existing-1234567890' },
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
@@ -366,7 +366,7 @@ describe('header "API key" affordance', () => {
     expect(screen.getByLabelText(/api key/i)).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText(/api key/i), {
-      target: { value: 'sk-new-key' },
+      target: { value: 'sk-new-key-1234567890' },
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
@@ -398,7 +398,7 @@ describe('resumeIntent auto-submit', () => {
     });
 
     fireEvent.change(screen.getByLabelText(/api key/i), {
-      target: { value: 'sk-new-key' },
+      target: { value: 'sk-new-key-1234567890' },
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^save$/i }));

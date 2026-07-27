@@ -149,6 +149,32 @@ describe('createBrowserMintToken', () => {
     const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
     await expect(mintToken()).rejects.toThrow(/status 500/i);
   });
+
+  it('throws a friendly message instead of a raw SyntaxError when a 200 response body is not JSON', async () => {
+    // A captive portal or corporate TLS proxy answers 200 with an HTML
+    // interstitial: fetch resolves, res.ok is true, and res.json() throws
+    // "Unexpected token '<'". Unguarded, that raw SyntaxError propagates as
+    // the RealtimeVoiceError cause and renders in the key drawer as "your
+    // key is broken" — telling the visitor to replace a perfectly good key.
+    globalThis.fetch = vi.fn(
+      async () => new Response('<!DOCTYPE html><html>captive portal</html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      }),
+    ) as unknown as typeof fetch;
+
+    const mintToken = createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime');
+    let error: unknown;
+    try {
+      await mintToken();
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).not.toMatch(/unexpected token/i);
+    expect(message).not.toMatch(/JSON/i);
+  });
 });
 
 describe('mintOpenAIToken', () => {
@@ -197,5 +223,23 @@ describe('mintOpenAIToken', () => {
     } finally {
       timeoutSpy.mockRestore();
     }
+  });
+
+  it('does not surface a raw SyntaxError when a 200 response body is not JSON', async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response('<!DOCTYPE html><html>captive portal</html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      }),
+    ) as unknown as typeof fetch;
+
+    let error: unknown;
+    try {
+      await mintOpenAIToken(SessionId('session-1'));
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toMatch(/unexpected token/i);
   });
 });
