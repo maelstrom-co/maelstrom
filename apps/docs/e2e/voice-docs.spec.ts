@@ -57,6 +57,13 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
     context: 'packages/realtime/src',
   },
   {
+    name: 'AdapterTurnControl',
+    path: '/reference/realtime/packages/realtime/src/interfaces/adapterturncontrol/',
+    heading: 'AdapterTurnControl',
+    context:
+      'packages/realtime/src/lib/realtime-session/provider-adapter.types.ts',
+  },
+  {
     name: 'OpenAIAdapter',
     path: '/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/',
     heading: 'OpenAIAdapter',
@@ -64,9 +71,22 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
     entryPoint: 'packages/realtime/src/openai',
   },
   {
+    name: 'OpenAITokenGrantSchema',
+    path: '/reference/realtime/packages/realtime/src/openai/variables/openaitokengrantschema/',
+    heading: 'OpenAITokenGrantSchema',
+    context: 'packages/realtime/src/lib/openai/openai-token.ts',
+    entryPoint: 'packages/realtime/src/openai',
+  },
+  {
     name: 'maelstromRealtime',
     path: '/reference/react-realtime/functions/maelstromrealtime/',
     heading: 'maelstromRealtime',
+    context: 'packages/react-realtime/src/lib/maelstrom-realtime.ts',
+  },
+  {
+    name: 'UseVoiceResult',
+    path: '/reference/react-realtime/interfaces/usevoiceresult/',
+    heading: 'UseVoiceResult',
     context: 'packages/react-realtime/src/lib/maelstrom-realtime.ts',
   },
   {
@@ -216,6 +236,22 @@ test('LiveKit hold-to-talk example renders its session-error contract', async ({
   await expect(example).toContainText('aria-describedby={sessionError');
   await expect(example).toContainText('role="alert"');
   await expect(example).toContainText('reconnect voice');
+});
+
+test('turn-control reference distinguishes explicit and speech-native turns', async ({
+  page,
+}) => {
+  await page.goto(
+    '/reference/realtime/packages/realtime/src/interfaces/adapterturncontrol/',
+  );
+
+  const reference = page.locator('main');
+  await expect(reference).toContainText(
+    'RealtimeSession NEVER calls these methods',
+  );
+  await expect(reference).toContainText('startTurn');
+  await expect(reference).toContainText('endTurn');
+  await expect(reference).toContainText('Speech-native providers');
 });
 
 // Check only links directly present in the three guides. This intentionally
