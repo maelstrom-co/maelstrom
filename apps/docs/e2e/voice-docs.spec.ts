@@ -1,4 +1,10 @@
 import { expect, test } from '@playwright/test';
+// The docs project already declares this package as an implicit dependency.
+// nx-ignore-next-line
+import {
+  LiveKitTokenGrantSchema,
+  SPEAK_TOPIC,
+} from '@maelstrom-co/realtime-livekit';
 
 interface DocsRoute {
   /** Human-readable case name used in the generated Playwright title. */
@@ -251,7 +257,108 @@ test('turn-control reference distinguishes explicit and speech-native turns', as
   );
   await expect(reference).toContainText('startTurn');
   await expect(reference).toContainText('endTurn');
-  await expect(reference).toContainText('Speech-native providers');
+  await expect(reference).toContainText('provider-defined');
+  await expect(reference).toContainText('may be no-ops');
+  await expect(reference).toContainText('may produce no transcript');
+  await expect(reference).toContainText("state === 'error'");
+  await expect(reference).toContainText('lastError');
+  await expect(reference).toContainText('OpenAIAdapter omits turnControl');
+});
+
+test('minter references preserve bootstrap security and renewal contracts', async ({
+  page,
+}) => {
+  await page.goto('/reference/realtime-server/functions/createopenaiminter/');
+  const openAIReference = page.locator('main');
+  await expect(openAIReference).toContainText('unauthenticated bootstrap');
+  await expect(openAIReference).toContainText(
+    'request model overrides the configured default',
+  );
+  await expect(openAIReference).toContainText(
+    'authenticate and authorize callers',
+  );
+  await expect(openAIReference).toContainText('trusted model policy');
+  await expect(openAIReference).toContainText('origin controls');
+  await expect(openAIReference).toContainText('rate limits');
+  await expect(openAIReference).toContainText('abuse controls');
+
+  await page.goto(
+    '/reference/realtime-livekit-server/functions/mintlivekittoken/',
+  );
+  const liveKitReference = page.locator('main');
+  await expect(liveKitReference).toContainText('unauthenticated bootstrap');
+  await expect(liveKitReference).toContainText(
+    'authenticate and authorize callers',
+  );
+  await expect(liveKitReference).toContainText(
+    'trusted room and identity policy',
+  );
+  await expect(liveKitReference).toContainText('origin controls');
+  await expect(liveKitReference).toContainText('rate limits');
+  await expect(liveKitReference).toContainText('abuse controls');
+  await expect(liveKitReference).toContainText(
+    'does not refresh an established adapter connection',
+  );
+  await expect(liveKitReference).toContainText(
+    'disconnect and call connect() again',
+  );
+  await expect(liveKitReference).toContainText(
+    'connect() invokes mintToken before rejoining',
+  );
+});
+
+test('LiveKit package-root imports and distinct reference subpaths remain discoverable', async ({
+  page,
+}) => {
+  expect(SPEAK_TOPIC).toBe('speak');
+  expect(
+    LiveKitTokenGrantSchema.safeParse({
+      token: 'root-import-token',
+      url: 'wss://livekit.example.test',
+      expiresAt: 1,
+    }).success,
+  ).toBe(true);
+
+  await page.goto('/reference/realtime-livekit/readme/');
+  const rootReference = page.locator('main');
+  await expect(
+    rootReference.getByText('packages/realtime-livekit/src/protocol', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    rootReference.getByText('packages/realtime-livekit/src/livekit-token', {
+      exact: true,
+    }),
+  ).toBeVisible();
+
+  await page.goto(
+    '/reference/realtime-livekit/packages/realtime-livekit/src/protocol/variables/speak_topic/',
+  );
+  const sidebar = page.getByRole('navigation', { name: 'Main' });
+  await expect(
+    sidebar.getByText('packages/realtime-livekit/src/protocol', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'SPEAK_TOPIC' }),
+  ).toBeVisible();
+
+  await page.goto(
+    '/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/variables/livekittokengrantschema/',
+  );
+  await expect(
+    sidebar.getByText('packages/realtime-livekit/src/livekit-token', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', {
+      level: 1,
+      name: 'LiveKitTokenGrantSchema',
+    }),
+  ).toBeVisible();
 });
 
 test('LiveKit reference preserves planning and credential-expiry boundaries', async ({
