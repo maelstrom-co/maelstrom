@@ -2,10 +2,16 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "allowJs": true,
+    "jsx": "react-jsx",
     "outDir": "out-tsc/playwright",
     "sourceMap": false,
     "rootDir": "."
   },
-  "include": ["e2e/**/*.ts", "e2e/**/*.js", "playwright.config.ts"],
+  "include": [
+    "e2e/**/*.ts",
+    "e2e/**/*.tsx",
+    "e2e/**/*.js",
+    "playwright.config.ts"
+  ],
   "exclude": ["out-tsc", "test-output"]
 }

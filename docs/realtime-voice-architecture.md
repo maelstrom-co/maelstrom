@@ -2,6 +2,8 @@
 
 How Maelstrom gives voice providers control of the UI through one realtime session boundary. The architecture began with the OpenAI `gpt-realtime` speech-to-speech track in PR #36 for [MAE-300](https://linear.app/maelstrom-vortex/issue/MAE-300/add-realtime-model-access-to-maelstrom) and now also supports a cascaded LiveKit STT/TTS track. This document explains the shared constraints, provider boundaries, and browser turn-control design. For the general system (Vessels, Chart, Engine), read [architecture.md](./architecture.md) first. The original decision log — including rejected alternatives — is the [D1–D8 decision record](https://linear.app/maelstrom-vortex/issue/MAE-300/add-realtime-model-access-to-maelstrom#comment-4abca3b2) on MAE-300.
 
+Use the implementation guides first: start with the [public voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/), then follow either the [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/) or the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/). Keep this document as a secondary architecture reference for the design constraints and decisions behind those integrations.
+
 ---
 
 ## The problem

@@ -3,56 +3,143 @@ title: Voice
 description: Choose a Maelstrom voice track without creating a second planning path.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside } from "@astrojs/starlight/components";
 
-Voice gives users another way to express intent. It does not give a speech provider control of the Chart: both shipped voice tracks submit a natural-language intent through `RealtimeSession`, and the Engine still plans from the client-built Chart snapshot.
+Voice extends Maelstrom's adaptation loop beyond typed text. It lets an interface listen and speak. People can express intent in the way that fits their situation, while the UI continues to adapt through the same Engine and declared Vessel capabilities. Speech does not give a provider control of the Chart. Both shipped voice tracks submit natural-language intent through `RealtimeSession`, and the Engine still plans from the client-built Chart snapshot. The first integration decision is therefore which **voice track** fits the conversation and operational control your application needs.
 
-<Aside type="caution" title="Keep credentials on the server">
-  Never send provider API keys or LiveKit secrets to the browser. Token minters
-  are unauthenticated bootstrap primitives; put caller authentication and
-  authorization, trusted session policy, origin or room controls, rate limits,
-  and abuse monitoring in front of them before production use.
-</Aside>
+
 
 ## Choose a voice track
 
-Maelstrom ships two tracks behind the same session boundary:
+Both tracks preserve the same intent boundary. Choose between them by deciding where conversation, speech recognition, and speech synthesis should run—not by shaping your UI around a particular provider.
 
-| Track | Interaction | Provider path | Grounding |
-| --- | --- | --- | --- |
-| OpenAI Realtime | Speech-native conversation with provider-managed turn detection | Browser-direct WebRTC using a short-lived credential minted by your server | The realtime model receives debounced structural summaries and can pull current UI state |
-| LiveKit cascade | Hold-to-talk | LiveKit carries audio to a worker for Deepgram speech-to-text and Cartesia text-to-speech | The worker has no LLM and receives no grounding |
+A **realtime** track favors a speech-native conversation and can reduce the number of stages in each turn. A **cascade** track separates speech recognition and synthesis, giving the application more control over those components at the cost of operating more of the pipeline.
 
-[Choose OpenAI Realtime](/guides/voice/openai-realtime/) when you want a speech-native model to manage the conversation. [Choose the LiveKit cascade](/guides/voice/livekit-cascade/) when you want explicit hold-to-talk turns and a worker that performs only speech recognition and synthesis.
+Use the [cascade versus realtime architecture guide](/understanding/voice-architecture/) to compare latency, provider control, specialization, operations, observability, and privacy considerations. Then follow the [OpenAI Realtime setup](/guides/voice/openai-realtime/) or [LiveKit cascade setup](/guides/voice/livekit-cascade/) for the shipped implementation of your chosen mode.
+
+## Add the common React integration
+
+Choose a provider adapter first, then pass its factory to the provider-neutral React extension. Your application keeps its existing Vessels and selects the adapter at this boundary:
+
+```tsx
+export const m = createMaelstrom({ vessels }).with(
+  maelstromRealtime({ createAdapter }),
+);
+```
+
+Every adapter then reaches application UI through the same `m.useVoice()` and `m.VoiceOrb` API:
+
+```tsx
+export function VoiceControls() {
+  const {
+    state,
+    error,
+    userTranscript,
+    assistantTranscript,
+    connect,
+    disconnect,
+    turnControl,
+  } = m.useVoice();
+  const [operationError, setOperationError] = useState<string>();
+  const connected =
+    state !== 'idle' && state !== 'connecting' && state !== 'error';
+  const alertCopy =
+    operationError ?? (error === undefined ? undefined : voiceErrorCopy(error));
+
+  async function toggleVoice() {
+    setOperationError(undefined);
+    try {
+      if (connected) await disconnect();
+      else await connect();
+    } catch {
+      setOperationError(
+        'Voice could not change connection state. Check the status before trying again.',
+      );
+    }
+  }
+
+  return (
+    <section>
+      <m.VoiceOrb />
+      <p>Voice status: {state}</p>
+      <button
+        type="button"
+        disabled={state === 'connecting'}
+        onClick={toggleVoice}
+      >
+        {connected ? 'Disconnect voice' : 'Connect voice'}
+      </button>
+      {turnControl && <p>This provider requires explicit turn controls.</p>}
+      {userTranscript && <p>You: {userTranscript.text}</p>}
+      {assistantTranscript && <p>Assistant: {assistantTranscript.text}</p>}
+      {alertCopy && <p role="alert">{alertCopy}</p>}
+    </section>
+  );
+}
+```
+
+The checked fixture supplies `voiceErrorCopy()` with bounded recovery copy for every currently published fatal `RealtimeVoiceError` code. A successful `connect()` means the provider session is ready. A rejected `connect()` or an `error` state means the attempt failed. `disconnect()` ends the shared session. Repeated calls while a connection is already starting or live may be no-ops, and consumers should render the current `state` rather than infer success from a fixed sequence.
+
+The common contract does not promise one universal state sequence and does not define a universal retry policy. For example, `turnControl` exists only when an adapter requires explicit turn boundaries; speech-native adapters leave it undefined. Use the error code and your deployment policy to decide whether to ask for microphone permission, repair token minting, inspect the current connection, or offer a reconnect.
+
+Continue with the [OpenAI Realtime guide](/guides/voice/openai-realtime/) or [LiveKit cascade guide](/guides/voice/livekit-cascade/) for provider-specific setup. The [Voice API reference](/reference/realtime/readme/), [React voice API reference](/reference/react-realtime/readme/), and [voice architecture comparison](/understanding/voice-architecture/) describe the shared contracts and planning boundary.
 
 ## Follow the shared intent boundary
 
-The voice path rejoins the normal Maelstrom request loop before planning:
+Both voice tracks rejoin the normal Maelstrom request loop at natural-language intent. They may maintain different audio and conversation state, but neither can replace the client-built Chart snapshot that the Engine uses for planning.
 
-1. A provider adapter produces a natural-language intent.
-2. `RealtimeSession` submits that intent through the client.
-3. The client captures the current Instances, Variants, and Chart dimensions.
-4. The Engine returns an Execution Plan and a Layout Directive for each affected Instance.
-5. The client applies the result and reports that rendering has settled.
+```mermaid
+flowchart LR
+  accTitle: Shared voice intent boundary
+  accDescr: Cascade and realtime voice produce natural-language intent, while only the client-built Chart snapshot enters the Maelstrom Engine and successful narration waits for the UI to settle.
 
-The provider never supplies Vessel IDs, Actions, or layout coordinates as planning input. Read the [Architecture Overview](/understanding/architecture/) for the request and render loop that voice reuses.
+  Human["Human speech"]
+  Cascade["Cascade worker<br/>STT final transcript"]
+  Realtime["Voice-to-voice model<br/>grounding and read tools"]
+  Intent["update_ui<br/>natural-language intent"]
+  Client["Maelstrom client<br/>current Chart snapshot"]
+  Engine["Engine"]
+  UI["Settled UI"]
+  CascadeTTS["Cascade worker<br/>TTS"]
+  RealtimeSpeech["Realtime model<br/>narration"]
+
+  Human --> Cascade
+  Human <--> Realtime
+  Cascade --> Intent
+  Realtime --> Intent
+  Intent --> Client
+  Client -->|"Intent + client truth"| Engine
+  Engine --> UI
+  UI -->|"Settled result"| CascadeTTS
+  UI -->|"Tool result after settle"| RealtimeSpeech
+  CascadeTTS --> Human
+  RealtimeSpeech --> Human
+```
+
+In the cascade flow, browser audio travels through LiveKit to the worker's STT stage. The worker publishes a final transcript, and the browser adapter converts it into a synthetic `update_ui` call containing only the natural-language intent. The client then captures the current Instances, Variants, and Chart dimensions and sends that snapshot with the intent to the Engine. After the Engine's result renders and the UI settles, the browser returns result text to the worker for TTS.
+
+In the realtime flow, the browser exchanges audio directly with a voice-to-voice model. Structural UI grounding and read-only tools help that model converse about the interface, but only the natural-language intent from `update_ui` crosses into the Maelstrom client. The client—not the realtime model—captures the Chart snapshot and sends it to the Engine. `RealtimeSession` withholds the successful tool result until the resulting UI settles, so the model receives evidence of the rendered change before narrating it.
+
+This separation is the shared safety invariant: a voice model's belief about the interface may be useful for conversation, but it never becomes Engine planning input. Voice providers do not supply Vessel IDs, Actions, or layout coordinates to the Engine. Read the [Architecture Overview](/understanding/architecture/) for the request and render loop that both tracks reuse.
 
 ## Know the package boundaries
 
 The voice packages separate browser, server, and worker responsibilities:
 
-| Package | Runtime | Responsibility |
-| --- | --- | --- |
-| [`@maelstrom-co/realtime`](/reference/realtime/readme/) | Browser | Provider-neutral session, intent routing, speak-after-render ordering, and structural grounding |
-| [`@maelstrom-co/realtime/openai`](/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/) | Browser | OpenAI WebRTC transport and token grant schemas |
-| [`@maelstrom-co/react-realtime`](/reference/react-realtime/readme/) | Browser | Shared React session, `useVoice()`, transcripts, state, and `VoiceOrb` |
-| [`@maelstrom-co/realtime-server`](/reference/realtime-server/readme/) | Server | Exchange a server-held OpenAI API key for a short-lived client credential |
-| [`@maelstrom-co/realtime-livekit`](/reference/realtime-livekit/readme/) | Browser | LiveKit room transport, final-transcript intent conversion, and hold-to-talk control |
-| [`@maelstrom-co/realtime-livekit-server`](/reference/realtime-livekit-server/readme/) | Server | Sign a short-lived grant for one LiveKit room and participant identity |
-| [`@maelstrom-co/realtime-livekit-agent`](/reference/realtime-livekit-agent/readme/) | Worker | Run Deepgram STT and Cartesia TTS without an LLM or UI grounding |
+| Package                                                                                                    | Runtime | Responsibility                                                                                  |
+| ---------------------------------------------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
+| [`@maelstrom-co/realtime`](/reference/realtime/readme/)                                                    | Browser | Provider-neutral session, intent routing, speak-after-render ordering, and structural grounding |
+| [`@maelstrom-co/realtime/openai`](/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/) | Browser | OpenAI WebRTC transport and token grant schemas                                                 |
+| [`@maelstrom-co/react-realtime`](/reference/react-realtime/readme/)                                        | Browser | Shared React session, `useVoice()`, transcripts, state, and `VoiceOrb`                          |
+| [`@maelstrom-co/realtime-server`](/reference/realtime-server/readme/)                                      | Server  | Exchange a server-held OpenAI API key for a short-lived client credential                       |
+| [`@maelstrom-co/realtime-livekit`](/reference/realtime-livekit/readme/)                                    | Browser | LiveKit room transport, final-transcript intent conversion, and hold-to-talk control            |
+| [`@maelstrom-co/realtime-livekit-server`](/reference/realtime-livekit-server/readme/)                      | Server  | Sign a short-lived grant for one LiveKit room and participant identity                          |
+| [`@maelstrom-co/realtime-livekit-agent`](/reference/realtime-livekit-agent/readme/)                        | Worker  | Run Deepgram STT and Cartesia TTS without an LLM or UI grounding                                |
 
 These boundaries keep `OPENAI_API_KEY`, LiveKit secrets, and speech-provider keys out of browser code. They also keep provider transport details out of the Engine.
 
+The package reserves the `@maelstrom-co/realtime/google` subpath for a future adapter, but no Google adapter is implemented or usable today.
+
 ## Next step
 
-Follow [OpenAI Realtime](/guides/voice/openai-realtime/) for speech-native voice, or [LiveKit cascade](/guides/voice/livekit-cascade/) for hold-to-talk STT and TTS.
+Follow [OpenAI Realtime](/guides/voice/openai-realtime/) for provider-managed realtime conversation, or [LiveKit cascade](/guides/voice/livekit-cascade/) for an application-operated STT/TTS pipeline.
