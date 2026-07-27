@@ -1,12 +1,16 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, expect, it, mock } from 'bun:test';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { NodeLayer } from '../NodeLayer';
 import { NODES } from '../nodes';
 
 // NodeLayer returns an SVG <g> of foreignObject cards, so mount it in an <svg>.
 function renderNodes(props: Parameters<typeof NodeLayer>[0]) {
   return render(
+    // A <title> and not aria-hidden: hiding the wrapper would take the whole
+    // subtree out of the accessibility tree, and these tests query the cards
+    // by role.
     <svg>
+      <title>Architecture node layer test harness</title>
       <NodeLayer {...props} />
     </svg>,
   );

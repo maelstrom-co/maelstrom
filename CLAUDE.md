@@ -38,17 +38,20 @@ nx test @maelstrom-co/react
 # Type check all packages
 nx run-many -t typecheck
 
-# Lint all projects (Biome) — treat warnings as errors, like CI does
-nx run-many -t lint --error-on-warnings
+# Check all projects (Biome: lint + format + import order) — this is CI's gate
+nx run-many -t check
 
-# Auto-apply safe lint fixes
-nx run-many -t lint --error-on-warnings --fix
+# Auto-apply safe fixes (the only writing target)
+nx run-many -t format
+bunx biome check . --write
 
 # Build dependencies before testing (required for tests)
 # Tests depend on ^build - packages must be built first
 ```
 
-Before declaring any change done, run typecheck, tests, AND lint (with `--error-on-warnings`) for the affected packages. CI's lint step fails only on Biome errors; warnings-as-errors is the local bar, so a change that merely typechecks is not done if it introduces lint warnings.
+Before declaring any change done, run typecheck, tests, AND `check` for the affected packages. `check` supersets `lint`: it adds the formatter and the import-order assist, and the Biome plugin bakes in `--error-on-warnings`, so a warning fails exactly the way it fails in CI. There is no separate local bar to remember any more.
+
+Coverage is enforced two ways, and both matter: each project with a `biome.json` gets its own cached `check` target, and the root `@maelstrom-co/source:check` runs `biome check .` across the entire workspace. The root sweep is what catches files no project owns — `scripts/`, `.github/`, root config. A new package needs a `biome.json` (just `{"extends": "//"}`) to get its own target; without one it is still covered by the sweep, but loses per-project caching.
 
 ## Environment Setup
 
@@ -155,7 +158,7 @@ The `@maelstrom-co/*` packages are published to external consumers, so the comme
 ## Nx Workspace Notes
 
 - Uses inferred targets via plugins (`@nx/js/typescript`, `@nx/vite/plugin`, `@nx/vitest`)
-- Linting is Biome (no ESLint): `nx run-many -t lint --error-on-warnings`; suppressions use `// biome-ignore <rule>: <why>` comments stating the invariant
+- Linting is Biome (no ESLint): `nx run-many -t check` — the plugin adds `--error-on-warnings` itself. Suppressions use `// biome-ignore <rule>: <why>` comments stating the invariant, and must sit on the line directly above the offending token, not above the enclosing declaration
 - Tests depend on built packages (`"dependsOn": ["^build"]`)
 
 ## Issue Tracker Workflow

@@ -99,6 +99,21 @@
   "nx": {
     "includedScripts": [],
     "targets": {
+      "check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "biome check . --error-on-warnings"
+        },
+        "cache": true,
+        "inputs": [
+          "{workspaceRoot}/**/*",
+          {
+            "externalDependencies": [
+              "@biomejs/biome"
+            ]
+          }
+        ]
+      },
       "local-registry": {
         "executor": "@nx/js:verdaccio",
         "options": {

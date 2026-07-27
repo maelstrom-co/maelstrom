@@ -19,14 +19,19 @@ class PageFeedback extends HTMLElement {
         'click',
         () => {
           const value = (btn as HTMLElement).dataset.value;
-          this.querySelectorAll('.feedback-btn').forEach((b) =>
-            b.removeAttribute('data-selected'),
-          );
+          this.querySelectorAll('.feedback-btn').forEach((b) => {
+            b.removeAttribute('data-selected');
+          });
           btn.setAttribute('data-selected', 'true');
           safeSetItem(`feedback:${pageId}`, value || '');
 
-          if (typeof (window as typeof window & { posthog?: { capture?: (...args: unknown[]) => void } }).posthog?.capture === 'function') {
-            (window as typeof window & { posthog?: { capture?: (...args: unknown[]) => void } }).posthog!.capture!('on_rate_docs', {
+          // Read at click time, not load time: PostHog is injected
+          // asynchronously, so it may be absent when this element mounts.
+          const { posthog } = window as typeof window & {
+            posthog?: { capture?: (...args: unknown[]) => void };
+          };
+          if (typeof posthog?.capture === 'function') {
+            posthog.capture('on_rate_docs', {
               page: pageId,
               rating: value,
               url: window.location.pathname,

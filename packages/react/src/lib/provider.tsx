@@ -1,15 +1,14 @@
-import { Orchestrator, SessionId } from '@maelstrom-co/client';
 import type { EngineConnector } from '@maelstrom-co/client';
+import { Orchestrator, SessionId } from '@maelstrom-co/client';
 import type { LayoutMode, VesselId } from '@maelstrom-co/protocol';
 import { toError } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
-
+import type { ChartMotionConfig } from './chart/motion/motion-config.js';
 import type { ConfigOverrides } from './config-types.js';
 import { resolveConfig } from './config-types.js';
-import type { ChartMotionConfig } from './chart/motion/motion-config.js';
-import { useLatestRef } from './use-latest-ref.js';
 import type { MaelstromContextPair, MaelstromContextValue } from './context.js';
+import { useLatestRef } from './use-latest-ref.js';
 import type {
   AnyVesselEntry,
   LazyVesselComponentLoader,
@@ -64,12 +63,23 @@ export function createProvider(
   }: MaelstromProviderProps) {
     // Resolve config: Provider overrides → factory defaults → hardcoded defaults
     const config = useMemo(
-      () => resolveConfig(factoryConfig, { cellSizePx, tilingPaddingPx, debug, motion }),
+      () =>
+        resolveConfig(factoryConfig, {
+          cellSizePx,
+          tilingPaddingPx,
+          debug,
+          motion,
+        }),
       [cellSizePx, tilingPaddingPx, debug, motion],
     );
 
     // Build registries once from static entries
-    const { componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry } = useMemo(
+    const {
+      componentRegistry,
+      loadingRegistry,
+      lazyVesselIds,
+      lazyLoaderRegistry,
+    } = useMemo(
       () => buildRegistries(vesselEntries),
       [], // vesselEntries is stable (from factory closure)
     );
@@ -106,7 +116,9 @@ export function createProvider(
 
     // Orchestrator lifecycle — creates fresh instance per mount, disposes on unmount.
     // StrictMode safe: cleanup disposes the first instance, second setup creates a new one.
-    const [orchestrator, setOrchestrator] = useState<InstanceType<typeof Orchestrator> | null>(null);
+    const [orchestrator, setOrchestrator] = useState<InstanceType<
+      typeof Orchestrator
+    > | null>(null);
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: onErrorRef is a useLatestRef (stable identity, .current always fresh) — listing onErrorRef.current would re-create the Orchestrator whenever the onError callback prop's identity changes, defeating the ref's purpose of avoiding that.
     useEffect(() => {
@@ -158,7 +170,16 @@ export function createProvider(
         lazyLoaderRegistry,
         chartMountedRef,
       };
-    }, [orchestrator, connector, config, onErrorRef, componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry]);
+    }, [
+      orchestrator,
+      connector,
+      config,
+      onErrorRef,
+      componentRegistry,
+      loadingRegistry,
+      lazyVesselIds,
+      lazyLoaderRegistry,
+    ]);
 
     // Keep contextRef in sync for non-hook access (registerVessel).
     // Set synchronously during render so registerVessel works inside useMemo.
@@ -189,12 +210,21 @@ export function createProvider(
  * this internally.
  */
 function buildRegistries(entries: readonly AnyVesselEntry[]) {
-  // biome-ignore lint/suspicious/noExplicitAny: registry holds components for heterogeneous vessel definitions; ComponentType's props are contravariant, so `unknown` fails both the VesselDefinition constraint and JSX call sites in chart.tsx — see context.ts's MaelstromContextValue.componentRegistry for the same constraint.
-  const componentRegistry = new Map<VesselId, ComponentType<TypedVesselProps<any>>>();
-  const loadingRegistry = new Map<VesselId, ComponentType<{ vesselId: VesselId }>>();
+  const componentRegistry = new Map<
+    VesselId,
+    // biome-ignore lint/suspicious/noExplicitAny: registry holds components for heterogeneous vessel definitions; ComponentType's props are contravariant, so `unknown` fails both the VesselDefinition constraint and JSX call sites in chart.tsx — see context.ts's MaelstromContextValue.componentRegistry for the same constraint.
+    ComponentType<TypedVesselProps<any>>
+  >();
+  const loadingRegistry = new Map<
+    VesselId,
+    ComponentType<{ vesselId: VesselId }>
+  >();
   const lazyVesselIds = new Set<VesselId>();
-  // biome-ignore lint/suspicious/noExplicitAny: same erasure requirement as componentRegistry above.
-  const lazyLoaderRegistry = new Map<VesselId, LazyVesselComponentLoader<any>>();
+  const lazyLoaderRegistry = new Map<
+    VesselId,
+    // biome-ignore lint/suspicious/noExplicitAny: same erasure requirement as componentRegistry above.
+    LazyVesselComponentLoader<any>
+  >();
 
   for (const entry of entries) {
     const id = entry.vessel.id;
@@ -208,5 +238,10 @@ function buildRegistries(entries: readonly AnyVesselEntry[]) {
     }
   }
 
-  return { componentRegistry, loadingRegistry, lazyVesselIds, lazyLoaderRegistry };
+  return {
+    componentRegistry,
+    loadingRegistry,
+    lazyVesselIds,
+    lazyLoaderRegistry,
+  };
 }

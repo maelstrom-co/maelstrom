@@ -1,12 +1,17 @@
 import { useEffect, useReducer, useState } from 'react';
 import './diagram.css';
-import { NodeLayer } from './NodeLayer';
-import { EdgeLayer } from './EdgeLayer';
 import { BeatDetail } from './BeatDetail';
+import { EdgeLayer } from './EdgeLayer';
 import { LoopController } from './LoopController';
+import {
+  initialLoopState,
+  loopReducer,
+  STEPS,
+  stepCaption,
+} from './loop-machine';
+import { NodeLayer } from './NodeLayer';
 import { nodeById } from './nodes';
-import { STAGE, BANDS, FRAMING, cameraTransform } from './stage';
-import { STEPS, initialLoopState, loopReducer, stepCaption } from './loop-machine';
+import { BANDS, cameraTransform, FRAMING, STAGE } from './stage';
 
 // Dwell per beat while auto-playing. The camera pan (diagram.css, ~1s) eats the
 // first second, so this is set well above it to leave a stable reading window
@@ -15,6 +20,7 @@ const AUTO_ADVANCE_MS = 3600;
 
 function Bands() {
   return (
+    // biome-ignore lint/a11y/noAriaHiddenOnFocusable: an SVG <g> carries no default tabindex and is not focusable; the rule misreads it. These bands are purely decorative, so dropping aria-hidden would expose them to screen readers instead of protecting anyone.
     <g className="arch-bands" aria-hidden="true">
       {BANDS.map((band) => (
         <g key={band.zone} className={`arch-band arch-band--${band.zone}`}>
@@ -83,12 +89,17 @@ export default function ArchitectureDiagram() {
           role="img"
           aria-label="Maelstrom runtime: a request travels from the browser client through the protocol contract to the server engine, and the response returns."
         >
-          <g className="arch-camera" style={{ transform: cameraTransform(FRAMING[currentStep]) }}>
+          <g
+            className="arch-camera"
+            style={{ transform: cameraTransform(FRAMING[currentStep]) }}
+          >
             <Bands />
             <EdgeLayer currentStep={currentStep} />
             <NodeLayer
               activeId={activeId}
-              onActivate={(id) => setActiveId((prev) => (prev === id ? prev : id))}
+              onActivate={(id) =>
+                setActiveId((prev) => (prev === id ? prev : id))
+              }
             />
           </g>
         </svg>
@@ -103,7 +114,11 @@ export default function ArchitectureDiagram() {
         showDetail={showDetail}
         onToggleDetail={() => setShowDetail((v) => !v)}
       />
-      <BeatDetail node={detailNode} step={currentStep} showDetail={showDetail} />
+      <BeatDetail
+        node={detailNode}
+        step={currentStep}
+        showDetail={showDetail}
+      />
 
       {/* Always rendered: the no-JS source of truth for the runtime loop. Visible
           to assistive tech and crawlers; hidden once the live diagram hydrates. */}

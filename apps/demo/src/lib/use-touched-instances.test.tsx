@@ -88,13 +88,17 @@ describe('useTouchedInstances', () => {
 
   it('reports an instanceId whose position changed but variant/size did not', () => {
     const store = createFakeStore({
-      instances: new Map([['a', makeInstance({ position: { row: 0, column: 0 } })]]),
+      instances: new Map([
+        ['a', makeInstance({ position: { row: 0, column: 0 } })],
+      ]),
     });
     const { result } = renderHook(() => useTouchedInstances(store));
 
     act(() => {
       store.setState({
-        instances: new Map([['a', makeInstance({ position: { row: 2, column: 1 } })]]),
+        instances: new Map([
+          ['a', makeInstance({ position: { row: 2, column: 1 } })],
+        ]),
       });
     });
 
@@ -279,7 +283,10 @@ describe('useTouchedInstances', () => {
       // execute_actions targets 'b', then the batch's terminal idle
       // notification lands with no shape change of its own.
       events.emitCommandComplete({
-        command: { kind: 'execute_actions', executionPlan: [{ instanceId: 'b' }] },
+        command: {
+          kind: 'execute_actions',
+          executionPlan: [{ instanceId: 'b' }],
+        },
       });
       store.setState({
         status: 'idle',
@@ -344,11 +351,7 @@ describe('useFlashInstances', () => {
   }
 
   it('sets data-flash on the matching DOM wrapper', () => {
-    const { container, rerender } = render(
-      <>
-        <Fixture id="abc" />
-      </>,
-    );
+    const { container, rerender } = render(<Fixture id="abc" />);
     function Flasher({ touched }: { touched: ReadonlySet<string> }) {
       useFlashInstances(touched);
       return null;
@@ -377,9 +380,11 @@ describe('useFlashInstances', () => {
         <Flasher touched={new Set(['abc'])} />
       </>,
     );
-    expect(container.querySelector('[data-instance-id="abc"]')?.getAttribute('data-flash')).toBe(
-      'true',
-    );
+    expect(
+      container
+        .querySelector('[data-instance-id="abc"]')
+        ?.getAttribute('data-flash'),
+    ).toBe('true');
 
     rerender(
       <>
@@ -388,7 +393,11 @@ describe('useFlashInstances', () => {
       </>,
     );
 
-    expect(container.querySelector('[data-instance-id="abc"]')?.getAttribute('data-flash')).toBeNull();
+    expect(
+      container
+        .querySelector('[data-instance-id="abc"]')
+        ?.getAttribute('data-flash'),
+    ).toBeNull();
   });
 
   it('does not throw for an instanceId containing a raw double-quote (would prematurely close a naive selector string)', () => {
@@ -429,7 +438,9 @@ describe('useFlashInstances', () => {
       </>,
     );
 
-    const node = container.querySelector(`[data-instance-id="${idWithBracket}"]`);
+    const node = container.querySelector(
+      `[data-instance-id="${idWithBracket}"]`,
+    );
     expect(node?.getAttribute('data-flash')).toBe('true');
   });
 
@@ -445,15 +456,21 @@ describe('useFlashInstances', () => {
         <Flasher touched={new Set(['abc'])} />
       </>,
     );
-    expect(container.querySelector('[data-instance-id="abc"]')?.getAttribute('data-flash')).toBe(
-      'true',
-    );
+    expect(
+      container
+        .querySelector('[data-instance-id="abc"]')
+        ?.getAttribute('data-flash'),
+    ).toBe('true');
 
     // Unmount only the Flasher (e.g. ActionFlash unmounting) — the Chart-owned
     // DOM wrapper stays in place, so the stale data-flash attribute must not
     // stick around after the hook that wrote it is gone.
     rerender(<Fixture id="abc" />);
 
-    expect(container.querySelector('[data-instance-id="abc"]')?.getAttribute('data-flash')).toBeNull();
+    expect(
+      container
+        .querySelector('[data-instance-id="abc"]')
+        ?.getAttribute('data-flash'),
+    ).toBeNull();
   });
 });
