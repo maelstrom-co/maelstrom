@@ -54,6 +54,18 @@ export type MintResult = Result<OpenAITokenGrant, MintFailure>;
  * transport code must authenticate and authorize callers, enforce a trusted
  * model policy instead of accepting arbitrary model overrides, and add origin
  * controls, rate limits, and abuse controls before exposing the minter.
+ * The example below treats authentication, CSRF, origin, model selection,
+ * shared rate limiting, and redacted telemetry as mandatory app-provided
+ * fail-closed contracts. Keep the exact server-side origin allowlist check
+ * first. When authentication and CSRF validation are not demonstrably cheap
+ * and constant-time, run an app-provided fail-closed pre-auth transport
+ * throttle before both controls. Key it from a trusted server- or proxy-derived
+ * IP-equivalent client address, and reject browser-controlled forwarding
+ * headers rather than treating them as trusted address data. Retain the shared
+ * principal-keyed limit after authentication and CSRF validation. Both
+ * throttles must deny on store failure, return a bounded retry delay, and use
+ * the same generic 429 body. Browser input may request a model, but it must
+ * never define or widen the trusted server-side model allowlist.
  *
  * Only handles `provider: 'openai'` requests — a `google` minter is a
  * sibling. `sessionId` is accepted and validated but currently unused by
@@ -62,22 +74,118 @@ export type MintResult = Result<OpenAITokenGrant, MintFailure>;
  *
  * @example
  * ```ts
+ * import { isOk } from '@maelstrom-co/protocol';
+ * import {
+ *   createOpenAIMinter,
+ *   mintFailureHttpStatus,
+ * } from '@maelstrom-co/realtime-server';
+ * import { requireAuthenticatedRealtimeSession } from './auth';
+ * import {
+ *   areRealtimeMintAuthAndCsrfCheapAndConstantTime,
+ *   consumeRealtimeMintPreAuthRateLimit,
+ *   consumeRealtimeMintRateLimit,
+ *   isTrustedRealtimeMintOrigin,
+ *   isValidRealtimeMintCsrf,
+ *   resolveTrustedRealtimeMintClientAddress,
+ *   resolveAllowedRealtimeModel,
+ * } from './realtime-mint-policy';
+ * import { reportRedactedRealtimeMintFailure } from './redacted-telemetry';
+ *
  * const mint = createOpenAIMinter({
  *   apiKey: process.env.OPENAI_API_KEY!,
  *   model: 'gpt-realtime-2',
  * });
+ * const headers = { 'Cache-Control': 'private, no-store' };
  *
- * // Wire into a fetch-style route:
- * export async function POST(req: Request): Promise<Response> {
- *   const result = await mint(await req.json());
- *   if (isOk(result)) return Response.json(result.value);
+ * export async function POST(request: Request): Promise<Response> {
+ *   try {
+ *     if (!isTrustedRealtimeMintOrigin(request)) {
+ *       return Response.json({ error: 'request-denied' }, { status: 403, headers });
+ *     }
  *
- *   return Response.json(
- *     { error: result.error.reason },
- *     { status: mintFailureHttpStatus(result.error.reason) },
- *   );
+ *     if (!areRealtimeMintAuthAndCsrfCheapAndConstantTime()) {
+ *       const clientAddress = resolveTrustedRealtimeMintClientAddress(request);
+ *       if (clientAddress === null) {
+ *         return Response.json({ error: 'request-denied' }, { status: 403, headers });
+ *       }
+ *
+ *       const preAuthRateLimit =
+ *         await consumeRealtimeMintPreAuthRateLimit(clientAddress);
+ *       if (!preAuthRateLimit.allowed) {
+ *         return Response.json(
+ *           { error: 'rate-limited' },
+ *           {
+ *             status: 429,
+ *             headers: {
+ *               ...headers,
+ *               'Retry-After': String(preAuthRateLimit.retryAfterSeconds),
+ *             },
+ *           },
+ *         );
+ *       }
+ *     }
+ *
+ *     const authenticated = await requireAuthenticatedRealtimeSession(request);
+ *     if (authenticated === null) {
+ *       return Response.json({ error: 'unauthorized' }, { status: 401, headers });
+ *     }
+ *
+ *     if (!isValidRealtimeMintCsrf(request, authenticated)) {
+ *       return Response.json({ error: 'request-denied' }, { status: 403, headers });
+ *     }
+ *
+ *     const rateLimit = await consumeRealtimeMintRateLimit(authenticated.principalId);
+ *     if (!rateLimit.allowed) {
+ *       return Response.json(
+ *         { error: 'rate-limited' },
+ *         {
+ *           status: 429,
+ *           headers: { ...headers, 'Retry-After': String(rateLimit.retryAfterSeconds) },
+ *         },
+ *       );
+ *     }
+ *
+ *     let input: unknown;
+ *     try {
+ *       input = await request.json();
+ *     } catch {
+ *       return Response.json({ error: 'invalid-request' }, { status: 400, headers });
+ *     }
+ *
+ *     const model = resolveAllowedRealtimeModel(authenticated, input);
+ *     if (model === null) {
+ *       return Response.json({ error: 'request-denied' }, { status: 403, headers });
+ *     }
+ *
+ *     const result = await mint({
+ *       provider: 'openai',
+ *       sessionId: authenticated.sessionId,
+ *       model,
+ *     });
+ *     if (isOk(result)) return Response.json(result.value, { headers });
+ *
+ *     return Response.json(
+ *       { error: 'mint-failed' },
+ *       { status: mintFailureHttpStatus(result.error.reason), headers },
+ *     );
+ *   } catch (error) {
+ *     try {
+ *       await reportRedactedRealtimeMintFailure({
+ *         source: 'openai-token-route',
+ *         error,
+ *       });
+ *     } catch {
+ *       // Telemetry failure must not escape the HTTP boundary.
+ *     }
+ *     return Response.json({ error: 'mint-failed' }, { status: 500, headers });
+ *   }
  * }
  * ```
+ *
+ * OpenAI recommends an `OpenAI-Safety-Identifier` header for client-secret
+ * creation. This minter does not yet expose a public upstream-header option, so
+ * adding that support remains a follow-up rather than an implied capability of
+ * this example.
  */
 export function createOpenAIMinter(
   options: CreateOpenAIMinterOptions,
