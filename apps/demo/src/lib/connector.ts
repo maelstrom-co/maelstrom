@@ -3,6 +3,11 @@ import {
   WebSocketConnector,
 } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
+// A wire literal both sides must agree on byte-for-byte, so it is imported
+// rather than restated here. playground-frames.ts is browser-safe (it pulls
+// only @maelstrom-co/client and @maelstrom-co/protocol) despite living under
+// src/server — it defines the contract, not a server implementation of it.
+import { PLAYGROUND_NOKEY_FRAME } from '../server/playground-frames';
 import { isHosted } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
 
@@ -19,9 +24,15 @@ export interface CreateDemoConnectorOptions {
    * The session this connector belongs to, used in hosted mode to select
    * which SessionDO object identity the connection is routed to. Must be
    * the same id handed to `<Provider sessionId>`: the DO caches an engine
-   * (and its conversation history) under this id, so routing a reconnect
-   * with a different one would land on an object that has never seen the
-   * session. Omitted in local mode, where nothing routes by session.
+   * under this id, so routing a reconnect with a different one would land on
+   * an object that has never seen the session. Omitted in local mode, where
+   * nothing routes by session.
+   *
+   * Routing here is what makes resuming *possible*, not what guarantees it:
+   * the engine and its conversation history are in-memory, so they survive a
+   * reconnect only while the object stays resident. Hibernation discards
+   * both, and the rehello handshake restores only the key — see
+   * `worker/session-do.ts`.
    */
   readonly sessionId?: SessionId;
 }
@@ -157,7 +168,17 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
       ? (raw, send, sessionId) => {
           if (!isRehelloFrame(raw)) return false;
           const apiKey = getApiKey();
-          if (apiKey) send(buildPlaygroundHello(sessionId, apiKey));
+          // Always answer, even empty-handed. The server is holding the
+          // frame that triggered this rehello and cannot tell a silent
+          // client from a slow one: staying quiet strands that request
+          // until the correlator times out with no diagnostic, whereas an
+          // explicit decline lets the server answer it immediately with the
+          // "open the key drawer" error the visitor can actually act on.
+          send(
+            apiKey
+              ? buildPlaygroundHello(sessionId, apiKey)
+              : PLAYGROUND_NOKEY_FRAME,
+          );
           return true;
         }
       : undefined,

@@ -51,6 +51,7 @@ export type DispatchResult =
   | { readonly kind: 'heartbeat' }
   | { readonly kind: 'hello'; readonly frame: PlaygroundHelloFrame }
   | { readonly kind: 'rehello' }
+  | { readonly kind: 'hello-declined' }
   | { readonly kind: 'close'; readonly code: number; readonly reason: string }
   | { readonly kind: 'reply'; readonly wire: string }
   | { readonly kind: 'none' };
@@ -92,6 +93,7 @@ export async function dispatchFrame(
   if (decision.kind === 'hello') {
     return { kind: 'hello', frame: decision.frame };
   }
+  if (decision.kind === 'hello-declined') return { kind: 'hello-declined' };
 
   if (decision.kind === 'hello-rejected') {
     // Checked before the keyless-visitor path below, because both present

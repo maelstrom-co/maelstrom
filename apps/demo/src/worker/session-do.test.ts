@@ -62,18 +62,65 @@ const { SessionDO } = await import('./session-do');
 
 class FakeWs {
   readonly sent: string[] = [];
+  // Recorded, not ignored: close CODES are load-bearing on this transport --
+  // WebSocketConnector branches its reconnect behavior on them (1008 is
+  // flagged non-retryable), so a handler that closed with the wrong code
+  // would silently change client reconnect behavior while a `close() {}`
+  // no-op kept every assertion green.
+  readonly closes: { code?: number; reason?: string }[] = [];
   attachment: unknown = null;
   send(data: string) {
     this.sent.push(data);
   }
   serializeAttachment(v: unknown) {
+    // Mirrors the platform's own 16,384-byte cap, which THROWS rather than
+    // truncating. Without this the fake accepts payloads the real runtime
+    // would reject, and the guard against an oversized sessionId could
+    // regress with the suite still passing.
+    if (JSON.stringify(v).length > 16_384) {
+      throw new RangeError('Attachment too large');
+    }
     this.attachment = v;
   }
   deserializeAttachment() {
     return this.attachment;
   }
-  close() {}
+  close(code?: number, reason?: string) {
+    this.closes.push({ code, reason });
+  }
 }
+
+/**
+ * An engine whose dispatch actually succeeds. The shape matters: a `handle`
+ * returning `{ ok: true, value: null }` makes handleEnvelope throw on
+ * `result.value.type`, which it catches and maps to `engine.error` -- so
+ * every "the frame was replayed" assertion would pass on a FAILED replay.
+ * Assertions below check for `engine.maelstrom.response` specifically, which
+ * only this shape can produce.
+ */
+function fakeEngine() {
+  return {
+    handle: vi.fn(async (envelope: { id: string; sessionId: string }) => ({
+      ok: true as const,
+      value: {
+        type: 'chart_response' as const,
+        id: envelope.id,
+        sessionId: envelope.sessionId,
+        response: {
+          type: 'maelstrom_response' as const,
+          requestId: envelope.id,
+          userMessage: 'done',
+          rationale: 'because',
+          executionPlan: [],
+          layout: { type: 'grid' as const, positions: [] },
+        },
+      },
+    })),
+    getHistory: vi.fn(),
+  };
+}
+
+const NOKEY = JSON.stringify({ type: 'playground.nokey' });
 
 function makeCtx(sockets: FakeWs[] = []) {
   return {
@@ -139,9 +186,7 @@ describe('SessionDO', () => {
   });
 
   it('requests a rehello after a wake, and replays the buffered frame', async () => {
-    createEngineMock.mockReturnValue({
-      handle: vi.fn().mockResolvedValue({ ok: true, value: null }),
-    });
+    createEngineMock.mockReturnValue(fakeEngine());
     const ws = new FakeWs();
     // Simulate a wake: attachment survived, in-memory key did not, so this
     // is a brand-new instance that has never seen the key.
@@ -151,17 +196,18 @@ describe('SessionDO', () => {
     await woken.webSocketMessage(ws as never, CHART_REQUEST);
     expect(ws.sent.at(-1)).toContain('playground.rehello');
 
+    ws.sent.length = 0;
     await woken.webSocketMessage(ws as never, HELLO);
-    // The frame that triggered the rehello must be answered, not dropped —
-    // otherwise the visitor's request silently vanishes and the UI waits
-    // for the correlator timeout.
-    expect(ws.sent.length).toBeGreaterThan(1);
+    // The frame that triggered the rehello must be answered THROUGH THE
+    // ENGINE, not merely answered: asserting only that some frame came back
+    // passes just as happily on the engine.error a failed replay produces,
+    // which is the exact failure this test exists to catch.
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).toContain('"type":"engine.maelstrom.response"');
   });
 
   it('buffers exactly one frame while awaiting the rehello, independently per connection', async () => {
-    createEngineMock.mockReturnValue({
-      handle: vi.fn().mockResolvedValue({ ok: true, value: null }),
-    });
+    createEngineMock.mockReturnValue(fakeEngine());
     const ws = new FakeWs();
     ws.attachment = { helloed: true, sessionId: 's-1' };
     const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
@@ -169,15 +215,23 @@ describe('SessionDO', () => {
     await woken.webSocketMessage(ws as never, CHART_REQUEST);
     // The first call buffers the frame and requests a rehello. Further
     // calls while that rehello is still unanswered do NOT grow the buffer
-    // or repeat the bare rehello (Finding #3: a second bare rehello would
-    // loop forever with no diagnostic) -- they get the same keyless-visitor
-    // error a never-helloed visitor would.
+    // or repeat the bare rehello -- a second bare rehello would loop
+    // forever with no diagnostic. They get an immediate error instead.
     await woken.webSocketMessage(ws as never, CHART_REQUEST);
     await woken.webSocketMessage(ws as never, CHART_REQUEST);
     expect(
       ws.sent.filter((f) => f.includes('playground.rehello')),
     ).toHaveLength(1);
-    expect(ws.sent.filter((f) => f.includes('No API key set'))).toHaveLength(2);
+    // "re-authenticating", NOT "No API key set". These frames raced the
+    // client's answer to the rehello, and the client has not said it lacks
+    // a key -- it has not answered at all yet. Telling this visitor to open
+    // the key drawer would send them to fix something that isn't broken;
+    // the key-drawer copy is reserved for a client that explicitly declined
+    // (see the playground.nokey test below).
+    expect(ws.sent.filter((f) => f.includes('re-authenticating'))).toHaveLength(
+      2,
+    );
+    expect(ws.sent.filter((f) => f.includes('No API key set'))).toHaveLength(0);
 
     ws.sent.length = 0;
     await woken.webSocketMessage(ws as never, HELLO);
@@ -187,6 +241,7 @@ describe('SessionDO', () => {
     // during the gap, multiplying one visitor action into N engine calls
     // billed against their key.
     expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).toContain('"type":"engine.maelstrom.response"');
 
     // Two sockets on the SAME object can each wake from hibernation
     // independently (two tabs on one session). #pending is keyed per
@@ -213,6 +268,8 @@ describe('SessionDO', () => {
     // neither was dropped by the other's.
     expect(a.sent).toHaveLength(1);
     expect(b.sent).toHaveLength(1);
+    expect(a.sent[0]).toContain('"type":"engine.maelstrom.response"');
+    expect(b.sent[0]).toContain('"type":"engine.maelstrom.response"');
   });
 
   it('answers a heartbeat that reaches webSocketMessage directly', async () => {
@@ -226,7 +283,7 @@ describe('SessionDO', () => {
     expect(ws.sent).toEqual([HEARTBEAT_PONG_FRAME]);
   });
 
-  it('answers a keyless client\'s second post-wake frame with "No API key set" instead of a second bare rehello', async () => {
+  it('answers the buffered frame immediately when the client declines the rehello', async () => {
     const ws = new FakeWs();
     // Simulate a wake with a visitor who cleared their key: attachment
     // survived, key never comes back over the wire.
@@ -237,21 +294,130 @@ describe('SessionDO', () => {
     expect(ws.sent.at(-1)).toContain('playground.rehello');
 
     ws.sent.length = 0;
+    await woken.webSocketMessage(ws as never, NOKEY);
+
+    // The decline is definitive, so the buffered frame can never be
+    // replayed -- it must be answered NOW. Holding it until the socket
+    // closes would leave the visitor's request to die on the client's 30s
+    // correlator timeout with no diagnostic at all.
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).toContain('No API key set');
+  });
+
+  it('stops re-arming the rehello once the client has declined it', async () => {
+    const ws = new FakeWs();
+    ws.attachment = { helloed: true, sessionId: 's-1' };
+    const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+
+    await woken.webSocketMessage(ws as never, CHART_REQUEST);
+    await woken.webSocketMessage(ws as never, NOKEY);
+
+    ws.sent.length = 0;
     await woken.webSocketMessage(ws as never, CHART_REQUEST);
 
-    // Not a second bare rehello -- that would repeat forever with no
-    // diagnostic and leave the visitor's request to die on the client's
-    // 30s correlator timeout. The actionable "open the key drawer" error
-    // unblocks them instead.
+    // This connection has said it has no key. Asking again would be a
+    // handshake loop with no diagnostic; it gets the actionable error
+    // directly, exactly like a visitor who never helloed at all.
     expect(ws.sent).toHaveLength(1);
     expect(ws.sent[0]).not.toContain('playground.rehello');
     expect(ws.sent[0]).toContain('No API key set');
   });
 
+  it('recovers a declined connection once a real hello arrives', async () => {
+    createEngineMock.mockReturnValue(fakeEngine());
+    const ws = new FakeWs();
+    ws.attachment = { helloed: true, sessionId: 's-1' };
+    const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+
+    await woken.webSocketMessage(ws as never, CHART_REQUEST);
+    await woken.webSocketMessage(ws as never, NOKEY);
+
+    // The visitor pastes a key. A decline must not be a permanent verdict on
+    // the connection -- if it were, they would stay locked out of their own
+    // session until they reloaded the page.
+    await woken.webSocketMessage(ws as never, HELLO);
+    ws.sent.length = 0;
+    await woken.webSocketMessage(ws as never, CHART_REQUEST);
+
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).toContain('"type":"engine.maelstrom.response"');
+  });
+
+  it('builds every engine with a redacting logger', async () => {
+    createEngineMock.mockReturnValue(fakeEngine());
+    const ws = new FakeWs();
+    const does = new SessionDO(makeCtx([ws]) as never, {} as never);
+    await does.webSocketMessage(ws as never, HELLO);
+    await does.webSocketMessage(ws as never, CHART_REQUEST);
+
+    // The single mechanism standing between a provider's error and a
+    // permanently retained log line: wrangler.jsonc sets
+    // observability.logs.persist, and createEngine's DEFAULT logger is
+    // consoleLogger, which writes OpenAI's 401 echo of the rejected key
+    // straight to stdout. Nothing else in this suite fails if the `logger`
+    // option is dropped from #engineFor, so without this test the custody
+    // invariant could regress silently.
+    expect(createEngineMock).toHaveBeenCalledTimes(1);
+    const config = createEngineMock.mock.calls[0]?.[0] as {
+      logger?: { error: (m: string, e?: unknown) => void };
+    };
+    expect(config.logger).toBeDefined();
+
+    // Behavioral, not just presence: assert the logger actually scrubs. A
+    // logger that was wired up but passed the key through would satisfy a
+    // toBeDefined() check while leaking exactly what it exists to prevent.
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      config.logger?.error(`upstream rejected ${A_KEY}`);
+      const logged = spy.mock.calls.flat().join(' ');
+      expect(logged).not.toContain(A_KEY);
+      expect(logged).toContain('[redacted]');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('closes with 1002 on pre-hello traffic that is not even a protocol envelope', async () => {
+    const ws = new FakeWs();
+    const does = new SessionDO(makeCtx([ws]) as never, {} as never);
+
+    // Never helloed, and not decodable as a client envelope -- the one case
+    // that earns a close rather than a correlated error reply.
+    await does.webSocketMessage(ws as never, JSON.stringify({ type: 'junk' }));
+
+    // The CODE is the assertion, not merely that a close happened:
+    // WebSocketConnector branches reconnect behavior on close codes, so
+    // closing with the wrong one silently changes client behavior.
+    expect(ws.closes).toHaveLength(1);
+    expect(ws.closes[0]?.code).toBe(1002);
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  it('rejects a hello whose sessionId would overflow the attachment cap', async () => {
+    const ws = new FakeWs();
+    const does = new SessionDO(makeCtx([ws]) as never, {} as never);
+
+    // serializeAttachment throws past 16,384 bytes, and the hello handler
+    // sits OUTSIDE webSocketMessage's dispatch try/catch -- so an unbounded
+    // sessionId from a crafted frame would escape as an unhandled exception
+    // that observability.logs.persist then retains. It must be rejected at
+    // the guard instead, and treated as ordinary pre-hello traffic.
+    await expect(
+      does.webSocketMessage(
+        ws as never,
+        JSON.stringify({
+          type: 'playground.hello',
+          sessionId: 'x'.repeat(20_000),
+          apiKey: A_KEY,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(ws.attachment).toBeNull();
+  });
+
   it("does not let a second connection spend the first connection's key", async () => {
-    createEngineMock.mockReturnValue({
-      handle: vi.fn().mockResolvedValue({ ok: true, value: null }),
-    });
+    createEngineMock.mockReturnValue(fakeEngine());
     const a = new FakeWs();
     const b = new FakeWs();
     const does = new SessionDO(makeCtx([a, b]) as never, {} as never);
@@ -309,9 +475,7 @@ describe('SessionDO', () => {
   });
 
   it('tears down the shared engine only once the last socket on the object has closed, not on every close', async () => {
-    createEngineMock.mockReturnValue({
-      handle: vi.fn().mockResolvedValue({ ok: true, value: null }),
-    });
+    createEngineMock.mockReturnValue(fakeEngine());
     // The previous test leaves createEngineMock mid-throw with its own call
     // count -- clear both so the counts asserted below start from this
     // test's own dispatches, not whatever the suite ran before it.

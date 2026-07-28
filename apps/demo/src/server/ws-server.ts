@@ -11,13 +11,10 @@
  * via the shared dispatchFrame core in `./dispatch`.
  */
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/client';
-import {
-  createEngine,
-  createInMemoryStore,
-  type Engine,
-} from '@maelstrom-co/engine';
+import type { Engine } from '@maelstrom-co/engine';
 import { geminiText } from '@tanstack/ai-gemini';
 import { dispatchFrame } from './dispatch';
+import { createPlaygroundEngine } from './engine-config';
 
 const PORT = Number(process.env.WS_PORT ?? 3001);
 
@@ -49,18 +46,13 @@ export function truncateCloseReason(reason: string, maxBytes = 123): string {
   return '';
 }
 
-const SYSTEM_RULES = `
-- Try to always keep at least one vessel visible on the chart
-- Give each vessel adequate space for its content`;
-
 let sharedEngine: Engine | null = null;
 let sharedEngineInitError: string | null = null;
 try {
-  sharedEngine = createEngine({
+  // No logger override: local dev keys the engine from env vars, so there is
+  // no visitor secret for a redacting logger to scrub. See engine-config.ts.
+  sharedEngine = createPlaygroundEngine({
     adapter: geminiText('gemini-3.1-flash-lite-preview'),
-    maxRetries: 2,
-    history: { store: createInMemoryStore(), maxEntries: 20 },
-    prompt: { system: { rules: { append: SYSTEM_RULES } } },
   });
 } catch (err) {
   sharedEngineInitError = err instanceof Error ? err.message : String(err);
@@ -114,6 +106,10 @@ export function createWebSocketHandlers(
         case 'rehello':
           // Unreachable under Bun (wasHelloed is always false above); the
           // DO transport is the only producer.
+          return;
+        case 'hello-declined':
+          // Unreachable under Bun: a decline only ever answers a rehello,
+          // which this transport never sends.
           return;
         case 'close':
           ws.close(result.code, truncateCloseReason(result.reason));

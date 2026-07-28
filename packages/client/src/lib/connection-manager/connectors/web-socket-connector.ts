@@ -395,7 +395,9 @@ export class WebSocketConnector implements EngineConnector {
     const socket = this.#ws;
 
     socket.onmessage = (event) => {
-      this.#handleMessage(event);
+      // `socket`, not `this.#ws`: a frame must be answered over the same
+      // socket that delivered it. See #handleMessage's onFrame call.
+      this.#handleMessage(event, socket);
     };
 
     socket.onclose = (event) => {
@@ -440,7 +442,7 @@ export class WebSocketConnector implements EngineConnector {
     };
   }
 
-  #handleMessage(event: MessageEvent): void {
+  #handleMessage(event: MessageEvent, socket: WebSocket): void {
     // heartbeat.pong is transport-level, not part of the protocol envelope
     // union by design — decodeServerEnvelope would reject it as undecodable.
     // Only intercept it when the heartbeat option is active, so a stray pong
@@ -458,11 +460,30 @@ export class WebSocketConnector implements EngineConnector {
     // #sessionId is non-null here: a message can only arrive on a socket
     // that connect() opened, and connect() assigns it first.
     if (this.#onFrame !== undefined && this.#sessionId !== null) {
-      const consumed = this.#onFrame(
-        String(event.data),
-        (data) => this.#ws?.send(data),
-        this.#sessionId,
-      );
+      let consumed = false;
+      try {
+        consumed = this.#onFrame(
+          String(event.data),
+          // The delivering socket, captured by identity — NOT `this.#ws`,
+          // which a later connect() may already have moved on to. onFrame
+          // exists to answer server-initiated frames, so a reply routed to
+          // the replacement socket would leave the asking socket waiting
+          // forever while the new one fields a response to a question it
+          // never asked. Same hazard `onclose` guards against above.
+          (data) => socket.send(data),
+          this.#sessionId,
+        );
+      } catch (error) {
+        // A consumer hook is arbitrary code. Letting it throw would escape
+        // `onmessage` as an unhandled rejection AND skip envelope decoding
+        // for this frame, so one bad hook silently drops protocol traffic
+        // the connector could otherwise have delivered. Fall through
+        // instead: worst case the codec rejects it and reports properly.
+        console.warn(
+          '[WebSocketConnector] onFrame threw; falling through to envelope decoding',
+          error,
+        );
+      }
       if (consumed) return;
     }
 

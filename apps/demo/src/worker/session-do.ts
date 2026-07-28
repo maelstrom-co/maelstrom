@@ -7,17 +7,22 @@
  * held per connection, dropped on hibernate, and re-requested over
  * `playground.rehello` — never written to storage or to
  * `serializeAttachment`, both of which the platform retains.
+ *
+ * Conversation history shares the engine's fate rather than the socket's:
+ * it lives in the in-memory store `#engineFor` builds, so hibernation
+ * discards it along with the key, and the rehello handshake restores only
+ * the key. A visitor whose session hibernates keeps their connection and
+ * their key but resumes with an empty history. That is a deliberate
+ * consequence of persisting nothing — see the migration design doc; giving
+ * history durability means writing conversation content to `ctx.storage`,
+ * which is a separate decision from key custody and is not made here.
  */
 import { DurableObject } from 'cloudflare:workers';
 import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,
 } from '@maelstrom-co/client';
-import {
-  createEngine,
-  createInMemoryStore,
-  type Engine,
-} from '@maelstrom-co/engine';
+import type { Engine } from '@maelstrom-co/engine';
 import { encodeEnvelope } from '@maelstrom-co/protocol';
 import { createOpenaiChat } from '@tanstack/ai-openai';
 import {
@@ -25,18 +30,25 @@ import {
   dispatchFrame,
   encodeEngineErrorReply,
 } from '../server/dispatch';
+import { createPlaygroundEngine } from '../server/engine-config';
 import { resolvePreHelloDispatch } from '../server/playground-frames';
 import { createRedactingLogger, redact, redactSecrets } from '../server/redact';
-
-const SYSTEM_RULES = `
-- Try to always keep at least one vessel visible on the chart
-- Give each vessel adequate space for its content`;
 
 // gpt-4o-mini's own ceiling. Explicit and generous so a verbose layout
 // response can never hit OpenAI's response.incomplete truncation, which
 // @tanstack/ai currently swallows into a generic "structured output
 // finalization produced no result".
 const MAX_OUTPUT_TOKENS = 16384;
+
+// Sent while a rehello this connection has not yet answered is outstanding.
+// Deliberately NOT the "No API key set" copy a keyless visitor gets: the
+// client answers a rehello either way (with a key, or with
+// `playground.nokey`), so an unanswered one means the answer is still in
+// flight, not that there is no key. Telling a visitor who has a perfectly
+// good key that they have none would send them to the key drawer to fix
+// something that isn't broken.
+const REAUTHENTICATING_ERROR =
+  'Session is re-authenticating after going idle — retry in a moment.';
 
 /** Non-secret, survives hibernation. See the class doc for what must NOT go here. */
 interface ConnectionMarker {
@@ -56,7 +68,13 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   readonly #keys = new WeakMap<WebSocket, string>();
   // Object-scoped so reconnects and extra tabs share conversation history,
   // alongside the key it was built with so a mismatch rebuilds rather than
-  // inherits.
+  // inherits. Rebuilding on a key mismatch discards the previous engine's
+  // history, and that is the intended trade: a sessionId is correlation
+  // data, not a secret, so a second socket presenting a DIFFERENT key may
+  // well be a different person. Handing them the running engine would spend
+  // the first visitor's key on their behalf and show them the first
+  // visitor's conversation. Two tabs sharing one key — the common case —
+  // match on `#engineKey` and share both engine and history as intended.
   #engine: Engine | null = null;
   #engineKey: string | null = null;
   // At most one frame PER SOCKET, cleared on that socket's hello and on its
@@ -66,6 +84,13 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   // socket's triggering frame. Unbounded buffering would be a
   // memory-growth vector on a socket that never answers the rehello.
   readonly #pending = new Map<WebSocket, string>();
+  // Connections that answered a rehello with `playground.nokey`. Suppresses
+  // further rehellos on that socket — it has already said it has nothing to
+  // send — so its traffic falls straight through to the same actionable
+  // "No API key set" reply a never-helloed visitor gets, instead of
+  // re-arming a handshake the client has explicitly declined. Cleared by a
+  // real hello, so a visitor who pastes a key and reconnects recovers.
+  readonly #declined = new WeakSet<WebSocket>();
 
   constructor(ctx: DurableObjectState, env: PlaygroundEnv) {
     super(ctx, env);
@@ -108,7 +133,8 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
         // Lazy: the core invokes this only on its real-dispatch path, so a
         // heartbeat or handshake frame never triggers engine construction.
         getEngine: () => (key ? this.#engineFor(key) : null),
-        wasHelloed: key === null && marker?.helloed === true,
+        wasHelloed:
+          key === null && marker?.helloed === true && !this.#declined.has(ws),
         engineUnavailableReason: 'session engine unavailable',
       });
     } catch (err) {
@@ -119,13 +145,20 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       // logs — and observability.logs.persist retains. #engineFor already
       // redacted the key out of err's message before it reached here.
       const message = err instanceof Error ? err.message : String(err);
-      this.#send(ws, encodeEngineErrorReply(raw, message));
+      // Safe to log precisely because #engineFor redacted it: without a
+      // server-side line, a deployment where every visitor's engine fails
+      // to build (a bad adapter upgrade, a provider outage) is invisible to
+      // an operator — the only symptom is an error each visitor sees alone.
+      console.error(`[session-do] engine construction failed: ${message}`);
+      this.#send(ws, encodeEngineErrorReply(raw, message), key);
       return;
     }
 
     switch (result.kind) {
       case 'hello': {
         this.#keys.set(ws, result.frame.apiKey);
+        // A key arrived, so any earlier decline is stale.
+        this.#declined.delete(ws);
         ws.serializeAttachment({
           helloed: true,
           sessionId: result.frame.sessionId,
@@ -139,22 +172,31 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
         }
         return;
       }
+      case 'hello-declined': {
+        // The client answered the rehello with "I have no key". Definitive,
+        // so the buffered frame is never going to be replayable — answer it
+        // now with the actionable error rather than holding it until this
+        // socket closes, which would leave the visitor's request to die on
+        // the client's correlator timeout with no diagnostic at all.
+        this.#declined.add(ws);
+        const pending = this.#pending.get(ws);
+        this.#pending.delete(ws);
+        if (pending !== undefined) this.#replyPreHello(ws, pending, key);
+        return;
+      }
       case 'rehello': {
         if (this.#pending.has(ws)) {
-          // A previous rehello for this socket already went unanswered —
-          // the visitor cannot (or will not) resupply a key. Sending
-          // another bare rehello would repeat forever with no diagnostic,
-          // so stop re-arming it: the ORIGINAL buffered frame stays put
-          // (replayed if a real hello eventually arrives, dropped on
-          // close), and every frame arriving in the meantime — including
-          // this one — gets answered directly, the same way a
-          // never-helloed visitor is answered.
-          const outcome = resolvePreHelloDispatch(raw);
-          if (outcome.kind === 'close') {
-            ws.close(1002, 'expected playground.hello as the first frame');
-          } else {
-            this.#send(ws, encodeEnvelope(outcome.message));
-          }
+          // A rehello for this socket is already outstanding and this frame
+          // raced its answer. Only one frame can be buffered, so this one
+          // gets an immediate reply instead — an accurate "re-authenticating"
+          // error, not the key-drawer copy, which would be a lie while the
+          // client's hello is in flight. The ORIGINAL buffered frame stays
+          // put and is replayed when that hello lands.
+          this.#send(
+            ws,
+            encodeEngineErrorReply(raw, REAUTHENTICATING_ERROR),
+            key,
+          );
           return;
         }
         this.#pending.set(ws, raw);
@@ -165,7 +207,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
         ws.close(result.code, result.reason);
         return;
       case 'reply':
-        this.#send(ws, result.wire);
+        this.#send(ws, result.wire, key);
         return;
       case 'heartbeat':
         // Defense in depth: setWebSocketAutoResponse answers a genuine ping
@@ -210,19 +252,37 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
     }
   }
 
-  /** Scrubs the connection's key from every outbound frame. */
-  #send(ws: WebSocket, wire: string): void {
-    ws.send(redactSecrets(wire, this.#keys.get(ws)));
+  /**
+   * Answers a frame that arrived without a usable key, the same way a
+   * never-helloed visitor is answered: an actionable engine.error, or a
+   * close for traffic that isn't even a protocol envelope.
+   */
+  #replyPreHello(ws: WebSocket, raw: string, key: string | null): void {
+    const outcome = resolvePreHelloDispatch(raw);
+    if (outcome.kind === 'close') {
+      ws.close(1002, 'expected playground.hello as the first frame');
+      return;
+    }
+    this.#send(ws, encodeEnvelope(outcome.message), key);
+  }
+
+  /**
+   * Scrubs the connection's key from every outbound frame. The key is passed
+   * in rather than read back from `#keys` here, because a dispatch that was
+   * still awaiting the engine when this socket closed resumes AFTER
+   * `#teardown` has already deleted the entry — re-reading would hand
+   * `redactSecrets` an undefined key and silently drop the exact-match pass
+   * on the one frame most likely to be carrying a provider error.
+   */
+  #send(ws: WebSocket, wire: string, key: string | null): void {
+    ws.send(redactSecrets(wire, key ?? undefined));
   }
 
   #engineFor(apiKey: string): Engine {
     if (this.#engine && this.#engineKey === apiKey) return this.#engine;
     try {
-      this.#engine = createEngine({
+      this.#engine = createPlaygroundEngine({
         adapter: createOpenaiChat('gpt-4o-mini', apiKey),
-        maxRetries: 2,
-        history: { store: createInMemoryStore(), maxEntries: 20 },
-        prompt: { system: { rules: { append: SYSTEM_RULES } } },
         // observability.logs.persist is on: without this the default
         // consoleLogger writes OpenAI's 401 key echo into retained logs.
         logger: createRedactingLogger(apiKey),

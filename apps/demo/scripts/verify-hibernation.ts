@@ -32,6 +32,12 @@
  * instead of burning the rest of the idle window on a run that was never
  * going to prove anything about hibernation.
  *
+ * The run heartbeats throughout, including across the idle gap, for the same
+ * reason the shipped client does: an idle WebSocket is dropped in transit.
+ * The pings are answered by the runtime's own auto-response without waking
+ * the object, so they keep the SOCKET alive without keeping the OBJECT
+ * resident — see the heartbeat setInterval below.
+ *
  * Usage:
  *   SPIKE_OPENAI_KEY=sk-... bun run apps/demo/scripts/verify-hibernation.ts \
  *     <host> [idle-minutes]
@@ -39,6 +45,10 @@
  *   <host>          required, e.g. maelstrom-playground-spike.<account>.workers.dev
  *   [idle-minutes]  optional, default 15
  */
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_PING_FRAME,
+} from '@maelstrom-co/client';
 import {
   ChartRequestMessage,
   encodeEnvelope,
@@ -185,6 +195,10 @@ ws.onerror = () => {
 
 ws.onmessage = (event) => {
   const data = String(event.data);
+  // Liveness plumbing, not a result — kept out of `frames` so the diagnostic
+  // listings below name only frames that bear on the verdict, rather than
+  // burying them under one pong per 30s of idling.
+  if (frameType(data) === 'heartbeat.pong') return;
   frames.push(data);
   if (data.includes('playground.rehello')) {
     rehelloAt = Date.now();
@@ -198,6 +212,28 @@ ws.onmessage = (event) => {
 await new Promise<void>((resolve) => {
   ws.onopen = () => resolve();
 });
+
+// The shipped client heartbeats on this same interval for a reason: an
+// open-but-silent WebSocket gets dropped in transit, with no TCP FIN, and
+// this probe deliberately goes silent for MINUTES. Without a heartbeat the
+// socket dies partway through the idle gap and the run reports a CONNECTION
+// FAILURE — a verdict about the network that says nothing about hibernation,
+// and one whose obvious remedy (idle longer) makes it strictly more likely.
+//
+// Crucially, this does NOT hold the object awake and so cannot mask the very
+// thing being tested: SessionDO registers the ping/pong pair with
+// `setWebSocketAutoResponse`, which the runtime answers itself WITHOUT
+// delivering an event to the object. Hibernation proceeds on schedule. That
+// property is exactly why the DO uses auto-response rather than answering
+// pings in `webSocketMessage`, and it is what makes this probe possible at
+// all — a transport needing app-level keepalives could not be tested this way.
+const heartbeat = setInterval(() => {
+  if (ws.readyState === WebSocket.OPEN) ws.send(HEARTBEAT_PING_FRAME);
+}, DEFAULT_HEARTBEAT_INTERVAL_MS);
+
+console.log(
+  `heartbeating every ${DEFAULT_HEARTBEAT_INTERVAL_MS / 1000}s (auto-answered by the runtime; does not prevent hibernation)`,
+);
 console.log('connected; sending initial playground.hello');
 ws.send(
   JSON.stringify({ type: 'playground.hello', sessionId: session, apiKey }),
@@ -258,6 +294,7 @@ await new Promise((resolve) => setTimeout(resolve, REPLY_WAIT_MS));
 // From here on the run has reached its own verdict — the close below is
 // deliberate, not a connection failure, and must not be reported as one.
 settled = true;
+clearInterval(heartbeat);
 const sawRehello = frames.some((f) => f.includes('playground.rehello'));
 const replaySlice = frames.slice(before);
 // Must be the actual chart response, not merely something starting with
