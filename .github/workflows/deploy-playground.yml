@@ -36,5 +36,5 @@ jobs:
           workingDirectory: apps/demo
           # apps/demo has no lockfile, so the action would otherwise npm-install
           # the latest wrangler 4.x — keep this in sync with the root bun.lock.
-          wranglerVersion: "4.80.0"
+          wranglerVersion: "4.114.0"
           command: deploy
