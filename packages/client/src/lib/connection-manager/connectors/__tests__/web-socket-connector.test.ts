@@ -27,6 +27,7 @@ import FakeTimers from '@sinonjs/fake-timers';
 
 import type { ConnectorEvent } from '../../connector.types.js';
 import { WireEngineError } from '../../connector.types.js';
+import { HEARTBEAT_PONG_FRAME } from '../heartbeat-frame.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
 import { FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
@@ -1069,5 +1070,79 @@ describe('WebSocketConnector cross-correlator isolation', () => {
       warnSpy.mockRestore();
       await connector.disconnect();
     }
+  });
+});
+
+describe('onFrame inbound hook', () => {
+  test('consumes a frame when it returns true, so it never reaches the decode path', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const seen: string[] = [];
+    const connector = new WebSocketConnector({
+      url: 'ws://localhost/ws',
+      onFrame: (raw, send, sessionId) => {
+        seen.push(raw);
+        send(JSON.stringify({ type: 'demo.ack', sessionId }));
+        return true;
+      },
+    });
+    const connecting = connector.connect(SessionId('s-1'));
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emitOpen();
+    await connecting;
+
+    ws.onmessage?.({ data: JSON.stringify({ type: 'demo.custom' }) });
+
+    expect(seen).toEqual([JSON.stringify({ type: 'demo.custom' })]);
+    // The hook's own reply went out...
+    expect(ws.sent).toContain(
+      JSON.stringify({ type: 'demo.ack', sessionId: 's-1' }),
+    );
+    // ...and the frame never reached decodeServerEnvelope, which would have
+    // warned about an undecodable envelope. That warning is the observable
+    // proof the frame was actually consumed rather than merely copied.
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  test('falls through to the decode path when it returns false', () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const connector = new WebSocketConnector({
+      url: 'ws://localhost/ws',
+      onFrame: () => false,
+    });
+    connector.connect(SessionId('s-2'));
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emitOpen();
+
+    ws.onmessage?.({ data: JSON.stringify({ type: 'not-an-envelope' }) });
+
+    // Declining the frame must leave existing behavior byte-identical —
+    // otherwise the hook silently swallows traffic a consumer chose not to
+    // handle.
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  test('does not intercept heartbeat pongs', async () => {
+    const seen: string[] = [];
+    const connector = new WebSocketConnector({
+      url: 'ws://localhost/ws',
+      heartbeatIntervalMs: 30_000,
+      onFrame: (raw) => {
+        seen.push(raw);
+        return true;
+      },
+    });
+    const connecting = connector.connect(SessionId('s-3'));
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emitOpen();
+    await connecting;
+
+    ws.onmessage?.({ data: HEARTBEAT_PONG_FRAME });
+
+    // The pong is transport-level bookkeeping the connector owns. Handing it
+    // to a consumer hook would let a consumer accidentally break liveness
+    // detection by consuming it.
+    expect(seen).toEqual([]);
   });
 });

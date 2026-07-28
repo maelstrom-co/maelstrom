@@ -60,10 +60,31 @@ export interface WebSocketConnectorOptions {
    */
   onOpen?: (send: (data: string) => void, sessionId: SessionId) => void;
   /**
+   * Invoked for each inbound text frame before envelope decoding. Return
+   * `true` to consume the frame — it will not reach subscribers or the
+   * decode path. Return `false` to let it through unchanged.
+   *
+   * The counterpart to `onOpen`: together they let a consumer own a
+   * transport-level sub-protocol (a host-specific handshake and its
+   * server-initiated follow-ups) without this package knowing anything
+   * about it. `send` bypasses envelope encoding — callers must produce
+   * valid JSON text.
+   *
+   * Heartbeat pongs are consumed by the connector before this runs, so a
+   * consumer cannot accidentally break liveness detection.
+   */
+  onFrame?: (
+    raw: string,
+    send: (data: string) => void,
+    sessionId: SessionId,
+  ) => boolean;
+  /**
    * If set, sends `{"type":"heartbeat.ping"}` on this interval while
-   * connected. Needed for transports (e.g. Cloudflare Containers) that only
-   * renew their idle timeout on socket traffic, not on an open-but-silent
-   * connection. Omitted: no heartbeat is sent (local dev default). The
+   * connected. Needed by transports that treat an open-but-silent connection
+   * as dead. Under Durable Objects the runtime answers these pings itself via
+   * `setWebSocketAutoResponse` without waking the object, so the interval
+   * costs nothing server-side and serves purely as client-side liveness
+   * detection. Omitted: no heartbeat is sent (local dev default). The
    * connector consumes the server's `heartbeat.pong` replies itself — they
    * never reach subscribers or the envelope decode path.
    *
@@ -105,6 +126,13 @@ export class WebSocketConnector implements EngineConnector {
   readonly #onOpen:
     | ((send: (data: string) => void, sessionId: SessionId) => void)
     | undefined;
+  readonly #onFrame:
+    | ((
+        raw: string,
+        send: (data: string) => void,
+        sessionId: SessionId,
+      ) => boolean)
+    | undefined;
   readonly #heartbeatIntervalMs: number | undefined;
 
   readonly capabilities: ConnectorCapabilities = {
@@ -139,6 +167,7 @@ export class WebSocketConnector implements EngineConnector {
     this.#timeout = options.timeout ?? 30000;
     this.#connectTimeoutMs = options.connectTimeoutMs ?? 10_000;
     this.#onOpen = options.onOpen;
+    this.#onFrame = options.onFrame;
     if (
       options.heartbeatIntervalMs !== undefined &&
       !(
@@ -333,8 +362,8 @@ export class WebSocketConnector implements EngineConnector {
       if (this.#missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
         // readyState still reports OPEN and no onclose has fired on its
         // own — exactly the failure this heartbeat exists to catch (a
-        // Cloudflare edge drop, a vanished container: no TCP FIN reaches
-        // the browser). Closing it ourselves is what makes the existing
+        // network path that drops silently: no TCP FIN reaches the
+        // browser). Closing it ourselves is what makes the existing
         // onclose → `disconnected` → auto-reconnect path run at all;
         // without this, pings fire into the void forever and every intent
         // sits in RequestCorrelator until its own 30s timeout.
@@ -423,6 +452,19 @@ export class WebSocketConnector implements EngineConnector {
     ) {
       this.#missedHeartbeats = 0;
       return;
+    }
+
+    // After the pong check (the connector owns that frame) and before the
+    // codec, which would reject any non-envelope frame as undecodable.
+    // #sessionId is non-null here: a message can only arrive on a socket
+    // that connect() opened, and connect() assigns it first.
+    if (this.#onFrame !== undefined && this.#sessionId !== null) {
+      const consumed = this.#onFrame(
+        String(event.data),
+        (data) => this.#ws?.send(data),
+        this.#sessionId,
+      );
+      if (consumed) return;
     }
 
     // The codec owns parse + schema validation: a malformed JSON string or a
