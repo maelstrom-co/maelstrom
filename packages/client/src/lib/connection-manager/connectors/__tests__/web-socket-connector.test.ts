@@ -1104,7 +1104,7 @@ describe('onFrame inbound hook', () => {
     warn.mockRestore();
   });
 
-  test('replies over the socket that delivered the frame, not the current one', async () => {
+  test('replies over the socket that delivered the frame, as the session it was opened for', async () => {
     const connector = new WebSocketConnector({
       url: 'ws://localhost/ws',
       onFrame: (_raw, send, sessionId) => {
@@ -1117,11 +1117,12 @@ describe('onFrame inbound hook', () => {
     first.emitOpen();
     await connecting;
 
-    // A reconnect supersedes the socket. The old one can still deliver a
-    // frame that was already in flight — React StrictMode's dev double-mount
-    // produces exactly this overlap, which is why `onclose` guards against
-    // the same hazard.
-    const reconnecting = connector.connect(SessionId('s-1'));
+    // A reconnect supersedes the socket, and does so under a DIFFERENT
+    // session — so this covers both captured values at once. The old socket
+    // can still deliver a frame that was already in flight; React
+    // StrictMode's dev double-mount produces exactly this overlap, which is
+    // why `onclose` guards against the same hazard.
+    const reconnecting = connector.connect(SessionId('s-2'));
     const second = FakeWebSocket.instances.at(-1)!;
     second.emitOpen();
     await reconnecting;
@@ -1130,13 +1131,18 @@ describe('onFrame inbound hook', () => {
 
     first.emitJson({ type: 'demo.custom' });
 
-    // onFrame exists to answer server-initiated frames. Routing the answer to
-    // the replacement socket would leave the ASKING socket waiting forever
-    // while the new one fields a response to a question it never asked —
-    // and, for the demo's rehello handshake, hands an API key to a
-    // connection that did not request one.
+    // Right socket AND right session. Routing the answer to the replacement
+    // socket would leave the ASKING socket waiting forever while the new one
+    // fields a response to a question it never asked. Answering over the
+    // correct socket but stamping it with the newer session id is the
+    // subtler half of the same bug: for the demo's rehello handshake that
+    // re-keys this connection to a session it does not belong to, so the
+    // server files its engine and history under the wrong identity.
     expect(first.sent).toContain(
       JSON.stringify({ type: 'demo.ack', sessionId: 's-1' }),
+    );
+    expect(first.sent).not.toContain(
+      JSON.stringify({ type: 'demo.ack', sessionId: 's-2' }),
     );
     expect(second.sent.length).toBe(secondBefore);
 

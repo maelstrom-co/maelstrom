@@ -393,11 +393,18 @@ export class WebSocketConnector implements EngineConnector {
     // socket must not be able to act on the live one just because `this.#ws`
     // has moved on by the time the event fires.
     const socket = this.#ws;
+    // Captured for the same reason as `socket`, and it has to be both: a
+    // later connect() with a DIFFERENT session overwrites `#sessionId` too,
+    // so answering over the right socket with the wrong session id is just a
+    // subtler version of the same bug. A host handshake replying with the
+    // newer session would re-key the older connection to a session it does
+    // not belong to. Assigned by connect() before this method runs.
+    const sessionId = this.#sessionId;
 
     socket.onmessage = (event) => {
-      // `socket`, not `this.#ws`: a frame must be answered over the same
-      // socket that delivered it. See #handleMessage's onFrame call.
-      this.#handleMessage(event, socket);
+      // `socket`/`sessionId`, not the live fields: a frame must be answered
+      // over the connection that delivered it, as the connection it was.
+      this.#handleMessage(event, socket, sessionId);
     };
 
     socket.onclose = (event) => {
@@ -442,7 +449,11 @@ export class WebSocketConnector implements EngineConnector {
     };
   }
 
-  #handleMessage(event: MessageEvent, socket: WebSocket): void {
+  #handleMessage(
+    event: MessageEvent,
+    socket: WebSocket,
+    sessionId: SessionId | null,
+  ): void {
     // heartbeat.pong is transport-level, not part of the protocol envelope
     // union by design — decodeServerEnvelope would reject it as undecodable.
     // Only intercept it when the heartbeat option is active, so a stray pong
@@ -457,9 +468,9 @@ export class WebSocketConnector implements EngineConnector {
 
     // After the pong check (the connector owns that frame) and before the
     // codec, which would reject any non-envelope frame as undecodable.
-    // #sessionId is non-null here: a message can only arrive on a socket
-    // that connect() opened, and connect() assigns it first.
-    if (this.#onFrame !== undefined && this.#sessionId !== null) {
+    // sessionId is non-null here: a message can only arrive on a socket that
+    // connect() opened, and connect() assigns it first.
+    if (this.#onFrame !== undefined && sessionId !== null) {
       let consumed = false;
       try {
         consumed = this.#onFrame(
@@ -471,7 +482,7 @@ export class WebSocketConnector implements EngineConnector {
           // forever while the new one fields a response to a question it
           // never asked. Same hazard `onclose` guards against above.
           (data) => socket.send(data),
-          this.#sessionId,
+          sessionId,
         );
       } catch (error) {
         // A consumer hook is arbitrary code. Letting it throw would escape

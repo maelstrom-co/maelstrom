@@ -305,6 +305,13 @@ await new Promise<void>((resolve) => {
 
 console.log('idle gap elapsed; sending the frame that should trigger rehello');
 const before = frames.length;
+// Cleared so the verdict measures THIS probe only. A rehello during the
+// warm-up (the DO can lose the key across events and still recover when the
+// script resends it) would otherwise leave both stamps set from that
+// exchange, and the latency printed below would describe the warm-up rather
+// than the post-wake recovery.
+rehelloAt = 0;
+replyAt = 0;
 ws.send(chartRequestWire(session));
 await new Promise((resolve) => setTimeout(resolve, REPLY_WAIT_MS));
 
@@ -312,8 +319,15 @@ await new Promise((resolve) => setTimeout(resolve, REPLY_WAIT_MS));
 // deliberate, not a connection failure, and must not be reported as one.
 settled = true;
 clearInterval(heartbeat);
-const sawRehello = frames.some((f) => f.includes('playground.rehello'));
 const replaySlice = frames.slice(before);
+// Scoped to the post-idle slice, exactly like sawReply below, NOT to every
+// frame of the run. A rehello observed during the warm-up would otherwise
+// keep this true for the rest of the process, so a later idle gap that
+// failed to hibernate — returning nothing but a normal reply — would print
+// PASS instead of INCONCLUSIVE. That is precisely the false positive this
+// script exists to prevent, so the check must not be able to be satisfied by
+// an earlier phase.
+const sawRehello = replaySlice.some((f) => f.includes('playground.rehello'));
 // Must be the actual chart response, not merely something starting with
 // "engine." — engine.error matches that prefix just as readily, so a run
 // where the replay came back "session engine unavailable" would otherwise
