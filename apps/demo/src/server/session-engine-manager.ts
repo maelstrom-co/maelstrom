@@ -1,12 +1,10 @@
 import {
-  consoleLogger,
   createEngine,
   createInMemoryStore,
   type Engine,
-  type Logger,
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
-import { redactSecrets } from './redact';
+import { createRedactingLogger, redact } from './redact';
 
 export interface SessionEngineManagerOptions {
   readonly maxSessions: number;
@@ -47,81 +45,6 @@ interface SessionEntry {
   apiKey: string;
   lastUsedAt: number;
   ttlTimer: ReturnType<typeof setTimeout>;
-}
-
-/**
- * Redacts an apiKey out of an error's message so it can never reach a log
- * line or a wire error payload — key custody is a hosted-mode invariant,
- * not just a nicety. Delegates to redactSecrets (exact-match pass +
- * sk-*-shaped pattern pass) so this is the same scrub every other outbound
- * path uses, not a second hand-rolled copy of it.
- */
-function redact(err: unknown, apiKey: string): Error {
-  const message = err instanceof Error ? err.message : String(err);
-  return new Error(redactSecrets(message, apiKey));
-}
-
-function redactUnknown(value: unknown, apiKey: string): unknown {
-  if (typeof value === 'string') return redactSecrets(value, apiKey);
-  if (value instanceof Error) {
-    const clone = new Error(redactSecrets(value.message, apiKey));
-    clone.name = value.name;
-    if (value.stack) clone.stack = redactSecrets(value.stack, apiKey);
-    return clone;
-  }
-  if (value === undefined || value === null) return value;
-  try {
-    return JSON.parse(redactSecrets(JSON.stringify(value), apiKey));
-  } catch {
-    return '[unloggable value]';
-  }
-}
-
-function redactData(
-  data: Record<string, unknown> | undefined,
-  apiKey: string,
-): Record<string, unknown> | undefined {
-  if (!data) return data;
-  return Object.fromEntries(
-    Object.entries(data).map(([key, value]) => [
-      key,
-      redactUnknown(value, apiKey),
-    ]),
-  );
-}
-
-/**
- * A Logger that scrubs the session's apiKey (and any sk-*-shaped string) out
- * of every argument before delegating to consoleLogger. createEngine's
- * default logger is consoleLogger, which writes provider SDK errors —
- * including OpenAI's own 401 key echo — straight to stdout; hosted mode's
- * container observability persists that. Every SessionEngineManager engine
- * must be built with one of these instead of the default.
- */
-function createRedactingLogger(apiKey: string): Logger {
-  return {
-    debug: (message, data) =>
-      consoleLogger.debug(
-        redactSecrets(message, apiKey),
-        redactData(data, apiKey),
-      ),
-    info: (message, data) =>
-      consoleLogger.info(
-        redactSecrets(message, apiKey),
-        redactData(data, apiKey),
-      ),
-    warn: (message, data) =>
-      consoleLogger.warn(
-        redactSecrets(message, apiKey),
-        redactData(data, apiKey),
-      ),
-    error: (message, error, data) =>
-      consoleLogger.error(
-        redactSecrets(message, apiKey),
-        redactUnknown(error, apiKey),
-        redactData(data, apiKey),
-      ),
-  };
 }
 
 export class SessionEngineManager {
