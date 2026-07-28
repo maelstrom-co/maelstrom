@@ -1,0 +1,115 @@
+/**
+ * Transport-agnostic frame dispatch for the demo engine server.
+ *
+ * Returns a decision rather than performing I/O, so the two transports that
+ * consume it — `Bun.serve` locally and `SessionDO` when hosted — share one
+ * implementation of the handshake/heartbeat/dispatch ordering instead of two
+ * that are free to drift.
+ */
+import {
+  type Engine,
+  handleEnvelope,
+  recoverCorrelation,
+} from '@maelstrom-co/engine';
+import {
+  decodeClientEnvelope,
+  EngineErrorMessage,
+  encodeEnvelope,
+  isErr,
+} from '@maelstrom-co/protocol';
+import {
+  classifyIncomingFrame,
+  type PlaygroundHelloFrame,
+  resolvePreHelloDispatch,
+} from './playground-frames';
+
+export interface DispatchContext {
+  /** Whether this connection has completed a handshake in the current lifetime. */
+  readonly helloReceived: boolean;
+  /**
+   * Resolves the engine to dispatch to, or null when none could be built.
+   * Lazy — and called at most once, only on the real-dispatch path below —
+   * so a transport whose resolution has side effects (rebuilding a session
+   * engine, touching TTL/LRU) never pays for it on a heartbeat or hello
+   * frame, which this function returns for before ever reaching that point.
+   */
+  readonly getEngine: () => Engine | null;
+  /**
+   * Whether this connection completed a handshake at some point, even if the
+   * key backing it is gone. Only ever true after a Durable Object wakes from
+   * hibernation with its in-memory key reset. It is what distinguishes a
+   * visitor who never had a key from a session whose key we dropped —
+   * observationally identical without it.
+   */
+  readonly wasHelloed: boolean;
+  /** Error text for the engine-null reply, chosen by the transport. */
+  readonly engineUnavailableReason: string;
+}
+
+export type DispatchResult =
+  | { readonly kind: 'heartbeat' }
+  | { readonly kind: 'hello'; readonly frame: PlaygroundHelloFrame }
+  | { readonly kind: 'rehello' }
+  | { readonly kind: 'close'; readonly code: number; readonly reason: string }
+  | { readonly kind: 'reply'; readonly wire: string }
+  | { readonly kind: 'none' };
+
+export async function dispatchFrame(
+  raw: unknown,
+  ctx: DispatchContext,
+): Promise<DispatchResult> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(raw));
+  } catch {
+    parsed = undefined;
+  }
+
+  const decision = classifyIncomingFrame(parsed, ctx.helloReceived);
+
+  if (decision.kind === 'heartbeat') return { kind: 'heartbeat' };
+  if (decision.kind === 'hello') {
+    return { kind: 'hello', frame: decision.frame };
+  }
+
+  if (decision.kind === 'hello-rejected') {
+    // Checked before the keyless-visitor path below, because both present
+    // as "no key, no engine" and only this flag tells them apart.
+    if (ctx.wasHelloed) return { kind: 'rehello' };
+
+    const outcome = resolvePreHelloDispatch(raw);
+    if (outcome.kind === 'close') {
+      return {
+        kind: 'close',
+        code: 1002,
+        reason: 'expected playground.hello as the first frame',
+      };
+    }
+    return { kind: 'reply', wire: encodeEnvelope(outcome.message) };
+  }
+
+  const engine = ctx.getEngine();
+  if (!engine) {
+    // Decoded again here so the reply is still correlated instead of the
+    // frame being dropped silently.
+    const decoded = decodeClientEnvelope(raw);
+    const error = ctx.engineUnavailableReason;
+    return {
+      kind: 'reply',
+      wire: encodeEnvelope(
+        isErr(decoded)
+          ? EngineErrorMessage({ error, ...recoverCorrelation(raw) })
+          : EngineErrorMessage({
+              error,
+              requestId: decoded.value.id,
+              sessionId: decoded.value.sessionId,
+            }),
+      ),
+    };
+  }
+
+  const reply = await handleEnvelope(engine, raw);
+  return reply
+    ? { kind: 'reply', wire: encodeEnvelope(reply) }
+    : { kind: 'none' };
+}

@@ -26,24 +26,14 @@ import {
   createEngine,
   createInMemoryStore,
   type Engine,
-  handleEnvelope,
-  recoverCorrelation,
 } from '@maelstrom-co/engine';
-import {
-  decodeClientEnvelope,
-  EngineErrorMessage,
-  encodeEnvelope,
-  isErr,
-} from '@maelstrom-co/protocol';
 import { geminiText } from '@tanstack/ai-gemini';
 // createOpenaiChat takes an explicit key (createOpenaiChat(model, apiKey,
 // config?)), equivalent to ai-gemini's createGeminiChat, so no wrapper
 // adapter file is needed to hand each session its own visitor key.
 import { createOpenaiChat } from '@tanstack/ai-openai';
-import {
-  classifyIncomingFrame,
-  resolvePreHelloDispatch,
-} from './playground-frames';
+import { dispatchFrame } from './dispatch';
+import type { PlaygroundHelloFrame } from './playground-frames';
 import { redactSecrets } from './redact';
 import {
   SessionCapacityError,
@@ -176,161 +166,143 @@ export function createWebSocketHandlers(
     ws.send(wire);
   }
 
+  // Extracted from the former inline 'hello' branch of message(), verbatim.
+  // Validated here (not just left for the first dispatch) so a bad key
+  // closes the socket immediately with a decodable reason instead of the
+  // visitor waiting on a silent first request. The engine built here is
+  // discarded — dispatch re-derives it from sessionEngines on every frame
+  // instead of trusting a cached reference, so this call's only job is the
+  // construction check.
+  function acceptHello(
+    ws: Bun.ServerWebSocket<SocketData>,
+    frame: PlaygroundHelloFrame,
+  ): void {
+    if (!sessionEngines) {
+      ws.close(1011, 'session engine unavailable');
+      return;
+    }
+    try {
+      sessionEngines.getOrCreate(frame.sessionId, frame.apiKey);
+    } catch (err) {
+      if (err instanceof SessionCapacityError) {
+        ws.close(1008, truncateCloseReason(CAPACITY_CLOSE_REASON));
+        return;
+      }
+      // redact() inside SessionEngineManager already scrubs the message
+      // (exact-key pass + sk-* pattern pass), so this close reason (sent to
+      // the client and logged) needs no second pass here.
+      const message = err instanceof Error ? err.message : 'engine unavailable';
+      console.warn(`[demo ws] session engine init failed: ${message}`);
+      ws.close(1011, truncateCloseReason(message));
+      return;
+    }
+    ws.data.helloReceived = true;
+    ws.data.sessionId = frame.sessionId;
+    ws.data.apiKey = frame.apiKey;
+  }
+
+  // Extracted from the former inline engine re-derivation block of
+  // message(), verbatim except for how SessionCapacityError leaves this
+  // function: it now propagates instead of closing the socket inline. Passed
+  // to dispatchFrame below as the lazy `getEngine` thunk, so it only ever
+  // runs on the real-dispatch path dispatchFrame's own classification
+  // already gates — never for a heartbeat or hello frame, which is what
+  // keeps this side-effecting call (it can rebuild a session engine or
+  // throw SessionCapacityError) from running where the original inline
+  // block never ran either. The throw is caught around the dispatchFrame
+  // call below, which closes and returns *before* any reply is attempted —
+  // matching the original code's immediate `ws.close(...); return;`.
+  // Catching here and returning null instead would leave dispatchFrame
+  // treating this as an ordinary engine-unavailable frame and produce a
+  // reply, which message() would then try to send on a socket already
+  // mid-close.
+  //
+  // Re-derived fresh on every real-dispatch frame rather than trusting a
+  // cached ws.data.engine: another connection can call getOrCreate with a
+  // DIFFERENT apiKey for the same sessionId between this socket's frames
+  // (SessionEngineManager evicts and rebuilds on a key mismatch), which
+  // would otherwise leave this socket dispatching against an orphaned
+  // engine reference forever. getOrCreate also touches TTL/LRU on a hit and
+  // rebuilds on a miss, so it subsumes the old touch()/has() pair — a
+  // session evicted by the idle TTL or a genuinely stale LRU pick gets a
+  // fresh engine here instead of a hard close; losing conversation history
+  // is the accepted degradation there, not a reason to close the socket.
+  function resolveEngine(ws: Bun.ServerWebSocket<SocketData>): Engine | null {
+    if (hosted) {
+      if (sessionEngines && ws.data.sessionId && ws.data.apiKey) {
+        try {
+          return sessionEngines.getOrCreate(ws.data.sessionId, ws.data.apiKey);
+        } catch (err) {
+          // Capacity is the one getOrCreate failure a retry cannot fix —
+          // the container is full, so a reconnect just adds load. Every
+          // other failure (construction error, bad key) falls through to
+          // the engine-null branch below instead of closing the socket.
+          if (err instanceof SessionCapacityError) throw err;
+          return null;
+        }
+      }
+      return null;
+    }
+    return sharedEngine;
+  }
+
   return {
     async message(ws, raw) {
-      // Parsed once and routed through classifyIncomingFrame so the
-      // heartbeat check always runs before the hello gate below — see that
-      // function's doc comment for why ordering matters. Non-JSON frames
-      // classify as undefined, which the gate treats as 'hello-rejected'
-      // pre-hello and as 'dispatch' post-hello (matching the previous
-      // behavior: malformed post-hello frames fall through to
-      // handleEnvelope, whose decodeClientEnvelope path replies with a
-      // correlated engine.error instead of being dropped).
-      let parsed: unknown;
+      let result: Awaited<ReturnType<typeof dispatchFrame>>;
       try {
-        parsed = JSON.parse(String(raw));
-      } catch {
-        parsed = undefined;
-      }
-
-      // ws.data.helloReceived starts true in local mode (set at upgrade
-      // time below), so this already resolves to 'dispatch' there without
-      // any hosted check here.
-      const decision = classifyIncomingFrame(parsed, ws.data.helloReceived);
-
-      if (decision.kind === 'heartbeat') {
-        // touch(), not getOrCreate(): a heartbeat proves the tab is still
-        // open, not that the visitor did anything, so it must not resurrect
-        // an engine for a session nobody is using — only real dispatch
-        // should do that. This is what makes it correct for the idle TTL to
-        // now mean "no live tab" rather than "no typing": the close handler
-        // below no longer evicts, so a heartbeating tab is the only signal
-        // that keeps a session alive indefinitely.
-        if (hosted && sessionEngines && ws.data.sessionId) {
-          sessionEngines.touch(ws.data.sessionId);
-        }
-        send(ws, HEARTBEAT_PONG_FRAME);
-        return;
-      }
-
-      if (decision.kind === 'hello-rejected') {
-        // A keyless hosted visitor never sends playground.hello (there's no
-        // key to offer), but the real client still emits protocol traffic
-        // before then — a ResizeObserver-triggered chart_resize fires the
-        // moment the socket opens, regardless of whether a key is set. See
-        // resolvePreHelloDispatch's doc comment for why that frame gets a
-        // reply instead of a close.
-        const outcome = resolvePreHelloDispatch(raw);
-        if (outcome.kind === 'close') {
-          // 1002 (protocol error), not 1008: the client flags 1008 as
-          // non-retryable, and a reconnect here would legitimately succeed —
-          // the fresh socket re-sends its handshake. Only closes the client
-          // must not retry at all (capacity, in the hello and dispatch
-          // branches below) earn 1008.
-          ws.close(1002, 'expected playground.hello as the first frame');
+        result = await dispatchFrame(raw, {
+          helloReceived: ws.data.helloReceived,
+          getEngine: () => resolveEngine(ws),
+          // Bun never hibernates, so a connection here has either helloed
+          // in this lifetime or never at all.
+          wasHelloed: false,
+          engineUnavailableReason: hosted
+            ? 'session engine unavailable'
+            : (sharedEngineInitError ?? 'engine unavailable'),
+        });
+      } catch (err) {
+        // The only thing dispatchFrame's own frame handling can throw is
+        // whatever getEngine throws — SessionEngineManager and
+        // SessionCapacityError are a hosted-transport concept dispatchFrame
+        // stays ignorant of, so the capacity translation happens here, not
+        // inside the transport-agnostic core.
+        if (err instanceof SessionCapacityError) {
+          ws.close(1008, truncateCloseReason(CAPACITY_CLOSE_REASON));
           return;
         }
-        send(ws, encodeEnvelope(outcome.message));
-        return;
+        throw err;
       }
 
-      if (decision.kind === 'hello') {
-        const { frame } = decision;
-        if (!sessionEngines) {
-          ws.close(1011, 'session engine unavailable');
-          return;
-        }
-        try {
-          // Validated here (not just left for the first dispatch) so a bad
-          // key closes the socket immediately with a decodable reason
-          // instead of the visitor waiting on a silent first request. The
-          // engine built here is discarded — dispatch below re-derives it
-          // from sessionEngines on every frame instead of trusting a cached
-          // reference, so this call's only job is the construction check.
-          sessionEngines.getOrCreate(frame.sessionId, frame.apiKey);
-        } catch (err) {
-          if (err instanceof SessionCapacityError) {
-            ws.close(1008, truncateCloseReason(CAPACITY_CLOSE_REASON));
-            return;
+      switch (result.kind) {
+        case 'heartbeat':
+          // touch(), not getOrCreate(): a heartbeat proves the tab is still
+          // open, not that the visitor did anything, so it must not
+          // resurrect an engine for a session nobody is using — only real
+          // dispatch should do that. This is what makes it correct for the
+          // idle TTL to now mean "no live tab" rather than "no typing": the
+          // close handler below no longer evicts, so a heartbeating tab is
+          // the only signal that keeps a session alive indefinitely.
+          if (hosted && sessionEngines && ws.data.sessionId) {
+            sessionEngines.touch(ws.data.sessionId);
           }
-          // redact() inside SessionEngineManager already scrubs the message
-          // (exact-key pass + sk-* pattern pass), so this close reason (sent
-          // to the client and logged) needs no second pass here.
-          const message =
-            err instanceof Error ? err.message : 'engine unavailable';
-          console.warn(`[demo ws] session engine init failed: ${message}`);
-          ws.close(1011, truncateCloseReason(message));
+          send(ws, HEARTBEAT_PONG_FRAME);
           return;
-        }
-        ws.data.helloReceived = true;
-        ws.data.sessionId = frame.sessionId;
-        ws.data.apiKey = frame.apiKey;
-        return;
+        case 'hello':
+          acceptHello(ws, result.frame);
+          return;
+        case 'rehello':
+          // Unreachable under Bun (wasHelloed is always false above); the
+          // DO transport is the only producer.
+          return;
+        case 'close':
+          ws.close(result.code, truncateCloseReason(result.reason));
+          return;
+        case 'reply':
+          send(ws, result.wire);
+          return;
+        case 'none':
+          return;
       }
-
-      // Re-derived fresh on every frame rather than trusting a cached
-      // ws.data.engine: another connection can call getOrCreate with a
-      // DIFFERENT apiKey for the same sessionId between this socket's frames
-      // (SessionEngineManager evicts and rebuilds on a key mismatch), which
-      // would otherwise leave this socket dispatching against an orphaned
-      // engine reference forever. getOrCreate also touches TTL/LRU on a hit
-      // and rebuilds on a miss, so it subsumes the old touch()/has() pair —
-      // a session evicted by the idle TTL or a genuinely stale LRU pick gets
-      // a fresh engine here instead of a hard close; losing conversation
-      // history is the accepted degradation there, not a reason to close the
-      // socket. The one exception is SessionCapacityError, handled below.
-      let engine: Engine | null;
-      if (hosted) {
-        if (sessionEngines && ws.data.sessionId && ws.data.apiKey) {
-          try {
-            engine = sessionEngines.getOrCreate(
-              ws.data.sessionId,
-              ws.data.apiKey,
-            );
-          } catch (err) {
-            // Capacity is the one getOrCreate failure a retry cannot fix —
-            // the container is full, so a reconnect just adds load. Every
-            // other failure (construction error, bad key) falls through to
-            // the engine-null branch below instead of closing the socket.
-            if (err instanceof SessionCapacityError) {
-              ws.close(1008, truncateCloseReason(CAPACITY_CLOSE_REASON));
-              return;
-            }
-            engine = null;
-          }
-        } else {
-          engine = null;
-        }
-      } else {
-        engine = sharedEngine;
-      }
-
-      if (!engine) {
-        // No engine to dispatch this frame to, so it can't go through
-        // handleEnvelope below -- decode raw here too, so the reply is still
-        // correlated (requestId/sessionId recovered) instead of the frame
-        // being dropped silently.
-        const decoded = decodeClientEnvelope(raw);
-        const error = hosted
-          ? 'session engine unavailable'
-          : (sharedEngineInitError ?? 'engine unavailable');
-        send(
-          ws,
-          encodeEnvelope(
-            isErr(decoded)
-              ? EngineErrorMessage({ error, ...recoverCorrelation(raw) })
-              : EngineErrorMessage({
-                  error,
-                  requestId: decoded.value.id,
-                  sessionId: decoded.value.sessionId,
-                }),
-          ),
-        );
-        return;
-      }
-
-      const reply = await handleEnvelope(engine, raw);
-      if (reply) send(ws, encodeEnvelope(reply));
     },
     close() {
       // A closed socket no longer evicts its session engine. WebSocketConnector
