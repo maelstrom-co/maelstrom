@@ -150,7 +150,12 @@ if (apiKey.length < MIN_API_KEY_LENGTH) {
 
 const session = `hib-${process.pid}`;
 const frames: string[] = [];
+// Both stamped as the frames actually arrive, never after the fixed
+// REPLY_WAIT_MS sleep below: measuring at the end of that sleep reports the
+// wait window (~30s every time) rather than the round trip, which reads as
+// an alarmingly slow wake on a run that was in fact fast.
 let rehelloAt = 0;
+let replyAt = 0;
 
 console.log(`connecting to wss://${host}/ws?session=${session} ...`);
 const ws = new WebSocket(`wss://${host}/ws?session=${session}`);
@@ -206,6 +211,18 @@ ws.onmessage = (event) => {
     ws.send(
       JSON.stringify({ type: 'playground.hello', sessionId: session, apiKey }),
     );
+    return;
+  }
+  // Guarded on rehelloAt so the warm-up's own response — which arrives long
+  // before any rehello — cannot be mistaken for the post-wake replay and
+  // report a negative latency. Only the FIRST such frame counts; a later one
+  // would measure a different request entirely.
+  if (
+    rehelloAt !== 0 &&
+    replyAt === 0 &&
+    data.includes('"type":"engine.maelstrom.response"')
+  ) {
+    replyAt = Date.now();
   }
 };
 
@@ -312,8 +329,11 @@ console.log('=== verify-hibernation result ===');
 console.log(`socket survived idle gap : ${stillOpen}`);
 console.log(`rehello requested        : ${sawRehello}`);
 console.log(`buffered frame replayed  : ${sawReply}`);
-if (rehelloAt)
-  console.log(`recovery latency         : ${Date.now() - rehelloAt}ms`);
+// Rehello observed but no replay reply: there is no round trip to report, so
+// print nothing rather than a number measured against an event that never
+// happened. The FAIL verdict below is what carries that case.
+if (rehelloAt && replyAt)
+  console.log(`recovery latency         : ${replyAt - rehelloAt}ms`);
 if (!sawReply && replaySlice.length > 0) {
   const seenTypes = replaySlice.map((f) => frameType(f)).join(', ');
   console.log(
