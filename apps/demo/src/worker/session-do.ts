@@ -168,7 +168,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       // uncaught throw here would propagate through getEngine() →
       // dispatchFrame → webSocketMessage as an unhandled exception, which
       // the Workers runtime logs — and observability.logs.persist retains
-      // it. Same guard as session-engine-manager.ts's getOrCreate.
+      // it.
       throw redact(err, apiKey);
     }
     this.#engineKey = apiKey;

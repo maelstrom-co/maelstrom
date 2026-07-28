@@ -3,11 +3,11 @@ import {
   encodeEnvelope,
   SessionId,
 } from '@maelstrom-co/protocol';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // DurableObject only exists as a virtual module inside a real Workers
 // runtime, not under plain vitest — mirrors worker/index.test.ts's mock of
-// '@cloudflare/containers' for the same reason. A minimal base class (ctx,
+// 'cloudflare:workers' for the same reason. A minimal base class (ctx,
 // env assigned, nothing else) is all SessionDO's `super(ctx, env)` needs.
 vi.mock('cloudflare:workers', () => ({
   DurableObject: class {
@@ -112,6 +112,16 @@ const CHART_REQUEST = encodeEnvelope(
 );
 
 describe('SessionDO', () => {
+  // createEngineMock is module-scoped (vi.hoisted, above), so its call count
+  // otherwise carries across tests. This does not replace the explicit
+  // mockClear() calls inside individual tests below -- several of those are
+  // mid-test resets (e.g. isolating one connection's dispatch from another
+  // connection's setup earlier in the SAME test) that this beforeEach cannot
+  // reach; it only guarantees every test starts from zero.
+  beforeEach(() => {
+    createEngineMock.mockClear();
+  });
+
   it('marks the connection helloed in the attachment without storing the key', async () => {
     const ws = new FakeWs();
     const does = new SessionDO(makeCtx() as never, {} as never);
@@ -247,10 +257,65 @@ describe('SessionDO', () => {
     // createEngine's own construction failure (bad key, adapter error) must
     // never let the key it was building from reach whatever catches this —
     // an uncaught throw here is logged by the Workers runtime, and
-    // observability.logs.persist retains it. Same invariant
-    // session-engine-manager.ts's getOrCreate enforces for the container
-    // transport.
+    // observability.logs.persist retains it.
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).not.toContain(secret);
+  });
+
+  it('tears down the shared engine only once the last socket on the object has closed, not on every close', async () => {
+    createEngineMock.mockReturnValue({
+      handle: vi.fn().mockResolvedValue({ ok: true, value: null }),
+    });
+    // The previous test leaves createEngineMock mid-throw with its own call
+    // count -- clear both so the counts asserted below start from this
+    // test's own dispatches, not whatever the suite ran before it.
+    createEngineMock.mockClear();
+    const a = new FakeWs();
+    const b = new FakeWs();
+    // A real array reference, not a fresh copy per call: mutating it between
+    // the two closes below is how this fake simulates getWebSockets()
+    // reporting a shrinking connection count across the object's lifetime,
+    // same as workerd does.
+    const sockets = [a, b];
+    const does = new SessionDO(makeCtx(sockets) as never, {} as never);
+
+    await does.webSocketMessage(a as never, HELLO);
+    await does.webSocketMessage(a as never, CHART_REQUEST); // builds the engine
+    await does.webSocketMessage(b as never, HELLO);
+    await does.webSocketMessage(b as never, CHART_REQUEST); // same key -- reuses it
+    expect(createEngineMock).toHaveBeenCalledTimes(1);
+
+    // A closes while B is still live. getWebSockets() still reports BOTH
+    // sockets while this handler runs (verified empirically against workerd
+    // -- see webSocketClose's own comment), so length is 2 here, not 1.
+    await does.webSocketClose(a as never);
+
+    createEngineMock.mockClear();
+    await does.webSocketMessage(b as never, CHART_REQUEST);
+    // If A's close had torn the engine down, B's next dispatch would rebuild
+    // it from scratch -- createEngine would be called again. It must not be:
+    // the engine (and B's conversation history in it) survives a close as
+    // long as another socket on the object is still being served.
+    expect(createEngineMock).not.toHaveBeenCalled();
+
+    // B is now the only socket left. Mirror A having actually finished
+    // closing by removing it from the fake runtime's list, then close B too
+    // -- the object's LAST socket closing, where getWebSockets() reports 1
+    // (itself, mid-close), not 0.
+    sockets.splice(sockets.indexOf(a), 1);
+    await does.webSocketClose(b as never);
+
+    await does.webSocketMessage(b as never, HELLO);
+    createEngineMock.mockClear();
+    await does.webSocketMessage(b as never, CHART_REQUEST);
+    // The object has no live socket left after B's close, so the engine (and
+    // the key it was built from) must be gone -- this dispatch has to
+    // rebuild it. This is the case that actually distinguishes `<= 1` from
+    // the `=== 0` a careful reader would naturally reach for: workerd never
+    // reports 0 from inside webSocketClose (the closing socket itself is
+    // still counted), so `=== 0` would never fire and the engine -- and the
+    // plaintext apiKey it holds in #engineKey -- would leak past every
+    // session's last disconnect.
+    expect(createEngineMock).toHaveBeenCalledTimes(1);
   });
 });

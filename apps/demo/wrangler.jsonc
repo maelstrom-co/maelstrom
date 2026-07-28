@@ -11,25 +11,22 @@
     // browser-direct OpenAI (see worker/index.ts), so there is no /api/mint route.
     "run_worker_first": ["/ws"]
   },
-  "containers": [
+  "durable_objects": {
+    "bindings": [{ "name": "SESSION_DO", "class_name": "SessionDO" }]
+  },
+  // v1 is retained untouched: the migrations array is a historical ledger,
+  // not current state, and past tags are never edited. deleted_classes
+  // rather than renamed_classes because PlaygroundServer's object ids
+  // (shard-0..shard-4) do not map onto sessionIds — carrying its state
+  // forward would be meaningless.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PlaygroundServer"] },
     {
-      "class_name": "PlaygroundServer",
-      "image": "./Dockerfile",
-      // Resolved relative to this file's directory (apps/demo) -- wrangler
-      // otherwise defaults the build context to the Dockerfile's own
-      // directory, which is too shallow for packages/* to resolve via
-      // bun's workspace protocol.
-      "image_build_context": "../..",
-      "max_instances": 5,
-      "instance_type": "basic"
+      "tag": "v2",
+      "deleted_classes": ["PlaygroundServer"],
+      "new_sqlite_classes": ["SessionDO"]
     }
   ],
-  "durable_objects": {
-    "bindings": [
-      { "name": "PLAYGROUND_SERVER", "class_name": "PlaygroundServer" }
-    ]
-  },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PlaygroundServer"] }],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,

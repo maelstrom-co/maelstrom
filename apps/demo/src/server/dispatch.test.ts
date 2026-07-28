@@ -99,10 +99,10 @@ describe('dispatchFrame', () => {
 
   it('never resolves the engine for a heartbeat, hello, or pre-hello frame', async () => {
     // The whole point of getEngine being a thunk instead of a plain value:
-    // a transport's resolution can have side effects (rebuilding a session
-    // engine, touching TTL/LRU), so it must only run on the path that
-    // actually needs an engine — never for a frame this function already
-    // has a full answer for without one.
+    // a transport's resolution can have side effects (SessionDO's
+    // `#engineFor` constructs a fresh `createEngine(...)`, which can throw),
+    // so it must only run on the path that actually needs an engine — never
+    // for a frame this function already has a full answer for without one.
     let calls = 0;
     const ctx = {
       ...base,

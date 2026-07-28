@@ -83,10 +83,11 @@ export function HomePage() {
   }, []);
 
   // One id per session boundary, shared by the Provider — which keys the
-  // container-side engine and its conversation history — and the connector,
-  // which uses it to pin the shard. Minting them separately would let shard
-  // routing and session identity drift apart, so a reconnect could reach a
-  // container that has never seen the session.
+  // hosted engine and its conversation history — and the connector, which
+  // sends it as the /ws session query param that IS Durable Object identity
+  // (idFromName(session) in worker/index.ts). Minting them separately would
+  // let the connector's routing id and the Provider's engine-keying id drift
+  // apart, so a reconnect could reach a DO that has never seen the session.
   // keyEpoch is the dependency even though the factory never reads it: the
   // point is to mint a NEW id whenever the epoch bumps, which is exactly the
   // session boundary the Provider remount defines. It is not a stale dep.

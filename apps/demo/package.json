@@ -15,7 +15,6 @@
     "deploy": "VITE_HOSTED=1 bunx nx build @maelstrom-co/demo && wrangler deploy"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.3.7",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@maelstrom-co/client": "workspace:*",
@@ -28,7 +27,6 @@
     "@maelstrom-co/realtime-livekit-agent": "workspace:*",
     "@maelstrom-co/realtime-livekit-server": "workspace:*",
     "@maelstrom-co/realtime-server": "workspace:*",
-    "livekit-client": "^2.13.1",
     "@tanstack/ai": "catalog:",
     "@tanstack/ai-gemini": "catalog:",
     "@tanstack/ai-openai": "catalog:",
@@ -38,6 +36,7 @@
     "@tanstack/store": "catalog:",
     "clsx": "^2.1.1",
     "hono": "catalog:",
+    "livekit-client": "^2.13.1",
     "lucide-react": "^1.24.0",
     "maplibre-gl": "^5.24.0",
     "nanoid": "catalog:",

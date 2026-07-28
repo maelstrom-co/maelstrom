@@ -131,9 +131,12 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
 
   return new WebSocketConnector({
     url: wsUrl,
-    // Cloudflare Containers only renew their idle timeout on socket traffic,
-    // not on an open-but-silent connection — local dev has no such timeout,
-    // so the heartbeat only runs in hosted mode.
+    // Client-side liveness detection: the DO answers each ping via
+    // setWebSocketAutoResponse without waking the object, so this costs
+    // nothing server-side and just lets WebSocketConnector notice a dead
+    // connection (a proxy drop, a network change) and reconnect. Local dev
+    // has no proxy in front of it to drop the socket, so the heartbeat only
+    // runs in hosted mode.
     heartbeatIntervalMs: hosted ? DEFAULT_HEARTBEAT_INTERVAL_MS : undefined,
     onOpen: hosted
       ? (send, sessionId) => {

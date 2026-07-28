@@ -29,9 +29,10 @@ export interface DispatchContext {
   /**
    * Resolves the engine to dispatch to, or null when none could be built.
    * Lazy — and called at most once, only on the real-dispatch path below —
-   * so a transport whose resolution has side effects (rebuilding a session
-   * engine, touching TTL/LRU) never pays for it on a heartbeat or hello
-   * frame, which this function returns for before ever reaching that point.
+   * so a transport whose resolution has side effects (SessionDO's
+   * `#engineFor` constructs a fresh `createEngine(...)`, which can throw)
+   * never pays for it on a heartbeat or hello frame, which this function
+   * returns for before ever reaching that point.
    */
   readonly getEngine: () => Engine | null;
   /**

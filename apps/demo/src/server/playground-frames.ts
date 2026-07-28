@@ -30,7 +30,8 @@ export function isPlaygroundHello(
     apiKey?: unknown;
   };
   // Non-empty, not just string-typed: an empty sessionId would collapse
-  // every crafted connection onto one shared SessionEngineManager map key.
+  // every crafted connection onto the same Durable Object (idFromName('')),
+  // sharing one visitor's engine and history with anyone else who omits it.
   return (
     type === 'playground.hello' &&
     typeof sessionId === 'string' &&

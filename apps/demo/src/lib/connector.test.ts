@@ -107,8 +107,10 @@ describe('buildWsUrl', () => {
   });
 
   it('appends a session query param in hosted mode when one is given', () => {
-    // Worker-side shard routing (worker/shard.ts) reads this off the /ws
-    // request to pin a connection to one container across reconnects.
+    // worker/index.ts reads this off the /ws request and passes it straight
+    // to idFromName(session) — the session id IS the Durable Object id, so
+    // this query param is what pins a connection to the same object across
+    // reconnects.
     const url = buildWsUrl(
       true,
       { protocol: 'https:', host: 'playground.maelstrom.co' },
@@ -128,8 +130,9 @@ describe('buildWsUrl', () => {
   });
 
   it('never appends a session query param in local (non-hosted) mode', () => {
-    // No Worker sits in front of local dev's ws-server.ts, so there is
-    // nothing to shard-route.
+    // No Worker sits in front of local dev's ws-server.ts, so there is no
+    // Durable Object identity to select -- the session param would have
+    // nowhere to route to.
     const url = buildWsUrl(
       false,
       { protocol: 'https:', host: 'example.com' },
@@ -238,10 +241,11 @@ describe('createDemoConnector', () => {
       }
     });
 
-    // The id the worker shards on must be the same id the container caches
-    // the engine under, or a reconnect can be routed to a shard that has
-    // never seen this session and the conversation history is silently gone.
-    it('shard-routes on the very session id it was given, not a separate one', async () => {
+    // The id the connector sends as the /ws session param must be the exact
+    // id the caller handed it, or a reconnect resolves idFromName() to a
+    // DIFFERENT Durable Object that has never seen this session and the
+    // conversation history is silently gone.
+    it('routes on the very session id it was given, not a separate one', async () => {
       vi.stubEnv('VITE_HOSTED', '1');
       const restore = installFakeWebSocket();
       try {
@@ -322,9 +326,10 @@ describe('createDemoConnector', () => {
     });
 
     it('reuses the same socket URL (and therefore the same session query param) across a reconnect', async () => {
-      // The whole point of shard routing: a connector that reconnects must
-      // keep landing on the same container, which only holds if repeated
-      // connect() calls on one connector instance open the same URL.
+      // The whole point of pinning session identity to object identity: a
+      // connector that reconnects must keep landing on the same Durable
+      // Object, which only holds if repeated connect() calls on one
+      // connector instance open the same URL.
       vi.stubEnv('VITE_HOSTED', '1');
       const restore = installFakeWebSocket();
       try {
