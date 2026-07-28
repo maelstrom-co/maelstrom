@@ -5,15 +5,87 @@
   "type": "module",
   "scripts": {
     "prepare:voice-assets": "maelstrom-livekit-assets public/vad-web",
-    "dev": "bun run prepare:voice-assets && concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"vite dev --port 3000\"",
-    "dev-livekit": "bun run prepare:voice-assets && concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"vite dev --port 3000 --mode livekit\"",
+    "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev:client\"",
+    "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"bun run dev:client:livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
-    "dev:client": "vite dev --port 3000",
+    "dev:client": "bunx nx run @maelstrom-co/demo:serve",
+    "dev:client:livekit": "bunx nx run @maelstrom-co/demo:serve -- --mode livekit",
     "dev-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start",
-    "build": "bun run prepare:voice-assets && vite build",
+    "build": "vite build",
+    "build-livekit": "bunx nx run @maelstrom-co/demo:build-livekit",
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
     "deploy": "VITE_HOSTED=1 bunx nx build @maelstrom-co/demo && wrangler deploy"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "^build"
+        ]
+      },
+      "build-livekit": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "...",
+          "^build",
+          "prepare-voice-assets"
+        ],
+        "options": {
+          "cwd": "apps/demo",
+          "command": "vite build --mode livekit"
+        }
+      },
+      "prepare-voice-assets": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "...",
+          {
+            "projects": [
+              "@maelstrom-co/realtime-livekit"
+            ],
+            "target": "build"
+          }
+        ],
+        "options": {
+          "cwd": "apps/demo",
+          "command": "bun run prepare:voice-assets"
+        }
+      },
+      "serve": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "prepare-voice-assets"
+        ]
+      },
+      "dev": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "prepare-voice-assets"
+        ]
+      },
+      "dev-livekit": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "prepare-voice-assets"
+        ]
+      },
+      "typecheck": {
+        "outputs": [
+          "{projectRoot}/dist/**/*.d.ts",
+          "{projectRoot}/dist/**/*.d.ts.map",
+          "{projectRoot}/dist/tsconfig.app.tsbuildinfo",
+          "{projectRoot}/out-tsc/vitest/**/*.d.ts",
+          "{projectRoot}/out-tsc/vitest/**/*.d.ts.map",
+          "{projectRoot}/out-tsc/vitest/tsconfig.spec.tsbuildinfo"
+        ]
+      }
+    }
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",

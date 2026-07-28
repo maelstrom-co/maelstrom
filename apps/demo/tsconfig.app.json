@@ -26,7 +26,7 @@
     "src/**/__tests__/**",
     "src/**/__test-utils__/**"
   ],
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vad-web-dev-plugin.ts"],
   "references": [
     {
       "path": "../../packages/realtime-server/tsconfig.lib.json"

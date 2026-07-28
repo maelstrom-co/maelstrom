@@ -26,7 +26,7 @@ A second constraint shaped the packaging: voice is one capability with multiple 
 
 ## System overview
 
-```
+```text
 ┌────────────────────────────  Browser  ────────────────────────────┐
 │                                                                    │
 │   OpenAI gpt-realtime ◄──── WebRTC (audio) + data channel ────┐    │
@@ -175,7 +175,7 @@ Five deliberate seams, ordered from innermost out:
 
 **1. `RealtimeInstance`** (`realtime`) — the five-method bridge (`submitIntent`, `waitForIdle`, `getStructuralSnapshot`, `getCapabilitySnapshot`, `onSettled`) that is *all* the voice core knows about Maelstrom. `@maelstrom-co/react-realtime` maps the `Orchestrator` onto it inside `maelstromRealtime()` (see `createBridge` in `packages/react-realtime/src/lib/maelstrom-realtime.ts`). This keeps `realtime` off the full `Orchestrator` surface and makes the session trivially testable with a fake instance.
 
-**2. `RealtimeProviderAdapter`** (`realtime`) — the provider seam: `connect(tools, instructions)`, `disconnect()`, `getAudioStreams()`, `sendToolResult()`, `injectGrounding()`, optional manual `turnControl`, and an inbound event union that includes `tool_call`, `transcript`, `speech_started`, `turn_mode`, `state`, and `error`. `getAudioStreams()` exposes live mic/playback `MediaStream`s for UI metering. Everything provider-shaped — WebRTC vs LiveKit room, envelope formats, token handshakes, response pacing, and automatic turn detection — lives below this line; `RealtimeSession` never branches on provider identity. Automatic turn controls are intentionally private to adapters. A manual control may appear, change, or disappear as the current connection establishes or leaves manual mode, and the session exposes it only while its retained `turnMode` is `manual`.
+**2. `RealtimeProviderAdapter`** (`realtime`) — the provider seam: `connect(opts: AdapterConnectOptions)`, `disconnect()`, `getAudioStreams()`, `sendToolResult()`, `injectGrounding()`, optional manual `turnControl`, and an inbound event union that includes `tool_call`, `transcript`, `speech_started`, `turn_mode`, `state`, and `error`. The connect options object carries the provider-neutral tool specifications and session instructions. `getAudioStreams()` exposes live mic/playback `MediaStream`s for UI metering. Everything provider-shaped — WebRTC vs LiveKit room, envelope formats, token handshakes, response pacing, and automatic turn detection — lives below this line; `RealtimeSession` never branches on provider identity. Automatic turn controls are intentionally private to adapters. A manual control may appear, change, or disappear as the current connection establishes or leaves manual mode, and the session exposes it only while its retained `turnMode` is `manual`.
 
 **3. `VoiceSession`** (`client`) — the capability seam both voice tracks implement: `state`, `connect()`, `disconnect()`, `on('state')`, and `on('transcript')` (a `TranscriptEntry` stream of user/assistant utterance fragments, driving live captions directly off the session — no sidechannel receiver required). Deliberately minimal in v1; the fuller shape (intent-emission surface, speakable results, grounding flow) is to be settled jointly with the cascade track before the contract ossifies. `SpeakableResult` and `GroundingUpdate` types are exported ahead of that.
 

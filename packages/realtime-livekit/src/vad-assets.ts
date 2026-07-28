@@ -37,6 +37,8 @@ const onnxRuntimeAssetNames = [
 ] as const;
 
 const expectedAssetNames = [...vadAssetNames, ...onnxRuntimeAssetNames].sort();
+const transactionIdPattern =
+  /^(?:backup|stage)-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Options for package-owned browser VAD asset deployment. */
 export interface CopyLiveKitVadAssetsOptions {
@@ -104,6 +106,15 @@ function transactionPath(
   return join(parentDir, `.${outputName}.${kind}-${randomUUID()}`);
 }
 
+/** Matches only sibling names created by this helper for one output basename. */
+function isOwnedTransactionPathName(name: string, outputName: string): boolean {
+  const prefix = `.${outputName}.`;
+  return (
+    name.startsWith(prefix) &&
+    transactionIdPattern.test(name.slice(prefix.length))
+  );
+}
+
 function errorWithCleanupFailures(
   error: unknown,
   cleanupErrors: unknown[],
@@ -123,10 +134,14 @@ function errorWithCleanupFailures(
  * The destination must be a dedicated child directory because its existing
  * contents are atomically replaced. The complete manifest is copied and
  * validated in a unique sibling staging directory before the destination is
- * touched. If replacement or transaction cleanup fails, the helper attempts
- * to restore an existing destination. If rollback cleanup or restoration also
- * fails, it throws an `AggregateError` containing the original failure and the
- * rollback failures.
+ * touched. Existing helper-owned staging or backup siblings reject before
+ * staging or destination mutation; sibling names outside this output's exact
+ * helper basename, transaction kind, and UUID format are ignored. Installing
+ * the validated stage is the commit point: failures before it attempt to
+ * restore the prior destination, while a later backup-removal failure preserves
+ * the complete new destination, leaves any remaining backup visible for
+ * fail-closed recovery, and rejects. Failed pre-commit rollback steps are
+ * reported with the original failure in an `AggregateError`.
  *
  * @returns Copied paths relative to the resolved destination, sorted
  * lexicographically and normalized to `/` separators.
@@ -161,6 +176,14 @@ export async function copyLiveKitVadAssets({
   const parentDir = dirname(resolvedOutputDir);
   const outputName = resolvedOutputDir.slice(parentDir.length + 1);
   await mkdir(parentDir, { recursive: true });
+  const staleTransactionPath = (await readdir(parentDir)).find((name) =>
+    isOwnedTransactionPathName(name, outputName),
+  );
+  if (staleTransactionPath) {
+    throw new Error(
+      `Found stale browser VAD asset transaction artifact at ${join(parentDir, staleTransactionPath)}; remove it before retrying`,
+    );
+  }
 
   const sources: readonly AssetSource[] = [
     {
@@ -204,24 +227,23 @@ export async function copyLiveKitVadAssets({
 
     if (backupExists) {
       await rm(backupDir, { recursive: true, force: true });
+      backupExists = false;
     }
   } catch (error) {
+    if (replacementInstalled) {
+      throw new Error(
+        `Browser VAD assets were installed, but backup cleanup failed at ${backupDir}; remove the remaining backup artifact before retrying`,
+        { cause: error },
+      );
+    }
+
     const cleanupErrors: unknown[] = [];
 
     if (backupExists) {
-      if (replacementInstalled) {
-        try {
-          await removeTransactionPath(resolvedOutputDir);
-        } catch (cleanupError) {
-          cleanupErrors.push(cleanupError);
-        }
-      }
-      if (!replacementInstalled || cleanupErrors.length === 0) {
-        try {
-          await rename(backupDir, resolvedOutputDir);
-        } catch (cleanupError) {
-          cleanupErrors.push(cleanupError);
-        }
+      try {
+        await rename(backupDir, resolvedOutputDir);
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
       }
     }
 

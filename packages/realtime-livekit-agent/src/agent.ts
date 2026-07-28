@@ -42,6 +42,188 @@ import {
   USER_PARTICIPANT_IDENTITY,
 } from '@maelstrom-co/realtime-livekit/protocol';
 
+/** Fixed queue-failure reasons shared by the runtime Set and derived union. */
+const SPEECH_TURN_QUEUE_OVERFLOW_REASONS = [
+  'successor-segment-limit',
+  'segment-frame-limit',
+  'segment-audio-limit',
+  'total-frame-limit',
+  'invalid-frame-metadata',
+] as const;
+
+/** Application-owned queue reason; provider values cannot extend this union. */
+type SpeechTurnQueueOverflowReason =
+  (typeof SPEECH_TURN_QUEUE_OVERFLOW_REASONS)[number];
+
+/**
+ * Fixed privacy-safe worker taxonomy. Successor creation covers both exhausted
+ * post-drain construction retry and failed live-frame replacement; neither case
+ * incorporates provider errors, frames, or transcript content.
+ */
+const WORKER_DIAGNOSTIC_REASONS = [
+  'participant-join-timeout',
+  'malformed-turn-control',
+  'turn-finalization-failed',
+  'tts-provider-failed',
+  'tts-synthesis-failed',
+  'tts-cancellation-failed',
+  'tts-status-publication-failed',
+  'transcript-publication-failed',
+  'overlapping-microphone-track',
+  'audio-track-processing-failed',
+  'stt-provider-drain-timeout',
+  'stt-successor-creation-failed',
+  ...SPEECH_TURN_QUEUE_OVERFLOW_REASONS,
+] as const;
+
+/** Complete application-owned reason union derived from the readonly tuple. */
+type WorkerDiagnosticReason = (typeof WORKER_DIAGNOSTIC_REASONS)[number];
+
+type WorkerDiagnostic = {
+  /** Fixed application-owned category shared by every worker descriptor. */
+  category: 'voice-agent';
+  /** Fixed application-owned reason; never derived from provider text. */
+  reason: WorkerDiagnosticReason;
+  /** Optional own boolean or finite-number data property. Strings are omitted. */
+  code?: number | boolean;
+  /** Optional own boolean or finite-number data property. Strings are omitted. */
+  status?: number | boolean;
+  /** Optional own boolean or finite-number data property. Strings are omitted. */
+  type?: number | boolean;
+};
+
+const WORKER_DIAGNOSTIC_REASON_SET = new Set<WorkerDiagnosticReason>(
+  WORKER_DIAGNOSTIC_REASONS,
+);
+
+/**
+ * Application-owned error whose message and `reason` are the same fixed worker
+ * reason. Arbitrary provider or caller text is never accepted as a reason.
+ */
+export class WorkerDiagnosticError extends Error {
+  /** Fixed whitelisted reason used by the privacy-safe diagnostic projector. */
+  readonly reason: WorkerDiagnosticReason;
+
+  /** Creates an owned error whose message and diagnostic reason are `reason`. */
+  constructor(reason: WorkerDiagnosticReason) {
+    super(reason);
+    this.name = 'WorkerDiagnosticError';
+    this.reason = reason;
+  }
+}
+
+/**
+ * Reads one allowed own boolean or finite-number data property without invoking
+ * accessors. Strings are always omitted because provider-controlled tokens can
+ * encode credentials or identifiers even when their shape looks bounded.
+ */
+function readOwnDiagnosticScalar(
+  value: unknown,
+  key: 'code' | 'status' | 'type',
+): number | boolean | undefined {
+  if (
+    (typeof value !== 'object' || value === null) &&
+    typeof value !== 'function'
+  ) {
+    return undefined;
+  }
+  let descriptor: PropertyDescriptor | undefined;
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(value, key);
+  } catch {
+    return undefined;
+  }
+  if (!descriptor || !('value' in descriptor)) return undefined;
+  const scalar = descriptor.value;
+  if (typeof scalar === 'number') {
+    return Number.isFinite(scalar) ? scalar : undefined;
+  }
+  return typeof scalar === 'boolean' ? scalar : undefined;
+}
+
+/** Reads only the whitelisted own reason of an application-owned safe error. */
+function readOwnedReason(value: unknown): WorkerDiagnosticReason | undefined {
+  try {
+    if (!(value instanceof WorkerDiagnosticError)) return undefined;
+    const descriptor = Object.getOwnPropertyDescriptor(value, 'reason');
+    if (!descriptor || !('value' in descriptor)) return undefined;
+    return WORKER_DIAGNOSTIC_REASON_SET.has(descriptor.value)
+      ? descriptor.value
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Detects the queue error without allowing hostile proxies to escape. */
+function isSpeechTurnQueueOverflow(
+  value: unknown,
+): value is SpeechTurnQueueOverflowError {
+  try {
+    return value instanceof SpeechTurnQueueOverflowError;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Projects an unknown caught value into privacy-safe worker diagnostics. Output
+ * always starts with fixed `category: 'voice-agent'` and an application-owned
+ * reason, then may include only own data-property `code`, `status`, or `type`
+ * values when they are boolean or finite numbers. Strings are always omitted,
+ * including token-shaped values that could encode credentials or identifiers.
+ * Accessors, inherited values, nested data, and all other fields are ignored
+ * without invoking getters or traversing the value.
+ *
+ * The fixed taxonomy covers participant timeout, malformed control, turn
+ * finalization, TTS provider/synthesis/cancellation/status publication, transcript
+ * publication, overlapping/failed microphone processing, STT drain timeout,
+ * exhausted successor creation/live replacement, and the five speech-turn queue
+ * rejection reasons. Call sites select one of those tuple-derived literals;
+ * provider values never create categories or reasons.
+ *
+ * Application-owned `WorkerDiagnosticError` may replace the call-site reason
+ * with its fixed reason. `SpeechTurnQueueOverflowError` exposes only its fixed
+ * queue reason and never optional metadata. In contrast, arbitrary
+ * `message`, `name`, `stack`, `cause`, body/data/provider responses, identifiers,
+ * transcripts, audio, chunks, and environment values are always prohibited.
+ */
+export function describeWorkerDiagnostic(
+  reason: WorkerDiagnosticReason,
+  value: unknown,
+): WorkerDiagnostic {
+  const ownedReason = readOwnedReason(value);
+  const diagnosticReason = ownedReason ?? reason;
+  const diagnostic: WorkerDiagnostic = {
+    category: 'voice-agent',
+    reason: diagnosticReason,
+  };
+  if (isSpeechTurnQueueOverflow(value)) return diagnostic;
+  for (const key of ['code', 'status', 'type'] as const) {
+    const scalar = readOwnDiagnosticScalar(value, key);
+    if (scalar !== undefined) diagnostic[key] = scalar;
+  }
+  return diagnostic;
+}
+
+/**
+ * Logs one descriptor with fixed voice-agent category/reason and optional safe
+ * boolean or finite-number values. Strings are never projected. Hostile
+ * inspection and logger failures are contained as no-ops, so diagnostics never
+ * alter worker control flow.
+ */
+export function logWorkerDiagnostic(
+  level: 'warn' | 'error',
+  reason: WorkerDiagnosticReason,
+  value?: unknown,
+): void {
+  try {
+    console[level]('[voice-agent]', describeWorkerDiagnostic(reason, value));
+  } catch {
+    // Diagnostics are best effort and must never alter worker control flow.
+  }
+}
+
 // Cap how long the agent holds a job waiting for the user to connect before it
 // releases the worker slot — LiveKit's waitForParticipant has no timeout of its
 // own and would otherwise block the job forever.
@@ -59,9 +241,7 @@ const entry = async (ctx: JobContext) => {
     PARTICIPANT_JOIN_TIMEOUT_MS,
   );
   if (!userParticipant) {
-    console.error(
-      `[voice-agent] no '${USER_PARTICIPANT_IDENTITY}' participant joined within ${PARTICIPANT_JOIN_TIMEOUT_MS}ms; shutting down job`,
-    );
+    logWorkerDiagnostic('error', 'participant-join-timeout');
     ctx.shutdown('user participant did not join');
     return;
   }
@@ -76,6 +256,7 @@ const entry = async (ctx: JobContext) => {
     language: 'en-US',
   });
   const drainTimeoutMs = resolveSttDrainTimeoutMs();
+  const pendingAudioMsLimit = derivePendingAudioMsLimit(drainTimeoutMs);
 
   // Find the user's audio track (may already be published or arrive shortly)
   const room = ctx.room;
@@ -103,11 +284,14 @@ const entry = async (ctx: JobContext) => {
       boundIdentity: user.identity,
       endTurn: () => flushActiveTurn?.() ?? Promise.resolve(),
       cancelTts: () => cancelActiveTts?.(),
-      onMalformed: () => {
-        console.warn('[voice-agent] ignoring malformed turn control');
+      onCancelTtsError: (error) => {
+        logWorkerDiagnostic('warn', 'tts-cancellation-failed', error);
       },
-      onTurnEndError: () => {
-        console.warn('[voice-agent] STT turn finalization failed');
+      onMalformed: () => {
+        logWorkerDiagnostic('warn', 'malformed-turn-control');
+      },
+      onTurnEndError: (error) => {
+        logWorkerDiagnostic('warn', 'turn-finalization-failed', error);
       },
     }),
   );
@@ -117,8 +301,8 @@ const entry = async (ctx: JobContext) => {
   // into its shared AudioSource. Cartesia reads CARTESIA_API_KEY from env and
   // defaults to the sonic-3 model + default voice.
   const cartesiaTTS = new TTS();
-  cartesiaTTS.on('error', () => {
-    console.error('[voice-agent] Cartesia TTS error event');
+  cartesiaTTS.on('error', (error: unknown) => {
+    logWorkerDiagnostic('error', 'tts-provider-failed', error);
   });
   const ttsSource = new AudioSource(
     cartesiaTTS.sampleRate,
@@ -135,11 +319,7 @@ const entry = async (ctx: JobContext) => {
   // The synthesis stream currently draining into `ttsSource`, so a barge-in can
   // abort it mid-flight. Null while no speak() is in progress.
   let activeTtsStream: tts.SynthesizeStream | null = null;
-  // The utterance id currently being synthesized, echoed back on this
-  // utterance's `tts_done`/`tts_error` so the client can correlate late status.
-  let activeUtteranceId: number | undefined;
   async function speak(text: string, utteranceId: number | undefined) {
-    activeUtteranceId = utteranceId;
     const trimmed = text.trim();
     if (trimmed) {
       // Use the websocket streaming path (`stream()`), NOT `synthesize()`.
@@ -180,21 +360,21 @@ const entry = async (ctx: JobContext) => {
     SPEAK_TOPIC,
     createSpeakHandler({
       speak,
-      onSpeakError: async () => {
-        console.error('[voice-agent] TTS synthesis failed');
+      onSpeakError: async (caught, utteranceId) => {
+        logWorkerDiagnostic('error', 'tts-synthesis-failed', caught);
         // Signal the client so its UI can indicate speak-back failed rather
         // than waiting indefinitely for audio that will never arrive.
         try {
           const error: TtsErrorMessage = {
             type: 'tts_error',
-            utteranceId: activeUtteranceId,
+            utteranceId,
           };
           await localParticipant.publishData(
             new TextEncoder().encode(JSON.stringify(error)),
             { reliable: true, topic: TTS_TOPIC },
           );
-        } catch {
-          console.error('[voice-agent] failed to signal TTS error to client');
+        } catch (error) {
+          logWorkerDiagnostic('error', 'tts-status-publication-failed', error);
         }
       },
     }),
@@ -224,8 +404,8 @@ const entry = async (ctx: JobContext) => {
             },
           ],
         })
-        .catch(() => {
-          console.warn('[voice-agent] transcript publication failed');
+        .catch((error) => {
+          logWorkerDiagnostic('warn', 'transcript-publication-failed', error);
         });
     };
 
@@ -245,6 +425,7 @@ const entry = async (ctx: JobContext) => {
         onTurnEnd: () => aggregator.endTurn(),
         onTurnDrained: () => aggregator.completeTurn(),
         drainTimeoutMs,
+        pendingAudioMsLimit,
         setEndTurnHandler: (handler) => {
           if (handler) {
             trackEndHandler = handler;
@@ -263,10 +444,10 @@ const entry = async (ctx: JobContext) => {
     expectedIdentity: user.identity,
     processTrack: processAudioTrack,
     onIgnoredTrack: () => {
-      console.warn('[voice-agent] ignoring overlapping microphone track');
+      logWorkerDiagnostic('warn', 'overlapping-microphone-track');
     },
-    onProcessingError: () => {
-      console.warn('[voice-agent] audio track processing stopped');
+    onProcessingError: (error) => {
+      logWorkerDiagnostic('warn', 'audio-track-processing-failed', error);
     },
   });
 
@@ -304,13 +485,14 @@ export default defineMaelstromVoiceAgent();
 /**
  * Boots the agent as a standalone worker process (separate from the app). Reads
  * LiveKit connection config from the environment; run it from a thin entry that
- * loads `.env` first.
+ * loads `.env` first. Invalid drain timeout or derived pending-audio budget
+ * rejects before `cli.runApp`, so a worker cannot start with an unsafe cap.
  */
 export function runVoiceAgent() {
   const { wsURL, apiKey, apiSecret } = resolveLiveKitCredentials();
   // Validate the STT deadline at worker startup, not during a live turn — the
   // same fail-closed posture as credential resolution.
-  resolveSttDrainTimeoutMs();
+  derivePendingAudioMsLimit(resolveSttDrainTimeoutMs());
   cli.runApp(
     new ServerOptions({
       agent: import.meta.filename,
@@ -355,8 +537,12 @@ export function resolveLiveKitCredentials(
  * Resolves the provider stream drain deadline from
  * `MAELSTROM_STT_DRAIN_TIMEOUT_MS`, defaulting to 5000 ms. This bounds Deepgram
  * iterator completion after `endInput()`; expiry closes that provider stream
- * and allows a clean successor. Invalid values fail worker startup rather than
- * changing turn behavior later.
+ * and allows a clean successor. The validated value also derives the successor
+ * pending-audio budget through {@link derivePendingAudioMsLimit}; invalid timeout
+ * or unsafe derived values fail worker startup rather than changing turn
+ * behavior later. Unset or empty configuration uses 5000 ms; configured values
+ * must be finite, positive, and no greater than 60000 ms. Unlike this parser,
+ * `derivePendingAudioMsLimit` only validates that its arithmetic remains safe.
  */
 export function resolveSttDrainTimeoutMs(
   env: NodeJS.ProcessEnv = process.env,
@@ -364,15 +550,39 @@ export function resolveSttDrainTimeoutMs(
   const raw = env.MAELSTROM_STT_DRAIN_TIMEOUT_MS;
   if (raw === undefined || raw === '') return DEFAULT_STT_DRAIN_TIMEOUT_MS;
   const ms = Number(raw);
-  if (!Number.isFinite(ms) || ms <= 0) {
+  if (!Number.isFinite(ms) || ms <= 0 || ms > MAX_STT_DRAIN_TIMEOUT_MS) {
     throw new Error(
-      `Invalid MAELSTROM_STT_DRAIN_TIMEOUT_MS: expected a positive number of milliseconds, got ${JSON.stringify(raw)}`,
+      `Invalid MAELSTROM_STT_DRAIN_TIMEOUT_MS: expected a positive number of milliseconds no greater than ${MAX_STT_DRAIN_TIMEOUT_MS}, got ${JSON.stringify(raw)}`,
     );
   }
   return ms;
 }
 
 const DEFAULT_STT_DRAIN_TIMEOUT_MS = 5000;
+const MAX_STT_DRAIN_TIMEOUT_MS = 60_000;
+const PENDING_AUDIO_MS_HEADROOM = 1.5;
+
+/**
+ * Derives the successor-segment audio budget from one validated provider drain
+ * timeout using a fixed 1.5× headroom and `Math.ceil`. The result is always a
+ * positive safe integer; non-positive, non-finite, or overflowed inputs reject
+ * before worker startup. This variable budget applies only while accumulating
+ * successor audio—the segment-count and frame-count limits remain fixed.
+ */
+export function derivePendingAudioMsLimit(drainTimeoutMs: number): number {
+  const limit = Math.ceil(drainTimeoutMs * PENDING_AUDIO_MS_HEADROOM);
+  if (
+    !Number.isFinite(drainTimeoutMs) ||
+    drainTimeoutMs <= 0 ||
+    !Number.isFinite(limit) ||
+    !Number.isSafeInteger(limit)
+  ) {
+    throw new Error(
+      'Invalid pending audio limit derived from STT drain timeout: expected a positive safe number of milliseconds',
+    );
+  }
+  return limit;
+}
 
 /**
  * Races {@link JobContext.waitForParticipant} against a deadline so a job never
@@ -437,15 +647,25 @@ export function cancelInFlightTts(
  * must stay catch-covered or a rejection kills the worker process.
  *
  * Serializes turns through a chain private to this handler instance, so
- * overlapping summaries can't interleave frames; a failed turn's `onSpeakError`
- * still resolves the chain, so a bad turn never poisons the ones after it.
- * `speakChain` is reassigned synchronously (no `await` before it), so turn
- * order tracks call order even when one turn's `readAll()` resolves before
- * another's — awaiting first would let a fast later call jump the queue.
+ * overlapping summaries can't interleave frames. It captures the stream's
+ * utterance id synchronously before starting `readAll()`, then supplies that same
+ * id to `speak` and to `onSpeakError` for either reader or speak rejection; an
+ * absent or invalid attribute remains `undefined`. `onSpeakError` rejection is
+ * contained so every failed turn still resolves the private chain and later
+ * turns recover without an unhandled rejection.
+ *
+ * `speakChain` is reassigned synchronously (no `await` before it), so turn order
+ * tracks call order even when one turn's `readAll()` resolves before another's —
+ * awaiting first would let a fast later call jump the queue. The immediate
+ * rejection observer on `readAll()` remains necessary while a reader waits for
+ * earlier serialized work.
  */
 export function createSpeakHandler(deps: {
   speak: (text: string, utteranceId: number | undefined) => Promise<void>;
-  onSpeakError: (err: unknown) => void | Promise<void>;
+  onSpeakError: (
+    err: unknown,
+    utteranceId: number | undefined,
+  ) => void | Promise<void>;
 }): (
   reader: Pick<TextStreamReader, 'readAll'> & {
     info?: { attributes?: Record<string, string> };
@@ -453,13 +673,13 @@ export function createSpeakHandler(deps: {
 ) => void {
   let speakChain: Promise<void> = Promise.resolve();
   return (reader) => {
-    const text = reader.readAll();
     // Correlate this utterance with its later TTS status: the client stamps an id
     // on the stream attributes, and the worker echoes it on `tts_done`/`tts_error`
     // so the client can drop status for an utterance it already barged past.
     const utteranceId = parseUtteranceId(
       reader.info?.attributes?.[SPEAK_UTTERANCE_ID_ATTR],
     );
+    const text = reader.readAll();
     // Reading starts immediately, but the chain may not reach `text` until
     // prior turns settle — attach a no-op handler now so a rejection in the
     // meantime is never reported as unhandled; the real handling still runs
@@ -468,7 +688,14 @@ export function createSpeakHandler(deps: {
     speakChain = speakChain
       .then(() => text)
       .then((value) => deps.speak(value, utteranceId))
-      .catch((err) => deps.onSpeakError(err));
+      .catch(async (err) => {
+        try {
+          await deps.onSpeakError(err, utteranceId);
+        } catch {
+          // Error reporting is best effort; recovery of the serialized chain is
+          // the invariant, and reporting failures carry no additional signal.
+        }
+      });
   };
 }
 
@@ -487,21 +714,61 @@ type TurnControlParticipant = { identity: string } | undefined;
  * Creates the room-scoped control listener for push-to-talk boundaries and TTS
  * cancellation. Only the participant identity bound after job join may control
  * the session; missing, foreign, off-topic, malformed, and unknown controls are
- * no-ops. Parse failures are reported without forwarding payloads or errors, and
- * the fire-and-forget turn boundary always has a rejection observer.
+ * no-ops. Parse failures invoke one fixed diagnostic callback per packet without
+ * forwarding payloads or errors. A callback throw, rejection, or pending promise
+ * is fire-and-observe and cannot escape or delay later controls.
+ *
+ * Cancellation is also fire-and-observe: synchronous throws and returned-promise
+ * rejections reach `onCancelTtsError` exactly once, its own failure is contained,
+ * and no cancellation or diagnostic promise is awaited. Production projects the
+ * caught value into one fixed-category sanitized warning and never logs it raw.
+ *
+ * The fire-and-forget turn boundary always has an immediate rejection observer.
+ * A synchronous `endTurn()` throw and an asynchronous boundary rejection are
+ * normalized into exactly one internal callback. A callback synchronous throw or
+ * returned-promise rejection is immediately observed and contained. Production
+ * passes the caught value only to the privacy-safe diagnostic projector.
  */
 export function createTurnControlHandler(deps: {
   boundIdentity: string;
   endTurn: () => Promise<void>;
-  cancelTts: () => void;
-  onMalformed: () => void;
-  onTurnEndError: () => void;
+  cancelTts: () => void | Promise<void>;
+  onCancelTtsError: (error: unknown) => void | Promise<void>;
+  onMalformed: () => void | Promise<void>;
+  onTurnEndError: (error: unknown) => void | Promise<void>;
 }): (
   payload: Uint8Array,
   participant: TurnControlParticipant,
   kind: unknown,
   topic: string | undefined,
 ) => void {
+  /** Emits one malformed-control diagnostic without joining control ownership. */
+  const reportMalformed = (): void => {
+    try {
+      Promise.resolve(deps.onMalformed()).catch(() => {});
+    } catch {
+      // Diagnostics are best effort and must not escape the room listener.
+    }
+  };
+
+  /** Emits one sanitized cancellation failure without joining cancel ownership. */
+  const reportCancelTtsError = (error: unknown): void => {
+    try {
+      Promise.resolve(deps.onCancelTtsError(error)).catch(() => {});
+    } catch {
+      // Diagnostics are best effort and must not escape the room listener.
+    }
+  };
+
+  /** Delivers one boundary failure and observes either callback failure form. */
+  const reportTurnEndError = (error: unknown): void => {
+    try {
+      Promise.resolve(deps.onTurnEndError(error)).catch(() => {});
+    } catch {
+      // Diagnostics are best effort; callback failure must not escape LiveKit's
+      // fire-and-forget listener or create an unhandled rejection.
+    }
+  };
   return (payload, participant, _kind, topic) => {
     if (topic !== TURN_TOPIC || participant?.identity !== deps.boundIdentity) {
       return;
@@ -511,23 +778,32 @@ export function createTurnControlHandler(deps: {
     try {
       message = JSON.parse(new TextDecoder().decode(payload));
     } catch {
-      deps.onMalformed();
+      reportMalformed();
       return;
     }
     if (!message || typeof message !== 'object' || !('type' in message)) {
-      deps.onMalformed();
+      reportMalformed();
       return;
     }
 
     const type = (message as { type?: unknown }).type;
     if (type === 'turn_start') {
-      deps.onMalformed();
+      reportMalformed();
     } else if (type === 'turn_end') {
-      void deps.endTurn().catch(() => deps.onTurnEndError());
+      try {
+        const boundary = deps.endTurn();
+        boundary.catch(reportTurnEndError).catch(() => {});
+      } catch (error) {
+        reportTurnEndError(error);
+      }
     } else if (type === 'tts_cancel') {
-      deps.cancelTts();
+      try {
+        Promise.resolve(deps.cancelTts()).catch(reportCancelTtsError);
+      } catch (error) {
+        reportCancelTtsError(error);
+      }
     } else {
-      deps.onMalformed();
+      reportMalformed();
     }
   };
 }
@@ -538,13 +814,19 @@ export function createTurnControlHandler(deps: {
  * overlapping tracks are ignored rather than creating a second STT boundary
  * authority. Foreign participants and non-audio tracks are silent no-ops. Both
  * synchronous and asynchronous processing failures are observed without
- * exposing raw error objects.
+ * exposing raw error objects. The internal failure callback receives the caught
+ * value once so production can pass it directly to the privacy-safe diagnostic
+ * projector. Diagnostics are fire-and-observe rather than processing ownership:
+ * a callback synchronous throw or returned-promise rejection is contained, but
+ * a pending callback is never awaited and cannot delay active-track release.
+ * This helper does not log independently, preventing duplicate outer and
+ * processing-layer warnings.
  */
 export function createSubscribedMicrophoneTrackHandler(deps: {
   expectedIdentity: string;
   processTrack: (track: RemoteTrack) => Promise<void>;
   onIgnoredTrack: () => void;
-  onProcessingError: () => void;
+  onProcessingError: (error: unknown) => void | Promise<void>;
 }): (track: RemoteTrack, participant: { identity: string }) => void {
   let active = false;
   return (track, participant) => {
@@ -562,7 +844,14 @@ export function createSubscribedMicrophoneTrackHandler(deps: {
     active = true;
     void Promise.resolve()
       .then(() => deps.processTrack(track))
-      .catch(() => deps.onProcessingError())
+      .catch((error) => {
+        try {
+          Promise.resolve(deps.onProcessingError(error)).catch(() => {});
+        } catch {
+          // Diagnostics are best effort; callback failure must not poison track
+          // ownership or become an unhandled terminal-chain rejection.
+        }
+      })
       .finally(() => {
         active = false;
       });
@@ -686,10 +975,69 @@ type SpeechRecognitionOptions = {
   onFinalTranscript: (text: string) => void;
   onTurnEnd: () => void | Promise<void>;
   onTurnDrained: () => void | Promise<void>;
+  /** Fixed provider drain deadline for each completed turn. */
   drainTimeoutMs: number;
+  /** Derived successor-only audio cap; frame and segment limits stay fixed. */
+  pendingAudioMsLimit: number;
   createDrainDeadline?: (timeoutMs: number) => DrainDeadline;
+  /** Installs synchronously; `null` removal is fire-and-observe and once-only. */
   setEndTurnHandler: (handler: (() => Promise<void>) | null) => void;
 };
+
+const MAX_PENDING_SUCCESSOR_SEGMENTS = 4;
+const MAX_PENDING_FRAMES_PER_SEGMENT = 500;
+const MAX_PENDING_FRAMES_TOTAL = 2_000;
+
+/**
+ * Identifies a fail-closed speech-turn queue rejection without including audio,
+ * frame metadata, transcript text, or other request-derived details. Its message
+ * is exactly one of the five fixed queue-limit or invalid-metadata reasons;
+ * repeated failures for an already-failed track generation are no-ops.
+ */
+export class SpeechTurnQueueOverflowError extends WorkerDiagnosticError {
+  /** Creates a fail-closed queue error containing only its fixed reason. */
+  constructor(reason: SpeechTurnQueueOverflowReason) {
+    super(reason);
+    this.name = 'SpeechTurnQueueOverflowError';
+  }
+}
+
+type Boundary = {
+  /** Rejection-observed completion exposed to the boundary caller. */
+  promise: Promise<void>;
+  /** Resolves the boundary's completion promise. */
+  resolve: () => void;
+  /** Rejects the boundary's completion promise with its terminal reason. */
+  reject: (error: unknown) => void;
+  /** Prevents duplicate resolution or rejection. */
+  settled: boolean;
+};
+
+type SuccessorSegment = {
+  /** Ordered frames retained for one future provider stream. */
+  frames: AudioFrame[];
+  /** Accumulated validated frame duration used by the derived audio cap. */
+  audioMs: number;
+  /** Distinct turn marker terminating this segment, when one has arrived. */
+  boundary: Boundary | null;
+};
+
+/** Creates one immediately rejection-observed, settle-once turn boundary. */
+function createBoundary(): Boundary {
+  let resolvePromise!: () => void;
+  let rejectPromise!: (error: unknown) => void;
+  const promise = new Promise<void>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  promise.catch(() => {});
+  return {
+    promise,
+    settled: false,
+    resolve: resolvePromise,
+    reject: rejectPromise,
+  };
+}
 
 type DrainDeadline = {
   promise: Promise<void>;
@@ -710,12 +1058,11 @@ function createDrainDeadline(timeoutMs: number): DrainDeadline {
 
 /**
  * Owns one turn-scoped Deepgram stream at a time beneath a track-scoped LiveKit
- * audio iterator. A boundary synchronously detaches the writable stream, so the
- * frame pump keeps consuming and drops frames until a successor exists. It ends
- * input exactly once, drains final events to iterator completion or the
- * provider-drain deadline, closes the old stream, completes that stream's
- * aggregator ownership, and installs a clean successor without requiring
- * another LiveKit frame.
+ * audio iterator. A boundary synchronously detaches the writable stream while
+ * the frame pump retains bounded FIFO successor segments. Each segment owns its
+ * ordered frames and distinct boundary promise. After the current provider
+ * drains and closes, the coordinator creates one successor, replays only that
+ * segment's frames, and then processes that segment's boundary before advancing.
  *
  * Each stream owns a final-transcript generation. Completion, timeout, failure,
  * or close retires that generation before aggregation completes, so a queued
@@ -723,11 +1070,41 @@ function createDrainDeadline(timeoutMs: number): DrainDeadline {
  * drains emit all finals once; failed drains salvage only finals accepted before
  * ownership was retired. Empty turns emit nothing.
  *
- * Duplicate boundaries during the same drain share one promise. Disposal marks
- * ownership dead before awaiting in-flight work, so track teardown cannot create
- * a successor. Boundary failures reject that boundary after recovery rather than
- * poisoning the track pump. Every internally started consumer and boundary has
- * an immediate rejection observer, including streams closed by timeout.
+ * Pending work is limited to four successor segments, 500 frames per segment,
+ * 2,000 frames overall, and a per-segment audio budget derived once as 1.5× the
+ * validated provider drain timeout. Only that audio budget scales with provider
+ * drain configuration; segment and frame limits remain fixed. Invalid frame
+ * timing metadata or any limit breach fails the track generation closed:
+ * retained frames are released, every queued boundary rejects with a fixed-reason
+ * `SpeechTurnQueueOverflowError`, the provider closes exactly once, and later
+ * frames are no-ops until teardown. This is intentionally stricter than an
+ * ordinary provider drain or close failure: that failure rejects the affected
+ * boundary, releases queued successor frames and boundaries, and attempts to
+ * install a clean provider stream for later audio. After fail-closed queue
+ * rejection, later frames remain no-ops and direct repeated boundaries reject
+ * with the retained fixed-reason error. Disposal releases queued frames and
+ * resolvers before awaiting in-flight work, so teardown cannot create a
+ * successor. Every internally started consumer and boundary has an immediate
+ * rejection observer, including streams closed by timeout. If replay into a
+ * successor throws, both the boundary being rotated and that shifted segment's
+ * own boundary reject exactly once; the failed successor closes, later queued
+ * segments are released, and clean-stream recovery is attempted. Post-drain
+ * successor construction gets one immediate retry; if both attempts fail, the
+ * coordinator rejects every retained boundary with a fixed application-owned
+ * reason and exposes terminal failure to the track loop. A synchronous live
+ * `pushFrame` failure instead retires that final-generation immediately, creates
+ * exactly one replacement, and replays the current validated frame once. Failed
+ * live replacement construction or replay uses the same visible terminal path;
+ * unlike queued replay recovery, there is no affected turn boundary to reject
+ * before preserving the current frame. These bounded policies differ from
+ * queue-overflow fail-closed handling but never leave a live iterator without a
+ * writable provider stream. The coordinator never logs
+ * provider-consumer or teardown failures itself: the owning turn-end or outer
+ * track-processing callback emits one privacy-safe warning, avoiding a duplicate
+ * coordinator/outer report. Queue or terminal-failure notification is likewise
+ * fire-and-observe: handler-removal is attempted once, but its throw, rejection,
+ * or pending promise cannot interrupt mandatory cleanup or delay later-frame
+ * no-ops.
  */
 class SpeechTurnCoordinator {
   readonly #createSpeechStream: () => stt.SpeechStream;
@@ -735,56 +1112,139 @@ class SpeechTurnCoordinator {
   readonly #onTurnEnd: () => void | Promise<void>;
   readonly #onTurnDrained: () => void | Promise<void>;
   readonly #drainTimeoutMs: number;
+  /** Immutable successor-only cap derived before coordinator construction. */
+  readonly #pendingAudioMsLimit: number;
   readonly #createDrainDeadline: (timeoutMs: number) => DrainDeadline;
+  readonly #onQueueFailure: () => void | Promise<void>;
   #current: SpeechTurn | null = null;
-  #boundary: Promise<void> | null = null;
+  #drainingTurn: SpeechTurn | null = null;
+  #activeBoundary: Boundary | null = null;
+  #rotationTask: Promise<void> | null = null;
+  #segments: SuccessorSegment[] = [];
+  #pendingFramesTotal = 0;
+  #queueFailure: SpeechTurnQueueOverflowError | null = null;
+  readonly #terminalFailure: Promise<never>;
+  readonly #rejectTerminalFailure: (error: unknown) => void;
+  #terminalError: WorkerDiagnosticError | null = null;
   #disposed = false;
 
+  /**
+   * Creates one track-scoped coordinator and immediately opens its initial
+   * provider stream. Queue-failure notification is best effort; stream factory
+   * failure escapes construction before any frame or boundary is accepted.
+   */
   constructor(
     createSpeechStream: () => stt.SpeechStream,
     onFinalTranscript: (text: string) => void,
     onTurnEnd: () => void | Promise<void>,
     onTurnDrained: () => void | Promise<void>,
     drainTimeoutMs: number,
+    pendingAudioMsLimit: number,
     deadlineFactory: (timeoutMs: number) => DrainDeadline,
+    onQueueFailure: () => void | Promise<void>,
   ) {
     this.#createSpeechStream = createSpeechStream;
     this.#onFinalTranscript = onFinalTranscript;
     this.#onTurnEnd = onTurnEnd;
     this.#onTurnDrained = onTurnDrained;
     this.#drainTimeoutMs = drainTimeoutMs;
+    this.#pendingAudioMsLimit = pendingAudioMsLimit;
     this.#createDrainDeadline = deadlineFactory;
+    this.#onQueueFailure = onQueueFailure;
+    let rejectTerminalFailure!: (error: unknown) => void;
+    this.#terminalFailure = new Promise<never>((_resolve, reject) => {
+      rejectTerminalFailure = reject;
+    });
+    this.#terminalFailure.catch(() => {});
+    this.#rejectTerminalFailure = rejectTerminalFailure;
     this.#current = this.#createTurn();
   }
 
+  /** Rejects only when this track generation cannot create a usable successor. */
+  get terminalFailure(): Promise<never> {
+    return this.#terminalFailure;
+  }
+
   pushFrame(frame: AudioFrame): void {
-    if (!this.#current) return;
-    this.#current.stream.pushFrame(frame);
+    if (this.#disposed || this.#queueFailure || this.#terminalError) return;
+    const durationMs = this.#frameDurationMs(frame);
+    if (durationMs === null) {
+      this.#failQueue('invalid-frame-metadata');
+      return;
+    }
+    if (this.#current) {
+      const turn = this.#current;
+      try {
+        turn.stream.pushFrame(frame);
+      } catch {
+        this.#recoverLivePush(frame, turn);
+      }
+      return;
+    }
+    const segment = this.#openSegment();
+    if (!segment) return;
+    if (this.#pendingFramesTotal + 1 > MAX_PENDING_FRAMES_TOTAL) {
+      this.#failQueue('total-frame-limit');
+      return;
+    }
+    if (segment.frames.length + 1 > MAX_PENDING_FRAMES_PER_SEGMENT) {
+      this.#failQueue('segment-frame-limit');
+      return;
+    }
+    if (segment.audioMs + durationMs > this.#pendingAudioMsLimit) {
+      this.#failQueue('segment-audio-limit');
+      return;
+    }
+    segment.frames.push(frame);
+    segment.audioMs += durationMs;
+    this.#pendingFramesTotal++;
   }
 
   endTurn(): Promise<void> {
-    if (this.#boundary) return this.#boundary;
-    if (this.#disposed || !this.#current) return Promise.resolve();
+    if (this.#terminalError) return this.#rejectedBoundary(this.#terminalError);
+    if (this.#queueFailure) return this.#rejectedBoundary(this.#queueFailure);
+    if (this.#disposed) return Promise.resolve();
 
-    const turn = this.#current;
-    this.#current = null;
-    const boundary = this.#rotate(turn);
-    this.#boundary = boundary;
-    boundary.catch(() => {});
-    void boundary
-      .finally(() => {
-        if (this.#boundary === boundary) this.#boundary = null;
-      })
-      .catch(() => {});
-    return boundary;
+    if (this.#current) {
+      const turn = this.#current;
+      const boundary = createBoundary();
+      this.#current = null;
+      this.#activeBoundary = boundary;
+      const rotationTask = this.#rotateQueued(turn, boundary);
+      this.#rotationTask = rotationTask;
+      rotationTask.catch(() => {});
+      void rotationTask
+        .finally(() => {
+          if (this.#rotationTask === rotationTask) this.#rotationTask = null;
+        })
+        .catch(() => {});
+      return boundary.promise;
+    }
+
+    if (!this.#rotationTask) return Promise.resolve();
+
+    const segment = this.#openSegment();
+    if (!segment) {
+      return this.#queueFailure
+        ? this.#rejectedBoundary(this.#queueFailure)
+        : Promise.resolve();
+    }
+    if (segment.boundary) {
+      const next = this.#appendSegment();
+      if (!next) {
+        return this.#queueFailure
+          ? this.#rejectedBoundary(this.#queueFailure)
+          : Promise.resolve();
+      }
+      return this.#markBoundary(next);
+    }
+    return this.#markBoundary(segment);
   }
 
   async dispose(): Promise<void> {
     this.#disposed = true;
-    if (this.#boundary) {
-      await this.#boundary;
-      return;
-    }
+    this.#releaseSegments(new Error('Speech turn coordinator disposed'));
+    if (this.#rotationTask) await this.#rotationTask;
     const turn = this.#current;
     this.#current = null;
     if (turn) await this.#finishTurn(turn);
@@ -813,7 +1273,59 @@ class SpeechTurnCoordinator {
     }
   }
 
-  async #rotate(turn: SpeechTurn): Promise<void> {
+  async #rotateQueued(turn: SpeechTurn, boundary: Boundary): Promise<void> {
+    let activeTurn = turn;
+    let activeBoundary = boundary;
+    while (true) {
+      this.#drainingTurn = activeTurn;
+      const failure = await this.#completeRotation(activeTurn);
+      if (this.#drainingTurn === activeTurn) this.#drainingTurn = null;
+      if (this.#queueFailure) return;
+      if (failure !== undefined) {
+        this.#releaseSegments(failure);
+      }
+      if (this.#disposed) {
+        this.#settleBoundary(activeBoundary, failure);
+        return;
+      }
+
+      const successor = this.#createPostDrainSuccessor();
+      if (!successor) return;
+      const segment =
+        failure === undefined ? this.#segments.shift() : undefined;
+      if (segment) {
+        this.#pendingFramesTotal -= segment.frames.length;
+        try {
+          for (const frame of segment.frames) successor.stream.pushFrame(frame);
+        } catch (error) {
+          segment.frames.length = 0;
+          this.#closeTurn(successor);
+          if (segment.boundary) this.#settleBoundary(segment.boundary, error);
+          this.#releaseSegments(error);
+          this.#settleBoundary(activeBoundary, error);
+          if (!this.#disposed) {
+            try {
+              this.#current = this.#createTurn();
+            } catch {
+              this.#current = null;
+            }
+          }
+          return;
+        }
+        segment.frames.length = 0;
+      }
+      this.#current = successor;
+      this.#settleBoundary(activeBoundary, failure);
+      if (!segment?.boundary) return;
+
+      activeTurn = successor;
+      activeBoundary = segment.boundary;
+      this.#activeBoundary = activeBoundary;
+      this.#current = null;
+    }
+  }
+
+  async #completeRotation(turn: SpeechTurn): Promise<unknown | undefined> {
     let failure: unknown;
     try {
       await this.#finishTurn(turn);
@@ -837,14 +1349,180 @@ class SpeechTurnCoordinator {
     } catch (error) {
       failure ??= error;
     }
-    if (!this.#disposed) {
-      try {
-        this.#current = this.#createTurn();
-      } catch (error) {
-        failure ??= error;
-      }
+    return failure;
+  }
+
+  #frameDurationMs(frame: AudioFrame): number | null {
+    const { sampleRate, samplesPerChannel } = frame;
+    if (
+      !Number.isFinite(sampleRate) ||
+      sampleRate <= 0 ||
+      !Number.isFinite(samplesPerChannel) ||
+      samplesPerChannel <= 0
+    ) {
+      return null;
     }
-    if (failure !== undefined) throw failure;
+    const durationMs = (samplesPerChannel / sampleRate) * 1000;
+    return Number.isFinite(durationMs) && durationMs > 0 ? durationMs : null;
+  }
+
+  #openSegment(): SuccessorSegment | null {
+    const last = this.#segments.at(-1);
+    if (last && !last.boundary) return last;
+    return this.#appendSegment();
+  }
+
+  #appendSegment(): SuccessorSegment | null {
+    if (this.#segments.length >= MAX_PENDING_SUCCESSOR_SEGMENTS) {
+      this.#failQueue('successor-segment-limit');
+      return null;
+    }
+    const segment: SuccessorSegment = {
+      frames: [],
+      audioMs: 0,
+      boundary: null,
+    };
+    this.#segments.push(segment);
+    return segment;
+  }
+
+  #markBoundary(segment: SuccessorSegment): Promise<void> {
+    const boundary = createBoundary();
+    segment.boundary = boundary;
+    return boundary.promise;
+  }
+
+  #failQueue(reason: SpeechTurnQueueOverflowReason): void {
+    if (this.#queueFailure) return;
+    const failure = new SpeechTurnQueueOverflowError(reason);
+    this.#queueFailure = failure;
+    this.#releaseSegments(failure);
+    if (this.#activeBoundary)
+      this.#settleBoundary(this.#activeBoundary, failure);
+    const turn = this.#current;
+    this.#current = null;
+    if (turn) this.#closeTurn(turn);
+    if (this.#drainingTurn) this.#closeTurn(this.#drainingTurn);
+    try {
+      Promise.resolve(this.#onQueueFailure()).catch(() => {});
+    } catch {
+      // Handler removal is best effort and cannot weaken fail-closed cleanup.
+    }
+  }
+
+  /**
+   * Creates a post-drain successor with one immediate retry. A successful retry
+   * remains generation-scoped; repeated construction failure terminates the
+   * generation through the fixed terminal channel without retaining provider
+   * errors or queued audio.
+   */
+  #createPostDrainSuccessor(): SpeechTurn | null {
+    try {
+      return this.#createTurn();
+    } catch {
+      if (this.#disposed || this.#queueFailure || this.#terminalError)
+        return null;
+    }
+
+    try {
+      const successor = this.#createTurn();
+      if (this.#disposed || this.#queueFailure || this.#terminalError) {
+        this.#closeTurn(successor);
+        return null;
+      }
+      return successor;
+    } catch {
+      this.#failTerminal();
+      return null;
+    }
+  }
+
+  /**
+   * Retires a live stream whose synchronous push failed, creates exactly one
+   * replacement, and replays the already-validated current frame exactly once.
+   * Construction or replay failure closes every created stream and enters the
+   * shared visible terminal path; it never retries indefinitely or retains raw
+   * provider/frame data. Retiring the old final-generation before replacement
+   * also fences late finals from crossing into the new turn. A stale or already
+   * terminal invocation is a no-op; if generation ownership changes during the
+   * synchronous replacement attempt, the replacement closes without installing.
+   */
+  #recoverLivePush(frame: AudioFrame, failedTurn: SpeechTurn): void {
+    if (this.#current !== failedTurn || this.#terminalError) return;
+    this.#current = null;
+    this.#closeTurn(failedTurn);
+
+    let replacement: SpeechTurn;
+    try {
+      replacement = this.#createTurn();
+    } catch {
+      this.#failTerminal();
+      return;
+    }
+
+    try {
+      replacement.stream.pushFrame(frame);
+    } catch {
+      this.#closeTurn(replacement);
+      this.#failTerminal();
+      return;
+    }
+
+    if (this.#disposed || this.#queueFailure || this.#terminalError) {
+      this.#closeTurn(replacement);
+      return;
+    }
+    this.#current = replacement;
+  }
+
+  /** Performs idempotent terminal cleanup after bounded construction recovery. */
+  #failTerminal(): void {
+    if (this.#terminalError) return;
+    const failure = new WorkerDiagnosticError('stt-successor-creation-failed');
+    this.#terminalError = failure;
+    this.#releaseSegments(failure);
+    if (this.#activeBoundary)
+      this.#settleBoundary(this.#activeBoundary, failure);
+    const turn = this.#current;
+    this.#current = null;
+    if (turn) this.#closeTurn(turn);
+    if (this.#drainingTurn) this.#closeTurn(this.#drainingTurn);
+    try {
+      Promise.resolve(this.#onQueueFailure()).catch(() => {});
+    } catch {
+      // Handler removal is best effort and cannot weaken terminal cleanup.
+    }
+    this.#rejectTerminalFailure(failure);
+  }
+
+  #releaseSegments(error: unknown): void {
+    for (const segment of this.#segments) {
+      segment.frames.length = 0;
+      if (segment.boundary) this.#settleBoundary(segment.boundary, error);
+    }
+    this.#segments.length = 0;
+    this.#pendingFramesTotal = 0;
+  }
+
+  #settleBoundary(boundary: Boundary, error?: unknown): void {
+    if (boundary.settled) return;
+    boundary.settled = true;
+    if (this.#activeBoundary === boundary) this.#activeBoundary = null;
+    if (error === undefined) boundary.resolve();
+    else boundary.reject(error);
+  }
+
+  #rejectedBoundary(error: unknown): Promise<void> {
+    const boundary = createBoundary();
+    this.#settleBoundary(boundary, error);
+    return boundary.promise;
+  }
+
+  #closeTurn(turn: SpeechTurn): void {
+    turn.acceptsFinals = false;
+    if (turn.closed) return;
+    turn.closed = true;
+    turn.stream.close();
   }
 
   async #finishTurn(turn: SpeechTurn): Promise<void> {
@@ -860,15 +1538,11 @@ class SpeechTurnCoordinator {
         deadline.promise.then(() => 'timeout' as const),
       ]);
       if (outcome === 'timeout') {
-        throw new Error('STT provider drain timed out');
+        throw new WorkerDiagnosticError('stt-provider-drain-timeout');
       }
     } finally {
       deadline?.cancel();
-      turn.acceptsFinals = false;
-      if (!turn.closed) {
-        turn.closed = true;
-        turn.stream.close();
-      }
+      this.#closeTurn(turn);
     }
   }
 }
@@ -879,31 +1553,81 @@ class SpeechTurnCoordinator {
  * is asynchronous because it represents the full end-input, provider-drain,
  * close, and successor-install sequence; callers must observe its rejection.
  *
- * Frames yielded while a boundary is pending are consumed and dropped, never
- * held for a successor or pushed into the ended stream. Ordered delivery still
- * relies on the browser pausing microphone publication before sending
- * `turn_end`; without a protocol turn identifier this package cannot correct
- * delayed controls.
+ * Frames yielded while a provider drains are retained in bounded FIFO successor
+ * segments. Their audio cap is supplied once from the validated drain timeout;
+ * unlike that derived cap, segment and frame-count limits remain fixed. Every
+ * `turn_end` remains a distinct marker because the protocol has
+ * no turn identity: each marker settles only after its own segment is replayed,
+ * ended, drained, and closed. Queue overflow or invalid frame timing metadata
+ * fails the track generation closed, removes its turn handler, releases queued
+ * successors, and discards all later frames as no-ops until teardown. In
+ * contrast, an ordinary provider drain or close failure rejects the affected
+ * boundary, releases queued successors, and attempts clean-stream recovery for
+ * later audio. Teardown releases queues and boundaries without creating another
+ * provider; later failed-generation frames and repeated teardown are no-ops.
+ * Post-drain construction retries once, then races a fixed terminal failure
+ * against the pending audio iterator so an exhausted generation rejects even
+ * when no later frame arrives. Abrupt exit initiates `iterator.return()` before
+ * awaiting coordinator disposal and observes both that cancellation and the
+ * still-pending `next()` independently without waiting for either. Their late
+ * settlement cannot feed the disposed coordinator or escape as an unhandled
+ * rejection. Normal EOF does not invoke cancellation; iterator errors retain
+ * their original rejection semantics. Terminal cleanup and the `finally` path
+ * share idempotent handler removal and stream closure ownership. Removal is
+ * fire-and-observe: a throw, rejection, or pending promise cannot replace the
+ * track outcome or delay coordinator disposal. Initial handler installation
+ * remains synchronous and is not part of that best-effort cleanup contract.
  */
 export async function runSpeechRecognition(
   opts: SpeechRecognitionOptions,
 ): Promise<void> {
+  let endTurnHandlerInstalled = false;
+  const removeEndTurnHandler = () => {
+    if (!endTurnHandlerInstalled) return;
+    endTurnHandlerInstalled = false;
+    try {
+      Promise.resolve(opts.setEndTurnHandler(null)).catch(() => {});
+    } catch {
+      // Handler removal is best effort and cannot mask the track outcome.
+    }
+  };
   const coordinator = new SpeechTurnCoordinator(
     opts.createSpeechStream,
     opts.onFinalTranscript,
     opts.onTurnEnd,
     opts.onTurnDrained,
     opts.drainTimeoutMs,
+    opts.pendingAudioMsLimit,
     opts.createDrainDeadline ?? createDrainDeadline,
+    removeEndTurnHandler,
   );
   const endTurn = () => coordinator.endTurn();
   opts.setEndTurnHandler(endTurn);
+  endTurnHandlerInstalled = true;
+  const iterator = opts.audioStream[Symbol.asyncIterator]();
+  let pendingNext: Promise<IteratorResult<AudioFrame>> | null = null;
   try {
-    for await (const frame of opts.audioStream) {
-      coordinator.pushFrame(frame);
+    while (true) {
+      pendingNext = Promise.resolve().then(() => iterator.next());
+      pendingNext.catch(() => {});
+      const next = await Promise.race([
+        pendingNext,
+        coordinator.terminalFailure,
+      ]);
+      pendingNext = null;
+      if (next.done) break;
+      coordinator.pushFrame(next.value);
     }
   } finally {
-    opts.setEndTurnHandler(null);
+    removeEndTurnHandler();
+    if (pendingNext) {
+      pendingNext.catch(() => {});
+      try {
+        Promise.resolve(iterator.return?.()).catch(() => {});
+      } catch {
+        // Iterator cancellation is best effort; pending next remains observed.
+      }
+    }
     await coordinator.dispose();
   }
 }

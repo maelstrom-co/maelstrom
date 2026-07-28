@@ -7,12 +7,15 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 import tsConfigPaths from 'vite-tsconfig-paths';
 
-import { createVadWebDevPlugin } from './vad-web-dev-plugin.mjs';
+import {
+  createBuildPublicAssetsPlugin,
+  createVadWebDevPlugin,
+} from './vad-web-dev-plugin.ts';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(rootDir, '../..');
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   // Server routes (e.g. api/realtime-token.ts) read process.env.* directly.
   // Vite's own env loading only exposes VITE_-prefixed vars to
   // import.meta.env, so mirror every var from the workspace root .env into
@@ -30,10 +33,19 @@ export default defineConfig(({ mode }) => {
   // behind it; the self-host path (`nx dev demo`, `bun run build && bun run
   // start`) needs the opposite — real SSR — so this can't be unconditional.
   const hosted = process.env.VITE_HOSTED === '1';
+  // A local LiveKit production build needs the generated `public/vad-web`
+  // assets, so it uses Vite's native complete public-directory copy. Other
+  // production builds disable that native copy and let the allowlisting plugin
+  // emit the validated public tree while intentionally excluding `vad-web`.
+  const livekitBuild = command === 'build' && mode === 'livekit' && !hosted;
 
   return {
     root: rootDir,
     envDir: workspaceRoot,
+    publicDir: 'public',
+    build: {
+      copyPublicDir: livekitBuild,
+    },
     server: {
       port: 3000,
     },
@@ -64,6 +76,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
+      createBuildPublicAssetsPlugin({
+        build: command === 'build' && !livekitBuild,
+        publicDirectory: join(rootDir, 'public'),
+      }),
       createVadWebDevPlugin({
         assetDirectory: join(rootDir, 'public', 'vad-web'),
       }),

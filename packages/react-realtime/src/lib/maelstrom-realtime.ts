@@ -216,6 +216,13 @@ function accumulateTranscript(
   return { role: transcript.role, text: text + transcript.text, final: false };
 }
 
+/**
+ * Queues retirement once for a live session entry. A reacquired or already
+ * retired entry is a no-op when the microtask runs. Otherwise the microtask
+ * marks the zero-consumer entry retired and evicts it before starting the
+ * best-effort asynchronous disconnect, so a concurrent acquisition cannot
+ * observe or reuse a session whose disconnect has begun.
+ */
 function queueRetirement(
   orchestrator: Orchestrator,
   entry: VoiceSessionEntry,

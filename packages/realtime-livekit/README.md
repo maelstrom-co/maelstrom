@@ -96,7 +96,10 @@ fallback.
 Default-on VAD still requires a build-time asset step. The default
 `/vad-web/` URL does not create or publish files for the application. Use the
 package-owned Node subpath or CLI so the copied assets match this adapter's
-pinned VAD and ONNX Runtime dependencies.
+pinned VAD and ONNX Runtime dependencies. The workspace catalog pins
+`@ricky0123/vad-web` to `0.0.30` and `onnxruntime-web` to `1.27.0` exactly.
+Keeping both pins exact ensures that the copied worklet and model files stay
+aligned with the ONNX Runtime JavaScript and WebAssembly files that load them.
 
 ### Node API
 
@@ -109,8 +112,10 @@ const copied = await copyLiveKitVadAssets({ outputDir: 'public/vad-web' });
 Relative destinations resolve from the caller's current working directory. The
 helper returns sorted paths relative to the destination with `/` separators. It
 stages and validates the complete manifest before replacing the destination,
-removes stale files after a successful replacement, and restores the previous
-directory if replacement fails. Filesystem roots, symbolic links, and existing
+then swaps any previous destination through a sibling backup. A failure before
+the validated staging directory is committed restores the previous destination.
+After commit, a stale-backup cleanup failure reports an error but keeps the
+validated installation in place. Filesystem roots, symbolic links, and existing
 non-directory targets are rejected.
 
 ### CLI
@@ -158,6 +163,18 @@ must allow `blob:` for worklet scripts in supported browsers.
 Missing, blocked, malformed, or version-mismatched assets cause safe manual
 degradation. They do not make an otherwise healthy LiveKit room a transport
 failure.
+
+## Contributor testing
+
+Run `bun test --isolate` from this package. The `--isolate` flag deliberately
+fences process-global happy-dom, browser, audio, module, and Bun mocks between
+test files by giving each file a fresh global and module environment. This
+boundary prevents one file's browser shims or `mock.module()` registrations from
+changing another file's imports.
+
+Isolation does not replace teardown. Each test must still restore mutated
+globals and spies, stop tracks and worklets, clear timers, and release other
+resources so failures and tests within the same file cannot leak state.
 
 ## Entry points
 

@@ -104,6 +104,27 @@ describe('resolveBrowserVadConfig', () => {
     });
   });
 
+  test('omits undefined provider tuning while preserving supplied falsey values', () => {
+    const resolved = resolveBrowserVadConfig({
+      providerOptions: {
+        model: undefined,
+        positiveSpeechThreshold: 0,
+        redemptionMs: 0,
+        preSpeechPadMs: undefined,
+      },
+    });
+    if (!resolved.enabled) throw new Error('expected automatic VAD config');
+
+    expect(resolved.providerOptions).toEqual({
+      positiveSpeechThreshold: 0,
+      redemptionMs: 0,
+    });
+    expect(Object.hasOwn(resolved.providerOptions, 'model')).toBe(false);
+    expect(Object.hasOwn(resolved.providerOptions, 'preSpeechPadMs')).toBe(
+      false,
+    );
+  });
+
   test('rejects reserved and unknown provider options at runtime', () => {
     expect(() =>
       resolveBrowserVadConfig({
@@ -136,6 +157,45 @@ describe('resolveBrowserVadConfig', () => {
 });
 
 describe('createBrowserVad', () => {
+  test('passes only supplied provider tuning to MicVAD so defaults remain intact', async () => {
+    const resolved = resolveBrowserVadConfig({
+      providerOptions: {
+        model: undefined,
+        positiveSpeechThreshold: 0,
+        redemptionMs: 0,
+        minSpeechMs: undefined,
+      },
+    });
+    if (!resolved.enabled) throw new Error('expected automatic VAD config');
+    let captured: CapturedVadOptions | undefined;
+    const controller = await createBrowserVad({
+      stream: {} as MediaStream,
+      config: resolved,
+      startTurn: async () => {},
+      endTurn: async () => {},
+      cancelTurn: async () => {},
+      onFailure: async () => {},
+      loadMicVAD: async () => ({
+        new: async (options?: unknown) => {
+          captured = options as CapturedVadOptions;
+          return {
+            start: async () => {},
+            pause: async () => {},
+            destroy: async () => {},
+          };
+        },
+      }),
+    });
+
+    expect(captured).toMatchObject({
+      positiveSpeechThreshold: 0,
+      redemptionMs: 0,
+    });
+    expect(Object.hasOwn(captured ?? {}, 'model')).toBe(false);
+    expect(Object.hasOwn(captured ?? {}, 'minSpeechMs')).toBe(false);
+    await controller.destroy();
+  });
+
   test('loads MicVAD against the adapter-owned stream and starts it', async () => {
     const stream = {} as MediaStream;
     let captured: CapturedVadOptions | undefined;
@@ -149,6 +209,7 @@ describe('createBrowserVad', () => {
       },
       startTurn: async () => {},
       endTurn: async () => {},
+      cancelTurn: async () => {},
       onFailure: async () => {},
       loadMicVAD: async () => ({
         new: async (options?: unknown) => {
@@ -198,6 +259,9 @@ describe('createBrowserVad', () => {
       async endTurn() {
         boundaries.push('end');
       },
+      async cancelTurn() {
+        boundaries.push('cancel');
+      },
       onFailure: async () => {},
       loadMicVAD: async () => ({
         new: async (options?: unknown) => {
@@ -226,7 +290,7 @@ describe('createBrowserVad', () => {
     await controller.destroy();
   });
 
-  test('closes a started turn on VAD misfire and ignores duplicate finalizers', async () => {
+  test('cancels a started turn on VAD misfire without treating it as speech end', async () => {
     const boundaries: string[] = [];
     let captured: CapturedVadOptions | undefined;
     const controller = await createBrowserVad({
@@ -241,6 +305,9 @@ describe('createBrowserVad', () => {
       },
       endTurn: async () => {
         boundaries.push('end');
+      },
+      cancelTurn: async () => {
+        boundaries.push('cancel');
       },
       onFailure: async () => {},
       loadMicVAD: async () => ({
@@ -257,21 +324,21 @@ describe('createBrowserVad', () => {
 
     await captured?.onSpeechStart?.();
     await captured?.onVADMisfire?.();
-    expect(boundaries).toEqual(['start', 'end']);
+    expect(boundaries).toEqual(['start', 'cancel']);
     await Promise.all([captured?.onVADMisfire?.(), captured?.onSpeechEnd?.()]);
     await captured?.onSpeechStart?.();
     await captured?.onSpeechEnd?.();
 
-    expect(boundaries).toEqual(['start', 'end', 'start', 'end']);
+    expect(boundaries).toEqual(['start', 'cancel', 'start', 'end']);
     await controller.destroy();
   });
 
-  test('routes a failed misfire closure through automatic failure handling', async () => {
+  test('routes a failed misfire cancellation through automatic failure handling', async () => {
     const cause = new Error('misfire turn closure failed');
     let captured: CapturedVadOptions | undefined;
     const failures: unknown[] = [];
     const activeStates: boolean[] = [];
-    let ends = 0;
+    let cancellations = 0;
     const controller = await createBrowserVad({
       stream: {} as MediaStream,
       config: {
@@ -280,8 +347,9 @@ describe('createBrowserVad', () => {
         providerOptions: {},
       },
       startTurn: async () => {},
-      endTurn: async () => {
-        ends += 1;
+      endTurn: async () => {},
+      cancelTurn: async () => {
+        cancellations += 1;
         throw cause;
       },
       onFailure: async (error, context) => {
@@ -304,7 +372,7 @@ describe('createBrowserVad', () => {
     await captured?.onVADMisfire?.();
     await captured?.onVADMisfire?.();
 
-    expect(ends).toBe(1);
+    expect(cancellations).toBe(1);
     expect(failures).toEqual([cause]);
     expect(activeStates).toEqual([true]);
     await controller.destroy();
@@ -326,6 +394,9 @@ describe('createBrowserVad', () => {
         },
         endTurn: async () => {
           boundaries.push('end');
+        },
+        cancelTurn: async () => {
+          boundaries.push('cancel');
         },
         onFailure: async () => {},
         loadMicVAD: async () => ({
@@ -368,6 +439,7 @@ describe('createBrowserVad', () => {
       endTurn: async () => {
         ends += 1;
       },
+      cancelTurn: async () => {},
       onFailure: async () => {},
       loadMicVAD: async () => ({
         new: async (options?: unknown) => {
@@ -411,6 +483,7 @@ describe('createBrowserVad', () => {
         ends += 1;
         throw cause;
       },
+      cancelTurn: async () => {},
       onFailure: async (error) => {
         order.push('failure');
         failures.push(error);
@@ -463,6 +536,7 @@ describe('createBrowserVad', () => {
       endTurn: async () => {
         throw cause;
       },
+      cancelTurn: async () => {},
       onFailure: async (error, context) => {
         expect(error).toBe(cause);
         activeStates.push(context.turnActive);

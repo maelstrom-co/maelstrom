@@ -226,7 +226,40 @@ describe('copyLiveKitVadAssets', () => {
     expect((await lstat(outputDir)).isDirectory()).toBe(true);
   });
 
-  test('restores the prior destination across injected transaction failures', async () => {
+  test.each([
+    'backup',
+    'stage',
+  ])('rejects a stale helper-owned %s artifact before mutating the destination', async (kind) => {
+    const root = await createTempDirectory();
+    const outputDir = join(root, 'vad-web');
+    const artifactName = `.vad-web.${kind}-123e4567-e89b-42d3-a456-426614174000`;
+    await mkdir(outputDir);
+    await writeFile(join(outputDir, 'prior.txt'), 'prior');
+    await mkdir(join(root, artifactName));
+
+    await expect(copyLiveKitVadAssets({ outputDir })).rejects.toThrow(
+      'stale browser VAD asset transaction artifact',
+    );
+
+    expect(await readdir(outputDir)).toEqual(['prior.txt']);
+    expect((await readdir(root)).sort()).toEqual(
+      [artifactName, 'vad-web'].sort(),
+    );
+  });
+
+  test('ignores sibling names outside the helper-owned transaction format', async () => {
+    const root = await createTempDirectory();
+    const outputDir = join(root, 'vad-web');
+    const unrelatedName = '.vad-web.backup-interrupted';
+    await mkdir(join(root, unrelatedName));
+
+    await copyLiveKitVadAssets({ outputDir });
+
+    expect((await readdir(outputDir)).sort()).toEqual(expectedAssets);
+    expect((await lstat(join(root, unrelatedName))).isDirectory()).toBe(true);
+  });
+
+  test('preserves the correct destination across injected transaction failures', async () => {
     type FailurePoint =
       | 'discovery'
       | 'staged-copy'
@@ -284,6 +317,7 @@ describe('copyLiveKitVadAssets', () => {
           !fault.backupRemovalFailed
         ) {
           fault.backupRemovalFailed = true;
+          await realFs.rm(join(path, 'prior.txt'), { force: true });
           throw new Error('injected backup-removal failure');
         }
         if (
@@ -321,17 +355,41 @@ describe('copyLiveKitVadAssets', () => {
         fault.backupRemovalFailed = false;
         fault.cleanupFailed = false;
 
-        await expect(
-          faultInjectedModule.copyLiveKitVadAssets({ outputDir }),
-        ).rejects.toThrow(`injected ${point}`);
+        if (point === 'backup-removal') {
+          await writeFile(join(outputDir, 'prior-retained.txt'), 'retained');
+          await expect(
+            faultInjectedModule.copyLiveKitVadAssets({ outputDir }),
+          ).rejects.toThrow('backup cleanup failed');
 
-        expect(await readFile(join(outputDir, 'prior.txt'), 'utf8')).toBe(
-          'prior',
-        );
-        expect(await readdir(outputDir)).toEqual(['prior.txt']);
-        expect(
-          (await readdir(root)).filter((name) => name.startsWith('.vad-web.')),
-        ).toEqual([]);
+          expect((await readdir(outputDir)).sort()).toEqual(expectedAssets);
+          const transactionArtifacts = (await readdir(root)).filter((name) =>
+            name.startsWith('.vad-web.backup-'),
+          );
+          expect(transactionArtifacts).toHaveLength(1);
+          expect(
+            await readFile(
+              join(root, transactionArtifacts[0]!, 'prior-retained.txt'),
+              'utf8',
+            ),
+          ).toBe('retained');
+          await expect(
+            lstat(join(root, transactionArtifacts[0]!, 'prior.txt')),
+          ).rejects.toThrow();
+        } else {
+          await expect(
+            faultInjectedModule.copyLiveKitVadAssets({ outputDir }),
+          ).rejects.toThrow(`injected ${point}`);
+
+          expect(await readFile(join(outputDir, 'prior.txt'), 'utf8')).toBe(
+            'prior',
+          );
+          expect(await readdir(outputDir)).toEqual(['prior.txt']);
+          expect(
+            (await readdir(root)).filter((name) =>
+              name.startsWith('.vad-web.'),
+            ),
+          ).toEqual([]);
+        }
       }
     } finally {
       mock.restore();

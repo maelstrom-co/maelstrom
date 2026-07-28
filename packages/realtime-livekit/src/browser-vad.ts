@@ -41,6 +41,8 @@ type CreateBrowserVadOptions = {
   readonly startTurn: () => Promise<void>;
   /** Drains and closes the matching adapter generation's active turn. */
   readonly endTurn: () => Promise<void>;
+  /** Cancels a misfire without the provider commit performed by `endTurn`. */
+  readonly cancelTurn: () => Promise<void>;
   /** Converts an automatic callback failure into safe manual degradation. */
   readonly onFailure: (
     error: unknown,
@@ -68,17 +70,21 @@ async function loadMicVAD(): Promise<MicVADFactory> {
 /**
  * Starts one connection-bound browser VAD over the adapter's local microphone
  * stream. Maelstrom owns every stream and lifecycle callback passed to MicVAD.
- * Speech ends and VAD misfires both close the transport turn opened by speech
- * start. Adjacent duplicate boundaries collapse while alternating rapid
- * boundaries retain their order. Load, construction, and initial start failures
+ * A real speech end commits the active transport turn; a VAD misfire instead
+ * cancels it because vad-web emits no following `onSpeechEnd` for speech shorter
+ * than `minSpeechMs`. Adjacent duplicate boundaries collapse while alternating
+ * rapid boundaries retain their order even though provider callbacks are not
+ * assumed to be serialized. Load, construction, and initial start failures
  * reject so connect can choose manual mode. Later boundary failures fence
  * callbacks and offer `onFailure` the diagnostic once. When a turn is active,
  * the handler also receives that state and an idempotent retire operation so it
- * can close transport, retire VAD, then expose manual control in that order.
- * Without an active turn, VAD retires before the handler runs.
+ * can safely close or cancel transport, retire VAD, then expose manual control in
+ * that order. Without an active turn, VAD retires before the handler runs.
  * Handler rejection is swallowed only after retirement is guaranteed. Destroy
  * is idempotent, closes an established turn when no boundary or failure handler
- * owns finalization, and does not stop the shared microphone stream.
+ * owns finalization, and does not stop the shared microphone stream. Every
+ * callback becomes a no-op after destroy/failure, including stale callbacks from
+ * a superseded connection generation.
  */
 export async function createBrowserVad(
   options: CreateBrowserVadOptions,
@@ -91,7 +97,10 @@ export async function createBrowserVad(
   let retirePromise: Promise<void> | undefined;
   let queue = Promise.resolve();
   let lastBoundary:
-    | { readonly kind: 'start' | 'end'; readonly result: Promise<void> }
+    | {
+        readonly kind: 'start' | 'end' | 'cancel';
+        readonly result: Promise<void>;
+      }
     | undefined;
 
   /** Pauses and destroys the provider runtime at most once. */
@@ -114,7 +123,7 @@ export async function createBrowserVad(
     turnActive = false;
   };
 
-  const queueBoundary = (kind: 'start' | 'end'): Promise<void> => {
+  const queueBoundary = (kind: 'start' | 'end' | 'cancel'): Promise<void> => {
     if (destroyed || failed) return Promise.resolve();
     if (lastBoundary?.kind === kind) return lastBoundary.result;
 
@@ -131,7 +140,8 @@ export async function createBrowserVad(
           }
           if (!turnActive) return;
           try {
-            await options.endTurn();
+            if (kind === 'cancel') await options.cancelTurn();
+            else await options.endTurn();
             turnActive = false;
           } catch (error) {
             if (isFinalizedTurnError(error)) turnActive = false;
@@ -165,7 +175,7 @@ export async function createBrowserVad(
       submitUserSpeechOnPause: false,
       onSpeechStart: () => queueBoundary('start'),
       onSpeechEnd: () => queueBoundary('end'),
-      onVADMisfire: () => queueBoundary('end'),
+      onVADMisfire: () => queueBoundary('cancel'),
       onSpeechRealStart: () => {},
       onFrameProcessed: () => {},
     });
@@ -280,6 +290,10 @@ function normalizeAssetBaseUrl(value: string): string {
   return value.endsWith('/') ? value : `${value}/`;
 }
 
+/**
+ * Validates the public tuning allowlist and removes own `undefined` values so
+ * MicVAD keeps its defaults. Explicit falsey values, including zero, survive.
+ */
 function validateProviderOptions(
   value: unknown,
 ): LiveKitBrowserVadProviderOptions {
@@ -318,7 +332,9 @@ function validateProviderOptions(
   ) {
     throw new TypeError('vad.providerOptions.workletOptions must be an object');
   }
-  return { ...options };
+  return Object.fromEntries(
+    Object.entries(options).filter(([, option]) => option !== undefined),
+  ) as LiveKitBrowserVadProviderOptions;
 }
 
 function validateRatio(value: number | undefined, name: string): void {

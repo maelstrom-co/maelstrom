@@ -2,6 +2,9 @@ const PROCESSOR_NAME = 'maelstrom-local-audio-pre-roll';
 
 const MAX_LOCAL_AUDIO_PRE_ROLL_MS = 500;
 const WORKLET_ACK_TIMEOUT_MS = 250;
+const END_ACK_BASE_TIMEOUT_MS = 500;
+const END_ACK_PRE_ROLL_MULTIPLIER = 2;
+const MAX_END_ACK_WAIT_BEFORE_FALLBACK_MS = 1_500;
 
 /** Browser audio generation owned by one connected LiveKit microphone. */
 export interface LocalAudioPreRoll {
@@ -11,7 +14,13 @@ export interface LocalAudioPreRoll {
   startAutomaticTurn(preRollMs: number): Promise<void>;
   /** Discards the local tail, or rejects when the worklet does not acknowledge. */
   startManualTurn(): Promise<void>;
-  /** Resolves after drain, or rejects on a bounded acknowledgement timeout. */
+  /**
+   * Resolves after drain. The acknowledgement bound is
+   * `min(1500, 500 + 2 * clamp(preRollMs, 0, 500))`: 500ms with no pre-roll,
+   * 1000ms at 250ms, and 1500ms at 500ms. Slow acknowledgements inside that
+   * bound complete normally; a missing acknowledgement rejects as uncertain so
+   * the adapter can pause upstream and retire automatic mode.
+   */
   endTurn(): Promise<void>;
   /**
    * Idempotently clears audio, releases pending requests, stops the generated
@@ -125,17 +134,29 @@ export async function createLocalAudioPreRoll(
         );
         return request('automatic-start', {
           samples: Math.round((context.sampleRate * boundedMs) / 1000),
-        }).then(() => {
-          activePreRollMs = boundedMs;
-        });
+        }).then(
+          () => {
+            activePreRollMs = boundedMs;
+          },
+          (error) => {
+            activePreRollMs = 0;
+            throw error;
+          },
+        );
       },
       startManualTurn() {
-        return request('manual-start').then(() => {
-          activePreRollMs = 0;
-        });
+        return request('manual-start').then(
+          () => {
+            activePreRollMs = 0;
+          },
+          (error) => {
+            activePreRollMs = 0;
+            throw error;
+          },
+        );
       },
       endTurn() {
-        const timeoutMs = activePreRollMs + WORKLET_ACK_TIMEOUT_MS;
+        const timeoutMs = endAckTimeoutMs(activePreRollMs);
         return request('end', {}, timeoutMs).finally(() => {
           activePreRollMs = 0;
         });
@@ -163,6 +184,26 @@ export async function createLocalAudioPreRoll(
     await context.close().catch(() => {});
     throw error;
   }
+}
+
+/**
+ * Returns `min(1500, 500 + 2 * clamp(preRollMs, 0, 500))`. Non-finite and
+ * negative inputs use the zero-pre-roll bound; oversized inputs use the hard
+ * cap. This derived allowance contrasts with the fixed 250 ms lifecycle-request
+ * timeout used by start operations.
+ */
+function endAckTimeoutMs(preRollMs: number): number {
+  const boundedPreRollMs = Math.max(
+    0,
+    Math.min(
+      MAX_LOCAL_AUDIO_PRE_ROLL_MS,
+      Number.isFinite(preRollMs) ? preRollMs : 0,
+    ),
+  );
+  return Math.min(
+    MAX_END_ACK_WAIT_BEFORE_FALLBACK_MS,
+    END_ACK_BASE_TIMEOUT_MS + END_ACK_PRE_ROLL_MULTIPLIER * boundedPreRollMs,
+  );
 }
 
 const AUDIO_WORKLET_SOURCE = `

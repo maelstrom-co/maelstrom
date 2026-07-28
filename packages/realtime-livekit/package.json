@@ -53,8 +53,8 @@
     "@maelstrom-co/client": "0.0.0",
     "@maelstrom-co/protocol": "0.0.0",
     "@maelstrom-co/realtime": "0.0.0",
-    "@ricky0123/vad-web": "0.0.30",
-    "onnxruntime-web": "1.27.0",
+    "@ricky0123/vad-web": "catalog:",
+    "onnxruntime-web": "catalog:",
     "zod": "catalog:"
   },
   "peerDependencies": {
@@ -73,7 +73,7 @@
         }
       },
       "test": {
-        "command": "bun test",
+        "command": "bun test --isolate",
         "options": {
           "cwd": "{projectRoot}"
         }

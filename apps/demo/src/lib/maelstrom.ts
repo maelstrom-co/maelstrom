@@ -1,7 +1,7 @@
 import { createMaelstrom } from '@maelstrom-co/react';
 import {
-  maelstromRealtime,
   type CreateAdapterContext,
+  maelstromRealtime,
 } from '@maelstrom-co/react-realtime';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';
@@ -57,6 +57,7 @@ function createAdapter({
       roomName: `maelstrom-${sessionId}`,
       vad: {
         assetBaseUrl: '/vad-web/',
+        // Revisit this aggressive demo tuning with real app speech data before production reuse.
         providerOptions: {
           positiveSpeechThreshold: 0.8,
           negativeSpeechThreshold: 0.65,
