@@ -1,4 +1,8 @@
 import {
+  HEARTBEAT_PING_FRAME,
+  HEARTBEAT_PONG_FRAME,
+} from '@maelstrom-co/client';
+import {
   ChartRequestMessage,
   encodeEnvelope,
   SessionId,
@@ -163,18 +167,25 @@ describe('SessionDO', () => {
     const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
 
     await woken.webSocketMessage(ws as never, CHART_REQUEST);
+    // The first call buffers the frame and requests a rehello. Further
+    // calls while that rehello is still unanswered do NOT grow the buffer
+    // or repeat the bare rehello (Finding #3: a second bare rehello would
+    // loop forever with no diagnostic) -- they get the same keyless-visitor
+    // error a never-helloed visitor would.
     await woken.webSocketMessage(ws as never, CHART_REQUEST);
     await woken.webSocketMessage(ws as never, CHART_REQUEST);
     expect(
       ws.sent.filter((f) => f.includes('playground.rehello')),
-    ).toHaveLength(3);
+    ).toHaveLength(1);
+    expect(ws.sent.filter((f) => f.includes('No API key set'))).toHaveLength(2);
 
     ws.sent.length = 0;
     await woken.webSocketMessage(ws as never, HELLO);
 
-    // Exactly one replay. An unbounded buffer would replay every frame that
-    // arrived during the gap, multiplying one visitor action into N engine
-    // calls billed against their key.
+    // Exactly one replay -- of the FIRST call's frame, the only one ever
+    // buffered. An unbounded buffer would replay every frame that arrived
+    // during the gap, multiplying one visitor action into N engine calls
+    // billed against their key.
     expect(ws.sent).toHaveLength(1);
 
     // Two sockets on the SAME object can each wake from hibernation
@@ -202,6 +213,39 @@ describe('SessionDO', () => {
     // neither was dropped by the other's.
     expect(a.sent).toHaveLength(1);
     expect(b.sent).toHaveLength(1);
+  });
+
+  it('answers a heartbeat that reaches webSocketMessage directly', async () => {
+    // setWebSocketAutoResponse answers a real ping without ever reaching
+    // webSocketMessage — this covers the defense-in-depth path for if that
+    // ever misses, which previously fell into `default: return` and left
+    // the ping silently unanswered (a reconnect loop with no diagnostic).
+    const ws = new FakeWs();
+    const does = new SessionDO(makeCtx([ws]) as never, {} as never);
+    await does.webSocketMessage(ws as never, HEARTBEAT_PING_FRAME);
+    expect(ws.sent).toEqual([HEARTBEAT_PONG_FRAME]);
+  });
+
+  it('answers a keyless client\'s second post-wake frame with "No API key set" instead of a second bare rehello', async () => {
+    const ws = new FakeWs();
+    // Simulate a wake with a visitor who cleared their key: attachment
+    // survived, key never comes back over the wire.
+    ws.attachment = { helloed: true, sessionId: 's-1' };
+    const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+
+    await woken.webSocketMessage(ws as never, CHART_REQUEST);
+    expect(ws.sent.at(-1)).toContain('playground.rehello');
+
+    ws.sent.length = 0;
+    await woken.webSocketMessage(ws as never, CHART_REQUEST);
+
+    // Not a second bare rehello -- that would repeat forever with no
+    // diagnostic and leave the visitor's request to die on the client's
+    // 30s correlator timeout. The actionable "open the key drawer" error
+    // unblocks them instead.
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).not.toContain('playground.rehello');
+    expect(ws.sent[0]).toContain('No API key set');
   });
 
   it("does not let a second connection spend the first connection's key", async () => {
@@ -238,7 +282,7 @@ describe('SessionDO', () => {
     expect(adapterKeys.every((k) => k === B_KEY)).toBe(true);
   });
 
-  it('does not let an engine construction failure surface the key it was built from', async () => {
+  it('does not let an engine construction failure surface the key it was built from, or escape webSocketMessage as an unhandled exception', async () => {
     const secret = A_KEY;
     createEngineMock.mockImplementation(() => {
       throw new Error(`upstream rejected key ${secret}`);
@@ -247,19 +291,21 @@ describe('SessionDO', () => {
     const does = new SessionDO(makeCtx([ws]) as never, {} as never);
     await does.webSocketMessage(ws as never, HELLO);
 
-    let thrown: unknown;
-    try {
-      await does.webSocketMessage(ws as never, CHART_REQUEST);
-    } catch (err) {
-      thrown = err;
-    }
+    // Lazy engine construction is deferred to first dispatch, so a
+    // construction failure surfaces here, not from the hello handler. It
+    // must not reject/throw: an uncaught exception out of webSocketMessage
+    // is logged by the Workers runtime, and observability.logs.persist
+    // retains it -- an opaque failure for the visitor and noise in
+    // persisted logs, on top of the key-leak risk.
+    await expect(
+      does.webSocketMessage(ws as never, CHART_REQUEST),
+    ).resolves.toBeUndefined();
 
-    // createEngine's own construction failure (bad key, adapter error) must
-    // never let the key it was building from reach whatever catches this —
-    // an uncaught throw here is logged by the Workers runtime, and
-    // observability.logs.persist retains it.
-    expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).not.toContain(secret);
+    // A correlated engine.error reply instead, with the key redacted out of
+    // the (already-redacted-by-#engineFor) error message.
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).not.toContain(secret);
+    expect(ws.sent[0]).toContain('engine.error');
   });
 
   it('tears down the shared engine only once the last socket on the object has closed, not on every close', async () => {

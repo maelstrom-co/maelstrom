@@ -1,3 +1,14 @@
+import {
+  HEARTBEAT_PING_FRAME,
+  HEARTBEAT_PONG_FRAME,
+} from '@maelstrom-co/client';
+import type { Engine } from '@maelstrom-co/engine';
+import {
+  ChartRequestMessage,
+  encodeEnvelope,
+  ok,
+  SessionId,
+} from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   createWebSocketHandlers,
@@ -5,13 +16,20 @@ import {
   truncateCloseReason,
 } from './ws-server';
 
-/** Minimal stand-in for Bun.ServerWebSocket<SocketData> — only what the handlers touch. */
-function makeFakeWs() {
+/**
+ * Minimal stand-in for Bun.ServerWebSocket<SocketData> — only what the
+ * handlers touch. `helloReceived` defaults to `true`: that is the only
+ * state `Bun.serve`'s upgrade handler ever actually produces (it hardcodes
+ * `data: { helloReceived: true }`), so a test exercising real local-mode
+ * traffic must start from it rather than from a state the handler can
+ * never observe in production.
+ */
+function makeFakeWs(helloReceived = true) {
   const sent: string[] = [];
   let closedWith: { code: number; reason: string } | null = null;
   return {
     data: {
-      helloReceived: false,
+      helloReceived,
     } as SocketData,
     sent,
     get closedWith() {
@@ -22,6 +40,52 @@ function makeFakeWs() {
     },
     close(code: number, reason: string) {
       closedWith = { code, reason };
+    },
+  };
+}
+
+const chartRequest = encodeEnvelope(
+  ChartRequestMessage({
+    sessionId: SessionId('s-1'),
+    request: {
+      type: 'chart_request',
+      context: {
+        updateReasons: [{ type: 'user_intent', intent: 'hi' }],
+        chartDimensions: { rows: 8, columns: 12 },
+        layoutMode: 'grid',
+      },
+      instances: [],
+      vessels: [],
+      layout: { type: 'grid', positions: [] },
+    },
+  }),
+);
+
+/** A stub Engine whose chart_request handling always succeeds. */
+function stubEngine(): Engine {
+  return {
+    handle: async (message) => {
+      if (message.type !== 'chart_request') {
+        throw new Error(
+          `stubEngine only handles chart_request, got ${message.type}`,
+        );
+      }
+      return ok({
+        type: 'chart_response',
+        sessionId: message.sessionId,
+        id: message.id,
+        response: {
+          type: 'maelstrom_response',
+          requestId: message.id,
+          userMessage: 'done',
+          rationale: 'because',
+          executionPlan: [],
+          layout: { type: 'grid', positions: [] },
+        },
+      });
+    },
+    getHistory: async () => {
+      throw new Error('getHistory not stubbed');
     },
   };
 }
@@ -62,7 +126,12 @@ describe('createWebSocketHandlers pre-hello frame handling', () => {
       sharedEngineInitError: null,
     });
 
-    const ws = makeFakeWs();
+    // helloReceived: false is core-level state only — Bun's upgrade handler
+    // hardcodes `data: { helloReceived: true }`, so local mode itself can
+    // never reach this branch. It stays covered here because dispatchFrame
+    // (the shared core) still models it for the DO transport, which does
+    // have a real pre-hello window.
+    const ws = makeFakeWs(false);
     await handlers.message(
       ws as unknown as Parameters<typeof handlers.message>[0],
       JSON.stringify({ type: 'not-a-protocol-envelope' }),
@@ -70,5 +139,47 @@ describe('createWebSocketHandlers pre-hello frame handling', () => {
 
     expect(ws.closedWith?.code).toBe(1002);
     expect(ws.closedWith?.code).not.toBe(1008);
+  });
+});
+
+describe('createWebSocketHandlers send paths (local mode)', () => {
+  // makeFakeWs() defaults to helloReceived: true — the only state
+  // Bun.serve's upgrade path produces — so these exercise the handler the
+  // way `bun run dev` actually drives it, not a state it can't reach.
+  it('sends a maelstrom_response for a chart_request', async () => {
+    const handlers = createWebSocketHandlers({
+      sharedEngine: stubEngine(),
+      sharedEngineInitError: null,
+    });
+
+    const ws = makeFakeWs();
+    await handlers.message(
+      ws as unknown as Parameters<typeof handlers.message>[0],
+      chartRequest,
+    );
+
+    // Regression guard: deleting `case 'reply': ws.send(result.wire)` from
+    // createWebSocketHandlers would leave this suite green without this
+    // assertion, since nothing else in the file drives a real chart_request
+    // through to a reply.
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).toContain('maelstrom_response');
+  });
+
+  it('answers a heartbeat ping with exactly the pong frame', async () => {
+    const handlers = createWebSocketHandlers({
+      sharedEngine: null,
+      sharedEngineInitError: null,
+    });
+
+    const ws = makeFakeWs();
+    await handlers.message(
+      ws as unknown as Parameters<typeof handlers.message>[0],
+      HEARTBEAT_PING_FRAME,
+    );
+
+    // Regression guard: deleting `case 'heartbeat': ws.send(HEARTBEAT_PONG_FRAME)`
+    // leaves this suite green without this assertion.
+    expect(ws.sent).toEqual([HEARTBEAT_PONG_FRAME]);
   });
 });

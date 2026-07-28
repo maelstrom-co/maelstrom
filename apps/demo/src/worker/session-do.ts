@@ -10,12 +10,22 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import {
+  HEARTBEAT_PING_FRAME,
+  HEARTBEAT_PONG_FRAME,
+} from '@maelstrom-co/client';
+import {
   createEngine,
   createInMemoryStore,
   type Engine,
 } from '@maelstrom-co/engine';
+import { encodeEnvelope } from '@maelstrom-co/protocol';
 import { createOpenaiChat } from '@tanstack/ai-openai';
-import { dispatchFrame } from '../server/dispatch';
+import {
+  type DispatchResult,
+  dispatchFrame,
+  encodeEngineErrorReply,
+} from '../server/dispatch';
+import { resolvePreHelloDispatch } from '../server/playground-frames';
 import { createRedactingLogger, redact, redactSecrets } from '../server/redact';
 
 const SYSTEM_RULES = `
@@ -60,11 +70,14 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   constructor(ctx: DurableObjectState, env: PlaygroundEnv) {
     super(ctx, env);
     // Answered by the runtime WITHOUT waking this object, so the client's
-    // 30s liveness ping costs nothing here.
+    // 30s liveness ping costs nothing here. Imported from
+    // @maelstrom-co/client rather than restated here: auto-response only
+    // fires on a byte-exact match, so a hardcoded literal that drifted from
+    // the constants' own wire shape would silently stop being answered.
     this.ctx.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair(
-        JSON.stringify({ type: 'heartbeat.ping' }),
-        JSON.stringify({ type: 'heartbeat.pong' }),
+        HEARTBEAT_PING_FRAME,
+        HEARTBEAT_PONG_FRAME,
       ),
     );
   }
@@ -88,14 +101,27 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
     const key = this.#keys.get(ws) ?? null;
     const marker = ws.deserializeAttachment() as ConnectionMarker | null;
 
-    const result = await dispatchFrame(raw, {
-      helloReceived: key !== null,
-      // Lazy: the core invokes this only on its real-dispatch path, so a
-      // heartbeat or handshake frame never triggers engine construction.
-      getEngine: () => (key ? this.#engineFor(key) : null),
-      wasHelloed: key === null && marker?.helloed === true,
-      engineUnavailableReason: 'session engine unavailable',
-    });
+    let result: DispatchResult;
+    try {
+      result = await dispatchFrame(raw, {
+        helloReceived: key !== null,
+        // Lazy: the core invokes this only on its real-dispatch path, so a
+        // heartbeat or handshake frame never triggers engine construction.
+        getEngine: () => (key ? this.#engineFor(key) : null),
+        wasHelloed: key === null && marker?.helloed === true,
+        engineUnavailableReason: 'session engine unavailable',
+      });
+    } catch (err) {
+      // #engineFor's construction failure (bad key, adapter rejection)
+      // throws rather than returning null, so lazy `getEngine()` can throw
+      // from inside dispatchFrame. Left uncaught, that propagates out of
+      // this handler as an unhandled exception, which the Workers runtime
+      // logs — and observability.logs.persist retains. #engineFor already
+      // redacted the key out of err's message before it reached here.
+      const message = err instanceof Error ? err.message : String(err);
+      this.#send(ws, encodeEngineErrorReply(raw, message));
+      return;
+    }
 
     switch (result.kind) {
       case 'hello': {
@@ -113,22 +139,62 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
         }
         return;
       }
-      case 'rehello':
-        if (!this.#pending.has(ws)) this.#pending.set(ws, raw);
+      case 'rehello': {
+        if (this.#pending.has(ws)) {
+          // A previous rehello for this socket already went unanswered —
+          // the visitor cannot (or will not) resupply a key. Sending
+          // another bare rehello would repeat forever with no diagnostic,
+          // so stop re-arming it: the ORIGINAL buffered frame stays put
+          // (replayed if a real hello eventually arrives, dropped on
+          // close), and every frame arriving in the meantime — including
+          // this one — gets answered directly, the same way a
+          // never-helloed visitor is answered.
+          const outcome = resolvePreHelloDispatch(raw);
+          if (outcome.kind === 'close') {
+            ws.close(1002, 'expected playground.hello as the first frame');
+          } else {
+            this.#send(ws, encodeEnvelope(outcome.message));
+          }
+          return;
+        }
+        this.#pending.set(ws, raw);
         ws.send(JSON.stringify({ type: 'playground.rehello' }));
         return;
+      }
       case 'close':
         ws.close(result.code, result.reason);
         return;
       case 'reply':
         this.#send(ws, result.wire);
         return;
-      default:
+      case 'heartbeat':
+        // Defense in depth: setWebSocketAutoResponse answers a genuine ping
+        // without ever reaching here, but if that ever misses, this keeps
+        // the connection alive instead of the ping being silently dropped
+        // into a reconnect loop.
+        ws.send(HEARTBEAT_PONG_FRAME);
+        return;
+      case 'none':
         return;
     }
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
+    await this.#teardown(ws);
+  }
+
+  override async webSocketError(ws: WebSocket): Promise<void> {
+    await this.#teardown(ws);
+  }
+
+  /**
+   * Shared by both `webSocketClose` and `webSocketError`: workerd routes
+   * some abnormal terminations to the latter, not the former, and either
+   * one leaving `#pending`'s strong WebSocket reference behind — or
+   * skipping the last-socket engine teardown — would be the same custody
+   * and memory-growth problem regardless of which callback fired.
+   */
+  async #teardown(ws: WebSocket): Promise<void> {
     this.#keys.delete(ws);
     this.#pending.delete(ws);
     // getWebSockets() still includes the closing socket while this handler

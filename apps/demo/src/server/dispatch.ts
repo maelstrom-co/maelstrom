@@ -55,6 +55,26 @@ export type DispatchResult =
   | { readonly kind: 'reply'; readonly wire: string }
   | { readonly kind: 'none' };
 
+/**
+ * Builds a correlated `engine.error` reply for a frame that could not reach
+ * an engine — whether none was ever built for this connection or
+ * construction itself failed. Shared so every "no working engine" path
+ * (including SessionDO's construction-failure catch) produces the same
+ * correlation-recovery behavior instead of a second hand-rolled copy of it.
+ */
+export function encodeEngineErrorReply(raw: unknown, error: string): string {
+  const decoded = decodeClientEnvelope(raw);
+  return encodeEnvelope(
+    isErr(decoded)
+      ? EngineErrorMessage({ error, ...recoverCorrelation(raw) })
+      : EngineErrorMessage({
+          error,
+          requestId: decoded.value.id,
+          sessionId: decoded.value.sessionId,
+        }),
+  );
+}
+
 export async function dispatchFrame(
   raw: unknown,
   ctx: DispatchContext,
@@ -91,21 +111,9 @@ export async function dispatchFrame(
 
   const engine = ctx.getEngine();
   if (!engine) {
-    // Decoded again here so the reply is still correlated instead of the
-    // frame being dropped silently.
-    const decoded = decodeClientEnvelope(raw);
-    const error = ctx.engineUnavailableReason;
     return {
       kind: 'reply',
-      wire: encodeEnvelope(
-        isErr(decoded)
-          ? EngineErrorMessage({ error, ...recoverCorrelation(raw) })
-          : EngineErrorMessage({
-              error,
-              requestId: decoded.value.id,
-              sessionId: decoded.value.sessionId,
-            }),
-      ),
+      wire: encodeEngineErrorReply(raw, ctx.engineUnavailableReason),
     };
   }
 

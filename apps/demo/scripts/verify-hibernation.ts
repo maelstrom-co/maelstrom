@@ -80,6 +80,24 @@ function chartRequestWire(sessionId: string): string {
   );
 }
 
+/**
+ * Best-effort `type` field extraction for a diagnostic line — never throws,
+ * so a malformed or non-JSON frame prints `"unparseable"` instead of
+ * crashing the script mid-verdict.
+ */
+function frameType(raw: string): string {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof (parsed as { type?: unknown }).type === 'string'
+      ? (parsed as { type: string }).type
+      : 'unparseable';
+  } catch {
+    return 'unparseable';
+  }
+}
+
 function fail(message: string): never {
   console.error(`error: ${message}`);
   console.error(
@@ -185,6 +203,37 @@ ws.send(
   JSON.stringify({ type: 'playground.hello', sessionId: session, apiKey }),
 );
 
+// Proves #keys survives a cross-EVENT lookup in a live isolate before the
+// idle gap even starts: this fresh chart_request lands on a webSocketMessage
+// invocation separate from the one that processed the hello above, and a
+// pass here depends on this.#keys.get(ws) resolving the SAME connection's
+// key across that boundary. If per-connection identity were not stable
+// across events, this would already fail-fast here instead of only showing
+// up as a mystery after the idle gap. It also warms the engine, so the
+// post-wake replay below rebuilds a real engine rather than exercising a
+// first-ever construction.
+console.log('sending a warm-up chart_request to prove cross-event key lookup');
+const warmupBefore = frames.length;
+ws.send(chartRequestWire(session));
+await new Promise((resolve) => setTimeout(resolve, REPLY_WAIT_MS));
+const warmupReply = frames
+  .slice(warmupBefore)
+  .find((f) => f.includes('"type":"engine.maelstrom.response"'));
+if (!warmupReply) {
+  const seenTypes = frames
+    .slice(warmupBefore)
+    .map((f) => frameType(f))
+    .join(', ');
+  connectionFailure(
+    `warm-up chart_request never got a correlated engine.maelstrom.response ` +
+      `before the idle gap even started (saw: ${seenTypes || 'nothing'}). ` +
+      'This means cross-event WebSocket/key identity is not stable, or the ' +
+      'engine could not be built — investigate before trusting any PASS ' +
+      'this script has ever printed.',
+  );
+}
+console.log('  -> warm-up reply received; cross-event key lookup confirmed');
+
 console.log(
   `idling ${idleMinutes}m to force hibernation — this is expected to take a while, the process has not hung...`,
 );
@@ -210,7 +259,14 @@ await new Promise((resolve) => setTimeout(resolve, REPLY_WAIT_MS));
 // deliberate, not a connection failure, and must not be reported as one.
 settled = true;
 const sawRehello = frames.some((f) => f.includes('playground.rehello'));
-const sawReply = frames.slice(before).some((f) => f.includes('engine.'));
+const replaySlice = frames.slice(before);
+// Must be the actual chart response, not merely something starting with
+// "engine." — engine.error matches that prefix just as readily, so a run
+// where the replay came back "session engine unavailable" would otherwise
+// print PASS on a failed replay.
+const sawReply = replaySlice.some((f) =>
+  f.includes('"type":"engine.maelstrom.response"'),
+);
 const stillOpen = ws.readyState === WebSocket.OPEN;
 ws.close();
 
@@ -221,6 +277,12 @@ console.log(`rehello requested        : ${sawRehello}`);
 console.log(`buffered frame replayed  : ${sawReply}`);
 if (rehelloAt)
   console.log(`recovery latency         : ${Date.now() - rehelloAt}ms`);
+if (!sawReply && replaySlice.length > 0) {
+  const seenTypes = replaySlice.map((f) => frameType(f)).join(', ');
+  console.log(
+    `reply received but wrong type — saw: ${seenTypes} (wanted engine.maelstrom.response)`,
+  );
+}
 console.log('');
 
 // sawRehello === false with sawReply === true means the object never
@@ -229,7 +291,7 @@ console.log('');
 // never be reported as a pass.
 if (!stillOpen || !sawReply) {
   console.log(
-    'FAIL — socket died across the idle gap, or no reply was ever received.',
+    'FAIL — socket died across the idle gap, or no correlated engine.maelstrom.response was ever received.',
   );
   process.exit(1);
 }

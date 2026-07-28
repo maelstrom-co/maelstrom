@@ -417,12 +417,11 @@ export class WebSocketConnector implements EngineConnector {
       this.#correlator.rejectAll(closed);
       this.#historyCorrelator.rejectAll(closed);
       const isClean = event.code === 1000;
-      // RFC 6455: 1008 ("Policy Violation") is the server deliberately
-      // rejecting this client — ws-server.ts uses it for a rejected
-      // handshake and for an evicted session. Retrying is pointless by
-      // definition, so this is flagged non-retryable regardless of `clean`
-      // (a server-initiated close is never the 1000 "clean" case, but it is
-      // also not a transient failure ConnectionManager should retry).
+      // RFC 6455: 1008 ("Policy Violation") means the server is deliberately
+      // rejecting this client. Retrying is pointless by definition, so this
+      // is flagged non-retryable regardless of `clean` (a server-initiated
+      // close is never the 1000 "clean" case, but it is also not a
+      // transient failure ConnectionManager should retry).
       const isPolicyViolation = event.code === 1008;
       this.#handlers.forEach((h) => {
         h({
