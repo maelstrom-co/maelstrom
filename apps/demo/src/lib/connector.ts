@@ -16,12 +16,12 @@ export interface CreateDemoConnectorOptions {
    */
   readonly getApiKey?: () => string | null;
   /**
-   * The session this connector belongs to, used in hosted mode to pin the
-   * connection to one container shard. Must be the same id handed to
-   * `<Provider sessionId>`: the container caches an engine (and its
-   * conversation history) under the protocol sessionId, so routing that
-   * used a different id could send a reconnect to a shard that has never
-   * seen the session. Omitted in local mode, where nothing shards.
+   * The session this connector belongs to, used in hosted mode to select
+   * which SessionDO object identity the connection is routed to. Must be
+   * the same id handed to `<Provider sessionId>`: the DO caches an engine
+   * (and its conversation history) under this id, so routing a reconnect
+   * with a different one would land on an object that has never seen the
+   * session. Omitted in local mode, where nothing routes by session.
    */
   readonly sessionId?: SessionId;
 }
@@ -36,11 +36,12 @@ export interface CreateDemoConnectorOptions {
  * `ws://` one. Local mode is unaffected: it always uses `localWsUrl`.
  *
  * `routingSession`, when given, is appended as a `session` query param —
- * the hosted Worker in front of `/ws` reads it to shard-route the
- * connection onto one of a fixed set of container instances (see
- * `worker/shard.ts`) instead of funneling every visitor onto the same one.
+ * the hosted Worker in front of `/ws` reads it to select which SessionDO
+ * object identity (`env.SESSION_DO.idFromName(session)`) the connection is
+ * routed to, so a session's socket always reaches the Durable Object
+ * holding its engine and conversation history instead of an unrelated one.
  * Omitted in local mode: nothing sits in front of local dev's `ws-server.ts`
- * to shard-route for.
+ * to route for.
  */
 export function buildWsUrl(
   hosted: boolean,
@@ -71,6 +72,30 @@ export function buildPlaygroundHello(
 }
 
 /**
+ * True if `raw` is the DO's `playground.rehello` wire frame. Parses first
+ * and checks the discriminant field — mirroring `@maelstrom-co/client`'s
+ * `isHeartbeatPongFrame` — rather than comparing against the frame's exact
+ * serialized text: if `SessionDO` ever adds a field to this frame (a reason
+ * code, a session id), an exact-string comparison would silently stop
+ * matching, and a visitor's session would never recover from hibernation.
+ * A non-JSON `raw` returns `false` rather than throwing, so `onFrame` always
+ * falls through to envelope decoding for traffic it doesn't own.
+ */
+function isRehelloFrame(raw: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  return (
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    (parsed as { type?: unknown }).type === 'playground.rehello'
+  );
+}
+
+/**
  * Creates a WebSocketConnector that connects to the demo engine WS server.
  * Local mode: connects to VITE_WS_URL ?? ws://localhost:3001, no handshake.
  * Hosted mode (VITE_HOSTED=1): connects same-origin and sends a
@@ -84,8 +109,8 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
 
   // Baked into wsUrl below rather than resolved per attempt, because
   // WebSocketConnector reuses its constructed URL for every reconnect — so
-  // the shard stays pinned for the life of the session. Falling back to a
-  // fresh id keeps a caller that omits sessionId routable, but such a
+  // the DO identity stays pinned for the life of the session. Falling back
+  // to a fresh id keeps a caller that omits sessionId routable, but such a
   // connector cannot resume a session across its own replacement.
   const routingSession = hosted
     ? (options.sessionId ?? SessionId())
@@ -119,6 +144,18 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
           // function only guards against sending garbage over the wire.
           if (!apiKey) return;
           send(buildPlaygroundHello(sessionId, apiKey));
+        }
+      : undefined,
+    // The DO drops the visitor's key when it hibernates — deliberately, so
+    // the key is never persisted anywhere — and asks for it again on wake.
+    // The socket stayed open throughout, so onOpen never fires and this is
+    // the only path that can restore the session.
+    onFrame: hosted
+      ? (raw, send, sessionId) => {
+          if (!isRehelloFrame(raw)) return false;
+          const apiKey = getApiKey();
+          if (apiKey) send(buildPlaygroundHello(sessionId, apiKey));
+          return true;
         }
       : undefined,
   });

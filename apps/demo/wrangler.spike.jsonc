@@ -11,7 +11,7 @@
   "compatibility_date": "2026-04-08",
   // No nodejs_compat: verified the bundle pulls zero node: builtins, and
   // the byte size is identical with and without the flag.
-  "main": "src/worker/spike/session-do.ts",
+  "main": "src/worker/index.ts",
   // No "assets" and no "containers": the point is to weigh the engine's own
   // dependency closure, not the SPA bundle or the container image.
   "durable_objects": {

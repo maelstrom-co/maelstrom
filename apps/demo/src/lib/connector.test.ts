@@ -262,6 +262,65 @@ describe('createDemoConnector', () => {
       }
     });
 
+    it('answers a playground.rehello frame carrying extra fields by resending the handshake', async () => {
+      // Matches on the parsed `type` discriminant, not the frame's exact
+      // serialized text -- a frame carrying fields SessionDO doesn't emit
+      // today (a reason code, a session id) must still be recognized, or a
+      // visitor's session would silently never recover from hibernation.
+      vi.stubEnv('VITE_HOSTED', '1');
+      const restore = installFakeWebSocket();
+      try {
+        const connector = createDemoConnector({
+          getApiKey: () => 'sk-visitor-key-1234567',
+        });
+        const connectPromise = connector.connect(SessionId('session-1'));
+        const socket = FakeWebSocket.instances[0];
+        if (!socket)
+          throw new Error('expected a WebSocket to have been constructed');
+        socket.emitOpen();
+        await connectPromise;
+        socket.sent.length = 0;
+
+        socket.onmessage?.({
+          data: JSON.stringify({
+            type: 'playground.rehello',
+            reason: 'hibernated',
+          }),
+        });
+
+        expect(socket.sent).toHaveLength(1);
+        expect(isPlaygroundHello(JSON.parse(socket.sent[0] ?? '{}'))).toBe(
+          true,
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it('does not throw on a malformed (non-JSON) frame, and does not resend the handshake for it', async () => {
+      vi.stubEnv('VITE_HOSTED', '1');
+      const restore = installFakeWebSocket();
+      try {
+        const connector = createDemoConnector({
+          getApiKey: () => 'sk-visitor-key-1234567',
+        });
+        const connectPromise = connector.connect(SessionId('session-1'));
+        const socket = FakeWebSocket.instances[0];
+        if (!socket)
+          throw new Error('expected a WebSocket to have been constructed');
+        socket.emitOpen();
+        await connectPromise;
+        socket.sent.length = 0;
+
+        expect(() => {
+          socket.onmessage?.({ data: 'not json' });
+        }).not.toThrow();
+        expect(socket.sent).toHaveLength(0);
+      } finally {
+        restore();
+      }
+    });
+
     it('reuses the same socket URL (and therefore the same session query param) across a reconnect', async () => {
       // The whole point of shard routing: a connector that reconnects must
       // keep landing on the same container, which only holds if repeated
