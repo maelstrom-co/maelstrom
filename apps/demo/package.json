@@ -12,7 +12,8 @@
     "build": "vite build",
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
-    "deploy": "VITE_HOSTED=1 bunx nx build @maelstrom-co/demo && wrangler deploy"
+    "deploy": "VITE_HOSTED=1 bunx nx build @maelstrom-co/demo && wrangler deploy",
+    "verify:hibernation": "bun run scripts/verify-hibernation.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

@@ -16,6 +16,20 @@
  * consequence of persisting nothing — see the migration design doc; giving
  * history durability means writing conversation content to `ctx.storage`,
  * which is a separate decision from key custody and is not made here.
+ *
+ * ---
+ *
+ * **If you change the rehello handshake, key custody, the auto-response
+ * pair, or anything about this object's lifecycle, run
+ * `bun run verify:hibernation <deployed-host>` before shipping it.**
+ *
+ * The unit tests below hand-simulate a wake (a fresh instance plus a
+ * pre-set attachment). That proves this file's logic is self-consistent; it
+ * cannot prove the platform still behaves the way the logic assumes, and
+ * `wrangler dev` never hibernates on production's schedule, so there is no
+ * local path to the real thing. Breaking recovery does not fail any test —
+ * it surfaces as sessions that die only after going idle, which reads as
+ * intermittent and unreproducible.
  */
 import { DurableObject } from 'cloudflare:workers';
 import {

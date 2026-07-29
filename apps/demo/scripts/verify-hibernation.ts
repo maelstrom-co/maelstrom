@@ -38,12 +38,26 @@
  * the object, so they keep the SOCKET alive without keeping the OBJECT
  * resident — see the heartbeat setInterval below.
  *
- * Usage:
- *   SPIKE_OPENAI_KEY=sk-... bun run apps/demo/scripts/verify-hibernation.ts \
- *     <host> [idle-minutes]
+ * WHEN TO RUN THIS: not on every merge — it needs 15+ minutes, a deployed
+ * target, and a funded key, so it can never live in CI. Treat it as a
+ * release gate for this subsystem. Run it when the rehello handshake, key
+ * custody, the auto-response pair, or the Durable Object's lifecycle
+ * changes, and before a significant production deploy.
  *
- *   <host>          required, e.g. maelstrom-playground-spike.<account>.workers.dev
+ * You must deploy something to point it at first — there is no standing
+ * spike Worker. Either target production after deploying it, or deploy a
+ * throwaway Worker with its own name and a fresh `v1` migration creating
+ * `SessionDO` (never one that touches production's `PlaygroundServer`).
+ *
+ * Usage, from `apps/demo`:
+ *   SPIKE_OPENAI_KEY=sk-... bun run verify:hibernation <host> [idle-minutes]
+ *
+ *   <host>          required, e.g. maelstrom-playground.<account>.workers.dev
  *   [idle-minutes]  optional, default 15
+ *
+ * Pass the key via a shell variable rather than inline, so it does not land
+ * in shell history:
+ *   read -rs SPIKE_OPENAI_KEY && export SPIKE_OPENAI_KEY
  */
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -111,7 +125,7 @@ function frameType(raw: string): string {
 function fail(message: string): never {
   console.error(`error: ${message}`);
   console.error(
-    'usage: SPIKE_OPENAI_KEY=sk-... bun run apps/demo/scripts/verify-hibernation.ts <host> [idle-minutes]',
+    'usage (from apps/demo): SPIKE_OPENAI_KEY=sk-... bun run verify:hibernation <host> [idle-minutes]',
   );
   process.exit(1);
 }
