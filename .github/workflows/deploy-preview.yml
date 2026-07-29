@@ -104,3 +104,81 @@ jobs:
             The playground is bring-your-own-key — it will ask for your own API key on load, and nothing is stored server-side.
 
             Remove the `deploy-preview` label or close this PR to tear the preview down.
+
+  teardown:
+    name: Tear Down Preview
+    # Gated on the label having been present, not merely on the PR closing —
+    # otherwise every close in the repo would ask Cloudflare to delete a Worker
+    # that was never created. On `closed` the labels are still attached; on
+    # `unlabeled` the removed label arrives as github.event.label.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && (
+        (github.event.action == 'closed'
+          && contains(github.event.pull_request.labels.*.name, 'deploy-preview'))
+        || (github.event.action == 'unlabeled'
+          && github.event.label.name == 'deploy-preview')
+      )
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Delete preview Worker
+        # Run through a shell step rather than wrangler-action so a Worker that
+        # is already gone can be told apart from a real failure. `wrangler delete`
+        # exits non-zero either way, and a blanket continue-on-error would hide
+        # auth failures and API outages just as well as it hides a stale name.
+        # --force skips wrangler's interactive confirmation, which has no answer
+        # in CI. Pinned to the same version as the deploy job.
+        working-directory: apps/demo
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_NAME: maelstrom-playground-pr-${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          output=$(bunx wrangler@4.114.0 delete --name "$WORKER_NAME" --force 2>&1)
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          if printf '%s' "$output" | grep -qiE 'script_not_found|code: ?10007|workers\.api\.error\.script_not_found'; then
+            echo "No preview Worker named $WORKER_NAME — nothing to tear down."
+            exit 0
+          fi
+          echo "::error::Failed to delete preview Worker $WORKER_NAME."
+          exit "$status"
+
+      - name: Find existing preview comment
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- pr-preview-demo -->'
+          direction: last
+
+      - name: Mark the preview comment torn down
+        # Only ever rewrites an existing comment. A PR whose deploy never
+        # succeeded has no comment, and a "torn down" notice there would be
+        # noise about something that never existed.
+        if: steps.find-comment.outputs.comment-id != ''
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          edit-mode: replace
+          body: |
+            <!-- pr-preview-demo -->
+            **Playground preview torn down.** The preview Worker for this PR has been deleted.
+
+            Re-add the `deploy-preview` label to bring it back.
