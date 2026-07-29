@@ -11,13 +11,6 @@ permissions:
 env:
   NX_NO_CLOUD: ${{ vars.NX_NO_CLOUD }}
 
-concurrency:
-  # deploy and teardown deliberately share one group: a teardown must be able
-  # to cancel an in-flight deploy for the same PR, so a deploy can never land
-  # after the teardown that was meant to remove it.
-  group: deploy-preview-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   deploy:
     name: Deploy Preview
@@ -30,6 +23,15 @@ jobs:
       && github.event.action != 'unlabeled'
       && contains(github.event.pull_request.labels.*.name, 'deploy-preview')
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    # deploy and teardown deliberately share one group: a teardown must be able
+    # to cancel an in-flight deploy for the same PR, so a deploy can never land
+    # after the teardown that was meant to remove it. Declared per-job, not at
+    # workflow level: a run whose jobs are all skipped still joins a
+    # workflow-level group and would cancel an in-flight teardown it has nothing
+    # to do with — after which no further event could retry it.
+    concurrency:
+      group: deploy-preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -120,12 +122,11 @@ jobs:
           && github.event.label.name == 'deploy-preview')
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Same group as the deploy job — see the comment there.
+    concurrency:
+      group: deploy-preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -138,20 +139,30 @@ jobs:
         # auth failures and API outages just as well as it hides a stale name.
         # --force skips wrangler's interactive confirmation, which has no answer
         # in CI. Pinned to the same version as the deploy job.
-        working-directory: apps/demo
+        # If this step fails for a real reason (auth blip, Cloudflare outage), the
+        # Worker and its Durable Object storage are orphaned with no automatic
+        # retry — recover manually by re-adding then re-removing the
+        # `deploy-preview` label, or by running
+        # `bunx wrangler delete --name maelstrom-playground-pr-<N> --force` locally.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WORKER_NAME: maelstrom-playground-pr-${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
-          output=$(bunx wrangler@4.114.0 delete --name "$WORKER_NAME" --force 2>&1)
-          status=$?
+          # GitHub runs this under `bash -e`, and `set -uo pipefail` does not clear
+          # it — a bare `output=$(cmd)` would abort the step at the assignment, so
+          # neither the diagnostics below nor the not-found branch would ever run.
+          if output=$(bunx wrangler@4.114.0 delete --name "$WORKER_NAME" --force 2>&1); then
+            status=0
+          else
+            status=$?
+          fi
           printf '%s\n' "$output"
           if [ "$status" -eq 0 ]; then
             exit 0
           fi
-          if printf '%s' "$output" | grep -qiE 'script_not_found|code: ?10007|workers\.api\.error\.script_not_found'; then
+          if printf '%s' "$output" | grep -qiE 'script_not_found|\[code: ?10007\]'; then
             echo "No preview Worker named $WORKER_NAME — nothing to tear down."
             exit 0
           fi
