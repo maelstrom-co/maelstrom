@@ -102,8 +102,13 @@ jobs:
             bun add @maelstrom-co/protocol@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/engine@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/client@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/react@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/realtime@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/react-realtime@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/realtime-server@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/realtime-livekit@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/realtime-livekit-agent@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/realtime-livekit-server@${{ steps.version.outputs.version }}
             ```
 
             Or install by tag:
