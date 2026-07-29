@@ -60,10 +60,9 @@ import {
  * response-processor → optional retry → history record without retained
  * inter-call state beyond what the configured `HistoryStore` persists.
  *
- * TODO(multi-instance): the per-session mutex (HistoryManager) and the
- * in-flight dedup Map (chart-request-dedup) are both process-local. See the
- * `TODO(multi-instance)` comments at their declaration sites for the
- * specific failure modes and the substrates that would close each gap.
+ * Both safeguards are process-local: multi-instance deployments need
+ * deployment-level coordination for history mutations and for identical
+ * requests that may reach different instances.
  */
 export interface Engine {
   /**

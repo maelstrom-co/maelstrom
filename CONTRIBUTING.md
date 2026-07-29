@@ -117,6 +117,32 @@ nx run-many -t typecheck       # type-check all packages
 Tests depend on built packages (`dependsOn: ["^build"]`), so build before
 testing if you haven't already.
 
+### Public API documentation audits
+
+Build the packages before auditing declarations or packed consumers, and build
+the documentation site before auditing generated TypeDoc pages:
+
+```bash
+nx run-many -t build
+nx build docs
+```
+
+Run the declaration and clean packed-consumer checks, the generated TypeDoc
+check, and the `stripInternal` comparison from the repository root:
+
+```bash
+bun run audit:public-api-docs --declarations --packed-consumer
+bun run audit:public-api-docs --typedoc
+bun run audit:strip-internal
+```
+
+The public API audit prints JSON and succeeds only when both `errors` and
+`findings` are empty. The `stripInternal` comparison prints one result per
+public package; `identical` and `not-applicable` are acceptable. A
+`drift-rejected` result reports declaration drift but deliberately exits zero,
+so verification scripts and CI consumers must parse the JSON and treat that
+status as a rejection.
+
 See the [README](./README.md) for the package architecture and core concepts.
 
 ## Pull requests
