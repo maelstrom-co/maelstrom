@@ -14,19 +14,20 @@
   "durable_objects": {
     "bindings": [{ "name": "SESSION_DO", "class_name": "SessionDO" }]
   },
-  // v1 is retained untouched: the migrations array is a historical ledger,
-  // not current state, and past tags are never edited. deleted_classes
-  // rather than renamed_classes because PlaygroundServer's object ids
-  // (shard-0..shard-4) do not map onto sessionIds — carrying its state
-  // forward would be meaningless.
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["PlaygroundServer"] },
-    {
-      "tag": "v2",
-      "deleted_classes": ["PlaygroundServer"],
-      "new_sqlite_classes": ["SessionDO"]
-    }
-  ],
+  // One v1, not a v1 -> v2 chain: the container-era Worker is deleted
+  // outright rather than migrated. `wrangler delete maelstrom-playground`
+  // removes it along with its PlaygroundServer namespace, so what deploys
+  // afterwards is a Worker with no migration history at all and this array
+  // describes it exactly. Nothing was carried forward and nothing needed to
+  // be — PlaygroundServer's object ids were shard-0..shard-4, which do not
+  // map onto sessionIds, and the playground had no users.
+  //
+  // PRECONDITION: correct only against a Worker with no v1 already applied.
+  // Deployed over the container-era Worker, Cloudflare would see v1 as
+  // already applied, skip it, and leave the SESSION_DO binding pointing at a
+  // class that has no namespace. Delete first, then deploy — keep those two
+  // steps adjacent.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SessionDO"] }],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
