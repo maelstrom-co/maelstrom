@@ -60,10 +60,31 @@ export interface WebSocketConnectorOptions {
    */
   onOpen?: (send: (data: string) => void, sessionId: SessionId) => void;
   /**
+   * Invoked for each inbound text frame before envelope decoding. Return
+   * `true` to consume the frame — it will not reach subscribers or the
+   * decode path. Return `false` to let it through unchanged.
+   *
+   * The counterpart to `onOpen`: together they let a consumer own a
+   * transport-level sub-protocol (a host-specific handshake and its
+   * server-initiated follow-ups) without this package knowing anything
+   * about it. `send` bypasses envelope encoding — callers must produce
+   * valid JSON text.
+   *
+   * Heartbeat pongs are consumed by the connector before this runs, so a
+   * consumer cannot accidentally break liveness detection.
+   */
+  onFrame?: (
+    raw: string,
+    send: (data: string) => void,
+    sessionId: SessionId,
+  ) => boolean;
+  /**
    * If set, sends `{"type":"heartbeat.ping"}` on this interval while
-   * connected. Needed for transports (e.g. Cloudflare Containers) that only
-   * renew their idle timeout on socket traffic, not on an open-but-silent
-   * connection. Omitted: no heartbeat is sent (local dev default). The
+   * connected. Needed by transports that treat an open-but-silent connection
+   * as dead. Under Durable Objects the runtime answers these pings itself via
+   * `setWebSocketAutoResponse` without waking the object, so the interval
+   * costs nothing server-side and serves purely as client-side liveness
+   * detection. Omitted: no heartbeat is sent (local dev default). The
    * connector consumes the server's `heartbeat.pong` replies itself — they
    * never reach subscribers or the envelope decode path.
    *
@@ -105,6 +126,13 @@ export class WebSocketConnector implements EngineConnector {
   readonly #onOpen:
     | ((send: (data: string) => void, sessionId: SessionId) => void)
     | undefined;
+  readonly #onFrame:
+    | ((
+        raw: string,
+        send: (data: string) => void,
+        sessionId: SessionId,
+      ) => boolean)
+    | undefined;
   readonly #heartbeatIntervalMs: number | undefined;
 
   readonly capabilities: ConnectorCapabilities = {
@@ -139,6 +167,7 @@ export class WebSocketConnector implements EngineConnector {
     this.#timeout = options.timeout ?? 30000;
     this.#connectTimeoutMs = options.connectTimeoutMs ?? 10_000;
     this.#onOpen = options.onOpen;
+    this.#onFrame = options.onFrame;
     if (
       options.heartbeatIntervalMs !== undefined &&
       !(
@@ -333,8 +362,8 @@ export class WebSocketConnector implements EngineConnector {
       if (this.#missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
         // readyState still reports OPEN and no onclose has fired on its
         // own — exactly the failure this heartbeat exists to catch (a
-        // Cloudflare edge drop, a vanished container: no TCP FIN reaches
-        // the browser). Closing it ourselves is what makes the existing
+        // network path that drops silently: no TCP FIN reaches the
+        // browser). Closing it ourselves is what makes the existing
         // onclose → `disconnected` → auto-reconnect path run at all;
         // without this, pings fire into the void forever and every intent
         // sits in RequestCorrelator until its own 30s timeout.
@@ -364,9 +393,18 @@ export class WebSocketConnector implements EngineConnector {
     // socket must not be able to act on the live one just because `this.#ws`
     // has moved on by the time the event fires.
     const socket = this.#ws;
+    // Captured for the same reason as `socket`, and it has to be both: a
+    // later connect() with a DIFFERENT session overwrites `#sessionId` too,
+    // so answering over the right socket with the wrong session id is just a
+    // subtler version of the same bug. A host handshake replying with the
+    // newer session would re-key the older connection to a session it does
+    // not belong to. Assigned by connect() before this method runs.
+    const sessionId = this.#sessionId;
 
     socket.onmessage = (event) => {
-      this.#handleMessage(event);
+      // `socket`/`sessionId`, not the live fields: a frame must be answered
+      // over the connection that delivered it, as the connection it was.
+      this.#handleMessage(event, socket, sessionId);
     };
 
     socket.onclose = (event) => {
@@ -388,12 +426,11 @@ export class WebSocketConnector implements EngineConnector {
       this.#correlator.rejectAll(closed);
       this.#historyCorrelator.rejectAll(closed);
       const isClean = event.code === 1000;
-      // RFC 6455: 1008 ("Policy Violation") is the server deliberately
-      // rejecting this client — ws-server.ts uses it for a rejected
-      // handshake and for an evicted session. Retrying is pointless by
-      // definition, so this is flagged non-retryable regardless of `clean`
-      // (a server-initiated close is never the 1000 "clean" case, but it is
-      // also not a transient failure ConnectionManager should retry).
+      // RFC 6455: 1008 ("Policy Violation") means the server is deliberately
+      // rejecting this client. Retrying is pointless by definition, so this
+      // is flagged non-retryable regardless of `clean` (a server-initiated
+      // close is never the 1000 "clean" case, but it is also not a
+      // transient failure ConnectionManager should retry).
       const isPolicyViolation = event.code === 1008;
       this.#handlers.forEach((h) => {
         h({
@@ -412,7 +449,11 @@ export class WebSocketConnector implements EngineConnector {
     };
   }
 
-  #handleMessage(event: MessageEvent): void {
+  #handleMessage(
+    event: MessageEvent,
+    socket: WebSocket,
+    sessionId: SessionId | null,
+  ): void {
     // heartbeat.pong is transport-level, not part of the protocol envelope
     // union by design — decodeServerEnvelope would reject it as undecodable.
     // Only intercept it when the heartbeat option is active, so a stray pong
@@ -423,6 +464,38 @@ export class WebSocketConnector implements EngineConnector {
     ) {
       this.#missedHeartbeats = 0;
       return;
+    }
+
+    // After the pong check (the connector owns that frame) and before the
+    // codec, which would reject any non-envelope frame as undecodable.
+    // sessionId is non-null here: a message can only arrive on a socket that
+    // connect() opened, and connect() assigns it first.
+    if (this.#onFrame !== undefined && sessionId !== null) {
+      let consumed = false;
+      try {
+        consumed = this.#onFrame(
+          String(event.data),
+          // The delivering socket, captured by identity — NOT `this.#ws`,
+          // which a later connect() may already have moved on to. onFrame
+          // exists to answer server-initiated frames, so a reply routed to
+          // the replacement socket would leave the asking socket waiting
+          // forever while the new one fields a response to a question it
+          // never asked. Same hazard `onclose` guards against above.
+          (data) => socket.send(data),
+          sessionId,
+        );
+      } catch (error) {
+        // A consumer hook is arbitrary code. Letting it throw would escape
+        // `onmessage` as an unhandled rejection AND skip envelope decoding
+        // for this frame, so one bad hook silently drops protocol traffic
+        // the connector could otherwise have delivered. Fall through
+        // instead: worst case the codec rejects it and reports properly.
+        console.warn(
+          '[WebSocketConnector] onFrame threw; falling through to envelope decoding',
+          error,
+        );
+      }
+      if (consumed) return;
     }
 
     // The codec owns parse + schema validation: a malformed JSON string or a

@@ -62,8 +62,8 @@ describe('isPlaygroundHello', () => {
   });
 
   it('rejects an empty sessionId', () => {
-    // An empty sessionId would collapse every crafted connection onto one
-    // shared SessionEngineManager map key ('') — a raw socket hand-crafting
+    // An empty sessionId would collapse every crafted connection onto the
+    // same Durable Object (idFromName('')) — a raw socket hand-crafting
     // this frame directly against /ws, bypassing the shipped client (which
     // never produces an empty sessionId; it's nanoid-generated).
     expect(
