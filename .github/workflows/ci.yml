@@ -33,6 +33,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
 
+      # Browsers install per machine, not per project, so this one step covers
+      # both the docs and www e2e suites.
       - name: Install Playwright browser
         run: bunx playwright install --with-deps chromium
         working-directory: apps/docs

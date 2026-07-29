@@ -1,7 +1,9 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "maelstrom-playground",
-  "compatibility_date": "2026-07-01",
+  // Matches the newest date the pinned workerd supports (wrangler 4.115.0 ships
+  // workerd 1.20260722.1); a later date would outrun the installed runtime.
+  "compatibility_date": "2026-07-22",
   "main": "src/worker/index.ts",
   "assets": {
     "directory": "./dist/client",

@@ -16,6 +16,12 @@ const adapter = isDevServer ? undefined : cloudflare();
 export default defineConfig({
   site: 'https://maelstrom-ai.co',
   output: 'static',
+  // Pinned to Astro 6's behaviour. Astro 7 defaults this to 'jsx', which deletes
+  // any whitespace run containing a newline instead of collapsing it to one
+  // space — so a source line that *begins* with an inline tag silently ships
+  // `Maelstromorchestrates`. It saved 0.38% gzipped here, which does not pay for
+  // a class of invisible bug in a site that is entirely hand-authored .astro.
+  compressHTML: true,
   adapter,
   integrations: [react(), sitemap()],
   vite: {
