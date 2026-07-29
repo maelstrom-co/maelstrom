@@ -46,8 +46,10 @@
  *
  * You must deploy something to point it at first — there is no standing
  * spike Worker. Either target production after deploying it, or deploy a
- * throwaway Worker with its own name and a fresh `v1` migration creating
- * `SessionDO` (never one that touches production's `PlaygroundServer`).
+ * throwaway one under its OWN name with its own config. Never point a
+ * throwaway config at the production Worker's name: deploying it would
+ * replace the real playground, and its migrations would apply to the real
+ * namespace.
  *
  * Usage, from `apps/demo`:
  *   SPIKE_OPENAI_KEY=sk-... bun run verify:hibernation <host> [idle-minutes]
