@@ -17,18 +17,31 @@ jobs:
     # Forks cannot read repository secrets, so a fork PR gets no preview. The
     # alternative, `pull_request_target`, would run untrusted code holding the
     # Cloudflare token — not a trade we make.
+    #
+    # A closed PR can still receive a `labeled` event, and no `closed` event
+    # will ever fire for it again — the state check below is what stops
+    # re-labelling a closed PR from deploying a preview nothing can tear down.
+    #
+    # `labeled` fires for any label, not just `deploy-preview` — without the
+    # action/label check below, adding an unrelated label to a PR that already
+    # carries `deploy-preview` would redeploy an already-live, unchanged commit.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && github.event.action != 'closed'
       && github.event.action != 'unlabeled'
+      && github.event.pull_request.state == 'open'
+      && (github.event.action != 'labeled'
+        || github.event.label.name == 'deploy-preview')
       && contains(github.event.pull_request.labels.*.name, 'deploy-preview')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # deploy and teardown deliberately share one group: a teardown must be able
-    # to cancel an in-flight deploy for the same PR, so a deploy can never land
-    # after the teardown that was meant to remove it. Declared per-job, not at
-    # workflow level: a run whose jobs are all skipped still joins a
-    # workflow-level group and would cancel an in-flight teardown it has nothing
-    # to do with — after which no further event could retry it.
+    # to cancel an in-flight deploy for the same PR. This narrows — but does not
+    # close — the window in which a deploy can land after the teardown meant to
+    # remove it: cancel-in-progress stops the job, not an upload already in
+    # flight to Cloudflare. Declared per-job, not at workflow level: a run whose
+    # jobs are all skipped still joins a workflow-level group and would cancel
+    # an in-flight teardown it has nothing to do with — after which no further
+    # event could retry it.
     concurrency:
       group: deploy-preview-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: true
@@ -106,7 +119,7 @@ jobs:
 
             ${{ steps.deploy.outputs.deployment-url }}
 
-            The playground is bring-your-own-key — it will ask for your own API key on load, and nothing is stored server-side.
+            The playground is bring-your-own-key — it will ask for your own API key on load, and nothing is stored server-side. This preview runs the PR branch's own code, so use a throwaway key, or only open previews for branches you trust.
 
             Remove the `deploy-preview` label or close this PR to tear the preview down.
 
@@ -168,7 +181,10 @@ jobs:
           if [ "$status" -eq 0 ]; then
             exit 0
           fi
-          if printf '%s' "$output" | grep -qiE 'script_not_found|\[code: ?10007\]'; then
+          # 10007 and 10090 (WORKER_LEGACY_ENVIRONMENT_NOT_FOUND_ERR_CODE) are
+          # the two codes wrangler's own isWorkerNotFoundError treats as
+          # "already gone" — mirror that rather than drift from it.
+          if grep -qiE 'script_not_found|\[code: ?10007\]|\[code: ?10090\]' <<<"$output"; then
             echo "No preview Worker named $WORKER_NAME — nothing to tear down."
             exit 0
           fi
@@ -198,4 +214,4 @@ jobs:
             <!-- pr-preview-demo -->
             **Playground preview torn down.** The preview Worker for this PR has been deleted.
 
-            Re-add the `deploy-preview` label to bring it back.
+            Re-add the `deploy-preview` label while the PR is open to bring it back.
