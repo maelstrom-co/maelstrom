@@ -110,9 +110,7 @@ exempt.
 
 Either identity counts because `git commit -s` and the bundled hook both sign
 with your **committer** identity — so re-signing or rebasing *someone else's*
-commits still satisfies the check: you are certifying as the committer. This
-matches the widely-used probot/dco behaviour, so a sign-off that passes on other
-DCO-gated projects passes here.
+commits still satisfies the check: you are certifying as the committer.
 
 The attestation lives in the pull request's commit history, which is what the
 check audits; GitHub's web-UI squash can drop the trailer from the resulting
