@@ -5,8 +5,15 @@ import { type ComponentType, lazy, useEffect } from 'react';
 
 import type { MaelstromContextPair, MaelstromContextValue } from './context.js';
 import type { DynamicVesselHandle } from './dynamic-vessel-types.js';
+import { requireContext } from './require-context.js';
+import { republishVesselDefinition } from './update-vessel.js';
 import { createUseVesselCore } from './use-vessel-core.js';
-import type { AnyVesselEntry, TypedVesselProps } from './vessel-entry-types.js';
+import type {
+  AnyVesselEntry,
+  RepublishableVessel,
+  TypedVesselProps,
+  UpdateVesselResult,
+} from './vessel-entry-types.js';
 import { isLazyEntry } from './vessel-entry-types.js';
 import { warnOnce } from './warn-once.js';
 
@@ -24,7 +31,7 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
   return function registerVessel<V extends VesselDefinition>(
     entry: AnyVesselEntry<V>,
   ): DynamicVesselHandle<V> {
-    const ctx = getContext(contextRef);
+    const ctx = requireContext(contextRef, 'registerVessel');
     const vesselId = entry.vessel.id as VesselId;
 
     if (ctx.componentRegistry.has(vesselId)) {
@@ -86,8 +93,13 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
         }, [orchestrator, brandedInstanceId, runner]);
       },
 
+      update(definition: RepublishableVessel<V>): UpdateVesselResult {
+        const ctx = requireContext(contextRef, 'handle.update');
+        return republishVesselDefinition(ctx, definition, 'handle.update');
+      },
+
       unregister() {
-        const currentCtx = getContext(contextRef);
+        const currentCtx = requireContext(contextRef, 'unregister');
         // Clean up registries first (infallible Map/Set operations).
         //
         // Limitation: if this handle's registration shadowed a factory-provided
@@ -105,18 +117,6 @@ export function createRegisterVessel(contextPair: MaelstromContextPair) {
       },
     };
   }
-}
-
-function getContext(contextRef: {
-  current: MaelstromContextValue | null;
-}): MaelstromContextValue {
-  const ctx = contextRef.current;
-  if (!ctx) {
-    throw new Error(
-      'registerVessel() must be called while a <Provider> from the same createMaelstrom() instance is mounted.',
-    );
-  }
-  return ctx;
 }
 
 function addToRegistries(ctx: MaelstromContextValue, entry: AnyVesselEntry) {

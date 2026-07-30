@@ -264,6 +264,53 @@ describe('m.registerVessel()', () => {
     expect(instanceProps).toBeNull();
   });
 
+  it('handle.unregister() names itself, not registerVessel, when called after the Provider unmounts', async () => {
+    // A consumer holding a handle past unmount has never called registerVessel
+    // directly — the error must point at the method they actually called, or
+    // they go looking for a call site that does not exist.
+    const m = createMaelstrom({ vessels: [orderEntry] });
+    const widgetEntry = vessel(widgetVessel, () => null);
+
+    let handle: { unregister: () => void } | undefined;
+    function App() {
+      handle = useMemo(() => m.registerVessel(widgetEntry), []);
+      return null;
+    }
+
+    let unmount!: () => void;
+    await act(async () => {
+      ({ unmount } = render(
+        <m.Provider connector={createMockConnector()}>
+          <App />
+        </m.Provider>,
+      ));
+    });
+
+    act(() => {
+      unmount();
+    });
+
+    assertDefined(handle);
+    const handleSnapshot = handle;
+    // Pinning the "[Maelstrom] unregister()" prefix, not the full trailing
+    // sentence, is what would still catch a wrong caller name in the message.
+    expect(() => handleSnapshot.unregister()).toThrow(
+      '[Maelstrom] unregister() must be called while a <Provider>',
+    );
+  });
+
+  it('registerVessel names itself, not unregister, when called with no Provider mounted', () => {
+    const m = createMaelstrom({ vessels: [orderEntry] });
+    const widgetEntry = vessel(widgetVessel, () => null);
+
+    // Pinning the "[Maelstrom] registerVessel()" prefix, not the full
+    // trailing sentence, is what would still catch a wrong caller name in
+    // the message.
+    expect(() => m.registerVessel(widgetEntry)).toThrow(
+      '[Maelstrom] registerVessel() must be called while a <Provider>',
+    );
+  });
+
   it('dynamic vessel appears in useInstance for both static and dynamic vessels', async () => {
     const m = createMaelstrom({ vessels: [orderEntry] });
     const widgetEntry = vessel(widgetVessel, () => null);

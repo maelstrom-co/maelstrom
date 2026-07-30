@@ -10,6 +10,7 @@ import type {
 import type { MaelstromInstance } from './maelstrom-instance-types.js';
 import { createProvider } from './provider.js';
 import { createRegisterVessel } from './register-vessel.js';
+import { createUpdateVessel } from './update-vessel.js';
 import { createUseActions } from './use-actions.js';
 import { createUseInstance } from './use-instance.js';
 import { createUseMaelstrom } from './use-maelstrom.js';
@@ -56,6 +57,7 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     useActions: createUseActions<T>(contextPair),
     useInstance: createUseInstance(contextPair),
     registerVessel: createRegisterVessel(contextPair),
+    updateVessel: createUpdateVessel<T>(contextPair),
   };
 
   return makeWithable<T, object>(base, contextPair);
