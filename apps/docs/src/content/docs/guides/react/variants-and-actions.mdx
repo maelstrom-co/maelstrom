@@ -227,6 +227,110 @@ setName: async ({ name }) => {
 
 With both halves wired, the loop is complete: the component (or the LLM) fires `expand`, the runner's handler runs, the action transitions the vessel to `expanded`, and the component re-renders into the expanded state.
 
+## Options that change at runtime
+
+### Why
+
+`setName`'s `name` parameter is typed `'string'`, which tells the engine nothing about which names are actually valid — it has to guess, or invent one. Declaring `enum` on a parameter puts the real list of values directly in the engine's prompt, instead of a bare type. If you're using voice, the same `enum` values are exposed to the realtime model through `get_capabilities`, so both paths read from the one declaration.
+
+### Static lists
+
+When the valid values are fixed — a module-level constant, not something that changes while the app runs — declare `enum` inline on the parameter:
+
+```ts title="src/vessels/greeting/greeting.vessel.ts"
+const GREETABLE_NAMES = ['Ada', 'Grace', 'Alan'];
+
+// ...
+{
+  name: 'setName',
+  description: 'Update who the greeting is addressed to.',
+  parameters: [
+    {
+      name: 'name',
+      type: 'string',
+      description: 'The name to greet.',
+      required: true,
+      enum: GREETABLE_NAMES,
+    },
+  ],
+},
+```
+
+The engine now sees `setName(name: Ada|Grace|Alan)` instead of `setName(name: string)` — a much narrower target to aim at.
+
+### Live lists
+
+Most interesting option lists aren't static — they're derived from data that changes while the app is running (the set of open documents, the names of events on today's calendar, whatever a store currently holds). For those, build a copy of the vessel definition with fresh `enum` values and republish it with `m.updateVessel(vessel)` whenever the underlying data changes:
+
+```tsx title="src/vessels/greeting/greeting-option-sync.tsx"
+import { useEffect } from 'react';
+import { m } from '../../maelstrom';
+import { greetingVessel } from './greeting.vessel';
+import { useRosterStore } from '../../roster.store';
+
+function withNameOptions(names: readonly string[]) {
+  return {
+    ...greetingVessel,
+    variants: {
+      ...greetingVessel.variants,
+      card: {
+        ...greetingVessel.variants.card,
+        actions: greetingVessel.variants.card.actions.map((action) =>
+          action.name === 'setName'
+            ? {
+                ...action,
+                // An empty list leaves the parameter untouched rather than
+                // publishing `enum: []` — see the "Three rules" section
+                // below for why that distinction matters.
+                parameters: action.parameters?.map((parameter) =>
+                  parameter.name === 'name' && names.length > 0
+                    ? { ...parameter, enum: [...names] }
+                    : parameter,
+                ),
+              }
+            : action,
+        ),
+      },
+    },
+  };
+}
+
+/** Renders nothing — keeps setName's option list in step with the roster store. */
+export function GreetingOptionSync() {
+  const { names } = useRosterStore();
+  // Keyed on the serialized list, not the array reference: the store hands
+  // back a new array identity on every render even when the contents are
+  // unchanged, and re-publishing the vessel on every render is wasted work.
+  const namesKey = JSON.stringify(names);
+
+  useEffect(() => {
+    m.updateVessel(withNameOptions(names));
+  }, [namesKey]);
+
+  return null;
+}
+```
+
+Mount `<GreetingOptionSync />` once, inside `<m.Provider>`, alongside the rest of your app.
+
+<Aside type="caution">
+  **A prop change that recreates the Orchestrator drops republished options.** `<m.Provider>` builds a fresh Orchestrator whenever `connector`, `layoutMode`, or `debug` changes identity, and the context value keeps pointing at the old Orchestrator until the new one is ready — so `<GreetingOptionSync />` never unmounts, its effect's dependency doesn't change, and the effect doesn't re-run. The new Orchestrator starts from `greetingVessel`'s pristine, `enum`-less definition, and your republished options stay silently reverted until the next real data change fires the effect again.
+
+  The demo avoids this by construction: its `connector` only ever changes together with the `<m.Provider key={...}>` itself, so a connector swap always remounts the whole subtree — `<GreetingOptionSync />` included — and its mount-time `updateVessel` call republishes fresh options immediately. If your app can change `connector`, `layoutMode`, or `debug` on their own, remount whatever republishes definitions (by `key`, at the same boundary) rather than relying on the effect to catch up.
+</Aside>
+
+### Why not `registerVessel`
+
+The two functions take different inputs, and that difference is the whole reason they behave differently. `registerVessel(entry)` takes a full `VesselEntry` — the `{ vessel, component }` pair `vessel()` produces — and writes `entry.component` into the component registry `<m.Chart />` reads from. `updateVessel(vessel)` takes a bare `VesselDefinition` and never touches that registry at all; there's no component in its argument to write.
+
+That difference in surface area is also why `registerVessel` *can* remount a vessel and `updateVessel` never does. For a lazy entry, `registerVessel` wraps `entry.component` in a fresh `React.lazy(...)` on every call, so the component identity `<m.Chart />` renders changes and React remounts it. For a non-lazy entry it's less clear-cut — passing back the exact same component function reference wouldn't change identity and wouldn't force a remount — but the common case is a freshly-declared or re-imported reference, so treat `registerVessel` as "may remount" and reach for it only when you actually mean to touch the component. `updateVessel` republishes the description, variants, and action parameters the engine and voice model see, structurally incapable of writing to the component registry, so it never remounts anything. For a vessel like `greetingVessel` that hardly matters, but it matters a lot for a vessel that owns state React doesn't manage — a canvas element holding a live WebGL context, a focused input, an open WebSocket. Use `updateVessel` whenever you're only changing what the vessel *says* it can do, not what it *is*.
+
+### Three rules
+
+- **An empty list behaves the same as omitting `enum` entirely.** Both the engine's prompt serializer and the voice capability catalog treat a present-but-empty `enum: []` as "no options declared" and fall back to the parameter's `type`. `m.updateVessel` callers don't need to special-case an empty derived list before republishing — passing `enum: []` and leaving `enum` unset produce the same result.
+- **`enum` is advisory, not enforced.** Nothing validates an incoming action's parameters against the `enum` you declared — it narrows what the model is *likely* to send, not what it's *allowed* to send. Your action runner still needs to handle a value the model invents anyway, the same way `setName`'s handler already checks for an empty `name` above.
+- **`enum` values are transmitted verbatim, not just referenced.** Every chart request carries the actual `enum` values, and so does the voice model's `get_capabilities` catalog if you're using voice — the engine sees the real strings, not a count or a pointer into your store. Don't put anything sensitive in a value the model shouldn't be told (a task titled with an access token, an event with a private attendee list), and keep lists bounded: the serializer joins them with `|` and never truncates, so a vessel that reuses the same option list across several actions — like the demo's `tasks` vessel, which repeats every task title across `removeTask`, `checkTask`, `uncheckTask`, and `addSubtask` — pays that full list's size once per action, per request.
+
 ## Next steps
 
 - [Layout Modes](/guides/react/layout-modes/) — how variant `minSize` interacts with grid and tiling layouts

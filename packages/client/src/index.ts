@@ -142,9 +142,14 @@ export type {
   CapabilitySnapshot,
   VesselCapability,
   VesselCapabilityAction,
+  VesselCapabilityParameter,
   VesselCapabilityVariant,
 } from './lib/voice-session/capability-snapshot.js';
-export { readCapabilitySnapshot } from './lib/voice-session/capability-snapshot.js';
+export {
+  MAX_OPTION_COUNT,
+  MAX_OPTIONS_TOTAL_CHARS,
+  readCapabilitySnapshot,
+} from './lib/voice-session/capability-snapshot.js';
 export type { UIStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
 export { readStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
 export type {

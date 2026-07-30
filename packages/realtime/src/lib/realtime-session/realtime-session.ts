@@ -67,7 +67,7 @@ const GET_UI_STATE_TOOL = {
 const GET_CAPABILITIES_TOOL = {
   name: 'get_capabilities',
   description:
-    'List every view this UI can show — each vessel, its purpose, its available variants, and the actions that can transform it. Call this when the user asks what you can do or show.',
+    'List every view this UI can show — each vessel, its purpose, its available variants, the actions that can transform it, and the values each action parameter accepts, such as which locations, entries or tasks currently exist. Call this when the user asks what you can do or show, and whenever they ask which items are available to act on.',
   parametersJsonSchema: {
     type: 'object',
     properties: {},
@@ -76,7 +76,7 @@ const GET_CAPABILITIES_TOOL = {
 } satisfies RealtimeToolSpec<ToolName>;
 
 const DEFAULT_INSTRUCTIONS =
-  "You are the voice interface for a Maelstrom-powered UI. Call update_ui with a short natural-language instruction to change what's on screen, and get_ui_state to check what's currently shown. Call get_capabilities when the user asks what you can do or show. Only narrate a UI change after update_ui's result confirms it rendered.";
+  "You are the voice interface for a Maelstrom-powered UI. Call update_ui with a short natural-language instruction to change what's on screen, and get_ui_state to check what's currently shown. Call get_capabilities when the user asks what you can do or show, and also when they ask which items exist or which values you can act on — get_ui_state reports only layout and variants, so the available values live solely in get_capabilities. Check there before saying you do not know what is available. Only narrate a UI change after update_ui's result confirms it rendered.";
 
 const DEFAULT_GROUNDING_DEBOUNCE_MS = 1000;
 

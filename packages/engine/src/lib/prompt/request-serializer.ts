@@ -8,7 +8,10 @@ import type {
   VesselAction,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { isInstanceIdNode } from '@maelstrom-co/protocol';
+import {
+  isInstanceIdNode,
+  sanitizeLineBreakChars,
+} from '@maelstrom-co/protocol';
 import type { Logger } from '../logger.js';
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
@@ -77,13 +80,37 @@ function serializeVessel(vessel: Vessel): string {
   return lines.join('\n');
 }
 
+// Enum values are free-form, LLM- or voice-transcript-produced strings (task
+// and journal titles), so they can't be trusted to omit the '|' delimiter or
+// a line break. The system prompt asks the model to copy a chosen value
+// straight into a JSON `paramsJson` blob, so the displayed literal has to
+// already be valid JSON: a string renders quoted with proper escaping, and a
+// number or boolean renders bare, matching its declared `type` instead of
+// being silently coerced to a string. `sanitizeLineBreakChars` strips
+// line-break characters after stringifying, otherwise a value could still
+// spill the "Actions:" line into what would read as a fresh top-level
+// prompt instruction. A value JSON.stringify cannot represent (a cyclic
+// object, `undefined`) falls back to its String() form rather than aborting
+// prompt construction for the whole request.
+function serializeEnumValue(value: unknown): string {
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(value);
+  } catch {
+    json = undefined;
+  }
+  return sanitizeLineBreakChars(json ?? JSON.stringify(String(value)));
+}
+
 function serializeAction(action: VesselAction): string {
   let str: string = action.name;
 
   if (action.parameters && action.parameters.length > 0) {
     const params = action.parameters
       .map((p: ActionParameter) =>
-        p.enum ? `${p.name}: ${p.enum.join('|')}` : `${p.name}: ${p.type}`,
+        p.enum && p.enum.length > 0
+          ? `${p.name}: ${p.enum.map((v) => serializeEnumValue(v)).join('|')}`
+          : `${p.name}: ${p.type}`,
       )
       .join(', ');
     str += `(${params})`;
