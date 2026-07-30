@@ -14,9 +14,23 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup Node
+        # wrangler-action probes the toolchain with `npx wrangler --version` and
+        # silently falls back to `npm i wrangler` when that fails. The runner
+        # defaults to Node 20, wrangler 4 needs >= 22, so without this the probe
+        # fails and the npm fallback then dies on bun's `workspace:*` protocol —
+        # surfacing as an npm EUNSUPPORTEDPROTOCOL error that names neither Node
+        # nor the real cause.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: latest
+          # Pinned, unlike ci.yml and publish-pr.yml: this job holds a Cloudflare
+          # token that can delete Workers, so it does not take whatever toolchain
+          # ships that morning. Keep in sync with the root bun.lock.
+          bun-version: "1.3.7"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -28,6 +42,15 @@ jobs:
         # local-mode build that tries ws://localhost:3001 and never works.
         run: VITE_HOSTED=1 bunx nx build @maelstrom-co/demo
 
+      # ONE-TIME PRECONDITION, for the first deploy after the Durable Objects
+      # migration only: the container-era Worker must be deleted first, with
+      # `bunx wrangler delete maelstrom-playground`. apps/demo/wrangler.jsonc
+      # declares a single `v1` creating SessionDO, which assumes a Worker with
+      # no migration history. Run against the old Worker, Cloudflare sees `v1`
+      # as already applied, skips it, and the deploy fails with SESSION_DO
+      # bound to a class that has no namespace — an error that does not name
+      # the actual cause, hence this note. Every deploy after the first is
+      # ordinary and needs nothing special.
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
@@ -36,5 +59,5 @@ jobs:
           workingDirectory: apps/demo
           # apps/demo has no lockfile, so the action would otherwise npm-install
           # the latest wrangler 4.x — keep this in sync with the root bun.lock.
-          wranglerVersion: "4.80.0"
+          wranglerVersion: "4.115.0"
           command: deploy

@@ -166,11 +166,15 @@ failure.
 
 ## Contributor testing
 
-Run `bun test --isolate` from this package. The `--isolate` flag deliberately
-fences process-global happy-dom, browser, audio, module, and Bun mocks between
-test files by giving each file a fresh global and module environment. This
-boundary prevents one file's browser shims or `mock.module()` registrations from
-changing another file's imports.
+From the workspace root, run
+`nx test @maelstrom-co/realtime-livekit --skipSync`. This target builds the
+package dependencies before running `bun test --isolate` from this package. For
+direct reruns after those dependencies are built, run `bun test --isolate` from
+this package. The `--isolate` flag deliberately fences process-global
+happy-dom, browser, audio, module, and Bun mocks between test files by giving
+each file a fresh global and module environment. This boundary prevents one
+file's browser shims or `mock.module()` registrations from changing another
+file's imports.
 
 Isolation does not replace teardown. Each test must still restore mutated
 globals and spies, stop tracks and worklets, clear timers, and release other

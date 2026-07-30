@@ -40,6 +40,7 @@ interface VadWebDevPluginOptions {
 }
 
 interface BuildPublicAssetsPluginOptions {
+  readonly applyToEnvironment?: Plugin['applyToEnvironment'];
   readonly beforeReadAssets?: (
     assets: readonly PublicAssetReference[],
   ) => void | Promise<void>;
@@ -340,12 +341,16 @@ export function createVadWebDevPlugin({
  * failures reject the build without partial plugin output. Selected files are
  * opened without following final symlinks and must retain their validated file
  * and directory identities before their bytes are read. Emitted names are
- * root-relative and normalized to forward slashes for Vite and Rollup.
+ * root-relative and normalized to forward slashes for Vite and Rollup. An
+ * optional environment filter lets callers exclude the plugin before its hooks
+ * run; omitting it retains Vite's default of applying the plugin to every build
+ * environment, independently of the `build` no-op guard.
  *
- * @param options Explicit plugin-build enablement, public root, and optional test and relative-path seams.
+ * @param options Explicit plugin-build enablement, public root, and optional environment, test, and relative-path seams.
  * @returns A Vite build plugin.
  */
 export function createBuildPublicAssetsPlugin({
+  applyToEnvironment,
   build,
   beforeReadAssets,
   publicDirectory,
@@ -353,6 +358,7 @@ export function createBuildPublicAssetsPlugin({
 }: BuildPublicAssetsPluginOptions): Plugin {
   return {
     name: 'maelstrom-build-public-assets',
+    applyToEnvironment,
     async generateBundle() {
       if (!build) {
         return;

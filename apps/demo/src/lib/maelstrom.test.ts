@@ -71,7 +71,7 @@ const providerTestSpecifier = './maelstrom.ts' + '?provider-test';
 await import(providerTestSpecifier);
 
 function createAdapter(provider: 'livekit' | 'openai') {
-  process.env.VITE_VOICE_PROVIDER = provider;
+  vi.stubEnv('VITE_VOICE_PROVIDER', provider);
   const options = state.realtimeOptions;
   if (!options) throw new Error('expected realtime options to be captured');
   return options.createAdapter({
@@ -80,7 +80,7 @@ function createAdapter(provider: 'livekit' | 'openai') {
 }
 
 afterEach(() => {
-  delete process.env.VITE_VOICE_PROVIDER;
+  vi.unstubAllEnvs();
   state.liveKitAdapterOptions.length = 0;
   state.openAIAdapterOptions.length = 0;
 });

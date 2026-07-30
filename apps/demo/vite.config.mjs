@@ -77,6 +77,7 @@ export default defineConfig(({ command, mode }) => {
     },
     plugins: [
       createBuildPublicAssetsPlugin({
+        applyToEnvironment: (environment) => environment.name === 'client',
         build: command === 'build' && !livekitBuild,
         publicDirectory: join(rootDir, 'public'),
       }),

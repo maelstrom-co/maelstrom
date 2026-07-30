@@ -145,15 +145,9 @@ export async function createLocalAudioPreRoll(
         );
       },
       startManualTurn() {
-        return request('manual-start').then(
-          () => {
-            activePreRollMs = 0;
-          },
-          (error) => {
-            activePreRollMs = 0;
-            throw error;
-          },
-        );
+        return request('manual-start').finally(() => {
+          activePreRollMs = 0;
+        });
       },
       endTurn() {
         const timeoutMs = endAckTimeoutMs(activePreRollMs);

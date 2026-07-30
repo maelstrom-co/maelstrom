@@ -222,17 +222,17 @@ export async function copyLiveKitVadAssets({
       backupExists = true;
     }
     await rename(stageDir, resolvedOutputDir);
-    stageExists = false;
     replacementInstalled = true;
 
     if (backupExists) {
-      await rm(backupDir, { recursive: true, force: true });
-      backupExists = false;
+      await removeTransactionPath(backupDir);
     }
   } catch (error) {
     if (replacementInstalled) {
+      const cleanupCause =
+        error instanceof Error ? error.message : String(error);
       throw new Error(
-        `Browser VAD assets were installed, but backup cleanup failed at ${backupDir}; remove the remaining backup artifact before retrying`,
+        `Browser VAD assets were installed, but backup cleanup failed at ${backupDir}: ${cleanupCause}; remove the remaining backup artifact before retrying`,
         { cause: error },
       );
     }

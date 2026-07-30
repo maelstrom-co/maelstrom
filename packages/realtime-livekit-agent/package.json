@@ -26,7 +26,8 @@
     "directory": "packages/realtime-livekit-agent"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "@livekit/agents": "^1.4.8",

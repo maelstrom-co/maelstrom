@@ -4,7 +4,8 @@
     "outDir": "./out-tsc/vitest",
     "lib": ["es2022", "dom"],
     "types": ["bun"],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "rootDir": "."
   },
   "include": [
     "src/**/*.spec.ts",

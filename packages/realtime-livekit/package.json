@@ -47,7 +47,8 @@
     "directory": "packages/realtime-livekit"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "@maelstrom-co/client": "0.0.0",

@@ -26,10 +26,12 @@ describe('KeyDrawer', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('does not claim the key never reaches our servers, since the text path sends it to the container over playground.hello', () => {
+  it('does not claim the key never reaches our servers, since the text path sends it to the Durable Object over playground.hello', () => {
     // The old copy ("your key never reaches our servers") was false for the
-    // text path: ws-server.ts stores it in ws.data.apiKey and
-    // SessionEngineManager holds it for the life of the session. Pinning the
+    // text path: session-do.ts holds the key in memory per connection
+    // (`#keys`, a WeakMap<WebSocket, string>) and drops it — deliberately,
+    // never persisted — whenever the object hibernates, re-requesting it via
+    // playground.rehello on wake. It still reaches the server. Pinning the
     // absence of the absolute claim (rather than the exact sentence) so this
     // survives future wording tweaks but still catches a regression back to
     // an inaccurate privacy claim.

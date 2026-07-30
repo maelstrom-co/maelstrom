@@ -1,92 +1,142 @@
 import { describe, expect, it, vi } from 'vitest';
-import { shardInstanceName } from './shard';
 
-// @cloudflare/containers' own entrypoint imports the 'cloudflare:workers'
-// virtual module, which only exists inside an actual Workers runtime -- not
-// under plain vitest. Mocking the package (rather than only stubbing
-// getContainer) is what lets this file import worker/index.ts at all.
-// getContainerMock must be created via vi.hoisted: vitest hoists vi.mock
-// factories above the rest of the module, so a plain outer `const` referenced
-// from inside the factory would be read before its own initializer runs.
-const { getContainerMock } = vi.hoisted(() => ({ getContainerMock: vi.fn() }));
-
-vi.mock('@cloudflare/containers', () => ({
-  Container: class {},
-  getContainer: (...args: unknown[]) => getContainerMock(...args),
+// worker/index.ts re-exports SessionDO from ./session-do so wrangler can
+// find the class, which pulls in the same runtime-only dependencies
+// session-do.test.ts mocks: `cloudflare:workers` only exists inside an
+// actual Workers runtime, not under plain vitest, and WebSocketRequestResponsePair
+// is a Workers-runtime global rather than a module import.
+vi.mock('cloudflare:workers', () => ({
+  DurableObject: class {
+    ctx: unknown;
+    env: unknown;
+    constructor(ctx: unknown, env: unknown) {
+      this.ctx = ctx;
+      this.env = env;
+    }
+  },
+}));
+(
+  globalThis as { WebSocketRequestResponsePair?: unknown }
+).WebSocketRequestResponsePair ??= class {
+  constructor(
+    readonly request: string,
+    readonly response: string,
+  ) {}
+};
+vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/engine')>()),
+  createEngine: vi.fn(),
+}));
+vi.mock('@tanstack/ai-openai', () => ({
+  createOpenaiChat: (model: string, apiKey: string) => ({
+    kind: 'text',
+    name: 'fake',
+    model,
+    __testApiKey: apiKey,
+  }),
 }));
 
 const worker = (await import('./index')).default;
 
 function makeEnv() {
+  const stub = { fetch: vi.fn(async () => new Response('do reached')) };
+  const idFromName = vi.fn((name: string) => `id:${name}`);
+  const get = vi.fn(() => stub);
   return {
-    PLAYGROUND_SERVER: {},
-    ASSETS: { fetch: async () => new Response('assets') },
-  } as unknown as Parameters<typeof worker.fetch>[1];
+    env: {
+      SESSION_DO: { idFromName, get },
+      ASSETS: { fetch: async () => new Response('assets') },
+    } as unknown as Parameters<typeof worker.fetch>[1],
+    idFromName,
+    get,
+    stub,
+  };
 }
 
-describe('worker /ws upgrade guard (Fix 7)', () => {
-  it('rejects a plain GET with 426 and never calls getContainer', async () => {
-    // Container.fetch() calls startAndWaitForPorts() when the instance isn't
-    // running and renewActivityTimeout() on every proxied request -- so an
-    // unauthenticated GET with no Upgrade header would otherwise cold-start
-    // an instance and keep it warm indefinitely, and the `session` query
-    // param maps onto only 5 shard buckets, so all five can be pinned this
-    // way.
-    getContainerMock.mockClear();
+describe('worker /ws upgrade guard', () => {
+  it('rejects a plain GET with 426 and never touches the DO namespace', async () => {
+    const { env, idFromName, get } = makeEnv();
     const request = new Request('https://example.com/ws');
 
-    const response = await worker.fetch(request, makeEnv());
+    const response = await worker.fetch(request, env);
 
     expect(response.status).toBe(426);
-    expect(getContainerMock).not.toHaveBeenCalled();
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
   });
 
   it('rejects a GET carrying unrelated headers but no Upgrade header', async () => {
-    getContainerMock.mockClear();
+    const { env, get } = makeEnv();
     const request = new Request('https://example.com/ws?session=abc', {
       headers: { 'X-Forwarded-For': '1.2.3.4' },
     });
 
-    const response = await worker.fetch(request, makeEnv());
-
-    expect(response.status).toBe(426);
-    expect(getContainerMock).not.toHaveBeenCalled();
-  });
-
-  it('lets a request carrying a websocket Upgrade header through to getContainer, matched case-insensitively', async () => {
-    // Proof the guard doesn't blanket-reject everything on /ws: a real
-    // upgrade request (browsers send "websocket" lowercase; this checks a
-    // differently-cased value isn't rejected either) must still reach the
-    // container.
-    getContainerMock.mockReturnValue({
-      fetch: async () => new Response('container reached'),
-    });
-    getContainerMock.mockClear();
-    const request = new Request('https://example.com/ws?session=visitor-1', {
-      headers: { Upgrade: 'WebSocket' },
-    });
-    const env = makeEnv();
-
     const response = await worker.fetch(request, env);
 
-    // Shard routing is the whole point of this call -- asserting only the
-    // call count would pass even if the `session` query param were dropped
-    // on the floor and every visitor landed on the same shard.
-    expect(getContainerMock).toHaveBeenCalledTimes(1);
-    expect(getContainerMock).toHaveBeenCalledWith(
-      env.PLAYGROUND_SERVER,
-      shardInstanceName('visitor-1'),
-    );
-    expect(await response.text()).toBe('container reached');
+    expect(response.status).toBe(426);
+    expect(get).not.toHaveBeenCalled();
   });
 
   it('does not apply the upgrade guard to non-/ws paths', async () => {
-    getContainerMock.mockClear();
+    const { env, get } = makeEnv();
     const request = new Request('https://example.com/some-asset.js');
 
-    const response = await worker.fetch(request, makeEnv());
+    const response = await worker.fetch(request, env);
 
     expect(await response.text()).toBe('assets');
-    expect(getContainerMock).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe('worker /ws routing to SessionDO', () => {
+  it('routes an upgrade request to the SessionDO named after the session query param, matched case-insensitively', async () => {
+    const { env, idFromName, get, stub } = makeEnv();
+    const request = new Request('https://example.com/ws?session=visitor-1', {
+      headers: { Upgrade: 'WebSocket' },
+    });
+
+    const response = await worker.fetch(request, env);
+
+    // Session identity IS object identity now (shard.ts's hash bucketing is
+    // gone) -- asserting the exact name passed to idFromName is what proves
+    // the session query param actually reaches object identity, rather than
+    // every visitor silently collapsing onto one object.
+    expect(idFromName).toHaveBeenCalledWith('visitor-1');
+    expect(get).toHaveBeenCalledWith('id:visitor-1');
+    expect(stub.fetch).toHaveBeenCalledTimes(1);
+    expect(await response.text()).toBe('do reached');
+  });
+
+  it('rejects an upgrade request with a 400 when the session query param is missing, without addressing a Durable Object', async () => {
+    const { env, idFromName, get } = makeEnv();
+    const request = new Request('https://example.com/ws', {
+      headers: { Upgrade: 'websocket' },
+    });
+
+    const response = await worker.fetch(request, env);
+
+    // SessionDO holds exactly one #engine/#engineKey slot per object,
+    // unlike the old container's per-sessionId SessionEngineManager --
+    // defaulting a missing session onto one shared object would let
+    // session-less visitors thrash (or, worse, share) one engine. The
+    // shipped client always sends a non-empty session, so this path is only
+    // ever hit by a malformed or hand-crafted request, and must be rejected
+    // before any Durable Object is addressed.
+    expect(response.status).toBe(400);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('rejects an upgrade request with a 400 when the session query param is present but empty, without addressing a Durable Object', async () => {
+    const { env, idFromName, get } = makeEnv();
+    const request = new Request('https://example.com/ws?session=', {
+      headers: { Upgrade: 'websocket' },
+    });
+
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(400);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
   });
 });

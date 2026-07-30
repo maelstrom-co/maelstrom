@@ -53,6 +53,29 @@ interface ConnectMicrophoneResources {
   readonly stream: MediaStream;
 }
 
+/** Inputs that preserve the safety state of one automatic-mode degradation. */
+interface AutomaticModeDegradationOptions {
+  /** Connection generation whose automatic mode failed. */
+  readonly generation: number;
+  /** Failure reported when manual mode is established, or promoted if fatal. */
+  readonly error: unknown;
+  /** Whether an accepted automatic turn still requires closure. */
+  readonly turnActive: boolean;
+  /** Retires the VAD runtime associated with the failed generation. */
+  readonly retireVad: () => Promise<void>;
+  /** Whether the failing path already proved that upstream audio is paused. */
+  readonly upstreamAlreadyPaused: boolean;
+  /** Whether a failed pre-roll bridge must be replaced for manual turns. */
+  readonly replaceFailedPreRoll: boolean;
+}
+
+/** Finisher inputs after the degrading generation's room has been resolved. */
+interface FinishAutomaticModeDegradationOptions
+  extends AutomaticModeDegradationOptions {
+  /** LiveKit room owned by the degrading connection generation. */
+  readonly room: Room;
+}
+
 // Quiet the livekit-client SDK's verbose signal/connection logging (which dumps
 // the full connect URL on every join). Warnings and errors still surface.
 setLogLevel('warn');
@@ -328,10 +351,24 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
           if (browserVadError === undefined) {
             this.#emit({ type: 'turn_mode', mode: 'automatic' });
           } else {
-            await this.#degradeAutomaticMode(generation, browserVadError);
+            await this.#degradeAutomaticMode({
+              generation,
+              error: browserVadError,
+              turnActive: false,
+              retireVad: async () => {},
+              upstreamAlreadyPaused: false,
+              replaceFailedPreRoll: false,
+            });
           }
         } else {
-          await this.#degradeAutomaticMode(generation, vadError);
+          await this.#degradeAutomaticMode({
+            generation,
+            error: vadError,
+            turnActive: false,
+            retireVad: async () => {},
+            upstreamAlreadyPaused: false,
+            replaceFailedPreRoll: false,
+          });
         }
       } else {
         await this.#initializeManualMic(room);
@@ -1159,14 +1196,14 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
           ),
         onFailure: (error, context) => {
           const safelyPausedMisfire = isSafelyPausedMisfireCancellation(error);
-          return this.#degradeAutomaticMode(
+          return this.#degradeAutomaticMode({
             generation,
             error,
-            safelyPausedMisfire ? false : context.turnActive,
-            context.retire,
-            safelyPausedMisfire,
-            true,
-          );
+            turnActive: safelyPausedMisfire ? false : context.turnActive,
+            retireVad: context.retire,
+            upstreamAlreadyPaused: safelyPausedMisfire,
+            replaceFailedPreRoll: true,
+          });
         },
       });
     } catch (error) {
@@ -1192,27 +1229,18 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * share the same result.
    */
   async #degradeAutomaticMode(
-    generation: number,
-    error: unknown,
-    turnActive = false,
-    retireVad: () => Promise<void> = async () => {},
-    upstreamAlreadyPaused = false,
-    replaceFailedPreRoll = false,
+    options: AutomaticModeDegradationOptions,
   ): Promise<void> {
+    const { generation } = options;
     const room = this.#roomForGeneration(generation);
     if (!room || this.#manualTurnControlAvailable) return;
     if (this.#automaticModeDegradation?.generation === generation) {
       return this.#automaticModeDegradation.result;
     }
-    const result = this.#finishAutomaticModeDegradation(
-      generation,
+    const result = this.#finishAutomaticModeDegradation({
+      ...options,
       room,
-      error,
-      turnActive,
-      retireVad,
-      upstreamAlreadyPaused,
-      replaceFailedPreRoll,
-    );
+    });
     const degradation = { generation, result };
     this.#automaticModeDegradation = degradation;
     try {
@@ -1232,14 +1260,17 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * return without advertising manual success.
    */
   async #finishAutomaticModeDegradation(
-    generation: number,
-    room: Room,
-    error: unknown,
-    turnActive: boolean,
-    retireVad: () => Promise<void>,
-    upstreamAlreadyPaused: boolean,
-    replaceFailedPreRoll: boolean,
+    options: FinishAutomaticModeDegradationOptions,
   ): Promise<void> {
+    const {
+      generation,
+      room,
+      error,
+      turnActive,
+      retireVad,
+      upstreamAlreadyPaused,
+      replaceFailedPreRoll,
+    } = options;
     if (error instanceof RealtimeVoiceError) {
       await retireVad();
       await this.#failTransport(generation, room, error);

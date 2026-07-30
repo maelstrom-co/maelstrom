@@ -109,4 +109,74 @@ test.describe('architecture diagram', () => {
     await page.getByRole('button', { name: /hide details/i }).click();
     await expect(page.locator('.arch-detail__fields')).toHaveCount(0);
   });
+
+  // This page is the only hand-authored HTML prose in the docs; everything else
+  // is Markdown. `compressHTML` is pinned to `true` in astro.config.ts rather
+  // than Astro 7's `'jsx'` default, which keeps a source newline rendering as a
+  // space and so removes the sharp edge here — under `'jsx'` a line that merely
+  // *began* with an inline tag shipped `theResizeObserver`. What this still
+  // catches is the plain authoring mistake: no whitespace in the source at all.
+  // The build accepts that, the markup is valid, and only a reader notices.
+  //
+  // Asserted structurally rather than against a list of expected phrases. A
+  // phrase list has to be extended by hand for every new paragraph — so it
+  // silently fails to cover exactly the prose most likely to be edited — and it
+  // turns any routine copy edit into a confusing e2e failure about spacing.
+  // Walking the DOM instead enforces the rule for all present and future
+  // paragraphs with no copy duplicated into the test.
+  test('inline elements in prose keep the spaces around them', async ({
+    page,
+  }) => {
+    await page.goto(PAGE);
+
+    const glued = await page
+      .locator('.sl-markdown-content')
+      .evaluate((root) => {
+        const INLINE_SELECTOR = 'code, a, em, strong, b, i';
+        const isWord = (c: string | undefined) =>
+          !!c && /[\p{L}\p{N}]/u.test(c);
+        const isInline = (el: Element) =>
+          /^inline/.test(getComputedStyle(el).display);
+
+        // Only the immediately adjacent node counts. Reading the parent's
+        // flattened textContent would splice in block siblings — a <dt> ending a
+        // word right before a <dd> starting one is not an inline adjacency.
+        const edgeChar = (node: ChildNode | null, side: 'end' | 'start') => {
+          if (!node) return undefined;
+          if (node.nodeType === Node.TEXT_NODE) {
+            const t = node.textContent ?? '';
+            return side === 'end' ? t[t.length - 1] : t[0];
+          }
+          if (node.nodeType !== Node.ELEMENT_NODE) return undefined;
+          const el = node as Element;
+          if (!isInline(el)) return undefined;
+          const t = el.textContent ?? '';
+          return side === 'end' ? t[t.length - 1] : t[0];
+        };
+
+        const hits: string[] = [];
+        for (const el of Array.from(root.querySelectorAll(INLINE_SELECTOR))) {
+          if (el.parentElement?.closest(INLINE_SELECTOR)) continue;
+          if (!isInline(el)) continue;
+          const text = el.textContent ?? '';
+          if (!text.trim()) continue;
+
+          const before = edgeChar(el.previousSibling, 'end');
+          const after = edgeChar(el.nextSibling, 'start');
+          if (
+            (isWord(before) && isWord(text[0])) ||
+            (isWord(after) && isWord(text[text.length - 1]))
+          ) {
+            hits.push(`${before ?? '∅'}[${text.slice(0, 32)}]${after ?? '∅'}`);
+          }
+        }
+        return hits;
+      });
+
+    expect(
+      glued,
+      'an inline element renders with no whitespace separating it from adjacent ' +
+        "prose — add a space in the source, or write {' '}",
+    ).toEqual([]);
+  });
 });

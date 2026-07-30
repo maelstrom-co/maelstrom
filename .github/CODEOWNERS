@@ -1,0 +1,9 @@
+# Workflows run with repository secrets. The Cloudflare token they carry can
+# deploy and delete Workers, and `pull_request` workflows execute the copy of
+# the file on the PR branch — so a change here is a change to what runs with
+# that token. Founders review it.
+/.github/ @NachoVazquez @Jacarte @ktrz
+
+# Deploy configuration for the hosted playground: names the Worker, its Durable
+# Object bindings, and the migration history the deploy depends on.
+/apps/demo/wrangler.jsonc @NachoVazquez @Jacarte @ktrz

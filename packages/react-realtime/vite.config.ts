@@ -27,7 +27,7 @@ export default defineConfig(() => ({
       name: '@maelstrom-co/react-realtime',
       formats: ['es' as const],
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: [
         'react',
         'react-dom',

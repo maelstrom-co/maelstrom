@@ -27,6 +27,7 @@ import FakeTimers from '@sinonjs/fake-timers';
 
 import type { ConnectorEvent } from '../../connector.types.js';
 import { WireEngineError } from '../../connector.types.js';
+import { HEARTBEAT_PONG_FRAME } from '../heartbeat-frame.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
 import { FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';
@@ -1069,5 +1070,151 @@ describe('WebSocketConnector cross-correlator isolation', () => {
       warnSpy.mockRestore();
       await connector.disconnect();
     }
+  });
+});
+
+describe('onFrame inbound hook', () => {
+  test('consumes a frame when it returns true, so it never reaches the decode path', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const seen: string[] = [];
+    const connector = new WebSocketConnector({
+      url: 'ws://localhost/ws',
+      onFrame: (raw, send, sessionId) => {
+        seen.push(raw);
+        send(JSON.stringify({ type: 'demo.ack', sessionId }));
+        return true;
+      },
+    });
+    const connecting = connector.connect(SessionId('s-1'));
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emitOpen();
+    await connecting;
+
+    ws.onmessage?.({ data: JSON.stringify({ type: 'demo.custom' }) });
+
+    expect(seen).toEqual([JSON.stringify({ type: 'demo.custom' })]);
+    // The hook's own reply went out...
+    expect(ws.sent).toContain(
+      JSON.stringify({ type: 'demo.ack', sessionId: 's-1' }),
+    );
+    // ...and the frame never reached decodeServerEnvelope, which would have
+    // warned about an undecodable envelope. That warning is the observable
+    // proof the frame was actually consumed rather than merely copied.
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  test('replies over the socket that delivered the frame, as the session it was opened for', async () => {
+    const connector = new WebSocketConnector({
+      url: 'ws://localhost/ws',
+      onFrame: (_raw, send, sessionId) => {
+        send(JSON.stringify({ type: 'demo.ack', sessionId }));
+        return true;
+      },
+    });
+    const connecting = connector.connect(SessionId('s-1'));
+    const first = FakeWebSocket.instances.at(-1)!;
+    first.emitOpen();
+    await connecting;
+
+    // A reconnect supersedes the socket, and does so under a DIFFERENT
+    // session — so this covers both captured values at once. The old socket
+    // can still deliver a frame that was already in flight; React
+    // StrictMode's dev double-mount produces exactly this overlap, which is
+    // why `onclose` guards against the same hazard.
+    const reconnecting = connector.connect(SessionId('s-2'));
+    const second = FakeWebSocket.instances.at(-1)!;
+    second.emitOpen();
+    await reconnecting;
+    expect(second).not.toBe(first);
+    const secondBefore = second.sent.length;
+
+    first.emitJson({ type: 'demo.custom' });
+
+    // Right socket AND right session. Routing the answer to the replacement
+    // socket would leave the ASKING socket waiting forever while the new one
+    // fields a response to a question it never asked. Answering over the
+    // correct socket but stamping it with the newer session id is the
+    // subtler half of the same bug: for the demo's rehello handshake that
+    // re-keys this connection to a session it does not belong to, so the
+    // server files its engine and history under the wrong identity.
+    expect(first.sent).toContain(
+      JSON.stringify({ type: 'demo.ack', sessionId: 's-1' }),
+    );
+    expect(first.sent).not.toContain(
+      JSON.stringify({ type: 'demo.ack', sessionId: 's-2' }),
+    );
+    expect(second.sent.length).toBe(secondBefore);
+
+    await connector.disconnect();
+  });
+
+  test('survives a throwing hook and still decodes the frame', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const connector = new WebSocketConnector({
+      url: 'ws://localhost/ws',
+      onFrame: () => {
+        throw new Error('consumer hook blew up');
+      },
+    });
+    const connecting = connector.connect(SessionId('s-4'));
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emitOpen();
+    await connecting;
+
+    // A consumer hook is arbitrary code. If it can throw out of onmessage,
+    // one bad hook turns every inbound frame into an unhandled rejection AND
+    // skips envelope decoding entirely — the connector silently stops
+    // delivering protocol traffic it was perfectly able to handle.
+    expect(() => {
+      ws.onmessage?.({ data: JSON.stringify({ type: 'not-an-envelope' }) });
+    }).not.toThrow();
+
+    // Proof the frame still reached the codec: an undecodable envelope warns.
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    await connector.disconnect();
+  });
+
+  test('falls through to the decode path when it returns false', () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const connector = new WebSocketConnector({
+      url: 'ws://localhost/ws',
+      onFrame: () => false,
+    });
+    connector.connect(SessionId('s-2'));
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emitOpen();
+
+    ws.onmessage?.({ data: JSON.stringify({ type: 'not-an-envelope' }) });
+
+    // Declining the frame must leave existing behavior byte-identical —
+    // otherwise the hook silently swallows traffic a consumer chose not to
+    // handle.
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  test('does not intercept heartbeat pongs', async () => {
+    const seen: string[] = [];
+    const connector = new WebSocketConnector({
+      url: 'ws://localhost/ws',
+      heartbeatIntervalMs: 30_000,
+      onFrame: (raw) => {
+        seen.push(raw);
+        return true;
+      },
+    });
+    const connecting = connector.connect(SessionId('s-3'));
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emitOpen();
+    await connecting;
+
+    ws.onmessage?.({ data: HEARTBEAT_PONG_FRAME });
+
+    // The pong is transport-level bookkeeping the connector owns. Handing it
+    // to a consumer hook would let a consumer accidentally break liveness
+    // detection by consuming it.
+    expect(seen).toEqual([]);
   });
 });

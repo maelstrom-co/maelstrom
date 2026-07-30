@@ -1,0 +1,400 @@
+/**
+ * Deployed-only gate: proves a SessionDO that hibernates mid-session
+ * recovers via `playground.rehello` without losing the visitor's buffered
+ * request.
+ *
+ * Locally meaningless — workerd does not hibernate on production's
+ * schedule, so a `wrangler dev` run can never exercise this path. This
+ * script only means something against a genuinely deployed Worker that has
+ * gone idle long enough to actually hibernate.
+ *
+ * The one failure mode that matters: a run where the object never actually
+ * hibernated still produces a clean round trip and LOOKS like success. That
+ * is not a pass — it proves nothing about the rehello recovery path. This
+ * script tells the three outcomes apart explicitly, in both the exit code
+ * and the printed output:
+ *
+ *   PASS         (exit 0) — socket survived the idle gap, a
+ *                 `playground.rehello` was observed, and the buffered frame
+ *                 was replayed with a correlated reply.
+ *   INCONCLUSIVE (exit 2) — a reply came back but no rehello was ever seen:
+ *                 the object stayed resident and hibernation was never
+ *                 exercised. Re-run with a longer idle gap; do not record
+ *                 this as a pass.
+ *   FAIL         (exit 1) — the socket survived to the end but died across
+ *                 the idle gap itself, or no reply came back at all. Also
+ *                 used for usage/setup errors.
+ *
+ * A fourth case exits fast rather than waiting out the idle gap: if the
+ * socket closes or errors at ANY point before a verdict above is reached
+ * (bad host, bad key, Worker not deployed, or a mid-gap drop), that is a
+ * CONNECTION FAILURE — a distinct diagnostic, exit 1 — printed immediately
+ * instead of burning the rest of the idle window on a run that was never
+ * going to prove anything about hibernation.
+ *
+ * The run heartbeats throughout, including across the idle gap, for the same
+ * reason the shipped client does: an idle WebSocket is dropped in transit.
+ * The pings are answered by the runtime's own auto-response without waking
+ * the object, so they keep the SOCKET alive without keeping the OBJECT
+ * resident — see the heartbeat setInterval below.
+ *
+ * WHEN TO RUN THIS: not on every merge — it needs 15+ minutes, a deployed
+ * target, and a funded key, so it can never live in CI. Treat it as a
+ * release gate for this subsystem. Run it when the rehello handshake, key
+ * custody, the auto-response pair, or the Durable Object's lifecycle
+ * changes, and before a significant production deploy.
+ *
+ * You must deploy something to point it at first — there is no standing
+ * spike Worker. Either target production after deploying it, or deploy a
+ * throwaway one under its OWN name with its own config. Never point a
+ * throwaway config at the production Worker's name: deploying it would
+ * replace the real playground, and its migrations would apply to the real
+ * namespace.
+ *
+ * Usage, from `apps/demo`:
+ *   SPIKE_OPENAI_KEY=sk-... bun run verify:hibernation <host> [idle-minutes]
+ *
+ *   <host>          required, e.g. maelstrom-playground.<account>.workers.dev
+ *   [idle-minutes]  optional, default 15
+ *
+ * Pass the key via a shell variable rather than inline, so it does not land
+ * in shell history:
+ *   read -rs SPIKE_OPENAI_KEY && export SPIKE_OPENAI_KEY
+ */
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_PING_FRAME,
+} from '@maelstrom-co/client';
+import {
+  ChartRequestMessage,
+  encodeEnvelope,
+  SessionId,
+} from '@maelstrom-co/protocol';
+
+const DEFAULT_IDLE_MINUTES = 15;
+const REPLY_WAIT_MS = 30_000;
+const PROGRESS_INTERVAL_MS = 60_000;
+// Mirrors playground-frames.ts's MIN_API_KEY_LENGTH. Checked client-side so
+// a short key fails before any socket opens — the server-side floor would
+// otherwise reject the hello, close the socket, and waste part of the idle
+// window on a check this script can do for free up front.
+const MIN_API_KEY_LENGTH = 20;
+
+/**
+ * Built through the real codec rather than hand-written JSON: a probe that
+ * sends a frame the server rejects as undecodable would report a failure
+ * that says nothing about hibernation.
+ */
+function chartRequestWire(sessionId: string): string {
+  return encodeEnvelope(
+    ChartRequestMessage({
+      sessionId: SessionId(sessionId),
+      request: {
+        type: 'chart_request',
+        context: {
+          updateReasons: [
+            { type: 'user_intent', intent: 'show me the weather' },
+          ],
+          chartDimensions: { rows: 8, columns: 12 },
+          layoutMode: 'grid',
+        },
+        instances: [],
+        vessels: [],
+        layout: { type: 'grid', positions: [] },
+      },
+    }),
+  );
+}
+
+/**
+ * Best-effort `type` field extraction for a diagnostic line — never throws,
+ * so a malformed or non-JSON frame prints `"unparseable"` instead of
+ * crashing the script mid-verdict.
+ */
+function frameType(raw: string): string {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof (parsed as { type?: unknown }).type === 'string'
+      ? (parsed as { type: string }).type
+      : 'unparseable';
+  } catch {
+    return 'unparseable';
+  }
+}
+
+function fail(message: string): never {
+  console.error(`error: ${message}`);
+  console.error(
+    'usage (from apps/demo): SPIKE_OPENAI_KEY=sk-... bun run verify:hibernation <host> [idle-minutes]',
+  );
+  process.exit(1);
+}
+
+const host = process.argv[2];
+if (!host) {
+  fail(
+    'missing <host> (e.g. maelstrom-playground-spike.<account>.workers.dev)',
+  );
+}
+
+const idleMinutesArg = process.argv[3];
+const idleMinutes =
+  idleMinutesArg === undefined ? DEFAULT_IDLE_MINUTES : Number(idleMinutesArg);
+if (!Number.isFinite(idleMinutes) || idleMinutes <= 0) {
+  fail(
+    `idle-minutes must be a positive number, got ${JSON.stringify(idleMinutesArg)}`,
+  );
+}
+
+// Sent over the wire to the deployed Worker — that IS the point, it walks
+// the same playground.hello path a real visitor takes — but it must never
+// be logged. Nothing below may console.log/error a value derived from
+// `apiKey`.
+const apiKey = process.env.SPIKE_OPENAI_KEY;
+if (!apiKey) {
+  fail(
+    'set SPIKE_OPENAI_KEY to a real OpenAI key (min 20 chars) — it is sent over the wire to the deployed Worker, but this script never logs it',
+  );
+}
+if (apiKey.length < MIN_API_KEY_LENGTH) {
+  fail(
+    `SPIKE_OPENAI_KEY is ${apiKey.length} chars; the server's isPlaygroundHello requires at least ${MIN_API_KEY_LENGTH} — a shorter key would open a socket only to be rejected by it, wasting part of the idle window`,
+  );
+}
+
+const session = `hib-${process.pid}`;
+const frames: string[] = [];
+// Both stamped as the frames actually arrive, never after the fixed
+// REPLY_WAIT_MS sleep below: measuring at the end of that sleep reports the
+// wait window (~30s every time) rather than the round trip, which reads as
+// an alarmingly slow wake on a run that was in fact fast.
+let rehelloAt = 0;
+let replyAt = 0;
+
+console.log(`connecting to wss://${host}/ws?session=${session} ...`);
+const ws = new WebSocket(`wss://${host}/ws?session=${session}`);
+
+// True only once the run has reached its own deliberate verdict (including
+// the `ws.close()` that produces it). Until then, any close or error is a
+// CONNECTION failure, not a hibernation result, and must be reported —
+// distinctly, immediately — rather than silently waited out across the
+// idle gap, which is the scarcest resource this script is built around.
+let settled = false;
+
+function connectionFailure(reason: string): never {
+  console.error('');
+  console.error('=== CONNECTION FAILURE (not a hibernation result) ===');
+  console.error(reason);
+  console.error(
+    'This is a connection problem (bad host, bad key, Worker not deployed),',
+  );
+  console.error(
+    'not a hibernation-recovery failure — fix it and re-run rather than',
+  );
+  console.error('blaming the rehello path for this.');
+  process.exit(1);
+}
+
+// Persistent for the whole run, not just until the initial connect
+// resolves: a socket that dies minutes into the idle gap (not just at
+// connect time) must fail fast too, instead of being discovered only after
+// the full idle wait has already elapsed.
+ws.onclose = (event) => {
+  if (settled) return;
+  connectionFailure(
+    `socket closed unexpectedly (code=${event.code}, reason=${JSON.stringify(event.reason)}) before the run reached a verdict.`,
+  );
+};
+ws.onerror = () => {
+  if (settled) return;
+  connectionFailure(
+    'WebSocket error before the run reached a verdict (bad host, TLS failure, connection refused, or similar).',
+  );
+};
+
+ws.onmessage = (event) => {
+  const data = String(event.data);
+  // Liveness plumbing, not a result — kept out of `frames` so the diagnostic
+  // listings below name only frames that bear on the verdict, rather than
+  // burying them under one pong per 30s of idling.
+  if (frameType(data) === 'heartbeat.pong') return;
+  frames.push(data);
+  if (data.includes('playground.rehello')) {
+    rehelloAt = Date.now();
+    console.log('  <- playground.rehello observed; resending key');
+    ws.send(
+      JSON.stringify({ type: 'playground.hello', sessionId: session, apiKey }),
+    );
+    return;
+  }
+  // Guarded on rehelloAt so the warm-up's own response — which arrives long
+  // before any rehello — cannot be mistaken for the post-wake replay and
+  // report a negative latency. Only the FIRST such frame counts; a later one
+  // would measure a different request entirely.
+  if (
+    rehelloAt !== 0 &&
+    replyAt === 0 &&
+    data.includes('"type":"engine.maelstrom.response"')
+  ) {
+    replyAt = Date.now();
+  }
+};
+
+await new Promise<void>((resolve) => {
+  ws.onopen = () => resolve();
+});
+
+// The shipped client heartbeats on this same interval for a reason: an
+// open-but-silent WebSocket gets dropped in transit, with no TCP FIN, and
+// this probe deliberately goes silent for MINUTES. Without a heartbeat the
+// socket dies partway through the idle gap and the run reports a CONNECTION
+// FAILURE — a verdict about the network that says nothing about hibernation,
+// and one whose obvious remedy (idle longer) makes it strictly more likely.
+//
+// Crucially, this does NOT hold the object awake and so cannot mask the very
+// thing being tested: SessionDO registers the ping/pong pair with
+// `setWebSocketAutoResponse`, which the runtime answers itself WITHOUT
+// delivering an event to the object. Hibernation proceeds on schedule. That
+// property is exactly why the DO uses auto-response rather than answering
+// pings in `webSocketMessage`, and it is what makes this probe possible at
+// all — a transport needing app-level keepalives could not be tested this way.
+const heartbeat = setInterval(() => {
+  if (ws.readyState === WebSocket.OPEN) ws.send(HEARTBEAT_PING_FRAME);
+}, DEFAULT_HEARTBEAT_INTERVAL_MS);
+
+console.log(
+  `heartbeating every ${DEFAULT_HEARTBEAT_INTERVAL_MS / 1000}s (auto-answered by the runtime; does not prevent hibernation)`,
+);
+console.log('connected; sending initial playground.hello');
+ws.send(
+  JSON.stringify({ type: 'playground.hello', sessionId: session, apiKey }),
+);
+
+// Proves #keys survives a cross-EVENT lookup in a live isolate before the
+// idle gap even starts: this fresh chart_request lands on a webSocketMessage
+// invocation separate from the one that processed the hello above, and a
+// pass here depends on this.#keys.get(ws) resolving the SAME connection's
+// key across that boundary. If per-connection identity were not stable
+// across events, this would already fail-fast here instead of only showing
+// up as a mystery after the idle gap. It also warms the engine, so the
+// post-wake replay below rebuilds a real engine rather than exercising a
+// first-ever construction.
+console.log('sending a warm-up chart_request to prove cross-event key lookup');
+const warmupBefore = frames.length;
+ws.send(chartRequestWire(session));
+await new Promise((resolve) => setTimeout(resolve, REPLY_WAIT_MS));
+const warmupReply = frames
+  .slice(warmupBefore)
+  .find((f) => f.includes('"type":"engine.maelstrom.response"'));
+if (!warmupReply) {
+  const seenTypes = frames
+    .slice(warmupBefore)
+    .map((f) => frameType(f))
+    .join(', ');
+  connectionFailure(
+    `warm-up chart_request never got a correlated engine.maelstrom.response ` +
+      `before the idle gap even started (saw: ${seenTypes || 'nothing'}). ` +
+      'This means cross-event WebSocket/key identity is not stable, or the ' +
+      'engine could not be built — investigate before trusting any PASS ' +
+      'this script has ever printed.',
+  );
+}
+console.log('  -> warm-up reply received; cross-event key lookup confirmed');
+
+console.log(
+  `idling ${idleMinutes}m to force hibernation — this is expected to take a while, the process has not hung...`,
+);
+const idleMs = idleMinutes * 60_000;
+const idleStart = Date.now();
+await new Promise<void>((resolve) => {
+  const ticker = setInterval(() => {
+    const elapsedMin = ((Date.now() - idleStart) / 60_000).toFixed(1);
+    console.log(`  ... still idling, ${elapsedMin}/${idleMinutes}m elapsed`);
+  }, PROGRESS_INTERVAL_MS);
+  setTimeout(() => {
+    clearInterval(ticker);
+    resolve();
+  }, idleMs);
+});
+
+console.log('idle gap elapsed; sending the frame that should trigger rehello');
+const before = frames.length;
+// Cleared so the verdict measures THIS probe only. A rehello during the
+// warm-up (the DO can lose the key across events and still recover when the
+// script resends it) would otherwise leave both stamps set from that
+// exchange, and the latency printed below would describe the warm-up rather
+// than the post-wake recovery.
+rehelloAt = 0;
+replyAt = 0;
+ws.send(chartRequestWire(session));
+await new Promise((resolve) => setTimeout(resolve, REPLY_WAIT_MS));
+
+// From here on the run has reached its own verdict — the close below is
+// deliberate, not a connection failure, and must not be reported as one.
+settled = true;
+clearInterval(heartbeat);
+const replaySlice = frames.slice(before);
+// Scoped to the post-idle slice, exactly like sawReply below, NOT to every
+// frame of the run. A rehello observed during the warm-up would otherwise
+// keep this true for the rest of the process, so a later idle gap that
+// failed to hibernate — returning nothing but a normal reply — would print
+// PASS instead of INCONCLUSIVE. That is precisely the false positive this
+// script exists to prevent, so the check must not be able to be satisfied by
+// an earlier phase.
+const sawRehello = replaySlice.some((f) => f.includes('playground.rehello'));
+// Must be the actual chart response, not merely something starting with
+// "engine." — engine.error matches that prefix just as readily, so a run
+// where the replay came back "session engine unavailable" would otherwise
+// print PASS on a failed replay.
+const sawReply = replaySlice.some((f) =>
+  f.includes('"type":"engine.maelstrom.response"'),
+);
+const stillOpen = ws.readyState === WebSocket.OPEN;
+ws.close();
+
+console.log('');
+console.log('=== verify-hibernation result ===');
+console.log(`socket survived idle gap : ${stillOpen}`);
+console.log(`rehello requested        : ${sawRehello}`);
+console.log(`buffered frame replayed  : ${sawReply}`);
+// Rehello observed but no replay reply: there is no round trip to report, so
+// print nothing rather than a number measured against an event that never
+// happened. The FAIL verdict below is what carries that case.
+if (rehelloAt && replyAt)
+  console.log(`recovery latency         : ${replyAt - rehelloAt}ms`);
+if (!sawReply && replaySlice.length > 0) {
+  const seenTypes = replaySlice.map((f) => frameType(f)).join(', ');
+  console.log(
+    `reply received but wrong type — saw: ${seenTypes} (wanted engine.maelstrom.response)`,
+  );
+}
+console.log('');
+
+// sawRehello === false with sawReply === true means the object never
+// actually hibernated during the idle gap — the round trip looks clean but
+// proves nothing about the rehello recovery path. That combination must
+// never be reported as a pass.
+if (!stillOpen || !sawReply) {
+  console.log(
+    'FAIL — socket died across the idle gap, or no correlated engine.maelstrom.response was ever received.',
+  );
+  process.exit(1);
+}
+if (!sawRehello) {
+  console.log(
+    'INCONCLUSIVE — a reply came back but no playground.rehello was ever observed.',
+  );
+  console.log(
+    `The object stayed resident for the entire ${idleMinutes}m idle gap, so hibernation`,
+  );
+  console.log(
+    'was never exercised. This is NOT a pass. Re-run with a longer idle gap.',
+  );
+  process.exit(2);
+}
+console.log(
+  'PASS — socket survived hibernation, rehello was observed, and the buffered frame was replayed.',
+);
+process.exit(0);

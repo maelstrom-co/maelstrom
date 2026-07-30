@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test",
-    "test:watch": "bun test --watch"
+    "test": "bun test src",
+    "test:watch": "bun test src --watch"
   },
   "dependencies": {
     "@astrojs/react": "catalog:",
@@ -22,12 +22,58 @@
   "devDependencies": {
     "@astrojs/check": "catalog:",
     "@astrojs/cloudflare": "catalog:",
-    "@cloudflare/workers-types": "^4.20260317.1",
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "catalog:"
+  },
+  "nx": {
+    "targets": {
+      "typegen": {
+        "command": "wrangler types --env-file /dev/null",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/wrangler.jsonc",
+          {
+            "externalDependencies": [
+              "wrangler"
+            ]
+          }
+        ],
+        "outputs": [
+          "{projectRoot}/worker-configuration.d.ts"
+        ]
+      },
+      "typecheck": {
+        "dependsOn": [
+          "build",
+          "typegen"
+        ],
+        "inputs": [
+          "{projectRoot}/astro.config.ts",
+          "{projectRoot}/src/**/*",
+          "{projectRoot}/public/**/*",
+          {
+            "externalDependencies": [
+              "astro"
+            ]
+          },
+          "^default",
+          "{projectRoot}/wrangler.jsonc",
+          "{projectRoot}/tsconfig.json",
+          {
+            "externalDependencies": [
+              "wrangler"
+            ]
+          }
+        ]
+      }
+    }
   }
 }

@@ -133,7 +133,7 @@ if (process.platform !== 'win32') {
         'utf8',
       );
       expect(assetEntry).toContain(
-        'import.meta.resolve("onnxruntime-web/wasm")',
+        'import { t as e } from "./vad-assets-B-lNL3ng.js";\nexport { e as copyLiveKitVadAssets };\n',
       );
     } finally {
       rmSync(outputDir, { recursive: true, force: true });

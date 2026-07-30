@@ -311,13 +311,11 @@ describe('copyLiveKitVadAssets', () => {
         return realFs.rename(source, destination);
       },
       rm: async (path: string, options: Parameters<typeof actualFs.rm>[1]) => {
-        if (
-          fault.point === 'backup-removal' &&
-          path.includes('.backup-') &&
-          !fault.backupRemovalFailed
-        ) {
-          fault.backupRemovalFailed = true;
-          await realFs.rm(join(path, 'prior.txt'), { force: true });
+        if (fault.point === 'backup-removal' && path.includes('.backup-')) {
+          if (!fault.backupRemovalFailed) {
+            fault.backupRemovalFailed = true;
+            await realFs.rm(join(path, 'prior.txt'), { force: true });
+          }
           throw new Error('injected backup-removal failure');
         }
         if (

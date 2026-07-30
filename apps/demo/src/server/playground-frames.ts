@@ -20,6 +20,16 @@ export interface PlaygroundHelloFrame {
 // API key" path a bad key should hit.
 const MIN_API_KEY_LENGTH = 20;
 
+// The hosted transport writes {helloed, sessionId} through
+// `ws.serializeAttachment`, which the platform caps at 16,384 bytes and
+// THROWS past — out of SessionDO's hello handler, which sits outside its
+// dispatch try/catch, so an oversized id would surface as an unhandled
+// exception that `observability.logs.persist` then retains. sessionId is
+// attacker-controlled (any crafted frame carries whatever it likes), so the
+// cap has to live here at the trust boundary rather than being assumed from
+// the shipped client, which only ever sends a 21-char nanoid.
+const MAX_SESSION_ID_LENGTH = 256;
+
 export function isPlaygroundHello(
   value: unknown,
 ): value is PlaygroundHelloFrame {
@@ -30,15 +40,43 @@ export function isPlaygroundHello(
     apiKey?: unknown;
   };
   // Non-empty, not just string-typed: an empty sessionId would collapse
-  // every crafted connection onto one shared SessionEngineManager map key.
+  // every crafted connection onto the same Durable Object (idFromName('')),
+  // sharing one visitor's engine and history with anyone else who omits it.
   return (
     type === 'playground.hello' &&
     typeof sessionId === 'string' &&
     sessionId.length > 0 &&
+    sessionId.length <= MAX_SESSION_ID_LENGTH &&
     typeof apiKey === 'string' &&
     apiKey.length >= MIN_API_KEY_LENGTH
   );
 }
+
+/**
+ * The client's negative answer to `playground.rehello`: "I received your
+ * request for a key and I do not have one."
+ *
+ * Without an explicit decline, a silent non-answer is observationally
+ * identical to an answer still in flight, and the server has to guess.
+ * Guessing wrong in either direction has a cost: treat a racing frame as a
+ * decline and a visitor who has a perfectly good key is told they have none;
+ * treat a decline as still-in-flight and their buffered request hangs until
+ * the client's correlator gives up with no diagnostic at all.
+ */
+export function isPlaygroundNoKey(
+  value: unknown,
+): value is { type: 'playground.nokey' } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { type?: unknown }).type === 'playground.nokey'
+  );
+}
+
+/** Wire frame for {@link isPlaygroundNoKey}, so both sides share one literal. */
+export const PLAYGROUND_NOKEY_FRAME = JSON.stringify({
+  type: 'playground.nokey',
+});
 
 // Delegates to @maelstrom-co/client's isHeartbeatPingFrame — the same
 // package that owns the client-side half of this handshake
@@ -53,6 +91,7 @@ export function isHeartbeatPing(
 export type IncomingFrameDecision =
   | { readonly kind: 'heartbeat' }
   | { readonly kind: 'hello'; readonly frame: PlaygroundHelloFrame }
+  | { readonly kind: 'hello-declined' }
   | { readonly kind: 'hello-rejected' }
   | { readonly kind: 'dispatch' };
 
@@ -72,6 +111,11 @@ export function classifyIncomingFrame(
 ): IncomingFrameDecision {
   if (isHeartbeatPing(parsed)) return { kind: 'heartbeat' };
   if (helloReceived) return { kind: 'dispatch' };
+  // Only meaningful without a key in hand: a decline answers a rehello, and
+  // a rehello is only ever sent to a connection whose key is gone. Placed
+  // after the helloReceived gate so a stray or crafted decline on a healthy
+  // connection is just undecodable traffic, never a way to disarm one.
+  if (isPlaygroundNoKey(parsed)) return { kind: 'hello-declined' };
   return isPlaygroundHello(parsed)
     ? { kind: 'hello', frame: parsed }
     : { kind: 'hello-rejected' };

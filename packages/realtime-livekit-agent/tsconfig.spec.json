@@ -3,7 +3,8 @@
   "compilerOptions": {
     "outDir": "./out-tsc/vitest",
     "lib": ["es2022"],
-    "types": ["bun"]
+    "types": ["bun"],
+    "rootDir": "."
   },
   "include": [
     "src/**/*.spec.ts",

@@ -54,6 +54,18 @@ export default defineConfig(() => {
           'zod',
         ],
       },
+      name: '@maelstrom-co/realtime-livekit',
+      formats: ['es' as const],
+    },
+    rolldownOptions: {
+      external: [
+        /^node:/,
+        '@maelstrom-co/client',
+        '@maelstrom-co/protocol',
+        '@maelstrom-co/realtime',
+        'livekit-client',
+        'zod',
+      ],
     },
   };
 });
