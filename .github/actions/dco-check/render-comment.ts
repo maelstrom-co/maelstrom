@@ -97,8 +97,8 @@ function failBody(verdicts: Verdict[], violations: Violation[]): string {
     '```',
     '',
     'The sign-off email must equal either the commit author or the committer email,',
-    'case-insensitively; the name is never compared. Merge commits and `[bot]`-authored',
-    `commits are exempt. See [the DCO section of CONTRIBUTING.md](${CONTRIBUTING_DCO_URL}).`,
+    'case-insensitively; the name is never compared. Merge commits and commits from a bot',
+    `account are exempt. See [the DCO section of CONTRIBUTING.md](${CONTRIBUTING_DCO_URL}).`,
   ].join('\n');
 }
 

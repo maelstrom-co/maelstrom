@@ -105,7 +105,7 @@ git push --force-with-lease          # rewriting history requires a force push
 **What the check compares.** The `Signed-off-by` email must equal either the
 commit's **author** email or its **committer** email, compared
 case-insensitively. The **name is never compared**, so an ASCII-folded name (or
-one missing diacritics) is fine. Merge commits and `[bot]`-authored commits are
+one missing diacritics) is fine. Merge commits and commits from a bot account are
 exempt.
 
 Either identity counts because `git commit -s` and the bundled hook both sign
