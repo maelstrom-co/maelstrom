@@ -240,6 +240,7 @@ export class Orchestrator {
 
     const request = this.#newRequest(updates);
     const response = await this.#requestCoordinator.send(request);
+    if (this.#isSuperseded()) return response;
     this.#dispatchResponse(response);
     this.#requestCoordinator.resolveFlushPromises(response);
     return response;
@@ -265,6 +266,7 @@ export class Orchestrator {
 
     const request = this.#newRequest(updates);
     const response = await this.#requestCoordinator.send(request);
+    if (this.#isSuperseded()) return null;
     this.#dispatchResponse(response);
     this.#requestCoordinator.resolveFlushPromises(response);
     return response;
@@ -567,6 +569,8 @@ export class Orchestrator {
           return;
         }
 
+        if (this.#isSuperseded()) return;
+
         try {
           this.#dispatchResponse(response);
         } catch (err) {
@@ -592,6 +596,14 @@ export class Orchestrator {
       );
       this.#unsubscribers.push(unsubPush);
     }
+  }
+
+  // A response can outlive the state it was meant to update: the transport has
+  // no cancellation, so dispose() cannot stop an in-flight request. Applying it
+  // anyway throws from the torn-down CommandProcessor as an unhandled
+  // rejection.
+  #isSuperseded(): boolean {
+    return this.#isDisposed;
   }
 
   async #runLocalAction(

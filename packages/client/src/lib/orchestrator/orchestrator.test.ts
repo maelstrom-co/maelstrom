@@ -773,6 +773,37 @@ describe('Orchestrator', () => {
       const result = await orchestrator.flushUpdates();
       expect(result).toBeNull();
     });
+
+    it('discards a response that resolves after dispose instead of throwing', async () => {
+      let releaseResponse!: (response: MaelstromResponse) => void;
+      const connector = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((resolve) => {
+            releaseResponse = resolve;
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(connector);
+
+      // Start a request, then dispose while it is still in flight. This is the
+      // exact shape the React Provider produced on every rebuild: dispose() runs
+      // in effect cleanup while a processIntent promise is still pending.
+      const pending = orchestrator.processIntent('show sales');
+      await orchestrator.dispose();
+
+      releaseResponse({
+        type: 'maelstrom_response',
+        requestId: MessageId('req-1'),
+        userMessage: '',
+        rationale: '',
+        executionPlan: [],
+        layout: { type: 'grid', positions: [] },
+      });
+
+      // Must not reject with 'CommandProcessor is disposed'. The request was
+      // legitimately issued, so the caller gets the response back — it simply is
+      // never dispatched into a torn-down command processor.
+      await expect(pending).resolves.toBeDefined();
+    });
   });
 
   // --------------------------------------------------------------------------
