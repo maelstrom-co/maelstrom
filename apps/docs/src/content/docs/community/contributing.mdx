@@ -15,6 +15,32 @@ Maelstrom is an Nx monorepo with published TypeScript packages, a demo app, and 
 6. Run the relevant package target, then broader verification when needed.
 7. Submit a pull request with the user-facing behavior and verification evidence.
 
+## Developer Certificate of Origin (DCO)
+
+Every commit must be signed off:
+
+```bash
+git commit -s -m "feat: ..."   # appends a "Signed-off-by" trailer
+```
+
+This certifies you have the right to submit the change under the project's
+license. To have the trailer added automatically, enable the bundled hook once
+per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The `dco` check is required on `main` and runs on every pull request. A commit
+missing its sign-off turns the check red and a bot comment lists the offending
+commits. Fix it with `git rebase --signoff origin/main` and a force-push.
+
+See the root
+[`CONTRIBUTING.md`](https://github.com/maelstrom-co/maelstrom/blob/main/CONTRIBUTING.md#developer-certificate-of-origin-dco)
+for the full DCO 1.1 text, the enforcement rules (what counts as a match,
+what's exempt), and sign-off instructions for tools other than plain `git`
+(jj, JetBrains IDEs, lazygit, Sourcetree).
+
 ## Pull request process
 
 When you open a pull request, optimize for reviewability rather than volume:
