@@ -36,6 +36,7 @@ describe('failBody', () => {
     ['a backtick', 'Ada `Lovelace`'],
     ['Markdown emphasis', 'Ada **Lovelace** _the_ [first](https://x)'],
     ['an HTML tag', 'Ada <img src="https://attacker.example/x.png">'],
+    ['a backslash before a pipe', 'Ada \\| Lovelace'],
   ])('renders %s in an identity as inert text on a single row', (_label, authorName) => {
     const body = renderComment([
       {
@@ -63,6 +64,7 @@ describe('failBody', () => {
         signedOffAs: [
           'a|b@example.com',
           'x`y@example.com',
+          'p\\|q@example.com',
           '<img src="https://attacker.example/x.png">',
         ],
       },
@@ -72,8 +74,9 @@ describe('failBody', () => {
     const cells = cellsOf(rows[0] ?? '');
     expect(cells).toHaveLength(3);
     // One code span per address, each closed by its own delimiter.
-    expect(backtickCount(cells[2] ?? '')).toBe(6);
+    expect(backtickCount(cells[2] ?? '')).toBe(8);
     expect(cells[2]).toContain('a\\|b@example.com');
+    expect(cells[2]).toContain('p\\\\\\|q@example.com');
   });
 
   it('carries the remediation block and the CONTRIBUTING link on a failure', () => {
