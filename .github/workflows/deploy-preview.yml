@@ -80,6 +80,17 @@ jobs:
         # tries ws://localhost:3001 and never works.
         run: VITE_HOSTED=1 bunx nx build @maelstrom-co/demo
 
+      - name: Resolve the installed wrangler version
+        id: wrangler
+        # Read it from the workspace rather than hardcoding. wrangler-action
+        # probes `npx --no-install wrangler --version` and treats *any*
+        # mismatch against the version it was given as "incompatible", then
+        # falls back to `npm i wrangler@<pinned>` — which dies on bun's
+        # `workspace:*` protocol. So a stale pin here does not degrade to an
+        # older wrangler, it fails the deploy outright. A hardcoded value went
+        # stale within a day of landing; deriving it cannot.
+        run: echo "version=$(node -p "require('wrangler/package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to Cloudflare
         id: deploy
         # A separately-named Worker per PR, not `wrangler versions upload`:
@@ -92,9 +103,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/demo
-          # apps/demo has no lockfile, so the action would otherwise npm-install
-          # the latest wrangler 4.x — keep this in sync with the root bun.lock.
-          wranglerVersion: "4.114.0"
+          wranglerVersion: ${{ steps.wrangler.outputs.version }}
           command: deploy --name maelstrom-playground-pr-${{ github.event.pull_request.number }}
 
       - name: Require a preview URL
@@ -177,7 +186,10 @@ jobs:
         # exits non-zero either way, and a blanket continue-on-error would hide
         # auth failures and API outages just as well as it hides a stale name.
         # --force skips wrangler's interactive confirmation, which has no answer
-        # in CI. Pinned to the same version as the deploy job.
+        # in CI. Pinned rather than derived from the lockfile as the deploy job
+        # does — this job has no checkout, so there is nothing to read. Drift is
+        # harmless here: bunx fetches this exact version and a delete is a
+        # delete, whereas a stale pin on the deploy side fails the deploy.
         # If this step fails for a real reason (auth blip, Cloudflare outage), the
         # Worker and its Durable Object storage are orphaned with no automatic
         # retry — recover manually by re-adding then re-removing the
@@ -192,7 +204,7 @@ jobs:
           # GitHub runs this under `bash -e`, and `set -uo pipefail` does not clear
           # it — a bare `output=$(cmd)` would abort the step at the assignment, so
           # neither the diagnostics below nor the not-found branch would ever run.
-          if output=$(bunx wrangler@4.114.0 delete --name "$WORKER_NAME" --force 2>&1); then
+          if output=$(bunx wrangler@4.115.0 delete --name "$WORKER_NAME" --force 2>&1); then
             status=0
           else
             status=$?
