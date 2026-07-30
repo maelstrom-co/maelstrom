@@ -15,6 +15,9 @@ describe('code', () => {
     ['a trailing backslash', 'Ada Lovelace\\'],
     ['a doubled backslash', 'Ada \\\\ Lovelace'],
     ['a backslash before a backtick', 'Ada \\`Lovelace`'],
+    ['a carriage return', 'Ada\rEVIL'],
+    ['a newline', 'Ada\nEVIL'],
+    ['a NUL', 'Ada\0EVIL'],
   ])('renders %s as a single inert code span', (_label, value) => {
     const span = code(value);
     // Exactly one code span: the two delimiters and nothing that could close
@@ -22,6 +25,10 @@ describe('code', () => {
     expect(backtickCount(span)).toBe(2);
     expect(span.startsWith('`')).toBe(true);
     expect(span.endsWith('`')).toBe(true);
+    // Asserted directly, not through `cellsOf`: that oracle models the row
+    // scanner, which runs on one line and so cannot see a line ending at all —
+    // it reports a row torn in two by a carriage return as a row intact.
+    expect(span).not.toMatch(/[\p{Cc}\p{Zl}\p{Zp}]/u);
     // The span fills one cell and no more: no pipe inside it survives as a
     // boundary, and it does not swallow the boundary that follows it.
     expect(cellsOf(row([span, 'next']))).toEqual([` ${span} `, ' next ']);

@@ -6,6 +6,14 @@
 // mistakes the second backslash of a `\\` pair for an escape and reports a row
 // intact exactly where GFM would tear it apart.
 export function cellsOf(row: string): string[] {
+  // Refuses rather than models: the scanner below runs on one line, so it reads
+  // a row a line ending already tore in two as a row intact — the one shape of
+  // broken containment it would otherwise report as safe.
+  if (LINE_ENDING.test(row)) {
+    throw new Error(
+      `row contains a line ending, so GFM would split it: ${row}`,
+    );
+  }
   const cells: string[] = [];
   let cell = '';
   for (let index = 0; index < row.length; index++) {
@@ -26,3 +34,5 @@ export function cellsOf(row: string): string[] {
   // empty text outside the table, not cells.
   return cells.slice(1, -1);
 }
+
+const LINE_ENDING = /[\r\n]/;
