@@ -490,6 +490,116 @@ describe('Orchestrator', () => {
 
       orchestrator.dispose();
     });
+
+    it('requeues a fenced-out processIntent() vessel_mutation instead of dropping it', async () => {
+      // Same gap as flushUpdates() and the timer-flush handler: takeCoalesced()
+      // already drained #pendingUpdates before the request was sent, so if the
+      // fence at the top of processIntent just returns, the mutation reason is
+      // gone for good — never dispatched, never returned to the coordinator.
+      let releaseResponse!: (response: MaelstromResponse) => void;
+      const first = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((resolve) => {
+            releaseResponse = resolve;
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'must not vanish',
+      });
+
+      const pending = orchestrator.processIntent('show chart');
+      // Bumps #connectorEpoch, fencing the in-flight intent's response.
+      const second = createMockConnector();
+      orchestrator.setConnector(second);
+
+      releaseResponse(
+        createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
+      );
+      await pending;
+
+      // The mutation must have been requeued, not dropped — a subsequent
+      // flush on the fresh connector must still carry it. Critically, the
+      // synthetic user_intent from the fenced call must NOT be replayed —
+      // only `pendingUpdates`, never `updates`.
+      await orchestrator.flushUpdates();
+      expect(second.process).toHaveBeenCalledTimes(1);
+      const envelope = (second.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      expect(
+        envelope.request.context.updateReasons.some(
+          (r) =>
+            r.type === 'vessel_mutation' && r.changes === 'must not vanish',
+        ),
+      ).toBe(true);
+      expect(
+        envelope.request.context.updateReasons.some(
+          (r) => r.type === 'user_intent' && r.intent === 'show chart',
+        ),
+      ).toBe(false);
+
+      orchestrator.dispose();
+    });
+
+    it('settles a queued flush promise instead of hanging it when processIntent()s in-flight request is fenced by a connector swap', async () => {
+      // queueFlush()'s resolvers are cleared ONLY by resolveFlushPromises /
+      // rejectFlushPromises / RequestCoordinator.dispose(). The fenced branch
+      // above used to skip all three, so a flush queued behind an in-flight
+      // processIntent() would hang forever once that intent got fenced out
+      // by a connector swap — never resolved, never rejected.
+      let releaseResponse!: (response: MaelstromResponse) => void;
+      const first = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((resolve) => {
+            releaseResponse = resolve;
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      const intentPromise = orchestrator.processIntent('show sales');
+
+      // A concurrent flush queues behind the in-flight intent instead of
+      // sending its own request.
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-2'),
+        changes: 'queued behind the intent',
+      });
+      const flushPromise = orchestrator.flushUpdates();
+
+      // Bumps #connectorEpoch, fencing the in-flight intent's response.
+      orchestrator.setConnector(createMockConnector());
+
+      releaseResponse(
+        createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
+      );
+      await intentPromise;
+
+      // The queued flush must settle, not hang — detect a hang via a
+      // fake-timer race rather than letting the test itself stall.
+      const timeoutPromise = new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), 5000),
+      );
+      const racePromise = Promise.race([
+        flushPromise.then((v) => ({ resolved: v }) as const),
+        timeoutPromise,
+      ]);
+      await clock.tickAsync(6000);
+      const result = await racePromise;
+
+      expect(result).not.toBe('timeout');
+      if (result !== 'timeout') {
+        // The response was minted under a superseded connector and was
+        // never applied — null (the same value flushUpdates() already
+        // returns when there is nothing to report), not the ghost response.
+        expect(result.resolved).toBeNull();
+      }
+
+      orchestrator.dispose();
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -552,6 +662,209 @@ describe('Orchestrator', () => {
       await clock.tickAsync(350);
 
       expect(connector.process).toHaveBeenCalledTimes(1);
+
+      orchestrator.dispose();
+    });
+
+    it('requeues a fenced-out flushUpdates() vessel_mutation instead of dropping it', async () => {
+      // The fence in flushUpdates() discards the RESPONSE from a superseded
+      // connector, correctly. But takeCoalesced() already drained
+      // #pendingUpdates before the request was even sent — if the fenced
+      // branch just returns, that update reason is gone for good: never
+      // dispatched, never returned to the coordinator.
+      let releaseResponse!: (response: MaelstromResponse) => void;
+      const first = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((resolve) => {
+            releaseResponse = resolve;
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'must not vanish',
+      });
+
+      const pending = orchestrator.flushUpdates();
+      // Bumps #connectorEpoch, fencing the in-flight flush's response.
+      const second = createMockConnector();
+      orchestrator.setConnector(second);
+
+      releaseResponse(
+        createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
+      );
+      const result = await pending;
+      expect(result).toBeNull();
+
+      // The mutation must have been requeued, not dropped — a subsequent
+      // flush on the fresh connector must still carry it.
+      await orchestrator.flushUpdates();
+      expect(second.process).toHaveBeenCalledTimes(1);
+      const envelope = (second.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      expect(
+        envelope.request.context.updateReasons.some(
+          (r) =>
+            r.type === 'vessel_mutation' && r.changes === 'must not vanish',
+        ),
+      ).toBe(true);
+
+      orchestrator.dispose();
+    });
+
+    it('requeues a fenced-out timer-triggered vessel_mutation instead of dropping it', async () => {
+      // Same gap as above, in the internal updates_flushed handler that
+      // fires from the debounce timer rather than a caller's flushUpdates().
+      let releaseResponse!: (response: MaelstromResponse) => void;
+      const first = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((resolve) => {
+            releaseResponse = resolve;
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'must not vanish (timer path)',
+      });
+
+      // Fires the debounce timer → updates_flushed → #requestCoordinator.send
+      // is now in flight against `first`.
+      await clock.tickAsync(350);
+
+      const second = createMockConnector();
+      orchestrator.setConnector(second);
+
+      releaseResponse(
+        createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
+      );
+      await waitFor(() => !orchestrator.requestCoordinator.isProcessing);
+
+      await orchestrator.flushUpdates();
+      expect(second.process).toHaveBeenCalledTimes(1);
+      const envelope = (second.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      expect(
+        envelope.request.context.updateReasons.some(
+          (r) =>
+            r.type === 'vessel_mutation' &&
+            r.changes === 'must not vanish (timer path)',
+        ),
+      ).toBe(true);
+
+      orchestrator.dispose();
+    });
+
+    it('settles a queued flush promise instead of hanging it when flushUpdates()s own in-flight request is fenced by a connector swap', async () => {
+      // flushUpdates() itself sends the primary request here (nothing else
+      // was in flight when it was called). A SECOND caller arriving while
+      // that primary request is in flight queues via queueFlush() instead —
+      // and that queued promise must settle too when the primary gets
+      // fenced, not just the primary's own return value (already covered by
+      // the requeue test above).
+      let releaseResponse!: (response: MaelstromResponse) => void;
+      const first = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((resolve) => {
+            releaseResponse = resolve;
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'primary',
+      });
+      const primaryFlush = orchestrator.flushUpdates();
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-2'),
+        changes: 'queued behind the primary',
+      });
+      const queuedFlush = orchestrator.flushUpdates();
+
+      // Bumps #connectorEpoch, fencing the primary flush's response.
+      orchestrator.setConnector(createMockConnector());
+
+      releaseResponse(
+        createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
+      );
+      expect(await primaryFlush).toBeNull();
+
+      const timeoutPromise = new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), 5000),
+      );
+      const racePromise = Promise.race([
+        queuedFlush.then((v) => ({ resolved: v }) as const),
+        timeoutPromise,
+      ]);
+      await clock.tickAsync(6000);
+      const result = await racePromise;
+
+      expect(result).not.toBe('timeout');
+      if (result !== 'timeout') {
+        expect(result.resolved).toBeNull();
+      }
+
+      orchestrator.dispose();
+    });
+
+    it("settles a queued flush promise instead of hanging it when the timer-triggered flush's own in-flight request is fenced by a connector swap", async () => {
+      let releaseResponse!: (response: MaelstromResponse) => void;
+      const first = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((resolve) => {
+            releaseResponse = resolve;
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'timer-primary',
+      });
+
+      // Fires the debounce timer → updates_flushed → #requestCoordinator.send
+      // is now in flight against `first`.
+      await clock.tickAsync(350);
+
+      // A caller arrives while the timer-triggered send is in flight — queues.
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-2'),
+        changes: 'queued behind the timer flush',
+      });
+      const queuedFlush = orchestrator.flushUpdates();
+
+      // Bumps #connectorEpoch, fencing the timer-triggered request's response.
+      orchestrator.setConnector(createMockConnector());
+
+      releaseResponse(
+        createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
+      );
+      await waitFor(() => !orchestrator.requestCoordinator.isProcessing);
+
+      const timeoutPromise = new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), 5000),
+      );
+      const racePromise = Promise.race([
+        queuedFlush.then((v) => ({ resolved: v }) as const),
+        timeoutPromise,
+      ]);
+      await clock.tickAsync(6000);
+      const result = await racePromise;
+
+      expect(result).not.toBe('timeout');
+      if (result !== 'timeout') {
+        expect(result.resolved).toBeNull();
+      }
 
       orchestrator.dispose();
     });
@@ -647,6 +960,38 @@ describe('Orchestrator', () => {
       const { orchestrator } = createTestOrchestrator(pushConnector);
 
       expect(pushConnector.onPushMessage).toHaveBeenCalledTimes(1);
+
+      orchestrator.dispose();
+    });
+
+    it('discards a message from the OLD push transport delivered after a connector swap', () => {
+      // Reproduces the dead epoch check: #attachPushSubscription used to
+      // compare the LIVE #connectorEpoch field against itself
+      // (`epoch !== this.#connectorEpoch`), which is always false. A
+      // callback already queued by the old push transport when
+      // setConnector() unsubscribes could therefore still dispatch a
+      // layout minted by a superseded connector.
+      let capturedCallback: ((response: MaelstromResponse) => void) | undefined;
+      const first = createMockPushConnector({
+        onPushMessage: mock(
+          (cb: (response: MaelstromResponse) => void): Unsubscribe => {
+            capturedCallback = cb;
+            return () => {};
+          },
+        ),
+      });
+      const second = createMockPushConnector();
+      const { orchestrator } = createTestOrchestrator(first);
+
+      orchestrator.setConnector(second);
+
+      // The old transport's callback fires anyway — modeling a message
+      // already in flight when the unsubscribe happened.
+      capturedCallback?.(
+        createMockResponse(MessageId('req-ghost'), 'ghost-instance', 'show'),
+      );
+
+      expect(orchestrator.commandProcessor.store.state.instances.size).toBe(0);
 
       orchestrator.dispose();
     });
@@ -1918,6 +2263,99 @@ describe('Orchestrator', () => {
       await third;
       expect(sent[2].request.context.layoutMode).toBe('grid');
       expect(sent[2].request.layout.type).toBe('grid');
+
+      orchestrator.dispose();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // setConnector
+  // --------------------------------------------------------------------------
+
+  describe('setConnector', () => {
+    it('routes subsequent calls to the new connector', async () => {
+      const first = createMockConnector();
+      const second = createMockConnector();
+      const { orchestrator } = createTestOrchestrator(first);
+
+      orchestrator.setConnector(second);
+      await orchestrator.processIntent('hello');
+
+      expect(first.process).toHaveBeenCalledTimes(0);
+      expect(second.process).toHaveBeenCalledTimes(1);
+
+      orchestrator.dispose();
+    });
+
+    it('moves the push subscription and leaves the others attached', () => {
+      const firstUnsub = mock((): void => {});
+      const first = createMockPushConnector({
+        onPushMessage: mock(
+          (_cb: (response: MaelstromResponse) => void): Unsubscribe =>
+            firstUnsub,
+        ),
+      });
+      const second = createMockPushConnector();
+      const { orchestrator } = createTestOrchestrator(first);
+
+      orchestrator.setConnector(second);
+
+      // Detached from the old connector...
+      expect(firstUnsub).toHaveBeenCalledTimes(1);
+      // ...re-attached to the new one.
+      expect(second.onPushMessage).toHaveBeenCalledTimes(1);
+      // The other three subscriptions are on internal microkernels and have
+      // nothing to do with the connector. If the swap tore down the whole
+      // #unsubscribers array, this dimension change would no longer schedule
+      // an update and the chart would stop reacting to resizes for the rest
+      // of the session.
+      orchestrator.chartManager.setDimensions({ columns: 8, rows: 4 });
+      expect(
+        orchestrator.chartManager.store.state.chartDimensions.columns,
+      ).toBe(8);
+
+      orchestrator.dispose();
+    });
+
+    it('with the same reference is a no-op', () => {
+      const unsub = mock((): void => {});
+      const connector = createMockPushConnector({
+        onPushMessage: mock(
+          (_cb: (response: MaelstromResponse) => void): Unsubscribe => unsub,
+        ),
+      });
+      const { orchestrator } = createTestOrchestrator(connector);
+
+      orchestrator.setConnector(connector);
+
+      expect(unsub).not.toHaveBeenCalled();
+
+      orchestrator.dispose();
+    });
+
+    it('discards a response from a connector that has since been swapped', async () => {
+      let releaseResponse!: (response: MaelstromResponse) => void;
+      const first = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((resolve) => {
+            releaseResponse = resolve;
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      const pending = orchestrator.processIntent('show sales');
+      orchestrator.setConnector(createMockConnector());
+
+      releaseResponse(
+        createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
+      );
+      await pending;
+
+      // The whole point of the fence: a response minted by a connector that
+      // has been replaced (the re-auth case) must never reach the screen.
+      // Without this, a layout computed under revoked credentials lands on
+      // the board.
+      expect(orchestrator.commandProcessor.store.state.instances.size).toBe(0);
 
       orchestrator.dispose();
     });

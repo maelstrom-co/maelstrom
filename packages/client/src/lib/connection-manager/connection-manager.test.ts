@@ -63,6 +63,13 @@ function createMockConnector(): EngineConnector & {
   };
 }
 
+// Drains queued microtasks so a fire-and-forget async chain (setConnector's
+// internal #connectWithRetries call) gets the chance to run to completion
+// before assertions inspect its result.
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+}
+
 describe('ConnectionManager', () => {
   let manager: ConnectionManager;
   let clock: ReturnType<typeof FakeTimers.install>;
@@ -703,6 +710,70 @@ describe('ConnectionManager', () => {
       expect(totalConnectCalls).toBe(3);
       expect(manager.store.state.circuitBreakerStatus).toBe('open');
     });
+
+    it('does not let a stale auto-reconnect dial subscribe to a connector swapped in while its own dial was pending', async () => {
+      // Same read-back-through-the-field hazard as #connectWithRetries, but
+      // in the auto-reconnect timer's callback: `#setupConnectorSubscription`
+      // there also reads the LIVE `#connector`, so a swap while the timer's
+      // own `await connector.connect()` is in flight could land the same
+      // false-'connected'-via-an-undialed-connector bug.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 3,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+      });
+
+      await manager.connect();
+      expect(manager.store.state.connectionStatus).toBe('connected');
+
+      let resolveReconnectDial: () => void = () => {};
+      mockConnector.connect = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveReconnectDial = resolve;
+          }),
+      );
+
+      mockConnector.triggerEvent({
+        type: 'disconnected',
+        clean: false,
+        message: 'Dropped',
+      });
+      expect(manager.store.state.connectionStatus).toBe('disconnected');
+
+      // Fire the reconnect timer; its connect() call is now in flight.
+      await clock.tickAsync(10);
+      expect(manager.store.state.connectionStatus).toBe('connecting');
+
+      const nextConnector = createMockConnector();
+      let resolveNewDial: () => void = () => {};
+      nextConnector.connect = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveNewDial = resolve;
+          }),
+      );
+      manager.setConnector(nextConnector);
+      await flushMicrotasks();
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+
+      // The stale reconnect dial finally lands — belatedly, on a connector
+      // this manager no longer speaks for.
+      resolveReconnectDial();
+      await flushMicrotasks();
+
+      expect(manager.store.state.connectionStatus).not.toBe('connected');
+      expect(mockConnector.getSubscriberCount()).toBe(0);
+
+      resolveNewDial();
+      await flushMicrotasks();
+
+      expect(manager.store.state.connectionStatus).toBe('connected');
+      expect(nextConnector.getSubscriberCount()).toBe(1);
+    });
   });
 
   describe('disconnect', () => {
@@ -1212,6 +1283,63 @@ describe('ConnectionManager', () => {
       expect(manager.store.state.circuitBreakerStatus).toBe('open');
     });
 
+    it('does not let a stale half-open probe subscribe to a connector swapped in while its own dial was pending', async () => {
+      // Same read-back-through-the-field hazard as #connectWithRetries and
+      // the auto-reconnect timer, but in the half-open probe's `.then()`
+      // continuation.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 1,
+        initialDelayMs: 0,
+        maxDelayMs: 0,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 1000,
+      });
+
+      mockConnector.connect = mock(() => Promise.reject(new Error('down')));
+      await manager.connect().catch(() => {});
+      expect(manager.store.state.circuitBreakerStatus).toBe('open');
+
+      let resolveProbeDial: () => void = () => {};
+      mockConnector.connect = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveProbeDial = resolve;
+          }),
+      );
+
+      // Breaker timeout fires → half-open → automatic probe, now in flight
+      // against the old connector.
+      await clock.tickAsync(1000);
+      expect(manager.store.state.connectionStatus).toBe('connecting');
+
+      const nextConnector = createMockConnector();
+      let resolveNewDial: () => void = () => {};
+      nextConnector.connect = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveNewDial = resolve;
+          }),
+      );
+      manager.setConnector(nextConnector);
+      await flushMicrotasks();
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+
+      // The stale probe's dial finally lands — belatedly, on a connector
+      // this manager has already moved past.
+      resolveProbeDial();
+      await flushMicrotasks();
+
+      expect(manager.store.state.connectionStatus).not.toBe('connected');
+      expect(mockConnector.getSubscriberCount()).toBe(0);
+
+      resolveNewDial();
+      await flushMicrotasks();
+
+      expect(manager.store.state.connectionStatus).toBe('connected');
+      expect(nextConnector.getSubscriberCount()).toBe(1);
+    });
+
     it('should emit circuit_closed event on successful connection', async () => {
       manager = new ConnectionManager(mockConnector, {
         sessionId: SessionId('test-session'),
@@ -1248,6 +1376,260 @@ describe('ConnectionManager', () => {
       await manager.disconnect();
 
       expect(clock.countTimers()).toBe(0);
+    });
+  });
+
+  describe('setConnector', () => {
+    beforeEach(() => {
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+      });
+    });
+
+    it('moves the live subscription to the new connector: an old-connector event no longer changes state, a new-connector event does', async () => {
+      // Reproduces the half-swap bug: setConnector only reassigned #connector,
+      // so the manager kept listening to the connector it just replaced.
+      // Status events from the dead transport kept driving connectionStatus,
+      // and the new connector's events were ignored until something else
+      // (e.g. a reconnect) happened to re-subscribe.
+      await manager.connect();
+      expect(manager.store.state.connectionStatus).toBe('connected');
+
+      const nextConnector = createMockConnector();
+      manager.setConnector(nextConnector);
+      // setConnector now drives the new connector through the real connect
+      // path (Fix 1) instead of moving the subscription synchronously — let
+      // that fire-and-forget cycle settle before checking who's subscribed.
+      await flushMicrotasks();
+
+      // The OLD connector is dead to the manager now: an event it emits must
+      // not be able to move connectionStatus any more.
+      mockConnector.triggerEvent({
+        type: 'disconnected',
+        clean: true,
+        message: 'Stale event from the connector we swapped away from',
+      });
+      expect(manager.store.state.connectionStatus).toBe('connected');
+
+      // The NEW connector is what the manager listens to now: its event must
+      // take effect.
+      nextConnector.triggerEvent({
+        type: 'disconnected',
+        clean: true,
+        message: 'Event from the connector we swapped to',
+      });
+      expect(manager.store.state.connectionStatus).toBe('disconnected');
+    });
+
+    it('is a no-op when passed the same connector reference', async () => {
+      await manager.connect();
+      expect(mockConnector.getSubscriberCount()).toBe(1);
+
+      manager.setConnector(mockConnector);
+
+      // A same-reference call must not tear down and rebuild the
+      // subscription — that would be observable as a spurious unsubscribe.
+      expect(mockConnector.getSubscriberCount()).toBe(1);
+    });
+
+    it('does not attach a subscription when none was active yet', () => {
+      // No connect() has happened, so there is nothing to move — connect()
+      // installs the subscription itself later. Swapping here must not
+      // subscribe to the new connector early.
+      const nextConnector = createMockConnector();
+      manager.setConnector(nextConnector);
+
+      expect(nextConnector.getSubscriberCount()).toBe(0);
+    });
+
+    it('does not connect the new connector when the manager was never connected', async () => {
+      // A swap on a manager that never connected must not spontaneously
+      // connect — connect() remains the caller's own explicit trigger.
+      const nextConnector = createMockConnector();
+      manager.setConnector(nextConnector);
+      await flushMicrotasks();
+
+      expect(nextConnector.connect).not.toHaveBeenCalled();
+      expect(manager.store.state.connectionStatus).toBe('disconnected');
+    });
+
+    it('connects the new connector and disconnects the old one when swapped on a connected manager', async () => {
+      await manager.connect();
+      expect(manager.store.state.connectionStatus).toBe('connected');
+
+      const nextConnector = createMockConnector();
+      manager.setConnector(nextConnector);
+      await flushMicrotasks();
+
+      expect(mockConnector.disconnect).toHaveBeenCalledTimes(1);
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+      expect(manager.store.state.connectionStatus).toBe('connected');
+    });
+
+    it('does not report connected for the new connector before it has actually opened', async () => {
+      await manager.connect();
+      expect(manager.store.state.connectionStatus).toBe('connected');
+
+      let resolveConnect: () => void = () => {};
+      const nextConnector = createMockConnector();
+      nextConnector.connect = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveConnect = resolve;
+          }),
+      );
+
+      manager.setConnector(nextConnector);
+
+      // Synchronously after the swap — before the new connector's connect()
+      // has resolved — connectionStatus must not still claim 'connected'
+      // for a socket nobody has opened.
+      expect(manager.store.state.connectionStatus).not.toBe('connected');
+
+      resolveConnect();
+      await flushMicrotasks();
+
+      expect(manager.store.state.connectionStatus).toBe('connected');
+    });
+
+    it('drives a connector swapped in mid-dial through its own connect, instead of leaving it undialed or letting the stale dial subscribe to it', async () => {
+      // Regression: setConnector used to only redial when connectionStatus
+      // was already 'connected'. During the INITIAL connect(), status is
+      // 'connecting' while #connectWithRetries's `await connector.connect()`
+      // is still pending — a swap here used to reassign #connector and
+      // early-return, leaving the new connector completely undialed. Worse,
+      // when the stale dial eventually resolved, it read #connector back
+      // through the live field and subscribed to the connector THAT WAS
+      // NEVER ACTUALLY CONNECTED, falsely reporting 'connected'.
+      let resolveFirstConnect: () => void = () => {};
+      mockConnector.connect = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirstConnect = resolve;
+          }),
+      );
+
+      const connectPromise = manager.connect();
+      await flushMicrotasks();
+      expect(manager.store.state.connectionStatus).toBe('connecting');
+
+      const nextConnector = createMockConnector();
+      let resolveSecondConnect: () => void = () => {};
+      nextConnector.connect = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveSecondConnect = resolve;
+          }),
+      );
+      manager.setConnector(nextConnector);
+      await flushMicrotasks();
+
+      // Fix (b): the swap actually dials the new connector instead of
+      // leaving it untouched.
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+
+      // The stale dial finally lands — belatedly "succeeding" on a
+      // connector this manager no longer speaks for.
+      resolveFirstConnect();
+      await flushMicrotasks();
+
+      // Fix (a): the belated success must not falsely report 'connected'
+      // via a connector that was never actually dialed, nor subscribe to it.
+      expect(manager.store.state.connectionStatus).not.toBe('connected');
+      expect(mockConnector.getSubscriberCount()).toBe(0);
+
+      // The new connector's own dial completing is what actually connects.
+      resolveSecondConnect();
+      await flushMicrotasks();
+
+      expect(manager.store.state.connectionStatus).toBe('connected');
+      expect(nextConnector.getSubscriberCount()).toBe(1);
+
+      await connectPromise;
+    });
+
+    it('bails out of the whole stale retry loop on a REJECT, instead of redialing the connector a swap already connected or corrupting its state', async () => {
+      // Sibling to the mid-dial test above, but for the failure path of
+      // #connectWithRetries specifically. The success path there is guarded
+      // (per-attempt connector capture + early return), but the catch block
+      // was not: a stale rejection on the OLD connector would (1) emit
+      // connection_error / write connectionError for a connector nobody
+      // uses any more, (2) if attempts remained, sleep and loop again — the
+      // next iteration re-reads `this.#connector`, which is now the NEW
+      // connector, so the superseded loop redials it a SECOND time,
+      // concurrently with the legitimate #connectWithRetries setConnector
+      // already kicked off, and (3) if that redial also fails, run the
+      // circuit-breaker-opening tail against a manager that may already be
+      // happily connected through the swap.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 2,
+        initialDelayMs: 10,
+        maxDelayMs: 100,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+      });
+
+      let rejectFirstConnect: (err: Error) => void = () => {};
+      mockConnector.connect = mock(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectFirstConnect = reject;
+          }),
+      );
+
+      const connectPromise = manager.connect().catch(() => {
+        // Pre-fix, the stale loop's exhaustion throws past connect()'s own
+        // caller; post-fix it never reaches that tail at all. Either way,
+        // this test asserts on manager STATE, not on connect()'s own
+        // settlement, so the rejection (if any) is swallowed here.
+      });
+      await flushMicrotasks();
+      expect(manager.store.state.connectionStatus).toBe('connecting');
+
+      const nextConnector = createMockConnector();
+      let nextConnectorCallCount = 0;
+      nextConnector.connect = mock(() => {
+        nextConnectorCallCount++;
+        if (nextConnectorCallCount === 1) {
+          // The one legitimate dial: setConnector's own #connectWithRetries.
+          return Promise.resolve();
+        }
+        // Any further call IS the hazard under test: a superseded retry
+        // loop re-reading #connector and redialing, on its own account, a
+        // connector the swap already connected.
+        return Promise.reject(
+          new Error('should never be dialed a second time'),
+        );
+      });
+
+      manager.setConnector(nextConnector);
+      await flushMicrotasks();
+
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+      expect(manager.store.state.connectionStatus).toBe('connected');
+      expect(manager.store.state.circuitBreakerStatus).toBe('closed');
+
+      // The stale dial on the OLD connector finally rejects — belatedly, on
+      // a connector this manager no longer speaks for.
+      rejectFirstConnect(new Error('stale failure'));
+      await flushMicrotasks();
+      // Let the stale loop's backoff-and-retry cycle run to completion, if
+      // it is going to happen at all.
+      await clock.tickAsync(1000);
+      await flushMicrotasks();
+      await connectPromise;
+
+      // (c) — the assertion that specifically catches the double-dial: the
+      // stale loop must never have redialed the connector the swap already
+      // connected.
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+      // (a) / (b) — a stale failure on an abandoned connector must not
+      // corrupt state describing the connector the manager is actually
+      // using now.
+      expect(manager.store.state.circuitBreakerStatus).not.toBe('open');
+      expect(manager.store.state.connectionStatus).not.toBe('error');
+      expect(manager.store.state.connectionStatus).toBe('connected');
     });
   });
 

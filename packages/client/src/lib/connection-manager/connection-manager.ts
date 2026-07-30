@@ -159,6 +159,60 @@ export class ConnectionManager {
   }
 
   /**
+   * Point subsequent connection work at a different connector. Circuit-breaker
+   * and retry state deliberately carry across the swap: the breaker tracks the
+   * health of the engine behind the connector, not the connector object, and a
+   * re-auth does not make a failing engine healthy.
+   *
+   * When the manager is `connected` OR already mid-dial (`connecting` — an
+   * initial `connect()`, an auto-reconnect attempt, or a half-open probe all
+   * leave it in this state), the swap best-effort disconnects the outgoing
+   * connector and drives the incoming one through the same
+   * connect-with-retries path `connect()` uses — so the event-stream
+   * subscription moves as a side effect of that connect (success
+   * re-subscribes, same as any other connect), and `connectionStatus`
+   * transitions honestly (`connecting` → `connected`/`error`) instead of
+   * either holding the old connector's `connected` value for a socket nobody
+   * has opened, or leaving the incoming connector undialed while whatever
+   * dial was already in flight quietly answers for it. The in-flight dial
+   * being superseded is fenced at its own call site (see the per-attempt
+   * connector capture in `#connectWithRetries`, `#handleAutoReconnect`, and
+   * `#attemptHalfOpenProbe`): its eventual settlement is a no-op once this
+   * has moved `#connector` on.
+   *
+   * This runs from a React effect and must never throw into render: a
+   * failure surfaces the same way any other connect failure does — through
+   * `connectionStatus`, `connectionError`, and the `connection_error` /
+   * `circuit_opened` events — not as a rejected call.
+   *
+   * When the manager is `disconnected` or `error` (no dial in flight and
+   * nothing connected), the swap does nothing beyond pointing at the new
+   * connector — there is no live subscription or socket to hand off, and
+   * `connect()` remains the caller's own explicit trigger.
+   */
+  setConnector(next: EngineConnector): void {
+    if (Object.is(next, this.#connector)) return;
+    const previous = this.#connector;
+    const status = this.store.state.connectionStatus;
+    const shouldRedial = status === 'connected' || status === 'connecting';
+    this.#connector = next;
+
+    if (!shouldRedial) return;
+
+    this.#cleanupConnectorSubscription();
+    previous.disconnect().catch((err) => {
+      this.#logger.warn('Outgoing connector disconnect failed', err);
+    });
+
+    this.#connectWithRetries().catch(() => {
+      // Failure is already recorded on the store and emitted via events
+      // inside #connectWithRetries; swallow here so this fire-and-forget
+      // call (setConnector must not throw into a React effect) doesn't
+      // surface as an unhandled rejection.
+    });
+  }
+
+  /**
    * Permanently disposes the ConnectionManager and releases all resources.
    * After disposal, the ConnectionManager cannot be reused.
    */
@@ -191,8 +245,17 @@ export class ConnectionManager {
         maxAttempts,
       });
 
+      // Captured per attempt, not read back through the field: setConnector
+      // can move `#connector` on while this call is in flight (it now
+      // redials during 'connecting', not just 'connected'), and a belated
+      // settlement — success OR failure — from the connector THIS attempt
+      // actually dialed must not be attributed to whatever connector the
+      // field points at by the time the promise settles. Declared outside
+      // the try so the catch below can see it too.
+      const connector = this.#connector;
       try {
-        await this.#connector.connect(this.#sessionId);
+        await connector.connect(this.#sessionId);
+        if (!Object.is(connector, this.#connector)) return; // superseded mid-dial
 
         this.#logger.info('Connected successfully');
         this.#setConnectionStatus('connected');
@@ -210,6 +273,24 @@ export class ConnectionManager {
 
         return;
       } catch (error) {
+        // Same supersession guard as the success branch, checked FIRST —
+        // before any emit or store write, and returning (not breaking) out
+        // of the whole loop. A failure from a connector setConnector has
+        // already moved past must not: (1) emit connection_error or write
+        // connectionError describing a connector nobody uses any more; (2)
+        // sleep-and-loop, because the next iteration re-reads
+        // `this.#connector` and would redial the NEW connector a second
+        // time, concurrently with the legitimate #connectWithRetries
+        // setConnector already kicked off; or (3) fall through to the
+        // circuit-breaker-opening tail below, which would stomp a dial that
+        // may be seconds from succeeding — or already has.
+        if (!Object.is(connector, this.#connector)) {
+          this.#logger.debug(
+            'Connection attempt failed on a superseded connector; abandoning this retry loop',
+          );
+          return;
+        }
+
         lastError = toError(error);
 
         this.#logger.warn(
@@ -358,8 +439,16 @@ export class ConnectionManager {
         maxAttempts: this.#options.maxRetries,
       });
 
+      // Captured per attempt, not read back through the field — same reason
+      // as #connectWithRetries: setConnector can move `#connector` on while
+      // this timer's own dial is in flight (it redials during 'connecting',
+      // which this timer itself just set), and a belated success from the
+      // connector THIS attempt actually dialed must not be attributed to
+      // whatever connector the field points at by the time it settles.
+      const connector = this.#connector;
       try {
-        await this.#connector.connect(this.#sessionId);
+        await connector.connect(this.#sessionId);
+        if (!Object.is(connector, this.#connector)) return; // superseded mid-dial
 
         this.#setConnectionStatus('connected');
         this.#setupConnectorSubscription();
@@ -374,6 +463,12 @@ export class ConnectionManager {
         this.#emitter.emit('circuit_closed', {} as Record<string, never>);
         this.#scheduleStabilityReset();
       } catch (error) {
+        // Same supersession guard as the success branch: a failure from a
+        // connector setConnector has already moved past must not schedule
+        // yet another reconnect cycle (or record its error) against a
+        // manager that has moved on to dialing something else entirely.
+        if (!Object.is(connector, this.#connector)) return;
+
         const err = toError(error);
 
         this.#emitter.emit('connection_error', {
@@ -496,7 +591,14 @@ export class ConnectionManager {
     this.#setConnectionStatus('connecting');
     this.#emitter.emit('connection_attempt', { attempt: 1, maxAttempts: 1 });
 
-    this.#connector
+    // Captured before dialing, not read back through the field — same
+    // reason as #connectWithRetries and #handleAutoReconnect: setConnector
+    // can move `#connector` on while this probe's own dial is in flight (it
+    // redials during 'connecting', which this probe itself just set), and a
+    // belated settlement must not be attributed to whatever connector the
+    // field points at by the time it lands.
+    const connector = this.#connector;
+    connector
       .connect(this.#sessionId)
       .then(() => {
         // The probe outlives a dispose() that lands mid-flight: the guard at
@@ -505,6 +607,7 @@ export class ConnectionManager {
         // stability timer on a manager whose dispose() has already run its
         // cleanup, so neither is ever torn down.
         if (this.#isDisposed) return;
+        if (!Object.is(connector, this.#connector)) return; // superseded mid-dial
 
         this.#logger.info('Half-open probe succeeded, closing circuit');
         this.#setConnectionStatus('connected');
@@ -524,6 +627,11 @@ export class ConnectionManager {
         // Same reason as the success path: a late failure would otherwise
         // reschedule the next probe indefinitely on a disposed manager.
         if (this.#isDisposed) return;
+        // A failure from a connector setConnector has already moved past
+        // must not reopen the breaker (or schedule yet another probe cycle)
+        // against a manager that may already be happily connected through
+        // whatever it swapped to.
+        if (!Object.is(connector, this.#connector)) return;
 
         const err = toError(error);
         this.#logger.warn(

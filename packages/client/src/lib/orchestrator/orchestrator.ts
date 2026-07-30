@@ -67,7 +67,7 @@ import { RequestInFlightError } from './request-in-flight-error.js';
  * ```
  */
 export class Orchestrator {
-  readonly #connector: EngineConnector;
+  #connector: EngineConnector;
   readonly #config: ResolvedOrchestratorOptions;
   readonly #logger: Logger;
 
@@ -81,7 +81,12 @@ export class Orchestrator {
 
   #isDisposed = false;
   #unsubscribers: (() => void)[] = [];
+  // Held apart from #unsubscribers: a connector swap must detach this one
+  // subscription without touching the three that belong to internal
+  // microkernels and outlive any connector.
+  #unsubPush: (() => void) | null = null;
   #requestCounter = 0;
+  #connectorEpoch = 0;
   // Vessel mutations invoked while disconnected/reconnecting are held here
   // instead of flushed into a closed connector; replayed once
   // 'connection_status_changed' reports 'connected' (mirrors ChartManager's
@@ -259,8 +264,24 @@ export class Orchestrator {
     );
 
     const request = this.#newRequest(updates);
+    const epoch = this.#connectorEpoch;
     const response = await this.#requestCoordinator.send(request);
-    if (this.#isSuperseded()) return response;
+    if (this.#isSuperseded(epoch)) {
+      // Same gap flushUpdates() and the timer-flush handler already close:
+      // takeCoalesced() drained pendingUpdates before the request was sent,
+      // so without requeuing them here they vanish for good instead of
+      // riding the next flush. Requeue `pendingUpdates`, NOT `updates` — the
+      // synthetic `user_intent` reason this call added must not be replayed.
+      for (const update of pendingUpdates)
+        this.#updateCoordinator.schedule(update);
+      // A flush queued behind this (now-superseded) request via
+      // queueFlush() must be settled here too, or it hangs until an
+      // unrelated later request happens to resolve it with an irrelevant
+      // response. `null` mirrors what flushUpdates() itself already returns
+      // when there is nothing to report — the response was never applied.
+      this.#requestCoordinator.resolveFlushPromises(null);
+      return response;
+    }
     this.#dispatchResponse(response);
     this.#requestCoordinator.resolveFlushPromises(response);
     return response;
@@ -285,8 +306,22 @@ export class Orchestrator {
     }
 
     const request = this.#newRequest(updates);
+    const epoch = this.#connectorEpoch;
     const response = await this.#requestCoordinator.send(request);
-    if (this.#isSuperseded()) return null;
+    if (this.#isSuperseded(epoch)) {
+      // The response is discarded, correctly — it was minted under a
+      // connector this session no longer speaks through. But
+      // takeCoalesced() already drained these updates before the request
+      // was sent, so without requeuing them here they vanish for good
+      // instead of riding the next flush.
+      for (const update of updates) this.#updateCoordinator.schedule(update);
+      // A SECOND caller that arrived while this request was in flight
+      // queued behind it via queueFlush() (see the isProcessing branch
+      // above) and must be settled here too, or it hangs until an unrelated
+      // later request happens to resolve it with an irrelevant response.
+      this.#requestCoordinator.resolveFlushPromises(null);
+      return null;
+    }
     this.#dispatchResponse(response);
     this.#requestCoordinator.resolveFlushPromises(response);
     return response;
@@ -484,6 +519,33 @@ export class Orchestrator {
     return this.#connector.getHistory(sessionId);
   }
 
+  /**
+   * Replace the connector on a live Orchestrator, preserving the session.
+   *
+   * Use this when the transport changes but the session does not — re-auth is
+   * the motivating case. The arranged board, vessel registry, and chart
+   * dimensions all survive; only the transport is swapped.
+   *
+   * Any request already in flight is *fenced*, not cancelled: `EngineConnector`
+   * exposes no abort, so the old request runs to completion and its response
+   * is discarded rather than applied. A response computed under superseded
+   * credentials can therefore never reach the UI, but the caller's pending
+   * `processIntent` resolves without taking effect and must be re-issued.
+   */
+  setConnector(next: EngineConnector): void {
+    if (Object.is(next, this.#connector)) return;
+
+    this.#unsubPush?.();
+    this.#unsubPush = null;
+
+    this.#connector = next;
+    this.#connectorEpoch += 1;
+    this.#connectionManager.setConnector(next);
+    this.#requestCoordinator.setConnector(next);
+
+    this.#attachPushSubscription();
+  }
+
   // ==========================================================================
   // Disposal
   // ==========================================================================
@@ -496,6 +558,8 @@ export class Orchestrator {
       unsub();
     }
     this.#unsubscribers = [];
+    this.#unsubPush?.();
+    this.#unsubPush = null;
 
     await this.#connectionManager.dispose();
     this.#chartManager.dispose();
@@ -578,6 +642,7 @@ export class Orchestrator {
           return;
         }
 
+        const epoch = this.#connectorEpoch;
         let response: MaelstromResponse;
         try {
           response = await this.#requestCoordinator.send(request);
@@ -589,7 +654,21 @@ export class Orchestrator {
           return;
         }
 
-        if (this.#isSuperseded()) return;
+        if (this.#isSuperseded(epoch)) {
+          // Same gap as flushUpdates(): the request already carried these
+          // updates out of the coordinator, so discarding the (correctly
+          // fenced) response without requeuing them would drop the reasons
+          // for good instead of letting the next flush pick them up.
+          for (const update of event.updates) {
+            this.#updateCoordinator.schedule(update);
+          }
+          // A caller that arrived while this timer-triggered request was in
+          // flight queued behind it via queueFlush() and must be settled
+          // here too, or it hangs until an unrelated later request happens
+          // to resolve it with an irrelevant response.
+          this.#requestCoordinator.resolveFlushPromises(null);
+          return;
+        }
 
         try {
           this.#dispatchResponse(response);
@@ -606,24 +685,33 @@ export class Orchestrator {
     );
     this.#unsubscribers.push(unsubFlush);
 
-    // Wire push connector if supported
-    if ('onPushMessage' in this.#connector) {
-      const unsubPush = (this.#connector as PushConnector).onPushMessage(
-        (response: MaelstromResponse) => {
-          this.#logger.info('Received push message, processing');
-          this.#dispatchResponse(response);
-        },
-      );
-      this.#unsubscribers.push(unsubPush);
-    }
+    this.#attachPushSubscription();
+  }
+
+  #attachPushSubscription(): void {
+    if (!('onPushMessage' in this.#connector)) return;
+    // Captured at subscribe time, not read back through the live field: a
+    // callback already queued by this transport when a later setConnector()
+    // unsubscribes must still see the epoch it was attached under, or the
+    // fence compares the field to itself and never trips.
+    const epoch = this.#connectorEpoch;
+    this.#unsubPush = (this.#connector as PushConnector).onPushMessage(
+      (response: MaelstromResponse) => {
+        if (this.#isSuperseded(epoch)) return;
+        this.#logger.info('Received push message, processing');
+        this.#dispatchResponse(response);
+      },
+    );
   }
 
   // A response can outlive the state it was meant to update: the transport has
-  // no cancellation, so dispose() cannot stop an in-flight request. Applying it
-  // anyway throws from the torn-down CommandProcessor as an unhandled
-  // rejection.
-  #isSuperseded(): boolean {
-    return this.#isDisposed;
+  // no cancellation, so dispose() cannot stop an in-flight request, and
+  // setConnector cannot cancel a request already sent to the old connector.
+  // Applying either anyway throws from the torn-down CommandProcessor as an
+  // unhandled rejection, or worse, lands a layout computed under a connector
+  // that no longer speaks for this session.
+  #isSuperseded(epoch: number): boolean {
+    return this.#isDisposed || epoch !== this.#connectorEpoch;
   }
 
   async #runLocalAction(

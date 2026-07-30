@@ -142,6 +142,10 @@ export class WebSocketConnector implements EngineConnector {
   };
 
   #ws: WebSocket | null = null;
+  // Tracks an in-flight connect() so a second call while CONNECTING reuses
+  // it instead of constructing another socket. Cleared once the attempt
+  // settles, success or failure.
+  #connectPromise: Promise<void> | null = null;
   // Identifies the socket a close event is allowed to act on. Unlike `#ws`
   // (which `disconnect()` nulls immediately, before the browser's close
   // event for that same socket has actually fired), this is only ever
@@ -190,10 +194,31 @@ export class WebSocketConnector implements EngineConnector {
   /**
    * Establishes WebSocket connection.
    * Throws on failure — ConnectionManager will handle retries.
+   *
+   * Idempotent only for the SAME `sessionId`: a second call for that session
+   * while a socket is already open or connecting is a no-op (open) or joins
+   * the in-flight attempt (connecting) instead of constructing another
+   * `WebSocket`, since the underlying socket assignment below does not
+   * itself guard against overwriting a live one. A call with a DIFFERENT
+   * `sessionId` is never idempotent — it always reassigns `#sessionId` and
+   * dials a fresh socket, even over one that is open or connecting, because
+   * silently keeping the old session would leave `#sessionId` (embedded in
+   * outbound envelopes such as `assistant_message`) pointing at a session
+   * this call was explicitly asked to move away from.
    */
   async connect(sessionId: SessionId): Promise<void> {
+    if (this.#sessionId === sessionId) {
+      if (this.#ws?.readyState === WebSocket.OPEN) return;
+      if (
+        this.#ws?.readyState === WebSocket.CONNECTING &&
+        this.#connectPromise
+      ) {
+        return this.#connectPromise;
+      }
+    }
+
     this.#sessionId = sessionId;
-    return new Promise((resolve, reject) => {
+    const attempt = new Promise<void>((resolve, reject) => {
       try {
         this.#ws = new WebSocket(this.#url);
         this.#liveSocket = this.#ws;
@@ -252,6 +277,11 @@ export class WebSocketConnector implements EngineConnector {
         reject(toError(err));
       }
     });
+
+    this.#connectPromise = attempt.finally(() => {
+      this.#connectPromise = null;
+    });
+    return this.#connectPromise;
   }
 
   /**

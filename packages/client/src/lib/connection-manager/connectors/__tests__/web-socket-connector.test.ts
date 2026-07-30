@@ -120,6 +120,134 @@ describe('WebSocketConnector onOpen hook', () => {
   });
 });
 
+describe('WebSocketConnector.connect() idempotency', () => {
+  test('does not construct a second socket when called again while the first is still connecting', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+
+    const first = connector.connect(SessionId('session-1'));
+    await Promise.resolve();
+    const second = connector.connect(SessionId('session-1'));
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error('FakeWebSocket was not constructed');
+    ws.emitOpen();
+
+    await first;
+    await second;
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    await connector.disconnect();
+  });
+
+  test('does not construct a second socket when called again while already open', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    await connectAndOpen(connector);
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    await connector.connect(SessionId('session-1'));
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    await connector.disconnect();
+  });
+});
+
+describe('WebSocketConnector.connect() session scoping', () => {
+  test('a DIFFERENT session on an already-open socket dials a fresh socket instead of silently keeping the old session', async () => {
+    // Regression: the idempotency guard returned before #sessionId was
+    // reassigned, so a second connect() call with a different session on an
+    // OPEN socket used to be swallowed as a no-op — #sessionId silently kept
+    // its old value instead of moving to the new session, unlike pre-PR
+    // behavior where a second call always reassigned it and dialed fresh.
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    await connectAndOpen(connector); // session-1
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    const connectPromise = connector.connect(SessionId('session-2'));
+    await Promise.resolve();
+
+    // A genuinely new dial for the new session — not swallowed by the
+    // OPEN-socket guard.
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const ws2 = FakeWebSocket.instances.at(-1);
+    if (!ws2) throw new Error('expected a second FakeWebSocket');
+    ws2.emitOpen();
+    await connectPromise;
+
+    // #sessionId must have actually moved to the new session. Verified via
+    // the outbound envelope it stamps — addAssistantMessage is the one
+    // place #sessionId is observable from outside the connector.
+    await connector.addAssistantMessage({
+      id: MessageId('m-1'),
+      message: 'hi',
+    });
+    expect(ws2.sent).toHaveLength(1);
+    const decoded = decodeClientEnvelope(ws2.sent[0]);
+    expect(isOk(decoded)).toBe(true);
+    if (!isOk(decoded)) throw new Error('expected a decodable client envelope');
+    if (decoded.value.type !== 'assistant_message') {
+      throw new Error('expected assistant_message');
+    }
+    expect(decoded.value.sessionId).toBe(SessionId('session-2'));
+
+    await connector.disconnect();
+  });
+
+  test('the SAME session on an already-open socket remains a true no-op (idempotency preserved)', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    await connectAndOpen(connector); // session-1
+
+    await connector.connect(SessionId('session-1'));
+
+    // No second socket constructed for a same-session call.
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    await connector.disconnect();
+  });
+
+  test('a rejecting connect() timeout clears the in-flight promise so a same-session retry dials a fresh socket, not the doomed one', async () => {
+    // The idempotency guard's CONNECTING branch only joins #connectPromise
+    // while it is still set. connect()'s timeout handler rejects through
+    // `attempt.finally(() => { this.#connectPromise = null; })` and nulls
+    // `#ws` itself, so a same-session retry after a timeout must fall
+    // through both inner checks and dial a genuinely new socket rather than
+    // reusing (or hanging off) the timed-out one.
+    const clock = FakeTimers.install({ shouldAdvanceTime: true });
+    try {
+      const connector = new WebSocketConnector({
+        url: 'ws://test',
+        connectTimeoutMs: 10,
+      });
+
+      const first = connector.connect(SessionId('session-1'));
+      // Attach the rejection expectation BEFORE advancing the clock: fake
+      // timers can settle the rejection across several internal microtask
+      // hops, and a promise with no handler attached at that instant gets
+      // flagged as an unhandled rejection even though this awaits it
+      // moments later.
+      const firstRejection = expect(first).rejects.toThrow(/timed out/);
+      await clock.tickAsync(10);
+      await firstRejection;
+
+      expect(FakeWebSocket.instances).toHaveLength(1);
+
+      const second = connector.connect(SessionId('session-1'));
+      await Promise.resolve();
+      expect(FakeWebSocket.instances).toHaveLength(2);
+
+      const ws2 = FakeWebSocket.instances.at(-1);
+      if (!ws2) throw new Error('expected a second FakeWebSocket');
+      ws2.emitOpen();
+      await second;
+
+      await connector.disconnect();
+    } finally {
+      clock.uninstall();
+    }
+  });
+});
+
 describe('WebSocketConnector wire contract', () => {
   test('serializes the envelope with id matching message.id', async () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
@@ -902,10 +1030,14 @@ describe('WebSocketConnector superseded-socket close guard', () => {
       staleWs.emitOpen();
       await staleConnectPromise;
 
-      // A second connect on the SAME connector, without disconnecting first —
-      // `this.#ws` now points at the live socket, but the stale socket's
-      // onclose handler (closed over `staleWs`, not read back through
-      // `this.#ws`) is still registered.
+      // Reconnect on the same connector — disconnect() nulls `#ws`
+      // synchronously (mirroring the real Orchestrator dispose()/connect()
+      // sequence a StrictMode double-mount produces), so the follow-up
+      // connect() below builds a genuinely new socket rather than being a
+      // no-op against the idempotency guard. The stale socket's onclose
+      // handler (closed over `staleWs`, not read back through `this.#ws`)
+      // is still registered, though — that's the guard this test exercises.
+      await connector.disconnect();
       const liveWs = await connectAndOpen(connector);
 
       const events: ConnectorEvent[] = [];
@@ -1118,10 +1250,14 @@ describe('onFrame inbound hook', () => {
     await connecting;
 
     // A reconnect supersedes the socket, and does so under a DIFFERENT
-    // session — so this covers both captured values at once. The old socket
-    // can still deliver a frame that was already in flight; React
-    // StrictMode's dev double-mount produces exactly this overlap, which is
-    // why `onclose` guards against the same hazard.
+    // session — so this covers both captured values at once. disconnect()
+    // nulls `#ws` synchronously (mirroring the real Orchestrator dispose()/
+    // connect() sequence a StrictMode double-mount produces) before the
+    // follow-up connect() builds the replacement — otherwise it would be a
+    // no-op against the idempotency guard instead of a real reconnect. The
+    // old socket can still deliver a frame that was already in flight,
+    // which is why `onclose` guards against the same hazard.
+    await connector.disconnect();
     const reconnecting = connector.connect(SessionId('s-2'));
     const second = FakeWebSocket.instances.at(-1)!;
     second.emitOpen();

@@ -347,6 +347,11 @@ describe('createDemoConnector', () => {
         await firstConnect;
         const firstUrl = firstSocket.url;
 
+        // connect() is idempotent while a socket is open or connecting, so
+        // a genuine reconnect goes through disconnect() first — mirroring
+        // how ConnectionManager itself only redials after a `disconnected`
+        // event, by which point the prior socket is already gone.
+        await connector.disconnect();
         const secondConnect = connector.connect(SessionId('session-1'));
         const secondSocket = FakeWebSocket.instances[1];
         if (!secondSocket)
