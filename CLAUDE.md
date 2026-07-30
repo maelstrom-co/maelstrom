@@ -93,7 +93,7 @@ Packages are published to public npm (`registry.npmjs.org`) under the `@maelstro
 | Package | Path | Purpose |
 |---------|------|---------|
 | `@maelstrom-co/protocol` | `packages/protocol/` | Core types, zod schemas, and message definitions (transport-agnostic) |
-| `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Message Processor, Orchestrator |
+| `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Command Processor, Vessel Manager, Orchestrator, voice-session seam |
 | `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
 | `@maelstrom-co/realtime` | `packages/realtime/` | Browser realtime-voice core: RealtimeSession, RealtimeProviderAdapter seam, OpenAI adapter via `/openai` subpath (ephemeral tokens only — never holds provider keys) |
@@ -101,6 +101,7 @@ Packages are published to public npm (`registry.npmjs.org`) under the `@maelstro
 | `@maelstrom-co/realtime-livekit` | `packages/realtime-livekit/` | LiveKit browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; declares the token-grant contract minted by `@maelstrom-co/realtime-livekit-server` |
 | `@maelstrom-co/realtime-livekit-server` | `packages/realtime-livekit-server/` | Server-side mint of LiveKit access tokens; Node-only sibling implementing the grant contract declared by `@maelstrom-co/realtime-livekit` |
 | `@maelstrom-co/realtime-livekit-agent` | `packages/realtime-livekit-agent/` | Node voice-agent worker: Deepgram STT / Cartesia TTS pipeline over LiveKit Agents, speaks engine responses back into the room |
+| `@maelstrom-co/react-realtime` | `packages/react-realtime/` | React bindings for realtime voice: `maelstromRealtime()` extension, `useVoice`, `VoiceOrb`, `createLevelMeter` |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |
 
 ### Core Concepts

@@ -134,6 +134,11 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
         run: bun scripts/assert-manifest-versions.ts --version "$VERSION"
 
+      # Unconditional: registry metadata is wrong the same way on a rehearsal
+      # branch as on a tag, and catching it before the build is the point.
+      - name: Assert registry metadata is complete
+        run: bun scripts/assert-registry-metadata.ts
+
       - name: Build packages
         run: bunx nx run-many -t build --projects='packages/*'
 

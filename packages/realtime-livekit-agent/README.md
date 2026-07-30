@@ -1,8 +1,13 @@
 # @maelstrom-co/realtime-livekit-agent
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-livekit-agent.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-livekit-agent)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 Node LiveKit voice agent worker for the Maelstrom LiveKit adapter spike — a
 separate process that relays STT (Deepgram) into the room and synthesizes TTS
 (Cartesia) back out.
+
+📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
 - **STT:** user mic audio → Deepgram → transcript → client via publishTranscription.
 - **TTS:** client `speak` text stream (the tool-result summary) → Cartesia → published
