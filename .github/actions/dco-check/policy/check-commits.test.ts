@@ -4,7 +4,7 @@ import { checkCommits } from './check-commits.ts';
 
 describe('checkCommits', () => {
   it('flags a commit with no Signed-off-by trailer', () => {
-    expect(checkCommits([commit()])).toEqual([
+    expect(checkCommits([commit()], IN_REPO)).toEqual([
       { commit: commit(), state: 'violation', reason: 'missing-sign-off' },
     ]);
   });
@@ -19,7 +19,7 @@ describe('checkCommits', () => {
       message:
         'feat: add a thing\n\nSigned-off-by: Someone Else <other@example.com>',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -37,7 +37,7 @@ describe('checkCommits', () => {
       committerEmail: '',
       message: 'feat: x\n\nSigned-off-by: Attacker <>',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -54,7 +54,7 @@ describe('checkCommits', () => {
       committerEmail: '',
       message: 'feat: x\n\nSigned-off-by: Attacker < >',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -66,7 +66,7 @@ describe('checkCommits', () => {
 
   it('parses no address out of an empty angle-bracket pair', () => {
     const c = commit({ message: 'x\n\nSigned-off-by: X <>' });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -84,7 +84,7 @@ describe('checkCommits', () => {
       committerEmail: '',
       message: 'feat: x\n\nSigned-off-by: Nobody <>',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -103,13 +103,15 @@ describe('checkCommits', () => {
         'Signed-off-by: Ada Lovelace <ada@example.com>',
       ].join('\n'),
     });
-    expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
+    expect(checkCommits([c], IN_REPO)).toEqual([
+      { commit: c, state: 'signed' },
+    ]);
   });
 
   it('exempts merge commits', () => {
     // Nobody authors a merge's content, so there is nothing to certify.
     const c = commit({ parentCount: 2 });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       { commit: c, state: 'exempt', reason: 'merge-commit' },
     ]);
   });
@@ -123,7 +125,7 @@ describe('checkCommits', () => {
       committerName: 'dependabot[bot]',
       committerEmail: 'support@github.com',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       { commit: c, state: 'exempt', reason: 'bot-author' },
     ]);
   });
@@ -131,18 +133,33 @@ describe('checkCommits', () => {
   it('exempts a bot author whose login carries no [bot] suffix', () => {
     // The login is not the signal in either direction.
     const c = commit({ authorLogin: 'renovate', authorType: 'Bot' });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       { commit: c, state: 'exempt', reason: 'bot-author' },
     ]);
   });
 
+  // The next two differ in nothing but provenance: identical commit data, one
+  // on a base-repo branch and one on a fork. GitHub resolves the author account
+  // from the commit email alone, so this is also exactly what a fork
+  // contributor produces by pointing `user.email` at a bot's noreply address —
+  // the branch is the only thing telling the two apart.
+  it('exempts a bot author on a branch in this repository', () => {
+    expect(checkCommits([BOT_AUTHORED], IN_REPO)).toEqual([
+      { commit: BOT_AUTHORED, state: 'exempt', reason: 'bot-author' },
+    ]);
+  });
+
+  it('does not exempt a bot author on a fork branch', () => {
+    expect(checkCommits([BOT_AUTHORED], FORK)).toEqual([
+      { commit: BOT_AUTHORED, state: 'violation', reason: 'missing-sign-off' },
+    ]);
+  });
+
   it('does not exempt a [bot] login GitHub did not classify as a bot', () => {
-    // Trust boundary. The login is whatever account GitHub resolved from the
-    // commit email, so a contributor who sets `user.email` to a bot's noreply
-    // address gets that login — and would otherwise walk through the gate.
-    // Only `author.type` is GitHub's own classification of the account.
+    // Neither field is proof — both are read off the same email lookup — but
+    // the login is not even the field the exemption consults.
     const c = commit({ authorLogin: 'dependabot[bot]', authorType: null });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       { commit: c, state: 'violation', reason: 'missing-sign-off' },
     ]);
   });
@@ -151,7 +168,7 @@ describe('checkCommits', () => {
     // The type is compared exactly: no suffix or substring match, in contrast
     // to the login rule this replaced.
     const c = commit({ authorLogin: 'foo[bot]bar', authorType: 'User' });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       { commit: c, state: 'violation', reason: 'missing-sign-off' },
     ]);
   });
@@ -162,7 +179,7 @@ describe('checkCommits', () => {
       authorLogin: 'dependabot[bot]',
       authorType: 'Bot',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       { commit: c, state: 'exempt', reason: 'merge-commit' },
     ]);
   });
@@ -177,12 +194,14 @@ describe('checkCommits', () => {
       message:
         'feat: add a thing\n\nSigned-off-by: Ada Lovelace <ada@example.com>',
     });
-    expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
+    expect(checkCommits([c], IN_REPO)).toEqual([
+      { commit: c, state: 'signed' },
+    ]);
   });
 
   it('flags an unresolved author with no trailer', () => {
     const c = commit({ authorLogin: null, authorType: null });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       { commit: c, state: 'violation', reason: 'missing-sign-off' },
     ]);
   });
@@ -198,7 +217,9 @@ describe('checkCommits', () => {
       message:
         'fix: thing\n\nSigned-off-by: Chris Trzesniewski <chris@example.com>',
     });
-    expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
+    expect(checkCommits([c], IN_REPO)).toEqual([
+      { commit: c, state: 'signed' },
+    ]);
   });
 
   it('accepts a sign-off email that differs only in case', () => {
@@ -206,7 +227,9 @@ describe('checkCommits', () => {
       message:
         'feat: add a thing\n\nSigned-off-by: Ada Lovelace <ADA@Example.COM>',
     });
-    expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
+    expect(checkCommits([c], IN_REPO)).toEqual([
+      { commit: c, state: 'signed' },
+    ]);
   });
 
   it('accepts a sign-off line in the middle of the body', () => {
@@ -221,7 +244,9 @@ describe('checkCommits', () => {
         'More prose after the trailer.',
       ].join('\n'),
     });
-    expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
+    expect(checkCommits([c], IN_REPO)).toEqual([
+      { commit: c, state: 'signed' },
+    ]);
   });
 
   it('accepts a sign-off matching the committer but not the author', () => {
@@ -235,7 +260,9 @@ describe('checkCommits', () => {
       message:
         'feat: add a thing\n\nSigned-off-by: Ada Lovelace <ada@example.com>',
     });
-    expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
+    expect(checkCommits([c], IN_REPO)).toEqual([
+      { commit: c, state: 'signed' },
+    ]);
   });
 
   it('accepts a CRLF commit message', () => {
@@ -245,7 +272,9 @@ describe('checkCommits', () => {
       message:
         'feat: x\r\n\r\nSigned-off-by: Ada Lovelace <ada@example.com>\r\n',
     });
-    expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
+    expect(checkCommits([c], IN_REPO)).toEqual([
+      { commit: c, state: 'signed' },
+    ]);
   });
 
   it('parses a CRLF sign-off address with no trailing carriage return', () => {
@@ -255,7 +284,7 @@ describe('checkCommits', () => {
       message:
         'feat: x\r\n\r\nSigned-off-by: Ada Lovelace <ada@example.com>\r\n',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -270,7 +299,7 @@ describe('checkCommits', () => {
     const c = commit({
       message: 'feat: x\r\n\r\nSigned-off-by: Ada Lovelace\r\n',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -286,7 +315,7 @@ describe('checkCommits', () => {
       message:
         'feat: add a thing\n\nsigned-off-by: Ada Lovelace <ada@example.com>',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       { commit: c, state: 'violation', reason: 'missing-sign-off' },
     ]);
   });
@@ -297,7 +326,7 @@ describe('checkCommits', () => {
       message:
         'feat: add a thing\n\n  Signed-off-by: Ada Lovelace <ada@example.com>',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       { commit: c, state: 'violation', reason: 'missing-sign-off' },
     ]);
   });
@@ -308,7 +337,7 @@ describe('checkCommits', () => {
     const c = commit({
       message: 'feat: add a thing\n\nSigned-off-by: Ada Lovelace',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -324,7 +353,7 @@ describe('checkCommits', () => {
       committerEmail: 'grace@example.com',
       message: 'x\n\nSigned-off-by: Ada <ADA@Example.com>',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -345,7 +374,7 @@ describe('checkCommits', () => {
         'Signed-off-by: Two <two@example.com>',
       ].join('\n'),
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -361,7 +390,7 @@ describe('checkCommits', () => {
     const c = commit({
       message: 'Signed-off-by:\nNot A Trailer <nope@example.com>',
     });
-    expect(checkCommits([c])).toEqual([
+    expect(checkCommits([c], IN_REPO)).toEqual([
       {
         commit: c,
         state: 'violation',
@@ -372,22 +401,28 @@ describe('checkCommits', () => {
   });
 
   it('returns no violations for an all-exempt pull request', () => {
-    const verdicts = checkCommits([
-      commit({ parentCount: 2 }),
-      commit({ authorLogin: 'renovate[bot]', authorType: 'Bot' }),
-    ]);
+    const verdicts = checkCommits(
+      [
+        commit({ parentCount: 2 }),
+        commit({ authorLogin: 'renovate[bot]', authorType: 'Bot' }),
+      ],
+      IN_REPO,
+    );
     expect(verdicts.every((verdict) => verdict.state === 'exempt')).toBe(true);
   });
 
   it('preserves input order across mixed verdicts', () => {
-    const verdicts = checkCommits([
-      commit({ sha: 'a'.repeat(40) }),
-      commit({
-        sha: 'b'.repeat(40),
-        message: 'x\n\nSigned-off-by: Ada Lovelace <ada@example.com>',
-      }),
-      commit({ sha: 'c'.repeat(40), parentCount: 2 }),
-    ]);
+    const verdicts = checkCommits(
+      [
+        commit({ sha: 'a'.repeat(40) }),
+        commit({
+          sha: 'b'.repeat(40),
+          message: 'x\n\nSigned-off-by: Ada Lovelace <ada@example.com>',
+        }),
+        commit({ sha: 'c'.repeat(40), parentCount: 2 }),
+      ],
+      IN_REPO,
+    );
     expect(verdicts.map((verdict) => verdict.state)).toEqual([
       'violation',
       'signed',
@@ -396,6 +431,23 @@ describe('checkCommits', () => {
   });
 
   it('returns an empty verdict list for an empty pull request', () => {
-    expect(checkCommits([])).toEqual([]);
+    expect(checkCommits([], IN_REPO)).toEqual([]);
   });
+});
+
+// Named rather than a bare boolean: the argument is the PR's provenance, and
+// it is the only thing that opens or closes the bot exemption.
+const IN_REPO = false;
+const FORK = true;
+
+// An unsigned commit carrying GitHub Actions' real numeric id and noreply
+// address — what the genuine bot pushes, and what anyone can set `user.email`
+// to.
+const BOT_AUTHORED = commit({
+  authorLogin: 'github-actions[bot]',
+  authorType: 'Bot',
+  authorName: 'github-actions[bot]',
+  authorEmail: '41898282+github-actions[bot]@users.noreply.github.com',
+  committerName: 'github-actions[bot]',
+  committerEmail: '41898282+github-actions[bot]@users.noreply.github.com',
 });

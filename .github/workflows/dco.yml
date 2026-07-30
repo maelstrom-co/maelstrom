@@ -56,3 +56,8 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           pr-number: ${{ github.event.pull_request.number }}
+          # Provenance, not code: the bot-author exemption is honoured only for
+          # branches in this repository, which nobody without write access can
+          # push to. Read from the event payload rather than the API — it costs
+          # no request, and it cannot fail on a gate that must fail closed.
+          head-repository: ${{ github.event.pull_request.head.repo.full_name }}

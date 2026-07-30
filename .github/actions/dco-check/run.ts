@@ -17,7 +17,7 @@ export async function run(): Promise<number> {
     return 1;
   }
 
-  const verdicts = checkCommits(commits);
+  const verdicts = checkCommits(commits, config.isFork);
   logVerdicts(verdicts);
 
   // Rendered before `postComment`, which swallows delivery failures, so a

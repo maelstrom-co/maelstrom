@@ -3,19 +3,30 @@ import { normalizeEmail } from './sign-off/normalize-email.ts';
 import { signOffAddresses } from './sign-off/sign-off-addresses.ts';
 import type { Verdict } from './verdict.ts';
 
-export function checkCommits(commits: CommitData[]): Verdict[] {
+export function checkCommits(
+  commits: CommitData[],
+  isFork: boolean,
+): Verdict[] {
   return commits.map((commit) => {
-    // A merge has no authored content to certify, and a bot cannot make an
-    // attestation at all — both checked before the trailer, so an exempt
-    // commit is never reported as a violation.
+    // Checked before the trailer, so an exempt commit is never reported as a
+    // violation. The premise is not that a merge carries nothing to certify —
+    // one that resolves a conflict carries changes present in neither parent —
+    // but that telling those apart would mean diffing pull-request content this
+    // workflow deliberately never checks out. An accepted gap, recorded in
+    // CONTRIBUTING.md beside the squash caveat it resembles.
     if (commit.parentCount > 1) {
       return { commit, state: 'exempt', reason: 'merge-commit' };
     }
-    // Trust boundary: GitHub's own account classification is the only thing
-    // that opens this exemption. The `[bot]` login suffix must not — that login
-    // is resolved from the commit's email, so anyone who sets `user.email` to a
-    // bot's noreply address would exempt themselves from the gate.
-    if (commit.authorType === 'Bot') {
+    // `authorType` is not proof of anything on its own. GitHub resolves the
+    // whole author account from the commit's email alone, so `Bot` is a
+    // property of whichever account that lookup landed on — a contributor who
+    // sets `user.email` to a bot's noreply address arrives here typed `Bot`,
+    // exactly as they would arrive carrying its `[bot]` login. The branch is
+    // what carries the trust: a commit on a base-repo branch had to be pushed
+    // by someone who already has write access, while a fork is precisely the
+    // untrusted population this gate exists for. Unknown provenance reads as a
+    // fork, so the exemption stays shut.
+    if (commit.authorType === 'Bot' && !isFork) {
       return { commit, state: 'exempt', reason: 'bot-author' };
     }
 

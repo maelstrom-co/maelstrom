@@ -105,8 +105,14 @@ git push --force-with-lease          # rewriting history requires a force push
 **What the check compares.** The `Signed-off-by` email must equal either the
 commit's **author** email or its **committer** email, compared
 case-insensitively. The **name is never compared**, so an ASCII-folded name (or
-one missing diacritics) is fine. Merge commits and commits from a bot account are
-exempt.
+one missing diacritics) is fine. Merge commits are exempt, as are commits from a
+bot account — but the bot exemption applies **only on branches in this
+repository**, never on a fork. GitHub resolves a commit's author account from
+the email in the commit header alone, so on a fork that classification is
+whatever the contributor put in `user.email`; a base-repo branch is one only a
+contributor with write access can push to. A pull request from a fork therefore
+needs a sign-off on every commit, whatever account its commits appear to be
+from.
 
 Either identity counts because `git commit -s` and the bundled hook both sign
 with your **committer** identity — so re-signing or rebasing *someone else's*
@@ -115,6 +121,20 @@ commits still satisfies the check: you are certifying as the committer.
 The attestation lives in the pull request's commit history, which is what the
 check audits; GitHub's web-UI squash can drop the trailer from the resulting
 `main` commit. That gap is accepted — probot/dco has it too.
+
+**The merge exemption is unconditional, and that is an accepted gap too.** A
+merge commit usually certifies nothing of its own, but conflict resolutions and
+edits staged before the merge is committed live in the merge commit's own tree,
+present in neither parent — so unsigned changes can reach a pull request inside
+an unsigned merge commit. Telling that apart from an ordinary merge means
+diffing the pull request's content, and the `dco` workflow runs on
+`pull_request_target` and deliberately never checks out or executes any
+pull-request code. What still catches it: those changes appear in the pull
+request diff under a conspicuous `Merge branch …` commit, and the check's
+sticky comment always discloses how many commits it exempted and why. probot/dco
+and dcoapp/app both exempt merges unconditionally as well. Prefer
+`git rebase origin/main` over `git merge main` on a branch, and the case does
+not arise.
 
 ## Prerequisites
 
