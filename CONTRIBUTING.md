@@ -88,6 +88,36 @@ Sourcetree)? See
 [`.githooks/SIGN-OFF-TOOLS.md`](./.githooks/SIGN-OFF-TOOLS.md) for each tool's
 native sign-off option, or just fall back to `git commit -s`.
 
+### Enforcement
+
+The `dco` check runs on every pull request and is a required check on `main`. If
+any commit is missing its sign-off, the check goes red and a bot comment lists
+the offending commits with a reason for each.
+
+To fix it, re-sign the branch and force-push:
+
+```bash
+git rebase --signoff origin/main     # re-sign every commit on the branch
+git push --force-with-lease          # rewriting history requires a force push
+# single commit: git commit --amend --signoff --no-edit
+```
+
+**What the check compares.** The `Signed-off-by` email must equal either the
+commit's **author** email or its **committer** email, compared
+case-insensitively. The **name is never compared**, so an ASCII-folded name (or
+one missing diacritics) is fine. Merge commits and `[bot]`-authored commits are
+exempt.
+
+Either identity counts because `git commit -s` and the bundled hook both sign
+with your **committer** identity — so re-signing or rebasing *someone else's*
+commits still satisfies the check: you are certifying as the committer. This
+matches the widely-used probot/dco behaviour, so a sign-off that passes on other
+DCO-gated projects passes here.
+
+The attestation lives in the pull request's commit history, which is what the
+check audits; GitHub's web-UI squash can drop the trailer from the resulting
+`main` commit. That gap is accepted — probot/dco has it too.
+
 ## Prerequisites
 
 - [Bun](https://bun.sh) (package manager — the repo is a Bun workspace)
