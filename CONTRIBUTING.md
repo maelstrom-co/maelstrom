@@ -91,7 +91,7 @@ native sign-off option, or just fall back to `git commit -s`.
 ## Prerequisites
 
 - [Bun](https://bun.sh) (package manager — the repo is a Bun workspace)
-- Node.js 22 (matches CI)
+- Node.js 24 (matches `.nvmrc` and CI)
 
 ## Getting started
 
@@ -108,7 +108,7 @@ native sign-off option, or just fall back to `git commit -s`.
 
 ```bash
 bun install                    # install dependencies
-nx dev demo                    # run the demo app (see apps/demo/README.md for voice/provider setup)
+bunx nx dev demo               # run the demo app (see apps/demo/README.md for environment and optional voice setup)
 nx run-many -t build           # build all packages
 nx run-many -t test            # run all tests
 nx run-many -t typecheck       # type-check all packages
