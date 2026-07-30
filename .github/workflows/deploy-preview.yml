@@ -154,6 +154,15 @@ jobs:
       group: deploy-preview-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
+      - name: Setup Node
+        # Needed here too, even though the delete runs through `bunx`: bunx
+        # invokes wrangler's bin, whose shebang is `#!/usr/bin/env node`, so it
+        # executes under system Node — not Bun — and wrangler 4 refuses to start
+        # on the runner's default Node 20.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
