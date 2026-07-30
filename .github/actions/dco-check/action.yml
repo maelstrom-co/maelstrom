@@ -1,0 +1,24 @@
+name: DCO check
+description: Verify every non-exempt commit in a pull request carries a matching Signed-off-by trailer.
+
+inputs:
+  github-token:
+    description: 'Token with pull-requests: write'
+    required: true
+  pr-number:
+    description: Pull request number to audit
+    required: true
+
+# Deliberately no `uses:` step here: bun is provisioned by the calling
+# workflow. Every pinned third-party action stays in `.github/workflows/`,
+# which the existing `directory: /` Dependabot config already scans — covering
+# a nested `action.yml` would need it listed under `directories`.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        REPOSITORY: ${{ github.repository }}
+      run: bun "${{ github.action_path }}/main.ts"
