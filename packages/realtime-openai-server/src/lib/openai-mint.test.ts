@@ -2,6 +2,7 @@ import { expect, it } from 'bun:test';
 
 import { isErr, isOk } from '@maelstrom-co/protocol';
 import {
+  MINT_FAILURE_REASONS,
   type MintFailureReason,
   mintFailureHttpStatus,
 } from '@maelstrom-co/realtime-protocol';
@@ -239,9 +240,6 @@ it('returns missing-api-key and never calls upstream fetch when the minter holds
 });
 
 it('maps every MintFailureReason to its suggested HTTP status', () => {
-  // The internal Record<MintFailureReason, number> makes the compiler
-  // enforce exhaustiveness (a missing reason fails to compile); this locks
-  // in the actual mapped values.
   const expected: Record<MintFailureReason, number> = {
     'invalid-request': 400,
     'unsupported-provider': 400,
@@ -249,6 +247,14 @@ it('maps every MintFailureReason to its suggested HTTP status', () => {
     'invalid-config': 500,
     'upstream-failure': 502,
   };
+
+  // The Record type alone would not catch a dropped reason here: nx runs
+  // typecheck against tsconfig.lib.json, which excludes spec files, so no
+  // CI job ever compiles this one. Assert exhaustiveness at runtime instead,
+  // against the array the reason union is derived from.
+  expect(Object.keys(expected).sort()).toEqual(
+    [...MINT_FAILURE_REASONS].sort(),
+  );
 
   for (const [reason, status] of Object.entries(expected) as Array<
     [MintFailureReason, number]

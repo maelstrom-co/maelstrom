@@ -28,9 +28,7 @@ describe('runVadAssetsCli', () => {
 
     expect(exitCode).toBe(1);
     expect(output.stdout).toEqual([]);
-    expect(output.stderr).toEqual([
-      'Usage: maelstrom-vad-assets <outputDir>',
-    ]);
+    expect(output.stderr).toEqual(['Usage: maelstrom-vad-assets <outputDir>']);
   });
 
   test('prints only the copied-file count after success', async () => {

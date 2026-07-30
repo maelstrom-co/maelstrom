@@ -36,6 +36,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/realtime-vad/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/realtime-protocol/tsconfig.lib.json"
     },
     {

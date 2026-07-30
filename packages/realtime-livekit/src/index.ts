@@ -11,10 +11,11 @@
  * ones the `@maelstrom-co/realtime-livekit-agent` worker imports directly, so
  * both sides read the exact same source of truth.
  */
-export { LiveKitAdapter } from './livekit-adapter.js';
-export type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
+
+export * from '@maelstrom-co/realtime-protocol/livekit';
 export type {
   BrowserVadOptions,
   BrowserVadProviderOptions,
 } from '@maelstrom-co/realtime-vad';
-export * from '@maelstrom-co/realtime-protocol/livekit';
+export { LiveKitAdapter } from './livekit-adapter.js';
+export type { LiveKitAdapterOptions } from './livekit-adapter.types.js';

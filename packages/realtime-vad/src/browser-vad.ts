@@ -294,16 +294,12 @@ function normalizeAssetBaseUrl(value: string): string {
  * Validates the public tuning allowlist and removes own `undefined` values so
  * MicVAD keeps its defaults. Explicit falsey values, including zero, survive.
  */
-function validateProviderOptions(
-  value: unknown,
-): BrowserVadProviderOptions {
+function validateProviderOptions(value: unknown): BrowserVadProviderOptions {
   if (!isPlainObject(value)) {
     throw new TypeError('vad.providerOptions must be an object');
   }
   for (const key of Object.keys(value)) {
-    if (
-      !PROVIDER_OPTION_KEYS.has(key as keyof BrowserVadProviderOptions)
-    ) {
+    if (!PROVIDER_OPTION_KEYS.has(key as keyof BrowserVadProviderOptions)) {
       throw new TypeError(`vad.providerOptions.${key} is not supported`);
     }
   }

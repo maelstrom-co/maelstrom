@@ -64,46 +64,52 @@ Packages are private and published under the `@maelstrom-co` scope on GitHub Pac
 
 ## Architecture
 
+Four layers, with one directional rule: **nothing server-side or worker-side may
+depend on anything browser-side.** The corollary that makes it work is
+**contracts are subpaths, implementations are packages** — a minter and its
+adapter share a wire contract without sharing a package. Arrows point from
+dependent to dependency.
+
 ```
-@maelstrom-co/protocol  (foundation: shared types, zod schemas, message contract)
-         │
-    ┌────┼───────────────┐
-    ▼    ▼               ▼
-@maelstrom-co/client  @maelstrom-co/engine
-(framework-agnostic)  (LLM decision core: @tanstack/ai)
-    │
-    ├──────────┐
-    ▼          ▼
-@maelstrom-co/react  @maelstrom-co/realtime
-(React bindings)     (provider-neutral realtime-voice core)
-                          │
-                     ┌────┴──────────────────┐
-                     ▼                        ▼
-          @maelstrom-co/realtime-openai  @maelstrom-co/realtime-livekit
-          (OpenAI browser adapter)       (LiveKit browser adapter)
-                     │                         │
-                     ▼                         ▼
-   @maelstrom-co/realtime-openai-server  @maelstrom-co/realtime-livekit-server
-   (mints ephemeral OpenAI tokens)       (mints LiveKit access tokens)
-                                               │
-                                               ▼
-                                    @maelstrom-co/realtime-livekit-agent
-                                    (Node voice-agent worker)
+CONTRACT  protocol ◀───────────── realtime-protocol
+          UI types, message         realtime wire topics
+          contract                  and token grants
+             ▲                             ▲
+             │                             │
+BROWSER   client ◀── realtime ◀── realtime-openai
+             ▲                 ◀── realtime-livekit ──▶ realtime-vad
+             │                                          neutral Silero VAD,
+          react ◀── react-realtime                      no provider deps
+
+SERVER    engine        realtime-openai-server    realtime-livekit-server
+          LLM core      mints OpenAI tokens       mints LiveKit tokens
+
+WORKER    realtime-livekit-agent
+          Deepgram STT / Cartesia TTS over LiveKit Agents
 ```
+
+Every SERVER and WORKER package depends on the CONTRACT layer only. That is
+what keeps `OPENAI_API_KEY`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in
+packages a browser bundle can never reach.
+`packages/realtime-protocol/src/layer-boundary.test.ts` is the authority on
+this rule and fails the build when it is broken. See `docs/adr/0001`–`0003`.
 
 ### Package Locations
 
 | Package | Path | Purpose |
 |---------|------|---------|
 | `@maelstrom-co/protocol` | `packages/protocol/` | Core types, zod schemas, and message definitions (transport-agnostic) |
+| `@maelstrom-co/realtime-protocol` | `packages/realtime-protocol/` | Contract leaf for realtime voice: token-grant types, mint-failure taxonomy, and wire topics. Depends only on `@maelstrom-co/protocol` and `zod`. Entry points `.`, `./openai`, `./livekit`. A new wire constant or grant field belongs **here**, never in an adapter package |
 | `@maelstrom-co/client` | `packages/client/` | Framework-agnostic client: Chart Manager, Connection Manager, Command Processor, Vessel Manager, Orchestrator, voice-session seam |
 | `@maelstrom-co/engine` | `packages/engine/` | LLM decision engine using @tanstack/ai |
 | `@maelstrom-co/react` | `packages/react/` | React bindings: createMaelstrom, vessel, Provider, Chart, useMaelstrom, useVessel, useActions, useInstance, registerVessel, `.with()` extension builder |
+| `@maelstrom-co/react-realtime` | `packages/react-realtime/` | React bindings for realtime voice: `maelstromRealtime()` extension and `useVoice()` |
 | `@maelstrom-co/realtime` | `packages/realtime/` | Provider-neutral browser realtime-voice core: RealtimeSession, RealtimeProviderAdapter seam, ConnectRaceGuard, groundedDebounce, RealtimeVoiceError. No provider-specific code — every provider ships as a sibling package |
-| `@maelstrom-co/realtime-openai` | `packages/realtime-openai/` | OpenAI browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; declares the token-grant contract minted by `@maelstrom-co/realtime-openai-server` |
-| `@maelstrom-co/realtime-openai-server` | `packages/realtime-openai-server/` | Server-side mint of ephemeral OpenAI realtime tokens; the sibling of `@maelstrom-co/realtime-openai`, exactly as `realtime-livekit-server` is the sibling of `realtime-livekit` |
-| `@maelstrom-co/realtime-livekit` | `packages/realtime-livekit/` | LiveKit browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; declares the token-grant contract minted by `@maelstrom-co/realtime-livekit-server` |
-| `@maelstrom-co/realtime-livekit-server` | `packages/realtime-livekit-server/` | Server-side mint of LiveKit access tokens; Node-only sibling implementing the grant contract declared by `@maelstrom-co/realtime-livekit` |
+| `@maelstrom-co/realtime-vad` | `packages/realtime-vad/` | Provider-neutral browser voice-activity detector (Silero via `@ricky0123/vad-web`): `MediaStream` in, speech-boundary callbacks out. Knows about no provider. Its Node-only asset copier and `maelstrom-vad-assets` CLI sit behind the `./assets` subpath and must stay unreachable from the root entry |
+| `@maelstrom-co/realtime-openai` | `packages/realtime-openai/` | OpenAI browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; consumes the token-grant contract from `@maelstrom-co/realtime-protocol/openai` |
+| `@maelstrom-co/realtime-openai-server` | `packages/realtime-openai-server/` | Server-side mint of ephemeral OpenAI realtime tokens; holds `OPENAI_API_KEY`. Implements the same `@maelstrom-co/realtime-protocol/openai` contract, and depends on no browser package |
+| `@maelstrom-co/realtime-livekit` | `packages/realtime-livekit/` | LiveKit browser adapter implementing the `RealtimeProviderAdapter` seam from `@maelstrom-co/realtime`; consumes the token-grant contract and wire topics from `@maelstrom-co/realtime-protocol/livekit` |
+| `@maelstrom-co/realtime-livekit-server` | `packages/realtime-livekit-server/` | Server-side mint of LiveKit access tokens; holds `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`. Node-only, and depends on no browser package |
 | `@maelstrom-co/realtime-livekit-agent` | `packages/realtime-livekit-agent/` | Node voice-agent worker: Deepgram STT / Cartesia TTS pipeline over LiveKit Agents, speaks engine responses back into the room |
 | `@maelstrom-co/react-realtime` | `packages/react-realtime/` | React bindings for realtime voice: `maelstromRealtime()` extension, `useVoice`, `VoiceOrb`, `createLevelMeter` |
 | `@maelstrom-co/demo` | `apps/demo/` | Demo app (TanStack Start + React) |

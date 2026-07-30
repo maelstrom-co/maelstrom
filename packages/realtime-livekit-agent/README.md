@@ -12,7 +12,7 @@ The worker has no planning LLM and receives no UI grounding. The Maelstrom
 Engine remains the only planning model. The browser's `LiveKitAdapter`
 synthesizes an `update_ui` tool call from each transcript, and
 `RealtimeSession` drives it. At runtime the worker imports only
-`@maelstrom-co/realtime-livekit/protocol`, the shared wire constants, so
+`@maelstrom-co/realtime-protocol/livekit`, the shared wire constants, so
 loading that subpath never evaluates browser or server modules.
 
 ## How a voice turn works

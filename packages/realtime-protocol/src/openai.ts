@@ -6,7 +6,10 @@
  * side, so both sides validate against the exact same schema.
  */
 
-export type { OpenAITokenGrant, OpenAITokenRequest } from './lib/openai-token.js';
+export type {
+  OpenAITokenGrant,
+  OpenAITokenRequest,
+} from './lib/openai-token.js';
 export {
   OpenAITokenGrantSchema,
   OpenAITokenRequestSchema,

@@ -1,8 +1,8 @@
-import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type {
   MintFailureReason,
   MintResult,
 } from '@maelstrom-co/realtime-openai-server';
+import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
 

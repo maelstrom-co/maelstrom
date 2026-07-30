@@ -20,7 +20,7 @@ export type {
   MintFailureReason,
   MintFetch,
 } from './lib/mint.js';
-export { mintFailureHttpStatus } from './lib/mint.js';
+export { MINT_FAILURE_REASONS, mintFailureHttpStatus } from './lib/mint.js';
 export type { TokenGrant } from './lib/token-grant.js';
 export type { UnixSeconds } from './lib/unix-seconds.js';
 export { UnixSecondsSchema } from './lib/unix-seconds.js';

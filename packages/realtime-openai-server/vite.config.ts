@@ -4,7 +4,8 @@ import dts from 'vite-plugin-dts';
 
 export default defineConfig(() => ({
   root: __dirname,
-  cacheDir: '../../node_modules/.vite/packages/maelstrom/realtime-openai-server',
+  cacheDir:
+    '../../node_modules/.vite/packages/maelstrom/realtime-openai-server',
   plugins: [
     dts({
       entryRoot: 'src',

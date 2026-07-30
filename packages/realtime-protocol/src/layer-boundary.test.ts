@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { type Dirent, readdirSync, readFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { builtinModules } from 'node:module';
+import { dirname, join, relative, resolve } from 'node:path';
 
 /**
  * Enforces the package-layering invariant documented in
@@ -153,6 +154,22 @@ Fix: remove the ${depName} dependency from ${pkg.name}'s package.json, or if the
 See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`;
 }
 
+function browserDependsOnServerOrWorkerMessage(
+  pkg: WorkspacePackage,
+  depName: string,
+  depLayer: Layer,
+): string {
+  return `INVARIANT VIOLATED: no browser-side package may depend on a server-side or worker-side package.
+
+  ${pkg.name} (layer: browser) depends on ${depName} (layer: ${depLayer}).
+
+This is the mirror image of the server-may-not-depend-on-browser rule, and it fails in the more dangerous direction. Server and worker packages are Node-only: they import node: builtins, they pull in Node-only SDKs (livekit-server-sdk, @livekit/agents), and they are the packages that read provider secrets from the environment. A browser package that depends on one puts all of that on the path a consumer's bundler follows from the package root — so the Node-only code is at best shimmed away and at worst shipped to a browser tab, and the secret-reading code sits one careless import away from the client bundle.
+
+Fix: remove the ${depName} dependency from ${pkg.name}'s package.json. A browser package that needs to agree with a minter on a wire shape depends on the contract instead (@maelstrom-co/protocol or @maelstrom-co/realtime-protocol) — that is exactly what the contract layer is for. Credentials cross the boundary at runtime over HTTP, never as a package dependency.
+
+See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`;
+}
+
 function contractDependsOnNonContractMessage(
   pkg: WorkspacePackage,
   depName: string,
@@ -204,6 +221,15 @@ describe('package layering — manifest graph', () => {
           );
         }
 
+        if (
+          layer === 'browser' &&
+          (depLayer === 'server' || depLayer === 'worker')
+        ) {
+          violations.push(
+            browserDependsOnServerOrWorkerMessage(pkg, depName, depLayer),
+          );
+        }
+
         if (layer === 'contract' && depLayer !== 'contract') {
           violations.push(
             contractDependsOnNonContractMessage(pkg, depName, depLayer),
@@ -218,9 +244,23 @@ describe('package layering — manifest graph', () => {
   }
 });
 
-/** Matches `import ... from 'node:x'`, `require('node:x')`, and dynamic `import('node:x')` — the ways a source file can reach a Node.js builtin. */
-const NODE_BUILTIN_IMPORT =
-  /(?:from\s+|require\(\s*|import\(\s*)['"]node:[^'"]+['"]/;
+/**
+ * Every module specifier a source file imports, however it imports it:
+ * `import x from 'y'`, `export * from 'y'`, bare `import 'y'`, `require('y')`,
+ * and dynamic `import('y')`.
+ */
+const MODULE_SPECIFIER =
+  /(?:\bfrom|\bimport|\brequire)\s*\(?\s*['"]([^'"]+)['"]/g;
+
+/**
+ * Node builtins under both spellings. The `node:` prefix is the convention
+ * here, but `import { readFileSync } from 'fs'` resolves to the same builtin
+ * and would slip past a prefix-only check — which is exactly the kind of
+ * near-miss this file exists to catch.
+ */
+const NODE_BUILTINS = new Set(
+  builtinModules.flatMap((name) => [name, `node:${name}`]),
+);
 
 function isTestFile(relPathFromSrc: string): boolean {
   return (
@@ -229,73 +269,117 @@ function isTestFile(relPathFromSrc: string): boolean {
   );
 }
 
-function walkTsFiles(dir: string): string[] {
-  let entries: Dirent<string>[];
-  try {
-    entries = readdirSync(dir, { withFileTypes: true, encoding: 'utf8' });
-  } catch {
-    return [];
-  }
-  const files: string[] = [];
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...walkTsFiles(full));
-    } else if (entry.isFile() && /\.tsx?$/.test(entry.name)) {
-      files.push(full);
-    }
-  }
-  return files;
+function moduleSpecifiers(source: string): string[] {
+  return [...source.matchAll(MODULE_SPECIFIER)].map((match) => match[1] ?? '');
 }
 
-/** Absolute paths of the source files behind every non-root `exports` entry point (i.e. every key except `.` and `./package.json`), read from the `@maelstrom-co/source` condition. */
-function declaredEntryPointSourceFiles(pkg: WorkspacePackage): Set<string> {
-  const files = new Set<string>();
-  const exportsMap = pkg.pkgJson.exports ?? {};
-  for (const [key, value] of Object.entries(exportsMap)) {
-    if (key === '.' || key === './package.json') continue;
-    const sourceRel =
-      typeof value === 'string'
-        ? value
-        : (value as Record<string, unknown> | undefined)?.[
-            '@maelstrom-co/source'
-          ];
-    if (typeof sourceRel === 'string') {
-      files.add(resolve(pkg.dir, sourceRel));
-    }
-  }
-  return files;
+/** Resolves a relative import specifier to a source file on disk, undoing the `.js` extension TypeScript's ESM output requires in the import but never on disk. */
+function resolveRelativeImport(
+  fromFile: string,
+  specifier: string,
+): string | undefined {
+  const base = resolve(dirname(fromFile), specifier);
+  const withoutJs = base.replace(/\.jsx?$/, '');
+  const candidates = [
+    `${withoutJs}.ts`,
+    `${withoutJs}.tsx`,
+    base,
+    join(withoutJs, 'index.ts'),
+    join(withoutJs, 'index.tsx'),
+  ];
+  return candidates.find(
+    (candidate) => /\.tsx?$/.test(candidate) && existsSync(candidate),
+  );
 }
 
-describe('package layering — Node-only code must stay behind a declared entry point', () => {
+/** Absolute path of the source file behind an `exports` key, read from the `@maelstrom-co/source` condition. */
+function entryPointSourceFile(
+  pkg: WorkspacePackage,
+  key: string,
+): string | undefined {
+  const value = pkg.pkgJson.exports?.[key];
+  const sourceRel =
+    typeof value === 'string'
+      ? value
+      : (value as Record<string, unknown> | undefined)?.[
+          '@maelstrom-co/source'
+        ];
+  return typeof sourceRel === 'string'
+    ? resolve(pkg.dir, sourceRel)
+    : undefined;
+}
+
+/**
+ * Walks the module graph from a package's `.` entry point and returns every
+ * in-package source file a consumer's bundler would pull in.
+ *
+ * The reachability walk is the point. Checking only whether a Node-only file
+ * *is* a declared entry point answers the wrong question: a file can be the
+ * source of `./assets` and still be re-exported from `src/index.ts`, in which
+ * case it is both "declared" and reachable from `.` — the membership check
+ * passes while the invariant is broken. Only the graph knows.
+ */
+function filesReachableFromRoot(pkg: WorkspacePackage): Set<string> {
+  const rootEntry = entryPointSourceFile(pkg, '.');
+  const reachable = new Set<string>();
+  if (!rootEntry || !existsSync(rootEntry)) return reachable;
+
+  const queue = [rootEntry];
+  reachable.add(rootEntry);
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    let source: string;
+    try {
+      source = readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const specifier of moduleSpecifiers(source)) {
+      if (!specifier.startsWith('.')) continue;
+      const target = resolveRelativeImport(file, specifier);
+      if (!target || reachable.has(target)) continue;
+      reachable.add(target);
+      queue.push(target);
+    }
+  }
+  return reachable;
+}
+
+describe('package layering — Node-only code must stay unreachable from "."', () => {
   for (const pkg of packages) {
     if (classify(pkg.name) !== 'browser') continue;
 
-    test(`${pkg.name} (browser) keeps node: imports out of the "." entry point`, () => {
+    test(`${pkg.name} (browser) reaches no Node builtin from the "." entry point`, () => {
       const srcDir = join(pkg.dir, 'src');
-      const entryPointFiles = declaredEntryPointSourceFiles(pkg);
       const violations: string[] = [];
 
-      for (const file of walkTsFiles(srcDir)) {
+      for (const file of filesReachableFromRoot(pkg)) {
         const relFromSrc = relative(srcDir, file);
         if (isTestFile(relFromSrc)) continue; // test files never ship in dist and are never reachable from a consumer's import
 
-        const source = readFileSync(file, 'utf8');
-        if (!NODE_BUILTIN_IMPORT.test(source)) continue;
-
-        const isUnderBin = relFromSrc.split('/')[0] === 'bin';
-        const isDeclaredEntryPoint = entryPointFiles.has(resolve(file));
-        if (isUnderBin || isDeclaredEntryPoint) continue;
+        let source: string;
+        try {
+          source = readFileSync(file, 'utf8');
+        } catch {
+          continue;
+        }
+        const builtins = moduleSpecifiers(source).filter((specifier) =>
+          NODE_BUILTINS.has(specifier),
+        );
+        if (builtins.length === 0) continue;
 
         const relFromPkg = relative(pkg.dir, file);
-        violations.push(`INVARIANT VIOLATED: within a browser package, a source file that imports a Node.js builtin must live under src/bin/ or be the source of a declared non-root entry point in that package's package.json "exports" map — never reachable from the package root ".".
+        violations.push(`INVARIANT VIOLATED: within a browser package, no source file reachable from the package root "." may import a Node.js builtin.
 
   Package: ${pkg.name} (layer: browser)
   File: ${relFromPkg}
+  Imports: ${[...new Set(builtins)].sort().join(', ')}
 
 Browser packages ship code that runs in a browser tab; the package root "." import is what a consumer's bundler resolves and ships to that tab. A Node-only builtin (node:fs, node:path, node:crypto, node:child_process, ...) reachable from "." would either crash at runtime in the browser or force every consumer's bundler to shim or exclude it. @maelstrom-co/realtime-vad legitimately ships Node-only tooling of its own — an asset copier for its Silero/ONNX files and a "maelstrom-vad-assets" CLI — but only behind the declared "./assets" entry point and src/bin/, never behind ".".
 
-Fix: move ${relFromPkg} under src/bin/, declare a new non-root entry point for it in ${pkg.name}'s package.json "exports" map, or remove the node: import if it isn't actually needed there.
+Reachability is what is checked, not file location: declaring a file as the source of a non-root entry point does not exempt it if src/index.ts also re-exports it, directly or through another module.
+
+Fix: stop re-exporting ${relFromPkg} from the "." entry point (move it behind its own "exports" key or under src/bin/), or remove the Node builtin import if it isn't actually needed there.
 
 See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
       }
@@ -305,6 +389,22 @@ See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
       }
     });
   }
+
+  test('the reachability walk actually resolves a known multi-file graph', () => {
+    // Guards the walk itself. If resolveRelativeImport() ever stopped
+    // resolving `./x.js` to `x.ts`, every test above would pass having
+    // inspected one file — the barrel — and nothing else.
+    const vad = packagesByName.get('@maelstrom-co/realtime-vad');
+    expect(vad).toBeDefined();
+    if (!vad) return;
+
+    const reachable = filesReachableFromRoot(vad);
+    expect(reachable.size).toBeGreaterThan(1);
+    expect(reachable).toContain(resolve(vad.dir, 'src/browser-vad.ts'));
+    // The Node-only asset copier is the whole reason this rule exists: it is
+    // a declared "./assets" entry point, and it must stay off the "." graph.
+    expect(reachable).not.toContain(resolve(vad.dir, 'src/vad-assets.ts'));
+  });
 });
 
 /**
@@ -316,60 +416,99 @@ See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
  * declared in each server/worker package's own config — which is a
  * copy-paste obligation, and copy-paste obligations rot.
  *
- * This block is what stops that rot: it derives the browser package list from
- * `classify()`, so adding a browser package or a server/worker package makes
- * the omission a test failure instead of a silently missing lint rule.
+ * This block is what stops that rot: it derives the required specifier list
+ * from `classify()` and from each browser package's own `exports` map, so
+ * adding a browser package, a subpath, or a server/worker package makes the
+ * omission a test failure instead of a silently missing lint rule.
  */
-function browserPackageNames(): string[] {
-  return packages
-    .map((pkg) => pkg.name)
-    .filter((name) => classify(name) === 'browser')
-    .sort();
+
+/**
+ * Every specifier that resolves into a browser package: the bare name plus one
+ * per non-root `exports` key.
+ *
+ * Biome's `noRestrictedImports` matches the specifier string exactly. Listing
+ * `@maelstrom-co/realtime-vad` therefore does nothing about
+ * `@maelstrom-co/realtime-vad/assets`, which is a real, published subpath —
+ * and the Node-only one, so it is the specifier a worker is most likely to
+ * reach for. Each subpath needs its own entry.
+ */
+function browserImportSpecifiers(): string[] {
+  const specifiers: string[] = [];
+  for (const pkg of packages) {
+    if (classify(pkg.name) !== 'browser') continue;
+    specifiers.push(pkg.name);
+    for (const key of Object.keys(pkg.pkgJson.exports ?? {})) {
+      if (key === '.' || key === './package.json') continue;
+      specifiers.push(`${pkg.name}${key.slice(1)}`);
+    }
+  }
+  return specifiers.sort();
 }
 
 describe('package layering — the Biome backstop must cover every browser package', () => {
+  test('the browser specifier list includes published subpaths', () => {
+    // Guards the derivation: if the exports walk broke, the list would
+    // collapse to bare names and every assertion below would still pass.
+    expect(browserImportSpecifiers()).toContain(
+      '@maelstrom-co/realtime-vad/assets',
+    );
+  });
+
   for (const pkg of packages) {
     const layer = classify(pkg.name);
     if (layer !== 'server' && layer !== 'worker') continue;
 
-    test(`${pkg.name} (${layer}) restricts imports of every browser package`, () => {
+    test(`${pkg.name} (${layer}) restricts every browser specifier`, () => {
+      const configPath = join(pkg.dir, 'biome.json');
+      const relConfigPath = relative(repoRoot, configPath);
       let biomeConfig: {
         linter?: {
           rules?: {
             style?: {
-              noRestrictedImports?: { options?: { paths?: Record<string, unknown> } };
+              noRestrictedImports?: {
+                options?: { paths?: Record<string, unknown> };
+              };
             };
           };
         };
       };
       try {
-        biomeConfig = JSON.parse(
-          readFileSync(join(pkg.dir, 'biome.json'), 'utf8'),
-        );
+        biomeConfig = JSON.parse(readFileSync(configPath, 'utf8'));
       } catch {
-        // No own config means the package inherits the root one, where the
-        // override glob does apply. Nothing to assert.
-        return;
+        throw new Error(`INVARIANT VIOLATED: every server-side and worker-side package must carry its own biome.json declaring the browser-import restrictions.
+
+  Package: ${pkg.name} (layer: ${layer})
+  Missing: ${relConfigPath}
+
+Inheriting the root config is not enough, and the failure is silent. Biome resolves an override's "includes" globs relative to the config that extends the shared one, so a root-level override targeting packages/*-server/** does not reach a package that has its own biome.json. Worse, the root globs never matched @maelstrom-co/engine at all — its directory is packages/engine, which is neither *-server nor *-agent — so "it inherits the root rule" is false for engine under every configuration.
+
+Rather than encode which packages the root globs happen to match, this test requires the rule where it is guaranteed to apply: in the package itself.
+
+Fix: create ${relConfigPath} with {"extends": "//"} plus a linter.rules.style.noRestrictedImports block. Copy the shape from packages/realtime-livekit-server/biome.json.
+
+See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
       }
 
       const restricted =
         biomeConfig.linter?.rules?.style?.noRestrictedImports?.options?.paths ??
         {};
-      const missing = browserPackageNames().filter(
-        (name) => !(name in restricted),
+      const missing = browserImportSpecifiers().filter(
+        (specifier) => !(specifier in restricted),
       );
 
       if (missing.length > 0) {
-        throw new Error(`INVARIANT VIOLATED: a server-side or worker-side package's own biome.json must restrict imports of every browser package.
+        throw new Error(`INVARIANT VIOLATED: a server-side or worker-side package's own biome.json must restrict every specifier that resolves into a browser package.
 
   Package: ${pkg.name} (layer: ${layer})
   Not restricted: ${missing.join(', ')}
 
-The manifest-graph tests above catch a forbidden *dependency edge*. This lint rule catches the forbidden *import statement* at the line where it is written, which is a far better error location — but only for the browser packages it actually lists. A browser package missing from this list is unguarded by lint.
+The manifest-graph tests above catch a forbidden *dependency edge*. This lint rule catches the forbidden *import statement* at the line where it is written, which is a far better error location — but only for the specifiers it actually lists. Anything missing from this list is unguarded by lint, and a workspace-hoisted import that never reaches package.json is unguarded by the manifest tests too, so nothing at all would catch it.
+
+Note that Biome matches specifiers exactly. A subpath such as @maelstrom-co/realtime-vad/assets is a separate entry from the bare package name, not a prefix of it.
 
 Because ${pkg.name} has its own biome.json extending the root config, the root-level "overrides" entry does not reach it: Biome interprets override globs relative to the extending config, not the repo root. The rule must be declared here, in this package's own config.
 
-Fix: add the missing entries to ${relative(repoRoot, join(pkg.dir, 'biome.json'))} under linter.rules.style.noRestrictedImports.options.paths, each with a message pointing at ${LAYER_BOUNDARY_TEST_PATH}. Copy the shape from an existing sibling such as packages/realtime-livekit-server/biome.json.
+Fix: add the missing entries to ${relConfigPath} under linter.rules.style.noRestrictedImports.options.paths, each with a message pointing at ${LAYER_BOUNDARY_TEST_PATH}. Copy the shape from an existing sibling such as packages/realtime-livekit-server/biome.json.
 
 See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
       }

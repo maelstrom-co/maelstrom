@@ -21,13 +21,22 @@ export type MintFetch = (url: string, init: RequestInit) => Promise<Response>;
  *   An operator fault either way, never the caller's.
  * - `upstream-failure` — the provider was unreachable, rejected the request,
  *   or returned a response the minter could not validate.
+ *
+ * This array is the single source of truth: {@link MintFailureReason} is
+ * derived from it, so a new reason is one edit and every exhaustiveness check
+ * that reads this array — including the one in the tests, which runs in CI
+ * where `tsc` on spec files does not — sees it immediately.
  */
-export type MintFailureReason =
-  | 'invalid-request'
-  | 'unsupported-provider'
-  | 'missing-api-key'
-  | 'invalid-config'
-  | 'upstream-failure';
+export const MINT_FAILURE_REASONS = [
+  'invalid-request',
+  'unsupported-provider',
+  'missing-api-key',
+  'invalid-config',
+  'upstream-failure',
+] as const;
+
+/** @see {@link MINT_FAILURE_REASONS} for what each reason means. */
+export type MintFailureReason = (typeof MINT_FAILURE_REASONS)[number];
 
 /**
  * Failure detail for a mint call. `upstreamStatus` is only ever present when
