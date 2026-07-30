@@ -1,25 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  type CommitData,
-  checkCommits,
-  signOffAddresses,
-} from './check-commits.ts';
-
-const AUTHOR = { name: 'Ada Lovelace', email: 'ada@example.com' };
-
-function commit(overrides: Partial<CommitData> = {}): CommitData {
-  return {
-    sha: '0123456789abcdef0123456789abcdef01234567',
-    message: 'feat: add a thing',
-    authorName: AUTHOR.name,
-    authorEmail: AUTHOR.email,
-    committerName: AUTHOR.name,
-    committerEmail: AUTHOR.email,
-    authorLogin: 'ada',
-    parentCount: 1,
-    ...overrides,
-  };
-}
+import { checkCommits } from './check-commits.ts';
+import { commit } from './fixtures.ts';
 
 describe('checkCommits', () => {
   it('flags a commit with no Signed-off-by trailer', () => {
@@ -29,8 +10,8 @@ describe('checkCommits', () => {
   });
 
   it('flags a sign-off matching neither the author nor the committer', () => {
-    // Author and committer deliberately differ: a fixture where they are equal
-    // cannot tell this rule apart from the author-only rule it replaced.
+    // Author and committer must differ here: with equal identities the fixture
+    // cannot distinguish an author-or-committer match from an author-only one.
     const c = commit({
       authorEmail: 'ada@example.com',
       committerEmail: 'grace@example.com',
@@ -39,7 +20,77 @@ describe('checkCommits', () => {
         'feat: add a thing\n\nSigned-off-by: Someone Else <other@example.com>',
     });
     expect(checkCommits([c])).toEqual([
-      { commit: c, state: 'violation', reason: 'email-mismatch' },
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: ['other@example.com'],
+      },
+    ]);
+  });
+
+  it('rejects an empty sign-off address against empty commit identities', () => {
+    // `git -c user.email="" commit --author="Nobody <>"` produces exactly this.
+    // An empty address must never certify an empty identity.
+    const c = commit({
+      authorEmail: '',
+      committerEmail: '',
+      message: 'feat: x\n\nSigned-off-by: Attacker <>',
+    });
+    expect(checkCommits([c])).toEqual([
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: [],
+      },
+    ]);
+  });
+
+  it('rejects a whitespace-only sign-off address against empty identities', () => {
+    // Trimming must not turn a blank address into a match.
+    const c = commit({
+      authorEmail: '',
+      committerEmail: '',
+      message: 'feat: x\n\nSigned-off-by: Attacker < >',
+    });
+    expect(checkCommits([c])).toEqual([
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: [],
+      },
+    ]);
+  });
+
+  it('parses no address out of an empty angle-bracket pair', () => {
+    const c = commit({ message: 'x\n\nSigned-off-by: X <>' });
+    expect(checkCommits([c])).toEqual([
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: [],
+      },
+    ]);
+  });
+
+  it('rejects an empty sign-off address when GitHub resolved no author account', () => {
+    const c = commit({
+      authorLogin: null,
+      authorType: null,
+      authorEmail: '',
+      committerEmail: '',
+      message: 'feat: x\n\nSigned-off-by: Nobody <>',
+    });
+    expect(checkCommits([c])).toEqual([
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: [],
+      },
     ]);
   });
 
@@ -63,9 +114,10 @@ describe('checkCommits', () => {
     ]);
   });
 
-  it('exempts bot authors', () => {
+  it('exempts an author GitHub classified as a bot', () => {
     const c = commit({
       authorLogin: 'dependabot[bot]',
+      authorType: 'Bot',
       authorName: 'dependabot[bot]',
       authorEmail: 'support@github.com',
       committerName: 'dependabot[bot]',
@@ -76,10 +128,62 @@ describe('checkCommits', () => {
     ]);
   });
 
+  it('exempts a bot author whose login carries no [bot] suffix', () => {
+    // The login is not the signal in either direction.
+    const c = commit({ authorLogin: 'renovate', authorType: 'Bot' });
+    expect(checkCommits([c])).toEqual([
+      { commit: c, state: 'exempt', reason: 'bot-author' },
+    ]);
+  });
+
+  it('does not exempt a [bot] login GitHub did not classify as a bot', () => {
+    // Trust boundary. The login is whatever account GitHub resolved from the
+    // commit email, so a contributor who sets `user.email` to a bot's noreply
+    // address gets that login — and would otherwise walk through the gate.
+    // Only `author.type` is GitHub's own classification of the account.
+    const c = commit({ authorLogin: 'dependabot[bot]', authorType: null });
+    expect(checkCommits([c])).toEqual([
+      { commit: c, state: 'violation', reason: 'missing-sign-off' },
+    ]);
+  });
+
+  it('does not exempt an author type other than Bot', () => {
+    // The type is compared exactly: no suffix or substring match, in contrast
+    // to the login rule this replaced.
+    const c = commit({ authorLogin: 'foo[bot]bar', authorType: 'User' });
+    expect(checkCommits([c])).toEqual([
+      { commit: c, state: 'violation', reason: 'missing-sign-off' },
+    ]);
+  });
+
   it('exempts a merge commit as a merge before considering its bot author', () => {
-    const c = commit({ parentCount: 2, authorLogin: 'dependabot[bot]' });
+    const c = commit({
+      parentCount: 2,
+      authorLogin: 'dependabot[bot]',
+      authorType: 'Bot',
+    });
     expect(checkCommits([c])).toEqual([
       { commit: c, state: 'exempt', reason: 'merge-commit' },
+    ]);
+  });
+
+  it('accepts a sign-off from an author GitHub could not resolve to an account', () => {
+    // GitHub returns `author: null` for any commit whose email is not linked to
+    // an account — the common case for first-time and fork contributors, which
+    // is exactly the population this check gates.
+    const c = commit({
+      authorLogin: null,
+      authorType: null,
+      message:
+        'feat: add a thing\n\nSigned-off-by: Ada Lovelace <ada@example.com>',
+    });
+    expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
+  });
+
+  it('flags an unresolved author with no trailer', () => {
+    const c = commit({ authorLogin: null, authorType: null });
+    expect(checkCommits([c])).toEqual([
+      { commit: c, state: 'violation', reason: 'missing-sign-off' },
     ]);
   });
 
@@ -134,6 +238,48 @@ describe('checkCommits', () => {
     expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
   });
 
+  it('accepts a CRLF commit message', () => {
+    // Windows editors and web-UI round-trips produce CRLF, and `(.*)$` under
+    // `/m` captures the trailing `\r` into the trailer value.
+    const c = commit({
+      message:
+        'feat: x\r\n\r\nSigned-off-by: Ada Lovelace <ada@example.com>\r\n',
+    });
+    expect(checkCommits([c])).toEqual([{ commit: c, state: 'signed' }]);
+  });
+
+  it('parses a CRLF sign-off address with no trailing carriage return', () => {
+    const c = commit({
+      authorEmail: 'grace@example.com',
+      committerEmail: 'grace@example.com',
+      message:
+        'feat: x\r\n\r\nSigned-off-by: Ada Lovelace <ada@example.com>\r\n',
+    });
+    expect(checkCommits([c])).toEqual([
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: ['ada@example.com'],
+      },
+    ]);
+  });
+
+  it('parses no address out of a CRLF trailer that carries none', () => {
+    // A lone `\r` capture must not be mistaken for an address.
+    const c = commit({
+      message: 'feat: x\r\n\r\nSigned-off-by: Ada Lovelace\r\n',
+    });
+    expect(checkCommits([c])).toEqual([
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: [],
+      },
+    ]);
+  });
+
   it('rejects a lowercase signed-off-by prefix', () => {
     // Case-sensitivity of the prefix is a decision, so pin it.
     const c = commit({
@@ -163,14 +309,72 @@ describe('checkCommits', () => {
       message: 'feat: add a thing\n\nSigned-off-by: Ada Lovelace',
     });
     expect(checkCommits([c])).toEqual([
-      { commit: c, state: 'violation', reason: 'email-mismatch' },
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: [],
+      },
+    ]);
+  });
+
+  it('lowercases the address inside the final angle brackets', () => {
+    const c = commit({
+      authorEmail: 'grace@example.com',
+      committerEmail: 'grace@example.com',
+      message: 'x\n\nSigned-off-by: Ada <ADA@Example.com>',
+    });
+    expect(checkCommits([c])).toEqual([
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: ['ada@example.com'],
+      },
+    ]);
+  });
+
+  it('collects every trailer in the message', () => {
+    const c = commit({
+      authorEmail: 'grace@example.com',
+      committerEmail: 'grace@example.com',
+      message: [
+        'x',
+        '',
+        'Signed-off-by: One <one@example.com>',
+        'Signed-off-by: Two <two@example.com>',
+      ].join('\n'),
+    });
+    expect(checkCommits([c])).toEqual([
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: ['one@example.com', 'two@example.com'],
+      },
+    ]);
+  });
+
+  it('does not let a bare trailer prefix swallow the following line', () => {
+    // `\s*` after the colon would match the newline and capture the next line
+    // as the trailer value, inventing an address the commit never carried.
+    const c = commit({
+      message: 'Signed-off-by:\nNot A Trailer <nope@example.com>',
+    });
+    expect(checkCommits([c])).toEqual([
+      {
+        commit: c,
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: [],
+      },
     ]);
   });
 
   it('returns no violations for an all-exempt pull request', () => {
     const verdicts = checkCommits([
       commit({ parentCount: 2 }),
-      commit({ authorLogin: 'renovate[bot]' }),
+      commit({ authorLogin: 'renovate[bot]', authorType: 'Bot' }),
     ]);
     expect(verdicts.every((verdict) => verdict.state === 'exempt')).toBe(true);
   });
@@ -193,38 +397,5 @@ describe('checkCommits', () => {
 
   it('returns an empty verdict list for an empty pull request', () => {
     expect(checkCommits([])).toEqual([]);
-  });
-});
-
-describe('signOffAddresses', () => {
-  it('lowercases the address inside the final angle brackets', () => {
-    expect(
-      signOffAddresses('x\n\nSigned-off-by: Ada <ADA@Example.com>'),
-    ).toEqual(['ada@example.com']);
-  });
-
-  it('ignores a trailer that carries no address', () => {
-    expect(signOffAddresses('x\n\nSigned-off-by: Ada Lovelace')).toEqual([]);
-  });
-
-  it('collects every trailer in the message', () => {
-    const message = [
-      'x',
-      '',
-      'Signed-off-by: One <one@example.com>',
-      'Signed-off-by: Two <two@example.com>',
-    ].join('\n');
-    expect(signOffAddresses(message)).toEqual([
-      'one@example.com',
-      'two@example.com',
-    ]);
-  });
-
-  it('does not let a bare trailer prefix swallow the following line', () => {
-    // `\s*` after the colon would match the newline and capture the next line
-    // as the trailer value, inventing an address the commit never carried.
-    expect(
-      signOffAddresses('Signed-off-by:\nNot A Trailer <nope@example.com>'),
-    ).toEqual([]);
   });
 });

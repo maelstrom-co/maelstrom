@@ -6,6 +6,7 @@ export interface CommitData {
   committerName: string;
   committerEmail: string;
   authorLogin: string | null;
+  authorType: string | null;
   parentCount: number;
 }
 
@@ -16,11 +17,15 @@ export type Verdict =
       state: 'exempt';
       reason: 'merge-commit' | 'bot-author';
     }
+  | { commit: CommitData; state: 'violation'; reason: 'missing-sign-off' }
   | {
       commit: CommitData;
       state: 'violation';
-      reason: 'missing-sign-off' | 'email-mismatch';
+      reason: 'email-mismatch';
+      signedOffAs: string[];
     };
+
+export type Violation = Extract<Verdict, { state: 'violation' }>;
 
 export function checkCommits(commits: CommitData[]): Verdict[] {
   return commits.map((commit) => {
@@ -30,7 +35,11 @@ export function checkCommits(commits: CommitData[]): Verdict[] {
     if (commit.parentCount > 1) {
       return { commit, state: 'exempt', reason: 'merge-commit' };
     }
-    if (commit.authorLogin?.endsWith('[bot]')) {
+    // Trust boundary: GitHub's own account classification is the only thing
+    // that opens this exemption. The `[bot]` login suffix must not — that login
+    // is resolved from the commit's email, so anyone who sets `user.email` to a
+    // bot's noreply address would exempt themselves from the gate.
+    if (commit.authorType === 'Bot') {
       return { commit, state: 'exempt', reason: 'bot-author' };
     }
 
@@ -41,26 +50,29 @@ export function checkCommits(commits: CommitData[]): Verdict[] {
     // A trailer with no `<…>` contributes no address, so it falls through to
     // `email-mismatch` — "you signed off, but as neither identity" is the
     // honest description of a malformed sign-off.
-    const addresses = trailers.map(addressOf).filter(isPresent);
+    const addresses = trailers.flatMap((trailer) => addressOf(trailer) ?? []);
 
-    // Author OR committer, either suffices. This is probot/dco's behaviour and
-    // it is what keeps `.githooks/prepare-commit-msg` green: that hook (like
-    // `git commit -s`) signs with the COMMITTER identity, so an author-only
-    // rule would false-red every rebase, `--author=…`, or web-UI edit. Do not
-    // "tighten" this to the author alone. Names are deliberately never
-    // compared — `Trzesniewski` vs `Trześniewski` is a correct sign-off.
-    const identities = [commit.authorEmail, commit.committerEmail].map(
-      normalizeEmail,
-    );
+    // Author OR committer email, either suffices: that matching rule is
+    // probot/dco's, and it is what keeps `.githooks/prepare-commit-msg` green
+    // — that hook (like `git commit -s`) signs with the COMMITTER identity, so
+    // an author-only rule would false-red every rebase, `--author=…`, or web-UI
+    // edit. Do not "tighten" this to the author alone. Names are deliberately
+    // never compared — `Trzesniewski` vs `Trześniewski` is a correct sign-off.
+    // Blank identities are dropped: a commit authored with no email must not be
+    // certifiable by an equally empty `<>` sign-off.
+    const identities = [commit.authorEmail, commit.committerEmail]
+      .map(normalizeEmail)
+      .filter((email) => email !== '');
     if (addresses.some((address) => identities.includes(address))) {
       return { commit, state: 'signed' };
     }
-    return { commit, state: 'violation', reason: 'email-mismatch' };
+    return {
+      commit,
+      state: 'violation',
+      reason: 'email-mismatch',
+      signedOffAs: addresses,
+    };
   });
-}
-
-export function signOffAddresses(message: string): string[] {
-  return signOffTrailers(message).map(addressOf).filter(isPresent);
 }
 
 function signOffTrailers(message: string): string[] {
@@ -74,23 +86,21 @@ function signOffTrailers(message: string): string[] {
 const SIGN_OFF_TRAILER = /^Signed-off-by:[ \t]*(.*)$/gm;
 
 function addressOf(trailerValue: string): string | undefined {
-  const close = trailerValue.lastIndexOf('>');
-  if (close === -1) {
-    return undefined;
-  }
-  const open = trailerValue.lastIndexOf('<', close);
-  if (open === -1) {
-    return undefined;
-  }
-  return normalizeEmail(trailerValue.slice(open + 1, close));
+  const address = normalizeEmail(
+    SIGN_OFF_ADDRESS.exec(trailerValue)?.[1] ?? '',
+  );
+  // An empty address is rejected here, at the parse boundary: left to stand it
+  // would match a commit whose author and committer emails are themselves
+  // empty, certifying a commit nobody signed.
+  return address === '' ? undefined : address;
 }
 
-function isPresent(value: string | undefined): value is string {
-  return value !== undefined;
-}
+// The final `<…>` pair on the line, with anything after it (a CRLF `\r`, say)
+// tolerated.
+const SIGN_OFF_ADDRESS = /<([^<>]*)>[^>]*$/;
 
 function normalizeEmail(email: string): string {
-  // Plain case folding and nothing else: no `+`-alias stripping, no Gmail dot
+  // Trim and case-fold, nothing more: no `+`-alias stripping, no Gmail dot
   // folding. The attestation should be literal.
   return email.trim().toLowerCase();
 }
