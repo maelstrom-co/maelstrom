@@ -51,6 +51,17 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup Node
+        # wrangler-action probes the toolchain with `npx wrangler --version` and
+        # silently falls back to `npm i wrangler` when that fails. The runner
+        # defaults to Node 20, wrangler 4 needs >= 22, so without this the probe
+        # fails and the npm fallback then dies on bun's `workspace:*` protocol —
+        # surfacing as an npm EUNSUPPORTEDPROTOCOL error that names neither Node
+        # nor the real cause.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
