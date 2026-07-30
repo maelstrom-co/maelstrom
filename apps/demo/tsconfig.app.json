@@ -9,7 +9,8 @@
     "moduleResolution": "Bundler",
     "target": "ES2022",
     "skipLibCheck": true,
-    "types": ["node", "vite/client", "geojson"]
+    "types": ["node", "vite/client", "geojson"],
+    "rootDir": "."
   },
   "exclude": [
     "out-tsc",

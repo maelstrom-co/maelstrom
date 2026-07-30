@@ -24,7 +24,7 @@ export default defineConfig(() => ({
       name: '@maelstrom-co/realtime-livekit-agent',
       formats: ['es' as const],
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: [
         /^node:/,
         /^@livekit\//,

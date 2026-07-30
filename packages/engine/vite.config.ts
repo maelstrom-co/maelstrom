@@ -22,7 +22,7 @@ export default defineConfig({
       fileName: 'index',
       formats: ['es' as const],
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: ['@maelstrom-co/protocol', '@tanstack/ai', 'zod'],
     },
   },
