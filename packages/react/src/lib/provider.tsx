@@ -4,7 +4,11 @@ import {
   Orchestrator,
   SessionId,
 } from '@maelstrom-co/client';
-import type { LayoutMode, VesselId } from '@maelstrom-co/protocol';
+import type {
+  LayoutMode,
+  TilingLayout,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { toError } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
@@ -60,6 +64,19 @@ export interface MaelstromProviderProps {
   motion?: ChartMotionConfig;
   /** Called on Orchestrator startup failures, connection failures, processIntent failures, and executeAction failures. Errors also surface via useMaelstrom(). */
   onError?: (error: Error) => void;
+  /**
+   * Layout applied once when the Provider mounts, before any engine
+   * round-trip — a *proposed* first screen. The engine sees it in the next
+   * chart request and may reshape or drop tiles to fit the real viewport.
+   * Requires `layoutMode: 'tiling'` (the default): any `initialLayout` value
+   * throws when the Orchestrator is constructed under `layoutMode: 'grid'`
+   * — a grid layout can only reposition instances that already exist (none
+   * do at construction), and a tiling layout mismatches `layoutMode`
+   * outright. There is no way to seed a first screen in grid mode. Captured
+   * once: changing this prop after mount is ignored (a console warning says
+   * so); remount with a new `key` to seed a different screen.
+   */
+  initialLayout?: TilingLayout;
   children: ReactNode;
 }
 
@@ -79,6 +96,7 @@ export function createProvider(
     debug,
     motion,
     onError,
+    initialLayout,
     children,
   }: MaelstromProviderProps) {
     // Resolve config: Provider overrides → factory defaults → hardcoded defaults
@@ -138,26 +156,69 @@ export function createProvider(
       }
     }, [sessionId]);
 
+    // initialLayout is an object prop, so `!==` would false-positive on every
+    // re-render that passes a structurally identical but newly allocated
+    // literal (the common case). Compare serialized signatures instead;
+    // TilingLayout is plain JSON (strings, arrays, plain objects), so
+    // JSON.stringify is exact here.
+    //
+    // Re-serializing on every render is wasted work when the caller passes a
+    // stable reference (a module-level constant, or state that lives above
+    // the Provider and re-renders it on unrelated changes) — cache the
+    // signature and only recompute it when the reference itself changes.
+    const layoutSignatureCacheRef = useRef<{
+      layout: TilingLayout | undefined;
+      signature: string;
+    } | null>(null);
+    if (
+      layoutSignatureCacheRef.current === null ||
+      layoutSignatureCacheRef.current.layout !== initialLayout
+    ) {
+      layoutSignatureCacheRef.current = {
+        layout: initialLayout,
+        signature: JSON.stringify(initialLayout),
+      };
+    }
+    const initialLayoutSignature = layoutSignatureCacheRef.current.signature;
+    const initialLayoutSignatureRef = useRef(initialLayoutSignature);
+    const hasWarnedLayoutChangeRef = useRef(false);
+
+    useEffect(() => {
+      if (
+        !hasWarnedLayoutChangeRef.current &&
+        initialLayoutSignature !== initialLayoutSignatureRef.current
+      ) {
+        hasWarnedLayoutChangeRef.current = true;
+        console.warn(
+          '[Maelstrom] initialLayout prop changed after initial mount. ' +
+            'This is ignored — initialLayout is captured once on mount. ' +
+            'To seed a different screen, remount the Provider with a new key.',
+        );
+      }
+    }, [initialLayoutSignature]);
+
     // Orchestrator lifecycle — creates fresh instance per mount, disposes on unmount.
     // StrictMode safe: cleanup disposes the first instance, second setup creates a new one.
     const [orchestrator, setOrchestrator] = useState<InstanceType<
       typeof Orchestrator
     > | null>(null);
 
-    // biome-ignore lint/correctness/useExhaustiveDependencies: onErrorRef and connectorRef are useLatestRef (stable identity, .current always fresh) — listing their .current would re-create the Orchestrator on every onError/connector identity change, defeating the point of narrowing this effect to session identity alone. connector, layoutMode, and debug are deliberately excluded: a connector change is pushed into the live Orchestrator by the setConnector effect below, layoutMode by the setLayoutMode effect below, and debug only gates logging so it applies starting from the next mount rather than live.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: onErrorRef and connectorRef are useLatestRef (stable identity, .current always fresh) — listing their .current would re-create the Orchestrator on every onError/connector identity change, defeating the point of narrowing this effect to session identity alone. connector, layoutMode, and debug are deliberately excluded: a connector change is pushed into the live Orchestrator by the setConnector effect below, layoutMode by the setLayoutMode effect below, and debug only gates logging so it applies starting from the next mount rather than live. initialLayout is excluded the same way — it is read once, from whichever render this effect's closure happened to run in (mount, or both mount passes under StrictMode's double-invoke using the *same* closure), and a later value has nothing left to attach to since the Orchestrator is already built.
     useEffect(() => {
       let instance: Orchestrator;
       try {
         instance = new Orchestrator(connectorRef.current, {
           sessionId: stableSessionId,
           ...(layoutMode && { layoutMode }),
+          ...(initialLayout && { initialLayout }),
+          // Registered before `initialLayout` is validated inside the
+          // Orchestrator constructor, so a seed naming one of these vessels
+          // resolves instead of failing construction — registering them
+          // afterward (as a separate `registerVessel` loop) would be too
+          // late, since the seed is validated during construction itself.
+          vessels: vesselEntries.map((entry) => entry.vessel),
           debug: config.debug,
         });
-
-        // Register all static vessels
-        for (const entry of vesselEntries) {
-          instance.vesselManager.registerVessel(entry.vessel);
-        }
       } catch (err) {
         const error = toError(err);
         console.error('[Maelstrom] Failed to create Orchestrator:', error);

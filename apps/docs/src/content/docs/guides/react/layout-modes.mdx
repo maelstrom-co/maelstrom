@@ -50,6 +50,8 @@ In grid mode, `cellSizePx` sets the pixel size of a single grid cell. Each vesse
 </m.Provider>
 ```
 
+Grid mode has one restriction worth knowing up front: [`initialLayout`](/guides/react/default-screen/) requires `layoutMode="tiling"`, so you cannot seed a default first screen while in grid mode.
+
 You can also set the default cell size when you create the instance:
 
 ```tsx title="src/maelstrom.ts"

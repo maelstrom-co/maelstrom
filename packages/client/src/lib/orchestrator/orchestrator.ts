@@ -4,11 +4,13 @@ import {
   ChartRequestMessage,
   type ChartResizeReason,
   type InstanceId,
+  isInstanceIdNode,
   type LayoutMode,
   type MaelstromResponse,
   MessageId,
   type SessionHistoryEntry,
   type SessionId,
+  type TilingLayout,
   toError,
   type UpdateReason,
   type VariantName,
@@ -122,6 +124,34 @@ export class Orchestrator {
     this.#config = resolveOrchestratorOptions(options);
     this.#logger = new Logger(this.#config.debug, 'Orchestrator');
 
+    const { initialLayout } = this.#config;
+    // Rejected before any microkernel exists: the static type says
+    // TilingLayout, but nothing stops an untyped (JS) caller, or an `as`
+    // escape hatch, from handing us a grid layout at runtime. A grid layout
+    // can only reposition instances that already exist — none do at
+    // construction — so applying one would silently drop every position
+    // while still writing the (now instance-less) layout into the store.
+    if (initialLayout && (initialLayout as { type: string }).type === 'grid') {
+      throw new Error(
+        'initialLayout cannot be a grid layout: a grid layout only repositions instances that already exist, and none exist yet at construction. Seed with a tiling layout instead.',
+      );
+    }
+    // Rejected up front, but for a different reason than the grid-layout
+    // guard above: this is not a wedge, it is a silent discard.
+    // buildChartRequest resynthesizes a fresh, empty layout of
+    // `layoutMode`'s own type whenever the stored layout's type disagrees
+    // with it (see setLayoutMode's doc comment for the identical resynthesis
+    // at runtime) — so a mismatched seed would apply, then have its
+    // arranged tree thrown away on the very first request, rather than
+    // wedging the session. Rejecting the mismatch here fails fast on that
+    // caller intent instead of letting it half-apply.
+    if (initialLayout && initialLayout.type !== this.#config.layoutMode) {
+      const layoutType = initialLayout.type;
+      throw new Error(
+        `initialLayout.type is "${layoutType}" but layoutMode is "${this.#config.layoutMode}". Pass an initialLayout of type "${this.#config.layoutMode}", or construct with layoutMode: "${layoutType}".`,
+      );
+    }
+
     // Create microkernels
     this.#connectionManager = new ConnectionManager(connector, {
       debug: this.#config.debug,
@@ -140,12 +170,76 @@ export class Orchestrator {
     this.#vesselManager = new VesselManager({
       debug: this.#config.debug,
     });
+    // Registered here, before `initialLayout` is validated below, so a seed
+    // can actually reference these vessels — the registry starts out empty
+    // otherwise, and nothing outside this constructor can reach
+    // `#vesselManager` before it returns.
+    //
+    // Invalid definitions are reported, not thrown — the same
+    // report-don't-throw contract `registerVessel` already honors
+    // everywhere else, including the dynamic `useVessel` / `registerVessel`
+    // path: `#vesselManager.registerVessel` logs the issues itself and just
+    // skips registering that one. A typo in one vessel must not cost every
+    // other vessel, let alone the whole Orchestrator. The one exception is a
+    // vessel an `initialLayout` seed actually names — construction cannot
+    // produce the seeded screen without it, so that failure is escalated to
+    // a throw below, once the seed is checked against the registry this loop
+    // just populated.
+    const invalidVesselIssues = new Map<string, string>();
+    if (options.vessels) {
+      for (const vessel of options.vessels) {
+        const result = this.#vesselManager.registerVessel(vessel);
+        if (!result.valid) {
+          invalidVesselIssues.set(
+            vessel.id,
+            result.issues.map((issue) => issue.message).join('; '),
+          );
+        }
+      }
+    }
     this.#chartManager = new ChartManager({
       debug: this.#config.debug,
     });
     this.#requestCoordinator = new RequestCoordinator(connector, {
       debug: this.#config.debug,
     });
+
+    // Validated ahead of #setupSubscriptions(): that call installs a push
+    // subscription on the caller-supplied connector (see #attachPushSubscription),
+    // which outlives this constructor even if it throws. Every throwing check
+    // must run before it, or a rejected construction leaves that subscription
+    // attached to a connector whose Orchestrator never came into being.
+    if (initialLayout) {
+      validateTilingSeedInvariants(initialLayout);
+      for (const instance of initialLayout.instances) {
+        const vessel = this.#vesselManager.get(instance.vesselId);
+        if (!vessel) {
+          const failureReason = invalidVesselIssues.get(instance.vesselId);
+          throw new Error(
+            failureReason
+              ? `initialLayout seeds instance "${instance.instanceId}" with vessel "${instance.vesselId}", which failed vessel validation: ${failureReason}.`
+              : `initialLayout seeds instance "${instance.instanceId}" with vessel "${instance.vesselId}", which is not registered. Register it via the "vessels" option before construction.`,
+          );
+        }
+        if (!Object.hasOwn(vessel.variants, instance.variant)) {
+          throw new Error(
+            `initialLayout seeds instance "${instance.instanceId}" with variant "${instance.variant}", which vessel "${instance.vesselId}" does not declare.`,
+          );
+        }
+      }
+    }
+
+    // setLayout writes straight into the store with no registry check of its
+    // own; the validation above already guaranteed every seeded instance
+    // resolves, so this cannot fail. Applied before #setupSubscriptions()
+    // attaches a push subscription: no `PushConnector` in this repo replays
+    // synchronously on subscribe, and the interface makes no promise either
+    // way, but this ordering keeps the seed a proposal the engine reshapes
+    // rather than letting it clobber a real response delivered during
+    // subscribe.
+    if (initialLayout) {
+      this.#commandProcessor.setLayout(initialLayout);
+    }
 
     this.#setupSubscriptions();
   }
@@ -950,5 +1044,32 @@ export class Orchestrator {
   // single edit to change the recipe.
   #nextRequestId(): MessageId {
     return MessageId(`req-${Date.now()}-${++this.#requestCounter}`);
+  }
+}
+
+// Mirrors the two tiling-tree invariants ChartRequestSchema's superRefine
+// enforces on every chart_request (packages/protocol/src/lib/request.ts):
+// duplicate instance ids, and tree leaves that don't resolve to a declared
+// instance. A seed that violates either would pass construction, get stored,
+// and then fail that same check on every subsequent chart_resize/intent
+// request — wedged for good, since only an engine response can replace a
+// stored layout.
+function validateTilingSeedInvariants(layout: TilingLayout): void {
+  const seenIds = new Set<InstanceId>();
+  for (const instance of layout.instances) {
+    if (seenIds.has(instance.instanceId)) {
+      throw new Error(
+        `initialLayout.instances contains duplicate instanceId "${instance.instanceId}".`,
+      );
+    }
+    seenIds.add(instance.instanceId);
+  }
+  for (const node of layout.tree) {
+    if (!isInstanceIdNode(node)) continue;
+    if (!seenIds.has(node)) {
+      throw new Error(
+        `initialLayout.tree references instance "${node}", which is not declared in initialLayout.instances.`,
+      );
+    }
   }
 }

@@ -2725,4 +2725,465 @@ describe('Orchestrator', () => {
       orchestrator.dispose();
     });
   });
+
+  describe('Orchestrator initialLayout', () => {
+    // A vessel a seed can validly reference — registered via the `vessels`
+    // constructor option, which runs before the seed is validated (the
+    // ordering that makes construction-time validation possible at all).
+    const calendarVessel = {
+      id: 'calendar',
+      name: 'Calendar',
+      description: 'a test calendar vessel',
+      defaultVariant: 'day',
+      variants: {
+        day: { props: {}, minSize: { width: 2, height: 2 }, actions: [] },
+      },
+    } as const;
+
+    it('seeds an instance before any engine response', async () => {
+      const { orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [calendarVessel],
+        initialLayout: {
+          type: 'tiling',
+          tree: [InstanceId('calendar-main')],
+          instances: [
+            {
+              instanceId: InstanceId('calendar-main'),
+              vesselId: VesselId('calendar'),
+              variant: VariantName('day'),
+            },
+          ],
+        },
+      });
+
+      await orchestrator.commandProcessor.waitForIdle();
+
+      const seeded = orchestrator.commandProcessor.store.state.instances.get(
+        InstanceId('calendar-main'),
+      );
+      expect(seeded?.vesselId).toBe(VesselId('calendar'));
+      expect(seeded?.variant).toBe(VariantName('day'));
+
+      orchestrator.dispose();
+    });
+
+    it('rejects a grid initialLayout outright — a grid layout only repositions instances that already exist, and none do at construction', () => {
+      expect(() =>
+        createTestOrchestrator(undefined, {
+          // @ts-expect-error initialLayout is typed TilingLayout-only; this
+          // exercises the runtime guard a plain-JS or `as`-cast caller can
+          // still trigger.
+          initialLayout: { type: 'grid', positions: [] },
+        }),
+      ).toThrow(/grid layout/i);
+    });
+
+    // Guard ordering: a grid seed must still produce the grid-specific
+    // message above, even though it is also a layoutMode mismatch whenever
+    // layoutMode defaults to 'tiling' — the grid check must run first.
+    it('still produces the grid-specific message for a grid seed, not the mismatch message, when layoutMode also happens to mismatch', () => {
+      expect(() =>
+        createTestOrchestrator(undefined, {
+          layoutMode: 'tiling',
+          // @ts-expect-error same runtime-guard exercise as above.
+          initialLayout: { type: 'grid', positions: [] },
+        }),
+      ).toThrow(/grid layout/i);
+    });
+
+    it('rejects a layoutMode/initialLayout type mismatch — a mismatched seed would wedge every future chart request since only an engine response can replace the stored layout', () => {
+      expect(() =>
+        createTestOrchestrator(undefined, {
+          layoutMode: 'grid',
+          vessels: [calendarVessel],
+          initialLayout: {
+            type: 'tiling',
+            tree: [InstanceId('calendar-main')],
+            instances: [
+              {
+                instanceId: InstanceId('calendar-main'),
+                vesselId: VesselId('calendar'),
+                variant: VariantName('day'),
+              },
+            ],
+          },
+        }),
+      ).toThrow(/initialLayout.*"tiling".*layoutMode.*"grid"/is);
+    });
+
+    describe('validated against the vessel registry', () => {
+      it('throws naming the instance and vessel when the vessel is unregistered', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            initialLayout: {
+              type: 'tiling',
+              tree: [InstanceId('calendar-main')],
+              instances: [
+                {
+                  instanceId: InstanceId('calendar-main'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+              ],
+            },
+          }),
+        ).toThrow(/calendar-main.*calendar|calendar.*calendar-main/);
+      });
+
+      it('throws naming the instance and variant when the variant is undeclared on the vessel', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              type: 'tiling',
+              tree: [InstanceId('calendar-main')],
+              instances: [
+                {
+                  instanceId: InstanceId('calendar-main'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('week'),
+                },
+              ],
+            },
+          }),
+        ).toThrow(/calendar-main.*week|week.*calendar-main/);
+      });
+
+      it('constructs and applies a seed whose vessel and variant are both valid', async () => {
+        const { orchestrator } = createTestOrchestrator(undefined, {
+          vessels: [calendarVessel],
+          initialLayout: {
+            type: 'tiling',
+            tree: [InstanceId('calendar-main')],
+            instances: [
+              {
+                instanceId: InstanceId('calendar-main'),
+                vesselId: VesselId('calendar'),
+                variant: VariantName('day'),
+              },
+            ],
+          },
+        });
+
+        await orchestrator.commandProcessor.waitForIdle();
+        expect(
+          orchestrator.commandProcessor.store.state.instances.get(
+            InstanceId('calendar-main'),
+          )?.variant,
+        ).toBe(VariantName('day'));
+
+        orchestrator.dispose();
+      });
+    });
+
+    describe('validated tiling tree invariants', () => {
+      it('throws when initialLayout.instances contains a duplicate instanceId', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              type: 'tiling',
+              tree: [InstanceId('calendar-main')],
+              instances: [
+                {
+                  instanceId: InstanceId('calendar-main'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+                {
+                  instanceId: InstanceId('calendar-main'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+              ],
+            },
+          }),
+        ).toThrow(/duplicate.*calendar-main/i);
+      });
+
+      it('throws when initialLayout.tree references a leaf absent from initialLayout.instances', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              type: 'tiling',
+              tree: [InstanceId('ghost-main')],
+              instances: [
+                {
+                  instanceId: InstanceId('calendar-main'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+              ],
+            },
+          }),
+        ).toThrow(/ghost-main/);
+      });
+
+      it('constructs when the seed satisfies both invariants (two leaves joined by a split, no duplicates)', async () => {
+        const { orchestrator } = createTestOrchestrator(undefined, {
+          vessels: [calendarVessel],
+          initialLayout: {
+            type: 'tiling',
+            tree: [
+              'H',
+              InstanceId('calendar-main'),
+              InstanceId('calendar-side'),
+            ],
+            instances: [
+              {
+                instanceId: InstanceId('calendar-main'),
+                vesselId: VesselId('calendar'),
+                variant: VariantName('day'),
+              },
+              {
+                instanceId: InstanceId('calendar-side'),
+                vesselId: VesselId('calendar'),
+                variant: VariantName('day'),
+              },
+            ],
+          },
+        });
+
+        await orchestrator.commandProcessor.waitForIdle();
+        expect(orchestrator.commandProcessor.store.state.instances.size).toBe(
+          2,
+        );
+
+        orchestrator.dispose();
+      });
+    });
+
+    // Regression: a throwing validation used to run AFTER #setupSubscriptions(),
+    // which had already attached a push subscription to the caller-supplied
+    // connector. A rejected construction left that subscription installed on
+    // an object graph that never finished building and had no way to dispose
+    // — the connector (which the caller retains and reuses) outlives the
+    // failed construction attempt.
+    it('leaves no push subscription on the connector when construction throws', () => {
+      const pushConnector = createMockPushConnector();
+
+      expect(() =>
+        createTestOrchestrator(pushConnector, {
+          initialLayout: {
+            type: 'tiling',
+            tree: [InstanceId('calendar-main')],
+            instances: [
+              {
+                instanceId: InstanceId('calendar-main'),
+                vesselId: VesselId('calendar'),
+                variant: VariantName('day'),
+              },
+            ],
+          },
+        }),
+      ).toThrow();
+
+      expect(pushConnector.onPushMessage).not.toHaveBeenCalled();
+    });
+
+    // Ordering hardening: no PushConnector in this repo replays synchronously
+    // on subscribe, and the interface makes no promise either way — but if
+    // one ever did, the seed must still land first so it stays a proposal the
+    // engine reshapes, rather than clobbering a real response delivered
+    // during subscribe.
+    it('applies the seed before subscriptions attach, so a synchronously-replayed push response still lands on top of it', async () => {
+      const pushedResponse: MaelstromResponse = {
+        type: 'maelstrom_response',
+        requestId: MessageId('req-push'),
+        userMessage: 'pushed',
+        rationale: 'test',
+        executionPlan: [],
+        layout: {
+          type: 'tiling',
+          tree: [InstanceId('pushed-main')],
+          instances: [
+            {
+              instanceId: InstanceId('pushed-main'),
+              vesselId: VesselId('calendar'),
+              variant: VariantName('day'),
+            },
+          ],
+        },
+      };
+      const pushConnector = createMockPushConnector({
+        onPushMessage: mock((cb: (response: MaelstromResponse) => void) => {
+          cb(pushedResponse);
+          return () => {};
+        }),
+      });
+
+      const { orchestrator } = createTestOrchestrator(pushConnector, {
+        vessels: [calendarVessel],
+        initialLayout: {
+          type: 'tiling',
+          tree: [InstanceId('calendar-main')],
+          instances: [
+            {
+              instanceId: InstanceId('calendar-main'),
+              vesselId: VesselId('calendar'),
+              variant: VariantName('day'),
+            },
+          ],
+        },
+      });
+
+      await orchestrator.commandProcessor.waitForIdle();
+
+      const layout = orchestrator.commandProcessor.store.state.layout;
+      expect(layout?.type).toBe('tiling');
+      expect(
+        layout?.type === 'tiling' &&
+          layout.instances.some(
+            (i) => i.instanceId === InstanceId('pushed-main'),
+          ),
+      ).toBe(true);
+
+      orchestrator.dispose();
+    });
+  });
+
+  describe('Orchestrator vessels option', () => {
+    // Changed from "throws naming the offending vessel..." — that test
+    // pinned the exact regression this fix removes: one bad vessel
+    // definition used to abort the whole Orchestrator, which is what made a
+    // single vessel typo white-screen an entire app built on the static
+    // `vessels` option. The report-don't-throw contract this vessel already
+    // honors via `registerVessel` (see vessel-manager.ts) is now honored
+    // here too, so the replacement test asserts the opposite outcome:
+    // construction succeeds, the invalid vessel is simply absent from the
+    // registry, and unrelated valid vessels still register normally.
+    it('skips an invalid vessel definition and registers the rest — an unrelated typo must not abort construction', () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const { orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [
+          {
+            id: 'broken',
+            name: 'Broken',
+            description: 'a vessel with no variants',
+            defaultVariant: 'x',
+            variants: {},
+          },
+          {
+            id: 'calendar',
+            name: 'Calendar',
+            description: 'a test calendar vessel',
+            defaultVariant: 'day',
+            variants: {
+              day: { props: {}, minSize: { width: 2, height: 2 }, actions: [] },
+            },
+          },
+        ],
+      });
+
+      // The invalid vessel never entered the registry...
+      expect(orchestrator.vesselManager.has('broken')).toBe(false);
+      // ...but the valid one alongside it did, and is actually usable.
+      expect(orchestrator.vesselManager.has('calendar')).toBe(true);
+      expect(orchestrator.vesselManager.get('calendar')?.defaultVariant).toBe(
+        VariantName('day'),
+      );
+      // The failure is still surfaced — just as a log, not a throw, matching
+      // what registerVessel already does on its own for a direct caller.
+      expect(errorSpy).toHaveBeenCalled();
+
+      errorSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    // Changed from "aggregates multiple invalid vessel definitions into a
+    // single throw" for the same reason as above: aggregating failures into
+    // one throw was itself the mechanism that let a single bad vessel take
+    // down construction. Both invalid definitions are now skipped
+    // independently instead.
+    it('skips multiple invalid vessel definitions independently instead of throwing', () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const { orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [
+          {
+            id: 'broken-a',
+            name: 'Broken A',
+            description: 'a vessel with no variants',
+            defaultVariant: 'x',
+            variants: {},
+          },
+          {
+            id: 'broken-b',
+            name: 'Broken B',
+            description: 'a vessel with no variants',
+            defaultVariant: 'x',
+            variants: {},
+          },
+        ],
+      });
+
+      expect(orchestrator.vesselManager.has('broken-a')).toBe(false);
+      expect(orchestrator.vesselManager.has('broken-b')).toBe(false);
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+
+      errorSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('registers a valid vessel and does not throw', () => {
+      expect(() =>
+        createTestOrchestrator(undefined, {
+          vessels: [
+            {
+              id: 'calendar',
+              name: 'Calendar',
+              description: 'a test calendar vessel',
+              defaultVariant: 'day',
+              variants: {
+                day: {
+                  props: {},
+                  minSize: { width: 2, height: 2 },
+                  actions: [],
+                },
+              },
+            },
+          ],
+        }),
+      ).not.toThrow();
+    });
+
+    // The exception to report-don't-throw: a vessel an initialLayout seed
+    // actually names is one construction cannot proceed without, so a
+    // definition that failed validation (and therefore never made it into
+    // the registry) must still surface as a throw naming the vessel —
+    // silently producing a broken first screen would be worse than the
+    // white-screen this fix removes for unrelated vessels.
+    it('still throws naming the vessel when initialLayout seeds an instance whose vessel definition failed validation', () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      expect(() =>
+        createTestOrchestrator(undefined, {
+          vessels: [
+            {
+              id: 'broken',
+              name: 'Broken',
+              description: 'a vessel with no variants',
+              defaultVariant: 'x',
+              variants: {},
+            },
+          ],
+          initialLayout: {
+            type: 'tiling',
+            tree: [InstanceId('broken-main')],
+            instances: [
+              {
+                instanceId: InstanceId('broken-main'),
+                vesselId: VesselId('broken'),
+                variant: VariantName('x'),
+              },
+            ],
+          },
+        }),
+      ).toThrow(/broken-main.*broken|broken.*broken-main/);
+
+      errorSpy.mockRestore();
+    });
+  });
 });

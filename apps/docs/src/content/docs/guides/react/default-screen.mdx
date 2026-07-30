@@ -1,0 +1,100 @@
+---
+title: Setting a Default Screen
+description: Give every visitor the same predictable first screen with initialLayout.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Left alone, the first thing a visitor sees is whatever the engine decides to place after the Chart's launch measurement round-trip. This guide seeds a known first screen instead, using the `greetingVessel` from [Layout Modes](/guides/react/layout-modes/).
+
+<Aside type="note">
+  **Before you start:** complete [Layout Modes](/guides/react/layout-modes/) so you have a tiling `<m.Provider>` wired up around your `greetingVessel`. This guide adds `initialLayout` to that setup.
+</Aside>
+
+## The problem
+
+Nothing renders on `<m.Chart />` until the engine responds. That first response comes from the Chart's own launch `chart_resize` request — sent once the Chart measures its container — so the layout your visitor lands on depends on whatever the engine decides given an empty instance list and their particular viewport. Two visitors, two window sizes, two different first screens. For a lot of products that's fine; for a dashboard or a tool with an obvious "home" state, it's not — you want everyone to land in the same place.
+
+## `initialLayout`
+
+Pass a `TilingLayout` to `<m.Provider>` via the `initialLayout` prop. It's applied once, at construction, before the Chart ever measures its container or sends a request:
+
+```tsx title="src/app.tsx"
+import {
+  InstanceId,
+  VariantName,
+  VesselId,
+  type TilingLayout,
+} from '@maelstrom-co/protocol';
+import { m } from './maelstrom';
+import { myConnector } from './connector';
+
+const LEFT = InstanceId('greeting-a');
+const RIGHT = InstanceId('greeting-b');
+
+const DEFAULT_LAYOUT: TilingLayout = {
+  type: 'tiling',
+  // Preorder: 'V' splits the region left/right; both children are leaves.
+  tree: ['V', LEFT, RIGHT],
+  instances: [
+    { instanceId: LEFT, vesselId: VesselId('greeting'), variant: VariantName('card') },
+    { instanceId: RIGHT, vesselId: VesselId('greeting'), variant: VariantName('card') },
+  ],
+};
+
+export default function App() {
+  return (
+    <m.Provider connector={myConnector} layoutMode="tiling" initialLayout={DEFAULT_LAYOUT}>
+      <m.Chart />
+    </m.Provider>
+  );
+}
+```
+
+That seeds two `greetingVessel` instances side by side before any engine round-trip happens. `tree` is a preorder traversal of the tiling binary tree, same encoding you saw described in [Grid vs Tiling](/understanding/grid-vs-tiling/):
+
+- `'V'` splits the current region left/right.
+- `'H'` splits the current region top/bottom.
+- Any other string is the instance ID of a leaf.
+- `null` is an empty leaf — a blank pane.
+
+`InstanceId`, `VesselId`, and `VariantName` are branded constructors from `@maelstrom-co/protocol` — the same ones you'd use to build any tiling layout by hand (see [Programmatic Layout Control](/guides/client/programmatic-layout/)).
+
+## It's a proposal, not a contract
+
+The engine sees your seeded instances plus the visitor's real viewport in the very first chart request. It may resize the tiles, or drop one entirely, to make the layout fit. That's not a bug to work around — it's the only sane behavior. Your app has no way to know a given visitor's window size ahead of time, so `initialLayout` can only ever propose a starting arrangement; the engine still reconciles it against the screen actually in front of the person using it.
+
+## Tiling only
+
+`initialLayout` is typed `TilingLayout` — a grid layout isn't accepted, not even as a union member. That follows from what a grid layout actually is: a `GridPosition` carries an `instanceId` plus a `position` and `size` — enough to place something, but not enough to create it. It has no `vesselId` or `variant`, so there's no way to construct an instance from it. Applying a grid layout looks up each position's `instanceId` against instances already in the store and repositions those; a position naming an instance it doesn't know about is dropped with a warning rather than fabricated.
+
+At the moment `initialLayout` is applied — Provider construction, before the first engine response — no instances exist yet. A grid layout would therefore seed nothing at all, so the client rejects it outright instead of silently accepting a value that can never do anything useful there.
+
+<Aside type="caution">
+  A grid `initialLayout` throws when the Orchestrator is constructed — regardless of `layoutMode`. `initialLayout` also requires `layoutMode="tiling"` (the default): pass it alongside `layoutMode="grid"` and even a well-typed tiling value throws too, because it then mismatches the mode. Put together, there is no way to use `initialLayout` under `layoutMode="grid"` — pick one tiling value that satisfies both checks, or drop `initialLayout` in grid mode. `initialLayout` is only ever applied once, at construction, so there's no later point in the session where either of these would work either. To place or reposition existing instances after launch, use the programmatic layout APIs described in [Programmatic Layout Control](/guides/client/programmatic-layout/) instead.
+</Aside>
+
+## Captured once
+
+`initialLayout` is read once, when the Provider mounts, and never again. Passing a new value on a later render is ignored — the console logs a warning so the mismatch doesn't fail silently. (The warning compares the two layouts' serialized contents, not the object reference, so re-passing a freshly-allocated but identical-looking layout on every render will not trigger it.)
+
+To show a visitor a different default screen — a "reset to home" action, a different layout per route — remount the Provider with a new `key`:
+
+```tsx title="src/app.tsx"
+<m.Provider key={screenId} connector={myConnector} initialLayout={layoutForScreen(screenId)}>
+  <m.Chart />
+</m.Provider>
+```
+
+Bumping `screenId` tears down the old Provider and constructs a fresh one, which applies the new `initialLayout` at its own construction time.
+
+## Empty-state components
+
+Once you set a default screen, `<m.Chart />` never starts empty — instances exist from the very first render, before the engine has said anything. If you have a component gated on "no instances yet" (a first-run hint, an onboarding overlay, empty-state copy), it stops rendering at launch, because the chart is no longer empty at launch. That's expected: the whole point of `initialLayout` is to replace the empty state with something concrete. If you still want first-run guidance, key it off something else — a "has the visitor sent a message yet" flag, for instance — rather than instance count.
+
+## Next steps
+
+- [Layout Modes](/guides/react/layout-modes/) — grid vs tiling, and the props that shape each
+- [Options that change at runtime](/guides/react/variants-and-actions/#options-that-change-at-runtime) — keep action parameters in sync with live data after launch
+- [Programmatic Layout Control](/guides/client/programmatic-layout/) — apply a layout mid-session, outside the engine loop
+- [Grid vs Tiling](/understanding/grid-vs-tiling/) — the conceptual model behind the tiling tree
