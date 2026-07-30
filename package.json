@@ -127,7 +127,8 @@
       "test": {
         "executor": "nx:run-commands",
         "metadata": {
-          "description": "The action suite is re-rooted with --cwd, not filtered: bun's test scanner skips dot-directories, so `bun test .github/actions` silently matches nothing and exits 0."
+          "description": "Runs the root `scripts/` suite and the `.github/actions/` suites",
+          "//": "The action suite is re-rooted with --cwd, not filtered: bun's test scanner skips dot-directories, so `bun test .github/actions` matches zero files and errors out (\"did not match any test files\", exit 1) instead of running the suite — even with --passWithNoTests=true."
         },
         "options": {
           "parallel": false,
