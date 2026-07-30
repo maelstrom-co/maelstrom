@@ -160,10 +160,13 @@ export function createChart(
 
       const variant = vessel.variants[instance.variant];
       if (!variant) {
-        if (config.debug)
-          console.warn(
-            `[Maelstrom] Unknown variant "${instance.variant}" for vessel "${instance.vesselId}"`,
-          );
+        // Unconditional: this instance renders as a blank tile either way,
+        // and gating the only signal behind debug mode made that blank tile
+        // invisible in production too (debug defaults to false).
+        warnOnce(
+          `chart:unknown-variant:${instance.vesselId}:${instance.variant}`,
+          `[Maelstrom] Unknown variant "${instance.variant}" for vessel "${instance.vesselId}"`,
+        );
         return null;
       }
 
