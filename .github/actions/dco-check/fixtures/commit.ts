@@ -1,4 +1,4 @@
-import type { CommitData } from './check-commits.ts';
+import type { CommitData } from '../policy/commit-data.ts';
 
 export function commit(overrides: Partial<CommitData> = {}): CommitData {
   return {

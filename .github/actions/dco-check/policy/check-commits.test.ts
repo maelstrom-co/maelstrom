@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { commit } from '../fixtures/commit.ts';
 import { checkCommits } from './check-commits.ts';
-import { commit } from './fixtures.ts';
 
 describe('checkCommits', () => {
   it('flags a commit with no Signed-off-by trailer', () => {

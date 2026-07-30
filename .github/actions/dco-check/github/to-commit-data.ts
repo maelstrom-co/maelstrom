@@ -1,15 +1,5 @@
-import type { CommitData } from './check-commits.ts';
-
-export class CommitPayloadError extends Error {
-  constructor(problem: string, sha?: string) {
-    super(
-      sha === undefined
-        ? `malformed commit payload: ${problem}`
-        : `malformed commit payload for ${sha}: ${problem}`,
-    );
-    this.name = 'CommitPayloadError';
-  }
-}
+import type { CommitData } from '../policy/commit-data.ts';
+import { CommitPayloadError } from './commit-payload-error.ts';
 
 export function toCommitData(payload: unknown): CommitData {
   const entry = asRecord(payload, 'the commit entry');

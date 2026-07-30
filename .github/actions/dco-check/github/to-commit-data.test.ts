@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { CommitPayloadError, toCommitData } from './commit-payload.ts';
+import { CommitPayloadError } from './commit-payload-error.ts';
+import { toCommitData } from './to-commit-data.ts';
 
 // Shaped after a real `GET /repos/{o}/{r}/pulls/{n}/commits` entry, extra
 // fields included: the mapping must keep working when GitHub adds more.
