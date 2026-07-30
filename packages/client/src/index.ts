@@ -112,6 +112,7 @@ export type {
   OrchestratorViewState,
   ResolvedOrchestratorOptions,
 } from './lib/orchestrator/orchestrator.types.js';
+export { DEFAULT_LAYOUT_MODE } from './lib/orchestrator/orchestrator.types.js';
 export type {
   RequestCoordinatorEvents,
   RequestCoordinatorState,

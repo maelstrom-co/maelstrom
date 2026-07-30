@@ -314,9 +314,9 @@ export function GreetingOptionSync() {
 Mount `<GreetingOptionSync />` once, inside `<m.Provider>`, alongside the rest of your app.
 
 <Aside type="caution">
-  **A prop change that recreates the Orchestrator drops republished options.** `<m.Provider>` builds a fresh Orchestrator whenever `connector`, `layoutMode`, or `debug` changes identity, and the context value keeps pointing at the old Orchestrator until the new one is ready — so `<GreetingOptionSync />` never unmounts, its effect's dependency doesn't change, and the effect doesn't re-run. The new Orchestrator starts from `greetingVessel`'s pristine, `enum`-less definition, and your republished options stay silently reverted until the next real data change fires the effect again.
+  **Only a session change drops republished options — `connector` and `layoutMode` no longer do.** `<m.Provider>` keeps the same Orchestrator across a `connector` or `layoutMode` change: the new value is pushed into the live instance (`setConnector` / `setLayoutMode`) instead of rebuilding it, so `<GreetingOptionSync />` stays mounted with its republished options intact. `debug` behaves the same way in effect — it only gates logging, so changing it has nothing to revert.
 
-  The demo avoids this by construction: its `connector` only ever changes together with the `<m.Provider key={...}>` itself, so a connector swap always remounts the whole subtree — `<GreetingOptionSync />` included — and its mount-time `updateVessel` call republishes fresh options immediately. If your app can change `connector`, `layoutMode`, or `debug` on their own, remount whatever republishes definitions (by `key`, at the same boundary) rather than relying on the effect to catch up.
+  A `sessionId` change is different: `sessionId` is captured once per mount, and switching sessions means remounting `<m.Provider key={...}>` under a new key — a new session starts empty by definition, including `greetingVessel`'s pristine, `enum`-less definition. `<GreetingOptionSync />` remounts along with everything else in that case, and its mount-time `updateVessel` call republishes fresh options immediately. If your app switches sessions, remount whatever republishes definitions (by `key`, at the same boundary) rather than relying on the effect to catch up.
 </Aside>
 
 ### Why not `registerVessel`

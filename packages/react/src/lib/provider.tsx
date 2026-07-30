@@ -1,5 +1,9 @@
 import type { EngineConnector } from '@maelstrom-co/client';
-import { Orchestrator, SessionId } from '@maelstrom-co/client';
+import {
+  DEFAULT_LAYOUT_MODE,
+  Orchestrator,
+  SessionId,
+} from '@maelstrom-co/client';
 import type { LayoutMode, VesselId } from '@maelstrom-co/protocol';
 import { toError } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
@@ -18,11 +22,27 @@ import { isLazyEntry } from './vessel-entry-types.js';
 
 /** Props for the Maelstrom Provider component. */
 export interface MaelstromProviderProps {
-  /** Engine connector — should be a stable reference; changing it recreates the Orchestrator. */
+  /**
+   * Engine connector. Changing the identity of this prop swaps the
+   * transport on the live Orchestrator (`Orchestrator.setConnector`) rather
+   * than rebuilding it — the arranged board, vessel registry, and chart
+   * dimensions all survive. Use this for re-auth; it does not start a new
+   * session.
+   */
   connector: EngineConnector;
-  /** Session ID for conversation continuity. Auto-generated if omitted. */
+  /**
+   * Session ID for conversation continuity. Auto-generated if omitted.
+   * Captured once on mount — changing it afterwards is ignored (a console
+   * warning says so). To switch sessions, remount the Provider with a new
+   * `key`.
+   */
   sessionId?: string;
-  /** Layout algorithm used by the engine. */
+  /**
+   * Layout algorithm used by the engine. Changing this pushes the new mode
+   * into the live Orchestrator (`Orchestrator.setLayoutMode`) rather than
+   * rebuilding it. Omitting it after having set it falls back to the
+   * Orchestrator's own default rather than freezing on the last mode.
+   */
   layoutMode?: LayoutMode;
   /** Grid cell size in pixels. Overrides the factory default. */
   cellSizePx?: number;
@@ -86,6 +106,10 @@ export function createProvider(
 
     // Stable ref for onError — allows hook to call without triggering re-renders
     const onErrorRef = useLatestRef(onError);
+    // Read inside the construction effect below so narrowing its deps to
+    // [stableSessionId] doesn't capture a stale connector at construction
+    // time — connector changes are pushed in via setConnector() instead.
+    const connectorRef = useLatestRef(connector);
 
     // Guard: only one Chart may be mounted per Provider
     const chartMountedRef = useRef(false);
@@ -120,11 +144,11 @@ export function createProvider(
       typeof Orchestrator
     > | null>(null);
 
-    // biome-ignore lint/correctness/useExhaustiveDependencies: onErrorRef is a useLatestRef (stable identity, .current always fresh) — listing onErrorRef.current would re-create the Orchestrator whenever the onError callback prop's identity changes, defeating the ref's purpose of avoiding that.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: onErrorRef and connectorRef are useLatestRef (stable identity, .current always fresh) — listing their .current would re-create the Orchestrator on every onError/connector identity change, defeating the point of narrowing this effect to session identity alone. connector, layoutMode, and debug are deliberately excluded: a connector change is pushed into the live Orchestrator by the setConnector effect below, layoutMode by the setLayoutMode effect below, and debug only gates logging so it applies starting from the next mount rather than live.
     useEffect(() => {
       let instance: Orchestrator;
       try {
-        instance = new Orchestrator(connector, {
+        instance = new Orchestrator(connectorRef.current, {
           sessionId: stableSessionId,
           ...(layoutMode && { layoutMode }),
           debug: config.debug,
@@ -161,7 +185,27 @@ export function createProvider(
           console.error('[Maelstrom] Dispose error:', err);
         });
       };
-    }, [connector, stableSessionId, layoutMode, config.debug]);
+    }, [stableSessionId]);
+
+    // Push a connector swap into the live Orchestrator instead of rebuilding
+    // it — a no-op on the render that first sets `orchestrator`, since the
+    // instance was just constructed with this exact connector.
+    useEffect(() => {
+      orchestrator?.setConnector(connector);
+    }, [orchestrator, connector]);
+
+    // Same reasoning as the setConnector effect above, for layoutMode — with
+    // one twist: `layoutMode` is optional, and clearing it (a settings
+    // toggle turning an override off) must fall back to the default rather
+    // than being skipped. A falsy guard here would leave the live
+    // Orchestrator on whatever mode was last set while the app believes
+    // it's back on the default. `DEFAULT_LAYOUT_MODE` is the same constant
+    // the constructor's own default resolves to, so this can't drift from
+    // it. setLayoutMode is a plain assignment, so re-asserting the current
+    // mode here on mount is a harmless no-op, same as setConnector above.
+    useEffect(() => {
+      orchestrator?.setLayoutMode(layoutMode ?? DEFAULT_LAYOUT_MODE);
+    }, [orchestrator, layoutMode]);
 
     // Context value — recomputes when orchestrator or config changes
     // (registry refs are static but listed to satisfy exhaustive-deps)
@@ -200,10 +244,10 @@ export function createProvider(
       };
     }, []);
 
-    // TODO(MAE-86): Retain previous orchestrator during transitions to avoid
-    // unmounting children when connector/sessionId/layoutMode change mid-session.
-    // Currently returns null (unmounts children for one frame) while the new
-    // orchestrator is created inside useEffect.
+    // TODO(MAE-86): Retain previous orchestrator during a session change to
+    // avoid unmounting children for one frame while the new orchestrator is
+    // created inside useEffect. connector and layoutMode no longer rebuild
+    // the Orchestrator at all — only a session change (remount by key) does.
     if (!value) return null;
 
     return <Context.Provider value={value}>{children}</Context.Provider>;

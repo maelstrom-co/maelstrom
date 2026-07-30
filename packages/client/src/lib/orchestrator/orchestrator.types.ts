@@ -36,6 +36,15 @@ export interface ResolvedOrchestratorOptions {
 }
 
 /**
+ * Layout mode applied when {@link OrchestratorOptions.layoutMode} is
+ * omitted. The one definition of that default — {@link resolveOrchestratorOptions}
+ * consumes it internally, and consumers that need to know it (a "reset to
+ * default" control, for example) should import this constant rather than
+ * duplicating the literal.
+ */
+export const DEFAULT_LAYOUT_MODE: LayoutMode = 'tiling';
+
+/**
  * Resolves orchestrator options with defaults.
  */
 export function resolveOrchestratorOptions(
@@ -43,7 +52,7 @@ export function resolveOrchestratorOptions(
 ): ResolvedOrchestratorOptions {
   return {
     sessionId: options.sessionId ?? SessionId(),
-    layoutMode: options.layoutMode ?? 'tiling',
+    layoutMode: options.layoutMode ?? DEFAULT_LAYOUT_MODE,
     debug: options.debug ?? false,
     debounceDelayMs: options.debounceDelayMs ?? 300,
     maxWaitMs: options.maxWaitMs ?? 1000,
