@@ -3,13 +3,14 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "types": ["@cloudflare/workers-types"]
+    "types": []
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
     "src/**/*.astro",
-    "astro.config.ts"
+    "astro.config.ts",
+    "worker-configuration.d.ts"
   ],
   "exclude": ["dist", "node_modules", "src/**/*.test.ts", "src/**/*.test.tsx"],
   "references": [
