@@ -26,7 +26,12 @@
     "src/**/__tests__/**",
     "src/**/__test-utils__/**"
   ],
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vite.config.ts",
+    "worker-configuration.d.ts"
+  ],
   "references": [
     {
       "path": "../../packages/realtime-server/tsconfig.lib.json"

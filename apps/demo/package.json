@@ -44,11 +44,9 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwind-merge": "^3.5.0",
-    "vite": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260317.1",
     "@testing-library/react": "catalog:",
     "@types/geojson": "^7946.0.16",
     "@types/react": "catalog:",
@@ -60,5 +58,50 @@
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "catalog:"
+  },
+  "nx": {
+    "targets": {
+      "typegen": {
+        "command": "wrangler types --env-file /dev/null",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/wrangler.jsonc",
+          "{projectRoot}/src/worker/**/*",
+          {
+            "externalDependencies": [
+              "wrangler"
+            ]
+          }
+        ],
+        "outputs": [
+          "{projectRoot}/worker-configuration.d.ts"
+        ]
+      },
+      "typecheck": {
+        "dependsOn": [
+          "build",
+          "typegen"
+        ],
+        "inputs": [
+          "production",
+          "^production",
+          {
+            "externalDependencies": [
+              "typescript"
+            ]
+          },
+          "{projectRoot}/wrangler.jsonc",
+          "{projectRoot}/tsconfig.json",
+          {
+            "externalDependencies": [
+              "wrangler"
+            ]
+          }
+        ]
+      }
+    }
   }
 }

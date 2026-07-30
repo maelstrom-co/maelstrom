@@ -25,7 +25,8 @@
     "directory": "packages/protocol"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "nanoid": "catalog:",
