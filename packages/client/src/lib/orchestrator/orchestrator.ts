@@ -4,6 +4,7 @@ import {
   ChartRequestMessage,
   type ChartResizeReason,
   type InstanceId,
+  type LayoutMode,
   type MaelstromResponse,
   MessageId,
   type SessionHistoryEntry,
@@ -166,6 +167,25 @@ export class Orchestrator {
   /** Structural-only UI snapshot for grounding + `get_ui_state` pulls. */
   getStructuralSnapshot(): UIStructuralSnapshot {
     return readStructuralSnapshot(this);
+  }
+
+  /**
+   * Change the layout mode for subsequent engine requests.
+   *
+   * The mode is read fresh on every request and view-state read — it is
+   * never captured at construction — so this takes effect on the next
+   * request with no rebuild and no loss of the arranged board. The client
+   * does not lay anything out itself; the mode is forwarded to the engine,
+   * which decides.
+   *
+   * This does not touch the stored layout. If the stored layout's own
+   * `type` no longer agrees with `mode`, `buildChartRequest` resynthesizes
+   * a fresh, empty layout of the requested type at request-build time
+   * instead of forwarding the stale one — see the comment there for why
+   * that has to happen at build time rather than here.
+   */
+  setLayoutMode(mode: LayoutMode): void {
+    this.#config.layoutMode = mode;
   }
 
   /** Capability catalog (vessels, variants, actions) for `get_capabilities` pulls. */

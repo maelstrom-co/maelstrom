@@ -12,6 +12,7 @@ import {
   type ChartRequestMessage,
   err,
   InstanceId,
+  type LayoutMode,
   type MaelstromResponse,
   MessageId,
   ok,
@@ -26,7 +27,10 @@ import {
   createMockConnector,
   createTestOrchestrator,
 } from '../../../test-utils/connector-mocks.js';
-import { createMockResponse } from '../../../test-utils/mocks.js';
+import {
+  createMockEmptyResponse,
+  createMockResponse,
+} from '../../../test-utils/mocks.js';
 import type { ActionResult } from '../command-processor/action-result.js';
 import type { PushConnector } from '../connection-manager/connector.types.js';
 import type { Unsubscribe, VesselInstance } from '../types.js';
@@ -1787,6 +1791,134 @@ describe('Orchestrator', () => {
       }
 
       scheduleSpy.mockRestore();
+      orchestrator.dispose();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // setLayoutMode
+  // --------------------------------------------------------------------------
+
+  describe('setLayoutMode', () => {
+    it('changes the layoutMode carried by the next request without resetting the board', async () => {
+      const sent: ChartRequestMessage[] = [];
+      const connector = createMockConnector({
+        process: mock(async (message: ChartRequestMessage) => {
+          sent.push(message);
+          return createMockEmptyResponse(message.id);
+        }),
+      });
+      const { orchestrator } = createTestOrchestrator(connector, {
+        layoutMode: 'tiling' as LayoutMode,
+      });
+
+      await orchestrator.processIntent('first');
+      orchestrator.setLayoutMode('grid');
+      await orchestrator.processIntent('second');
+
+      expect(sent[0].request.context.layoutMode).toBe('tiling');
+      expect(sent[1].request.context.layoutMode).toBe('grid');
+      // The point of the setter: the engine sees the new mode without the
+      // session being torn down. If a future change makes this rebuild
+      // instead, the instance identity below changes and this assertion
+      // catches it.
+      expect(orchestrator.getViewState().layoutMode).toBe('grid');
+
+      orchestrator.dispose();
+    });
+
+    it('carries a layout.type that agrees with context.layoutMode on the request built right after a mode change', async () => {
+      const sent: ChartRequestMessage[] = [];
+      const connector = createMockConnector({
+        process: mock(async (message: ChartRequestMessage) => {
+          sent.push(message);
+          return createMockResponse(message.id, 'instance-1', 'show');
+        }),
+      });
+      const { orchestrator } = createTestOrchestrator(connector, {
+        layoutMode: 'tiling' as LayoutMode,
+      });
+
+      await orchestrator.processIntent('first');
+      expect(orchestrator.commandProcessor.store.state.layout?.type).toBe(
+        'tiling',
+      );
+
+      orchestrator.setLayoutMode('grid');
+      await orchestrator.processIntent('second');
+
+      // The wire schema rejects a request whose layout.type disagrees with
+      // context.layoutMode. setLayoutMode itself does not touch the stored
+      // layout (still 'tiling' in the store here) — buildChartRequest is
+      // what reconciles the two at request-build time, so the request that
+      // actually goes out must agree even though the store doesn't yet.
+      expect(sent[1].request.context.layoutMode).toBe('grid');
+      expect(sent[1].request.layout.type).toBe('grid');
+
+      orchestrator.dispose();
+    });
+
+    it('keeps layout.type agreeing with the new mode even when an in-flight response lands a stale-type layout after the mode change (race)', async () => {
+      // Empty execution plans (no runner-readiness wait involved) so the
+      // command queue drains deterministically on `waitForIdle()` instead
+      // of racing a real 500ms runner-timeout — that would be a second,
+      // unrelated source of nondeterminism in this test.
+      const sent: ChartRequestMessage[] = [];
+      const resolvers: Array<(response: MaelstromResponse) => void> = [];
+      const connector = createMockConnector({
+        process: mock((message: ChartRequestMessage) => {
+          sent.push(message);
+          return new Promise<MaelstromResponse>((resolve) => {
+            resolvers.push(resolve);
+          });
+        }),
+      });
+      const { orchestrator } = createTestOrchestrator(connector, {
+        layoutMode: 'tiling' as LayoutMode,
+      });
+
+      // First request/response: seed a tiling layout into the store.
+      const first = orchestrator.processIntent('first');
+      resolvers[0]?.(createMockEmptyResponse(sent[0].id));
+      await first;
+      await orchestrator.commandProcessor.waitForIdle();
+      expect(orchestrator.commandProcessor.store.state.layout?.type).toBe(
+        'tiling',
+      );
+
+      // Second request goes out under the still-active 'tiling' mode and
+      // stays in flight (its own response has not resolved yet).
+      const second = orchestrator.processIntent('second');
+
+      // The mode flips while that request is outstanding.
+      orchestrator.setLayoutMode('grid');
+
+      // The in-flight response now lands, carrying a tiling-typed layout —
+      // it was planned by the engine under the mode that was active when
+      // the request went out. #dispatchResponse writes it straight into the
+      // store, regardless of what the mode has since become.
+      resolvers[1]?.(createMockEmptyResponse(sent[1].id));
+      await second;
+      await orchestrator.commandProcessor.waitForIdle();
+
+      // Confirms the race actually landed: the store now holds a 'tiling'
+      // layout again even though the mode is 'grid'. A fix that clears the
+      // stored layout only at setLayoutMode-time is too early — the write
+      // above happened after that clear. If this assertion itself fails,
+      // the race this test targets didn't occur and the test below proves
+      // nothing.
+      expect(orchestrator.commandProcessor.store.state.layout?.type).toBe(
+        'tiling',
+      );
+
+      // The invariant has to hold at request-build time instead, so the
+      // next request must still agree despite the stale store contents.
+      const third = orchestrator.processIntent('third');
+      resolvers[2]?.(createMockEmptyResponse(sent[2].id));
+      await third;
+      expect(sent[2].request.context.layoutMode).toBe('grid');
+      expect(sent[2].request.layout.type).toBe('grid');
+
       orchestrator.dispose();
     });
   });
