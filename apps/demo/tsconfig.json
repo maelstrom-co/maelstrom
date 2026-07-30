@@ -12,5 +12,6 @@
       "path": "./tsconfig.scripts.json"
     }
   ],
-  "extends": "../../tsconfig.base.json"
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {}
 }

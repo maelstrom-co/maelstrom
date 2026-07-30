@@ -23,7 +23,7 @@ export default defineConfig(() => ({
       name: '@maelstrom-co/realtime',
       formats: ['es' as const],
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: ['@maelstrom-co/client', '@maelstrom-co/protocol', 'zod'],
     },
   },
