@@ -74,6 +74,15 @@ export function getJournalSnapshot(): JournalState {
   return state;
 }
 
+// Test-only: restores the module-singleton store to its seeded state so
+// specs don't leak mutations into one another.
+export function resetJournalStore(): void {
+  setState({
+    entries: SEED_ENTRIES.map((e) => ({ ...e })),
+    activeEntryId: null,
+  });
+}
+
 export const journalActions = {
   createEntry(title: string): void {
     const entry: JournalEntry = {

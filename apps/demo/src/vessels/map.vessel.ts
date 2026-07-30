@@ -1,6 +1,9 @@
 import { defineVessel } from '@maelstrom-co/protocol';
 import { vessel } from '@maelstrom-co/react';
+import { DEMO_LOCATIONS } from '../lib/locations';
 import { MapSkeleton } from './map.skeleton';
+
+const LOCATION_NAMES = DEMO_LOCATIONS.map((location) => location.name);
 
 export const mapVessel = defineVessel({
   id: 'map',
@@ -22,6 +25,7 @@ export const mapVessel = defineVessel({
               name: 'destination',
               type: 'string',
               description: 'Name of the destination location',
+              enum: LOCATION_NAMES,
             },
           ],
           transitionsTo: 'route',
@@ -34,6 +38,7 @@ export const mapVessel = defineVessel({
               name: 'name',
               type: 'string',
               description: 'Name of the location to focus on',
+              enum: LOCATION_NAMES,
             },
           ],
           transitionsTo: 'compact',
@@ -58,6 +63,7 @@ export const mapVessel = defineVessel({
               name: 'destination',
               type: 'string',
               description: 'Name of the destination location',
+              enum: LOCATION_NAMES,
             },
           ],
         },
@@ -69,6 +75,7 @@ export const mapVessel = defineVessel({
               name: 'name',
               type: 'string',
               description: 'Name of the location to focus on',
+              enum: LOCATION_NAMES,
             },
           ],
           transitionsTo: 'compact',
@@ -93,6 +100,7 @@ export const mapVessel = defineVessel({
               name: 'destination',
               type: 'string',
               description: 'Name of the destination location',
+              enum: LOCATION_NAMES,
             },
           ],
           transitionsTo: 'route',

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { WireEngineError } from '@maelstrom-co/client';
+import type { VesselDefinition } from '@maelstrom-co/protocol';
 import {
   act,
   cleanup,
@@ -12,11 +13,23 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import { m } from '../lib/maelstrom';
 import {
   clearPlaygroundKey,
   STORAGE_KEY,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
+
+function enumFor(
+  vessel: VesselDefinition,
+  variant: string,
+  action: string,
+  parameter: string,
+): readonly unknown[] | undefined {
+  return vessel.variants[variant]?.actions
+    .find((a) => a.name === action)
+    ?.parameters?.find((p) => p.name === parameter)?.enum;
+}
 
 // Keeps RealtimeVoiceError real (the drawer-reopen effect's `instanceof`
 // check must hold against the actual class) while swapping only
@@ -479,5 +492,51 @@ describe('captions placement (footer chrome)', () => {
         must(container.querySelector('[data-testid="captions"]')),
       ),
     );
+  });
+});
+
+describe('the seeded first screen', () => {
+  it('lands on the default layout instead of the empty-chart hint', async () => {
+    // FirstRunHint renders data-testid="first-run-hint" iff instanceCount
+    // === 0 (see first-run-hint.tsx). Its absence right after mount is what
+    // proves DEFAULT_LAYOUT's seeded instances reached the store through the
+    // real <m.Provider> mount in routes/index.tsx — default-layout.test.ts
+    // only checks the constant in isolation, and would stay green even if
+    // `initialLayout={DEFAULT_LAYOUT}` were deleted from the route.
+    const { HomePage } = await import('./index');
+    await act(async () => {
+      render(<HomePage />);
+    });
+
+    expect(screen.queryByTestId('first-run-hint')).toBeNull();
+  });
+
+  it('keeps published action options in sync through the real provider tree', async () => {
+    // vessel-option-sync.test.tsx renders <VesselOptionSync /> in isolation,
+    // which would stay green even if the route stopped mounting it at all.
+    // Spying on the real m.updateVessel here and rendering the actual
+    // HomePage tree proves <VesselOptionSync /> is mounted where it matters
+    // and republishes real store data (a seeded task title) through the
+    // real orchestrator, not a mock.
+    const updateVesselSpy = vi.spyOn(m, 'updateVessel');
+
+    const { HomePage } = await import('./index');
+    await act(async () => {
+      render(<HomePage />);
+    });
+
+    const tasksCall = updateVesselSpy.mock.calls.find(
+      ([vessel]) => vessel.id === 'tasks',
+    );
+    expect(tasksCall).toBeDefined();
+    const titleEnum = enumFor(
+      tasksCall?.[0] as VesselDefinition,
+      'list',
+      'checkTask',
+      'title',
+    );
+    expect(titleEnum).toContain('Ship this sprint');
+
+    updateVesselSpy.mockRestore();
   });
 });
