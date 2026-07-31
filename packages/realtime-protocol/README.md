@@ -1,6 +1,11 @@
 # @maelstrom-co/realtime-protocol
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-protocol.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-protocol)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 Dependency-free wire contracts for Maelstrom's realtime voice packages.
+
+📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
 ## Install
 

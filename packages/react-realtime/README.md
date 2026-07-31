@@ -1,6 +1,11 @@
 # @maelstrom-co/react-realtime
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/react-realtime.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/react-realtime)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 Provider-neutral React binding for Maelstrom voice sessions.
+
+**Full documentation:** <https://docs.maelstrom-ai.co>
 
 ## Install
 

@@ -1,7 +1,12 @@
 # @maelstrom-co/realtime-livekit
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-livekit.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-livekit)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 A `RealtimeProviderAdapter` (from `@maelstrom-co/realtime`) backed by a LiveKit
 cascaded STT/TTS voice pipeline instead of a speech-native realtime model.
+
+**Full documentation:** <https://docs.maelstrom-ai.co>
 
 Shipped separately from `@maelstrom-co/realtime` so consumers of the core never
 have `livekit-client` forced on them — pull this in only when you want the

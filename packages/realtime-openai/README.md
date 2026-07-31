@@ -1,11 +1,16 @@
 # @maelstrom-co/realtime-openai
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-openai.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-openai)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 `@maelstrom-co/realtime-openai` connects `RealtimeSession` to OpenAI
 `gpt-realtime` over a client-direct WebRTC session. The browser adapter owns
 the peer connection, microphone capture, data-channel envelopes, and
 response-lifecycle pacing. The companion `@maelstrom-co/realtime-openai-server`
 package mints the ephemeral client secret the adapter connects with; it is the
 only side that touches `OPENAI_API_KEY`.
+
+📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
 The package is separate from `@maelstrom-co/realtime` so applications that do
 not use OpenAI's speech-native transport do not pull in this adapter's wire

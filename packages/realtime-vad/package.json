@@ -1,6 +1,20 @@
 {
   "name": "@maelstrom-co/realtime-vad",
   "version": "0.0.0",
+  "description": "Provider-neutral browser voice-activity detection for Maelstrom realtime voice: a MediaStream in, speech boundaries out.",
+  "keywords": [
+    "maelstrom",
+    "ai",
+    "llm",
+    "dynamic-ui",
+    "generative-ui",
+    "realtime",
+    "voice",
+    "vad",
+    "silero",
+    "onnx",
+    "turn-taking"
+  ],
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -31,9 +45,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/realtime-vad"
   },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"

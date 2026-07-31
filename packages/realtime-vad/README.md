@@ -1,5 +1,8 @@
 # @maelstrom-co/realtime-vad
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-vad.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-vad)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 `@maelstrom-co/realtime-vad` is the provider-neutral browser voice-activity
 detection (VAD) engine behind automatic turn-taking. It never acquires a
 microphone: a caller passes a `MediaStream` it already owns and never stops,
@@ -7,6 +10,8 @@ plus `startTurn`, `endTurn`, and `onFailure` callbacks. Reacting to those
 speech edges — resuming upstream publication, flushing pre-roll audio, or
 whatever else a given transport needs — is the caller's responsibility, not
 this package's.
+
+📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
 The package is separate from `@maelstrom-co/realtime` so applications that
 don't use automatic turn-taking never install `@ricky0123/vad-web` or the

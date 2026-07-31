@@ -1,6 +1,20 @@
 {
   "name": "@maelstrom-co/realtime-protocol",
   "version": "0.0.0",
+  "description": "Dependency-free wire contracts for Maelstrom realtime voice: token grants, mint-failure taxonomy, and shared wire topics.",
+  "keywords": [
+    "maelstrom",
+    "ai",
+    "llm",
+    "dynamic-ui",
+    "generative-ui",
+    "realtime",
+    "voice",
+    "protocol",
+    "schema",
+    "zod",
+    "token"
+  ],
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -34,9 +48,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/realtime-protocol"
   },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"
