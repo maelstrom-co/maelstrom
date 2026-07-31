@@ -31,6 +31,9 @@ bunx nx dev demo
 This runs the WebSocket engine host (`ws-server.ts`, port 3001) and Vite
 (port 3000) together. Open http://localhost:3000.
 
+The `nx` commands in this README run from the repository root. Commands shown
+as `bun run ...` under the LiveKit section run from `apps/demo/`.
+
 ## Run (LiveKit voice)
 
 1. Install and run a LiveKit server in dev mode:
@@ -60,11 +63,81 @@ This runs the WebSocket engine host (`ws-server.ts`, port 3001) and Vite
    Run it through Nx (not `bun run dev-livekit` from `apps/demo/`) so the
    `^build` dependency fires and workspace packages are built first.
 
-This starts three processes (chained with `&`): the WebSocket engine host
-(`ws-server.ts`, port 3001), the LiveKit voice agent worker (STT/TTS relay),
-and Vite (port 3000) in `livekit` mode. Vite mode loads `.env.livekit`, which
-sets `VITE_VOICE_PROVIDER=livekit` so the client selects `LiveKitAdapter`
-instead of the OpenAI realtime adapter.
+This starts three processes managed by `concurrently --kill-others-on-fail`:
+the WebSocket engine host (`ws-server.ts`, port 3001), the LiveKit voice agent
+worker (STT/TTS relay), and Vite (port 3000) in `livekit` mode. Vite mode loads
+`.env.livekit`, which sets `VITE_VOICE_PROVIDER=livekit` so the client selects
+`LiveKitAdapter` instead of the OpenAI realtime adapter.
+
+### LiveKit browser VAD
+
+The LiveKit demo uses adapter-owned browser VAD, which is also the
+`LiveKitAdapter` default when `vad` is omitted or `true`. The demo supplies an
+options object with `assetBaseUrl: '/vad-web/'`; the remaining defaults include
+250 ms of transport pre-roll. Set `vad: false` in the adapter to skip all VAD
+assets and worklets and use intentional manual turns.
+
+The complete `providerOptions` override set — `positiveSpeechThreshold: 0.8`,
+`negativeSpeechThreshold: 0.65`, `redemptionMs: 200`, `preSpeechPadMs: 100`, and
+`minSpeechMs: 100` — is aggressive demo-only tuning. Validate all five settings
+against real application speech before reusing them in production.
+
+Automatic mode keeps microphone audio in the browser while idle. If automatic
+detection cannot initialize, the adapter safely switches that connected
+session to manual turns and exposes `turnControl` for hold-to-talk. OpenAI
+realtime is unchanged and continues to use its speech-native turn handling.
+
+VAD initialization uses self-hosted assets. Prepare them from the repository
+root with:
+
+```bash
+bunx nx run demo:prepare-voice-assets
+```
+
+The equivalent command from `apps/demo/` is:
+
+```bash
+bun run prepare:voice-assets
+```
+
+The Nx target builds `@maelstrom-co/realtime-livekit` first, then runs the
+package command. Its `maelstrom-livekit-assets` CLI atomically replaces the
+ignored `apps/demo/public/vad-web/` directory with the complete asset set that
+matches the adapter's pinned VAD and ONNX Runtime dependencies. The Nx
+`serve`, `dev`, `dev-livekit`, and `build-livekit` targets run this preparation
+automatically. An ordinary `build` does not prepare VAD assets; run the root Nx
+command first if that build needs them.
+
+This build-time step is required even though automatic VAD is the runtime
+default: the default `/vad-web/` URL does not create or publish the assets. Vite
+serves the generated directory at `/vad-web/`, which is the demo's current
+`assetBaseUrl`. Do not commit the generated binaries.
+
+For production, either publish the complete directory at `/vad-web/` on the
+demo origin or set `assetBaseUrl` to an absolute HTTPS CDN directory. Use an
+immutable, versioned path such as
+`https://cdn.example.com/maelstrom/vad-web/0.0.30-ort-1.27.0/`; never replace
+files at that path. Return `Access-Control-Allow-Origin` for the demo origin,
+serve `.js` and `.mjs` as `text/javascript`, `.wasm` as `application/wasm`, and
+`.onnx` as `application/octet-stream`. The browser executes the JavaScript,
+worklet, and WASM assets, so publish the complete set only from controlled,
+trusted storage. CORS and MIME handling are operator and browser requirements;
+Maelstrom does not inspect response headers. Browser or VAD-runtime asset
+rejections surface as initialization errors and restore hold-to-talk fallback.
+
+The LiveKit adapter also creates its local pre-roll processor from a Blob-backed
+AudioWorklet module. Production Content Security Policy must allow `blob:` for
+worklet scripts under the directive used by the target browser. If AudioWorklet
+is unavailable, blocked, or fails to initialize, the adapter keeps manual turn
+control and the demo safely restores hold-to-talk rather than opening an
+unbuffered automatic turn.
+
+VAD is LiveKit-only. OpenAI realtime keeps its existing speech-native turn
+handling and does not create a browser VAD controller. When LiveKit VAD is
+healthy, turns are automatic and the hold-to-talk control is hidden. If VAD
+assets or runtime initialization fail, the demo switches to manual mode,
+shows a concise fallback notice, and restores hold-to-talk with its existing
+pointer and keyboard safeguards.
 
 ## Things to say
 
@@ -93,6 +166,33 @@ Append `?debug` to the URL (e.g. `http://localhost:3000/?debug`) to show the gri
 - **Map tiles blank** — no network to `tiles.openfreemap.org`.
 
 LiveKit-specific failure modes:
+
+Manual mode means browser VAD no longer starts or owns turn boundaries. The
+LiveKit `turnControl.startTurn()` and `endTurn()` controls become available only
+after the adapter has paused upstream publication and established manual mode.
+The demo reads this dynamic control through `useVoice()`; it does not retain an
+automatic-turn capability.
+
+`useVoice().turnModeError` is diagnostic-only. The demo uses its presence to
+show a fixed fallback notice. Never render the underlying value verbatim or
+serialize it into application state or telemetry.
+
+`providerOptions` accepts only the documented detection tuning fields. Stream
+callbacks, speech callbacks, asset paths, `ortConfig`, and other runtime-owned
+fields are invalid configuration and cause diagnostic manual degradation rather
+than being ignored.
+
+`preRollMs` defaults to 250 ms and applies only to automatic transport audio;
+it does not affect manual hold-to-talk turns. The provider's
+`preSpeechPadMs` changes the detected speech segment, not transport pre-roll,
+and cannot replace it.
+
+VAD setup and runtime failures fall back to manual mode only when the adapter
+can pause upstream audio safely. Token, room, publication, required
+data-channel, pause, and unexpected disconnection failures that make the
+transport unusable are fatal: the session enters its error path instead of
+presenting hold-to-talk as a safe fallback.
+
 - Missing `DEEPGRAM_API_KEY` / `CARTESIA_API_KEY` / LiveKit credentials → the
   agent worker prints a clear missing-env-var error and exits.
 - No `livekit-server` running → `ECONNREFUSED ws://localhost:7880` from the
@@ -101,9 +201,11 @@ LiveKit-specific failure modes:
   unit `s`/`m`/`h`/`d` (default `15m`); anything else (e.g. `2 days`, `1w`)
   fails closed with an HTTP 500 invalid-config response and a console error
   naming the bad value.
-- `MAELSTROM_STT_FLUSH_TIMEOUT_MS` (optional, default `2000`) tunes the agent's
-  push-to-talk turn-flush fallback; a non-numeric or non-positive value fails
-  the agent worker's startup with a clear error naming the bad value.
+- `MAELSTROM_STT_DRAIN_TIMEOUT_MS` (optional, default `5000`) sets the positive
+  millisecond deadline for the provider stream to finish draining after
+  `endInput()`. If the stream stalls, the agent closes it and installs a clean
+  successor while the track remains active. A non-numeric or non-positive value
+  fails the agent worker's startup with a clear error naming the bad value.
 - The three processes run under `concurrently --kill-others-on-fail`, so a
   worker that dies (e.g. on a missing `DEEPGRAM_API_KEY`/`CARTESIA_API_KEY`)
   takes the other two down with it and the command exits non-zero. The failure
@@ -113,4 +215,6 @@ LiveKit-specific failure modes:
 ## Further reading
 
 - [`packages/realtime-livekit-agent/README.md`](../../packages/realtime-livekit-agent/README.md) — voice agent worker internals
-- [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) — OpenAI-track realtime voice architecture
+- [`packages/realtime-livekit/README.md`](../../packages/realtime-livekit/README.md) — adapter VAD configuration and asset deployment
+- [`packages/react-realtime/README.md`](../../packages/react-realtime/README.md) — `useVoice()` turn-mode state
+- [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) — realtime voice architecture

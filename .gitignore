@@ -83,6 +83,7 @@ plans.local
 .tts2mic-cache
 
 test-output
+graphify-out
 
 # `wrangler types` output. Generated from each app's wrangler config by the
 # `typegen` target, which declares it as an Nx output — a build artifact, not a

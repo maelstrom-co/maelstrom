@@ -4,63 +4,78 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"vite dev --port 3000\"",
-    "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"vite dev --port 3000 --mode livekit\"",
+    "prepare:voice-assets": "maelstrom-livekit-assets public/vad-web",
+    "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev:client\"",
+    "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"bun run dev:client:livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
-    "dev:client": "vite dev --port 3000",
+    "dev:client": "bunx nx run @maelstrom-co/demo:serve",
+    "dev:client:livekit": "bunx nx run @maelstrom-co/demo:serve -- --mode livekit",
     "dev-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start",
     "build": "vite build",
+    "build-livekit": "bunx nx run @maelstrom-co/demo:build-livekit",
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
     "deploy": "VITE_HOSTED=1 bunx nx build @maelstrom-co/demo && wrangler deploy",
     "verify:hibernation": "bun run scripts/verify-hibernation.ts"
   },
-  "dependencies": {
-    "@fontsource/inter": "^5.2.8",
-    "@fontsource/jetbrains-mono": "^5.2.8",
-    "@maelstrom-co/client": "workspace:*",
-    "@maelstrom-co/engine": "workspace:*",
-    "@maelstrom-co/protocol": "workspace:*",
-    "@maelstrom-co/react": "workspace:*",
-    "@maelstrom-co/react-realtime": "workspace:*",
-    "@maelstrom-co/realtime": "workspace:*",
-    "@maelstrom-co/realtime-livekit": "workspace:*",
-    "@maelstrom-co/realtime-livekit-agent": "workspace:*",
-    "@maelstrom-co/realtime-livekit-server": "workspace:*",
-    "@maelstrom-co/realtime-server": "workspace:*",
-    "@tanstack/ai": "catalog:",
-    "@tanstack/ai-gemini": "catalog:",
-    "@tanstack/ai-openai": "catalog:",
-    "@tanstack/react-router": "catalog:",
-    "@tanstack/react-start": "catalog:",
-    "@tanstack/react-store": "catalog:",
-    "@tanstack/store": "catalog:",
-    "clsx": "^2.1.1",
-    "hono": "catalog:",
-    "livekit-client": "^2.13.1",
-    "lucide-react": "^1.24.0",
-    "maplibre-gl": "^5.24.0",
-    "nanoid": "catalog:",
-    "react": "catalog:",
-    "react-dom": "catalog:",
-    "tailwind-merge": "^3.5.0",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@testing-library/react": "catalog:",
-    "@types/geojson": "^7946.0.16",
-    "@types/react": "catalog:",
-    "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react": "catalog:",
-    "@tailwindcss/vite": "catalog:",
-    "concurrently": "^9.1.2",
-    "happy-dom": "catalog:",
-    "tailwindcss": "catalog:",
-    "typescript": "catalog:",
-    "vite-tsconfig-paths": "catalog:"
-  },
   "nx": {
     "targets": {
+      "build": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "^build"
+        ]
+      },
+      "build-livekit": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "...",
+          "^build",
+          "prepare-voice-assets"
+        ],
+        "options": {
+          "cwd": "apps/demo",
+          "command": "vite build --mode livekit"
+        }
+      },
+      "prepare-voice-assets": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "...",
+          {
+            "projects": [
+              "@maelstrom-co/realtime-livekit"
+            ],
+            "target": "build"
+          }
+        ],
+        "options": {
+          "cwd": "apps/demo",
+          "command": "bun run prepare:voice-assets"
+        }
+      },
+      "serve": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "prepare-voice-assets"
+        ]
+      },
+      "dev": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "prepare-voice-assets"
+        ]
+      },
+      "dev-livekit": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "prepare-voice-assets"
+        ]
+      },
       "typegen": {
         "command": "wrangler types --env-file /dev/null",
         "options": {
@@ -100,8 +115,60 @@
               "wrangler"
             ]
           }
+        ],
+        "outputs": [
+          "{projectRoot}/dist/**/*.d.ts",
+          "{projectRoot}/dist/**/*.d.ts.map",
+          "{projectRoot}/dist/tsconfig.app.tsbuildinfo",
+          "{projectRoot}/out-tsc/vitest/**/*.d.ts",
+          "{projectRoot}/out-tsc/vitest/**/*.d.ts.map",
+          "{projectRoot}/out-tsc/vitest/tsconfig.spec.tsbuildinfo"
         ]
       }
     }
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/engine": "workspace:*",
+    "@maelstrom-co/protocol": "workspace:*",
+    "@maelstrom-co/react": "workspace:*",
+    "@maelstrom-co/react-realtime": "workspace:*",
+    "@maelstrom-co/realtime": "workspace:*",
+    "@maelstrom-co/realtime-livekit": "workspace:*",
+    "@maelstrom-co/realtime-livekit-agent": "workspace:*",
+    "@maelstrom-co/realtime-livekit-server": "workspace:*",
+    "@maelstrom-co/realtime-server": "workspace:*",
+    "@tanstack/ai": "catalog:",
+    "@tanstack/ai-gemini": "catalog:",
+    "@tanstack/ai-openai": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "@tanstack/react-start": "catalog:",
+    "@tanstack/react-store": "catalog:",
+    "@tanstack/store": "catalog:",
+    "clsx": "^2.1.1",
+    "hono": "catalog:",
+    "livekit-client": "^2.13.1",
+    "lucide-react": "^1.24.0",
+    "maplibre-gl": "^5.24.0",
+    "nanoid": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tailwind-merge": "^3.5.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@types/geojson": "^7946.0.16",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "concurrently": "^9.1.2",
+    "happy-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite-tsconfig-paths": "catalog:"
   }
 }

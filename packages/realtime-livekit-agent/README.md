@@ -71,4 +71,9 @@ These defaults are pre-filled — only Deepgram (STT) and Cartesia (TTS) require
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `MAELSTROM_STT_FLUSH_TIMEOUT_MS` | `2000` | Fallback ceiling (ms) for emitting a push-to-talk turn when the flush-produced final never arrives (an empty tap). A turn normally emits the instant its flush-final lands, so this only bounds the empty-turn case. Must be a positive number — a non-numeric or non-positive value fails worker startup. |
+| `MAELSTROM_STT_DRAIN_TIMEOUT_MS` | `5000` | Provider-drain deadline (ms) after `endInput()`. Expiry closes the stalled Deepgram stream, drops audio received while no stream is writable, and installs a clean successor when the track is still active. |
+
+The timeout must be a positive number. A non-numeric or non-positive value
+fails worker startup. The provider drain is the sole production completion
+authority: successful iterator completion emits all buffered finals once;
+timeout or failure salvages finals already received, then resets ownership.

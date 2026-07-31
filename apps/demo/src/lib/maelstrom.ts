@@ -39,7 +39,7 @@ export const m = createMaelstrom({
   .with(orchestrationLegibility);
 
 // Provider is chosen at build time by VITE_VOICE_PROVIDER: `livekit` selects the
-// cascaded LiveKit transport (push-to-talk), anything else the speech-native
+// cascaded LiveKit transport, anything else the speech-native
 // OpenAI transport. Runs once per session, so per-session server resources (the
 // token mint, the room name) are scoped by sessionId here.
 //
@@ -55,6 +55,17 @@ function createAdapter({
     return new LiveKitAdapter({
       mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
       roomName: `maelstrom-${sessionId}`,
+      vad: {
+        assetBaseUrl: '/vad-web/',
+        // Revisit this aggressive demo tuning with real app speech data before production reuse.
+        providerOptions: {
+          positiveSpeechThreshold: 0.8,
+          negativeSpeechThreshold: 0.65,
+          redemptionMs: 200,
+          preSpeechPadMs: 100,
+          minSpeechMs: 100,
+        },
+      },
       debug: isDebugRequested(),
     });
   }
