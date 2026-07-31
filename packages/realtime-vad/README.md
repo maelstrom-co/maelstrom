@@ -168,3 +168,12 @@ concrete example of an adapter wiring this engine's `startTurn`/`endTurn`
 callbacks to LiveKit's microphone publication and pre-roll bridge, and
 [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md)
 for the full package topology.
+
+## Docs
+
+- Quick start: https://docs.maelstrom-ai.co/getting-started/quick-start/
+- Core concepts: https://docs.maelstrom-ai.co/getting-started/core-concepts/
+
+## License
+
+MIT

@@ -175,9 +175,17 @@ boundary is required: these tests install process-global happy-dom, browser,
 audio, and `mock.module()` shims, and without it one file's shims change what
 another file imports.
 
+Check `bun --version` before trusting a local green run. `--isolate` is absent
+in 1.3.7 and present in 1.3.14, and Bun accepts unknown flags silently rather
+than rejecting them. On a version without it the suite runs unisolated and
+still passes locally, then leaks across files in CI, which pins `latest`. This
+package's suite genuinely depends on the boundary.
+
 Isolation does not replace teardown. Each test must still restore mutated
 globals and spies, stop tracks and worklets, and clear timers, so state cannot
 leak between tests inside one file.
+
+## Docs
 
 See the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/)
 for the compile-checked browser integration and exact local demo commands. The
@@ -189,3 +197,7 @@ API details are available in the
 [generated reference](https://docs.maelstrom-ai.co/reference/realtime-livekit/readme/).
 For the reasoning behind the seams, read the
 [voice architecture decisions](https://github.com/maelstrom-co/maelstrom/blob/main/docs/realtime-voice-architecture.md).
+
+## License
+
+MIT
