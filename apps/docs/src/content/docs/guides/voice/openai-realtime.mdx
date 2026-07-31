@@ -25,14 +25,14 @@ The browser opens WebRTC directly to OpenAI. Microphone audio and realtime sessi
 
 ## Prerequisites
 
-Before wiring the track, provide:
+Before wiring this mode, provide:
 
 - a Maelstrom React instance with its normal Engine Connector
 - a server runtime that can read `OPENAI_API_KEY`
 - a browser secure context with microphone permission
 - the `@maelstrom-co/react`, `@maelstrom-co/protocol`, `@maelstrom-co/realtime`, `@maelstrom-co/react-realtime`, and `@maelstrom-co/realtime-server` packages
 
-OpenAI manages voice activity and turn detection for this track. `OpenAIAdapter` therefore does not expose `turnControl`; render an always-on connect/disconnect control rather than hold-to-talk controls.
+OpenAI manages voice activity and turn detection for this mode. `OpenAIAdapter` therefore does not expose `turnControl`; render an always-on connect/disconnect control rather than hold-to-talk controls.
 
 <Aside type="note" title="Examples are integration excerpts">
   The code fences in this guide are illustrative integration excerpts. They omit
@@ -47,29 +47,29 @@ The browser owns `RealtimeSession`, the OpenAI adapter, and the React binding. T
 ## Steps
 
 <Steps>
-1.  ### Add the server mint route
+1.  **Add the server mint route**
 
     Create a server-only endpoint that authenticates and authorizes callers before minting a short-lived OpenAI client credential.
 
-2.  ### Validate the browser grant
+2.  **Validate the browser grant**
 
     Fetch the credential from the same origin and validate the response with `OpenAITokenGrantSchema` before using it.
 
-3.  ### Connect the adapter and React binding
+3.  **Connect the adapter and React binding**
 
     Give `OpenAIAdapter` the validated mint function, then extend the Maelstrom React instance with `maelstromRealtime`.
 
-4.  ### Render state and transcripts
+4.  **Render state and transcripts**
 
     Connect voice from your UI and show the session state, user transcript, assistant transcript, and recoverable failures.
 
-5.  ### Preserve speak-after-render and grounding
+5.  **Preserve speak-after-render and grounding**
 
     Keep intent settlement on the strong planning path and UI grounding on its separate latest-wins channel.
 
-6.  ### Harden the deployment
+6.  **Harden the deployment**
 
-        Apply application authentication, CSRF, origin, model-policy, rate-limit, telemetry, consent, and secret-handling controls before exposing the route.
+    Apply application authentication, CSRF, origin, model-policy, rate-limit, telemetry, consent, and secret-handling controls before exposing the route.
 
 </Steps>
 
@@ -300,7 +300,7 @@ export const m = createMaelstrom({ vessels }).with(
 
 Calling `connect()` mints a fresh credential and begins microphone capture. Once WebRTC connects, the browser sends that microphone track directly to OpenAI until `disconnect()` stops the track and closes the peer connection. Make this media lifecycle clear in consent and connection UI. A second session-level `connect()` while the session is already live is a no-op; the adapter itself rejects a direct duplicate connection.
 
-OpenAI manages turn detection, model responses, and response audio for this track. When OpenAI publishes audio, `OpenAIAdapter` attaches the remote audio stream to an autoplay audio element and exposes both microphone and playback streams through `getAudioStreams()`. `disconnect()` stops local tracks, pauses playback, clears both streams, and closes the data channel and peer connection. The adapter does not expose manual turn controls or an application-owned audio-response queue; this differs from the LiveKit cascade track, where the application explicitly starts and ends held turns and the worker owns TTS.
+OpenAI manages turn detection, model responses, and response audio for this mode. When OpenAI publishes audio, `OpenAIAdapter` attaches the remote audio stream to an autoplay audio element and exposes both microphone and playback streams through `getAudioStreams()`. `disconnect()` stops local tracks, pauses playback, clears both streams, and closes the data channel and peer connection. The adapter does not expose manual turn controls or an application-owned audio-response queue; this differs from the LiveKit cascade mode, where the application explicitly starts and ends held turns and the worker owns TTS.
 
 ## Render state and transcripts
 
@@ -432,4 +432,4 @@ Use the generated reference for the public contracts used in this guide:
 - [`maelstromRealtime`](/reference/react-realtime/functions/maelstromrealtime/) and [`UseVoiceResult`](/reference/react-realtime/interfaces/usevoiceresult/) from `@maelstrom-co/react-realtime`
 - [`createOpenAIMinter`](/reference/realtime-server/functions/createopenaiminter/) from `@maelstrom-co/realtime-server`
 
-Continue with the [Voice overview](/guides/voice/overview/) to compare the two shipped tracks.
+Continue with the [Voice overview](/guides/voice/overview/) to compare the two shipped modes.

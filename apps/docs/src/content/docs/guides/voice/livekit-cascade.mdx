@@ -36,7 +36,7 @@ The browser LiveKit adapter joins a LiveKit room. A stateless authenticated toke
 
 ## Prerequisites
 
-Before wiring the track, provide:
+Before wiring this mode, provide:
 
 - a Maelstrom React instance with its normal Engine Connector
 - a LiveKit server and credentials for both the token service and worker
@@ -138,31 +138,31 @@ The canonical public guide URL is [https://docs.maelstrom-ai.co/guides/voice/liv
 ## Steps
 
 <Steps>
-1.  ### Add the server token route
+1.  **Add the server token route**
 
     Create the authenticated endpoint that derives room scope and signs a grant before writing browser code that consumes it.
 
-2.  ### Start the STT/TTS worker
+2.  **Start the STT/TTS worker**
 
     Run the model-free worker as a separate long-running process with only its server and speech-provider credentials.
 
-3.  ### Validate the browser grant
+3.  **Validate the browser grant**
 
     Fetch the grant with same-origin credentials and a CSRF proof, then validate the unknown response before connecting.
 
-4.  ### Connect the browser adapter
+4.  **Connect the browser adapter**
 
     Configure the generic adapter callback while leaving actual room authorization to authenticated server policy and the signed grant.
 
-5.  ### Use the protocol entry point
+5.  **Use the protocol entry point**
 
     Import shared turn and speech topics without pulling browser dependencies into the worker.
 
-6.  ### Render a safe hold-to-talk control
+6.  **Render a safe hold-to-talk control**
 
     Serialize turn operations, release the turn on common cancellation paths, and expose only fixed recovery copy.
 
-7.  ### Harden the deployment
+7.  **Harden the deployment**
 
     Enforce authentication, trusted scope derivation, origin and CSRF checks, shared rate limiting, no-store responses, session limits, and redacted telemetry.
 
@@ -383,7 +383,7 @@ export const m = createMaelstrom({ vessels }).with(
 
 The `roomName` option remains necessary to satisfy the generic adapter API, and the adapter forwards it only to `mintToken(roomName)`. It is not an authorization input in this integration. The browser fetch sends no room or identity in its body; the authenticated endpoint's signed grant is the authority used when LiveKit joins the participant.
 
-`connect()` joins the room and calls `setMicrophoneEnabled(true)`, which acquires and publishes the microphone track, followed by `setMicrophoneEnabled(false)` to mute that publication. This implementation therefore requests microphone access during connection, before the first held turn. The browser retains microphone access while the published track is muted, until `disconnect()` leaves the room and stops the adapter's media resources. Hold-to-talk changes the existing track's mute state; it does not acquire or release microphone permission. This track has no provider-managed voice activity detection.
+`connect()` joins the room and calls `setMicrophoneEnabled(true)`, which acquires and publishes the microphone track, followed by `setMicrophoneEnabled(false)` to mute that publication. This implementation therefore requests microphone access during connection, before the first held turn. The browser retains microphone access while the published track is muted, until `disconnect()` leaves the room and stops the adapter's media resources. Hold-to-talk changes the existing track's mute state; it does not acquire or release microphone permission. This mode has no provider-managed voice activity detection.
 
 Token expiry is checked for each initial or fresh room connection, including an explicit `connect()` after `disconnect()`. It does not impact LiveKit SDK-managed reconnects for an already connected participant because LiveKit pushes refreshed tokens to connected clients, and the SDK uses the refreshed token for managed reconnects. Expiry alone does not disconnect an active participant or end the room. Each fresh `connect()` invokes `mintToken`; the adapter does not read `expiresAt` or schedule proactive renewal. Expiry does not impose a maximum room duration or schedule adapter cleanup, so production hosts must enforce their own maximum session duration, call `disconnect()` on policy termination, and clean up abandoned rooms and participants separately.
 
@@ -613,7 +613,7 @@ An empty held turn produces no final transcript, no intent or Engine request, an
 
 Each final transcript becomes one `update_ui` call. For a successful UI update, `RealtimeSession` waits for rendering to settle before it calls `sendToolResult()`, so the Cartesia read-back describes the rendered result rather than a prediction. Malformed tool arguments and genuine submission failures return failure results immediately, without waiting for render settlement. Failed TTS is non-fatal because the UI update has already applied.
 
-Unlike the OpenAI track, the LiveKit worker has no model session to ground. Settled structural summaries may reach `LiveKitAdapter.injectGrounding()`, but the method deliberately does nothing. Do not forward Chart structure or Vessel domain data to the worker.
+Unlike the OpenAI mode, the LiveKit worker has no model session to ground. Settled structural summaries may reach `LiveKitAdapter.injectGrounding()`, but the method deliberately does nothing. Do not forward Chart structure or Vessel domain data to the worker.
 
 ## Harden the deployment
 
