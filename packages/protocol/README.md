@@ -1,6 +1,11 @@
 # @maelstrom-co/protocol
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/protocol.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/protocol)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 Shared types, Zod schemas, and message envelopes for Maelstrom. Both the engine and everything that talks to it import from this package — the protocol is the contract that survives implementation changes.
+
+📚 **Full documentation:** <https://docs.maelstrom-ai.co/reference/protocol/readme/>
 
 The protocol is transport-agnostic. WebSocket, HTTP, in-process, or your own carrier — every payload is the same shape on both sides.
 

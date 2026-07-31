@@ -1,7 +1,24 @@
 {
   "name": "@maelstrom-co/realtime-livekit-server",
   "version": "0.0.0",
+  "description": "Server-only minting of LiveKit room access tokens for Maelstrom. The server sibling of @maelstrom-co/realtime-livekit.",
+  "keywords": [
+    "maelstrom",
+    "ai",
+    "llm",
+    "dynamic-ui",
+    "generative-ui",
+    "realtime",
+    "voice",
+    "server",
+    "node",
+    "livekit",
+    "access-token"
+  ],
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -21,9 +38,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/realtime-livekit-server"
   },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org"
