@@ -107,11 +107,11 @@ native sign-off option, or just fall back to `git commit -s`.
 ## Development
 
 ```bash
-bun install                    # install dependencies
-bunx nx dev demo               # run the demo app (see apps/demo/README.md for environment and optional voice setup)
-nx run-many -t build           # build all packages
-nx run-many -t test            # run all tests
-nx run-many -t typecheck       # type-check all packages
+bun install                         # install dependencies
+bunx nx dev demo                    # run the demo app (see apps/demo/README.md for environment and optional voice setup)
+bunx nx run-many -t build           # build all packages
+bunx nx run-many -t test            # run all tests
+bunx nx run-many -t typecheck       # type-check all packages
 ```
 
 Tests depend on built packages (`dependsOn: ["^build"]`), so build before
@@ -122,7 +122,7 @@ See the [README](./README.md) for the package architecture and core concepts.
 ## Pull requests
 
 - Sign off every commit (`git commit -s`) — see [DCO](#developer-certificate-of-origin-dco).
-- Run `nx run-many -t build test typecheck` before pushing.
+- Run `bunx nx run-many -t build test typecheck` before pushing.
 - PR titles follow [Conventional Commits](https://www.conventionalcommits.org)
   (`type(scope): summary`). Squash-merge lands the PR title verbatim as the
   commit subject, so the title is the permanent changelog entry.
