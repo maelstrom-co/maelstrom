@@ -1,27 +1,29 @@
 ---
 title: Voice
-description: Choose a Maelstrom voice track without creating a second planning path.
+description: Choose between Maelstrom's two voice modes and add speech to your interface.
 ---
 
-import { Aside } from "@astrojs/starlight/components";
+Voice lets people speak to a Maelstrom interface, and lets the interface speak back.
 
-Voice extends Maelstrom's adaptation loop beyond typed text. It lets an interface listen and speak. People can express intent in the way that fits their situation, while the UI continues to adapt through the same Engine and declared Vessel capabilities. Speech does not give a provider control of the Chart. Both shipped voice tracks submit natural-language intent through `RealtimeSession`, and the Engine still plans from the client-built Chart snapshot. The first integration decision is therefore which **voice track** fits the conversation and operational control your application needs.
+A person says what they want out loud. The UI adapts to it, the same way it adapts to typed input. Nothing about your Vessels changes.
 
+Maelstrom ships two **voice modes**. Your first decision is which one to use.
 
+## Choose a voice mode
 
-## Choose a voice track
+Both modes preserve the same intent boundary. Pick one by deciding where the conversation, the speech-to-text (STT), and the text-to-speech (TTS) should run.
 
-Both tracks preserve the same intent boundary. Choose between them by deciding where conversation, speech recognition, and speech synthesis should run—not by shaping your UI around a particular provider.
+**Realtime** sends audio straight to a speech-native model. You get lower latency and fewer moving parts, and the provider owns the pipeline.
 
-A **realtime** track favors a speech-native conversation and can reduce the number of stages in each turn. A **cascade** track separates speech recognition and synthesis, giving the application more control over those components at the cost of operating more of the pipeline.
+**Cascade** splits STT and TTS into a worker you operate. You choose the STT model and the TTS voice, and hold-to-talk lets you decide when a turn commits. You pay for that with higher latency and a worker to run.
 
 Use the [cascade versus realtime architecture guide](/understanding/voice-architecture/) to compare latency, provider control, specialization, operations, observability, and privacy considerations. Then follow the [OpenAI Realtime setup](/guides/voice/openai-realtime/) or [LiveKit cascade setup](/guides/voice/livekit-cascade/) for the shipped implementation of your chosen mode.
 
-## Add the common React integration
+## Wire voice into your UI
 
-Choose a provider adapter first, then pass its factory to the provider-neutral React extension. Your application keeps its existing Vessels and selects the adapter at this boundary:
+Choose a provider adapter first, then pass its factory to the provider-neutral extension. React is the binding available today. Your application keeps its existing Vessels and selects the adapter at this boundary:
 
-```tsx
+```tsx title="src/maelstrom.ts"
 export const m = createMaelstrom({ vessels }).with(
   maelstromRealtime({ createAdapter }),
 );
@@ -29,7 +31,7 @@ export const m = createMaelstrom({ vessels }).with(
 
 Every adapter then reaches application UI through the same `m.useVoice()` and `m.VoiceOrb` API:
 
-```tsx
+```tsx title="src/VoiceControls.tsx"
 export function VoiceControls() {
   const {
     state,
@@ -86,7 +88,7 @@ Continue with the [OpenAI Realtime guide](/guides/voice/openai-realtime/) or [Li
 
 ## Follow the shared intent boundary
 
-Both voice tracks rejoin the normal Maelstrom request loop at natural-language intent. They may maintain different audio and conversation state, but neither can replace the client-built Chart snapshot that the Engine uses for planning.
+Both voice modes rejoin the normal Maelstrom request loop at natural-language intent. They may maintain different audio and conversation state, but neither can replace the client-built Chart snapshot that the Engine uses for planning.
 
 ```mermaid
 flowchart LR
@@ -120,7 +122,7 @@ In the cascade flow, browser audio travels through LiveKit to the worker's STT s
 
 In the realtime flow, the browser exchanges audio directly with a voice-to-voice model. Structural UI grounding and read-only tools help that model converse about the interface, but only the natural-language intent from `update_ui` crosses into the Maelstrom client. The client—not the realtime model—captures the Chart snapshot and sends it to the Engine. `RealtimeSession` withholds the successful tool result until the resulting UI settles, so the model receives evidence of the rendered change before narrating it.
 
-This separation is the shared safety invariant: a voice model's belief about the interface may be useful for conversation, but it never becomes Engine planning input. Voice providers do not supply Vessel IDs, Actions, or layout coordinates to the Engine. Read the [Architecture Overview](/understanding/architecture/) for the request and render loop that both tracks reuse.
+This separation is the shared safety invariant: a voice model's belief about the interface may be useful for conversation, but it never becomes Engine planning input. Voice providers do not supply Vessel IDs, Actions, or layout coordinates to the Engine. Read the [Architecture Overview](/understanding/architecture/) for the request and render loop that both modes reuse.
 
 ## Know the package boundaries
 
