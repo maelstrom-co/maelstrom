@@ -61,7 +61,7 @@ The command builds the required workspace packages, then starts:
 
 The terminal is ready when the Vite output shows `http://localhost:3000` and the Engine host output shows `ws://localhost:3001/ws`. Neither process should exit.
 
-Open `http://localhost:3000` in a browser and wait for the connection status to show `connected`. Type an intent such as "Clear all this — just show me today" and submit it. Processing should complete without a visible Engine error, and at least one Vessel Instance should appear or change on the Chart.
+Open http://localhost:3000. When the status shows `connected`, type something like "Clear all this — just show me today" and submit. §The board should rearrange in response.
 
 ## Optional: OpenAI realtime voice
 
@@ -123,7 +123,7 @@ The browser holds the OpenAI realtime session directly, authenticated by a short
 
 Append `?debug` to the URL, for example `http://localhost:3000/?debug`, to show the grid and tiling overlay plus Instance ID and size labels for every Vessel. The overlay is off by default.
 
-**Recording tip:** macOS's Reduce Motion setting (System Settings → Accessibility → Display) disables the demo's choreography through `prefers-reduced-motion`. Turn it off before recording the launch video.
+**Recording tip:** macOS's Reduce Motion setting (System Settings → Accessibility → Display) disables the demo's choreography through `prefers-reduced-motion`.
 
 ## Troubleshooting and shutdown
 
