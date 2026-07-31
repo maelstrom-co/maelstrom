@@ -104,7 +104,15 @@ The LiveKit cascade is also optional. It requires a local LiveKit server plus re
    bunx nx dev-livekit demo
    ```
 
-   Run this variant through Nx so its build dependencies run first. It starts the Bun Engine host, the LiveKit voice-agent worker, and Vite in `livekit` mode.
+   Run this variant through Nx so its build dependencies run first. It prepares the matching browser-VAD assets, then starts the Bun Engine host, the LiveKit voice-agent worker, and Vite in `livekit` mode.
+
+## Voice behavior
+
+Click the voice orb to connect or disconnect. While voice is active, the status label shows whether the session is listening, thinking, or speaking, and streaming captions show the latest user and assistant transcript.
+
+Both voice transports support barge-in. If the assistant is speaking, start talking to interrupt the current audio and begin a new turn. If the Engine is still applying an earlier intent, new intents use a latest-wins queue: the most recent correction runs after the active request settles.
+
+OpenAI uses its speech-native turn handling. LiveKit uses browser-side voice activity detection by default, and idle microphone audio remains local until speech is detected. If the browser VAD assets or runtime cannot initialize, the LiveKit session remains connected and the demo shows a **Hold to talk** control instead.
 
 ## Things to type or say
 
@@ -115,7 +123,9 @@ The LiveKit cascade is also optional. It requires a local LiveKit server plus re
 
 ## How voice works
 
-The browser holds the OpenAI realtime session directly, authenticated by a short-lived token minted by `/api/realtime-token`. The model has one write path: an `update_ui` tool call carrying a plain-text intent, which follows the same path as typed input. The Engine plans against the app's own state, never the model's beliefs about the screen. The model receives the tool result only after rendering settles, so it does not narrate a change before it appears. See [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) for the full design.
+The OpenAI path connects the browser directly to the realtime model over WebRTC, authenticated by a short-lived token minted by `/api/realtime-token`. The LiveKit path detects turns in the browser, sends speech to a Deepgram STT worker, and returns spoken results through Cartesia TTS.
+
+Both transports produce the same plain-text `update_ui` intent. The Engine plans against the app's own state, never a voice model's beliefs about the screen, and the spoken result is sent only after rendering settles. See [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) for the full design.
 
 ## Debug overlays
 
@@ -130,6 +140,7 @@ If the demo's motion looks disabled, check macOS **Reduce Motion** (System Setti
 - **Weather shows fixture data:** the demo could not reach Open-Meteo, so it silently uses canned values.
 - **Map tiles are blank:** confirm network access to `tiles.openfreemap.org`.
 - **OpenAI voice cannot start:** confirm that the optional OpenAI credential is present in `.env`, then allow microphone access for the site and retry the orb.
+- **LiveKit shows “Automatic voice detection unavailable; hold to talk”:** the browser VAD could not load or initialize. The session remains usable; hold the button while speaking. For custom hosting, deploy the generated `/vad-web/` assets and allow `blob:` worklet scripts in the Content Security Policy.
 - **LiveKit reports missing environment variables:** provide the optional `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`, and LiveKit settings described above.
 - **LiveKit reports `ECONNREFUSED ws://localhost:7880`:** start `livekit-server --dev` before starting the LiveKit variant.
 - **A LiveKit token configuration fails:** `LIVEKIT_TOKEN_TTL` must be a bare number of seconds or an integer followed by `s`, `m`, `h`, or `d`; its default is `15m`.
@@ -138,5 +149,7 @@ Press `Ctrl-C` once in the startup terminal to stop both demo processes. Delete 
 
 ## Further reading
 
+- [`packages/realtime-livekit/README.md`](../../packages/realtime-livekit/README.md) — browser VAD, manual fallback, and asset deployment
 - [`packages/realtime-livekit-agent/README.md`](../../packages/realtime-livekit-agent/README.md) — voice-agent worker internals
-- [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) — OpenAI realtime voice architecture
+- [`packages/react-realtime/README.md`](../../packages/react-realtime/README.md) — voice state and manual turn controls
+- [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) — shared realtime voice architecture
