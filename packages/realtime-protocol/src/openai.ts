@@ -9,8 +9,8 @@
 export type {
   OpenAITokenGrant,
   OpenAITokenRequest,
-} from './lib/openai-token.js';
+} from './lib/openai-token.ts';
 export {
   OpenAITokenGrantSchema,
   OpenAITokenRequestSchema,
-} from './lib/openai-token.js';
+} from './lib/openai-token.ts';

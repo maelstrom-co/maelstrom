@@ -9,6 +9,6 @@
  * never drift.
  */
 
-export type { LiveKitTokenGrant } from './lib/livekit-token.js';
-export { LiveKitTokenGrantSchema } from './lib/livekit-token.js';
-export * from './lib/livekit-wire.js';
+export type { LiveKitTokenGrant } from './lib/livekit-token.ts';
+export { LiveKitTokenGrantSchema } from './lib/livekit-token.ts';
+export * from './lib/livekit-wire.ts';

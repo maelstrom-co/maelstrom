@@ -130,9 +130,21 @@ if (process.platform !== 'win32') {
         resolve(outputDir, 'vad-assets.js'),
         'utf8',
       );
-      expect(assetEntry).toContain(
-        'import { t as e } from "./vad-assets-B-lNL3ng.js";\nexport { e as copyBrowserVadAssets };\n',
-      );
+      // Assert the shape, not the bytes: the chunk name carries a content hash
+      // and the bindings are minified, so matching them literally turns any
+      // edit to `copyBrowserVadAssets` — or a bundler bump — into a failure
+      // about bundler output rather than about the change.
+      expect(assetEntry).toMatch(/\bas copyBrowserVadAssets\b/);
+
+      const assetEntryImports = [
+        ...assetEntry.matchAll(/\bfrom\s*["']([^"']+)["']/g),
+      ].map(([, specifier]) => specifier);
+      expect(assetEntryImports.length).toBeGreaterThan(0);
+      expect(
+        assetEntryImports.filter(
+          (specifier) => !/^\.\/vad-assets-[\w-]+\.js$/.test(specifier),
+        ),
+      ).toEqual([]);
     } finally {
       rmSync(outputDir, { recursive: true, force: true });
     }

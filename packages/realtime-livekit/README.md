@@ -145,6 +145,11 @@ runs it before its normal build:
 }
 ```
 
+Add `@maelstrom-co/realtime-vad` as a direct dependency before running the CLI.
+It reaches an application only transitively through this package, and package
+managers link a bin into the root `node_modules/.bin` only for direct
+dependencies — so without that entry `maelstrom-vad-assets` is not on `PATH`.
+
 ### Asset URL and hosting rules
 
 `assetBaseUrl` must identify the directory containing the complete copied asset

@@ -255,7 +255,7 @@
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@ricky0123/vad-web": "0.0.30",
+        "@ricky0123/vad-web": "catalog:",
         "happy-dom": "catalog:",
         "livekit-client": "^2.13.1",
       },

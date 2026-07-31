@@ -12,10 +12,16 @@ never ships to the browser.
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime-livekit-server @maelstrom-co/realtime-livekit
+bun add @maelstrom-co/realtime-livekit-server
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server @maelstrom-co/realtime-livekit`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server`
+
+Do not install `@maelstrom-co/realtime-livekit` here. That is the browser
+adapter; it carries the LiveKit WebRTC peer surface and the browser VAD
+runtime. This package reaches the shared contract through
+`@maelstrom-co/realtime-protocol/livekit` instead, which is what keeps the
+process holding `LIVEKIT_API_SECRET` free of browser code.
 
 ## What it does
 

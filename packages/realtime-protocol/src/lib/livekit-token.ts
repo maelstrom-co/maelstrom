@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-import type { TokenGrant } from './token-grant.js';
-import type { UnixSeconds } from './unix-seconds.js';
-import { UnixSecondsSchema } from './unix-seconds.js';
+import type { TokenGrant } from './token-grant.ts';
+import type { UnixSeconds } from './unix-seconds.ts';
+import { UnixSecondsSchema } from './unix-seconds.ts';
 
 /**
  * A LiveKit access token and room URL for a single room.

@@ -42,6 +42,9 @@ if (config.enabled) {
     endTurn: async () => {
       /* drain accepted audio, pause upstream publication */
     },
+    cancelTurn: async () => {
+      /* discard the buffered pre-roll — the utterance never reached minSpeechMs */
+    },
     onFailure: async (error, { turnActive, retire }) => {
       /* close any active turn, retire VAD, fall back to manual control */
     },
@@ -162,9 +165,24 @@ transport connection a fatal transport failure — that call is the adapter's.
 ## Entry points
 
 - `@maelstrom-co/realtime-vad` — `createBrowserVad`, `resolveBrowserVadConfig`,
-  and the `BrowserVad`, `BrowserVadOptions`, `BrowserVadProviderOptions` types.
+  and the `BrowserVad`, `BrowserVadOptions`, `BrowserVadProviderOptions`,
+  `CreateBrowserVadOptions`, `ResolvedBrowserVadConfig` types.
 - `@maelstrom-co/realtime-vad/assets` — Node-only asset deployment helper;
   never import this subpath into browser code.
+
+## Contributor testing
+
+From the workspace root, run `nx test @maelstrom-co/realtime-vad --skipSync`.
+That target runs `bun test --isolate`, which gives each test file a fresh
+global and module environment. `src/vad-assets.test.ts` installs a
+`mock.module('node:fs/promises', …)` fault injector, and `mock.restore()`
+reverts spies but not module registrations — isolation is what keeps that
+injector out of every other file.
+
+Check `bun --version` before trusting a local green run. `--isolate` is absent
+in 1.3.7 and present in 1.3.14, and Bun accepts unknown flags silently rather
+than rejecting them. On a version without it the suite runs unisolated and
+still passes locally, then leaks across files in CI, which pins `latest`.
 
 ## Where this fits
 

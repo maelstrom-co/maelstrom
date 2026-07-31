@@ -19,6 +19,7 @@ export default defineConfig(() => ({
         index: 'src/index.ts',
         openai: 'src/openai.ts',
         livekit: 'src/livekit.ts',
+        'livekit-wire': 'src/livekit-wire.ts',
       },
       name: '@maelstrom-co/realtime-protocol',
       formats: ['es' as const],

@@ -19,8 +19,8 @@ export type {
   MintFailure,
   MintFailureReason,
   MintFetch,
-} from './lib/mint.js';
-export { MINT_FAILURE_REASONS, mintFailureHttpStatus } from './lib/mint.js';
-export type { TokenGrant } from './lib/token-grant.js';
-export type { UnixSeconds } from './lib/unix-seconds.js';
-export { UnixSecondsSchema } from './lib/unix-seconds.js';
+} from './lib/mint.ts';
+export { MINT_FAILURE_REASONS, mintFailureHttpStatus } from './lib/mint.ts';
+export type { TokenGrant } from './lib/token-grant.ts';
+export type { UnixSeconds } from './lib/unix-seconds.ts';
+export { UnixSecondsSchema } from './lib/unix-seconds.ts';

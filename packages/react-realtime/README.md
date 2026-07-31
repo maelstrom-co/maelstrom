@@ -36,7 +36,9 @@ Render the current `state` rather than inferring success from a fixed order. The
 
 The React binding does not create a VAD controller. `LiveKitAdapter` drives the
 provider-neutral engine from `@maelstrom-co/realtime-vad`; applications deploy
-that package's matching browser assets during their build.
+that package's matching browser assets during their build. Add
+`@maelstrom-co/realtime-vad` as a direct dependency so package managers link its
+`maelstrom-vad-assets` CLI onto the application's `PATH`.
 
 ## Docs
 

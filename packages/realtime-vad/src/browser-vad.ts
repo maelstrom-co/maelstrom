@@ -8,7 +8,23 @@ const DEFAULT_ASSET_BASE_URL = '/vad-web/';
 const DEFAULT_PRE_ROLL_MS = 250;
 const MAX_PRE_ROLL_MS = 500;
 
-type ResolvedBrowserVadConfig =
+/**
+ * The return type of {@link resolveBrowserVadConfig}: a validated VAD
+ * configuration, narrowed by `enabled` so the disabled case carries no
+ * settings at all.
+ *
+ * Discriminate on `enabled` before use — `false` means the caller asked for
+ * manual turns, and no assets should be fetched and no worklet created.
+ *
+ * @example
+ * ```ts
+ * const config: ResolvedBrowserVadConfig = resolveBrowserVadConfig(input);
+ * if (config.enabled) {
+ *   await createBrowserVad({ stream, config, startTurn, endTurn, cancelTurn, onFailure });
+ * }
+ * ```
+ */
+export type ResolvedBrowserVadConfig =
   | { readonly enabled: false }
   | {
       readonly enabled: true;
@@ -32,7 +48,17 @@ type MicVADFactory = {
   readonly new: (options?: Partial<RealTimeVADOptions>) => Promise<MicVAD>;
 };
 
-type CreateBrowserVadOptions = {
+/**
+ * The parameter type of {@link createBrowserVad}.
+ *
+ * The three turn callbacks are the whole integration surface: this package
+ * detects speech edges and never touches the transport, so resuming
+ * publication, flushing pre-roll, and discarding a misfire are all the
+ * caller's work. `cancelTurn` is required, not optional — every sub-threshold
+ * utterance invokes it, and a missing implementation retires the VAD and drops
+ * the session to manual turns permanently.
+ */
+export type CreateBrowserVadOptions = {
   /** Connection-bound local clone; MicVAD may observe but never stop it. */
   readonly stream: MediaStream;
   /** Already validated automatic-mode configuration. */

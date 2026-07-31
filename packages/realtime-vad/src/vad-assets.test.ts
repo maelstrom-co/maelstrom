@@ -393,6 +393,10 @@ describe('copyBrowserVadAssets', () => {
         }
       }
     } finally {
+      // `mock.restore()` reverts spies, not `mock.module()` registrations, so
+      // the fault injector above would stay installed for every later file in
+      // the process. Re-register the real module explicitly.
+      mock.module('node:fs/promises', () => ({ ...actualFs }));
       mock.restore();
     }
   });

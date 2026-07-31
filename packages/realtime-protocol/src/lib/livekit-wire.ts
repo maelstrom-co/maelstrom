@@ -1,7 +1,8 @@
 // Wire constants shared by the browser adapter and the agent worker. Zero
-// imports on purpose: the worker's `@maelstrom-co/realtime-protocol/livekit`
-// import must never pull in browser or server dependencies, and this is the
-// single source of truth both sides read so the topic strings can never drift.
+// imports on purpose: the worker reaches these through
+// `@maelstrom-co/realtime-protocol/livekit-wire`, which must never pull in
+// browser or server dependencies — not even zod. This is the single source of
+// truth both sides read so the topic strings can never drift.
 
 /** Text-stream topic the client uses to send TTS requests to the worker. */
 export const SPEAK_TOPIC = 'speak';

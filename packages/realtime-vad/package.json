@@ -70,7 +70,7 @@
         }
       },
       "test": {
-        "command": "bun test",
+        "command": "bun test --isolate",
         "options": {
           "cwd": "{projectRoot}"
         }

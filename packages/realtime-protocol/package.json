@@ -40,6 +40,12 @@
       "types": "./dist/livekit.d.ts",
       "import": "./dist/livekit.js",
       "default": "./dist/livekit.js"
+    },
+    "./livekit-wire": {
+      "@maelstrom-co/source": "./src/livekit-wire.ts",
+      "types": "./dist/livekit-wire.d.ts",
+      "import": "./dist/livekit-wire.js",
+      "default": "./dist/livekit-wire.js"
     }
   },
   "files": [

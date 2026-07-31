@@ -95,12 +95,39 @@ function discoverWorkspacePackages(): WorkspacePackage[] {
 }
 
 /**
- * Classifies a package purely from its name, never from a hardcoded list —
- * new packages must fall into a layer automatically:
+ * The packages that ship code to a browser tab. Enumerated rather than
+ * inferred, because {@link classify} must fail closed: a name it does not
+ * recognize is treated as `server`, the strictest layer.
+ *
+ * The alternative — defaulting unknown names to `browser` — is unsafe in one
+ * direction only, and that direction is the one that matters. A Node-only
+ * minter named e.g. `@maelstrom-co/realtime-gemini-mint` matches no `-server`
+ * or `-agent` suffix, so it would classify as browser, skip the Biome backstop
+ * entirely, and be importable from `@maelstrom-co/react-realtime` with every
+ * test green — a credential-reading package one import from the client bundle.
+ *
+ * Adding a browser package therefore means adding it here. That is a
+ * deliberate cost: the omission fails loudly (the new package is held to
+ * server rules and has no `biome.json`) instead of silently widening what may
+ * reach the browser.
+ */
+const BROWSER_PACKAGES = new Set([
+  '@maelstrom-co/client',
+  '@maelstrom-co/react',
+  '@maelstrom-co/react-realtime',
+  '@maelstrom-co/realtime',
+  '@maelstrom-co/realtime-livekit',
+  '@maelstrom-co/realtime-openai',
+  '@maelstrom-co/realtime-vad',
+]);
+
+/**
+ * Classifies a package into its layer:
  *  - contract: the two dependency-free leaves everything else may depend on
- *  - server: names ending in `-server`, plus `@maelstrom-co/engine`
+ *  - server: names ending in `-server`, `@maelstrom-co/engine`, and anything
+ *    unrecognized
  *  - worker: names ending in `-agent`
- *  - browser: everything else under the `@maelstrom-co` scope
+ *  - browser: the explicit {@link BROWSER_PACKAGES} set
  */
 function classify(name: string): Layer {
   if (
@@ -109,13 +136,13 @@ function classify(name: string): Layer {
   ) {
     return 'contract';
   }
-  if (name === '@maelstrom-co/engine' || name.endsWith('-server')) {
-    return 'server';
-  }
   if (name.endsWith('-agent')) {
     return 'worker';
   }
-  return 'browser';
+  if (BROWSER_PACKAGES.has(name)) {
+    return 'browser';
+  }
+  return 'server';
 }
 
 function internalDependencyNames(
@@ -321,9 +348,32 @@ function entryPointSourceFile(
  */
 function filesReachableFromRoot(pkg: WorkspacePackage): Set<string> {
   const rootEntry = entryPointSourceFile(pkg, '.');
-  const reachable = new Set<string>();
-  if (!rootEntry || !existsSync(rootEntry)) return reachable;
+  // The entry must be TypeScript source under src/. A `.` export that is a
+  // plain string, or whose source condition points into dist/, resolves to
+  // built output: the walk would then inspect a bundled artifact — where the
+  // imports have already been resolved away — and report success without ever
+  // reading the package's own source.
+  const isSourceEntry =
+    rootEntry !== undefined &&
+    /\.tsx?$/.test(rootEntry) &&
+    !relative(join(pkg.dir, 'src'), rootEntry).startsWith('..');
+  if (!isSourceEntry || !existsSync(rootEntry)) {
+    // Returning an empty set here would make every assertion built on this
+    // walk pass having inspected nothing — the guard would report success on a
+    // package it never opened.
+    throw new Error(`INVARIANT VIOLATED: every browser-side and contract-side package must resolve a source file for its "." entry point.
 
+  Package: ${pkg.name} (layer: ${classify(pkg.name)})
+  Resolved to: ${rootEntry ?? '<no "@maelstrom-co/source" condition on the "." export>'}
+
+The reachability guard below reads the "@maelstrom-co/source" condition so it can walk TypeScript sources without a build step. A package whose "." export omits that condition, nests it inside another condition, or points at a path that does not exist cannot be walked, and a guard that cannot walk a package must fail rather than pass silently.
+
+Fix: give the "." entry in this package's "exports" a top-level "@maelstrom-co/source" key pointing at its TypeScript source, matching the other packages.
+
+See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
+  }
+
+  const reachable = new Set<string>();
   const queue = [rootEntry];
   reachable.add(rootEntry);
   while (queue.length > 0) {
@@ -335,8 +385,17 @@ function filesReachableFromRoot(pkg: WorkspacePackage): Set<string> {
       continue;
     }
     for (const specifier of moduleSpecifiers(source)) {
-      if (!specifier.startsWith('.')) continue;
-      const target = resolveRelativeImport(file, specifier);
+      // Workspace-internal specifiers are followed across the package
+      // boundary. Stopping at the package edge would let a browser package
+      // re-export a sibling's Node-only subpath — `export * from
+      // '@maelstrom-co/realtime-vad/assets'` — and satisfy every guard: the
+      // manifest test sees an allowed browser→browser edge, and this walk
+      // never opens the file that imports `node:fs`.
+      const target = specifier.startsWith('.')
+        ? resolveRelativeImport(file, specifier)
+        : specifier.startsWith('@maelstrom-co/')
+          ? resolveWorkspaceImport(specifier)
+          : undefined;
       if (!target || reachable.has(target)) continue;
       reachable.add(target);
       queue.push(target);
@@ -345,11 +404,32 @@ function filesReachableFromRoot(pkg: WorkspacePackage): Set<string> {
   return reachable;
 }
 
+/**
+ * Resolves `@maelstrom-co/foo` or `@maelstrom-co/foo/bar` to the source file
+ * behind that package's matching `exports` key, so the walk above can continue
+ * into sibling packages. External, non-workspace specifiers stay opaque.
+ */
+function resolveWorkspaceImport(specifier: string): string | undefined {
+  const segments = specifier.split('/');
+  const target = packagesByName.get(`${segments[0]}/${segments[1]}`);
+  if (!target) return undefined;
+  const key = segments.length > 2 ? `./${segments.slice(2).join('/')}` : '.';
+  const entry = entryPointSourceFile(target, key);
+  return entry && existsSync(entry) ? entry : undefined;
+}
+
 describe('package layering — Node-only code must stay unreachable from "."', () => {
   for (const pkg of packages) {
-    if (classify(pkg.name) !== 'browser') continue;
+    const layer = classify(pkg.name);
+    // Contract packages are checked alongside browser ones because they are
+    // `export *`-ed straight out of browser barrels — `@maelstrom-co/realtime-openai`
+    // re-exports `@maelstrom-co/realtime-protocol/openai`, and the LiveKit
+    // adapter does the same — so they sit on the very `.` graph this block
+    // polices. They are browser-safe by construction today; asserting it pins
+    // the property.
+    if (layer !== 'browser' && layer !== 'contract') continue;
 
-    test(`${pkg.name} (browser) reaches no Node builtin from the "." entry point`, () => {
+    test(`${pkg.name} (${layer}) reaches no Node builtin from the "." entry point`, () => {
       const srcDir = join(pkg.dir, 'src');
       const violations: string[] = [];
 
@@ -389,6 +469,55 @@ See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
       }
     });
   }
+
+  test('the livekit-wire subpath pulls in nothing at all', () => {
+    // The worker imports this subpath to read four topic strings. Its sibling
+    // `/livekit` aggregates LiveKitTokenGrantSchema, which imports zod, so
+    // pointing the worker there would load a schema runtime at boot for
+    // constants that cost nothing. Splitting the subpath is only worth
+    // anything while it stays import-free.
+    const protocolPkg = packagesByName.get('@maelstrom-co/realtime-protocol');
+    expect(protocolPkg).toBeDefined();
+    if (!protocolPkg) return;
+
+    const entry = entryPointSourceFile(protocolPkg, './livekit-wire');
+    expect(entry).toBeDefined();
+    if (!entry) return;
+
+    const seen = new Set<string>();
+    const queue = [entry];
+    const external: string[] = [];
+    while (queue.length > 0) {
+      const file = queue.pop() as string;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      for (const specifier of moduleSpecifiers(readFileSync(file, 'utf8'))) {
+        if (!specifier.startsWith('.')) {
+          external.push(
+            `${relative(protocolPkg.dir, file)} imports ${specifier}`,
+          );
+          continue;
+        }
+        const target = resolveRelativeImport(file, specifier);
+        if (target) queue.push(target);
+      }
+    }
+
+    expect(external).toEqual([]);
+  });
+
+  test('an unrecognized package name classifies as server, not browser', () => {
+    // The direction of this default is the whole point. A future Node-only
+    // minter matching no known suffix must land in the strictest layer, where
+    // the Biome backstop applies to it, rather than being waved through as a
+    // browser package that anything may import.
+    expect(classify('@maelstrom-co/realtime-gemini-mint')).toBe('server');
+    expect(classify('@maelstrom-co/something-nobody-listed')).toBe('server');
+    // And the known browser packages must still classify as browser, or the
+    // assertion above would hold vacuously with every package called server.
+    expect(classify('@maelstrom-co/realtime-livekit')).toBe('browser');
+    expect(classify('@maelstrom-co/react')).toBe('browser');
+  });
 
   test('the reachability walk actually resolves a known multi-file graph', () => {
     // Guards the walk itself. If resolveRelativeImport() ever stopped
@@ -466,6 +595,7 @@ describe('package layering — the Biome backstop must cover every browser packa
           rules?: {
             style?: {
               noRestrictedImports?: {
+                level?: string;
                 options?: { paths?: Record<string, unknown> };
               };
             };
@@ -489,9 +619,27 @@ Fix: create ${relConfigPath} with {"extends": "//"} plus a linter.rules.style.no
 See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
       }
 
-      const restricted =
-        biomeConfig.linter?.rules?.style?.noRestrictedImports?.options?.paths ??
-        {};
+      const rule = biomeConfig.linter?.rules?.style?.noRestrictedImports;
+
+      // A listed path enforces nothing if the rule itself is switched off.
+      // Silencing a false positive with `"level": "off"` while leaving `paths`
+      // intact is the realistic way this decays, and it would otherwise keep
+      // every assertion below green.
+      if (rule?.level !== undefined && rule.level !== 'error') {
+        throw new Error(`INVARIANT VIOLATED: a server-side or worker-side package must keep noRestrictedImports at "error".
+
+  Package: ${pkg.name} (layer: ${layer})
+  Config: ${relConfigPath}
+  Level: "${rule.level}"
+
+The paths list below is only as strong as the rule carrying it. Setting the level to "off" or "warn" leaves the restrictions in place as documentation while "nx run-many -t check" stops reporting them, so this package could import a browser package with no signal at all. The Biome plugin runs with --error-on-warnings, so "warn" is no safer than "off" in CI, but it is quieter locally.
+
+Fix: set "level": "error" in ${relConfigPath}, or omit the key to inherit the shared config's level. If a specific import is a genuine false positive, exempt that import with a "// biome-ignore" comment stating the invariant rather than disabling the rule for the whole package.
+
+See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
+      }
+
+      const restricted = rule?.options?.paths ?? {};
       const missing = browserImportSpecifiers().filter(
         (specifier) => !(specifier in restricted),
       );

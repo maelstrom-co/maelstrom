@@ -41,7 +41,7 @@ import {
   type TtsErrorMessage,
   TURN_TOPIC,
   USER_PARTICIPANT_IDENTITY,
-} from '@maelstrom-co/realtime-protocol/livekit';
+} from '@maelstrom-co/realtime-protocol/livekit-wire';
 
 /** Fixed queue-failure reasons shared by the runtime Set and derived union. */
 const SPEECH_TURN_QUEUE_OVERFLOW_REASONS = [

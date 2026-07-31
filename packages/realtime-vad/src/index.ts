@@ -15,7 +15,9 @@
  */
 export {
   type BrowserVad,
+  type CreateBrowserVadOptions,
   createBrowserVad,
+  type ResolvedBrowserVadConfig,
   resolveBrowserVadConfig,
 } from './browser-vad.js';
 export type {

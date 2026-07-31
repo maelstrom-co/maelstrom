@@ -1,4 +1,4 @@
-import type { UnixSeconds } from './unix-seconds.js';
+import type { UnixSeconds } from './unix-seconds.ts';
 
 /**
  * Open base contract for an ephemeral, client-direct realtime credential.
