@@ -332,7 +332,9 @@ test('OpenAI guide follows the how-to contract', async ({ page }) => {
   const steps = guide.locator('.sl-steps > li');
   await expect(steps).toHaveCount(6);
 
-  const stepHeadings = [
+  // Step titles are bold, not headings: the same titles head the H2 sections
+  // below, and two headings with one title collide on a single anchor slug.
+  const stepTitles = [
     'Add the server mint route',
     'Validate the browser grant',
     'Connect the adapter and React binding',
@@ -340,9 +342,12 @@ test('OpenAI guide follows the how-to contract', async ({ page }) => {
     'Preserve speak-after-render and grounding',
     'Harden the deployment',
   ];
-  for (const [index, heading] of stepHeadings.entries()) {
+  for (const [index, title] of stepTitles.entries()) {
     await expect(
-      steps.nth(index).getByRole('heading', { name: heading }),
+      steps.nth(index).getByText(title, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      guide.getByRole('heading', { level: 2, name: title }),
     ).toBeVisible();
   }
 
@@ -464,7 +469,11 @@ test('LiveKit guide follows server-owned three-role setup', async ({
   ]);
 
   const steps = guide.locator('.sl-steps > li');
-  const stepHeadings = [
+  // Step titles are bold, not headings — see the OpenAI guide's equivalent
+  // check. This guide cannot yet assert one H2 per step title the way that one
+  // does: "Connect the browser adapter" heads two H2 sections, so the pairing
+  // assertion would match twice. Add it once that duplication is resolved.
+  const stepTitles = [
     'Add the server token route',
     'Start the STT/TTS worker',
     'Validate the browser grant',
@@ -473,10 +482,10 @@ test('LiveKit guide follows server-owned three-role setup', async ({
     'Render a safe hold-to-talk control',
     'Harden the deployment',
   ];
-  await expect(steps).toHaveCount(stepHeadings.length);
-  for (const [index, heading] of stepHeadings.entries()) {
+  await expect(steps).toHaveCount(stepTitles.length);
+  for (const [index, title] of stepTitles.entries()) {
     await expect(
-      steps.nth(index).getByRole('heading', { name: heading }),
+      steps.nth(index).getByText(title, { exact: true }),
     ).toBeVisible();
   }
 
