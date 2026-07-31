@@ -7,7 +7,7 @@ import { Aside, Steps } from "@astrojs/starlight/components";
 
 The LiveKit cascade adds hold-to-talk voice without adding another planning model. A worker transcribes speech with Deepgram and synthesizes settled results with Cartesia, while the browser sends each final transcript through `RealtimeSession` as an ordinary `update_ui` intent.
 
-### The three runtime roles
+## The three runtime roles
 
 Deploy the cascade as three roles with different lifecycles and credential boundaries:
 
@@ -17,7 +17,7 @@ Deploy the cascade as three roles with different lifecycles and credential bound
 
 The worker stays model-free: it transcribes and synthesizes speech but never plans UI changes or receives Chart grounding. Each final transcript returns through the browser as ordinary intent, so the Engine still plans against the client-built Chart snapshot. For a successful UI update, TTS starts only after rendering settles and the browser sends the successful result back through LiveKit. Malformed tool arguments and genuine submission failures return failure results immediately, without waiting for render settlement.
 
-### Understand what runs where
+## Understand what runs where
 
 The LiveKit cascade separates browser transport, credential minting, and speech processing into three runtime roles.
 
@@ -146,11 +146,11 @@ The canonical public guide URL is [https://docs.maelstrom-ai.co/guides/voice/liv
 
     Run the model-free worker as a separate long-running process with only its server and speech-provider credentials.
 
-3.  **Validate the browser grant**
+3.  **Validate the token contract in the browser**
 
     Fetch the grant with same-origin credentials and a CSRF proof, then validate the unknown response before connecting.
 
-4.  **Connect the browser adapter**
+4.  **Connect the hardened browser adapter**
 
     Configure the generic adapter callback while leaving actual room authorization to authenticated server policy and the signed grant.
 
@@ -359,7 +359,7 @@ The `/token` entry point contains the grant schema without importing the LiveKit
 
 The authenticated POST sends the app's same-origin session credentials and CSRF token, but no client-selected room or participant identity. The schema requires a non-empty token, a `ws:` or `wss:` LiveKit URL, and an absolute expiry in Unix seconds. Shape validation does not replace endpoint authentication or authorization.
 
-## Connect the browser adapter
+## Connect the hardened browser adapter
 
 Create one adapter per Maelstrom session. The generic `LiveKitAdapterOptions` contract calls `mintToken(roomName)` so the package can support integrations in which the callback uses a configured room name. This hardened example deliberately ignores that browser-side callback argument: authenticated server policy derives `authenticated.roomName` and `authenticated.identity`, and the signed grant alone selects and authorizes the actual room.
 

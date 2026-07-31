@@ -14,6 +14,13 @@
   },
   "devDependencies": {
     "@astrojs/check": "catalog:",
+    "@maelstrom-co/protocol": "workspace:*",
+    "@maelstrom-co/react": "workspace:*",
+    "@maelstrom-co/react-realtime": "workspace:*",
+    "@maelstrom-co/realtime": "workspace:*",
+    "@maelstrom-co/realtime-livekit": "workspace:*",
+    "@maelstrom-co/realtime-livekit-server": "workspace:*",
+    "@maelstrom-co/realtime-server": "workspace:*",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "catalog:",
     "@testing-library/react": "^16.1.0",
