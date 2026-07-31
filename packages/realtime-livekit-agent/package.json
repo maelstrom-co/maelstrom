@@ -1,12 +1,30 @@
 {
   "name": "@maelstrom-co/realtime-livekit-agent",
   "version": "0.0.0",
+  "description": "Node LiveKit voice agent worker for Maelstrom: transcribes room audio via Deepgram STT and publishes the transcript back to the room; synthesizes engine responses via Cartesia TTS and publishes them into the room as an audio track.",
+  "keywords": [
+    "maelstrom",
+    "ai",
+    "llm",
+    "dynamic-ui",
+    "generative-ui",
+    "realtime",
+    "voice",
+    "server",
+    "node",
+    "livekit",
+    "deepgram",
+    "cartesia"
+  ],
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "sideEffects": false,
   "exports": {
     "./package.json": "./package.json",
     ".": {
@@ -22,11 +40,17 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/realtime-livekit-agent"
   },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "@livekit/agents": "^1.4.8",

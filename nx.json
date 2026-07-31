@@ -26,6 +26,9 @@
       }
     },
     {
+      "plugin": "@nx/vitest"
+    },
+    {
       "plugin": "@nx/vite/plugin",
       "options": {
         "buildTargetName": "build",
@@ -85,11 +88,6 @@
       "cache": true,
       "dependsOn": ["^build"],
       "inputs": ["production", "^production"]
-    },
-    "nx-release-publish": {
-      "options": {
-        "registry": "https://npm.pkg.github.com"
-      }
     }
   },
   "generators": {
@@ -135,5 +133,6 @@
       }
     }
   },
-  "nxCloudId": "69b94146895823a3b98c76ba"
+  "nxCloudId": "69b94146895823a3b98c76ba",
+  "analytics": true
 }

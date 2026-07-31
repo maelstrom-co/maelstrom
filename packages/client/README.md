@@ -1,6 +1,11 @@
 # @maelstrom-co/client
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/client.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/client)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 Framework-agnostic client core for Maelstrom.
+
+📚 **Full documentation:** <https://docs.maelstrom-ai.co/reference/client/readme/>
 
 ## Install
 
@@ -57,7 +62,7 @@ Both calls reject on transport or LLM errors — wrap in try/catch in real apps.
 - Quick start: https://docs.maelstrom-ai.co/getting-started/quick-start/
 - Core concepts: https://docs.maelstrom-ai.co/getting-started/core-concepts/
 - Client guides: https://docs.maelstrom-ai.co/guides/client/custom-connectors/
-- API reference: https://docs.maelstrom-ai.co/reference/client/
+- API reference: https://docs.maelstrom-ai.co/reference/client/readme/
 
 ## License
 

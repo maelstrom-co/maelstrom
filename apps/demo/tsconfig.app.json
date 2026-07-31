@@ -9,7 +9,8 @@
     "moduleResolution": "Bundler",
     "target": "ES2022",
     "skipLibCheck": true,
-    "types": ["node", "vite/client", "geojson"]
+    "types": ["node", "vite/client", "geojson"],
+    "rootDir": "."
   },
   "exclude": [
     "out-tsc",
@@ -26,7 +27,13 @@
     "src/**/__tests__/**",
     "src/**/__test-utils__/**"
   ],
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vite.config.ts",
+    "worker-configuration.d.ts",
+    "vad-web-dev-plugin.ts"
+  ],
   "references": [
     {
       "path": "../../packages/realtime-server/tsconfig.lib.json"

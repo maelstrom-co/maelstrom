@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { ActionName, VariantName, VesselId } from '@maelstrom-co/protocol';
 
 import { createTestOrchestrator } from '../../../test-utils/connector-mocks.js';
 import { createTestVessel } from '../../../test-utils/vessel-fixtures.js';
@@ -46,11 +47,17 @@ describe('readCapabilitySnapshot', () => {
     expect(capability).toBeDefined();
     if (!capability) return;
 
-    expect(capability.vesselId).toBe('weather');
+    expect(capability.vesselId).toBe(VesselId('weather'));
     expect(capability.description).toBe('Shows current weather conditions');
     expect(capability.variants).toEqual([
-      { name: 'compact', description: 'Small tile with temperature only' },
-      { name: 'detailed', description: 'Full forecast with hourly breakdown' },
+      {
+        name: VariantName('compact'),
+        description: 'Small tile with temperature only',
+      },
+      {
+        name: VariantName('detailed'),
+        description: 'Full forecast with hourly breakdown',
+      },
     ]);
     expect(capability.actions).toEqual(
       expect.arrayContaining([
@@ -74,7 +81,7 @@ describe('readCapabilitySnapshot', () => {
 
     const snapshot = readCapabilitySnapshot([vessel]);
     const [capability] = snapshot.vessels;
-    expect(capability?.variants).toEqual([{ name: 'compact' }]);
+    expect(capability?.variants).toEqual([{ name: VariantName('compact') }]);
     expect(
       capability?.variants[0] && 'description' in capability.variants[0],
     ).toBe(false);
@@ -103,7 +110,10 @@ describe('readCapabilitySnapshot', () => {
     const snapshot = readCapabilitySnapshot([vessel]);
     const [capability] = snapshot.vessels;
     expect(capability?.actions).toEqual([
-      { name: 'refresh', description: 'Refresh the current forecast' },
+      {
+        name: ActionName('refresh'),
+        description: 'Refresh the current forecast',
+      },
     ]);
   });
 

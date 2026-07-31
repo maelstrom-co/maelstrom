@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
-  type CreateNodesContextV2,
-  type CreateNodesV2,
+  type CreateNodes,
+  type CreateNodesContext,
   createNodesFromFiles,
   joinPathFragments,
   type TargetConfiguration,
@@ -22,7 +22,7 @@ const defaultOptions: Required<AstroPluginOptions> = {
   typecheckTargetName: 'typecheck',
 };
 
-export const createNodesV2: CreateNodesV2<AstroPluginOptions> = [
+export const createNodes: CreateNodes<AstroPluginOptions> = [
   '**/astro.config.{ts,mjs}',
   (configFiles, options, context) =>
     createNodesFromFiles(
@@ -36,7 +36,7 @@ export const createNodesV2: CreateNodesV2<AstroPluginOptions> = [
 function createNodesInternal(
   configFilePath: string,
   options: AstroPluginOptions | undefined,
-  context: CreateNodesContextV2,
+  context: CreateNodesContext,
 ) {
   const projectRoot = dirname(configFilePath);
   const opts = { ...defaultOptions, ...options };

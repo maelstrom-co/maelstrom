@@ -13,7 +13,8 @@
       "@nx/react/typings/cssmodule.d.ts",
       "@nx/react/typings/image.d.ts"
     ],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "rootDir": "."
   },
   "include": [
     "vite.config.mts",
@@ -32,7 +33,8 @@
     "src/**/__test-utils__/**/*.ts",
     "src/**/__tests__/*.ts",
     "src/**/__tests__/*.tsx",
-    "src/**/*.d.ts"
+    "src/**/*.d.ts",
+    "worker-configuration.d.ts"
   ],
   "references": [
     {

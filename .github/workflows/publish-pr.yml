@@ -46,8 +46,12 @@ jobs:
 
       - name: Set preview version
         id: version
+        # run_attempt is part of the version because run_number does not change
+        # when a run is retried. Without it, re-running after a partial publish
+        # would reuse a version that already exists, and registry versions are
+        # immutable — the retry could never succeed.
         run: |
-          VERSION="0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}"
+          VERSION="0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}.${{ github.run_attempt }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Publishing version: $VERSION"
 
@@ -56,12 +60,32 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Real releases go to public npm; per-PR previews stay on GitHub Packages
+      # so throwaway 0.0.0-pr.* versions never reach the public registry (npm
+      # publishes are permanent after the 72h unpublish window). The root
+      # .npmrc no longer carries registry or auth config — consumers must be
+      # able to install with none — so this job supplies its own, in a runner
+      # temp file that holds only an env reference, never the token itself.
+      - name: Configure GitHub Packages auth
+        run: |
+          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
+          echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/.npmrc" >> "$GITHUB_ENV"
+
       - name: Publish packages
         # Use scripts/publish-packages.ts (not `nx release publish`) so that
         # `workspace:*` and `catalog:` specs are substituted to concrete
         # versions in each manifest before npm packs the tarball — npm
         # publish from inside a package dir does not do this on its own.
-        run: bun scripts/publish-packages.ts --tag pr-${{ github.event.pull_request.number }}
+        # `nx release publish` additionally breaks against GitHub Packages: its
+        # dist-tag pre-check runs `npm view <pkg> versions dist-tags --json`,
+        # GitHub Packages answers with an empty `_id`, npm emits nothing, and
+        # Nx throws on `JSON.parse('')`.
+        # --registry is explicit because the script defaults to public npm, and
+        # it overrides each package's publishConfig.registry.
+        run: |
+          bun scripts/publish-packages.ts \
+            --tag pr-${{ github.event.pull_request.number }} \
+            --registry https://npm.pkg.github.com
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,15 +101,49 @@ jobs:
 
       - name: Minimize previous preview comment
         if: steps.find-comment.outputs.comment-id != ''
+        # Cosmetic, and it runs after a successful publish. A GitHub API hiccup
+        # must not turn a green publish red or suppress the install
+        # instructions below, so failures surface as a warning instead.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_NODE_ID: ${{ steps.find-comment.outputs.comment-node-id }}
         run: |
+          # $id is a GraphQL variable bound by -f, not a shell variable, so it
+          # must stay unexpanded inside the single-quoted query. Binding it
+          # keeps step output out of the query string entirely.
+          # shellcheck disable=SC2016
           gh api graphql -f query='
-            mutation {
-              minimizeComment(input: {subjectId: "${{ steps.find-comment.outputs.comment-node-id }}", classifier: OUTDATED}) {
+            mutation ($id: ID!) {
+              minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
                 minimizedComment { isMinimized }
               }
-            }'
+            }' -f id="$COMMENT_NODE_ID" \
+            || echo "::warning::Could not minimize the previous preview comment (non-fatal); continuing."
+
+      # Derived from the workspace rather than hardcoded: the previous fixed
+      # list silently went stale every time a package was added or renamed, and
+      # a preview comment that names packages which were never published is
+      # worse than no list at all.
+      - name: Build install command list
+        id: packages
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          {
+            echo 'commands<<PKGEOF'
+            node -e '
+              const fs = require("node:fs");
+              for (const dir of fs.readdirSync("packages").sort()) {
+                const path = `packages/${dir}/package.json`;
+                if (!fs.existsSync(path)) continue;
+                const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
+                if (manifest.private === true) continue;
+                console.log(`bun add ${manifest.name}@${process.env.VERSION}`);
+              }
+            '
+            echo 'PKGEOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Comment on PR
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
@@ -97,13 +155,34 @@ jobs:
 
             **Version:** `${{ steps.version.outputs.version }}`
             **Tag:** `pr-${{ github.event.pull_request.number }}`
+            **Registry:** GitHub Packages (previews only — released versions are on public npm)
+
+            Previews are not on npmjs.org, so point the scope at GitHub Packages
+            first and authenticate with your own PAT that has `read:packages`.
+            GitHub documents classic tokens only for its npm registry. Export
+            the token, then add the `.npmrc`:
+
+            ```sh
+            export GH_PACKAGES_TOKEN=ghp_your_read_packages_pat
+            ```
+
+            ```sh
+            # .npmrc in the consuming project
+            @maelstrom-co:registry=https://npm.pkg.github.com
+            //npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}
+            ```
 
             ```sh
             bun add @maelstrom-co/protocol@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/engine@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/client@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/react@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/realtime@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/react-realtime@${{ steps.version.outputs.version }}
             bun add @maelstrom-co/realtime-server@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/realtime-livekit@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/realtime-livekit-agent@${{ steps.version.outputs.version }}
+            bun add @maelstrom-co/realtime-livekit-server@${{ steps.version.outputs.version }}
             ```
 
             Or install by tag:

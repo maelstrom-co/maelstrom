@@ -1,4 +1,3 @@
-/// <reference types="@cloudflare/workers-types" />
 /**
  * Hosted BYOK transport: one Durable Object per session.
  *
@@ -70,10 +69,15 @@ interface ConnectionMarker {
   readonly sessionId: string;
 }
 
-export interface PlaygroundEnv {
-  readonly SESSION_DO: DurableObjectNamespace;
-  readonly ASSETS: Fetcher;
-}
+/**
+ * The Worker's bindings, generated from `wrangler.jsonc` into
+ * `worker-configuration.d.ts` by the `typegen` target — deliberately not
+ * hand-written. A hand-copied interface still compiles after a binding is
+ * renamed in the config, so `env.SESSION_DO` becomes `undefined` at runtime
+ * while typecheck stays green. Aliased rather than used directly only so the
+ * name reads at the call sites.
+ */
+export type PlaygroundEnv = Env;
 
 export class SessionDO extends DurableObject<PlaygroundEnv> {
   // Per connection, never per object: a DO can hold several sockets (many

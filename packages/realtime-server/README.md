@@ -1,6 +1,11 @@
 # @maelstrom-co/realtime-server
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-server.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-server)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 Server-only handlers for minting ephemeral realtime provider credentials.
+
+📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
 This is the only Maelstrom package that touches raw provider API keys
 (e.g. `OPENAI_API_KEY`). It never ships to the browser.
@@ -53,7 +58,7 @@ This mint operation is an unauthenticated bootstrap by design — see the
 ## Docs
 
 - Client guides: https://docs.maelstrom-ai.co/guides/client/custom-connectors/
-- API reference: https://docs.maelstrom-ai.co/reference/client/
+- API reference: https://docs.maelstrom-ai.co/reference/client/readme/
 
 ## License
 
