@@ -469,15 +469,15 @@ test('LiveKit guide follows server-owned three-role setup', async ({
   ]);
 
   const steps = guide.locator('.sl-steps > li');
-  // Step titles are bold, not headings — see the OpenAI guide's equivalent
-  // check. This guide cannot yet assert one H2 per step title the way that one
-  // does: "Connect the browser adapter" heads two H2 sections, so the pairing
-  // assertion would match twice. Add it once that duplication is resolved.
+  // Step titles are bold, not headings: the same titles head the H2 sections
+  // below, and two headings with one title collide on a single anchor slug.
+  // Each title must name exactly one H2 — the demo checkpoint earlier on this
+  // page covers the same ground, so its headings must stay distinct from these.
   const stepTitles = [
     'Add the server token route',
     'Start the STT/TTS worker',
-    'Validate the browser grant',
-    'Connect the browser adapter',
+    'Validate the token contract in the browser',
+    'Connect the hardened browser adapter',
     'Use the protocol entry point',
     'Render a safe hold-to-talk control',
     'Harden the deployment',
@@ -486,6 +486,9 @@ test('LiveKit guide follows server-owned three-role setup', async ({
   for (const [index, title] of stepTitles.entries()) {
     await expect(
       steps.nth(index).getByText(title, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      guide.getByRole('heading', { level: 2, name: title }),
     ).toBeVisible();
   }
 
@@ -1543,7 +1546,7 @@ test('voice overview documents the common session contract without a universal f
   ).toHaveAttribute('href', '/reference/react-realtime/readme/');
   await expect(
     guide.getByRole('link', { name: 'voice architecture' }),
-  ).toHaveAttribute('href', '/understanding/architecture/');
+  ).toHaveAttribute('href', '/understanding/voice-architecture/');
 
   const reactLanding = readFileSync(
     new URL('../../../packages/react-realtime/README.md', import.meta.url),

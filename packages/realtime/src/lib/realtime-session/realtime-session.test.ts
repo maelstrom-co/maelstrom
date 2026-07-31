@@ -1240,8 +1240,8 @@ describe('RealtimeSession — sidechannel events', () => {
     expect(call).toBeDefined();
     expect(result).toBeDefined();
     if (call?.type === 'tool_call' && result?.type === 'tool_result') {
-      expect(call.callId).toBe('c1');
-      expect(result.callId).toBe('c1');
+      expect(call.callId).toBe(ToolCallId('c1'));
+      expect(result.callId).toBe(ToolCallId('c1'));
       expect(result.ok).toBe(true);
       expect(result.latencyMs).toBeGreaterThanOrEqual(0);
       expect(call.sessionId).toBe(testSessionId);
