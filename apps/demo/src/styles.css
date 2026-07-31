@@ -95,6 +95,64 @@ body {
   background-color: rgb(255 255 255 / 0.26);
 }
 
+/* MapLibre popups ship a white card; `body` sets a near-white text colour for
+   this dark theme, so the stock popup renders white-on-white. Restyle it as
+   one of this app's surfaces. All eight anchor-specific tip rules (four
+   cardinal, four corner) are required — MapLibre picks the tip by placement,
+   and any one left unstyled renders a white arrow against the dark map.
+   Every selector here is deliberately one class more specific than the
+   MapLibre rule it overrides (verified against maplibre-gl's source: the
+   popup root element carries both `maplibregl-popup` and its anchor class,
+   e.g. `maplibregl-popup-anchor-top`, so chaining them as a compound
+   selector is valid — they're on the same element, not a wrapper). This
+   isn't cosmetic: `map.component.tsx` dynamically imports the map vessel, so
+   maplibre-gl.css lands in `<head>` in its own chunk *after* this
+   stylesheet, which is already present at first paint. At equal specificity
+   the later sheet wins ties, which would silently put MapLibre's white
+   styles back on top — so equal specificity isn't enough here; each rule
+   below must out-specify its MapLibre counterpart to be order-independent. */
+.maplibregl-popup .maplibregl-popup-content {
+  background: var(--color-bg-2);
+  color: var(--color-ink);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+}
+
+.maplibregl-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--color-bg-2);
+}
+
+.maplibregl-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--color-bg-2);
+}
+
+.maplibregl-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--color-bg-2);
+}
+
+.maplibregl-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--color-bg-2);
+}
+
+.maplibregl-popup .maplibregl-popup-close-button {
+  color: var(--color-ink-2);
+  background: transparent;
+  padding: 0 6px;
+}
+
+.maplibregl-popup .maplibregl-popup-close-button:hover {
+  color: var(--color-ink);
+  background: transparent;
+}
+
 /* Vessel animations */
 .vessel-wrapper {
   transition: transform 0.3s ease-out, width 0.3s ease-out, height 0.3s ease-out;

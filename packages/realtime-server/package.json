@@ -1,7 +1,24 @@
 {
   "name": "@maelstrom-co/realtime-server",
   "version": "0.0.0",
+  "description": "Server-only minting of ephemeral OpenAI realtime credentials for Maelstrom. Never ships to the browser.",
+  "keywords": [
+    "maelstrom",
+    "ai",
+    "llm",
+    "dynamic-ui",
+    "generative-ui",
+    "realtime",
+    "voice",
+    "server",
+    "node",
+    "openai",
+    "ephemeral-token"
+  ],
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -21,11 +38,17 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/realtime-server"
   },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "@maelstrom-co/protocol": "0.0.0",

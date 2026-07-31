@@ -8,7 +8,8 @@
     "moduleResolution": "Bundler",
     "target": "ES2022",
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    "rootDir": "."
   },
   "include": ["scripts/**/*.ts"],
   "references": [

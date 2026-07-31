@@ -479,6 +479,63 @@ describe('m.Chart — debug overlay', () => {
   });
 });
 
+describe('m.Chart — unknown variant warning (fix: must not be debug-gated)', () => {
+  it('warns even when debug is false, since a debug-gated warning is invisible in production', async () => {
+    // Fix 5: an instance whose variant the vessel no longer declares (e.g.
+    // after m.updateVessel drops a live variant) renders as a silently
+    // blank tile — chart.tsx returns null either way. Before this fix the
+    // only signal was a `console.warn` gated behind `config.debug`, so a
+    // production app (debug: false, the default) got no signal at all.
+    const entry = vessel(testVessel, () => null);
+    const m = createMaelstrom({ vessels: [entry], debug: false });
+    const connector = connectorWithTilingLayout(
+      'i-1',
+      'orders',
+      'ghost-variant',
+    );
+
+    let processIntent: ((intent: string) => Promise<void>) | undefined;
+    function Reader() {
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await act(async () => {
+        render(
+          <m.Provider connector={connector}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        );
+      });
+
+      await act(async () => {
+        triggerResize(800, 600);
+      });
+
+      assertDefined(processIntent);
+      const submit = processIntent;
+      await act(async () => {
+        await submit('x');
+      });
+
+      const warned = warnSpy.mock.calls.some((args) =>
+        args.some(
+          (a) =>
+            typeof a === 'string' &&
+            a.includes('Unknown variant') &&
+            a.includes('ghost-variant'),
+        ),
+      );
+      expect(warned).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
 describe('m.Chart — lazy vessel retry', () => {
   it('retries a failed lazy import by busting the React.lazy cache', async () => {
     let loadAttempt = 0;

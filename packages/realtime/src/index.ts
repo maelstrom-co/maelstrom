@@ -22,6 +22,8 @@ export type {
   RealtimeProviderAdapter,
   RealtimeToolSpec,
   ToolResult,
+  TurnMode,
+  TurnModeEvent,
   UpdateUIToolResult,
 } from './lib/realtime-session/provider-adapter.types.js';
 export { RealtimeSession } from './lib/realtime-session/realtime-session.js';

@@ -2,6 +2,7 @@ import { describe, expect, it, spyOn } from 'bun:test';
 import type {
   CapabilitySnapshot,
   UIStructuralSnapshot,
+  VoiceSession,
 } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
 import type { SidechannelEvent } from '@maelstrom-co/protocol';
@@ -17,9 +18,11 @@ import FakeTimers from '@sinonjs/fake-timers';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {
   AdapterAudioStreams,
+  AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  TurnModeEvent,
   UpdateUIToolResult,
 } from './provider-adapter.types.js';
 import { RealtimeSession } from './realtime-session.js';
@@ -60,6 +63,8 @@ interface MockAdapter extends RealtimeProviderAdapter {
     text: string;
     final: boolean;
   }): void;
+  emitTurnMode(mode: 'automatic' | 'manual', error?: unknown): void;
+  setTurnControl(turnControl: AdapterTurnControl | undefined): void;
   /** Sentinel returned by `getAudioStreams()` — identity-compared by tests. */
   readonly lastAudioStreams: AdapterAudioStreams;
 }
@@ -73,6 +78,7 @@ function makeMockAdapter(): MockAdapter {
   let lastConnectTools: readonly RealtimeToolSpec[] | undefined;
   let shouldFailNextConnect = false;
   let gate: Promise<void> | undefined;
+  let turnControl: AdapterTurnControl | undefined;
   const lastAudioStreams: AdapterAudioStreams = {};
 
   return {
@@ -91,6 +97,9 @@ function makeMockAdapter(): MockAdapter {
     },
     get listenerCount() {
       return handlers.size;
+    },
+    get turnControl() {
+      return turnControl;
     },
     failNextConnect() {
       shouldFailNextConnect = true;
@@ -139,6 +148,12 @@ function makeMockAdapter(): MockAdapter {
     },
     emitTranscript(t) {
       for (const h of handlers) h({ type: 'transcript', ...t });
+    },
+    emitTurnMode(mode, error) {
+      for (const h of handlers) h({ type: 'turn_mode', mode, error });
+    },
+    setTurnControl(next) {
+      turnControl = next;
     },
   };
 }
@@ -1649,5 +1664,181 @@ describe('RealtimeSession — audio streams', () => {
     const { session, adapter } = makeHarness();
     await session.connect();
     expect(session.getAudioStreams()).toBe(adapter.lastAudioStreams);
+  });
+});
+
+describe('RealtimeSession — turn mode', () => {
+  it('defaults speech-native adapters to automatic mode without manual controls', () => {
+    const { session, adapter } = makeHarness();
+    adapter.setTurnControl({
+      startTurn: async () => {},
+      endTurn: async () => {},
+    });
+
+    expect(session.turnMode).toBe('automatic');
+    expect(session.turnModeError).toBeUndefined();
+    expect(session.turnControl).toBeUndefined();
+  });
+
+  it('retains manual degradation, notifies subscribers, and delegates the current manual control', async () => {
+    const { session, adapter } = makeHarness();
+    const firstControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const replacementControl = {
+      startTurn: async () => {},
+      endTurn: async () => {},
+    };
+    const cause = new Error('VAD unavailable');
+    const seen: TurnModeEvent[] = [];
+    session.on('turn_mode', (event) => seen.push(event));
+    adapter.setTurnControl(firstControl);
+    await session.connect();
+    seen.length = 0;
+
+    adapter.emitTurnMode('manual', cause);
+
+    expect(session.turnMode).toBe('manual');
+    expect(session.turnModeError).toBe(cause);
+    expect(session.turnControl).toBe(firstControl);
+    expect(seen).toEqual([{ type: 'turn_mode', mode: 'manual', error: cause }]);
+
+    adapter.setTurnControl(replacementControl);
+    expect(session.turnControl).toBe(replacementControl);
+  });
+
+  it('clears a prior diagnostic when the adapter establishes a clean mode', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    adapter.emitTurnMode('manual', new Error('VAD unavailable'));
+
+    adapter.emitTurnMode('manual');
+    expect(session.turnMode).toBe('manual');
+    expect(session.turnModeError).toBeUndefined();
+
+    adapter.emitTurnMode('automatic');
+    expect(session.turnMode).toBe('automatic');
+    expect(session.turnModeError).toBeUndefined();
+    expect(session.turnControl).toBeUndefined();
+  });
+
+  it('clears stale turn-mode state after a successful reconnect', async () => {
+    const { session, adapter } = makeHarness();
+    const seen: TurnModeEvent[] = [];
+    session.on('turn_mode', (event) => seen.push(event));
+    await session.connect();
+    adapter.emitTurnMode('manual', new Error('VAD unavailable'));
+    await session.disconnect();
+
+    await session.connect();
+
+    expect(session.turnMode).toBe('automatic');
+    expect(session.turnModeError).toBeUndefined();
+    expect(seen.at(-1)).toEqual({ type: 'turn_mode', mode: 'automatic' });
+  });
+
+  it('does not mirror turn-mode events onto the sidechannel', async () => {
+    const { session, adapter, events } = makeHarness();
+    await session.connect();
+
+    adapter.emitTurnMode('manual', new Error('VAD unavailable'));
+
+    expect(events).toEqual([]);
+  });
+
+  it('stops turn-mode delivery after unsubscribe', async () => {
+    const { session, adapter } = makeHarness();
+    const seen: TurnModeEvent[] = [];
+    const off = session.on('turn_mode', (event) => seen.push(event));
+    await session.connect();
+    off();
+    seen.length = 0;
+
+    adapter.emitTurnMode('manual');
+
+    expect(seen).toEqual([]);
+  });
+
+  it('delivers each update to every turn-mode subscriber', async () => {
+    const { session, adapter } = makeHarness();
+    const first: TurnModeEvent[] = [];
+    const second: TurnModeEvent[] = [];
+    session.on('turn_mode', (event) => first.push(event));
+    session.on('turn_mode', (event) => second.push(event));
+    await session.connect();
+    first.length = 0;
+    second.length = 0;
+
+    adapter.emitTurnMode('manual');
+
+    const update: TurnModeEvent = { type: 'turn_mode', mode: 'manual' };
+    expect(first).toEqual([update]);
+    expect(second).toEqual([update]);
+  });
+
+  it('preserves degraded manual mode when a reconnect fails', async () => {
+    const { session, adapter } = makeHarness();
+    const cause = new Error('VAD unavailable');
+    const seen: TurnModeEvent[] = [];
+    session.on('turn_mode', (event) => seen.push(event));
+    await session.connect();
+    adapter.emitTurnMode('manual', cause);
+    await session.disconnect();
+    seen.length = 0;
+    adapter.failNextConnect();
+
+    await expect(session.connect()).rejects.toThrow('adapter connect failed');
+
+    expect(seen).toEqual([]);
+    expect(session.turnMode).toBe('manual');
+    expect(session.turnModeError).toBe(cause);
+  });
+
+  it('establishes speech-native automatic mode only after connect succeeds', async () => {
+    const { session, adapter } = makeHarness();
+    const seen: TurnModeEvent[] = [];
+    session.on('turn_mode', (event) => seen.push(event));
+    const release = adapter.gateConnect();
+
+    const connectPromise = session.connect();
+    await flushMicrotasks();
+    expect(seen).toEqual([]);
+
+    release();
+    await connectPromise;
+
+    expect(seen).toEqual([{ type: 'turn_mode', mode: 'automatic' }]);
+    expect(session.turnMode).toBe('automatic');
+    expect(session.turnModeError).toBeUndefined();
+  });
+
+  it('exposes manual turn control before notifying turn-mode subscribers', async () => {
+    const { session, adapter } = makeHarness();
+    const control = { startTurn: async () => {}, endTurn: async () => {} };
+    const observed: Array<AdapterTurnControl | undefined> = [];
+    session.on('turn_mode', (event) => {
+      if (event.mode === 'manual') observed.push(session.turnControl);
+    });
+    await session.connect();
+    adapter.setTurnControl(control);
+
+    adapter.emitTurnMode('manual');
+
+    expect(observed).toEqual([control]);
+  });
+});
+
+describe('VoiceSession — realtime boundary', () => {
+  it('keeps turn mode off the shared client seam', () => {
+    const clientSession = null as unknown as VoiceSession;
+    // @ts-expect-error turn mode belongs only to RealtimeSession
+    void clientSession?.turnMode;
+    // @ts-expect-error turn-mode diagnostics belong only to RealtimeSession
+    void clientSession?.turnModeError;
+    // @ts-expect-error turn-mode subscriptions belong only to RealtimeSession
+    void clientSession?.on('turn_mode', () => {});
+
+    expect(true).toBe(true);
   });
 });

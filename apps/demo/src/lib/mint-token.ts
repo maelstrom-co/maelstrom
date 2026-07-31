@@ -27,9 +27,14 @@ function readOpenaiClientSecret(body: unknown): {
 }
 
 /**
- * Fetches an ephemeral OpenAI realtime credential from the demo's mint
- * route. The browser never sees OPENAI_API_KEY — only this short-lived
- * token, scoped and expired server-side.
+ * Requests an ephemeral OpenAI realtime credential from the demo's server
+ * mint route. The server retains custody of `OPENAI_API_KEY`; the browser
+ * receives only a schema-validated grant containing the credential, model,
+ * and expiry selected by the server.
+ *
+ * Rejects when the request times out or otherwise fails at the network layer,
+ * when the route returns a non-success status or non-JSON response, or when
+ * the JSON does not satisfy the OpenAI token-grant schema.
  */
 export async function mintOpenAIToken(
   sessionId: SessionId,
@@ -58,10 +63,18 @@ export async function mintOpenAIToken(
 }
 
 /**
- * Direct-mint branch: calls OpenAI's client_secrets endpoint from the
- * browser with the visitor's own key (api.openai.com answers browser CORS
- * for this route). Mirrors packages/realtime-server's openai-mint.ts field
- * mapping.
+ * Creates a lazy, zero-argument browser-direct token minter. Creating the
+ * function performs no request; each invocation reads the latest API key and
+ * sends that key from the browser directly to OpenAI, unlike
+ * {@link mintOpenAIToken}, whose long-lived key remains in server custody.
+ *
+ * Each invocation requests a 600-second realtime credential for `model` and
+ * maps OpenAI's `value` and `expires_at` fields into a schema-validated
+ * `OpenAITokenGrant`. It rejects when no key is available; when the request
+ * times out or otherwise fails at the network layer; when OpenAI returns an
+ * HTTP error (with a distinct invalid-key error for 401); when the response is
+ * not JSON or lacks the expected client-secret fields; or when the mapped
+ * grant fails schema validation.
  */
 export function createBrowserMintToken(
   getApiKey: () => string | null,
