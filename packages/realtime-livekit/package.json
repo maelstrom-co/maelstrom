@@ -20,12 +20,9 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-
   "bin": {
     "maelstrom-livekit-assets": "./dist/bin/maelstrom-livekit-assets.js"
   },
-  "sideEffects": false,
-
   "exports": {
     "./package.json": "./package.json",
     ".": {
