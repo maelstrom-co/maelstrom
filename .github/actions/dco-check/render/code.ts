@@ -33,8 +33,16 @@ function escapeCell(value: string): string {
   // fidelity, never safety: GFM strips the backslash only before a pipe, so a
   // `\\` pair reaches the cell whole and a value holding one backslash renders
   // as two.
+  //
+  // The comment opener is neutralised on top of that, and only the opener, not
+  // every `<`: an identity cell is a whole `Name <email>` string, so touching
+  // the bracket itself would mangle every honest row. The sequence has to go
+  // because the sticky comment is found by searching bodies for an HTML comment
+  // marker — a code span makes the marker inert to a reader, not to a substring
+  // search, and a value carrying one makes that find ambiguous.
   return value
     .replaceAll(CONTROL, '�')
+    .replaceAll('<!', '<�')
     .replaceAll('\\', '\\\\')
     .replaceAll('|', '\\|')
     .replaceAll('`', "'");
@@ -44,4 +52,14 @@ function escapeCell(value: string): string {
 // the range out is what `noControlCharactersInRegex` exists to flag, and a
 // suppression on the one line whose whole job is to neutralise those characters
 // would read as the rule being wrong rather than as it being satisfied.
-const CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/gu;
+//
+// `Cf` is here for spoofing rather than for containment: a bidi override or a
+// zero-width space inside a name makes an address render as one it is not, in a
+// comment whose whole job is to say which address signed off. It costs
+// fidelity — U+200D is what holds an emoji sequence together, so a name
+// carrying one renders with a replacement character through the middle of it —
+// and that is the trade, not an oversight. Between ordinary letters a joiner is
+// as invisible as a zero-width space, so exempting it reopens the hole it was
+// added to close, and the replacement character at least says an invisible
+// character was there.
+const CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
