@@ -137,3 +137,92 @@ nav.sidebar details > summary svg {
 nav.sidebar details[open] > summary svg {
   transform: rotate(90deg);
 }
+
+/* ── Focus mode: collapsible sidebar (desktop only) ──────────────────
+   The whole feature is CSS reacting to data-sidebar-collapsed on <html>.
+   Zeroing --sl-sidebar-width is the load-bearing move: Starlight derives
+   --sl-content-inline-start from it, so .main-frame drops its padding and
+   the content column reclaims the space and re-centers with no JS. */
+
+:root {
+  /* Starlight's own default, captured so it survives zeroing the variable.
+     Source: @astrojs/starlight 0.41.5, style/props.css — `--sl-sidebar-width:
+     18.75rem`. No other stylesheet overrides it. Re-check on upgrade. */
+  --maelstrom-sidebar-width: 18.75rem;
+}
+
+@media (min-width: 50rem) {
+  /* Scoped to the animating marker (set only while a toggle is in flight, see
+     sidebar-collapse.ts) — .main-pane, .right-sidebar-container and
+     .main-frame derive their size from the viewport as well as from the
+     collapsed state, so an unconditional transition here would also animate
+     window resizes, tablet rotation, and scrollbars appearing. Each selector
+     is scoped to the one property it actually animates; .sidebar-pane's own
+     width never changes, only its transform. */
+  :root[data-sidebar-animating] .sidebar-pane {
+    transition: transform 0.2s ease;
+  }
+
+  :root[data-sidebar-animating] .main-frame {
+    transition: padding-inline-start 0.2s ease;
+  }
+
+  :root[data-sidebar-animating] .main-pane,
+  :root[data-sidebar-animating] .right-sidebar-container {
+    transition: width 0.2s ease;
+  }
+
+  /* Matched on presence, not on the literal 'true': isCollapsed() uses
+     hasAttribute and SidebarToggle.astro uses :not([data-sidebar-collapsed]),
+     so keeping the value out of the contract keeps all three consumers
+     aligned. */
+  :root[data-sidebar-collapsed] {
+    --sl-sidebar-width: 0rem;
+  }
+
+  :root[data-sidebar-collapsed] .sidebar-pane {
+    /* Pin the pane's own width — it is sized from --sl-sidebar-width too, and a
+       zero-width pane has no distance to slide. */
+    width: var(--maelstrom-sidebar-width);
+    transform: translateX(-100%);
+    /* visibility takes the links out of the tab order and the a11y tree. */
+    visibility: hidden;
+  }
+
+  /* The slide belongs to a toggle, not to the collapsed state itself.
+     applyStoredState re-adds the attribute after every view transition with no
+     marker set; an ungated transition here would animate that restore, so a
+     reader navigating in focus mode would watch the sidebar slide out again on
+     every page. visibility cannot interpolate, so it is held until the slide
+     finishes on the way out and flips back instantly on the way in. */
+  :root[data-sidebar-animating][data-sidebar-collapsed] .sidebar-pane {
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+
+  /* Starlight sizes the right ToC from --sl-sidebar-width too, so zeroing it
+     would crush the ToC to nothing. Pin it back — but the collapsed gutter is
+     (viewport - content width) / 2, which is narrower than the old sidebar
+     below roughly 1600px. Clamp to whichever is smaller: unclamped, the panel
+     overflows the viewport edge with no scrollbar to reach it. */
+  :root[data-sidebar-collapsed] .right-sidebar-panel .sl-container {
+    width: min(
+      var(--maelstrom-sidebar-width) - 2 * var(--sl-sidebar-pad-x),
+      (100vw - var(--sl-content-width)) / 2 - 2 * var(--sl-sidebar-pad-x)
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Selectors mirror the gated rules above at matching specificity — this
+     block only wins because it is declared later in the file. Dropping the
+     `[data-sidebar-animating]` prefix here would make these selectors less
+     specific than the ones they must override, and the override would fail
+     silently regardless of source order. */
+  :root[data-sidebar-animating] .sidebar-pane,
+  :root[data-sidebar-animating] .main-frame,
+  :root[data-sidebar-animating] .main-pane,
+  :root[data-sidebar-animating] .right-sidebar-container,
+  :root[data-sidebar-animating][data-sidebar-collapsed] .sidebar-pane {
+    transition: none;
+  }
+}
