@@ -50,6 +50,18 @@
             "target": "build"
           }
         ],
+        "cache": true,
+        "inputs": [
+          {
+            "externalDependencies": [
+              "onnxruntime-web",
+              "@ricky0123/vad-web"
+            ]
+          }
+        ],
+        "outputs": [
+          "{projectRoot}/public/vad-web"
+        ],
         "options": {
           "cwd": "apps/demo",
           "command": "bun run prepare:voice-assets"
