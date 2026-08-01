@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-import { ActionName } from './action-name.js';
-import { InstanceId } from './instance.js';
-import { VariantName } from './variant-name.js';
-import { VesselId } from './vessel-id.js';
+import { ActionName } from './action-name.ts';
+import { InstanceId } from './instance.ts';
+import { VariantName } from './variant-name.ts';
+import { VesselId } from './vessel-id.ts';
 
 // ---------------------------------------------------------------------------
 // Shared schemas

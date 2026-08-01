@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
-import type { Mutable } from './_drift-guards.js';
-import { MessageId, MessageIdSchema } from './message.js';
-import type { ChartRequest } from './request.js';
-import { ChartRequestSchema } from './request.js';
-import type { SessionId } from './session.js';
-import { SessionIdSchema } from './session.js';
+import type { Mutable } from './_drift-guards.ts';
+import { MessageId, MessageIdSchema } from './message.ts';
+import type { ChartRequest } from './request.ts';
+import { ChartRequestSchema } from './request.ts';
+import type { SessionId } from './session.ts';
+import { SessionIdSchema } from './session.ts';
 
 const resolveTimestamp = (
   value: number | undefined,

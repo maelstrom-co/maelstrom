@@ -1,8 +1,8 @@
-import type { ActionName } from './action-name.js';
-import type { InstanceId } from './instance.js';
-import type { MessageId } from './message.js';
-import type { VariantName } from './variant-name.js';
-import type { VesselId } from './vessel-id.js';
+import type { ActionName } from './action-name.ts';
+import type { InstanceId } from './instance.ts';
+import type { MessageId } from './message.ts';
+import type { VariantName } from './variant-name.ts';
+import type { VesselId } from './vessel-id.ts';
 
 // ---------------------------------------------------------------------------
 // Action execution — parsed form (params as object, not JSON string)

@@ -1,26 +1,26 @@
 import { z } from 'zod';
 
-import type { Mutable } from './_drift-guards.js';
-import { ActionName } from './action-name.js';
+import type { Mutable } from './_drift-guards.ts';
+import { ActionName } from './action-name.ts';
 import {
   type AssistantInjectionMessage,
   type ChartRequestMessage,
   EngineMessageSchema,
-} from './engine-message.js';
-import { MaelstromError } from './errors/index.js';
-import { InstanceId } from './instance.js';
-import { MessageId, MessageIdSchema } from './message.js';
+} from './engine-message.ts';
+import { MaelstromError } from './errors/index.ts';
+import { InstanceId } from './instance.ts';
+import { MessageId, MessageIdSchema } from './message.ts';
 import type {
   ActionExecution,
   GridLayout,
   MaelstromResponse,
   TilingLayout,
-} from './response.js';
-import { err, ok, type Result } from './result.js';
-import { GridLayoutSchema, TilingLayoutSchema } from './schemas.js';
-import { type SessionId, SessionIdSchema } from './session.js';
-import type { SessionHistoryEntry } from './session-history-entry.js';
-import { SessionHistoryEntryArraySchema } from './session-history-entry.js';
+} from './response.ts';
+import { err, ok, type Result } from './result.ts';
+import { GridLayoutSchema, TilingLayoutSchema } from './schemas.ts';
+import { type SessionId, SessionIdSchema } from './session.ts';
+import type { SessionHistoryEntry } from './session-history-entry.ts';
+import { SessionHistoryEntryArraySchema } from './session-history-entry.ts';
 
 // ---------------------------------------------------------------------------
 // MaelstromResponse wire parser
