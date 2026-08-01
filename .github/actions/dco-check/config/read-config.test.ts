@@ -7,6 +7,7 @@ describe('readConfig', () => {
       token: 'token',
       repository: 'maelstrom-co/maelstrom',
       prNumber: '72',
+      headSha: 'f'.repeat(40),
       isFork: false,
     });
   });
@@ -41,6 +42,15 @@ describe('readConfig', () => {
       'REPOSITORY is required',
     );
   });
+
+  it('rejects a missing head SHA', () => {
+    // Nothing to compare the audited commit list against is the same position
+    // as an unaudited pull request, so it has to fail rather than skip the
+    // comparison.
+    expect(() => withEnv({ HEAD_SHA: undefined })).toThrow(
+      'HEAD_SHA is required',
+    );
+  });
 });
 
 function withEnv(overrides: Record<string, string | undefined>) {
@@ -48,6 +58,7 @@ function withEnv(overrides: Record<string, string | undefined>) {
     GITHUB_TOKEN: 'token',
     REPOSITORY: 'maelstrom-co/maelstrom',
     PR_NUMBER: '72',
+    HEAD_SHA: 'f'.repeat(40),
     HEAD_REPOSITORY: undefined,
   };
   const previous = { ...process.env };

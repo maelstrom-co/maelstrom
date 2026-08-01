@@ -56,6 +56,11 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           pr-number: ${{ github.event.pull_request.number }}
+          # The commit branch protection is gating, so the action can prove it
+          # audited that range and not some other list the API handed it. Read
+          # as data only — the checkout above still pins the default branch, and
+          # nothing here resolves code from this SHA.
+          head-sha: ${{ github.event.pull_request.head.sha }}
           # Provenance, not code: the bot-author exemption is honoured only for
           # branches in this repository, which nobody without write access can
           # push to. Read from the event payload rather than the API — it costs

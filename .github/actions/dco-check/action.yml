@@ -8,6 +8,13 @@ inputs:
   pr-number:
     description: Pull request number to audit
     required: true
+  head-sha:
+    description: >-
+      Commit the pull request's head branch points at
+      (`github.event.pull_request.head.sha`). The audited commit list must end
+      at this SHA, or the check fails closed rather than report a verdict over
+      a range branch protection is not gating.
+    required: true
   head-repository:
     # Not `required: true`: `head.repo.full_name` is null for a deleted fork, so
     # this legitimately arrives empty. Empty reads as a fork, which only ever
@@ -31,5 +38,6 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         PR_NUMBER: ${{ inputs.pr-number }}
         REPOSITORY: ${{ github.repository }}
+        HEAD_SHA: ${{ inputs.head-sha }}
         HEAD_REPOSITORY: ${{ inputs.head-repository }}
       run: bun "${{ github.action_path }}/main.ts"

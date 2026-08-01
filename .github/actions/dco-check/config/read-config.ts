@@ -6,6 +6,7 @@ export function readConfig(): Config {
     token: requireEnv('GITHUB_TOKEN'),
     repository,
     prNumber: requireEnv('PR_NUMBER'),
+    headSha: requireEnv('HEAD_SHA'),
     isFork: headIsFork(repository),
   };
 }
