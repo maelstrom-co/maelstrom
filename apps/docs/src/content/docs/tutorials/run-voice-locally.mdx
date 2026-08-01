@@ -36,24 +36,13 @@ During `connect()`, the adapter calls LiveKit's `setMicrophoneEnabled(true)` to 
 
 The adapter ignores partial and blank transcription segments. Each non-empty final transcript emits a user transcript event and exactly one synthetic `update_ui` tool call whose `intent` is the trimmed transcript. That natural-language intent follows the normal Maelstrom path; the worker never plans the UI.
 
-## Delimit each held turn
+## Speak after connection
 
-The current LiveKit cascade implementation uses explicit hold-to-talk boundaries. Call `turnControl.startTurn()` on press and `turnControl.endTurn()` on every release or cancellation path. This behavior belongs to this adapter, not to the shared voice architecture. Realtime adapters may instead use provider-managed turn detection and leave `turnControl` undefined.
+Automatic browser VAD is the default when you omit `vad`, as in the adapter above. After the session reports automatic turn mode, speak normally. The adapter detects speech, publishes the bounded turn, and signals the worker when speech ends; do not call `turnControl` for this path.
 
-```ts title="src/voice/held-turn.ts"
-export async function runHeldTurn(
-  turnControl: AdapterTurnControl,
-): Promise<void> {
-  await turnControl.startTurn();
-  try {
-    await waitForRelease();
-  } finally {
-    await turnControl.endTurn();
-  }
-}
-```
+`turnControl` appears only when you intentionally configure `vad: false` or automatic control safely falls back to manual mode. If the UI shows manual mode, use the currently exposed control for one [hold-to-talk interaction](/guides/voice/livekit-cascade/#delimit-each-manual-turn): call `startTurn()` on press and always call `endTurn()` on release or cancellation. Do not cache the control because it can appear or disappear as the connection mode changes.
 
-`startTurn()` unmutes the published microphone. `endTurn()` mutes it before signaling the worker to flush the turn. If a held turn produces no final transcript, the provider-specific `thinkingFallbackMs` timer returns the session from `thinking` to `connected`; the configured `10_000` milliseconds bounds that recovery. Set the option to `0` only when another integration owns empty-turn recovery, because disabling it can leave an unanswered empty turn in `thinking`.
+If a turn produces no final transcript, the provider-specific `thinkingFallbackMs` timer returns the session from `thinking` to `connected`; the configured `10_000` milliseconds bounds that recovery. Set the option to `0` only when another integration owns empty-turn recovery, because disabling it can leave an unanswered empty turn in `thinking`.
 
 ## Run the checked-in demo locally
 
@@ -61,8 +50,8 @@ export async function runHeldTurn(
   The checked-in demo mint route signs grants without authenticating the caller.
   It exists to make this tutorial runnable. Replace it with the server-owned
   route from the [LiveKit cascade
-  guide](/guides/voice/livekit-cascade/#add-the-server-token-route) before any
-  deployment.
+  guide](/guides/voice/livekit-cascade/#mint-a-room-grant-on-your-server) before
+  any deployment.
 </Aside>
 
 1. Copy the root `.env.example` to `.env`. Keep the existing `GOOGLE_API_KEY` or `GEMINI_API_KEY` for the Engine, add real `DEEPGRAM_API_KEY` and `CARTESIA_API_KEY` values, and leave the example `LIVEKIT_*` values unchanged.
@@ -73,6 +62,7 @@ export async function runHeldTurn(
    ```
 
    The `--dev` flag uses well-known insecure `devkey` / `secret` credentials that are suitable only for local development.
+
 3. From the repository root, start the full demo in another terminal:
 
    ```bash
@@ -83,7 +73,7 @@ export async function runHeldTurn(
 
 ## Verify
 
-Open [http://localhost:3000](http://localhost:3000), connect voice, hold to talk, and release. A final transcript should become ordinary intent; after the UI settles, the worker should speak the result.
+Open [http://localhost:3000](http://localhost:3000), connect voice, wait for automatic turn mode, and speak. If the UI instead shows manual mode, hold to talk and release. A final transcript should become ordinary intent; after the UI settles, the worker should speak the result.
 
 ## Next steps
 

@@ -1,54 +1,44 @@
 ---
 title: LiveKit cascade
-description: Add hold-to-talk voice with browser-side intent routing and a no-LLM STT/TTS worker.
+description: Add browser-controlled cascade voice with automatic VAD, manual fallback, and a no-LLM STT/TTS worker.
 ---
 
 import { Aside, CardGrid, LinkCard } from "@astrojs/starlight/components";
 import OwnershipDiagram from "../../../../components/ownership/OwnershipDiagram.astro";
 import { LIVEKIT_CASCADE_OWNERSHIP } from "../../../../components/ownership/livekit-cascade";
 
-The LiveKit cascade adds hold-to-talk voice without adding another planning model. A worker transcribes speech with Deepgram and synthesizes settled results with Cartesia, while the browser sends each final transcript through `RealtimeSession` as an ordinary `update_ui` intent.
+The LiveKit cascade adds browser-controlled voice without adding another planning model. `LiveKitAdapter` detects turns automatically by default and exposes `turnControl` only in manual mode. A worker transcribes speech with Deepgram and synthesizes settled results with Cartesia, while the browser sends each final transcript through `RealtimeSession` as ordinary `update_ui` intent.
 
-You mint a room grant on your server, run a model-free worker, connect the browser adapter, then harden the route before it ships.
-
-New to the cascade? [Run the voice demo locally](/tutorials/run-voice-locally/) first to hear one working turn, then come back here to build the deployable version.
+You mint a room grant on your server, run a model-free worker, connect the browser adapter, then harden the route before it ships. New to the cascade? [Run the voice demo locally](/tutorials/run-voice-locally/) first.
 
 ## Before you start
 
 Provide:
 
 - a Maelstrom React instance with its normal Engine Connector
-- a LiveKit server and credentials for both the token service and worker
+- a LiveKit server and credentials for the token service and worker
 - Deepgram and Cartesia credentials for the worker
-- a browser secure context with microphone permission
+- a secure browser context with microphone permission
 - the `@maelstrom-co/realtime-livekit`, `@maelstrom-co/realtime-livekit-server`, `@maelstrom-co/realtime-livekit-agent`, and `@maelstrom-co/react-realtime` packages
-
-Three things decide whether this integration is safe, and none of them are optional.
 
 <Aside type="danger" title="Read these before you write any code">
   **LiveKit signing credentials stay on the server.** `LIVEKIT_API_KEY` and
   `LIVEKIT_API_SECRET` sign short-lived room grants and never reach browser
-  code, bundles, or responses. Deepgram and Cartesia keys belong to the worker
-  process alone.
+  code. Deepgram and Cartesia keys belong to the worker process alone.
 
-  **The minter does not authenticate callers.** It signs whatever scope your
-  server derives; it does not decide who may ask. The browser never chooses its
-  own room or identity.
+**The minter does not authenticate callers.** Your server must authenticate
+the request and derive room and participant scope. The browser never chooses
+its own room or identity.
 
-  **The worker holds no planning model.** It runs STT and TTS only, receives no
-  Vessel, Chart, or grounding context, and `LiveKitAdapter.injectGrounding()` is
-  intentionally a no-op. Sending it UI structure would create a second planner.
-</Aside>
+**The worker holds no planning model.** It runs STT and TTS only, receives no
+Vessel, Chart, or grounding context, and
+`LiveKitAdapter.injectGrounding()` is intentionally a no-op.
 
-<Aside type="note" title="Examples are integration excerpts">
-  The code fences in this guide are illustrative integration excerpts. They omit
-  app-specific route registration, authentication and room policy, dependency
-  configuration, UI styling, telemetry, and consent copy.
 </Aside>
 
 ## What you own
 
-The cascade splits into three roles you deploy, arranged around a room you may not operate. Each has its own lifecycle and its own credential boundary.
+The cascade splits into three roles you deploy, arranged around a LiveKit room. Each role has its own lifecycle and credential boundary.
 
 <OwnershipDiagram
   id="livekit-ownership"
@@ -56,29 +46,27 @@ The cascade splits into three roles you deploy, arranged around a room you may n
   caption="Solid cards are yours to deploy. The dashed card is LiveKit's."
 />
 
-Two absences in that picture matter. Audio reaches the room over the top of your server rather than through it, which is why the mint route can end after each request. And nothing joins the worker to the Engine: the worker publishes each final transcript to the room, the browser adapter turns it into an ordinary Maelstrom intent through `RealtimeSession`, and the Engine plans against the client-built Chart snapshot exactly as it does for typed intent.
+Audio reaches the room without crossing your application server, so the mint route can end after each request. Nothing joins the worker to the Engine: the worker publishes a final transcript to the room, the browser adapter turns it into ordinary intent through `RealtimeSession`, and the Engine plans against the client-built Chart snapshot exactly as it does for typed intent.
 
-Routing every transcript back through the browser is also what decides when the worker speaks. A successful UI update waits for rendering to settle before the result returns through LiveKit for TTS. Malformed tool arguments and genuine submission failures return immediately, without waiting for render settlement.
+Routing the transcript through the browser also decides when the worker speaks. A successful UI update waits for rendering to settle before the result returns through LiveKit for TTS. Malformed tool arguments and genuine submission failures return immediately.
 
-One held turn goes: microphone → LiveKit room → worker STT → final transcript → `update_ui` intent → Engine → settled UI → worker TTS. The [voice architecture page](/understanding/voice-architecture/) walks each stage.
+One automatic turn goes: browser VAD → LiveKit room → worker STT → final transcript → `update_ui` intent → Engine → settled UI → worker TTS. [Voice architecture: cascade vs realtime](/understanding/voice-architecture/) walks each stage.
 
 ## Mint a room grant on your server
 
-Create the authenticated endpoint that derives room scope and signs a grant before you write any browser code that consumes it. Keep LiveKit signing credentials in server-only code. The minter validates the request, trims the room name, signs a token scoped to that room, and returns a typed `Result`.
-
-This is the smallest route that is safe to run at all — it authenticates, and it refuses to cache the grant:
+Create an authenticated endpoint that derives room scope and signs a grant. Keep LiveKit signing credentials in server-only code.
 
 ```ts title="server/livekit-token.ts" {1-5,8,13-16}
-import { isOk } from '@maelstrom-co/protocol';
+import { isOk } from "@maelstrom-co/protocol";
 import {
   mintFailureHttpStatus,
   mintLiveKitToken,
-} from '@maelstrom-co/realtime-livekit-server';
+} from "@maelstrom-co/realtime-livekit-server";
 
 export async function POST(request: Request): Promise<Response> {
   const authenticated = await requireAuthenticatedVoiceSession(request);
   if (authenticated === null) {
-    return Response.json({ error: 'unauthorized' }, { status: 401 });
+    return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const result = await mintLiveKitToken({
@@ -87,49 +75,41 @@ export async function POST(request: Request): Promise<Response> {
   });
   if (!isOk(result)) {
     return Response.json(
-      { error: 'mint-failed' },
+      { error: "mint-failed" },
       { status: mintFailureHttpStatus(result.error.reason) },
     );
   }
 
   return Response.json(result.value, {
-    headers: { 'Cache-Control': 'private, no-store' },
+    headers: { "Cache-Control": "private, no-store" },
   });
 }
 ```
 
-`requireAuthenticatedVoiceSession` is yours to implement. It is not exported by any Maelstrom package — `mintLiveKitToken` validates shape and signs a token, and deliberately has no opinion about who may ask. It must return `null` for an authentication or authorization denial, bind the principal to its server-side session, and derive `roomName` and `identity` from that trusted session alone. The browser never sends either.
+`requireAuthenticatedVoiceSession` is application code, not a Maelstrom export. It must deny unauthorized callers, bind the principal to a server-side session, and derive `roomName` and `identity` from that trusted session. The browser sends neither value.
 
-The minter issues only the grants this browser role uses: `roomJoin` for the server-derived room, `canPublish` for microphone audio and data, and `canSubscribe` for worker audio and room events. It does not grant room administration, recording, ingress, egress, or permission to join any other room. If your application needs a narrower publication policy, wrap or replace the minter and test that policy against the media and data topics your integration actually publishes.
-
-The server process requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`. `LIVEKIT_TOKEN_TTL` is optional and defaults to `15m`; supported values are a positive integer number of seconds or one `<int><unit>` value using `s`, `m`, `h`, or `d`. Unsupported or unsafe values fail closed as `invalid-config`.
-
-These token and reconnect statements are scoped to the repository's locked `livekit-client` and `livekit-server-sdk` 2.13.1 releases. Re-check the provider's [token generation guide](https://docs.livekit.io/home/server/generating-tokens/) before changing either dependency.
+The server process requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`. `LIVEKIT_TOKEN_TTL` is optional and defaults to `15m`. Unsupported or unsafe values fail closed as `invalid-config`.
 
 <Aside type="danger" title="Repository demo route is development-only">
-  The repository demo mint route is development-only. Its implementation at
-  `apps/demo/src/lib/voice/get-livekit-token.ts` currently lacks production
-  authentication, trusted scope derivation, and explicit no-store cache headers.
-  Do not deploy that route.
+  The checked-in demo mint route lacks production authentication, trusted scope
+  derivation, and explicit no-store headers. Do not deploy it.
 </Aside>
-
-This route is enough to get voice working and is **not** enough to deploy. [Harden the mint route](#harden-the-mint-route) names the origin, CSRF, rate-limit, and telemetry controls it is missing.
 
 ## Fetch the grant in the browser
 
-Fetch the grant with same-origin credentials and a CSRF proof, then validate the unknown response before connecting. This runs in the browser bundle, so it holds no signing credentials:
+Fetch the grant with same-origin credentials and a CSRF proof, then validate the unknown response before connecting:
 
 ```ts title="src/voice/livekit-token.ts" {1-4,17}
 import {
   type LiveKitTokenGrant,
   LiveKitTokenGrantSchema,
-} from '@maelstrom-co/realtime-livekit/token';
+} from "@maelstrom-co/realtime-livekit/token";
 
 export async function fetchAuthenticatedLiveKitToken(): Promise<LiveKitTokenGrant> {
-  const response = await fetch('/api/livekit-token', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'X-CSRF-Token': getCsrfToken() },
+  const response = await fetch("/api/livekit-token", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-CSRF-Token": getCsrfToken() },
   });
 
   if (!response.ok) {
@@ -140,37 +120,23 @@ export async function fetchAuthenticatedLiveKitToken(): Promise<LiveKitTokenGran
 }
 ```
 
-`LiveKitTokenGrantSchema` comes from the `@maelstrom-co/realtime-livekit/token` entry point, which carries the grant schema without pulling in the LiveKit browser transport. The request sends the app's session credentials and CSRF token, and no client-selected room or participant identity. The schema requires a non-empty token, a `ws:` or `wss:` LiveKit URL, and an absolute expiry in Unix seconds. Shape validation does not replace endpoint authentication or authorization.
+The schema requires a non-empty token, a `ws:` or `wss:` LiveKit URL, and an absolute Unix expiry. Shape validation does not replace endpoint authentication or authorization.
 
 ## Start the STT/TTS worker
 
-Run the model-free agent as a separate long-running process, holding only its server and speech-provider credentials. Keep it out of the application server and the browser.
-
-The worker has no planning LLM and receives no UI grounding. It runs only the Deepgram STT and Cartesia TTS paths; the browser converts final transcripts into intent, and the Maelstrom Engine plans from the client-built Chart snapshot.
+Run the model-free worker as a separate long-running process. It holds LiveKit and speech-provider credentials but no planning LLM and no UI grounding.
 
 ```ts title="voice-worker.ts"
-import { runVoiceAgent } from '@maelstrom-co/realtime-livekit-agent';
+import { runVoiceAgent } from "@maelstrom-co/realtime-livekit-agent";
 
 runVoiceAgent();
 ```
-
-Run that entry with LiveKit's `start` worker command:
 
 ```bash
 node --env-file=.env voice-worker.ts start
 ```
 
-To run the checked-in demo instead, follow [Run the voice demo locally](/tutorials/run-voice-locally/) rather than launching only the worker role. Its Nx target starts `apps/demo/voice-worker.ts` together with the Engine host and browser app.
-
-When a custom worker harness needs the underlying definition, export the factory result instead:
-
-```ts title="embedded-voice-agent.ts"
-import { defineMaelstromVoiceAgent } from "@maelstrom-co/realtime-livekit-agent";
-
-export default defineMaelstromVoiceAgent();
-```
-
-Keep environment values grouped by the process that reads them:
+Keep environment values grouped by process:
 
 | Process        | Required environment                                                                           | Optional environment                              |
 | -------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------- |
@@ -178,13 +144,9 @@ Keep environment values grouped by the process that reads them:
 | Agent worker   | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY` | `MAELSTROM_STT_FLUSH_TIMEOUT_MS` (default `2000`) |
 | Browser        | None of these secrets                                                                          | None                                              |
 
-Keep all provider credentials in worker-only or server-only configuration. `MAELSTROM_STT_FLUSH_TIMEOUT_MS` must be positive and bounds the fallback when a flush-produced final transcript does not arrive. When the timeout expires, the worker emits buffered text when any is available; an empty turn emits nothing.
+## Connect the browser adapter
 
-The worker commands and APIs above are scoped to `@livekit/agents`, `@livekit/agents-plugin-deepgram`, and `@livekit/agents-plugin-cartesia` 1.4.8. Follow LiveKit's [voice AI quickstart](https://docs.livekit.io/agents/start/voice-ai/) when upgrading the worker packages, then re-run this guide's compile-checked fixture.
-
-## Connect the adapter
-
-Create one adapter per Maelstrom session. The generic `LiveKitAdapterOptions` contract calls `mintToken(roomName)` so the package can support integrations in which the callback uses a configured room name. This hardened example deliberately ignores that browser-side callback argument: authenticated server policy derives `authenticated.roomName` and `authenticated.identity`, and the signed grant alone selects and authorizes the actual room.
+Create one adapter per Maelstrom voice session. Authenticated server policy and the signed grant remain authoritative for the actual room and participant.
 
 ```ts title="src/maelstrom.ts"
 import { createMaelstrom } from "@maelstrom-co/react";
@@ -193,7 +155,7 @@ import {
   maelstromRealtime,
 } from "@maelstrom-co/react-realtime";
 import { LiveKitAdapter } from "@maelstrom-co/realtime-livekit";
-import { fetchAuthenticatedLiveKitToken } from "./voice/mint-livekit-token";
+import { fetchAuthenticatedLiveKitToken } from "./voice/livekit-token";
 import { vessels } from "./vessels";
 
 export const m = createMaelstrom({ vessels }).with(
@@ -207,170 +169,55 @@ export const m = createMaelstrom({ vessels }).with(
 );
 ```
 
-The `roomName` option remains necessary to satisfy the generic adapter API, and the adapter forwards it only to `mintToken(roomName)`. It is not an authorization input in this integration. The browser fetch sends no room or identity in its body; the authenticated endpoint's signed grant is the authority used when LiveKit joins the participant.
+During `connect()`, the adapter acquires a local microphone track, creates the local streams needed for metering and VAD, publishes an upstream-gated track, and pauses publication before automatic or manual mode becomes visible. A denied permission surfaces as `MIC_PERMISSION_DENIED`; explain how to allow access, then reconnect.
 
-`connect()` joins the room and calls `setMicrophoneEnabled(true)`, which acquires and publishes the microphone track, followed by `setMicrophoneEnabled(false)` to mute that publication. This implementation therefore requests microphone access during connection, before the first held turn. The browser retains microphone access while the published track is muted, until `disconnect()` leaves the room and stops the adapter's media resources. Hold-to-talk changes the existing track's mute state; it does not acquire or release microphone permission. This mode has no provider-managed voice activity detection.
+## Configure browser VAD
 
-Token expiry is checked for each initial or fresh room connection, including an explicit `connect()` after `disconnect()`. It does not impact LiveKit SDK-managed reconnects for an already connected participant because LiveKit pushes refreshed tokens to connected clients, and the SDK uses the refreshed token for managed reconnects. Expiry alone does not disconnect an active participant or end the room. Each fresh `connect()` invokes `mintToken`; the adapter does not read `expiresAt` or schedule proactive renewal. Expiry does not impose a maximum room duration or schedule adapter cleanup, so production hosts must enforce their own maximum session duration, call `disconnect()` on policy termination, and clean up abandoned rooms and participants separately.
+Automatic VAD is enabled when `vad` is omitted or `true`. It uses `/vad-web/`, retains `250` milliseconds of transport pre-roll, and otherwise uses provider defaults. Copy the package-matched VAD and ONNX Runtime assets into that public directory:
 
-## Use the protocol entry point
-
-The `/protocol` entry point is shared by the browser adapter and worker. It defines the topics without pulling browser dependencies into the worker.
-
-```ts
-import {
-  SPEAK_TOPIC,
-  TURN_TOPIC,
-  TTS_TOPIC,
-} from "@maelstrom-co/realtime-livekit/protocol";
+```bash
+maelstrom-livekit-assets public/vad-web
 ```
 
-`TURN_TOPIC` carries turn-end and TTS-cancel data messages. `SPEAK_TOPIC` carries settled result text to the worker, and `TTS_TOPIC` carries playout-complete or synthesis-error status back to the browser. Application code normally lets the adapter and worker publish these messages.
+Run the copy before each build:
 
-## Hold a turn
-
-Disable hold-to-talk until the transport is connected. Prevent repeated starts and queue serialized, best-effort cleanup when a normal release is lost to pointer-capture loss, control or window blur, a hidden document, disconnect, or unmount. Browser termination can still prevent JavaScript cleanup, so server-side session limits remain necessary.
-
-```tsx title="src/HoldToTalk.tsx"
-const LIVE_STATES = new Set(['connected', 'listening', 'thinking', 'speaking']);
-
-export function HoldToTalk() {
-  const { state, turnControl } = m.useVoice();
-  const pressRequested = useRef(false);
-  const requestSequence = useRef(0);
-  const turnActive = useRef(false);
-  const lifecycle = useRef<Promise<void>>(Promise.resolve());
-  const connected = LIVE_STATES.has(state);
-
-  // Every turn operation queues behind the previous one. A release can arrive
-  // while startTurn() is still pending; without this, endTurn() would run first
-  // and leave the microphone open for the rest of the session.
-  const serialize = useCallback((operation: () => Promise<void>) => {
-    lifecycle.current = lifecycle.current.then(operation).catch(() => {});
-    return lifecycle.current;
-  }, []);
-
-  const begin = useCallback(async () => {
-    if (pressRequested.current || !turnControl || !connected) return;
-    pressRequested.current = true;
-    requestSequence.current += 1;
-    const request = requestSequence.current;
-
-    await serialize(async () => {
-      // requestSequence guards against a later press reviving a start that an
-      // earlier release already invalidated.
-      if (
-        !pressRequested.current ||
-        requestSequence.current !== request ||
-        turnActive.current
-      )
-        return;
-      await turnControl.startTurn();
-      turnActive.current = true;
-    });
-  }, [connected, serialize, turnControl]);
-
-  const stopTurn = useCallback(
-    async (force: boolean) => {
-      if (!force && !pressRequested.current) return;
-      pressRequested.current = false;
-      requestSequence.current += 1;
-
-      await serialize(async () => {
-        if (!turnActive.current) return;
-        try {
-          await turnControl?.endTurn();
-        } finally {
-          turnActive.current = false;
-        }
-      });
-    },
-    [serialize, turnControl],
-  );
-
-  // Release can be lost to a dropped connection, a blurred window, a hidden
-  // tab, or unmount. Each one has to end the turn, or the mic stays live.
-  useEffect(() => {
-    if (!connected) void stopTurn(true);
-  }, [connected, stopTurn]);
-
-  useEffect(() => {
-    const stopForFocusLoss = () => void stopTurn(true);
-    const stopWhenHidden = () => {
-      if (document.visibilityState === 'hidden') stopForFocusLoss();
-    };
-
-    window.addEventListener('blur', stopForFocusLoss);
-    document.addEventListener('visibilitychange', stopWhenHidden);
-
-    return () => {
-      window.removeEventListener('blur', stopForFocusLoss);
-      document.removeEventListener('visibilitychange', stopWhenHidden);
-      void stopTurn(true);
-    };
-  }, [stopTurn]);
-
-  const endPress = () => void stopTurn(false);
-  const cancelPress = () => void stopTurn(true);
-  const isTurnKey = (key: string) => key === 'Enter' || key === ' ';
-
-  // LiveKit exposes turnControl only in manual mode. Automatic turn detection
-  // leaves it undefined, and this control must not render at all.
-  if (!turnControl) return null;
-
-  return (
-    <button
-      type="button"
-      disabled={!connected}
-      onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {
-        if (pressRequested.current) return;
-        event.currentTarget.setPointerCapture(event.pointerId);
-        void begin();
-      }}
-      onPointerUp={endPress}
-      onPointerLeave={endPress}
-      onPointerCancel={endPress}
-      onLostPointerCapture={cancelPress}
-      onBlur={cancelPress}
-      onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
-        if (!isTurnKey(event.key) || event.repeat || pressRequested.current)
-          return;
-        event.preventDefault();
-        void begin();
-      }}
-      onKeyUp={(event: KeyboardEvent<HTMLButtonElement>) => {
-        if (isTurnKey(event.key)) endPress();
-      }}
-    >
-      Hold to talk
-    </button>
-  );
+```json
+{
+  "scripts": {
+    "prepare:voice-assets": "maelstrom-livekit-assets public/vad-web",
+    "build": "bun run prepare:voice-assets && vite build"
+  }
 }
 ```
 
-`turnActive` is local ordering bookkeeping, not provider status. `finally` clears it even when `endTurn()` rejects, so the next press is not wedged behind stale state. The disconnect and focus-loss effects queue cleanup through the same serializer, so it runs after pending turn work. This is best-effort browser cleanup, not a guarantee against process termination — server-side session limits remain necessary.
+Set `vad: false` only for intentional manual mode. Safe automatic-mode failures also expose manual controls through `useVoice()`. Automatic mode keeps idle microphone media local and opens LiveKit publication only for accepted speech.
 
-An empty held turn produces no final transcript, no intent or Engine request, and no spoken response. After the bounded empty-turn fallback completes, the session returns to `connected`.
+[Browser VAD and barge-in](/understanding/browser-vad-and-barge-in/) documents supported tuning, asset hosting and CSP, transport pre-roll, serialization, safe degradation, and fatal transport failures.
 
-This control shows no errors, and a rejected `startTurn()` or `endTurn()` needs one. It is a recoverable local failure rather than a session failure — `serialize` already swallows it so the queue survives — so surface it separately and let a valid press or a reconnect clear it. Send the original value through your own redacted-telemetry boundary with only the lifecycle phase as public context. Session-level failures belong in the status control below.
+## Delimit each manual turn
+
+Render manual controls only while `turnControl` is available. Call `startTurn()` on press and `endTurn()` on every release or cancellation path:
+
+```ts title="src/voice/manual-turn.ts"
+export async function runManualTurn(
+  turnControl: AdapterTurnControl,
+): Promise<void> {
+  await turnControl.startTurn();
+  try {
+    await waitForRelease();
+  } finally {
+    await turnControl.endTurn();
+  }
+}
+```
+
+`turnControl` is dynamic. Healthy automatic mode leaves it undefined. It appears after intentional `vad: false` configuration or after an automatic-mode failure has safely paused upstream publication. Serialize operations so a release cannot overtake a pending start, and end the turn on pointer cancellation, focus loss, a hidden document, disconnect, and unmount.
 
 ## Show session state
 
-The hold-to-talk button says nothing about what the session is doing. Render the rest of `useVoice()` beside it: the lifecycle state, both transcripts, and the two failures a user can act on.
+Render lifecycle state, transcripts, and actionable recovery beside the voice control. `turnModeError` distinguishes intentional manual mode from safe automatic degradation:
 
-```tsx title="src/VoiceStatus.tsx" {1,14-21,27}
-import type { VoiceSessionState } from '@maelstrom-co/client';
-
-const STATE_LABEL: Record<VoiceSessionState, string> = {
-  idle: 'Voice off',
-  connecting: 'Connecting',
-  connected: 'Voice on',
-  listening: 'Listening',
-  thinking: 'Thinking',
-  speaking: 'Speaking',
-  error: 'Voice unavailable',
-};
-
+```tsx title="src/VoiceStatus.tsx"
 export function VoiceStatus() {
   const {
     state,
@@ -380,16 +227,11 @@ export function VoiceStatus() {
     turnMode,
     turnModeError,
   } = m.useVoice();
-
-  // Manual mode is either how you configured the adapter or where it landed
-  // after automatic detection failed to start. turnModeError is set only in the
-  // second case, so it is the one signal that explains why a hold-to-talk
-  // button just appeared in a session that was meant to listen on its own.
-  const degraded = turnMode === 'manual' && turnModeError !== undefined;
+  const degraded = turnMode === "manual" && turnModeError !== undefined;
 
   return (
     <section aria-label="Voice status">
-      <p>{STATE_LABEL[state]}</p>
+      <p>{state}</p>
       {degraded && (
         <p role="status">
           Automatic voice detection is unavailable. Hold to talk instead.
@@ -405,98 +247,85 @@ export function VoiceStatus() {
 }
 ```
 
-`turnMode` is the piece unique to this mode. Manual is either how you configured the adapter or where it landed after automatic detection failed to start, and only the second case sets `turnModeError`. Without that check a hold-to-talk button appears in a session that was meant to listen on its own, and the user is given no reason for it.
-
-A fatal adapter failure arrives as a `RealtimeVoiceError` on `error` and tears down the connection. Map the typed code to fixed recovery copy — never the raw message, stack, or cause, which can carry room tokens and provider detail. Send the original value through your own redacted-telemetry boundary instead.
-
-Transcript entries accumulate: each one replaces the last until it is marked final. Render them directly rather than appending, or a partial phrase repeats as it grows.
-
-`m.VoiceOrb` is the built-in alternative to a hand-written toggle. It renders a button that connects and disconnects the shared session, colours itself per state, and drives an audio-reactive meter. Take it when it fits and keep your own markup for the transcripts:
-
-```tsx
-<m.VoiceOrb size={20} />
-```
+Never render `turnModeError`, raw error messages, stacks, or causes. They can contain room tokens or provider details. Use typed state for fixed recovery copy and send diagnostics through a redacted telemetry boundary.
 
 ## Verify
 
-Check one complete held turn across all three roles:
+Check automatic VAD, manual fallback, and a complete turn across all three roles:
 
-- **Token route:** an authenticated request passes the configured origin, CSRF, and rate-limit controls; the returned grant validates with `LiveKitTokenGrantSchema` and every response carries `Cache-Control: private, no-store`.
-- **Browser:** after the adapter uses that grant, the shared voice state reaches `connected` without any browser-supplied room or identity becoming authoritative.
-- **Worker:** the separately deployed worker joins the authorized room and publishes one final transcript when the held turn ends.
-- **Lifecycle:** a successful turn progresses through the observable `listening`, `thinking`, and `speaking` states; the final transcript becomes ordinary intent, the intent renders, and TTS follows settle rather than predicting the result. An empty held turn instead produces no final transcript, intent or Engine request, or spoken response, then returns to `connected` after the bounded fallback.
+- **Token route:** an authenticated request passes origin, CSRF, and rate-limit controls; the grant validates and every response carries `Cache-Control: private, no-store`.
+- **Browser:** the session reaches `connected`; idle automatic mode sends no upstream microphone media; accepted speech sends pre-roll once; intentional `vad: false` starts in manual mode.
+- **Safe fallback:** a recoverable VAD failure pauses upstream publication before manual controls appear. A failure that cannot stop upstream media tears down the session instead.
+- **Worker:** the worker joins the authorized room and publishes one final transcript for an accepted turn.
+- **Lifecycle:** the transcript becomes ordinary intent, the UI settles, and TTS follows settle rather than predicting the result.
 
 ## Harden the mint route
 
-The route above authenticates and derives scope on the server. Add these before it is reachable from the internet. Each one closes a specific hole:
+Before exposing the route to the internet, add each control below. All policy failures must deny the request.
 
-| Control | Without it |
-| --- | --- |
-| Exact-origin allowlist, checked first | Any site can drive a browser to mint rooms on your account |
-| CSRF proof bound to the session | A logged-in user's browser mints on an attacker's behalf |
-| Shared rate limit keyed by principal | One compromised account creates rooms without bound |
-| Server-derived room and identity | The browser joins a room belonging to someone else |
-| Short token lifetime | A leaked grant stays usable long after the session ends |
-| `Cache-Control: private, no-store` | A shared cache serves one user's room token to another |
-| Maximum active-session duration | A held session bills against LiveKit and both speech providers until noticed |
-| Redacted failure telemetry | Stack traces leak room tokens and provider keys into logs |
+| Control                              | Without it                                                      |
+| ------------------------------------ | --------------------------------------------------------------- |
+| Exact-origin allowlist               | Another site can drive a browser to mint rooms on your account. |
+| CSRF proof bound to the session      | A logged-in browser mints on an attacker's behalf.              |
+| Shared rate limit keyed by principal | One compromised account creates rooms without bound.            |
+| Server-derived room and identity     | The browser joins another user's room.                          |
+| Short token lifetime                 | A leaked grant remains useful longer than necessary.            |
+| `Cache-Control: private, no-store`   | A cache can retain a bearer room token.                         |
+| Maximum active-session duration      | An abandoned session keeps consuming provider resources.        |
+| Redacted failure telemetry           | Logs expose room tokens or provider credentials.                |
 
-Every control is yours to implement. None are exported by a Maelstrom package or supplied by a server runtime, and **each one must fail closed** — a check that throws, times out, or cannot reach its policy store denies the request rather than falling through. None may accept a policy key or room scope from browser input.
+Token TTL does not bound an active session. Enforce duration separately, call `disconnect()` on policy termination, and clean up abandoned rooms and participants.
 
-The origin check runs first, before anything reads the body. It parses the request's `Origin`, compares it with an exact configured allowlist, and returns false when the header or the policy is missing or invalid — not a prefix or suffix match.
-
-Authentication and CSRF are separate checks. Authenticating the caller proves who is asking and supplies the server-derived room scope; it does not prove the request was intended. Validate CSRF separately against the authenticated session, then apply the shared rate limit, keyed atomically by the authenticated principal. The limit must deny on policy-store failure and return a bounded `Retry-After`.
-
-Wrap the whole route so unexpected exceptions reach only your redacted-telemetry boundary, which must emit allowlisted metadata without raw messages, stacks, credentials, token contents, request bodies, or session data. If telemetry itself fails, the route still returns the same generic failure. Neither mapped mint failures nor unexpected exceptions expose internal failure reasons to the browser.
-
-Every response sets `Cache-Control: private, no-store`. `no-store` prevents private and shared caches from retaining the bearer room token; `private` also documents that the response is user-specific. Keep this header even when an authenticated framework supplies its own default caching policy.
-
-Token TTL does not bound a session. LiveKit pushes refreshed tokens to connected participants, so expiry only affects new connections — enforce duration separately and clean up abandoned rooms.
-
-Monitor room creation, mint failures, and worker failures. Never log room tokens, LiveKit secrets, or provider API keys.
+Treat the VAD asset directory as trusted executable infrastructure. Never derive it from user input; use credential-free HTTPS for cross-origin assets, immutable versioned paths, explicit CORS, correct JavaScript/WebAssembly/model content types, and a CSP that supports the required worklets.
 
 ## Recover from failures
 
-| Failure                                      | Recovery                                                                                                                 |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Token request or grant validation fails      | Keep voice disconnected, reject partial data, and correct caller policy or server configuration before retrying          |
-| LiveKit URL uses `http:` or `https:`         | Configure a `ws:` or `wss:` URL; the grant schema rejects unsupported schemes                                            |
-| Microphone permission is denied              | Explain how to allow microphone access, then reconnect before enabling hold-to-talk                                      |
-| Worker does not answer                       | Check the worker process, LiveKit connectivity, and the Deepgram and Cartesia keys; do not move planning into the worker |
-| A press is cancelled or the connection drops | Call `endTurn()` from cancellation cleanup so the microphone does not remain active                                      |
-| TTS fails after rendering                    | Keep the session usable and report that spoken confirmation was lost; the UI result is already applied                   |
+| Failure                                 | Recovery                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Token request or grant validation fails | Keep voice disconnected and correct caller policy or server configuration before retrying.              |
+| Microphone permission is denied         | Explain how to allow access, then reconnect.                                                            |
+| Automatic VAD degrades safely           | Show fixed hold-to-talk guidance and use the dynamic manual control.                                    |
+| Upstream publication cannot be paused   | Treat the failure as fatal; do not advertise manual fallback.                                           |
+| Worker does not answer                  | Check the worker, LiveKit connectivity, and speech-provider keys; do not move planning into the worker. |
+| TTS fails after rendering               | Keep the session usable and report that spoken confirmation was lost; the UI result already applied.    |
 
 ## What you get without asking
 
-Two behaviors are wired by the time a turn completes. Neither needs configuration, and both are easy to break by working around them.
+**Speak-after-render.** Each final transcript becomes one `update_ui` call. For a successful UI update, `RealtimeSession` waits for rendering to settle before it calls `sendToolResult()`. Cartesia therefore speaks the rendered result rather than a prediction.
 
-**Speak-after-render.** Each final transcript becomes one `update_ui` call. For a successful UI update, `RealtimeSession` waits for rendering to settle before it calls `sendToolResult()`, so the Cartesia read-back describes the rendered result rather than a prediction. Malformed tool arguments and genuine submission failures return failure results immediately. Failed TTS is non-fatal, because the UI update has already applied.
-
-**A worker that cannot plan.** Unlike the OpenAI mode, the LiveKit worker has no model session to ground. Settled structural summaries may reach `LiveKitAdapter.injectGrounding()`, but the method deliberately does nothing. Do not forward Chart structure or Vessel domain data to the worker.
-
-## Swap STT or TTS
-
-The checked-in worker currently constructs Deepgram for STT and Cartesia for TTS. That selection happens inside the worker, not in `LiveKitAdapter` or other browser configuration. `defineMaelstromVoiceAgent()` currently accepts no provider-injection options, so configuration such as `sttProvider` or `ttsProvider` would describe an API that does not exist.
-
-Today, replacing either provider requires a custom worker. Preserve the integration contract when doing so: publish final transcripts in the form the browser adapter consumes, honor `TURN_TOPIC` for turn completion and cancellation, receive settled result text on `SPEAK_TOPIC`, and publish playout-complete or synthesis-error status on `TTS_TOPIC`. Keeping those semantics intact lets the browser continue turning one final transcript into one natural-language intent and keeps TTS after UI settlement. If a future worker API adds provider injection, prefer that supported seam instead of copying the worker implementation, but do not assume that seam exists until the package publishes it.
-
-Teams may accept the custom-worker cost to specialize recognition by language or domain, improve medical-vocabulary handling, choose a different voice, meet provider or data-residency compliance requirements, or optimize usage cost. Separate provider stages also make later swaps possible without changing the Engine boundary. The tradeoff is additional integration, deployment, observability, and failure handling, and each network or processing stage may increase turn latency. Evaluate those costs against measured recognition quality, synthesis quality, and end-to-end latency for your own traffic.
+**A worker that cannot plan.** The worker has no model session to ground. Do not forward Chart structure or Vessel domain data to it.
 
 ## API reference
 
-Use the generated reference for the public contracts used in this guide:
+Use the generated reference for the public contracts in this guide:
 
-- [`LiveKitAdapter`](/reference/realtime-livekit/packages/realtime-livekit/src/classes/livekitadapter/) from the `@maelstrom-co/realtime-livekit` root
-- [`SPEAK_TOPIC`](/reference/realtime-livekit/packages/realtime-livekit/src/protocol/variables/speak_topic/) from `@maelstrom-co/realtime-livekit/protocol`
-- [`LiveKitTokenGrantSchema`](/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/variables/livekittokengrantschema/) from `@maelstrom-co/realtime-livekit/token`
-- [`mintLiveKitToken`](/reference/realtime-livekit-server/functions/mintlivekittoken/) and [`LiveKitTokenRequestSchema`](/reference/realtime-livekit-server/variables/livekittokenrequestschema/) from `@maelstrom-co/realtime-livekit-server`
-- [`defineMaelstromVoiceAgent`](/reference/realtime-livekit-agent/functions/definemaelstromvoiceagent/) and [`runVoiceAgent`](/reference/realtime-livekit-agent/functions/runvoiceagent/) from `@maelstrom-co/realtime-livekit-agent`
+- [`LiveKitAdapter`](/reference/realtime-livekit/packages/realtime-livekit/src/classes/livekitadapter/)
+- [`SPEAK_TOPIC`](/reference/realtime-livekit/packages/realtime-livekit/src/protocol/variables/speak_topic/)
+- [`LiveKitTokenGrantSchema`](/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/variables/livekittokengrantschema/)
+- [`mintLiveKitToken`](/reference/realtime-livekit-server/functions/mintlivekittoken/)
+- [`defineMaelstromVoiceAgent`](/reference/realtime-livekit-agent/functions/definemaelstromvoiceagent/) and [`runVoiceAgent`](/reference/realtime-livekit-agent/functions/runvoiceagent/)
 
 ## Next steps
 
 <CardGrid>
-  <LinkCard title="Run the voice demo locally" href="/tutorials/run-voice-locally/" description="Hear one held turn end to end on your own machine, against the repository demo." />
-  <LinkCard title="OpenAI Realtime" href="/guides/voice/openai-realtime/" description="The other shipped mode: a speech-native model that owns turn detection, with no worker to run." />
-  <LinkCard title="Voice architecture" href="/understanding/voice-architecture/" description="Why speech becomes natural-language intent before it reaches the Engine, and what each mode pays for that boundary." />
-  <LinkCard title="Maelstrom architecture" href="/understanding/architecture/" description="The Engine and Chart boundaries that both voice modes reuse unchanged." />
+  <LinkCard
+    title="Run the voice demo locally"
+    href="/tutorials/run-voice-locally/"
+    description="Hear one turn end to end against the repository demo."
+  />
+  <LinkCard
+    title="OpenAI Realtime"
+    href="/guides/voice/openai-realtime/"
+    description="Use a speech-native model that owns turn detection, with no worker to run."
+  />
+  <LinkCard
+    title="Voice architecture"
+    href="/understanding/voice-architecture/"
+    description="Compare cascade and realtime ownership while keeping the Engine boundary fixed."
+  />
+  <LinkCard
+    title="Maelstrom architecture"
+    href="/understanding/architecture/"
+    description="Review the Engine and Chart boundaries that both voice modes reuse."
+  />
 </CardGrid>

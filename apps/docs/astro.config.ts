@@ -415,6 +415,10 @@ export default defineConfig({
               link: '/understanding/architecture/',
             },
             { slug: 'understanding/voice-architecture' },
+            {
+              label: 'Browser VAD and barge-in',
+              link: '/understanding/browser-vad-and-barge-in/',
+            },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },

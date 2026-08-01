@@ -21,7 +21,7 @@ export function createLiveKitAdapter({
 declare function waitForRelease(): Promise<void>;
 
 /* docs:livekit-turn-control:start */
-export async function runHeldTurn(
+export async function runManualTurn(
   turnControl: AdapterTurnControl,
 ): Promise<void> {
   await turnControl.startTurn();

@@ -445,7 +445,17 @@ test('OpenAI fixture regions are compile checked and rendered verbatim', async (
   expect(renderedCode).toContain((voiceControl ?? '').replace(/\s+/g, ''));
 });
 
-test('LiveKit browser fixture covers turn control and renders verbatim', async ({
+function normalizeDocumentedCode(source: string): string {
+  // Biome formats TypeScript fixtures with single quotes, while the MDX
+  // formatter preserves double quotes in fenced examples. Quote style is the
+  // only intentional difference between the compile-checked and rendered code.
+  return source
+    .replace(/\r\n/g, '\n')
+    .replaceAll('"', "'")
+    .replace(/\s+/g, '');
+}
+
+test('LiveKit browser fixture matches its source-backed examples', async ({
   page,
 }) => {
   const fixtureUrl = new URL(
@@ -458,42 +468,41 @@ test('LiveKit browser fixture covers turn control and renders verbatim', async (
   ).toBe(true);
 
   const fixture = readFileSync(fixtureUrl, 'utf8');
-  // The adapter and held-turn excerpts teach a first working turn, so they live
-  // on the tutorial. The guide's own adapter section is the hardened variant.
-  const guideSource = readFileSync(
-    new URL(
-      '../src/content/docs/tutorials/run-voice-locally.mdx',
-      import.meta.url,
-    ),
-    'utf8',
-  );
-  const regionNames = ['adapter-setup', 'turn-control'];
+  const contracts = [
+    {
+      regionName: 'adapter-setup',
+      source: '../src/content/docs/tutorials/run-voice-locally.mdx',
+      route: '/tutorials/run-voice-locally/',
+    },
+    {
+      regionName: 'turn-control',
+      source: '../src/content/docs/guides/voice/livekit-cascade.mdx',
+      route: '/guides/voice/livekit-cascade/',
+    },
+  ] as const;
 
-  await page.goto('/tutorials/run-voice-locally/');
-  const renderedCode = (await page.locator('main pre').allTextContents())
-    .join('\n')
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .join('\n');
-
-  for (const regionName of regionNames) {
+  for (const contract of contracts) {
+    const guideSource = readFileSync(
+      new URL(contract.source, import.meta.url),
+      'utf8',
+    );
     const region = fixture.match(
       new RegExp(
-        `/\\* docs:livekit-${regionName}:start \\*/([\\s\\S]*?)/\\* docs:livekit-${regionName}:end \\*/`,
+        `/\\* docs:livekit-${contract.regionName}:start \\*/([\\s\\S]*?)/\\* docs:livekit-${contract.regionName}:end \\*/`,
       ),
     )?.[1];
-    expect(region, `Expected the ${regionName} fixture region`).toBeDefined();
-    const normalizedRegion = (region ?? '')
-      .replace(/\r\n/g, '\n')
-      .split('\n')
-      .map((line) => line.trimEnd())
-      .join('\n')
-      .trim();
-    expect(guideSource.replace(/\r\n/g, '\n')).toContain(normalizedRegion);
-    expect(renderedCode.replace(/\s+/g, '')).toContain(
-      normalizedRegion.replace(/\s+/g, ''),
+    expect(
+      region,
+      `Expected the ${contract.regionName} fixture region`,
+    ).toBeDefined();
+
+    await page.goto(contract.route);
+    const renderedCode = (await page.locator('main pre').allTextContents()).join(
+      '\n',
     );
+    const normalizedRegion = normalizeDocumentedCode((region ?? '').trim());
+    expect(normalizeDocumentedCode(guideSource)).toContain(normalizedRegion);
+    expect(normalizeDocumentedCode(renderedCode)).toContain(normalizedRegion);
   }
 
   expect(fixture).toContain('turnControl.startTurn()');
@@ -502,7 +511,7 @@ test('LiveKit browser fixture covers turn control and renders verbatim', async (
   expect(fixture).not.toContain('stopTalking');
 });
 
-test('LiveKit production fixture is compile checked and rendered verbatim', async ({
+test('LiveKit production fixture matches the rendered guide examples', async ({
   page,
 }) => {
   const fixtureUrl = new URL(
@@ -537,34 +546,37 @@ test('LiveKit production fixture is compile checked and rendered verbatim', asyn
       ),
     )?.[1];
     expect(region, `Expected the ${regionName} fixture region`).toBeDefined();
-    const normalizedRegion = (region ?? '').trim();
-    expect(guideSource).toContain(normalizedRegion);
-    expect(renderedCode).toContain(normalizedRegion.replace(/\s+/g, ''));
+    const normalizedRegion = normalizeDocumentedCode((region ?? '').trim());
+    expect(normalizeDocumentedCode(guideSource)).toContain(normalizedRegion);
+    expect(normalizeDocumentedCode(renderedCode)).toContain(normalizedRegion);
   }
 
-  const sessionState = readFileSync(
+  // These dedicated fixtures remain compile checked by the docs TypeScript
+  // project, but the guide no longer renders them verbatim. Keep their safety
+  // contracts explicit without pretending that they are current guide source.
+  const sessionStateFixture = readFileSync(
     new URL('./fixtures/voice/livekit-session-state.tsx', import.meta.url),
     'utf8',
-  ).match(
-    /\/\* docs:livekit-session-state:start \*\/([\s\S]*?)\/\* docs:livekit-session-state:end \*\//,
-  )?.[1];
-  expect(
-    sessionState,
-    'Expected the session-state fixture region',
-  ).toBeDefined();
-  expect(renderedCode).toContain((sessionState ?? '').replace(/\s+/g, ''));
+  );
+  expect(sessionStateFixture).toContain("turnMode === 'manual'");
+  expect(sessionStateFixture).toContain('turnModeError !== undefined');
+  expect(sessionStateFixture).toContain(
+    'Automatic voice detection is unavailable. Hold to talk instead.',
+  );
 
-  // The hold-to-talk control is the largest component in the voice docs and was
-  // previously prose nobody compiled.
-  const holdToTalk = readFileSync(
+  const holdToTalkFixture = readFileSync(
     new URL('./fixtures/voice/livekit-hold-to-talk.tsx', import.meta.url),
     'utf8',
-  ).match(
-    /\/\* docs:livekit-hold-to-talk:start \*\/([\s\S]*?)\/\* docs:livekit-hold-to-talk:end \*\//,
-  )?.[1];
-  expect(holdToTalk, 'Expected the hold-to-talk fixture region').toBeDefined();
-  expect(guideSource).toContain((holdToTalk ?? '').trim());
-  expect(renderedCode).toContain((holdToTalk ?? '').replace(/\s+/g, ''));
+  );
+  for (const retainedSafetyContract of [
+    'turnControl.startTurn()',
+    'turnControl?.endTurn()',
+    'onPointerCancel={endPress}',
+    'onLostPointerCapture={cancelPress}',
+    "addEventListener('visibilitychange'",
+  ]) {
+    expect(holdToTalkFixture).toContain(retainedSafetyContract);
+  }
 });
 
 // Check only links directly present in the three guides. This intentionally
