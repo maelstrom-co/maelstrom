@@ -264,27 +264,18 @@ for (const route of [...GUIDE_ROUTES, ...REFERENCE_ROUTES]) {
   });
 }
 
-test('voice overview explains runtime ownership and control tradeoffs', async ({
-  page,
-}) => {
-  await page.goto('/guides/voice/overview/');
+// Runtime ownership is documented per provider, so each guide is asserted on
+// its own page. The overview only has to make the choice between them legible.
+test('OpenAI guide explains runtime ownership', async ({ page }) => {
+  await page.goto('/guides/voice/openai-realtime/');
 
-  const openAIDiagram = page.getByRole('document', {
+  const diagram = page.getByRole('document', {
     name: 'OpenAI Realtime runtime ownership',
   });
-  await expect(openAIDiagram).toBeVisible();
-  await expect(openAIDiagram).toHaveAttribute('aria-labelledby', /\S/);
-  await expect(openAIDiagram.locator('desc')).toHaveText(
+  await expect(diagram).toBeVisible();
+  await expect(diagram).toHaveAttribute('aria-labelledby', /\S/);
+  await expect(diagram.locator('desc')).toHaveText(
     'Browser audio and session data travel directly to OpenAI after a stateless server route mints a short-lived client credential.',
-  );
-
-  const liveKitDiagram = page.getByRole('document', {
-    name: 'LiveKit cascade runtime ownership',
-  });
-  await expect(liveKitDiagram).toBeVisible();
-  await expect(liveKitDiagram).toHaveAttribute('aria-labelledby', /\S/);
-  await expect(liveKitDiagram.locator('desc')).toHaveText(
-    'A stateless authenticated route mints a room grant; the worker publishes final transcripts, and the browser routes intents and settled results.',
   );
 
   const prose = page.locator('main :is(p, li)');
@@ -295,6 +286,25 @@ test('voice overview explains runtime ownership and control tradeoffs', async ({
     'returns a short-lived client credential',
     'ends after each mint request',
     'OpenAI operates the long-running realtime model session',
+  ]) {
+    await expect(prose.filter({ hasText: fact })).not.toHaveCount(0);
+  }
+});
+
+test('LiveKit guide explains runtime ownership', async ({ page }) => {
+  await page.goto('/guides/voice/livekit-cascade/');
+
+  const diagram = page.getByRole('document', {
+    name: 'LiveKit cascade runtime ownership',
+  });
+  await expect(diagram).toBeVisible();
+  await expect(diagram).toHaveAttribute('aria-labelledby', /\S/);
+  await expect(diagram.locator('desc')).toHaveText(
+    'A stateless authenticated route mints a room grant; the worker publishes final transcripts, and the browser routes intents and settled results.',
+  );
+
+  const prose = page.locator('main :is(p, li)');
+  for (const fact of [
     'browser LiveKit adapter joins a LiveKit room',
     'stateless authenticated token route uses server-held LiveKit credentials',
     'sign a short-lived room grant',
@@ -304,25 +314,34 @@ test('voice overview explains runtime ownership and control tradeoffs', async ({
     'stays attached for session work',
     'worker publishes each final transcript',
     'browser adapter turns that transcript into an ordinary Maelstrom intent',
-    'successful UI updates wait for rendering to settle',
+    'Successful UI updates wait for rendering to settle',
     'successful result returns through LiveKit for worker TTS',
     'Malformed tool arguments and genuine submission failures return failure results immediately',
+    'three runtime roles',
   ]) {
     await expect(prose.filter({ hasText: fact })).not.toHaveCount(0);
   }
+});
 
-  await expect(
-    prose.filter({ hasText: 'provider-managed model and turns' }),
-  ).not.toHaveCount(0);
-  await expect(
-    prose.filter({ hasText: 'control over STT, TTS, and room participation' }),
-  ).not.toHaveCount(0);
-  await expect(
-    prose.filter({ hasText: 'three runtime roles' }),
-  ).not.toHaveCount(0);
-  await expect(
-    prose.filter({ hasText: 'Hold-to-talk is the current interaction mode' }),
-  ).not.toHaveCount(0);
+test('voice overview states the control tradeoff between modes', async ({
+  page,
+}) => {
+  await page.goto('/guides/voice/overview/');
+  const prose = page.locator('main :is(p, li)');
+
+  // The choice a reader makes here is latency against control, so the overview
+  // must name what each mode gives up. Provider mechanics belong to the guides.
+  for (const tradeoff of [
+    'sends audio straight to a speech-native model',
+    'lower latency and fewer moving parts',
+    'the provider owns the pipeline',
+    'splits STT and TTS into a worker you operate',
+    'You choose the STT model and the TTS voice',
+    'hold-to-talk lets you decide when a turn commits',
+    'higher latency and a worker to run',
+  ]) {
+    await expect(prose.filter({ hasText: tradeoff })).not.toHaveCount(0);
+  }
 });
 
 test('OpenAI guide follows the how-to contract', async ({ page }) => {
