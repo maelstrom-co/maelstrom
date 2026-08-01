@@ -7,6 +7,7 @@ import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.ast
 import SidebarSublist from '@astrojs/starlight/components/SidebarSublist.astro';
 import { icons } from './icons';
 import MaelstromLogo from './MaelstromLogo.astro';
+import SidebarToggle from './SidebarToggle.astro';
 
 const { sidebar } = Astro.locals.starlightRoute;
 
@@ -23,9 +24,12 @@ const frameworks = [
 
 {/* ── Top chrome (desktop only) ──────────────────────────────────── */}
 <div class="sidebar-chrome">
-  <a href="https://maelstrom-ai.co" class="sidebar-logo">
-    <MaelstromLogo height={20} />
-  </a>
+  <div class="sidebar-chrome-top">
+    <a href="https://maelstrom-ai.co" class="sidebar-logo">
+      <MaelstromLogo height={20} />
+    </a>
+    <SidebarToggle variant="collapse" />
+  </div>
 
   {shouldRenderSearch && (
     <div class="sidebar-search" transition:persist="search">
@@ -84,6 +88,13 @@ const frameworks = [
     .sidebar-chrome {
       display: flex;
     }
+  }
+
+  .sidebar-chrome-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
   }
 
   .sidebar-logo {

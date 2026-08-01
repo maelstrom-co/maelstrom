@@ -1,5 +1,6 @@
 ---
 import MaelstromLogo from './MaelstromLogo.astro';
+import SidebarToggle from './SidebarToggle.astro';
 ---
 
 <div class="header">
@@ -7,6 +8,11 @@ import MaelstromLogo from './MaelstromLogo.astro';
     <MaelstromLogo height={18} />
   </a>
 </div>
+
+{/* Mounted here, not in Sidebar.astro: the expand button has to outlive the
+    sidebar sliding off-screen, and everything in Sidebar.astro renders inside
+    .sidebar-pane. */}
+<SidebarToggle variant="expand" />
 
 <style>
   .header {

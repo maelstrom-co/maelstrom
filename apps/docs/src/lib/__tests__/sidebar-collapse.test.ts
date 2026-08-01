@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import {
   applyStoredState,
   COLLAPSED_ATTRIBUTE,
@@ -147,5 +148,20 @@ describe('keyboard shortcut', () => {
   it('ignores an unmodified b', () => {
     press(document, { key: 'b' });
     expect(isCollapsed()).toBe(false);
+  });
+});
+
+describe('pre-paint script', () => {
+  const head = readFileSync(
+    new URL('../../components/Head.astro', import.meta.url),
+    'utf8',
+  );
+
+  it('uses the same storage key as this module', () => {
+    expect(head).toContain(SIDEBAR_COLLAPSED_KEY);
+  });
+
+  it('uses the same attribute as this module', () => {
+    expect(head).toContain(COLLAPSED_ATTRIBUTE);
   });
 });
