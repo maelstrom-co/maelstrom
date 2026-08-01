@@ -137,3 +137,62 @@ nav.sidebar details > summary svg {
 nav.sidebar details[open] > summary svg {
   transform: rotate(90deg);
 }
+
+/* ── Focus mode: collapsible sidebar (desktop only) ──────────────────
+   The whole feature is CSS reacting to data-sidebar-collapsed on <html>.
+   Zeroing --sl-sidebar-width is the load-bearing move: Starlight derives
+   --sl-content-inline-start from it, so .main-frame drops its padding and
+   the content column reclaims the space and re-centers with no JS. */
+
+:root {
+  /* Starlight's own default, captured so it survives zeroing the variable. */
+  --maelstrom-sidebar-width: 18.75rem;
+}
+
+@media (min-width: 50rem) {
+  .sidebar-pane,
+  .main-frame,
+  .main-pane,
+  .right-sidebar-container {
+    transition: transform 0.2s ease, padding-inline-start 0.2s ease,
+      width 0.2s ease;
+  }
+
+  :root[data-sidebar-collapsed='true'] {
+    --sl-sidebar-width: 0rem;
+  }
+
+  :root[data-sidebar-collapsed='true'] .sidebar-pane {
+    /* Pin the pane's own width — it is sized from --sl-sidebar-width too, and a
+       zero-width pane has no distance to slide. */
+    width: var(--maelstrom-sidebar-width);
+    transform: translateX(-100%);
+    /* visibility takes the links out of the tab order and the a11y tree. It
+       cannot interpolate, so hold it until the slide finishes on the way out;
+       it flips back instantly on the way in. */
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+
+  /* Starlight sizes the right ToC from --sl-sidebar-width too, so zeroing it
+     would crush the ToC to nothing. Pin it back — but the collapsed gutter is
+     (viewport - content width) / 2, which is narrower than the old sidebar
+     below roughly 1600px. Clamp to whichever is smaller: unclamped, the panel
+     overflows the viewport edge with no scrollbar to reach it. */
+  :root[data-sidebar-collapsed='true'] .right-sidebar-panel .sl-container {
+    width: min(
+      var(--maelstrom-sidebar-width) - 2 * var(--sl-sidebar-pad-x),
+      (100vw - var(--sl-content-width)) / 2 - 2 * var(--sl-sidebar-pad-x)
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-pane,
+  .main-frame,
+  .main-pane,
+  .right-sidebar-container,
+  :root[data-sidebar-collapsed='true'] .sidebar-pane {
+    transition: none;
+  }
+}
