@@ -15,15 +15,23 @@ export function signOffAddresses(message: string): {
   };
 }
 
+// Lines are split on `\n` rather than left to the regex `m` flag, which also
+// anchors `^` after CR, U+2028 and U+2029. Git splits a commit message on LF
+// alone, so any of those inside a line would let a message that carries no
+// trailer at all present one and pass the check.
 function signOffTrailers(message: string): string[] {
-  return [...message.matchAll(SIGN_OFF_TRAILER)].map((match) => match[1] ?? '');
+  return message
+    .split('\n')
+    .flatMap((line) => SIGN_OFF_TRAILER.exec(line)?.[1] ?? []);
 }
 
 // Case-sensitive literal prefix anchored to line start: a trailer is a
 // line-start construct, so `signed-off-by:` and an indented line are not
 // trailers. The horizontal-whitespace class is deliberate — `\s*` would match
 // the newline after a bare prefix and capture the next line as the value.
-const SIGN_OFF_TRAILER = /^Signed-off-by:[ \t]*(.*)$/gm;
+// `[^\n]*` rather than `.*` keeps the trailing CR of a CRLF message, which the
+// address parser tolerates.
+const SIGN_OFF_TRAILER = /^Signed-off-by:[ \t]*([^\n]*)$/;
 
 function addressOf(trailerValue: string): string | undefined {
   const address = normalizeEmail(

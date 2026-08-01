@@ -65,6 +65,33 @@ describe('signOffAddresses', () => {
     ).toEqual({ trailerCount: 1, addresses: [] });
   });
 
+  it('rejects a trailer separated by a bare carriage return', () => {
+    // Git splits a commit message on LF alone, so this message is one line and
+    // carries no trailer. A regex `m` flag would anchor `^` after the `\r` and
+    // certify a sign-off the commit never made.
+    expect(
+      signOffAddresses(
+        'refactor: x\rSigned-off-by: Ada Lovelace <ada@example.com>',
+      ),
+    ).toEqual({ trailerCount: 0, addresses: [] });
+  });
+
+  it('rejects a trailer separated by U+2028', () => {
+    expect(
+      signOffAddresses(
+        'refactor: x\u2028Signed-off-by: Ada Lovelace <ada@example.com>',
+      ),
+    ).toEqual({ trailerCount: 0, addresses: [] });
+  });
+
+  it('rejects a trailer separated by U+2029', () => {
+    expect(
+      signOffAddresses(
+        'refactor: x\u2029Signed-off-by: Ada Lovelace <ada@example.com>',
+      ),
+    ).toEqual({ trailerCount: 0, addresses: [] });
+  });
+
   it('rejects a lowercase signed-off-by prefix', () => {
     // Case-sensitivity of the prefix is a decision, so pin it.
     expect(
