@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import {
+  ANIMATING_ATTRIBUTE,
+  ANIMATION_FALLBACK_MS,
   applyStoredState,
   COLLAPSED_ATTRIBUTE,
   initSidebarCollapse,
@@ -31,6 +33,7 @@ function press(
 
 beforeEach(() => {
   document.documentElement.removeAttribute(COLLAPSED_ATTRIBUTE);
+  document.documentElement.removeAttribute(ANIMATING_ATTRIBUTE);
   renderToggles();
   initSidebarCollapse();
 });
@@ -148,6 +151,68 @@ describe('keyboard shortcut', () => {
   it('ignores an unmodified b', () => {
     press(document, { key: 'b' });
     expect(isCollapsed()).toBe(false);
+  });
+});
+
+describe('animation marker', () => {
+  // sidebar.css keys its collapse transition off this marker so it never
+  // animates viewport-driven layout changes (window resize, tablet rotation,
+  // a scrollbar appearing) — only an actual toggle.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sets the marker when a toggle drives the collapse', () => {
+    toggleCollapsed();
+    expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
+      true,
+    );
+  });
+
+  // applyStoredState runs on load and after every view transition, where the
+  // collapsed state must appear instantly with no slide.
+  it('does not set the marker when restoring stored state', () => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'true');
+    applyStoredState();
+    expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
+      false,
+    );
+  });
+
+  it('clears the marker via the fallback timeout if transitionend never fires', () => {
+    vi.useFakeTimers();
+    toggleCollapsed();
+    expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
+      true,
+    );
+
+    vi.advanceTimersByTime(ANIMATION_FALLBACK_MS);
+    expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
+      false,
+    );
+  });
+
+  // A missed toggle-then-toggle-again in quick succession must not leave the
+  // marker permanently on (blocking future resizes from ever animating) nor
+  // clear it early (cutting the second animation's transition short).
+  it('does not strand the marker when a second toggle starts before the first settles', () => {
+    vi.useFakeTimers();
+    toggleCollapsed();
+    vi.advanceTimersByTime(ANIMATION_FALLBACK_MS - 10);
+
+    toggleCollapsed();
+    vi.advanceTimersByTime(20);
+    // 20ms after the second toggle, but (FALLBACK - 10 + 20) > FALLBACK ms
+    // after the first — if the second toggle failed to reset the pending
+    // timer, the first one would already have cleared this.
+    expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
+      true,
+    );
+
+    vi.advanceTimersByTime(ANIMATION_FALLBACK_MS - 20);
+    expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
+      false,
+    );
   });
 });
 

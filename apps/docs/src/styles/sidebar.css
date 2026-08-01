@@ -150,12 +150,24 @@ nav.sidebar details[open] > summary svg {
 }
 
 @media (min-width: 50rem) {
-  .sidebar-pane,
-  .main-frame,
-  .main-pane,
-  .right-sidebar-container {
-    transition: transform 0.2s ease, padding-inline-start 0.2s ease,
-      width 0.2s ease;
+  /* Scoped to the animating marker (set only while a toggle is in flight, see
+     sidebar-collapse.ts) — .main-pane, .right-sidebar-container and
+     .main-frame derive their size from the viewport as well as from the
+     collapsed state, so an unconditional transition here would also animate
+     window resizes, tablet rotation, and scrollbars appearing. Each selector
+     is scoped to the one property it actually animates; .sidebar-pane's own
+     width never changes, only its transform. */
+  :root[data-sidebar-animating] .sidebar-pane {
+    transition: transform 0.2s ease;
+  }
+
+  :root[data-sidebar-animating] .main-frame {
+    transition: padding-inline-start 0.2s ease;
+  }
+
+  :root[data-sidebar-animating] .main-pane,
+  :root[data-sidebar-animating] .right-sidebar-container {
+    transition: width 0.2s ease;
   }
 
   :root[data-sidebar-collapsed='true'] {
@@ -188,10 +200,15 @@ nav.sidebar details[open] > summary svg {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-pane,
-  .main-frame,
-  .main-pane,
-  .right-sidebar-container,
+  /* Selectors mirror the gated rules above at matching specificity — this
+     block only wins because it is declared later in the file. Dropping the
+     `[data-sidebar-animating]` prefix here would make these selectors less
+     specific than the ones they must override, and the override would fail
+     silently regardless of source order. */
+  :root[data-sidebar-animating] .sidebar-pane,
+  :root[data-sidebar-animating] .main-frame,
+  :root[data-sidebar-animating] .main-pane,
+  :root[data-sidebar-animating] .right-sidebar-container,
   :root[data-sidebar-collapsed='true'] .sidebar-pane {
     transition: none;
   }
