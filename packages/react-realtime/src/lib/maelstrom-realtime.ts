@@ -44,7 +44,17 @@ export interface MaelstromRealtimeOptions {
   readonly debug?: boolean;
 }
 
-/** Return value of the `useVoice()` hook added by {@link maelstromRealtime}. */
+/**
+ * Return value of the `useVoice()` hook added by {@link maelstromRealtime}.
+ *
+ * The hook reports what the session is doing; it does not promise a fixed
+ * sequence of events. There is no universal state progression across providers
+ * and no universal retry policy, because each adapter owns its own connection
+ * and turn behavior. Render the current `state` rather than inferring success
+ * from an expected order, and use the typed error together with your own
+ * deployment policy to decide whether to request microphone permission, repair
+ * token minting, inspect the connection, or offer a reconnect.
+ */
 export interface UseVoiceResult {
   /** Lifecycle state of the shared session, updated for every consumer. */
   readonly state: VoiceSessionState;
@@ -69,9 +79,20 @@ export interface UseVoiceResult {
    * manual transitions clear it. It must not be rendered verbatim or serialized.
    */
   readonly turnModeError: unknown;
-  /** Connects the shared session; concurrent lifecycle safety is session-owned. */
+  /**
+   * Connects the shared session; concurrent lifecycle safety is session-owned.
+   *
+   * Resolving means the provider session is ready. Rejecting means the attempt
+   * failed, and the session also moves to `error`. Calling this while a
+   * connection is already starting or live may be a no-op.
+   */
   readonly connect: () => Promise<void>;
-  /** Disconnects the shared session regardless of other mounted consumers. */
+  /**
+   * Disconnects the shared session regardless of other mounted consumers.
+   *
+   * Calling this while no session is live may be a no-op. A rejection is not
+   * swallowed, so cleanup failures stay visible and can be retried.
+   */
   readonly disconnect: () => Promise<void>;
 }
 

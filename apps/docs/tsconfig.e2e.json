@@ -11,7 +11,10 @@
     "e2e/**/*.ts",
     "e2e/**/*.tsx",
     "e2e/**/*.js",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    // Diagram models. The e2e suite asserts a page renders every role and path
+    // its model declares, so the model is the assertion's source of truth.
+    "src/components/ownership/*.ts"
   ],
   "exclude": ["out-tsc", "test-output"]
 }

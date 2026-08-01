@@ -1,0 +1,457 @@
+---
+import {
+  anchor,
+  arcPath,
+  labelPoint,
+  nodeRect,
+  straightPath,
+  topAnchor,
+} from './geometry';
+import type { OwnershipEdge, OwnershipModel, OwnershipNode } from './types';
+
+interface Props {
+  /** Unique on the page — namespaces the SVG marker ids. */
+  id: string;
+  model: OwnershipModel;
+  caption?: string;
+}
+
+// Rendered as a plain Astro component, never an island. A framework component
+// inside a content-collection entry crashes the starlight-llms-txt build, which
+// renders every entry through a container with no framework renderer. This
+// diagram is static anyway: there is nothing here for client JS to do.
+const { id, model, caption } = Astro.props;
+const { stage, bands, nodes, edges, summary } = model;
+
+const byId = new Map(nodes.map((node) => [node.id, node]));
+
+interface ResolvedEdge {
+  edge: OwnershipEdge;
+  from: OwnershipNode;
+  to: OwnershipNode;
+  d: string;
+  label: { x: number; y: number };
+}
+
+const resolved: ResolvedEdge[] = edges.flatMap((edge) => {
+  const from = byId.get(edge.from);
+  const to = byId.get(edge.to);
+  if (!from || !to) return [];
+
+  // Arcs leave the top of both nodes, so a path that bypasses a zone is visibly
+  // outside it rather than cutting through the cards that sit between them.
+  const lift = edge.lift;
+  const arced = lift !== undefined;
+  const a = arced ? topAnchor(from) : anchor(from, to.x, to.y);
+  const b = arced ? topAnchor(to) : anchor(to, from.x, from.y);
+  const at = labelPoint(a, b, lift);
+
+  return [
+    {
+      edge,
+      from,
+      to,
+      d: lift === undefined ? straightPath(a, b) : arcPath(a, b, lift),
+      label: {
+        x: at.x + (edge.labelDx ?? 0),
+        y: at.y + (edge.labelDy ?? 0),
+      },
+    },
+  ];
+});
+
+const kinds = [...new Set(edges.map((edge) => edge.kind))];
+
+// Built here rather than in the template: the Astro compiler reads a `<` inside
+// a template expression as the start of a tag, so a comparison there is a
+// parse error.
+const nodeDescriptions = nodes.map((node) => {
+  const band = bands.find(
+    (b) => b.x <= node.x && node.x < b.x + b.width,
+  )?.label;
+  // Card text is written for a card, so some of it already ends in a period.
+  // Trimming here keeps the spoken sentence from doubling up.
+  const parts = [
+    node.label,
+    node.detail,
+    node.holds && `Holds ${node.holds}`,
+    node.lifetime,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .map((part) => part.replace(/\.$/, ''));
+  return `${band ? `${band}: ` : ''}${parts.join('. ')}.`;
+});
+
+const edgeDescriptions = resolved.map(({ edge, from, to }) => {
+  const link = edge.direction === 'both' ? 'and' : 'to';
+  const what = edge.label ? `: ${edge.label}` : '';
+  return `${from.label} ${link} ${to.label}${what}.`;
+});
+---
+
+<figure class="own">
+  <div class="own-scroll">
+    <div class="own-stage">
+      <svg
+        class="own-canvas"
+        viewBox={`0 0 ${stage.w} ${stage.h}`}
+        role="img"
+        aria-label={summary}
+      >
+        <defs>
+          {
+            kinds.map((kind) => (
+              <marker
+                id={`${id}-head-${kind}`}
+                class={`own-head own-head--${kind}`}
+                viewBox="0 0 9 9"
+                refX="8"
+                refY="4.5"
+                markerWidth="9"
+                markerHeight="9"
+                markerUnits="userSpaceOnUse"
+                orient="auto-start-reverse"
+              >
+                <path d="M0,0 L9,4.5 L0,9 z" />
+              </marker>
+            ))
+          }
+        </defs>
+
+        <g class="own-bands" aria-hidden="true">
+          {
+            bands.map((band) => (
+              <g class={`own-band own-band--${band.tone}`}>
+                <rect
+                  class="own-band__fill"
+                  x={band.x}
+                  y={0}
+                  width={band.width}
+                  height={stage.h}
+                />
+                <text class="own-band__label" x={band.x + 18} y={40}>
+                  {band.label}
+                </text>
+              </g>
+            ))
+          }
+        </g>
+
+        <g class="own-edges" aria-hidden="true">
+          {
+            resolved.map(({ edge, d, label }) => (
+              <g class={`own-edge own-edge--${edge.kind}`}>
+                <path class="own-rail" d={d} />
+                <path
+                  class="own-flow"
+                  d={d}
+                  pathLength={100}
+                  marker-end={`url(#${id}-head-${edge.kind})`}
+                  marker-start={
+                    edge.direction === 'both'
+                      ? `url(#${id}-head-${edge.kind})`
+                      : undefined
+                  }
+                />
+                {edge.label && (
+                  <text class="own-edge__label" x={label.x} y={label.y}>
+                    {edge.label}
+                  </text>
+                )}
+              </g>
+            ))
+          }
+        </g>
+
+        <g class="own-nodes" aria-hidden="true">
+          {
+            nodes.map((node) => {
+              const r = nodeRect(node);
+              return (
+                <foreignObject
+                  class="own-node-fo"
+                  x={r.x}
+                  y={r.y}
+                  width={r.width}
+                  height={r.height}
+                >
+                  <div class={`own-node own-node--${node.tone}`}>
+                    <span class="own-node__label">{node.label}</span>
+                    {node.detail && (
+                      <span class="own-node__detail">{node.detail}</span>
+                    )}
+                    {(node.holds || node.lifetime) && (
+                      <span class="own-node__meta">
+                        {node.holds && (
+                          <span class="own-node__badge own-node__badge--secret">
+                            {node.holds}
+                          </span>
+                        )}
+                        {node.lifetime && (
+                          <span class="own-node__badge">{node.lifetime}</span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </foreignObject>
+              );
+            })
+          }
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  {caption && <figcaption class="own-caption">{caption}</figcaption>}
+
+  {/* The same content as text. The SVG is aria-hidden throughout and carries
+      only a one-line aria-label, so this list is what assistive technology and
+      the plain-text docs export actually read. */}
+  <div class="own-sr">
+    <ul>
+      {nodeDescriptions.map((description) => <li>{description}</li>)}
+      {edgeDescriptions.map((description) => <li>{description}</li>)}
+    </ul>
+  </div>
+</figure>
+
+<style>
+  /* Theme-aware through Starlight's CSS variables, and deliberately close to the
+     architecture diagram: same bands, same card treatment, same rail-plus-comet
+     beams. A reader who has seen /understanding/architecture/ should recognise
+     this as the same drawing language at a smaller scale. */
+  .own {
+    --own-border: var(--sl-color-gray-5);
+    --own-panel: linear-gradient(
+      165deg,
+      var(--sl-color-gray-7),
+      var(--sl-color-gray-6)
+    );
+    --own-rail: var(--sl-color-gray-4);
+    --own-band: rgba(15, 23, 42, 0.022);
+    --own-band-provider: rgba(124, 58, 237, 0.06);
+    --own-band-label: rgba(15, 23, 42, 0.34);
+    --own-node-bg: linear-gradient(180deg, #ffffff, var(--sl-color-gray-7));
+    --own-node-border: var(--sl-color-gray-4);
+    --own-node-shadow: 0 6px 16px -10px rgba(15, 23, 42, 0.5);
+    --own-node-text: #0f172a;
+    --own-grant: #0284c7;
+    --own-media: #7c3aed;
+    --own-intent: #64748b;
+    --own-secret: #b45309;
+    --own-glow: 0 0 0 transparent;
+
+    margin: 1.5rem 0;
+  }
+  :global(:root[data-theme='dark']) .own {
+    --own-border: rgba(148, 163, 184, 0.16);
+    --own-panel: linear-gradient(165deg, #0b1018, #070a10);
+    --own-rail: rgba(148, 163, 184, 0.28);
+    --own-band: rgba(148, 163, 184, 0.028);
+    --own-band-provider: rgba(167, 139, 250, 0.07);
+    --own-band-label: rgba(148, 163, 184, 0.5);
+    --own-node-bg: linear-gradient(
+      180deg,
+      rgba(30, 41, 59, 0.94),
+      rgba(15, 23, 42, 0.94)
+    );
+    --own-node-border: rgba(148, 163, 184, 0.24);
+    --own-node-shadow:
+      0 12px 30px -14px rgba(0, 0, 0, 0.85),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    --own-node-text: #e2e8f0;
+    --own-grant: #38bdf8;
+    --own-media: #a78bfa;
+    --own-intent: #94a3b8;
+    --own-secret: #fbbf24;
+    --own-glow: 0 0 5px currentColor;
+  }
+
+  /* Below the min-width the labels stop being legible, so the diagram scrolls
+     rather than shrinking into decoration. */
+  .own-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  .own-stage {
+    min-width: 720px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--own-border);
+    background: var(--own-panel);
+  }
+  .own-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .own-band__fill {
+    fill: var(--own-band);
+  }
+  .own-band--theirs .own-band__fill {
+    fill: var(--own-band-provider);
+  }
+  .own-band__label {
+    fill: var(--own-band-label);
+    font: 600 14px ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+  }
+
+  .own-edge--grant {
+    color: var(--own-grant);
+  }
+  .own-edge--media {
+    color: var(--own-media);
+  }
+  .own-edge--intent {
+    color: var(--own-intent);
+  }
+  /* Tinted toward the edge's own colour so a path reads as one kind even where
+     the comet is not currently over it. */
+  .own-rail {
+    fill: none;
+    stroke: color-mix(in srgb, currentColor 38%, var(--own-rail));
+    stroke-width: 2.5;
+    stroke-linecap: round;
+  }
+  .own-flow {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 3.5;
+    stroke-linecap: round;
+    stroke-dasharray: 14 86;
+    opacity: 0.9;
+    animation: own-flow 4.2s linear infinite;
+    filter: drop-shadow(var(--own-glow));
+  }
+  .own-edge--intent .own-flow {
+    stroke-width: 2.6;
+    opacity: 0.6;
+  }
+  @keyframes own-flow {
+    from {
+      stroke-dashoffset: 100;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  /* Unlike the architecture diagram, motion here is decoration: the direction is
+     already carried by the arrowheads and the label. So it yields. */
+  @media (prefers-reduced-motion: reduce) {
+    .own-flow {
+      animation: none;
+      stroke-dasharray: none;
+      opacity: 0.75;
+    }
+  }
+
+  .own-head path {
+    fill: currentColor;
+  }
+  .own-head--grant {
+    color: var(--own-grant);
+  }
+  .own-head--media {
+    color: var(--own-media);
+  }
+  .own-head--intent {
+    color: var(--own-intent);
+  }
+
+  .own-edge__label {
+    fill: var(--own-node-text);
+    font: 600 15px ui-sans-serif, system-ui, sans-serif;
+    text-anchor: middle;
+    /* Stroke the text in the panel colour and paint it under the glyphs, so a
+       label stays readable where it sits on top of its own rail. */
+    paint-order: stroke;
+    stroke: var(--sl-color-gray-7);
+    stroke-width: 5;
+    stroke-linejoin: round;
+  }
+  :global(:root[data-theme='dark']) .own-edge__label {
+    stroke: #080c13;
+  }
+
+  /* overflow visible so card shadows are not clipped by the foreignObject. */
+  .own-node-fo {
+    overflow: visible;
+  }
+  .own-node {
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 10px 16px;
+    border: 1px solid var(--own-node-border);
+    border-radius: 12px;
+    background: var(--own-node-bg);
+    box-shadow: var(--own-node-shadow);
+    color: var(--own-node-text);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+  /* What the provider runs: same shape, dashed and quieter, so "not yours to
+     deploy" reads without a legend. */
+  .own-node--theirs {
+    border-style: dashed;
+    background: none;
+    box-shadow: none;
+  }
+  .own-node__label {
+    font-size: 20px;
+    line-height: 1.15;
+    font-weight: 650;
+  }
+  .own-node__detail {
+    font-size: 14.5px;
+    line-height: 1.25;
+    opacity: 0.72;
+  }
+  .own-node__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 2px;
+  }
+  .own-node__badge {
+    font-size: 12.5px;
+    line-height: 1.4;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--own-node-border);
+    opacity: 0.85;
+    white-space: nowrap;
+  }
+  .own-node__badge--secret {
+    color: var(--own-secret);
+    border-color: color-mix(in srgb, var(--own-secret) 45%, transparent);
+    background: color-mix(in srgb, var(--own-secret) 12%, transparent);
+    opacity: 1;
+    font-weight: 600;
+  }
+
+  .own-caption {
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+    opacity: 0.75;
+    text-align: center;
+  }
+
+  .own-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
