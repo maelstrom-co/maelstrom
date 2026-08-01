@@ -286,6 +286,7 @@ export default defineConfig({
             '../../packages/realtime-livekit/src/index.ts',
             '../../packages/realtime-livekit/src/protocol.ts',
             '../../packages/realtime-livekit/src/livekit-token.ts',
+            '../../packages/realtime-livekit/src/vad-assets.ts',
           ],
           tsconfig: '../../packages/realtime-livekit/tsconfig.lib.json',
           output: 'reference/realtime-livekit',
@@ -363,6 +364,8 @@ export default defineConfig({
           label: 'Tutorials',
           items: [
             { slug: 'tutorials/first-dashboard' },
+            { slug: 'tutorials/run-voice-locally' },
+            { slug: 'tutorials/run-the-cascade-locally' },
             { slug: 'tutorials/deploy-to-production' },
           ],
         },

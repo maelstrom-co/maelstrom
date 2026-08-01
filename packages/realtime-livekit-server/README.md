@@ -38,113 +38,44 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server
 ```ts
 import { isErr } from '@maelstrom-co/protocol';
 import {
-  mintFailureHttpStatus,
   mintLiveKitToken,
+  LiveKitTokenRequestSchema,
 } from '@maelstrom-co/realtime-livekit-server';
-import { requireAuthenticatedVoiceSession } from './auth';
-import {
-  consumeVoiceMintRateLimit,
-  isTrustedVoiceMintOrigin,
-  isValidVoiceMintCsrf,
-} from './voice-mint-policy';
-import { reportRedactedVoiceMintFailure } from './redacted-telemetry';
 
-export async function POST(request: Request): Promise<Response> {
-  const headers = { 'Cache-Control': 'private, no-store' };
-  try {
-    if (!isTrustedVoiceMintOrigin(request)) {
-      return Response.json({ error: 'request-denied' }, { status: 403, headers });
-    }
+// Room name and participant identity come from authenticated server policy,
+// never from the browser. This package signs the scope it is handed; it does
+// not decide who may ask for one.
+const result = await mintLiveKitToken({
+  roomName: authenticated.roomName,
+  identity: authenticated.identity,
+});
 
-    const authenticated = await requireAuthenticatedVoiceSession(request);
-    if (authenticated === null) {
-      return Response.json(
-        { error: 'unauthorized' },
-        { status: 401, headers },
-      );
-    }
-
-    if (!isValidVoiceMintCsrf(request, authenticated)) {
-      return Response.json({ error: 'request-denied' }, { status: 403, headers });
-    }
-
-    const rateLimit = await consumeVoiceMintRateLimit(authenticated.principalId);
-    if (!rateLimit.allowed) {
-      return Response.json(
-        { error: 'rate-limited' },
-        {
-          status: 429,
-          headers: {
-            ...headers,
-            'Retry-After': String(rateLimit.retryAfterSeconds),
-          },
-        },
-      );
-    }
-
-    const result = await mintLiveKitToken({
-      roomName: authenticated.roomName,
-      identity: authenticated.identity,
-    });
-
-    if (isErr(result)) {
-      return Response.json(
-        { error: 'mint-failed' },
-        { status: mintFailureHttpStatus(result.error.reason), headers },
-      );
-    }
-    return Response.json(result.value, { headers });
-  } catch (error) {
-    try {
-      await reportRedactedVoiceMintFailure({
-        source: 'livekit-token-route',
-        error,
-      });
-    } catch {
-      // Telemetry failure must not escape the HTTP boundary.
-    }
-    return Response.json(
-      { error: 'mint-failed' },
-      { status: 500, headers },
-    );
-  }
-}
+const response = isErr(result)
+  ? Response.json({ error: 'mint-failed' }, { status: 500 })
+  : Response.json(result.value);
 ```
 
-`mintLiveKitToken` validates request shape only — it performs no authentication
-or authorization. The imported authentication, CSRF, origin, shared rate-limit,
-and telemetry functions are mandatory app-provided fail-closed controls; the
-package does not implement them. `requireAuthenticatedVoiceSession` must return
-`null` on authentication or authorization denial, bind the principal to the
-trusted server session, and derive room scope from that session. It does not
-validate CSRF.
-`isTrustedVoiceMintOrigin` must validate `Origin` against an exact allowlist and
-return `false` when policy cannot be evaluated. `isValidVoiceMintCsrf` must
-be the only control in this example that validates the application's CSRF proof
-against the authenticated session, returning `false` when the proof or policy is
-invalid. `consumeVoiceMintRateLimit` must atomically consume from a shared limit
-keyed by the authenticated principal, return a bounded retry delay, and deny on
-store failure. None may accept policy keys or room scope from browser input.
+`LiveKitTokenRequestSchema` validates the shape of a mint request when your
+transport needs it. The grant carries `roomJoin` for that one room,
+`canPublish`, and `canSubscribe` — no room administration, recording, ingress,
+or egress.
 
-The outer `try` covers every helper and the minter. Unexpected exceptions are
-reported only through `reportRedactedVoiceMintFailure`, which must emit only
-allowlisted metadata and discard raw messages, stacks, credentials, token
-contents, request bodies, and session data. A telemetry failure must not escape
-the route. Every success, denial, mapped mint failure, and unexpected exception
-uses `Cache-Control: private, no-store`; no response body exposes an internal
-mint failure reason. Keep `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and
-`LIVEKIT_API_SECRET` in server-only configuration.
+Everything that makes this route safe to expose — authentication, origin and
+CSRF checks, rate limits, short token lifetimes, session duration limits,
+no-store headers, redacted telemetry — belongs to the route around it, and is
+worked through step by step in the
+[LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/#harden-the-mint-route).
 
-The minter's room grant contains only `roomJoin`, the server-derived `room`,
-`canPublish`, and `canSubscribe`. It does not grant room administration,
-recording, ingress, egress, or access to another room. The token and managed
-reconnect behavior documented here is scoped to the repository's locked
-`livekit-server-sdk` and `livekit-client` 2.13.1 releases.
+The server process requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and
+`LIVEKIT_API_SECRET`. `LIVEKIT_TOKEN_TTL` is optional and defaults to `15m`.
+Token TTL does not bound a session: LiveKit pushes refreshed tokens to
+connected participants, so expiry only affects new connections.
 
 > **Development-only demo route:** The repository demo mint route at
 > `apps/demo/src/lib/voice/get-livekit-token.ts` currently lacks production
 > authentication, trusted scope derivation, and explicit no-store cache headers.
-> Do not deploy it; use the hardened authenticated POST route above.
+> Do not deploy it; use the hardened route from the guide above.
+
 
 ## Docs
 

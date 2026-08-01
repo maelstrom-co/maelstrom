@@ -1,74 +1,76 @@
 ---
-title: "Voice architecture: cascade vs realtime"
-description: Compare realtime and cascade voice modes while preserving Maelstrom's intent and Engine boundary.
+title: "The voice boundary"
+description: Why a voice model never plans your UI, and what changes when you choose a cascade or a realtime mode.
 ---
 
-Voice systems usually follow one of two architectural modes. A **voice-to-voice realtime model** handles an ongoing spoken conversation. A **cascade** passes speech through separate speech-to-text (STT) and text-to-speech (TTS) stages. Neither mode changes how Maelstrom plans a UI.
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+import OwnershipDiagram from "../../../components/ownership/OwnershipDiagram.astro";
+import { VOICE_BOUNDARY } from "../../../components/ownership/voice-boundary";
 
-Both modes cross into Maelstrom only as natural-language intent. The client then captures the current Chart snapshot for the Engine. A voice model's memory, transcript, or belief about the interface never becomes Engine planning input.
+Adding voice to a Maelstrom app adds a second thing that talks to the user. It does not add a second thing that decides what the user sees.
 
-```mermaid
-flowchart LR
-  accTitle: Shared Maelstrom voice boundary
-  accDescr: Realtime and cascade voice modes produce natural-language intent, while the client-owned Chart snapshot remains the Engine planning input.
+A voice model carries a picture of your interface as it talks — what it thinks is on screen, what it just described, what it believes it changed. That picture is useful for conversation and wrong as often as speech is. It never reaches the Engine.
 
-  Realtime["Realtime voice mode"] --> Intent["Natural-language intent"]
-  Cascade["Cascade voice mode"] --> Intent
-  Intent --> Client["Maelstrom client"]
-  Chart["Current Chart snapshot"] --> Client
-  Client --> Engine["Engine"]
-  Engine --> UI["Settled UI"]
-  UI --> Result["Spoken result"]
-```
+<OwnershipDiagram
+  id="voice-boundary"
+  model={VOICE_BOUNDARY}
+  caption="The model is fed structure and still plans nothing. The struck path is the one that does not exist."
+/>
 
-That shared boundary lets you choose a voice architecture for audio quality, latency, and operations without creating another UI planning path.
+## What crosses, and what cannot
 
-## Voice-to-voice realtime mode
+One thing crosses from the voice provider into Maelstrom and becomes planning input: a natural-language `update_ui` intent. Its entire argument schema is `{ intent: string }`, closed to additional properties, and the session reads that one field and drops whatever else arrives with it. It is a sentence about what the user appears to want, and nothing more.
 
-A realtime model receives speech and produces speech within one long-running conversation. The provider may manage turn detection, interruption, transcripts, and response generation as parts of the same session.
+Nothing else the model holds can follow it. Its transcript, its belief about the layout, the audio itself — none of it is planning input. Voice providers do not supply Vessel IDs, Actions, Instance state, or layout coordinates, because there is no field to put them in.
 
-```mermaid
-flowchart LR
-  accTitle: Realtime voice-to-voice flow
-  accDescr: The browser exchanges audio with a realtime model, which sends natural-language intent to Maelstrom and waits for the settled tool result before narration.
+The Maelstrom client then supplies what the model cannot know: the current Chart snapshot, built at the moment the intent arrives. Instances, Variants, and chart dimensions in grid cells. The Engine plans from that snapshot and from the sentence — never from the speaker's account of the screen.
 
-  Human["Human"] <-->|"Live audio"| Model["Realtime voice model"]
-  Grounding["Structural grounding<br/>and read tools"] --> Model
-  Model -->|"update_ui intent"| Client["Maelstrom client"]
-  Client -->|"Intent + Chart snapshot"| Engine["Engine"]
-  Engine --> UI["Settled UI"]
-  UI -->|"Tool result after settle"| Model
-```
+## The model may read, but never plan
 
-In Maelstrom's realtime route, structural grounding helps the model discuss the interface. Read-only tools can refresh that picture when needed. Grounding is conversational context, not planning truth. Only the natural-language `update_ui` intent crosses into the client.
+The boundary is not a wall, and it is worth being precise about which way it runs. Structure crosses it constantly — outward.
 
-The client builds the Chart snapshot and sends it to the Engine. After the result renders, `RealtimeSession` releases the successful tool result. The model can then narrate evidence from the settled UI instead of predicting the outcome.
+After every settled render, `RealtimeSession` pushes a short structural summary into the model's context: debounced, latest-wins, and clamped to a few hundred characters so it stays ambient context rather than a chat turn. The model can also pull the picture on demand. `get_ui_state` returns the current structural snapshot; `get_capabilities` returns every Vessel the UI can show, with its Variants and Actions. Both answer immediately, and neither takes an argument.
 
-Realtime mode can shorten a turn because audio does not have to wait for separate STT, text-processing, and TTS handoffs. It can also support fluid interruption and conversational pacing. Actual latency still depends on the provider, network, model, turn policy, and application workload.
+So the model is kept well informed and still decides nothing. It reads structure in order to speak about the interface, and writes back a sentence. Both halves are on the diagram: a path out to the model that carries everything it should know, and a struck path onward that carries nothing. The model is not blind. Nothing it knows ever returns as a plan.
 
-The tighter integration has a cost. Conversation behavior, turn handling, audio quality, and model capabilities may be coupled to one provider's session API. Applications also have less independent control over recognition and synthesis than they do in a cascade.
+In the cascade there is not even a reader. `LiveKitAdapter.injectGrounding()` exists to satisfy the adapter interface and does nothing at all, because a speech-to-text worker has no model to ground.
 
-## Cascade mode
+## Why the boundary holds
 
-A cascade divides the spoken turn into explicit stages. STT produces a final transcript. Maelstrom treats that transcript as natural-language intent. TTS speaks the result only after the UI settles.
+Nothing you configure enforces this. There is no check to remember and no setting to get wrong.
 
-```mermaid
-flowchart LR
-  accTitle: Cascade voice flow
-  accDescr: Audio passes through STT, the final transcript becomes Maelstrom intent, and TTS receives the result after the UI settles.
+It holds because of the shape of the seam. An adapter reaches `RealtimeSession` through one closed union of events, and exactly one member of that union can change the UI: a tool call named `update_ui`, carrying a single string. Structure has no way in, because no inbound message has a place to carry it.
 
-  Human["Human"] -->|"Audio"| STT["STT"]
-  STT -->|"Final transcript"| Adapter["Voice adapter"]
-  Adapter -->|"update_ui intent"| Client["Maelstrom client"]
-  Client -->|"Intent + Chart snapshot"| Engine["Engine"]
-  Engine --> UI["Settled UI"]
-  UI -->|"Result text"| TTS["TTS"]
-  TTS -->|"Audio"| Human
-```
+That is why voice costs you nothing architecturally. The Engine receives the same client-built request that a typed intent produces, so a Vessel written before voice existed keeps working, and a bug in voice cannot become a bug in layout.
 
-Each boundary creates a place to choose or specialize a component. A team can select STT for a language, noisy environment, or domain vocabulary. A clinical product, for example, may evaluate recognition models against the medical terms its users actually speak. TTS can be selected separately for voice quality, language coverage, cost, or deployment policy.
+The one thing you can break is the ordering. For a successful update, `RealtimeSession` withholds the tool result until rendering settles, so the model describes a change the user can already see instead of predicting one. Route a result back early and the voice starts narrating a UI that does not exist yet.
 
-Those choices add work. The application must deploy, secure, observe, and recover the transport, STT, and TTS stages. Each handoff may add latency. Teams should measure complete turns rather than assume that one component's benchmark predicts user experience.
+## Two ways to make speech
+
+Both modes reach that same boundary. They differ in who owns the speech.
+
+A **voice-to-voice realtime model** handles the whole spoken conversation in one long-running session — turn detection, recognition, response, and synthesis together. Audio does not wait for separate handoffs, which can shorten a turn and support fluid interruption. In exchange, conversation behavior and audio quality are coupled to one provider's session API, and you have less independent control over recognition and synthesis.
+
+A **cascade** splits the turn into stages you assemble: speech-to-text produces a final transcript, that transcript becomes the intent, and text-to-speech speaks the result after the UI settles. Each boundary is a place to choose a component — recognition tuned for a language, a noisy environment, or the medical terms your users actually speak; synthesis chosen for voice, cost, or deployment policy. Each boundary is also a service to deploy, secure, observe, and recover, and a place to add latency.
+
+Measure complete turns rather than trusting one component's benchmark. Latency depends on provider, network, model, turn policy, and your own workload far more than on the mode.
+
+## One held turn
+
+Maelstrom's shipped cascade makes the stages concrete. A held turn passes through eight of them, and the interesting part is where the intent stops being audio and starts being text a planner can use:
+
+1. The microphone publishes audio to a LiveKit room.
+2. The Deepgram worker publishes one final transcript for the turn.
+3. `LiveKitAdapter` converts that transcript into an `update_ui` call carrying only the natural-language intent — the boundary crossing.
+4. `RealtimeSession` submits it to the client, which captures the current Instances, Variants, and chart dimensions.
+5. The Engine plans against that client-built snapshot and returns the normal Execution Plan and Layout Directives.
+6. For a successful update, `RealtimeSession` waits for rendering to settle before returning the result. Malformed arguments and genuine submission failures return immediately.
+7. The adapter sends the result text on the LiveKit `speak` topic.
+8. The Cartesia worker publishes audio back to the room.
+
+The worker performs speech work and nothing else. It receives no Vessel, Instance, Variant, Action, Chart, or grounding context. Sending it UI structure would create a second planner, which is the failure the boundary exists to prevent.
+
+The realtime mode collapses steps 1 through 3 into the provider's session — the model emits the `update_ui` call itself, instead of an adapter synthesizing one from a transcript — and collapses steps 7 and 8 the same way. Steps 4 through 6 are the same code either way.
 
 ## Compare the modes
 
@@ -83,26 +85,18 @@ Those choices add work. The application must deploy, secure, observe, and recove
 | Failure isolation | A session failure may affect recognition, conversation, and speech output together. | A stage can fail independently. For example, TTS can fail after a UI update has already succeeded. |
 | Privacy and compliance | Audio and conversational context follow the realtime provider's processing and retention controls. | Separate stages can support different vendors or deployment policies, but every stage and transport must still be assessed. |
 
-No mode is inherently private or compliant. Review where audio, transcripts, credentials, telemetry, and retained context travel. Confirm provider terms and deployment controls for the jurisdictions and data classes your application serves.
+No mode is inherently private or compliant. Review where audio, transcripts, credentials, telemetry, and retained context travel, and confirm provider terms for the jurisdictions and data classes you serve.
 
-## Choose realtime when conversation leads
+## Choose a mode
 
-Realtime mode is a strong candidate when the experience depends on low-latency back-and-forth, interruption, or expressive spoken responses. Examples include a hands-free dashboard or an assistant that helps a user explore the UI through a fluid conversation.
+Choose **realtime** when the experience depends on low-latency back-and-forth, interruption, or expressive spoken responses — a hands-free dashboard, or an assistant a user explores the UI with. Prototype under realistic network conditions and session lengths, and measure interruption behavior before committing.
 
-Choose it when the realtime provider's capabilities and controls fit your requirements. Prototype with realistic network conditions and session lengths. Measure interruption behavior, response latency, cost, and failure recovery before committing.
+Choose **cascade** when recognition or synthesis needs independent specialization: multilingual users, domain vocabulary, a custom voice, provider portability, or a policy that requires separate control over speech stages. Test with representative speakers, and correlate one user turn from captured audio through settled UI to spoken result.
 
-Follow the [OpenAI Realtime setup guide](/guides/voice/openai-realtime/) for Maelstrom's shipped realtime implementation.
+Either way the boundary is the same, so the choice is reversible. You are picking a speech pipeline, not an architecture.
 
-## Choose cascade when component choice leads
-
-Cascade mode is a strong candidate when recognition or synthesis needs independent specialization. It can fit multilingual applications, domain-specific vocabulary, custom voices, provider portability, or policies that require separate control over speech stages.
-
-Choose it when that control justifies the extra latency and operational surface. Test the complete pipeline with representative speakers and vocabulary. Track each stage separately, but also correlate one user turn from captured audio through settled UI and spoken result.
-
-Follow the [LiveKit cascade setup guide](/guides/voice/livekit-cascade/) for Maelstrom's shipped cascade implementation.
-
-## Keep the boundary fixed
-
-Whichever mode you choose, preserve the same rule: voice determines what the user appears to want, while the Maelstrom client supplies what is actually on screen. The Engine plans from the client-built Chart snapshot. It never plans from a realtime model's grounding, an STT worker's state, or a transcript-derived picture of the UI.
-
-Return to the [Voice overview](/guides/voice/overview/) for the common React integration and package boundaries. Read the [Architecture Overview](/understanding/architecture/) for the full client and Engine request loop.
+<CardGrid>
+  <LinkCard title="OpenAI Realtime" href="/guides/voice/openai-realtime/" description="Build the realtime mode: a server-minted credential and browser-direct WebRTC." />
+  <LinkCard title="LiveKit cascade" href="/guides/voice/livekit-cascade/" description="Build the cascade: a room grant, a model-free worker, and turn control you own." />
+  <LinkCard title="Architecture Overview" href="/understanding/architecture/" description="The client and Engine request loop that both voice modes reuse unchanged." />
+</CardGrid>

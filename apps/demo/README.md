@@ -31,6 +31,13 @@ bunx nx dev demo
 This runs the WebSocket engine host (`ws-server.ts`, port 3001) and Vite
 (port 3000) together. Open http://localhost:3000.
 
+The mint route this path uses (`src/routes/api/realtime-token.ts`) is
+development-only, for the same reason the LiveKit one below is: it does not
+authenticate the caller, and it forwards the request body to the minter, so the
+caller chooses the model. Replace it with the server-owned route from the
+[OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/)
+before any deployment.
+
 The `nx` commands in this README run from the repository root. Commands shown
 as `bun run ...` under the LiveKit section run from `apps/demo/`.
 

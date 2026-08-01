@@ -41,12 +41,6 @@
     },
     {
       "path": "./packages/realtime-livekit-server"
-    },
-    {
-      "path": "./apps/docs"
-    },
-    {
-      "path": "./apps/www"
     }
   ],
   "compilerOptions": {}

@@ -18,11 +18,12 @@ Maelstrom is an open-source library for **AI-orchestrated UI**. You author your 
 
 ## Voice
 
-Start with the [voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/) to choose an integration and understand the shared session contract.
+Hear it working first: [Run the voice demo locally](https://docs.maelstrom-ai.co/tutorials/run-voice-locally/) takes one API key and one command.
 
+- [Voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/) — choose a mode and find the guide that builds it
 - [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/) — direct browser-to-provider speech sessions
 - [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) — browser, room, and worker setup
-- [Generated voice API reference](https://docs.maelstrom-ai.co/reference/) — package entry points and public symbols
+- [The voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/) — why a voice model never plans your UI
 - [Realtime voice architecture](https://github.com/maelstrom-co/maelstrom/blob/main/docs/realtime-voice-architecture.md) — design constraints and decisions behind the integrations
 
 ## Packages

@@ -1,12 +1,13 @@
 # @maelstrom-co/realtime-livekit-agent
 
-Node LiveKit voice agent worker for the Maelstrom LiveKit adapter spike — a
-separate process that relays STT (Deepgram) into the room and synthesizes TTS
-(Cartesia) back out.
+Node LiveKit voice agent worker for the Maelstrom LiveKit adapter — a separate
+process that relays STT (Deepgram) into the room and synthesizes TTS (Cartesia)
+back out.
 
 - **STT:** user mic audio → Deepgram → transcript → client via publishTranscription.
-- **TTS:** client `speak` text stream (the tool-result summary) → Cartesia → published
-  back as an audio track the client attaches and plays.
+- **TTS:** client `speak` text stream (the settled tool result, phrased by the
+  adapter) → Cartesia → published back as an audio track the client attaches
+  and plays.
 
 The worker has no planning LLM and receives no UI grounding. The Maelstrom
 Engine remains the only planning model. The browser's `LiveKitAdapter`
@@ -26,6 +27,9 @@ runVoiceAgent();
 ```bash
 node --env-file=.env worker.ts start
 ```
+
+Node cannot execute a bare `.ts` entry before v23. On Node 20 or 22, build the
+entry first and run the emitted `.js`, or supply your own TypeScript loader.
 
 Within this monorepo, the demo app instead runs the package's TypeScript
 source directly against its `.env` at the repo root:
@@ -52,7 +56,7 @@ and Cartesia plugin 1.4.8 releases.
 
 | Process | Reads | Why |
 |---------|-------|-----|
-| Token endpoint (`@maelstrom-co/realtime-livekit/server`) | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Signs room JWTs |
+| Token endpoint (`@maelstrom-co/realtime-livekit-server`) | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Signs room JWTs |
 | Agent worker (this process) | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY` | Registers for auto-dispatch + runs STT/TTS |
 | Browser client | None | Receives `{ token, url }` from the token endpoint at runtime |
 
@@ -75,7 +79,7 @@ do not deploy either one as a production authentication boundary.
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `MAELSTROM_STT_FLUSH_TIMEOUT_MS` | `2000` | Fallback ceiling (ms) for emitting a push-to-talk turn when the flush-produced final never arrives (an empty tap). A turn normally emits the instant its flush-final lands, so this only bounds the empty-turn case. Must be a positive number — a non-numeric or non-positive value fails worker startup. |
+| `MAELSTROM_STT_DRAIN_TIMEOUT_MS` | `5000` | Deadline (ms) for the Deepgram stream to finish draining after `endInput()`. Expiry closes that provider stream so a clean successor can open. It also derives the successor's pending-audio budget. Must be finite, positive, and no greater than `60000` — anything else fails worker startup rather than changing turn behavior later. |
 
 ## Docs
 
