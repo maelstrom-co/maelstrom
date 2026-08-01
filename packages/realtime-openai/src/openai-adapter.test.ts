@@ -623,7 +623,7 @@ function makeInertInstance(): RealtimeInstance {
   };
   const capabilitySnapshot: CapabilitySnapshot = { vessels: [] };
   return {
-    submitIntent: async () => {},
+    submitIntent: async () => ({}),
     waitForIdle: async () => {},
     getStructuralSnapshot: () => snapshot,
     getCapabilitySnapshot: () => capabilitySnapshot,

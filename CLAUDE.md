@@ -177,7 +177,7 @@ is only CSS `overflow: hidden`; there is no resolver.
 
 ### Comments and JSDoc
 
-The `@maelstrom-co/*` packages are published to external consumers, so the comment policy is tiered by API surface. To classify a symbol: check whether it's reachable from a **published entry point** — the package root (`src/index.ts`) or any subpath in the `exports` map with its own source entry, such as `@maelstrom-co/realtime-livekit/token` → `src/livekit-token.ts`. If yes, it's **public**. If no, it's **internal**. The root barrel is the common case, not the whole test; see [the JSDoc contract](apps/docs/src/content/docs/community/jsdoc-contract.mdx) for the full checklist.
+The `@maelstrom-co/*` packages are published to external consumers, so the comment policy is tiered by API surface. To classify a symbol: check whether it's reachable from a **published entry point** — the package root (`src/index.ts`) or any subpath in the `exports` map with its own source entry, such as `@maelstrom-co/realtime-vad/assets` → `src/vad-assets.ts`. If yes, it's **public**. If no, it's **internal**. The root barrel is the common case, not the whole test; see [the JSDoc contract](apps/docs/src/content/docs/community/jsdoc-contract.mdx) for the full checklist.
 
 **Public API** — symbols reachable from a published entry point (visible in consumer `.d.ts`, IDE hover, TypeDoc):
 - JSDoc every public function, type, class, and exported field

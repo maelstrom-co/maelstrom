@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-
 import { ToolCallId } from '@maelstrom-co/protocol';
 
 import { parseOpenAIServerEvent } from './parse-openai-event.js';

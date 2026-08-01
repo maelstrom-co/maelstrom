@@ -15,7 +15,10 @@ export const PACKED_PACKAGE_NAMES = Object.freeze([
   '@maelstrom-co/realtime-livekit',
   '@maelstrom-co/realtime-livekit-agent',
   '@maelstrom-co/realtime-livekit-server',
-  '@maelstrom-co/realtime-server',
+  '@maelstrom-co/realtime-openai',
+  '@maelstrom-co/realtime-openai-server',
+  '@maelstrom-co/realtime-protocol',
+  '@maelstrom-co/realtime-vad',
   '@maelstrom-co/react-realtime',
 ] as const);
 

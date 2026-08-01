@@ -147,8 +147,12 @@ describe('publishTarballs', () => {
           publish: (_tarball, pkg) => log.push(`publish:${pkg.name}`),
         },
       );
-      expect(log.filter((event) => event.startsWith('read:'))).toHaveLength(10);
-      expect(log.findIndex((event) => event.startsWith('probe:'))).toBe(20);
+      expect(log.filter((event) => event.startsWith('read:'))).toHaveLength(
+        PACKED_PACKAGE_NAMES.length,
+      );
+      expect(log.findIndex((event) => event.startsWith('probe:'))).toBe(
+        PACKED_PACKAGE_NAMES.length * 2,
+      );
       expect(log.some((event) => event.startsWith('publish:'))).toBe(false);
     }));
 
@@ -217,7 +221,7 @@ describe('publishTarballs', () => {
       const rerun = log.indexOf('rerun');
       expect(
         log.slice(rerun + 1).findIndex((event) => event.startsWith('probe:')),
-      ).toBe(20);
+      ).toBe(PACKED_PACKAGE_NAMES.length * 2);
     }));
 
   test('publishes the same canonical paths and bytes that were validated', () =>
@@ -289,7 +293,7 @@ describe('publishTarballs', () => {
           },
         ),
       ).toThrow('indeterminate');
-      expect(log.slice(20)).toEqual([
+      expect(log.slice(PACKED_PACKAGE_NAMES.length * 2)).toEqual([
         `probe:${PACKED_PACKAGE_NAMES[0]}`,
         `probe:${PACKED_PACKAGE_NAMES[1]}`,
         `publish:${PACKED_PACKAGE_NAMES[1]}`,

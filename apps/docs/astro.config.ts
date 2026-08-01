@@ -16,15 +16,21 @@ const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeTypeDoc, realtimeTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [realtimeProtocolTypeDoc, realtimeProtocolTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeOpenaiTypeDoc, realtimeOpenaiTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 const [reactRealtimeTypeDoc, reactRealtimeTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
-const [realtimeServerTypeDoc, realtimeServerTypeDocSidebarGroup] =
+const [realtimeOpenaiServerTypeDoc, realtimeOpenaiServerTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeLivekitTypeDoc, realtimeLivekitTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeLivekitServerTypeDoc, realtimeLivekitServerTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeLivekitAgentTypeDoc, realtimeLivekitAgentTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeVadTypeDoc, realtimeVadTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 
 // TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
@@ -192,13 +198,32 @@ export default defineConfig({
           },
         }),
         realtimeTypeDoc({
-          entryPoints: [
-            '../../packages/realtime/src/index.ts',
-            '../../packages/realtime/src/openai.ts',
-          ],
+          entryPoints: ['../../packages/realtime/src/index.ts'],
           tsconfig: '../../packages/realtime/tsconfig.lib.json',
           output: 'reference/realtime',
           sidebar: { label: '@maelstrom-co/realtime', collapsed: true },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeProtocolTypeDoc({
+          entryPoints: [
+            '../../packages/realtime-protocol/src/index.ts',
+            '../../packages/realtime-protocol/src/openai.ts',
+            '../../packages/realtime-protocol/src/livekit.ts',
+            '../../packages/realtime-protocol/src/livekit-wire.ts',
+          ],
+          tsconfig: '../../packages/realtime-protocol/tsconfig.lib.json',
+          output: 'reference/realtime-protocol',
+          sidebar: {
+            label: '@maelstrom-co/realtime-protocol',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeOpenaiTypeDoc({
+          entryPoints: ['../../packages/realtime-openai/src/index.ts'],
+          tsconfig: '../../packages/realtime-openai/tsconfig.lib.json',
+          output: 'reference/realtime-openai',
+          sidebar: { label: '@maelstrom-co/realtime-openai', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
         reactRealtimeTypeDoc({
@@ -211,23 +236,18 @@ export default defineConfig({
           },
           typeDoc: multiEntryTypeDocOptions,
         }),
-        realtimeServerTypeDoc({
-          entryPoints: ['../../packages/realtime-server/src/index.ts'],
-          tsconfig: '../../packages/realtime-server/tsconfig.lib.json',
-          output: 'reference/realtime-server',
+        realtimeOpenaiServerTypeDoc({
+          entryPoints: ['../../packages/realtime-openai-server/src/index.ts'],
+          tsconfig: '../../packages/realtime-openai-server/tsconfig.lib.json',
+          output: 'reference/realtime-openai-server',
           sidebar: {
-            label: '@maelstrom-co/realtime-server',
+            label: '@maelstrom-co/realtime-openai-server',
             collapsed: true,
           },
           typeDoc: multiEntryTypeDocOptions,
         }),
         realtimeLivekitTypeDoc({
-          entryPoints: [
-            '../../packages/realtime-livekit/src/index.ts',
-            '../../packages/realtime-livekit/src/protocol.ts',
-            '../../packages/realtime-livekit/src/livekit-token.ts',
-            '../../packages/realtime-livekit/src/vad-assets.ts',
-          ],
+          entryPoints: ['../../packages/realtime-livekit/src/index.ts'],
           tsconfig: '../../packages/realtime-livekit/tsconfig.lib.json',
           output: 'reference/realtime-livekit',
           sidebar: {
@@ -254,6 +274,16 @@ export default defineConfig({
             label: '@maelstrom-co/realtime-livekit-agent',
             collapsed: true,
           },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeVadTypeDoc({
+          entryPoints: [
+            '../../packages/realtime-vad/src/index.ts',
+            '../../packages/realtime-vad/src/vad-assets.ts',
+          ],
+          tsconfig: '../../packages/realtime-vad/tsconfig.lib.json',
+          output: 'reference/realtime-vad',
+          sidebar: { label: '@maelstrom-co/realtime-vad', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
       ],
@@ -382,11 +412,14 @@ export default defineConfig({
               label: 'Voice',
               items: [
                 realtimeTypeDocSidebarGroup,
+                realtimeProtocolTypeDocSidebarGroup,
+                realtimeOpenaiTypeDocSidebarGroup,
                 reactRealtimeTypeDocSidebarGroup,
-                realtimeServerTypeDocSidebarGroup,
+                realtimeOpenaiServerTypeDocSidebarGroup,
                 realtimeLivekitTypeDocSidebarGroup,
                 realtimeLivekitServerTypeDocSidebarGroup,
                 realtimeLivekitAgentTypeDocSidebarGroup,
+                realtimeVadTypeDocSidebarGroup,
               ],
             },
           ],

@@ -1,8 +1,4 @@
 import { existsSync, readFileSync } from 'node:fs';
-import {
-  OpenAIAdapter,
-  OpenAITokenGrantSchema,
-} from '@maelstrom-co/realtime/openai';
 // The docs project already declares this package as an implicit dependency.
 // nx-ignore-next-line
 import {
@@ -10,10 +6,14 @@ import {
   SPEAK_TOPIC,
 } from '@maelstrom-co/realtime-livekit';
 import {
+  OpenAIAdapter,
+  OpenAITokenGrantSchema,
+} from '@maelstrom-co/realtime-openai';
+import { LiveKitTokenGrantSchema as TokenEntryLiveKitTokenGrantSchema } from '@maelstrom-co/realtime-protocol/livekit';
+import {
   SPEAK_TOPIC as PROTOCOL_SPEAK_TOPIC,
   TURN_TOPIC,
-} from '@maelstrom-co/realtime-livekit/protocol';
-import { LiveKitTokenGrantSchema as TokenEntryLiveKitTokenGrantSchema } from '@maelstrom-co/realtime-livekit/token';
+} from '@maelstrom-co/realtime-protocol/livekit-wire';
 import { expect, test } from '@playwright/test';
 import { LIVEKIT_CASCADE_OWNERSHIP } from '../src/components/ownership/livekit-cascade';
 import { LIVEKIT_TURN_OWNERSHIP } from '../src/components/ownership/livekit-turn-ownership';
@@ -142,9 +142,9 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
     heading: '@maelstrom-co/react-realtime',
   },
   {
-    name: '@maelstrom-co/realtime-server landing',
-    path: '/reference/realtime-server/readme/',
-    heading: '@maelstrom-co/realtime-server',
+    name: '@maelstrom-co/realtime-openai-server landing',
+    path: '/reference/realtime-openai-server/readme/',
+    heading: '@maelstrom-co/realtime-openai-server',
   },
   {
     name: 'RealtimeSession',
@@ -161,17 +161,16 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
   },
   {
     name: 'OpenAIAdapter',
-    path: '/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/',
+    path: '/reference/realtime-openai/classes/openaiadapter/',
     heading: 'OpenAIAdapter',
-    context: 'packages/realtime/src/lib/openai/openai-adapter.ts',
-    entryPoint: 'packages/realtime/src/openai',
+    context: 'packages/realtime-openai/src/openai-adapter.ts',
   },
   {
     name: 'OpenAITokenGrantSchema',
-    path: '/reference/realtime/packages/realtime/src/openai/variables/openaitokengrantschema/',
+    path: '/reference/realtime-protocol/packages/realtime-protocol/src/openai/variables/openaitokengrantschema/',
     heading: 'OpenAITokenGrantSchema',
-    context: 'packages/realtime/src/lib/openai/openai-token.ts',
-    entryPoint: 'packages/realtime/src/openai',
+    context: 'packages/realtime-protocol/src/lib/openai-token.ts',
+    entryPoint: 'packages/realtime-protocol/src/openai',
   },
   {
     name: 'maelstromRealtime',
@@ -187,9 +186,9 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
   },
   {
     name: 'createOpenAIMinter',
-    path: '/reference/realtime-server/functions/createopenaiminter/',
+    path: '/reference/realtime-openai-server/functions/createopenaiminter/',
     heading: 'createOpenAIMinter',
-    context: 'packages/realtime-server/src/lib/openai-mint.ts',
+    context: 'packages/realtime-openai-server/src/lib/openai-mint.ts',
   },
   {
     name: '@maelstrom-co/realtime-livekit landing',
@@ -215,34 +214,34 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
   },
   {
     name: 'SPEAK_TOPIC',
-    path: '/reference/realtime-livekit/packages/realtime-livekit/src/protocol/variables/speak_topic/',
+    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit-wire/variables/speak_topic/',
     heading: 'SPEAK_TOPIC',
-    context: 'packages/realtime-livekit/src/protocol.ts',
-    entryPoint: 'packages/realtime-livekit/src/protocol',
+    context: 'packages/realtime-protocol/src/livekit-wire.ts',
+    entryPoint: 'packages/realtime-protocol/src/livekit-wire',
   },
   {
     name: 'TtsDoneMessage',
-    path: '/reference/realtime-livekit/packages/realtime-livekit/src/protocol/interfaces/ttsdonemessage/',
+    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit-wire/interfaces/ttsdonemessage/',
     heading: 'TtsDoneMessage',
-    context: 'packages/realtime-livekit/src/protocol.ts',
-    entryPoint: 'packages/realtime-livekit/src/protocol',
+    context: 'packages/realtime-protocol/src/livekit-wire.ts',
+    entryPoint: 'packages/realtime-protocol/src/livekit-wire',
   },
   {
     name: 'LiveKitTokenGrantSchema',
-    path: '/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/variables/livekittokengrantschema/',
+    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/livekittokengrantschema/',
     heading: 'LiveKitTokenGrantSchema',
-    context: 'packages/realtime-livekit/src/livekit-token.ts',
-    entryPoint: 'packages/realtime-livekit/src/livekit-token',
+    context: 'packages/realtime-protocol/src/lib/livekit-token.ts',
+    entryPoint: 'packages/realtime-protocol/src/livekit',
   },
   {
-    // The README tells readers to import from `./vad-assets`, so it needs a
+    // The README tells readers to import from `./assets`, so it needs a
     // reference page. A published subpath missing from the TypeDoc entry points
     // documents an import that lands nowhere.
-    name: 'copyLiveKitVadAssets',
-    path: '/reference/realtime-livekit/packages/realtime-livekit/src/vad-assets/functions/copylivekitvadassets/',
-    heading: 'copyLiveKitVadAssets',
-    context: 'packages/realtime-livekit/src/vad-assets.ts',
-    entryPoint: 'packages/realtime-livekit/src/vad-assets',
+    name: 'copyBrowserVadAssets',
+    path: '/reference/realtime-vad/packages/realtime-vad/src/vad-assets/functions/copybrowservadassets/',
+    heading: 'copyBrowserVadAssets',
+    context: 'packages/realtime-vad/src/vad-assets.ts',
+    entryPoint: 'packages/realtime-vad/src/vad-assets',
   },
   {
     name: 'mintLiveKitToken',

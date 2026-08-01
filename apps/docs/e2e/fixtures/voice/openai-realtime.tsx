@@ -2,7 +2,7 @@ import {
   OpenAIAdapter,
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
-} from '@maelstrom-co/realtime/openai';
+} from '@maelstrom-co/realtime-openai';
 
 declare function getCsrfToken(): string;
 

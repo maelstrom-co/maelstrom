@@ -217,7 +217,7 @@ describe('validatePackedManifest policy', () => {
 });
 
 describe('validatePackedManifest archive process contract', () => {
-  test('validates all ten real archives using exact tar argv', () =>
+  test('validates every configured real archive using exact tar argv', () =>
     withTempDir((dir) => {
       const entries = manifest();
       for (const entry of entries) {
@@ -234,7 +234,9 @@ describe('validatePackedManifest archive process contract', () => {
           ]),
         );
       }
-      expect(validatePackedManifest(entries, '1.2.3', dir)).toHaveLength(10);
+      expect(validatePackedManifest(entries, '1.2.3', dir)).toHaveLength(
+        PACKED_PACKAGE_NAMES.length,
+      );
     }));
 
   test.each([
@@ -358,7 +360,7 @@ describe('validatePackedManifest archive process contract', () => {
         },
       });
 
-      expect(requests).toHaveLength(20);
+      expect(requests).toHaveLength(PACKED_PACKAGE_NAMES.length * 2);
       for (let index = 0; index < entries.length; index++) {
         const canonicalDir = realpathSync(dir);
         const archive = join(canonicalDir, entries[index]!.tarball);

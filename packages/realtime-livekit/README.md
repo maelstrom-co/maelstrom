@@ -185,11 +185,12 @@ boundary is required: these tests install process-global happy-dom, browser,
 audio, and `mock.module()` shims, and without it one file's shims change what
 another file imports.
 
-Check `bun --version` before trusting a local green run. `--isolate` is absent
-in 1.3.7 and present in 1.3.14, and Bun accepts unknown flags silently rather
-than rejecting them. On a version without it the suite runs unisolated and
-still passes locally, then leaks across files in CI, which pins `latest`. This
-package's suite genuinely depends on the boundary.
+Match your local Bun to `.bun-version` at the repo root; every workflow reads
+that file. `--isolate` is absent in 1.3.7 and present in 1.3.14, and Bun
+accepts unknown flags silently rather than rejecting them, so on an older
+version this suite runs unisolated and still passes locally while leaking
+across files anywhere else. This package's suite genuinely depends on the
+boundary.
 
 Isolation does not replace teardown. Each test must still restore mutated
 globals and spies, stop tracks and worklets, and clear timers, so state cannot

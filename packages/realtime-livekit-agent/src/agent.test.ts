@@ -48,7 +48,7 @@ const {
   createTurnAggregator,
   createSubscribedMicrophoneTrackHandler,
   createTurnControlHandler,
-} = await import('./agent');
+} = await import('./agent.ts');
 const { SPEAK_UTTERANCE_ID_ATTR, TURN_TOPIC } = await import(
   '@maelstrom-co/realtime-protocol/livekit-wire'
 );
