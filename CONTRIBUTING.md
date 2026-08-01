@@ -94,13 +94,27 @@ The `dco` check runs on every pull request and is a required check on `main`. If
 any commit is missing its sign-off, the check goes red and a bot comment lists
 the offending commits with a reason for each.
 
-To fix it, re-sign the branch and force-push:
+To fix it, re-sign the branch and force-push, rebasing onto the pull request's
+actual base branch — not just any local ref named `main`:
+
+**Working from a fork:**
 
 ```bash
+git remote add upstream https://github.com/maelstrom-co/maelstrom.git  # once, if not set
+git fetch upstream
+git rebase --signoff upstream/main   # re-sign every commit on the branch
+git push --force-with-lease          # rewriting history requires a force push
+```
+
+**Working from a branch in this repository:**
+
+```bash
+git fetch origin
 git rebase --signoff origin/main     # re-sign every commit on the branch
 git push --force-with-lease          # rewriting history requires a force push
-# single commit: git commit --amend --signoff --no-edit
 ```
+
+Single commit, either case: `git commit --amend --signoff --no-edit`.
 
 **What the check compares.** The `Signed-off-by` email must equal either the
 commit's **author** email or its **committer** email, compared
@@ -132,9 +146,9 @@ diffing the pull request's content, and the `dco` workflow runs on
 pull-request code. What still catches it: those changes appear in the pull
 request diff under a conspicuous `Merge branch …` commit, and the check's
 sticky comment always discloses how many commits it exempted and why. probot/dco
-and dcoapp/app both exempt merges unconditionally as well. Prefer
-`git rebase origin/main` over `git merge main` on a branch, and the case does
-not arise.
+and dcoapp/app both exempt merges unconditionally as well. Prefer rebasing onto
+the base branch (`upstream/main` on a fork, `origin/main` in this repository —
+see above) over `git merge main` on a branch, and the case does not arise.
 
 ## Prerequisites
 
@@ -144,9 +158,16 @@ not arise.
 ## Getting started
 
 1. Fork and clone the repository.
-2. Install dependencies: `bun install`.
-3. Create a branch for your change.
-4. Make your change with tests, then open a pull request.
+2. Add the parent repository as the `upstream` remote — `git rebase`, further
+   down in [DCO](#developer-certificate-of-origin-dco), rebases onto it:
+
+   ```bash
+   git remote add upstream https://github.com/maelstrom-co/maelstrom.git
+   ```
+
+3. Install dependencies: `bun install`.
+4. Create a branch for your change.
+5. Make your change with tests, then open a pull request.
 
 > The `@maelstrom-co/*` packages resolve as local workspace packages
 > (`workspace:*`), so `bun install` works out of the box on a fresh clone —

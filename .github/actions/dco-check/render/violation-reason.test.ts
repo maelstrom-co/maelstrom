@@ -39,6 +39,38 @@ describe('violationReason', () => {
     );
   });
 
+  it('names the first few addresses and counts the rest', () => {
+    // A commit may carry any number of trailers, so this is the one cell a
+    // single row can spend the whole comment's size budget on.
+    expect(
+      violationReason({
+        commit: commit(),
+        state: 'violation',
+        reason: 'email-mismatch',
+        signedOffAs: [
+          'one@example.com',
+          'two@example.com',
+          'three@example.com',
+          'four@example.com',
+          'five@example.com',
+        ],
+      }),
+    ).toBe(
+      'sign-off email matches neither author nor committer (signed off as `one@example.com`, `two@example.com`, `three@example.com`, and 2 more)',
+    );
+  });
+
+  it('bounds an address long enough to fill the comment on its own', () => {
+    const reason = violationReason({
+      commit: commit(),
+      state: 'violation',
+      reason: 'email-mismatch',
+      signedOffAs: [`${'a'.repeat(10_000)}@example.com`],
+    });
+    expect(reason.length).toBeLessThan(400);
+    expect(reason).toContain('a…');
+  });
+
   it('omits the parenthetical when the trailer carried no address', () => {
     expect(
       violationReason({
