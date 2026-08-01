@@ -145,7 +145,9 @@ nav.sidebar details[open] > summary svg {
    the content column reclaims the space and re-centers with no JS. */
 
 :root {
-  /* Starlight's own default, captured so it survives zeroing the variable. */
+  /* Starlight's own default, captured so it survives zeroing the variable.
+     Source: @astrojs/starlight 0.41.5, style/props.css — `--sl-sidebar-width:
+     18.75rem`. No other stylesheet overrides it. Re-check on upgrade. */
   --maelstrom-sidebar-width: 18.75rem;
 }
 
@@ -170,19 +172,30 @@ nav.sidebar details[open] > summary svg {
     transition: width 0.2s ease;
   }
 
-  :root[data-sidebar-collapsed='true'] {
+  /* Matched on presence, not on the literal 'true': isCollapsed() uses
+     hasAttribute and SidebarToggle.astro uses :not([data-sidebar-collapsed]),
+     so keeping the value out of the contract keeps all three consumers
+     aligned. */
+  :root[data-sidebar-collapsed] {
     --sl-sidebar-width: 0rem;
   }
 
-  :root[data-sidebar-collapsed='true'] .sidebar-pane {
+  :root[data-sidebar-collapsed] .sidebar-pane {
     /* Pin the pane's own width — it is sized from --sl-sidebar-width too, and a
        zero-width pane has no distance to slide. */
     width: var(--maelstrom-sidebar-width);
     transform: translateX(-100%);
-    /* visibility takes the links out of the tab order and the a11y tree. It
-       cannot interpolate, so hold it until the slide finishes on the way out;
-       it flips back instantly on the way in. */
+    /* visibility takes the links out of the tab order and the a11y tree. */
     visibility: hidden;
+  }
+
+  /* The slide belongs to a toggle, not to the collapsed state itself.
+     applyStoredState re-adds the attribute after every view transition with no
+     marker set; an ungated transition here would animate that restore, so a
+     reader navigating in focus mode would watch the sidebar slide out again on
+     every page. visibility cannot interpolate, so it is held until the slide
+     finishes on the way out and flips back instantly on the way in. */
+  :root[data-sidebar-animating][data-sidebar-collapsed] .sidebar-pane {
     transition: transform 0.2s ease, visibility 0s linear 0.2s;
   }
 
@@ -191,7 +204,7 @@ nav.sidebar details[open] > summary svg {
      (viewport - content width) / 2, which is narrower than the old sidebar
      below roughly 1600px. Clamp to whichever is smaller: unclamped, the panel
      overflows the viewport edge with no scrollbar to reach it. */
-  :root[data-sidebar-collapsed='true'] .right-sidebar-panel .sl-container {
+  :root[data-sidebar-collapsed] .right-sidebar-panel .sl-container {
     width: min(
       var(--maelstrom-sidebar-width) - 2 * var(--sl-sidebar-pad-x),
       (100vw - var(--sl-content-width)) / 2 - 2 * var(--sl-sidebar-pad-x)
@@ -209,7 +222,7 @@ nav.sidebar details[open] > summary svg {
   :root[data-sidebar-animating] .main-frame,
   :root[data-sidebar-animating] .main-pane,
   :root[data-sidebar-animating] .right-sidebar-container,
-  :root[data-sidebar-collapsed='true'] .sidebar-pane {
+  :root[data-sidebar-animating][data-sidebar-collapsed] .sidebar-pane {
     transition: none;
   }
 }

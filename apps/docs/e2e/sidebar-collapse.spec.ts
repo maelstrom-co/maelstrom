@@ -69,11 +69,17 @@ test.describe('sidebar focus mode', () => {
     page,
   }) => {
     await page.goto(PAGE);
+    // Measured, not converted: reading the custom property and multiplying by
+    // the root font size would silently assume the value is declared in `rem`
+    // and break if Starlight ever moves it to `px` or `ch`.
     const cap = await page.evaluate(() => {
-      const root = document.documentElement;
-      const width =
-        getComputedStyle(root).getPropertyValue('--sl-content-width');
-      return parseFloat(width) * parseFloat(getComputedStyle(root).fontSize);
+      const probe = document.createElement('div');
+      probe.style.width = 'var(--sl-content-width)';
+      probe.style.position = 'absolute';
+      document.documentElement.append(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return width;
     });
     const before = await page
       .locator('.sl-markdown-content')
@@ -155,6 +161,18 @@ test.describe('sidebar focus mode', () => {
       'true',
     );
     await expect(page.locator(SIDEBAR)).toBeHidden();
+
+    // The restore must be instant, not animated. applyStoredState re-adds the
+    // attribute with no animating marker, so no transition may be installed on
+    // the incoming pane — otherwise the sidebar slides out again on every page
+    // a reader visits in focus mode. Today an ungated transition happens not
+    // to fire (the incoming pane is never styled expanded first), so asserting
+    // the absence of the transition is what makes this hold by construction
+    // rather than by timing.
+    const duration = await page
+      .locator(SIDEBAR)
+      .evaluate((pane) => getComputedStyle(pane).transitionDuration);
+    expect(duration).toBe('0s');
   });
 
   // Regression guard for a real defect: the collapsed ToC width is clamped by

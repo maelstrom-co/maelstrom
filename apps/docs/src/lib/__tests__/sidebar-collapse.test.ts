@@ -32,10 +32,18 @@ function press(
 }
 
 beforeEach(() => {
+  // Fake timers for the whole file, not just the marker tests: every toggle
+  // schedules a real 260ms fallback, and one left pending by an earlier test
+  // fires mid-test later on and clears the marker under an assertion.
+  vi.useFakeTimers();
   document.documentElement.removeAttribute(COLLAPSED_ATTRIBUTE);
   document.documentElement.removeAttribute(ANIMATING_ATTRIBUTE);
   renderToggles();
   initSidebarCollapse();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('stored state', () => {
@@ -148,6 +156,24 @@ describe('keyboard shortcut', () => {
     expect(isCollapsed()).toBe(false);
   });
 
+  // Cmd/Ctrl+Shift+B is the browser's own bookmarks-bar toggle. Claiming it —
+  // and calling preventDefault on it — steals a shortcut readers already have.
+  it('ignores the chord when Shift is held', () => {
+    const event = press(document, { key: 'b', metaKey: true, shiftKey: true });
+    expect(isCollapsed()).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  // Holding the chord auto-repeats. Without this guard the sidebar toggles
+  // once per repeat and every toggle restarts the animation marker.
+  it('ignores auto-repeat while the chord is held', () => {
+    press(document, { key: 'b', metaKey: true });
+    expect(isCollapsed()).toBe(true);
+
+    press(document, { key: 'b', metaKey: true, repeat: true });
+    expect(isCollapsed()).toBe(true);
+  });
+
   it('ignores an unmodified b', () => {
     press(document, { key: 'b' });
     expect(isCollapsed()).toBe(false);
@@ -158,10 +184,6 @@ describe('animation marker', () => {
   // sidebar.css keys its collapse transition off this marker so it never
   // animates viewport-driven layout changes (window resize, tablet rotation,
   // a scrollbar appearing) — only an actual toggle.
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('sets the marker when a toggle drives the collapse', () => {
     toggleCollapsed();
     expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
@@ -180,7 +202,6 @@ describe('animation marker', () => {
   });
 
   it('clears the marker via the fallback timeout if transitionend never fires', () => {
-    vi.useFakeTimers();
     toggleCollapsed();
     expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
       true,
@@ -192,11 +213,25 @@ describe('animation marker', () => {
     );
   });
 
+  // Astro's ClientRouter replaces the body, detaching the pane mid-animation.
+  // Its transitionend can then never fire, leaving the fallback timeout as the
+  // only cleanup path and the module holding a detached node until it runs.
+  it('clears the marker when a view transition starts', () => {
+    toggleCollapsed();
+    expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
+      true,
+    );
+
+    document.dispatchEvent(new Event('astro:before-swap'));
+    expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
+      false,
+    );
+  });
+
   // A missed toggle-then-toggle-again in quick succession must not leave the
   // marker permanently on (blocking future resizes from ever animating) nor
   // clear it early (cutting the second animation's transition short).
   it('does not strand the marker when a second toggle starts before the first settles', () => {
-    vi.useFakeTimers();
     toggleCollapsed();
     vi.advanceTimersByTime(ANIMATION_FALLBACK_MS - 10);
 

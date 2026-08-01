@@ -119,7 +119,13 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 export function handleShortcut(event: KeyboardEvent): void {
-  if (event.altKey || !(event.metaKey || event.ctrlKey)) return;
+  // Holding the chord auto-repeats; one press is one toggle.
+  if (event.repeat) return;
+  // Shift is excluded because Cmd/Ctrl+Shift+B is the browser's own
+  // bookmarks-bar toggle — claiming it would preventDefault a shortcut the
+  // reader already has. Only the bare Mod chord is ours.
+  if (event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey))
+    return;
   if (event.key.toLowerCase() !== 'b') return;
   if (isTypingTarget(event.target)) return;
   event.preventDefault();
@@ -139,5 +145,8 @@ export function initSidebarCollapse(): void {
   applyStoredState();
   document.addEventListener('click', handleClick);
   document.addEventListener('keydown', handleShortcut);
+  // The swap detaches the pane, so its transitionend can never fire; without
+  // this the module holds a detached node until the fallback timeout runs.
+  document.addEventListener('astro:before-swap', clearAnimationMarker);
   document.addEventListener('astro:after-swap', applyStoredState);
 }
