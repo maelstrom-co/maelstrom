@@ -10,15 +10,29 @@ Both modes cross into Maelstrom only as natural-language intent. The client then
 ```mermaid
 flowchart LR
   accTitle: Shared Maelstrom voice boundary
-  accDescr: Realtime and cascade voice modes produce natural-language intent, while the client-owned Chart snapshot remains the Engine planning input.
+  accDescr: Cascade and realtime voice produce natural-language intent, while only the client-built Chart snapshot enters the Maelstrom Engine and successful narration waits for the UI to settle.
 
-  Realtime["Realtime voice mode"] --> Intent["Natural-language intent"]
-  Cascade["Cascade voice mode"] --> Intent
-  Intent --> Client["Maelstrom client"]
-  Chart["Current Chart snapshot"] --> Client
-  Client --> Engine["Engine"]
-  Engine --> UI["Settled UI"]
-  UI --> Result["Spoken result"]
+  Human["Human speech"]
+  Cascade["Cascade worker<br/>STT final transcript"]
+  Realtime["Voice-to-voice model<br/>grounding and read tools"]
+  Intent["update_ui<br/>natural-language intent"]
+  Client["Maelstrom client<br/>current Chart snapshot"]
+  Engine["Engine"]
+  UI["Settled UI"]
+  CascadeTTS["Cascade worker<br/>TTS"]
+  RealtimeSpeech["Realtime model<br/>narration"]
+
+  Human --> Cascade
+  Human <--> Realtime
+  Cascade --> Intent
+  Realtime --> Intent
+  Intent --> Client
+  Client -->|"Intent + client truth"| Engine
+  Engine --> UI
+  UI -->|"Settled result"| CascadeTTS
+  UI -->|"Tool result after settle"| RealtimeSpeech
+  CascadeTTS --> Human
+  RealtimeSpeech --> Human
 ```
 
 That shared boundary lets you choose a voice architecture for audio quality, latency, and operations without creating another UI planning path.
@@ -66,6 +80,19 @@ flowchart LR
   TTS -->|"Audio"| Human
 ```
 
+In Maelstrom's shipped cascade, one held turn follows this path:
+
+1. The microphone publishes audio to a LiveKit room.
+2. The Deepgram STT worker publishes one final transcript for the turn.
+3. The browser's `LiveKitAdapter` converts that transcript to an `update_ui` tool call carrying only the natural-language intent.
+4. `RealtimeSession` submits that intent to the Maelstrom client, which captures the current Instances, Variants, and Chart dimensions.
+5. The Engine plans against that client-built snapshot and returns the normal Execution Plan and Layout Directives.
+6. For a successful UI update, `RealtimeSession` waits for rendering to settle before returning the successful result to the adapter. Malformed arguments and genuine submission failures return failure results immediately.
+7. The adapter sends the result text on the LiveKit `speak` topic.
+8. The Cartesia TTS worker publishes audio back to the room.
+
+The worker performs only STT and TTS. It receives no Vessel, Instance, Variant, Action, Chart, or grounding context, and `LiveKitAdapter.injectGrounding()` is intentionally a no-op — sending it UI structure would create a second planner.
+
 Each boundary creates a place to choose or specialize a component. A team can select STT for a language, noisy environment, or domain vocabulary. A clinical product, for example, may evaluate recognition models against the medical terms its users actually speak. TTS can be selected separately for voice quality, language coverage, cost, or deployment policy.
 
 Those choices add work. The application must deploy, secure, observe, and recover the transport, STT, and TTS stages. Each handoff may add latency. Teams should measure complete turns rather than assume that one component's benchmark predicts user experience.
@@ -105,4 +132,6 @@ Follow the [LiveKit cascade setup guide](/guides/voice/livekit-cascade/) for Mae
 
 Whichever mode you choose, preserve the same rule: voice determines what the user appears to want, while the Maelstrom client supplies what is actually on screen. The Engine plans from the client-built Chart snapshot. It never plans from a realtime model's grounding, an STT worker's state, or a transcript-derived picture of the UI.
 
-Return to the [Voice overview](/guides/voice/overview/) for the common React integration and package boundaries. Read the [Architecture Overview](/understanding/architecture/) for the full client and Engine request loop.
+A voice model's belief about the interface may be useful for conversation, but it never becomes planning input. Voice providers do not supply Vessel IDs, Actions, or layout coordinates to the Engine. Nothing in an integration has to enforce this; it is how `RealtimeSession` routes intent.
+
+Return to the [Voice overview](/guides/voice/overview/) to wire either mode into your UI. Read the [Architecture Overview](/understanding/architecture/) for the full client and Engine request loop.
