@@ -183,3 +183,43 @@ test.describe('sidebar focus mode', () => {
     expect(tocRightEdge).toBeLessThanOrEqual(overflow.clientWidth);
   });
 });
+
+test.describe('reduced motion', () => {
+  // test.use({ reducedMotion: 'reduce' }) is the documented way to set this,
+  // but it verifiably does not flip `matchMedia('(prefers-reduced-motion:
+  // reduce)')` to true on this Playwright/Chromium combination (checked
+  // directly: it stayed false). page.emulateMedia does, so it is used here
+  // instead — the context option would make this test pass unconditionally
+  // regardless of the CSS, which is worse than not having it.
+  //
+  // sidebar.css disables the collapse transition under prefers-reduced-motion,
+  // but the override only wins because its selectors are declared after the
+  // animating-gated rules at matching specificity — at equal specificity a
+  // rule earlier in the file can never beat one later, but a rule that moves
+  // ahead of its counterpart (or drops the `[data-sidebar-animating]` prefix
+  // and so becomes less specific) loses silently, with no type error and no
+  // visible symptom outside a real browser. This test is the only thing that
+  // would catch that reorder.
+  test('the collapse transition is disabled', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(PAGE);
+    await collapse(page);
+
+    const durations = await page.evaluate(() => {
+      const selectors = [
+        '.sidebar-pane',
+        '.main-frame',
+        '.main-pane',
+        '.right-sidebar-container',
+      ];
+      return selectors.map((selector) => {
+        const el = document.querySelector(selector);
+        return el && getComputedStyle(el).transitionDuration;
+      });
+    });
+
+    for (const duration of durations) {
+      expect(duration).toBe('0s');
+    }
+  });
+});
