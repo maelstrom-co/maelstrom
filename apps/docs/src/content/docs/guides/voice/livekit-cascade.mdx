@@ -175,8 +175,8 @@ Keep LiveKit signing credentials in server-only code. The minter validates the r
 ```ts title="server/livekit-token.ts"
 import { isOk } from '@maelstrom-co/protocol';
 import {
-  LiveKitTokenGrantSchema,
   type LiveKitTokenGrant,
+  LiveKitTokenGrantSchema,
 } from '@maelstrom-co/realtime-livekit/token';
 import {
   mintFailureHttpStatus,
