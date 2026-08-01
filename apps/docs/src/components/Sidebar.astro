@@ -95,6 +95,9 @@ const frameworks = [
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
+    /* Holds the row's height to the collapse button's own size, so hiding the
+       button on collapse doesn't shrink the row and snap the logo upward. */
+    min-height: 1.75rem;
   }
 
   .sidebar-logo {

@@ -15,7 +15,8 @@ const label = isCollapse ? 'Collapse sidebar' : 'Expand sidebar';
   aria-controls="starlight__sidebar"
   aria-expanded="true"
   aria-label={label}
-  title={`${label} (⌘B)`}
+  aria-keyshortcuts="Meta+B Control+B"
+  title={`${label} (Ctrl+B or Cmd+B)`}
 >
   <svg
     width="16"
@@ -92,6 +93,15 @@ const label = isCollapse ? 'Collapse sidebar' : 'Expand sidebar';
 
     :global([data-theme='light']) .sidebar-toggle--expand {
       border-color: rgba(10, 30, 53, 0.1);
+    }
+  }
+
+  /* The header wrapper that mounts .sidebar-toggle--expand stays in the DOM on
+     desktop (it is no longer display: none) so the button has a mount point;
+     without this rule its fixed icon can print onto the page while collapsed. */
+  @media print {
+    .sidebar-toggle {
+      display: none;
     }
   }
 </style>
