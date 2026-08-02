@@ -1,0 +1,43 @@
+name: DCO check
+description: Verify every non-exempt commit in a pull request carries a matching Signed-off-by trailer.
+
+inputs:
+  github-token:
+    description: 'Token with pull-requests: write'
+    required: true
+  pr-number:
+    description: Pull request number to audit
+    required: true
+  head-sha:
+    description: >-
+      Commit the pull request's head branch points at
+      (`github.event.pull_request.head.sha`). The audited commit list must end
+      at this SHA, or the check fails closed rather than report a verdict over
+      a range branch protection is not gating.
+    required: true
+  head-repository:
+    # Not `required: true`: `head.repo.full_name` is null for a deleted fork, so
+    # this legitimately arrives empty. Empty reads as a fork, which only ever
+    # withholds the bot exemption — the fail-closed direction.
+    description: >-
+      Full name of the repository the head branch lives in
+      (`github.event.pull_request.head.repo.full_name`). Anything other than an
+      exact match on the base repository is treated as a fork, which withholds
+      the bot-author exemption.
+    required: false
+
+# Deliberately no `uses:` step here: bun is provisioned by the calling
+# workflow. Every pinned third-party action stays in `.github/workflows/`,
+# which the existing `directory: /` Dependabot config already scans — covering
+# a nested `action.yml` would need it listed under `directories`.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        REPOSITORY: ${{ github.repository }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        HEAD_REPOSITORY: ${{ inputs.head-repository }}
+      run: bun "${{ github.action_path }}/main.ts"

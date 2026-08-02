@@ -1,8 +1,20 @@
 {
   "name": "@maelstrom-co/client",
   "version": "0.0.0",
+  "description": "Framework-agnostic Maelstrom client: chart manager, connection manager, command processor, vessel registry, and orchestrator, with a voice-session seam for realtime grounding.",
+  "keywords": [
+    "maelstrom",
+    "ai",
+    "llm",
+    "dynamic-ui",
+    "generative-ui",
+    "orchestration",
+    "state-machine",
+    "framework-agnostic"
+  ],
   "license": "MIT",
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,11 +33,17 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/client"
   },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "@maelstrom-co/protocol": "0.0.0",

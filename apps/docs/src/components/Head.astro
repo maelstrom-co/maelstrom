@@ -7,14 +7,28 @@ const { head } = Astro.locals.starlightRoute;
 ---
 
 {head.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+{/* Runs before first paint so focus mode never flashes open. Inline scripts
+    cannot import, so the key and attribute are repeated here; a unit test in
+    sidebar-collapse.test.ts fails if they drift. */}
+<script is:inline>
+  try {
+    if (localStorage.getItem('maelstrom-sidebar-collapsed') === 'true') {
+      document.documentElement.setAttribute('data-sidebar-collapsed', 'true');
+    }
+  } catch {
+    /* storage unavailable */
+  }
+</script>
 <Font cssVariable="--font-heading" preload />
 <Font cssVariable="--font-code" />
 <ClientRouter />
 <PostHog />
 <script>
   import { initTocPath, cleanupTocPath } from '../lib/toc-path';
+  import { initSidebarCollapse } from '../lib/sidebar-collapse';
 
   initTocPath();
+  initSidebarCollapse();
 
   document.addEventListener('astro:before-swap', cleanupTocPath);
   document.addEventListener('astro:after-swap', () => {

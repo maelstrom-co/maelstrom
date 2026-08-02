@@ -1,4 +1,3 @@
-/// <reference types="@cloudflare/workers-types" />
 /**
  * Cloudflare Worker entry for the hosted playground. Routes /ws to the
  * SessionDO Durable Object (session-do.ts) and everything else to the

@@ -15,9 +15,12 @@ import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import { groundedDebounce } from './grounding-debounce.js';
 import type {
   AdapterAudioStreams,
+  AdapterTurnControl,
   RealtimeAdapterEvent,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  TurnMode,
+  TurnModeEvent,
   UpdateUIToolResult,
 } from './provider-adapter.types.js';
 import type {
@@ -171,8 +174,11 @@ export class RealtimeSession implements VoiceSession {
   readonly #logger: Logger;
 
   #state: VoiceSessionState = 'idle';
+  #turnMode: TurnMode = 'automatic';
+  #turnModeError: unknown;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
+  readonly #turnModeHandlers = new Set<(event: TurnModeEvent) => void>();
   #unsubscribeAdapter: Unsubscribe | undefined;
   #unsubscribeSettled: Unsubscribe | undefined;
   #queuedIntent: QueuedIntent | undefined;
@@ -186,6 +192,10 @@ export class RealtimeSession implements VoiceSession {
   // clobbered when the handshake resolves and the connect() call resumes
   // into 'connected' with a hot mic and zero consumers.
   #connectEpoch = 0;
+  // The connection generation that most recently established a mode. A
+  // successful generation with no adapter event uses the automatic fallback;
+  // failed or stale generations never clear the previously retained mode.
+  #turnModeEstablishedEpoch: number | undefined;
 
   readonly #toolHandlers: Record<
     ToolName,
@@ -216,6 +226,35 @@ export class RealtimeSession implements VoiceSession {
   }
 
   /**
+   * Retained turn-boundary mode, initially `automatic`. Speech-native adapters
+   * establish a clean `automatic` mode after connect succeeds; adapters emit
+   * `turn_mode` when they establish manual control or change mode. A failed
+   * reconnect does not synthesize a clean transition or clear this value.
+   */
+  get turnMode(): TurnMode {
+    return this.#turnMode;
+  }
+
+  /**
+   * Diagnostic from an attempted automatic mode that degraded to manual.
+   * Clean mode events and a successful speech-native reconnect clear it; a
+   * failed reconnect preserves it. This value is for generic recovery guidance
+   * only; consumers must not render it verbatim or serialize it into telemetry.
+   */
+  get turnModeError(): unknown {
+    return this.#turnModeError;
+  }
+
+  /**
+   * Current adapter-owned manual turn control. It is exposed only after the
+   * adapter establishes manual mode and is read dynamically so adapter
+   * degradation or teardown can replace or remove the control safely.
+   */
+  get turnControl(): AdapterTurnControl | undefined {
+    return this.#turnMode === 'manual' ? this.#adapter.turnControl : undefined;
+  }
+
+  /**
    * The failure behind the most recent `error` state, if any. Cleared at the
    * start of the next `connect()` attempt. Typed failures are
    * `RealtimeVoiceError` — switch on `.code` for recovery UX.
@@ -224,6 +263,12 @@ export class RealtimeSession implements VoiceSession {
     return this.#lastError;
   }
 
+  /**
+   * Opens one provider connection. Re-entry from a live state is a no-op. A
+   * successful connection that emitted no `turn_mode` establishes clean
+   * automatic mode; a failed or stale attempt never synthesizes that fallback
+   * and rejects with the adapter failure.
+   */
   async connect(): Promise<void> {
     // Re-entry guard: connect() is only meaningful from a dormant session.
     // From any live state (connecting/connected and the derived voice-activity
@@ -261,6 +306,9 @@ export class RealtimeSession implements VoiceSession {
       this.#cleanupConnection();
       void this.#adapter.disconnect().catch(() => {});
       return;
+    }
+    if (this.#turnModeEstablishedEpoch !== epoch) {
+      this.#setTurnMode({ type: 'turn_mode', mode: 'automatic' });
     }
     // Grounding only makes sense once the data channel is actually up — a UI
     // settle mid-handshake would otherwise schedule a debounced push that
@@ -305,15 +353,26 @@ export class RealtimeSession implements VoiceSession {
 
   on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe;
   on(event: 'transcript', handler: (t: TranscriptEntry) => void): Unsubscribe;
+  on(event: 'turn_mode', handler: (event: TurnModeEvent) => void): Unsubscribe;
   on(
-    event: 'state' | 'transcript',
-    handler: ((s: VoiceSessionState) => void) | ((t: TranscriptEntry) => void),
+    event: 'state' | 'transcript' | 'turn_mode',
+    handler:
+      | ((s: VoiceSessionState) => void)
+      | ((t: TranscriptEntry) => void)
+      | ((event: TurnModeEvent) => void),
   ): Unsubscribe {
     if (event === 'transcript') {
       const h = handler as (t: TranscriptEntry) => void;
       this.#transcriptHandlers.add(h);
       return () => {
         this.#transcriptHandlers.delete(h);
+      };
+    }
+    if (event === 'turn_mode') {
+      const h = handler as (turnModeEvent: TurnModeEvent) => void;
+      this.#turnModeHandlers.add(h);
+      return () => {
+        this.#turnModeHandlers.delete(h);
       };
     }
     const h = handler as (s: VoiceSessionState) => void;
@@ -328,6 +387,22 @@ export class RealtimeSession implements VoiceSession {
     for (const handler of this.#stateHandlers) handler(next);
   }
 
+  /**
+   * Retains a mode for the active generation before notifying subscribers.
+   * The ordering makes a newly available manual control observable inside its
+   * `turn_mode` callback. Mode updates are never mirrored to the sidechannel.
+   */
+  #setTurnMode(event: TurnModeEvent): void {
+    const retained: TurnModeEvent =
+      event.error === undefined
+        ? { type: 'turn_mode', mode: event.mode }
+        : event;
+    this.#turnMode = retained.mode;
+    this.#turnModeError = retained.error;
+    this.#turnModeEstablishedEpoch = this.#connectEpoch;
+    for (const handler of this.#turnModeHandlers) handler(retained);
+  }
+
   #handleAdapterEvent(event: RealtimeAdapterEvent): void {
     switch (event.type) {
       case 'tool_call':
@@ -337,6 +412,9 @@ export class RealtimeSession implements VoiceSession {
         break;
       case 'state':
         this.#setState(event.state);
+        break;
+      case 'turn_mode':
+        this.#setTurnMode(event);
         break;
       case 'error':
         this.#logger.warn('adapter error', event.error);

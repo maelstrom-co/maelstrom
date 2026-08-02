@@ -101,6 +101,10 @@ function pruneBuiltDocs() {
 export default defineConfig({
   site: 'https://docs.maelstrom-ai.co',
   output: 'static',
+  // Pinned to Astro 6's behaviour — see the matching note in apps/www. Markdown
+  // is immune to the 'jsx' rule, but the architecture page is hand-authored HTML
+  // prose, and one silently glued word is worse than 0.38% of gzip.
+  compressHTML: true,
   server: { port: 4322 },
   redirects: {
     '/': { destination: '/getting-started/introduction/', status: 301 },

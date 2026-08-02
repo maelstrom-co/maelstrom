@@ -28,7 +28,7 @@ export default defineConfig(() => ({
       name: '@maelstrom-co/react',
       formats: ['es' as const],
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: [
         'react',
         'react-dom',

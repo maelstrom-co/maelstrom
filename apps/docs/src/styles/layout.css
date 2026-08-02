@@ -6,8 +6,16 @@
     --sl-nav-height: 0rem;
   }
 
+  /* The header wrapper is the only mount point outside .sidebar-pane for the
+     expand button, so it stays in the DOM on desktop rather than being removed
+     with `display: none`. Its own content is already hidden by Header.astro;
+     strip the wrapper's chrome so nothing but the button paints, and make it
+     inert so a zero-height bar across the top cannot swallow clicks. */
   .page > .header {
-    display: none;
+    border-bottom: none;
+    padding: 0;
+    background: none;
+    pointer-events: none;
   }
 
   .sidebar-pane {

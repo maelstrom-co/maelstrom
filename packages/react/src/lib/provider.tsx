@@ -138,6 +138,14 @@ export function createProvider(
         const error = toError(err);
         console.error('[Maelstrom] Failed to create Orchestrator:', error);
         onErrorRef.current?.(error);
+        // A failed rebuild must not leave a *previous, already-disposed*
+        // instance looking current in context: this effect's cleanup (for
+        // the prior successful build) already ran and disposed it before
+        // this body executed, so without this, `orchestrator` state would
+        // keep pointing at a dead instance — every click a silent no-op,
+        // every processIntent throwing 'disposed', with nothing in the UI
+        // to signal it and no dependency left to change to trigger a retry.
+        setOrchestrator(null);
         return;
       }
 

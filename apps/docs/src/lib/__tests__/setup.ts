@@ -18,6 +18,7 @@ const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
 (globalThis as Record<string, unknown>).Storage = dom.window.Storage;
 (globalThis as Record<string, unknown>).KeyboardEvent =
   dom.window.KeyboardEvent;
+(globalThis as Record<string, unknown>).Event = dom.window.Event;
 (globalThis as Record<string, unknown>).customElements =
   dom.window.customElements;
 (globalThis as Record<string, unknown>).HTMLElement = dom.window.HTMLElement;

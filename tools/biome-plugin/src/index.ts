@@ -1,7 +1,7 @@
 import { dirname } from 'node:path';
 import {
-  type CreateNodesContextV2,
-  type CreateNodesV2,
+  type CreateNodes,
+  type CreateNodesContext,
   createNodesFromFiles,
 } from '@nx/devkit';
 
@@ -17,7 +17,7 @@ const defaultOptions: Required<BiomePluginOptions> = {
   checkTargetName: 'check',
 };
 
-export const createNodesV2: CreateNodesV2<BiomePluginOptions> = [
+export const createNodes: CreateNodes<BiomePluginOptions> = [
   '**/biome.json',
   async (configFiles, options, context) => {
     return await createNodesFromFiles(
@@ -33,7 +33,7 @@ export const createNodesV2: CreateNodesV2<BiomePluginOptions> = [
 async function createNodesInternal(
   configFilePath: string,
   options: BiomePluginOptions | undefined,
-  _context: CreateNodesContextV2,
+  _context: CreateNodesContext,
 ) {
   const root = dirname(configFilePath);
   const opts = { ...defaultOptions, ...options };

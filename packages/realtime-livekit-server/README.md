@@ -1,6 +1,11 @@
 # @maelstrom-co/realtime-livekit-server
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-livekit-server.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-livekit-server)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 Server-only handler for minting LiveKit room access tokens.
+
+📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
 The server sibling of `@maelstrom-co/realtime-livekit`: the browser package
 declares the `LiveKitTokenGrant` contract the adapter consumes, and this
@@ -54,7 +59,7 @@ holder join, publish, and subscribe in the named room.
 ## Docs
 
 - Client guides: https://docs.maelstrom-ai.co/guides/client/custom-connectors/
-- API reference: https://docs.maelstrom-ai.co/reference/client/
+- API reference: https://docs.maelstrom-ai.co/reference/client/readme/
 
 ## License
 

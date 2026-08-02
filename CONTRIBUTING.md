@@ -88,6 +88,68 @@ Sourcetree)? See
 [`.githooks/SIGN-OFF-TOOLS.md`](./.githooks/SIGN-OFF-TOOLS.md) for each tool's
 native sign-off option, or just fall back to `git commit -s`.
 
+### Enforcement
+
+The `dco` check runs on every pull request and is a required check on `main`. If
+any commit is missing its sign-off, the check goes red and a bot comment lists
+the offending commits with a reason for each.
+
+To fix it, re-sign the branch and force-push, rebasing onto the pull request's
+actual base branch — not just any local ref named `main`:
+
+**Working from a fork:**
+
+```bash
+git remote add upstream https://github.com/maelstrom-co/maelstrom.git  # once, if not set
+git fetch upstream
+git rebase --signoff upstream/main   # re-sign every commit on the branch
+git push --force-with-lease          # rewriting history requires a force push
+```
+
+**Working from a branch in this repository:**
+
+```bash
+git fetch origin
+git rebase --signoff origin/main     # re-sign every commit on the branch
+git push --force-with-lease          # rewriting history requires a force push
+```
+
+Single commit, either case: `git commit --amend --signoff --no-edit`.
+
+**What the check compares.** The `Signed-off-by` email must equal either the
+commit's **author** email or its **committer** email, compared
+case-insensitively. The **name is never compared**, so an ASCII-folded name (or
+one missing diacritics) is fine. Merge commits are exempt, as are commits from a
+bot account — but the bot exemption applies **only on branches in this
+repository**, never on a fork. GitHub resolves a commit's author account from
+the email in the commit header alone, so on a fork that classification is
+whatever the contributor put in `user.email`; a base-repo branch is one only a
+contributor with write access can push to. A pull request from a fork therefore
+needs a sign-off on every commit, whatever account its commits appear to be
+from.
+
+Either identity counts because `git commit -s` and the bundled hook both sign
+with your **committer** identity — so re-signing or rebasing *someone else's*
+commits still satisfies the check: you are certifying as the committer.
+
+The attestation lives in the pull request's commit history, which is what the
+check audits; GitHub's web-UI squash can drop the trailer from the resulting
+`main` commit. That gap is accepted — probot/dco has it too.
+
+**The merge exemption is unconditional, and that is an accepted gap too.** A
+merge commit usually certifies nothing of its own, but conflict resolutions and
+edits staged before the merge is committed live in the merge commit's own tree,
+present in neither parent — so unsigned changes can reach a pull request inside
+an unsigned merge commit. Telling that apart from an ordinary merge means
+diffing the pull request's content, and the `dco` workflow runs on
+`pull_request_target` and deliberately never checks out or executes any
+pull-request code. What still catches it: those changes appear in the pull
+request diff under a conspicuous `Merge branch …` commit, and the check's
+sticky comment always discloses how many commits it exempted and why. probot/dco
+and dcoapp/app both exempt merges unconditionally as well. Prefer rebasing onto
+the base branch (`upstream/main` on a fork, `origin/main` in this repository —
+see above) over `git merge main` on a branch, and the case does not arise.
+
 ## Prerequisites
 
 - [Bun](https://bun.sh) (package manager — the repo is a Bun workspace)
@@ -96,9 +158,16 @@ native sign-off option, or just fall back to `git commit -s`.
 ## Getting started
 
 1. Fork and clone the repository.
-2. Install dependencies: `bun install`.
-3. Create a branch for your change.
-4. Make your change with tests, then open a pull request.
+2. Add the parent repository as the `upstream` remote — `git rebase`, further
+   down in [DCO](#developer-certificate-of-origin-dco), rebases onto it:
+
+   ```bash
+   git remote add upstream https://github.com/maelstrom-co/maelstrom.git
+   ```
+
+3. Install dependencies: `bun install`.
+4. Create a branch for your change.
+5. Make your change with tests, then open a pull request.
 
 > The `@maelstrom-co/*` packages resolve as local workspace packages
 > (`workspace:*`), so `bun install` works out of the box on a fresh clone —
@@ -154,66 +223,176 @@ See the [README](./README.md) for the package architecture and core concepts.
   commit subject, so the title is the permanent changelog entry.
 - To publish preview packages for a PR, add the `publish-preview` label. CI
   publishes versioned previews to GitHub Packages and comments install
-  instructions on the PR. This is separate from a real release (below).
+  instructions on the PR. This is separate from a real release (below):
+  previews deliberately stay off public npm, because an npm publish is
+  permanent once the 72-hour unpublish window closes and `0.0.0-pr.*` versions
+  would accumulate on the public registry forever. Installing a preview needs a
+  `read:packages` PAT; installing a release needs nothing.
 
 ## Releasing
 
-Releases are **manual and local** for now — a maintainer who is a member of the
-`@maelstrom-co` npm org runs them from their own machine. There is no CI release
-automation. Real releases publish to **public npm** (`registry.npmjs.org`);
-per-PR previews are a separate flow that targets GitHub Packages.
+Releases are **cut locally and published by CI**. A maintainer versions, tags,
+and pushes from their machine; pushing the `v*` tag triggers
+[`.github/workflows/release.yml`](.github/workflows/release.yml), which builds
+and publishes every package to **public npm** (`registry.npmjs.org`). Apart from
+the one-time bootstrap below, nobody publishes from a laptop — a provenance
+attestation is only meaningful when the build it describes ran somewhere
+auditable.
 
-### One-time setup
+Per-PR previews are a separate flow that targets GitHub Packages.
 
-Authenticate to public npm (you must be in the `@maelstrom-co` org with publish
-rights):
+CI authenticates to npm with **OIDC trusted publishing** — no token is stored
+anywhere. There is no `NPM_TOKEN` secret, and there should never be one: npm
+caps granular write tokens at 90 days, so a stored token means rotating a secret
+every quarter and a broken release the one time it's forgotten.
 
-```bash
-npm login --registry=https://registry.npmjs.org
-```
+The workflow runs as **two jobs, and only the second one can publish**:
 
-The release script also creates a GitHub release, so `gh` must be authenticated
-(or `GITHUB_TOKEN` set).
+| Job | Permissions | Does |
+| --- | --- | --- |
+| `prepare` | `contents: read` | Checks tag ancestry, installs, builds, packs tarballs |
+| `publish` | `id-token: write` | Downloads tarballs, `npm publish`, verifies |
+
+`prepare` is where `bun install` runs dependency lifecycle scripts and the build
+executes package code — so it holds no npm identity to steal. `publish` holds
+one, and runs nothing but `npm publish` against tarballs `prepare` already
+produced: no install, no build, no third-party code. Keep it that way. Adding an
+install step to `publish` hands the OIDC token back to the dependency tree and
+undoes the split.
+
+Cutting a release needs `gh` authenticated (or `GITHUB_TOKEN` set) — the script
+creates the GitHub release. No npm credentials are needed locally after the
+bootstrap below.
+
+### Bootstrap (once per package, already done for existing packages)
+
+Trusted publishing cannot be configured for a package that does not exist yet —
+npm only exposes the setting on a published package. So each **new** package
+needs one manual publish before CI can take it over:
+
+1. Log in to npm as a member of the `@maelstrom-co` org with publish rights.
+   Sessions are short-lived, so do this immediately before publishing:
+
+   ```bash
+   npm login --registry=https://registry.npmjs.org
+   ```
+
+2. Publish the first version with the release script, not bare `npm publish` —
+   the script rewrites `workspace:*` and `catalog:` specs to concrete versions,
+   which npm will not do for you:
+
+   ```bash
+   bun scripts/publish-packages.ts --tag alpha --skip-published
+   ```
+
+3. On npmjs.org, open each package → **Settings → Trusted publishing**, and add
+   a GitHub Actions publisher pointing at this repository and `release.yml`.
+   The publisher's **environment** field must either be left empty or say
+   `production`, because that is the environment `release.yml` declares — a
+   mismatch here is rejected at publish time, and the error does not say which
+   side is wrong.
+
+4. Log out locally. Nothing else should ever publish from a laptop.
+
+This first version ships **without provenance** — attestation requires a build
+CI can vouch for. Every release after it is CI-published and attested.
+
+### Release-boundary prerequisites (once per repository)
+
+A `v*` tag push publishes to public npm. Everything that decides *who can cause
+that* lives in repository settings, not in this repo — configure all of it
+**before the first release**:
+
+1. **Protected tags.** Settings → Rules → Rulesets, target `refs/tags/v*`,
+   restrict creation to maintainers. Without this, anyone who can push a tag can
+   start a release.
+
+2. **`production` environment protection.** Settings → Environments →
+   `production`: add required reviewers and, if you want a cancellation window,
+   a wait timer. Naming the environment in the workflow buys nothing on its own
+   — until this is configured, a tag push publishes with no human in the loop.
+   The gate sits on the `publish` job, so approval is requested after the build
+   and ancestry check have already passed.
+
+3. **npm trusted publisher.** Each package's publisher must point at this
+   repository, `release.yml`, and the `production` environment. A mismatch is
+   rejected at publish time with an error that does not say which side is wrong.
+   See the bootstrap section above.
+
+The workflow enforces one boundary on its own, independent of the settings
+above: `prepare` refuses to continue unless the tagged commit is reachable from
+`main`, so a tag pointing at an unmerged tree fails before anything is built.
+That check is a backstop, not a replacement for protected tags — it constrains
+*what* can be released, while the ruleset constrains *who* can release.
 
 ### Release steps
 
-`scripts/release.ts` runs the entire release in one command — version (fixed,
-shared across all packages), changelog, commit (`chore(release): {version}`),
-tag, push, GitHub release, and npm publish.
+`scripts/release.ts --skip-publish` runs the local half — version (fixed, shared
+across all packages), changelog, commit (`chore(release): {version}`), tag, push,
+and GitHub release. CI does the publish.
 
 1. Sync `main`, ensure a clean working tree, and install: `bun install`.
 
-2. **Dry-run first.** `--dry-run` makes no commits, tags, or publishes — it only
-   reports what would happen:
+2. **Rehearse.** `--dry-run` makes no commits, tags, or publishes:
 
    ```bash
-   RELEASE_REGISTRY=https://registry.npmjs.org \
-     bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha --dry-run
+   bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha --dry-run
    ```
 
-3. **Release** (drop `--dry-run`):
+   To rehearse the CI half too, run the **Release** workflow via
+   `workflow_dispatch` with no tag and `dry_run` checked. It resolves, builds,
+   and packs every package without publishing.
+
+3. **Cut the release.** Drop `--dry-run` and add `--skip-publish`; pushing the
+   tag hands off to CI:
 
    ```bash
-   RELEASE_REGISTRY=https://registry.npmjs.org \
-     bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha
+   bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha --skip-publish
    ```
 
    For the very first release (no prior `v*` tag exists yet), add
    `--first-release`.
 
+4. Watch the **Release** workflow. It refuses to publish if any package manifest
+   disagrees with the tag, and verifies every package is live on the registry
+   before going green.
+
+### Recovering a partial release
+
+If the publish fails partway, **re-run the workflow** — do not re-cut. The
+publish step passes `--skip-published`, so packages that already landed are
+skipped and only the missing ones go out. npm versions are immutable, so
+re-publishing one that succeeded is a hard error; that flag is what makes the
+re-run work.
+
 ### Flags and gotchas
 
-- **Git state is pushed before the npm publish.** `scripts/release.ts` runs
-  version → changelog → commit → tag → push → GitHub release **before** it
-  publishes to npm. If the publish fails midway, the commit, tag, and GitHub
-  release already exist on the remote while npm has no matching version —
-  recovery is manual: fix the cause and re-publish that same version (do **not**
-  re-run the full release, which would bump the version again). Always
-  `--dry-run` first to reduce the risk.
-- **`RELEASE_REGISTRY` is mandatory for public npm.** It defaults to GitHub
-  Packages (`npm.pkg.github.com`) — the registry the root `.npmrc` maps the
-  `@maelstrom-co` scope to, and what per-PR previews use. Set it to
-  `https://registry.npmjs.org` to publish a real release to public npm.
+- **Git state is pushed before the npm publish**, and now by a different actor:
+  the tag, commit, and GitHub release exist the moment you push, while npm
+  publishes seconds later in CI. A failed publish leaves that gap — close it by
+  re-running the workflow (see "Recovering a partial release"), never by
+  re-cutting, which would bump the version again.
+- **`RELEASE_REGISTRY` is an override, not a requirement.** Publishing defaults
+  to public npm (`https://registry.npmjs.org`). Set it only to aim somewhere
+  else — a local Verdaccio (`nx local-registry`, `http://localhost:4873`) to
+  rehearse the whole flow without touching the real registry.
+- **Provenance turns itself on when the repo goes public.** npm refuses to
+  attest a build it cannot link to public source, so the release job passes
+  `--provenance` only when the repository is public and warns when it does not.
+  Nothing to change on the day it flips.
+- **`--dry-run` does not exercise provenance.** npm skips attestation entirely
+  under `--dry-run`, so a green rehearsal says nothing about whether provenance
+  works. The first real publish is the first real test. This matters more now
+  that `publish` uploads a pre-packed tarball rather than packing in place:
+  attestation is generated by the job that uploads, and that path has not been
+  exercised against the real registry yet. Watch the first public release.
+- **A new package will fail its first CI release.** It has no trusted publisher
+  yet, and it cannot have one until it exists on the registry. Run the bootstrap
+  above for it before adding it to a release.
+- **Never add an `NPM_TOKEN` secret to work around an auth failure.** A token in
+  `.npmrc` can stop npm from attempting the OIDC exchange at all, so it turns a
+  fixable misconfiguration into a permanent one — and reintroduces the 90-day
+  rotation. Fix the trusted publisher instead.
 - **`--preid` sets both the prerelease identifier and the npm dist-tag.** While
   in prerelease, pass `--preid alpha` so the release publishes under the `alpha`
   dist-tag and `npm install @maelstrom-co/<pkg>` does not resolve to a

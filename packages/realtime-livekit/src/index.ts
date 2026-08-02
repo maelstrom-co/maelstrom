@@ -11,7 +11,11 @@
  * `@maelstrom-co/realtime-livekit-agent` worker.
  */
 export { LiveKitAdapter } from './livekit-adapter.js';
-export type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
+export type {
+  LiveKitAdapterOptions,
+  LiveKitBrowserVadOptions,
+  LiveKitBrowserVadProviderOptions,
+} from './livekit-adapter.types.js';
 export type { LiveKitTokenGrant } from './livekit-token.js';
 export { LiveKitTokenGrantSchema } from './livekit-token.js';
 export * from './protocol.js';

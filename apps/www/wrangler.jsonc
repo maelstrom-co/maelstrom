@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // Matches the newest date the pinned workerd supports (wrangler 4.115.0 ships
+  // workerd 1.20260722.1); a later date would outrun the installed runtime.
+  "compatibility_date": "2026-07-22",
+  // Astro 7 bundles with Vite 8, whose Rolldown runtime chunk imports
+  // `node:module`. workerd rejects that module outright without this flag, so
+  // the build dies in the prerender pass before a single route is emitted.
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
+}
