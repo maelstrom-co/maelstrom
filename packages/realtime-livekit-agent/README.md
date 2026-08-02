@@ -1,4 +1,4 @@
-# `@maelstrom-co/realtime-livekit-agent`
+# @maelstrom-co/realtime-livekit-agent
 
 Node LiveKit voice agent worker for the Maelstrom LiveKit adapter spike — a
 separate process that relays STT (Deepgram) into the room and synthesizes TTS
@@ -14,12 +14,6 @@ synthesizes an `update_ui` tool call from each transcript, and
 `RealtimeSession` drives it. The worker imports only
 `@maelstrom-co/realtime-livekit/protocol` (the shared wire constants) at
 runtime, so loading that subpath does not evaluate browser or server modules.
-
-| Package                                 | Runtime            | Responsibility                                                                                                                           |
-| --------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `@maelstrom-co/realtime-livekit`        | Browser            | Connects to the LiveKit room, publishes microphone audio, turns final transcripts into Maelstrom intent, and plays synthesized responses |
-| `@maelstrom-co/realtime-livekit-server` | Application server | Signs short-lived room tokens for authenticated browser sessions                                                                         |
-| `@maelstrom-co/realtime-livekit-agent`  | Worker process     | Runs Deepgram speech recognition and Cartesia speech synthesis                                                                           |
 
 The browser adapter and worker communicate using the shared wire protocol exported from:
 
@@ -115,6 +109,12 @@ CARTESIA_API_KEY=your-cartesia-api-key
 | `LIVEKIT_API_SECRET` | Token server and worker | Signs tokens and authenticates the worker |
 | `DEEPGRAM_API_KEY`   | Worker only             | Speech-to-text                            |
 | `CARTESIA_API_KEY`   | Worker only             | Text-to-speech                            |
+
+Deploy this entry as a long-running process separate from the application
+server that mints browser room tokens. The worker runs only Deepgram STT and
+Cartesia TTS; it does not convert transcripts into UI plans. The commands and
+APIs in this README are scoped to the locked `@livekit/agents`, Deepgram plugin,
+and Cartesia plugin 1.4.8 releases.
 
 Deploy this entry as a long-running process separate from the application
 server that mints browser room tokens. The worker runs only Deepgram STT and

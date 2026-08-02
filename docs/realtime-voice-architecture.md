@@ -13,6 +13,8 @@ For the general Maelstrom architecture—Vessels, Chart, Orchestrator, and Engin
 
 Use the implementation guides first: start with the [public voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/), then follow either the [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/) or the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/). Keep this document as a secondary architecture reference for the design constraints and decisions behind those integrations.
 
+Use the implementation guides first: start with the [public voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/), then follow either the [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/) or the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/). Keep this document as a secondary architecture reference for the design constraints and decisions behind those integrations.
+
 ---
 
 ## Core invariants

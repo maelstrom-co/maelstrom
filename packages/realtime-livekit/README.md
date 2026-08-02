@@ -32,63 +32,6 @@ Browser                              LiveKit worker
 └─────────────────────────────┘
 ```
 
-A complete voice turn works as follows:
-
-1. The user starts a hold-to-talk turn.
-2. `LiveKitAdapter` unmutes the published microphone.
-3. The worker transcribes the microphone audio with Deepgram.
-4. The user ends the turn.
-5. The adapter mutes the microphone and tells the worker to flush its STT buffer.
-6. The worker publishes the final transcript.
-7. The adapter converts the transcript into an `update_ui` tool call.
-8. `RealtimeSession` submits the natural-language intent through the normal Maelstrom client and Engine path.
-9. The client applies the Engine result and waits for rendering to settle.
-10. The adapter sends the Engine’s `userMessage`, or the settled structural summary fallback, to the worker.
-11. The worker synthesizes the response with Cartesia and publishes the audio back to the browser.
-
-Successful speech therefore starts only after the corresponding UI update has settled.
-
-## Install
-
-Install the adapter and its LiveKit peer dependency:
-
-```bash
-bun add @maelstrom-co/realtime-livekit livekit-client
-```
-
-Equivalent commands:
-
-```bash
-npm install @maelstrom-co/realtime-livekit livekit-client
-pnpm add @maelstrom-co/realtime-livekit livekit-client
-yarn add @maelstrom-co/realtime-livekit livekit-client
-```
-
-A complete React integration normally also uses:
-
-```bash
-bun add \
-  @maelstrom-co/react-realtime \
-  @maelstrom-co/realtime-livekit-server \
-  @maelstrom-co/realtime-livekit-agent
-```
-
-## Package roles
-
-The LiveKit cascade is split across three runtime packages:
-
-| Package                                 | Runtime             | Responsibility                                                                                                   |
-| --------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `@maelstrom-co/realtime-livekit`        | Browser             | Room connection, microphone publication, transcript-to-intent conversion, hold-to-talk control, and TTS playback |
-| `@maelstrom-co/realtime-livekit-server` | Application server  | Signs short-lived LiveKit room tokens                                                                            |
-| `@maelstrom-co/realtime-livekit-agent`  | Long-running worker | Runs Deepgram STT and Cartesia TTS                                                                               |
-
-The browser package never reads LiveKit signing credentials, Deepgram credentials, or Cartesia credentials.
-
-## Create the browser adapter
-
-Create one `LiveKitAdapter` for each Maelstrom voice session:
-
 A `RealtimeProviderAdapter` (from `@maelstrom-co/realtime`) backed by a LiveKit
 cascaded STT/TTS voice pipeline instead of a speech-native realtime model.
 
@@ -125,15 +68,19 @@ STT (Deepgram) and TTS (Cartesia). No LLM in the worker in phase 1.
 
 ## Usage
 
+```bash
+npm install @maelstrom-co/realtime-livekit livekit-client
+pnpm add @maelstrom-co/realtime-livekit livekit-client
+yarn add @maelstrom-co/realtime-livekit livekit-client
+```
+
 ```ts
-import { RealtimeSession } from '@maelstrom-co/realtime';
 import {
   LiveKitAdapter,
   LiveKitTokenGrantSchema,
 } from '@maelstrom-co/realtime-livekit';
 
 const adapter = new LiveKitAdapter({
-  roomName: `maelstrom-${sessionId}`,
   mintToken: async (roomName) => {
     const response = await fetch('/api/voice/livekit-token', {
       method: 'POST',
@@ -147,6 +94,7 @@ const adapter = new LiveKitAdapter({
     // Validate the required { token, url, expiresAt } short-lived grant.
     return LiveKitTokenGrantSchema.parse(await response.json());
   },
+  roomName: `maelstrom-${sessionId}`,
 });
 const session = new RealtimeSession({ adapter, instance, sessionId });
 await session.connect();
