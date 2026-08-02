@@ -6,19 +6,13 @@
 
 It hands your model your stateful components and a live layout surface — to arrange them, resize them, and trigger their actions by intent, in real time. It never invents new ones.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-
-<!-- Publication-gated badges. Paste back in when the two preconditions land —
-     they render as broken images until then:
-       - repo is public  → stars badge, CI badge, Star History (below)
-       - packages on npm → version badge, bundle size
 [![npm](https://img.shields.io/npm/v/@maelstrom-co/react.svg)](https://www.npmjs.com/package/@maelstrom-co/react)
 [![Bundle size](https://img.shields.io/bundlephobia/minzip/@maelstrom-co/react)](https://bundlephobia.com/package/@maelstrom-co/react)
 [![CI](https://github.com/maelstrom-co/maelstrom/actions/workflows/ci.yml/badge.svg)](https://github.com/maelstrom-co/maelstrom/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Stars](https://img.shields.io/github/stars/maelstrom-co/maelstrom?style=flat)](https://github.com/maelstrom-co/maelstrom/stargazers)
--->
 
-[Try the playground](https://maelstrom-playground.maelstrom-36e.workers.dev) &nbsp;·&nbsp; [Documentation](https://docs.maelstrom-ai.co) &nbsp;·&nbsp; [Quick start](#60-second-quickstart)
+[See it live](https://maelstrom-ai.co#demo) &nbsp;·&nbsp; [Documentation](https://docs.maelstrom-ai.co) &nbsp;·&nbsp; [Quick start](#60-second-quickstart)
 
 </div>
 
@@ -46,9 +40,11 @@ Intent has many forms — voice, text, channels not yet invented. To the model t
 
 ## What you write
 
-A Vessel is a state machine. Variants are its states, and each carries the size it needs:
+A Vessel is a state machine. Variants are its states, and each declares the size it wants — a floor the engine honours in grid mode, and a hint it weighs against the split tree in tiling mode:
 
 ```tsx
+import { defineVessel } from '@maelstrom-co/react';
+
 export const greetingVessel = defineVessel({
   id: 'greeting',
   name: 'Greeting',
@@ -68,6 +64,13 @@ export const greetingVessel = defineVessel({
 `vessel()` pairs that definition with your component, which receives typed props for whichever variant is live:
 
 ```tsx
+import {
+  createMaelstrom,
+  type TypedVesselProps,
+  vessel,
+  WebSocketConnector,
+} from '@maelstrom-co/react';
+
 function Greeting({ variantProps }: TypedVesselProps<typeof greetingVessel>) {
   return <div>Hello {variantProps.name}</div>;
 }
@@ -82,10 +85,20 @@ export const App = () => (
 );
 ```
 
-Anywhere inside the Provider, `useMaelstrom()` hands you the loop:
+`useMaelstrom()` hands you the loop from any component under the Provider:
 
 ```tsx
-const { processIntent, isProcessing } = m.useMaelstrom();
+function IntentBar() {
+  const { processIntent, isProcessing } = m.useMaelstrom();
+  return (
+    <input
+      disabled={isProcessing}
+      onKeyDown={(e) =>
+        e.key === 'Enter' && processIntent(e.currentTarget.value)
+      }
+    />
+  );
+}
 ```
 
 That is the whole surface. `processIntent("show me the greeting bigger")` goes to the engine; the engine answers with layout and actions; the Chart re-flows.
@@ -93,17 +106,16 @@ That is the whole surface. `processIntent("show me the greeting bigger")` goes t
 ## 60-second quickstart
 
 ```bash
-bun add @maelstrom-co/react   # npm install / pnpm add also fine
+npm install @maelstrom-co/react   # bun add / pnpm add also fine
 ```
 
-> Packages publish to npm at `v0.1.0`. Until then, run the [playground](https://maelstrom-playground.maelstrom-36e.workers.dev) or clone this repo and run `nx dev demo`.
-
-You need one LLM provider key. Copy `.env.example` to `.env` and set `GOOGLE_API_KEY` — nothing else is required to see a Vessel move.
+You need one LLM provider key and a running engine. The reference engine ships with the demo:
 
 ```bash
-cp .env.example .env   # set GOOGLE_API_KEY
+git clone https://github.com/maelstrom-co/maelstrom && cd maelstrom
+cp .env.example .env   # set GOOGLE_API_KEY — nothing else is required
 bun install
-nx dev demo
+bunx nx dev demo
 ```
 
 Full walkthrough: **[Quick start](https://docs.maelstrom-ai.co/getting-started/quick-start/)**.
@@ -199,8 +211,6 @@ Contributions are welcome — start with the [contributing guide](./CONTRIBUTING
 
 MIT — see [LICENSE](./LICENSE).
 
-<!-- Star History renders only for a public repo; restore on the same flip as the badges above.
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=maelstrom-co/maelstrom&type=Date)](https://star-history.com/#maelstrom-co/maelstrom&Date)
--->
