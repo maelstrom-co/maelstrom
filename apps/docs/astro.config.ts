@@ -331,6 +331,7 @@ export default defineConfig({
           label: 'Tutorials',
           items: [
             { slug: 'tutorials/first-dashboard' },
+            { slug: 'tutorials/run-voice-locally' },
             { slug: 'tutorials/deploy-to-production' },
           ],
         },

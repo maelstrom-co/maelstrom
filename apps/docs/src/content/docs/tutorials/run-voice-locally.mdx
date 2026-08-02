@@ -1,0 +1,92 @@
+---
+title: Run the voice demo locally
+description: Hear a LiveKit cascade turn end to end on your own machine before you build a production integration.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+By the end of this tutorial you will speak to the repository demo, watch the UI adapt, and hear the result spoken back. You will run three processes: a local LiveKit server, the STT/TTS worker, and the browser app.
+
+This is a learning checkpoint, not a deployment. The demo mint route is development-only and is not deployable.
+
+## What you need
+
+- The repository cloned, with `bun install` already run.
+- Deepgram and Cartesia API keys.
+- A `GOOGLE_API_KEY` or `GEMINI_API_KEY` for the Engine.
+- A browser with microphone permission.
+
+## Wire the browser adapter
+
+Create one `LiveKitAdapter` for each Maelstrom voice session. The callback that fetches the room grant is application-provided; keep LiveKit signing credentials out of the browser bundle.
+
+```ts title="src/voice/livekit-adapter.ts"
+export function createLiveKitAdapter({
+  sessionId,
+}: CreateAdapterContext): LiveKitAdapter {
+  return new LiveKitAdapter({
+    roomName: `maelstrom-${sessionId}`,
+    mintToken: fetchLiveKitToken,
+    thinkingFallbackMs: 10_000,
+  });
+}
+```
+
+During `connect()`, the adapter calls LiveKit's `setMicrophoneEnabled(true)` to acquire and publish the microphone, then `setMicrophoneEnabled(false)` to mute the existing publication until a turn starts. A denied browser permission surfaces as `MIC_PERMISSION_DENIED`; explain how to allow access, then reconnect.
+
+The adapter ignores partial and blank transcription segments. Each non-empty final transcript emits a user transcript event and exactly one synthetic `update_ui` tool call whose `intent` is the trimmed transcript. That natural-language intent follows the normal Maelstrom path; the worker never plans the UI.
+
+## Delimit each held turn
+
+The current LiveKit cascade implementation uses explicit hold-to-talk boundaries. Call `turnControl.startTurn()` on press and `turnControl.endTurn()` on every release or cancellation path. This behavior belongs to this adapter, not to the shared voice architecture. Realtime adapters may instead use provider-managed turn detection and leave `turnControl` undefined.
+
+```ts title="src/voice/held-turn.ts"
+export async function runHeldTurn(
+  turnControl: AdapterTurnControl,
+): Promise<void> {
+  await turnControl.startTurn();
+  try {
+    await waitForRelease();
+  } finally {
+    await turnControl.endTurn();
+  }
+}
+```
+
+`startTurn()` unmutes the published microphone. `endTurn()` mutes it before signaling the worker to flush the turn. If a held turn produces no final transcript, the provider-specific `thinkingFallbackMs` timer returns the session from `thinking` to `connected`; the configured `10_000` milliseconds bounds that recovery. Set the option to `0` only when another integration owns empty-turn recovery, because disabling it can leave an unanswered empty turn in `thinking`.
+
+## Run the checked-in demo locally
+
+<Aside type="danger" title="Repository demo route is development-only">
+  The checked-in demo mint route signs grants without authenticating the caller.
+  It exists to make this tutorial runnable. Replace it with the server-owned
+  route from the [LiveKit cascade
+  guide](/guides/voice/livekit-cascade/#add-the-server-token-route) before any
+  deployment.
+</Aside>
+
+1. Copy the root `.env.example` to `.env`. Keep the existing `GOOGLE_API_KEY` or `GEMINI_API_KEY` for the Engine, add real `DEEPGRAM_API_KEY` and `CARTESIA_API_KEY` values, and leave the example `LIVEKIT_*` values unchanged.
+2. Follow the official [Install LiveKit Server](https://docs.livekit.io/home/self-hosting/local) instructions if the binary is not installed. Then start the local LiveKit process in one terminal:
+
+   ```bash
+   livekit-server --dev
+   ```
+
+   The `--dev` flag uses well-known insecure `devkey` / `secret` credentials that are suitable only for local development.
+3. From the repository root, start the full demo in another terminal:
+
+   ```bash
+   bunx nx dev-livekit demo
+   ```
+
+   The Nx target starts the Engine host, the long-running STT/TTS worker, and the browser app. The separate `livekit-server --dev` command supplies the local LiveKit process.
+
+## Verify
+
+Open [http://localhost:3000](http://localhost:3000), connect voice, hold to talk, and release. A final transcript should become ordinary intent; after the UI settles, the worker should speak the result.
+
+## Next steps
+
+- [LiveKit cascade](/guides/voice/livekit-cascade/) — build the deployable integration, with server-owned room and participant scope
+- [Voice architecture: cascade vs realtime](/understanding/voice-architecture/) — why the turn is split this way
+- [Voice overview](/guides/voice/overview/) — the other shipped mode

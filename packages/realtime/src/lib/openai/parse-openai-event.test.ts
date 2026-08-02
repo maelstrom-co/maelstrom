@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
+import { ToolCallId } from '@maelstrom-co/protocol';
+
 import { parseOpenAIServerEvent } from './parse-openai-event.js';
 
 describe('parseOpenAIServerEvent — tool calls', () => {
@@ -13,7 +15,7 @@ describe('parseOpenAIServerEvent — tool calls', () => {
 
     expect(parseOpenAIServerEvent(raw)).toEqual({
       type: 'tool_call',
-      callId: 'call_abc123',
+      callId: ToolCallId('call_abc123'),
       name: 'update_ui',
       argumentsJson: '{"intent":"show labs"}',
     });
