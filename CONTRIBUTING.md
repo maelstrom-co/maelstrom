@@ -88,6 +88,68 @@ Sourcetree)? See
 [`.githooks/SIGN-OFF-TOOLS.md`](./.githooks/SIGN-OFF-TOOLS.md) for each tool's
 native sign-off option, or just fall back to `git commit -s`.
 
+### Enforcement
+
+The `dco` check runs on every pull request and is a required check on `main`. If
+any commit is missing its sign-off, the check goes red and a bot comment lists
+the offending commits with a reason for each.
+
+To fix it, re-sign the branch and force-push, rebasing onto the pull request's
+actual base branch — not just any local ref named `main`:
+
+**Working from a fork:**
+
+```bash
+git remote add upstream https://github.com/maelstrom-co/maelstrom.git  # once, if not set
+git fetch upstream
+git rebase --signoff upstream/main   # re-sign every commit on the branch
+git push --force-with-lease          # rewriting history requires a force push
+```
+
+**Working from a branch in this repository:**
+
+```bash
+git fetch origin
+git rebase --signoff origin/main     # re-sign every commit on the branch
+git push --force-with-lease          # rewriting history requires a force push
+```
+
+Single commit, either case: `git commit --amend --signoff --no-edit`.
+
+**What the check compares.** The `Signed-off-by` email must equal either the
+commit's **author** email or its **committer** email, compared
+case-insensitively. The **name is never compared**, so an ASCII-folded name (or
+one missing diacritics) is fine. Merge commits are exempt, as are commits from a
+bot account — but the bot exemption applies **only on branches in this
+repository**, never on a fork. GitHub resolves a commit's author account from
+the email in the commit header alone, so on a fork that classification is
+whatever the contributor put in `user.email`; a base-repo branch is one only a
+contributor with write access can push to. A pull request from a fork therefore
+needs a sign-off on every commit, whatever account its commits appear to be
+from.
+
+Either identity counts because `git commit -s` and the bundled hook both sign
+with your **committer** identity — so re-signing or rebasing *someone else's*
+commits still satisfies the check: you are certifying as the committer.
+
+The attestation lives in the pull request's commit history, which is what the
+check audits; GitHub's web-UI squash can drop the trailer from the resulting
+`main` commit. That gap is accepted — probot/dco has it too.
+
+**The merge exemption is unconditional, and that is an accepted gap too.** A
+merge commit usually certifies nothing of its own, but conflict resolutions and
+edits staged before the merge is committed live in the merge commit's own tree,
+present in neither parent — so unsigned changes can reach a pull request inside
+an unsigned merge commit. Telling that apart from an ordinary merge means
+diffing the pull request's content, and the `dco` workflow runs on
+`pull_request_target` and deliberately never checks out or executes any
+pull-request code. What still catches it: those changes appear in the pull
+request diff under a conspicuous `Merge branch …` commit, and the check's
+sticky comment always discloses how many commits it exempted and why. probot/dco
+and dcoapp/app both exempt merges unconditionally as well. Prefer rebasing onto
+the base branch (`upstream/main` on a fork, `origin/main` in this repository —
+see above) over `git merge main` on a branch, and the case does not arise.
+
 ## Prerequisites
 
 - [Bun](https://bun.sh) (package manager — the repo is a Bun workspace)
@@ -96,9 +158,16 @@ native sign-off option, or just fall back to `git commit -s`.
 ## Getting started
 
 1. Fork and clone the repository.
-2. Install dependencies: `bun install`.
-3. Create a branch for your change.
-4. Make your change with tests, then open a pull request.
+2. Add the parent repository as the `upstream` remote — `git rebase`, further
+   down in [DCO](#developer-certificate-of-origin-dco), rebases onto it:
+
+   ```bash
+   git remote add upstream https://github.com/maelstrom-co/maelstrom.git
+   ```
+
+3. Install dependencies: `bun install`.
+4. Create a branch for your change.
+5. Make your change with tests, then open a pull request.
 
 > The `@maelstrom-co/*` packages resolve as local workspace packages
 > (`workspace:*`), so `bun install` works out of the box on a fresh clone —
