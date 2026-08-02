@@ -176,7 +176,10 @@ nav.sidebar details[open] > summary svg {
      hasAttribute and SidebarToggle.astro uses :not([data-sidebar-collapsed]),
      so keeping the value out of the contract keeps all three consumers
      aligned. */
-  :root[data-sidebar-collapsed] {
+  /* Guarded on data-has-sidebar: a splash page has no sidebar to collapse, but
+     it can still carry the stored attribute. Zeroing the variable there would
+     resize a ToC that was never sharing space with a sidebar. */
+  :root[data-has-sidebar][data-sidebar-collapsed] {
     --sl-sidebar-width: 0rem;
   }
 
@@ -204,7 +207,9 @@ nav.sidebar details[open] > summary svg {
      (viewport - content width) / 2, which is narrower than the old sidebar
      below roughly 1600px. Clamp to whichever is smaller: unclamped, the panel
      overflows the viewport edge with no scrollbar to reach it. */
-  :root[data-sidebar-collapsed] .right-sidebar-panel .sl-container {
+  :root[data-has-sidebar][data-sidebar-collapsed]
+    .right-sidebar-panel
+    .sl-container {
     width: min(
       var(--maelstrom-sidebar-width) - 2 * var(--sl-sidebar-pad-x),
       (100vw - var(--sl-content-width)) / 2 - 2 * var(--sl-sidebar-pad-x)

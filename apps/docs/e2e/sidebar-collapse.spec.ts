@@ -175,6 +175,44 @@ test.describe('sidebar focus mode', () => {
     expect(duration).toBe('0s');
   });
 
+  // The pre-paint inline script in Head.astro is the only thing standing
+  // between a returning reader and a flash of the expanded sidebar. Nothing
+  // else here fails if it is deleted: every other test waits through the module
+  // script, which sets the same attribute a beat later. Blocking external
+  // scripts is what isolates the inline one — inline scripts issue no request,
+  // so they still run.
+  test('the pre-paint script alone restores focus mode', async ({ page }) => {
+    await page.goto(PAGE);
+    await collapse(page);
+
+    await page.route('**/*', (route) =>
+      route.request().resourceType() === 'script'
+        ? route.abort()
+        : route.continue(),
+    );
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    await expect(page.locator(HTML)).toHaveAttribute(
+      'data-sidebar-collapsed',
+      'true',
+    );
+  });
+
+  // Starlight renders the header — and with it the floating expand button — on
+  // splash pages too, where `hasSidebar` is false and there is nothing to
+  // expand. The site has no splash page today, so this drives the guard
+  // directly rather than through a fixture nobody would otherwise keep.
+  test('the toggle hides on a page with no sidebar', async ({ page }) => {
+    await page.goto(PAGE);
+    const collapseButton = page.locator('[data-sidebar-toggle="collapse"]');
+    await expect(collapseButton).toBeVisible();
+
+    await page.evaluate(() =>
+      document.documentElement.removeAttribute('data-has-sidebar'),
+    );
+    await expect(collapseButton).toBeHidden();
+  });
+
   // Regression guard for a real defect: the collapsed ToC width is clamped by
   // `min(constant, (100vw - content-width)/2 - padding)`, and `100vw` includes
   // the scrollbar while the actual gutter does not. Just above the 72rem

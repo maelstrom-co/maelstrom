@@ -75,7 +75,14 @@ const label = isCollapse ? 'Collapse sidebar' : 'Expand sidebar';
       display: none;
     }
 
-    :global(:root[data-sidebar-collapsed='true']) .sidebar-toggle--collapse {
+    :global(:root[data-sidebar-collapsed]) .sidebar-toggle--collapse {
+      display: none;
+    }
+
+    /* Starlight renders the header, and so this button, on splash pages too —
+       where hasSidebar is false and aria-controls points at nothing. Declared
+       last so it wins over the state pair above at equal specificity. */
+    :global(:root:not([data-has-sidebar])) .sidebar-toggle {
       display: none;
     }
 

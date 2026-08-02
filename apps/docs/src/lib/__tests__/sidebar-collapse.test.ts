@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import {
   ANIMATING_ATTRIBUTE,
   ANIMATION_FALLBACK_MS,
@@ -248,6 +249,31 @@ describe('animation marker', () => {
     expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
       false,
     );
+  });
+});
+
+// sidebar.css pins --maelstrom-sidebar-width to Starlight's own default,
+// because zeroing --sl-sidebar-width leaves the collapsed pane no width to
+// slide across. If Starlight changes that default, nothing else in the suite
+// notices: the sidebar simply stops travelling its full width and the ToC
+// clamp starts from the wrong number. This is the only thing that fails.
+describe('pinned sidebar width', () => {
+  it('still matches the Starlight default it duplicates', () => {
+    const starlightRoot = dirname(
+      Bun.resolveSync('@astrojs/starlight/package.json', import.meta.dir),
+    );
+    const upstream = readFileSync(
+      join(starlightRoot, 'style/props.css'),
+      'utf8',
+    ).match(/--sl-sidebar-width:\s*([^;]+);/)?.[1];
+
+    const ours = readFileSync(
+      new URL('../../styles/sidebar.css', import.meta.url),
+      'utf8',
+    ).match(/--maelstrom-sidebar-width:\s*([^;]+);/)?.[1];
+
+    expect(upstream).toBeDefined();
+    expect(ours).toBe(upstream as string);
   });
 });
 
