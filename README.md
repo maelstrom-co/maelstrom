@@ -2,7 +2,9 @@
 
 # Maelstrom
 
-**Your model arranges the components you designed. It never invents new ones.**
+**Maelstrom orchestrates the components you designed.**
+
+It hands your model your stateful components and a live layout surface — to arrange them, resize them, and trigger their actions by intent, in real time. It never invents new ones.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
@@ -28,13 +30,19 @@
      <p align="center"><img src=".github/assets/demo.gif" alt="A Vessel changing variant while the Chart re-flows around it" width="800"></p>
 -->
 
+Maelstrom is an open-source library for **AI-orchestrated UI**.
+
 ## Why Maelstrom
 
-Most AI-UI tooling renders into a chat thread or generates throwaway components. Maelstrom gives the model a **spatial layout surface** over the stateful components you already built.
+The most powerful technology in a generation arrived, and the industry answered with two lazy defaults. Bolt a chat box onto every app, and walls of text replace working software — the transcript becomes the UI, and human reading speed becomes the bottleneck. Let the model hallucinate the interface, and everything your team knows about its own product gets thrown out with it.
 
-- **Your components, not generated ones.** The model arranges, resizes, and invokes what you registered. It cannot invent a component or write markup.
-- **Vessels are typed state machines.** Variants carry their own size floor, so a layout decision can never shrink a component below what it needs to render.
-- **Layout is the output.** The engine returns grid coordinates and an execution plan — not a string of JSX to eval.
+Both miss the point. The interface doesn't need to be retired into a chat log, and it doesn't need to be generated from scratch. It needs to adapt — composed by AI in the moment, out of pieces you designed on purpose.
+
+- **It arranges; it doesn't invent.** You author Vessels — your real UI components, each a typed state machine with discrete variants and size hints. The model chooses *which* are on screen, *where*, at *what size*, in *what state* — never their contents.
+- **It reasons in space, not pixels.** The Chart is a layout surface the model drives in integer coordinates — primarily a tiling tree (H/V splits, like a tiling window manager), with a grid mode as the alternative.
+- **It acts; it doesn't just show.** Every Vessel exposes the actions its makers allow, and Maelstrom invokes them straight from intent. It only ever does what your app already lets a user do.
+
+Intent has many forms — voice, text, channels not yet invented. To the model they're the same signal. No one has built UI this way before; we think it's the right shape, and we're figuring it out in the open.
 
 ## What you write
 
