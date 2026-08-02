@@ -79,9 +79,13 @@ const label = isCollapse ? 'Collapse sidebar' : 'Expand sidebar';
       display: none;
     }
 
-    /* Starlight renders the header, and so this button, on splash pages too —
-       where hasSidebar is false and aria-controls points at nothing. Declared
-       last so it wins over the state pair above at equal specificity. */
+    /* Starlight renders the header, and so this button, on pages with no
+       sidebar — the 404 route is one — where aria-controls points at an id
+       that is not there. This wins on specificity over the `display:
+       inline-flex` above (0,3,0 against 0,1,0), not on source order: the two
+       state rules declare the same `display: none`, so its position relative
+       to them decides nothing. Keep a `:root`-anchored selector; a shorter one
+       can drop below that base rule. */
     :global(:root:not([data-has-sidebar])) .sidebar-toggle {
       display: none;
     }

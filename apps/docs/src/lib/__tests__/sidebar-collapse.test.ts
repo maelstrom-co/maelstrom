@@ -6,6 +6,7 @@ import {
   ANIMATION_FALLBACK_MS,
   applyStoredState,
   COLLAPSED_ATTRIBUTE,
+  HAS_SIDEBAR_ATTRIBUTE,
   initSidebarCollapse,
   isCollapsed,
   SIDEBAR_COLLAPSED_KEY,
@@ -39,6 +40,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   document.documentElement.removeAttribute(COLLAPSED_ATTRIBUTE);
   document.documentElement.removeAttribute(ANIMATING_ATTRIBUTE);
+  // Starlight sets this on every page that rendered a sidebar, so the default
+  // fixture is a docs page. The tests that drop it are testing the pages that
+  // have none.
+  document.documentElement.setAttribute(HAS_SIDEBAR_ATTRIBUTE, '');
   renderToggles();
   initSidebarCollapse();
 });
@@ -178,6 +183,39 @@ describe('keyboard shortcut', () => {
   it('ignores an unmodified b', () => {
     press(document, { key: 'b' });
     expect(isCollapsed()).toBe(false);
+  });
+});
+
+// Splash pages and the 404 route render Starlight's header — and so the
+// floating expand button — with no sidebar behind it. sidebar.css hides the
+// button and drops every collapsed-state rule there, but CSS cannot reach the
+// shortcut: without these guards Mod+B rewrites the site-wide preference while
+// nothing on screen moves, and the reader meets the other state on the next
+// real page.
+describe('a page with no sidebar', () => {
+  beforeEach(() => {
+    document.documentElement.removeAttribute(HAS_SIDEBAR_ATTRIBUTE);
+  });
+
+  it('ignores the shortcut and leaves the chord to the browser', () => {
+    const event = press(document, { key: 'b', metaKey: true });
+    expect(isCollapsed()).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does not toggle or write the preference', () => {
+    toggleCollapsed();
+    expect(isCollapsed()).toBe(false);
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBeNull();
+  });
+
+  // The visit must not disturb focus mode either way: mirroring the stored
+  // value keeps <html> consistent for the client-side navigation back into the
+  // docs, where the same attribute becomes load-bearing again.
+  it('still mirrors the stored preference', () => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'true');
+    applyStoredState();
+    expect(isCollapsed()).toBe(true);
   });
 });
 
