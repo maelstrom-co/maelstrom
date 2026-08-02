@@ -9,8 +9,17 @@ import {
   ok,
   SessionId,
 } from '@maelstrom-co/protocol';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Mock factories are hoisted, so their shared state must be initialized first.
+const createEngineMock = vi.hoisted(() => vi.fn());
+vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/engine')>()),
+  createEngine: createEngineMock,
+}));
+
 import {
+  buildSharedEngine,
   createWebSocketHandlers,
   type SocketData,
   truncateCloseReason,
@@ -181,5 +190,94 @@ describe('createWebSocketHandlers send paths (local mode)', () => {
     // Regression guard: deleting `case 'heartbeat': ws.send(HEARTBEAT_PONG_FRAME)`
     // leaves this suite green without this assertion.
     expect(ws.sent).toEqual([HEARTBEAT_PONG_FRAME]);
+  });
+});
+
+describe('buildSharedEngine redaction', () => {
+  // Long enough to exercise generic key-pattern and exact-match redaction.
+  const SENTINEL_KEY = 'sk-sentinelKeyThatMustNeverLeak0123456789ABCDEFGH';
+
+  afterEach(() => {
+    createEngineMock.mockReset();
+  });
+
+  it('redacts the api key out of both the returned init error and the console warning', () => {
+    createEngineMock.mockImplementation(() => {
+      throw new Error(`upstream rejected key ${SENTINEL_KEY}`);
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const { engine, initError } = buildSharedEngine(SENTINEL_KEY);
+
+      expect(engine).toBeNull();
+      expect(initError).not.toBeNull();
+      expect(initError).not.toContain(SENTINEL_KEY);
+
+      const loggedWarning = warnSpy.mock.calls.flat().join(' ');
+      expect(loggedWarning).not.toContain(SENTINEL_KEY);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('scrubs the key from the outbound engine.error reply even if sharedEngineInitError were somehow still unredacted', async () => {
+    // Exercise the outbound boundary independently of initialization redaction.
+    const handlers = createWebSocketHandlers({
+      sharedEngine: null,
+      sharedEngineInitError: `upstream rejected key ${SENTINEL_KEY}`,
+      apiKey: SENTINEL_KEY,
+    });
+
+    const ws = makeFakeWs();
+    await handlers.message(
+      ws as unknown as Parameters<typeof handlers.message>[0],
+      chartRequest,
+    );
+
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).not.toContain(SENTINEL_KEY);
+    expect(ws.sent[0]).toContain('engine.error');
+  });
+
+  it('passes a redacting logger so request-time provider errors cannot leak the key', () => {
+    // Provider errors are logged before outbound wire redaction.
+    createEngineMock.mockImplementation(() => ({
+      handle: async () => {
+        throw new Error('unused');
+      },
+      cancel: () => undefined,
+      getHistory: async () => ok([]),
+    }));
+
+    const { engine } = buildSharedEngine(SENTINEL_KEY);
+    expect(engine).not.toBeNull();
+
+    const config = createEngineMock.mock.calls.at(-1)?.[0] as
+      | { logger?: { error: (m: string, e?: unknown, d?: object) => void } }
+      | undefined;
+    expect(config?.logger).toBeDefined();
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      config!.logger!.error(
+        'LLM call failed',
+        new Error(`Incorrect API key provided: ${SENTINEL_KEY}`),
+        { messageId: 'msg-1' },
+      );
+      const logged = errorSpy.mock.calls
+        .flat()
+        .map((arg) =>
+          arg instanceof Error
+            ? `${arg.message}\n${arg.stack ?? ''}`
+            : typeof arg === 'string'
+              ? arg
+              : JSON.stringify(arg),
+        )
+        .join(' ');
+      expect(logged).not.toContain(SENTINEL_KEY);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });

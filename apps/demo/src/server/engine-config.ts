@@ -1,12 +1,11 @@
 /**
  * One definition of "a playground engine", shared by both transports.
  *
- * Local dev (`ws-server.ts`, Gemini via env vars) and hosted
- * (`worker/session-do.ts`, OpenAI via the visitor's BYOK key) differ only in
- * adapter, logger, and model options. Everything else — the system rules the
- * LLM is prompted with, retry count, history window — is the product's
- * behavior and must not depend on which transport a request arrived over: a
- * layout bug reproduced locally has to be the same bug that ships.
+ * Local and hosted differ only in adapter key source, logger, and model
+ * options. Everything else — the system rules the LLM is prompted with,
+ * retry count, history window — is the product's behavior and must not
+ * depend on which transport a request arrived over: a layout bug
+ * reproduced locally has to be the same bug that ships.
  *
  * Kept in one place because the drift is not hypothetical. An earlier spike
  * hand-rolled its own `createEngine(...)` call and reached the deployed
@@ -36,11 +35,11 @@ export interface PlaygroundEngineOptions {
   /** Provider binding — the one genuinely per-transport choice. */
   readonly adapter: EngineConfig['adapter'];
   /**
-   * Hosted mode MUST pass a redacting logger. The default `consoleLogger`
+   * Both transports MUST pass a redacting logger. The default `consoleLogger`
    * writes provider SDK errors verbatim, including OpenAI's 401 echo of the
-   * key it rejected, and the Worker's `observability.logs.persist` retains
-   * whatever reaches stdout. Local dev keys the engine from env vars, so
-   * there is no visitor secret to scrub and the default is fine.
+   * key it rejected. Hosted mode retains whatever reaches stdout via the
+   * Worker's `observability.logs.persist`; local mode still holds a
+   * long-lived `OPENAI_API_KEY` that must not land in terminal or CI logs.
    */
   readonly logger?: EngineConfig['logger'];
   readonly modelOptions?: EngineConfig['modelOptions'];

@@ -36,7 +36,7 @@ import {
 
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY ?? '',
-  model: 'gpt-realtime-2',
+  model: 'gpt-realtime-2.1',
 });
 
 // Authenticating the caller, deriving `sessionId` from trusted server state,

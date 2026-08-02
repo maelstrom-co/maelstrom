@@ -141,7 +141,6 @@
     "@maelstrom-co/realtime-livekit-server": "workspace:*",
     "@maelstrom-co/realtime-server": "workspace:*",
     "@tanstack/ai": "catalog:",
-    "@tanstack/ai-gemini": "catalog:",
     "@tanstack/ai-openai": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",

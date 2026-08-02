@@ -17,7 +17,7 @@ This is a learning checkpoint, not a deployment. The demo mint route is developm
 
 - The repository cloned, with `bun install` already run.
 - Deepgram and Cartesia API keys.
-- A `GOOGLE_API_KEY` or `GEMINI_API_KEY` for the Engine.
+- An `OPENAI_API_KEY` for the Engine.
 - A browser with microphone permission.
 
 ## Start the demo
@@ -30,7 +30,7 @@ This is a learning checkpoint, not a deployment. The demo mint route is developm
   any deployment.
 </Aside>
 
-1. Copy the root `.env.example` to `.env`. Keep the existing `GOOGLE_API_KEY` or `GEMINI_API_KEY` for the Engine, add real `DEEPGRAM_API_KEY` and `CARTESIA_API_KEY` values, and leave the example `LIVEKIT_*` values unchanged.
+1. Copy the root `.env.example` to `.env`. Set `OPENAI_API_KEY` for the Engine, add real `DEEPGRAM_API_KEY` and `CARTESIA_API_KEY` values, and leave the example `LIVEKIT_*` values unchanged.
 2. Follow the official [Install LiveKit Server](https://docs.livekit.io/home/self-hosting/local) instructions if the binary is not installed. Then start the local LiveKit process in one terminal:
 
    ```bash

@@ -37,20 +37,23 @@ import {
 } from '@maelstrom-co/client';
 import type { Engine } from '@maelstrom-co/engine';
 import { encodeEnvelope } from '@maelstrom-co/protocol';
-import { createOpenaiChat } from '@tanstack/ai-openai';
 import {
   type DispatchResult,
   dispatchFrame,
   encodeEngineErrorReply,
 } from '../server/dispatch';
 import { createPlaygroundEngine } from '../server/engine-config';
+import { createDemoOpenaiChat } from '../server/engine-model';
 import { resolvePreHelloDispatch } from '../server/playground-frames';
 import { createRedactingLogger, redact, redactSecrets } from '../server/redact';
 
-// gpt-4o-mini's own ceiling. Explicit and generous so a verbose layout
-// response can never hit OpenAI's response.incomplete truncation, which
-// @tanstack/ai currently swallows into a generic "structured output
-// finalization produced no result".
+// A generous cap intended to make OpenAI's response.incomplete truncation
+// unlikely for a verbose layout response, not to guarantee it never happens
+// — max_output_tokens is shared between reasoning and visible output, so the
+// real headroom for the layout JSON is smaller than this number suggests. If
+// truncation does happen, @tanstack/ai currently swallows it into a generic
+// "structured output finalization produced no result" rather than surfacing
+// the incomplete-response reason.
 const MAX_OUTPUT_TOKENS = 16384;
 
 // Sent while a rehello this connection has not yet answered is outstanding.
@@ -300,7 +303,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
     if (this.#engine && this.#engineKey === apiKey) return this.#engine;
     try {
       this.#engine = createPlaygroundEngine({
-        adapter: createOpenaiChat('gpt-4o-mini', apiKey),
+        adapter: createDemoOpenaiChat(apiKey),
         // observability.logs.persist is on: without this the default
         // consoleLogger writes OpenAI's 401 key echo into retained logs.
         logger: createRedactingLogger(apiKey),
