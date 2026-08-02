@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import {
   ANIMATING_ATTRIBUTE,
   ANIMATION_FALLBACK_MS,
   applyStoredState,
   COLLAPSED_ATTRIBUTE,
+  HAS_SIDEBAR_ATTRIBUTE,
   initSidebarCollapse,
   isCollapsed,
   SIDEBAR_COLLAPSED_KEY,
@@ -38,6 +40,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   document.documentElement.removeAttribute(COLLAPSED_ATTRIBUTE);
   document.documentElement.removeAttribute(ANIMATING_ATTRIBUTE);
+  // Starlight sets this on every page that rendered a sidebar, so the default
+  // fixture is a docs page. The tests that drop it are testing the pages that
+  // have none.
+  document.documentElement.setAttribute(HAS_SIDEBAR_ATTRIBUTE, '');
   renderToggles();
   initSidebarCollapse();
 });
@@ -180,6 +186,39 @@ describe('keyboard shortcut', () => {
   });
 });
 
+// Splash pages and the 404 route render Starlight's header — and so the
+// floating expand button — with no sidebar behind it. sidebar.css hides the
+// button and drops every collapsed-state rule there, but CSS cannot reach the
+// shortcut: without these guards Mod+B rewrites the site-wide preference while
+// nothing on screen moves, and the reader meets the other state on the next
+// real page.
+describe('a page with no sidebar', () => {
+  beforeEach(() => {
+    document.documentElement.removeAttribute(HAS_SIDEBAR_ATTRIBUTE);
+  });
+
+  it('ignores the shortcut and leaves the chord to the browser', () => {
+    const event = press(document, { key: 'b', metaKey: true });
+    expect(isCollapsed()).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does not toggle or write the preference', () => {
+    toggleCollapsed();
+    expect(isCollapsed()).toBe(false);
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBeNull();
+  });
+
+  // The visit must not disturb focus mode either way: mirroring the stored
+  // value keeps <html> consistent for the client-side navigation back into the
+  // docs, where the same attribute becomes load-bearing again.
+  it('still mirrors the stored preference', () => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'true');
+    applyStoredState();
+    expect(isCollapsed()).toBe(true);
+  });
+});
+
 describe('animation marker', () => {
   // sidebar.css keys its collapse transition off this marker so it never
   // animates viewport-driven layout changes (window resize, tablet rotation,
@@ -248,6 +287,31 @@ describe('animation marker', () => {
     expect(document.documentElement.hasAttribute(ANIMATING_ATTRIBUTE)).toBe(
       false,
     );
+  });
+});
+
+// sidebar.css pins --maelstrom-sidebar-width to Starlight's own default,
+// because zeroing --sl-sidebar-width leaves the collapsed pane no width to
+// slide across. If Starlight changes that default, nothing else in the suite
+// notices: the sidebar simply stops travelling its full width and the ToC
+// clamp starts from the wrong number. This is the only thing that fails.
+describe('pinned sidebar width', () => {
+  it('still matches the Starlight default it duplicates', () => {
+    const starlightRoot = dirname(
+      Bun.resolveSync('@astrojs/starlight/package.json', import.meta.dir),
+    );
+    const upstream = readFileSync(
+      join(starlightRoot, 'style/props.css'),
+      'utf8',
+    ).match(/--sl-sidebar-width:\s*([^;]+);/)?.[1];
+
+    const ours = readFileSync(
+      new URL('../../styles/sidebar.css', import.meta.url),
+      'utf8',
+    ).match(/--maelstrom-sidebar-width:\s*([^;]+);/)?.[1];
+
+    expect(upstream).toBeDefined();
+    expect(ours).toBe(upstream as string);
   });
 });
 

@@ -11,6 +11,12 @@ export const SIDEBAR_COLLAPSED_KEY = 'maelstrom-sidebar-collapsed';
 export const COLLAPSED_ATTRIBUTE = 'data-sidebar-collapsed';
 
 /**
+ * Starlight's own marker for a page that rendered a sidebar. Set on <html> in
+ * its Page.astro; absent on splash pages and on the 404 route.
+ */
+export const HAS_SIDEBAR_ATTRIBUTE = 'data-has-sidebar';
+
+/**
  * Attribute on <html> that scopes sidebar.css's collapse transition to an
  * actual toggle. .main-pane, .right-sidebar-container and .main-frame derive
  * their size from the viewport, not just from the collapsed state, so an
@@ -62,6 +68,17 @@ export function isCollapsed(): boolean {
   return document.documentElement.hasAttribute(COLLAPSED_ATTRIBUTE);
 }
 
+/**
+ * A page with no sidebar has nothing to collapse, and every collapsed-state
+ * rule in sidebar.css is gated on this same attribute. Toggling there would
+ * write the site-wide preference with nothing on screen changing — the reader
+ * would then find the sidebar in the other state on the next real docs page,
+ * with no way to connect the two.
+ */
+function hasSidebar(): boolean {
+  return document.documentElement.hasAttribute(HAS_SIDEBAR_ATTRIBUTE);
+}
+
 export function setCollapsed(collapsed: boolean, persist = true): void {
   const root = document.documentElement;
   if (collapsed) {
@@ -83,6 +100,7 @@ export function applyStoredState(): void {
 }
 
 export function toggleCollapsed(): void {
+  if (!hasSidebar()) return;
   const next = !isCollapsed();
   startAnimationMarker();
   setCollapsed(next);
@@ -128,6 +146,9 @@ export function handleShortcut(event: KeyboardEvent): void {
     return;
   if (event.key.toLowerCase() !== 'b') return;
   if (isTypingTarget(event.target)) return;
+  // Checked here as well as in toggleCollapsed: a chord we do not act on must
+  // not be swallowed by preventDefault either.
+  if (!hasSidebar()) return;
   event.preventDefault();
   toggleCollapsed();
 }

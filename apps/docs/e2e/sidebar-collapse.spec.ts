@@ -175,6 +175,76 @@ test.describe('sidebar focus mode', () => {
     expect(duration).toBe('0s');
   });
 
+  // The pre-paint inline script in Head.astro is the only thing standing
+  // between a returning reader and a flash of the expanded sidebar. Nothing
+  // else here fails if it is deleted: every other test waits through the module
+  // script, which sets the same attribute a beat later. Blocking external
+  // scripts is what isolates the inline one — inline scripts issue no request,
+  // so they still run.
+  test('the pre-paint script alone restores focus mode', async ({ page }) => {
+    await page.goto(PAGE);
+    await collapse(page);
+
+    await page.route('**/*', (route) =>
+      route.request().resourceType() === 'script'
+        ? route.abort()
+        : route.continue(),
+    );
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    await expect(page.locator(HTML)).toHaveAttribute(
+      'data-sidebar-collapsed',
+      'true',
+    );
+  });
+
+  // Starlight renders the header — and with it the floating expand button — on
+  // pages that have no sidebar. The 404 route is the reachable one: it renders
+  // as a splash page, so `hasSidebar` is false, the collapse button is never
+  // mounted at all, and the expand button is the only toggle on screen. A
+  // reader in focus mode reaches it by clicking any dead link.
+  const NO_SIDEBAR_PAGE = '/this-page-does-not-exist/';
+
+  test('the expand button hides on a page with no sidebar', async ({
+    page,
+  }) => {
+    await page.goto(PAGE);
+    await collapse(page);
+
+    await page.goto(NO_SIDEBAR_PAGE);
+    // Guards the premise: if Starlight ever gives this route a sidebar, the
+    // assertions below stop testing the sidebar-less case and say so.
+    await expect(page.locator('html[data-has-sidebar]')).toHaveCount(0);
+
+    // Present in the DOM (the header mounts it unconditionally) but hidden —
+    // its aria-controls points at an id this page does not have.
+    await expect(page.locator('[data-sidebar-toggle="expand"]')).toBeHidden();
+    await expect(page.locator('[data-sidebar-toggle="collapse"]')).toHaveCount(
+      0,
+    );
+  });
+
+  // CSS can hide the button; it cannot reach the shortcut. Without the guard in
+  // sidebar-collapse.ts, Mod+B here rewrites the site-wide preference with
+  // nothing on screen moving, and the reader meets the opposite state on the
+  // next real page with no way to connect the two.
+  test('the shortcut does nothing on a page with no sidebar', async ({
+    page,
+  }) => {
+    await page.goto(PAGE);
+    await collapse(page);
+
+    await page.goto(NO_SIDEBAR_PAGE);
+    await page.keyboard.press('ControlOrMeta+b');
+
+    await page.goto(PAGE);
+    await expect(page.locator(HTML)).toHaveAttribute(
+      'data-sidebar-collapsed',
+      'true',
+    );
+    await expect(page.locator(SIDEBAR)).toBeHidden();
+  });
+
   // Regression guard for a real defect: the collapsed ToC width is clamped by
   // `min(constant, (100vw - content-width)/2 - padding)`, and `100vw` includes
   // the scrollbar while the actual gutter does not. Just above the 72rem
