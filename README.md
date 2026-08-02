@@ -1,46 +1,121 @@
 <div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/maelstrom-co/maelstrom/main/media/logo-white.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/maelstrom-co/maelstrom/main/media/logo-black.svg" />
+    <img src="https://raw.githubusercontent.com/maelstrom-co/maelstrom/main/media/logo-black.svg" alt="Maelstrom" width="520" />
+  </picture>
+</div>
+
+<br />
+
+<div align="center">
+  <a href="https://npmjs.com/package/@maelstrom-co/react" target="_parent">
+    <img alt="NPM version" src="https://img.shields.io/npm/v/@maelstrom-co/react.svg" />
+  </a>
+  <a href="https://bundlephobia.com/result?p=@maelstrom-co/react@latest" target="_parent">
+    <img alt="Bundle size" src="https://badgen.net/bundlephobia/minzip/@maelstrom-co/react@latest" />
+  </a>
+  <a href="./LICENSE" target="_parent">
+    <img alt="License" src="https://img.shields.io/npm/l/@maelstrom-co/react.svg" />
+  </a>
+  <a href="https://github.com/maelstrom-co/maelstrom" target="_parent">
+    <img alt="GitHub stars" src="https://img.shields.io/github/stars/maelstrom-co/maelstrom.svg?style=social&label=Star" />
+  </a>
+  <a href="https://x.com/maelstrom_co">
+    <img alt="Follow @maelstrom_co" src="https://img.shields.io/twitter/follow/maelstrom_co.svg?style=social" />
+  </a>
+</div>
 
 # Maelstrom
 
-**Maelstrom orchestrates the components you designed.**
+**Maelstrom orchestrates the components you designed.** It hands your model your
+stateful components and a live layout surface — to arrange them, resize them, and
+trigger their actions by intent, in real time. It never invents new ones.
 
-It hands your model your stateful components and a live layout surface — to arrange them, resize them, and trigger their actions by intent, in real time. It never invents new ones.
+Maelstrom is an open-source library for **AI-orchestrated UI**. You author your
+components as Vessels — typed state machines with discrete variants and size
+hints — and a model arranges, resizes, transitions, and invokes them on a spatial
+layout surface, from whatever the user is trying to do.
 
-[![npm](https://img.shields.io/npm/v/@maelstrom-co/react.svg)](https://www.npmjs.com/package/@maelstrom-co/react)
-[![Bundle size](https://img.shields.io/bundlephobia/minzip/@maelstrom-co/react)](https://bundlephobia.com/package/@maelstrom-co/react)
-[![CI](https://github.com/maelstrom-co/maelstrom/actions/workflows/ci.yml/badge.svg)](https://github.com/maelstrom-co/maelstrom/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Stars](https://img.shields.io/github/stars/maelstrom-co/maelstrom?style=flat)](https://github.com/maelstrom-co/maelstrom/stargazers)
+## <a href="https://docs.maelstrom-ai.co">Read the docs -></a>
 
-[See it live](https://maelstrom-ai.co#demo) &nbsp;·&nbsp; [Documentation](https://docs.maelstrom-ai.co) &nbsp;·&nbsp; [Quick start](#60-second-quickstart)
+## Start Here
 
-</div>
-
-<!-- DEMO GIF SLOT — MAE-527 produces the recording.
-     Spec: ≤20s, silent, autoplays, loops. Must show a Vessel changing variant
-     and the Chart re-flowing around it mid-conversation — the resize is the
-     product, a static screenshot cannot carry it.
-     Drop the file at .github/assets/demo.gif and replace this comment with:
-     <p align="center"><img src=".github/assets/demo.gif" alt="A Vessel changing variant while the Chart re-flows around it" width="800"></p>
--->
-
-Maelstrom is an open-source library for **AI-orchestrated UI**.
+- [Introduction](https://docs.maelstrom-ai.co/getting-started/introduction/) -
+  what Maelstrom is and why it exists.
+- [Quick Start](https://docs.maelstrom-ai.co/getting-started/quick-start/) -
+  your first Vessel, from install to a running chart.
+- [Core Concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) -
+  Vessels, the Chart, and the Engine.
+- [Creating Vessels](https://docs.maelstrom-ai.co/guides/react/creating-vessels/) -
+  variants, actions, and size hints in depth.
+- [How Maelstrom Compares](https://docs.maelstrom-ai.co/understanding/comparison/) -
+  against chat-UI libraries and agent frameworks.
+- [API Reference](https://docs.maelstrom-ai.co/reference/react/readme/) - every
+  export, generated from source.
 
 ## Why Maelstrom
 
-The most powerful technology in a generation arrived, and the industry answered with two lazy defaults. Bolt a chat box onto every app, and walls of text replace working software — the transcript becomes the UI, and human reading speed becomes the bottleneck. Let the model hallucinate the interface, and everything your team knows about its own product gets thrown out with it.
+The most powerful technology in a generation arrived, and the industry answered
+with two lazy defaults. Bolt a chat box onto every app, and walls of text replace
+working software — the transcript becomes the UI, and human reading speed becomes
+the bottleneck. Let the model hallucinate the interface, and everything your team
+knows about its own product gets thrown out with it.
 
-Both miss the point. The interface doesn't need to be retired into a chat log, and it doesn't need to be generated from scratch. It needs to adapt — composed by AI in the moment, out of pieces you designed on purpose.
+Both miss the point. The interface doesn't need to be retired into a chat log, and
+it doesn't need to be generated from scratch. It needs to adapt — composed by AI
+in the moment, out of pieces you designed on purpose.
 
-- **It arranges; it doesn't invent.** You author Vessels — your real UI components, each a typed state machine with discrete variants and size hints. The model chooses *which* are on screen, *where*, at *what size*, in *what state* — never their contents.
-- **It reasons in space, not pixels.** The Chart is a layout surface the model drives in integer coordinates — primarily a tiling tree (H/V splits, like a tiling window manager), with a grid mode as the alternative.
-- **It acts; it doesn't just show.** Every Vessel exposes the actions its makers allow, and Maelstrom invokes them straight from intent. It only ever does what your app already lets a user do.
+- **It arranges; it doesn't invent.** You author Vessels — your real UI
+  components, each a typed state machine with discrete variants and size hints.
+  The model chooses *which* are on screen, *where*, at *what size*, in *what
+  state* — never their contents.
+- **It reasons in space, not pixels.** The Chart is a layout surface the model
+  drives in integer coordinates — primarily a tiling tree (H/V splits, like a
+  tiling window manager), with a grid mode as the alternative.
+- **It acts; it doesn't just show.** Every Vessel exposes the actions its makers
+  allow, and Maelstrom invokes them straight from intent. It only ever does what
+  your app already lets a user do.
 
-Intent has many forms — voice, text, channels not yet invented. To the model they're the same signal. No one has built UI this way before; we think it's the right shape, and we're figuring it out in the open.
+Intent has many forms — voice, text, channels not yet invented. To the model
+they're the same signal. No one has built UI this way before; we think it's the
+right shape, and we're figuring it out in the open.
 
-## What you write
+## What You Can Build
 
-A Vessel is a state machine. Variants are its states, and each declares the size it wants — a floor the engine honours in grid mode, and a hint it weighs against the split tree in tiling mode:
+- Dashboards that rearrange themselves around the question being asked, instead
+  of around the layout someone froze at design time.
+- Operator consoles where "show me the failing region" pulls up the map, sizes it
+  to the space, and leaves the incident list beside it.
+- Multi-step tools driven by voice or text, where the same intent signal both
+  moves the layout and fires the action behind it.
+- Any surface where the useful arrangement changes with the task — and where you
+  still want your own components, your own design system, and your own code
+  paths.
+
+## Install
+
+```bash
+npm install @maelstrom-co/react
+```
+
+Bun, pnpm, and Yarn work the same way. `@maelstrom-co/react` re-exports the
+vessel helpers and connectors, so a React app needs nothing else.
+
+To run the reference engine locally:
+
+```bash
+git clone https://github.com/maelstrom-co/maelstrom && cd maelstrom
+cp .env.example .env   # set GOOGLE_API_KEY — nothing else is required
+bun install
+bunx nx dev demo
+```
+
+## Define a Vessel
+
+A Vessel is a state machine. Variants are its states, and each declares the size
+it wants — a floor the engine honours in grid mode, and a hint it weighs against
+the split tree in tiling mode:
 
 ```tsx
 import { defineVessel } from '@maelstrom-co/react';
@@ -61,7 +136,15 @@ export const greetingVessel = defineVessel({
 });
 ```
 
-`vessel()` pairs that definition with your component, which receives typed props for whichever variant is live:
+Learn more in the
+[Creating Vessels docs](https://docs.maelstrom-ai.co/guides/react/creating-vessels/)
+and the
+[Variants & Actions docs](https://docs.maelstrom-ai.co/guides/react/variants-and-actions/).
+
+## Render the Chart
+
+`vessel()` pairs the definition with your component, which receives typed props
+for whichever variant is live:
 
 ```tsx
 import {
@@ -85,6 +168,13 @@ export const App = () => (
 );
 ```
 
+Learn more in the
+[Layout Modes docs](https://docs.maelstrom-ai.co/guides/react/layout-modes/) and
+the
+[Programmatic Layout docs](https://docs.maelstrom-ai.co/guides/client/programmatic-layout/).
+
+## Drive It With Intent
+
 `useMaelstrom()` hands you the loop from any component under the Provider:
 
 ```tsx
@@ -101,26 +191,20 @@ function IntentBar() {
 }
 ```
 
-That is the whole surface. `processIntent("show me the greeting bigger")` goes to the engine; the engine answers with layout and actions; the Chart re-flows.
+Mount it anywhere under the same `Provider` as the Chart:
 
-## 60-second quickstart
-
-```bash
-npm install @maelstrom-co/react   # bun add / pnpm add also fine
+```tsx
+<m.Provider connector={connector}>
+  <IntentBar />
+  <m.Chart style={{ height: '100vh' }} />
+</m.Provider>
 ```
 
-You need one LLM provider key and a running engine. The reference engine ships with the demo:
+`processIntent("show me the greeting bigger")` goes to the engine; the engine
+answers with layout and actions; the Chart re-flows. Learn more in the
+[Error Handling docs](https://docs.maelstrom-ai.co/guides/react/error-handling/).
 
-```bash
-git clone https://github.com/maelstrom-co/maelstrom && cd maelstrom
-cp .env.example .env   # set GOOGLE_API_KEY — nothing else is required
-bun install
-bunx nx dev demo
-```
-
-Full walkthrough: **[Quick start](https://docs.maelstrom-ai.co/getting-started/quick-start/)**.
-
-## How it works
+## How It Works
 
 ```mermaid
 flowchart LR
@@ -132,13 +216,19 @@ flowchart LR
   chart -.->|"ResizeObserver: new grid size"| client
 ```
 
-The engine is stateless: it receives the current state and the Chart's dimensions in grid cells, and returns where things go and what to invoke. `protocol` is the typed message contract all four packages speak, so an engine and a client that disagree fail at the type level rather than at runtime.
+The engine is stateless: it receives the current state and the Chart's dimensions
+in grid cells, and returns where things go and what to invoke. `protocol` gives
+every package the same TypeScript types and the zod schemas that validate what
+actually crosses the wire — a malformed or incompatible message gets rejected at
+runtime, where engine and client, built and deployed separately, actually meet.
 
-Applying a response re-renders the UI, the Chart measures itself, and a changed grid size schedules the next request — that observer is what closes the loop.
+Applying a response re-renders the UI, the Chart measures itself, and a changed
+grid size schedules the next request — that observer is what closes the loop.
 
-## How Maelstrom compares
+## How Maelstrom Compares
 
-The axis that matters: **does the AI arrange spatial layout over _your_ stateful components, or render into a chat thread?**
+The axis that matters: **does the AI arrange spatial layout over _your_ stateful
+components, or render into a chat thread?**
 
 | | UI surface | Whose components | AI arranges layout? |
 |---|---|---|---|
@@ -149,63 +239,39 @@ The axis that matters: **does the AI arrange spatial layout over _your_ stateful
 | Thesys C1 | generated at runtime | C1-generated | n/a — generated |
 | Vercel AI SDK | chat + generative-UI primitives | tool-call slots | no |
 
-Tambo is the closest — it lets the model pick *your* registered components — but renders them inline and never decides layout or state transitions.
+Tambo is the closest — it lets the model pick *your* registered components — but
+renders them inline and never decides layout or state transitions. LangGraph,
+AG-UI, and the Vercel AI SDK are substrate rather than competition: Maelstrom is
+the layout layer their output can drive.
 
-LangGraph, AG-UI, and the Vercel AI SDK are substrate rather than competition: Maelstrom is the layout layer their output can drive. Full detail, including [where Maelstrom is the wrong tool](https://docs.maelstrom-ai.co/understanding/comparison/#where-maelstrom-is-the-wrong-tool), is in the [comparison](https://docs.maelstrom-ai.co/understanding/comparison/).
-
-## Packages
-
-| Package | Description |
-| --- | --- |
-| [`@maelstrom-co/protocol`](./packages/protocol) | Core types and message contract |
-| [`@maelstrom-co/client`](./packages/client) | Framework-agnostic client |
-| [`@maelstrom-co/react`](./packages/react) | React bindings and components |
-| [`@maelstrom-co/engine`](./packages/engine) | LLM decision engine |
-
-Voice is opt-in and ships separately — see [`packages/realtime`](./packages/realtime).
-
-## Documentation
-
-**📖 [docs.maelstrom-ai.co](https://docs.maelstrom-ai.co)**
-
-- [Introduction](https://docs.maelstrom-ai.co/getting-started/introduction/) — what Maelstrom is and why it exists
-- [Quick start](https://docs.maelstrom-ai.co/getting-started/quick-start/) — your first Vessel
-- [Core concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) — Vessels, Chart, Engine
-- [How Maelstrom compares](https://docs.maelstrom-ai.co/understanding/comparison/) — vs chat-UI libraries and agent frameworks
-- [API reference](https://docs.maelstrom-ai.co/reference/)
-
-## Voice
-
-Hear it working first: [Run the voice demo locally](https://docs.maelstrom-ai.co/tutorials/run-voice-locally/) takes one API key and one command.
-
-- [Voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/) — choose a mode and find the guide that builds it
-- [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/) — direct browser-to-provider speech sessions
-- [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) — browser, room, and worker setup
-- [The voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/) — why a voice model never plans your UI
-- [Realtime voice architecture](https://github.com/maelstrom-co/maelstrom/blob/main/docs/realtime-voice-architecture.md) — design constraints and decisions behind the integrations
+Full detail, including
+[where Maelstrom is the wrong tool](https://docs.maelstrom-ai.co/understanding/comparison/#where-maelstrom-is-the-wrong-tool),
+is in the
+[comparison docs](https://docs.maelstrom-ai.co/understanding/comparison/).
 
 ## Packages
 
-| Package | Description |
+| Package | Use it for |
 | --- | --- |
-| [`@maelstrom-co/protocol`](./packages/protocol) | Core types and message contract |
-| [`@maelstrom-co/client`](./packages/client) | Framework-agnostic client |
-| [`@maelstrom-co/react`](./packages/react) | React bindings and components |
-| [`@maelstrom-co/engine`](./packages/engine) | LLM decision engine |
-| [`@maelstrom-co/realtime`](./packages/realtime) | Provider-neutral realtime voice session core |
-| [`@maelstrom-co/react-realtime`](./packages/react-realtime) | React bindings for realtime voice sessions |
-| [`@maelstrom-co/realtime-server`](./packages/realtime-server) | Server-side OpenAI ephemeral-token minter |
-| [`@maelstrom-co/realtime-livekit`](./packages/realtime-livekit) | LiveKit cascade browser adapter and protocol |
-| [`@maelstrom-co/realtime-livekit-server`](./packages/realtime-livekit-server) | Server-side LiveKit room-token minter |
-| [`@maelstrom-co/realtime-livekit-agent`](./packages/realtime-livekit-agent) | LiveKit speech worker runtime |
+| [`@maelstrom-co/react`](https://docs.maelstrom-ai.co/reference/react/readme/) | React bindings: `createMaelstrom`, `vessel`, Provider, Chart, hooks |
+| [`@maelstrom-co/client`](https://docs.maelstrom-ai.co/reference/client/readme/) | Framework-agnostic orchestrator, connectors, and layout |
+| [`@maelstrom-co/engine`](https://docs.maelstrom-ai.co/reference/engine/readme/) | The LLM decision core, built on TanStack AI |
+| [`@maelstrom-co/protocol`](https://docs.maelstrom-ai.co/reference/protocol/readme/) | Shared types, zod schemas, and the message contract |
 
-## Running the demo
+Voice is opt-in and ships separately. Start with
+[Run the voice demo locally](https://docs.maelstrom-ai.co/tutorials/run-voice-locally/) —
+one API key, one command — then the
+[voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/) to pick a
+mode, and [the voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/)
+for why a voice model never plans your UI.
 
-See [`apps/demo/README.md`](./apps/demo/README.md) for how to run the demo app locally, including optional LiveKit voice setup.
+## Get Involved
 
-## Contributing
-
-Contributions are welcome — start with the [contributing guide](./CONTRIBUTING.md).
+- Read the [docs](https://docs.maelstrom-ai.co).
+- Run the demo — see [`apps/demo/README.md`](./apps/demo/README.md) for local
+  setup, including optional LiveKit voice.
+- See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup instructions.
+- Follow [@maelstrom_co](https://x.com/maelstrom_co) for what we're building.
 
 ## License
 
