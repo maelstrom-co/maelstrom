@@ -107,8 +107,8 @@ synthesized intent still flows through Maelstrom's engine LLM via
 
 - **Transcripts in:** `RoomEvent.TranscriptionReceived` → `transcript` event +
   a synthesized `update_ui` `tool_call`.
-- **Speak out:** `sendToolResult` extracts the summary and sends it over the
-  `speak` text stream; the worker synthesizes it via Cartesia.
+- **Speak out:** `sendToolResult` selects `userMessage ?? summary` and sends it
+  over the `speak` text stream; the worker synthesizes it via Cartesia.
 - **Hold-to-talk:** `adapter.turnControl.startTurn()` /
   `adapter.turnControl.endTurn()` unmute and mute the published microphone;
   ending the turn also asks the worker to flush its STT buffer.
@@ -127,10 +127,26 @@ STT (Deepgram) and TTS (Cartesia). No LLM in the worker in phase 1.
 
 ```ts
 import { RealtimeSession } from '@maelstrom-co/realtime';
-import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
+import {
+  LiveKitAdapter,
+  LiveKitTokenGrantSchema,
+} from '@maelstrom-co/realtime-livekit';
 
 const adapter = new LiveKitAdapter({
   roomName: `maelstrom-${sessionId}`,
+  mintToken: async (roomName) => {
+    const response = await fetch('/api/voice/livekit-token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      // The route treats roomName only as a hint and derives or authorizes
+      // the trusted room and identity scope from the application session.
+      body: JSON.stringify({ roomName }),
+    });
+    if (!response.ok) throw new Error('Unable to start voice session');
+
+    // Validate the required { token, url, expiresAt } short-lived grant.
+    return LiveKitTokenGrantSchema.parse(await response.json());
+  },
 });
 const session = new RealtimeSession({ adapter, instance, sessionId });
 await session.connect();

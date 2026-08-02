@@ -5,15 +5,15 @@ separate process that relays STT (Deepgram) into the room and synthesizes TTS
 (Cartesia) back out.
 
 - **STT:** user mic audio → Deepgram → transcript → client via publishTranscription.
-- **TTS:** client `speak` text stream (the tool-result summary) → Cartesia → published
+- **TTS:** client `speak` text stream (`userMessage ?? summary`) → Cartesia → published
   back as an audio track the client attaches and plays.
 
 The worker has no planning LLM and receives no UI grounding. The Maelstrom
 Engine remains the only planning model. The browser's `LiveKitAdapter`
 synthesizes an `update_ui` tool call from each transcript, and
 `RealtimeSession` drives it. The worker imports only
-`@maelstrom-co/realtime-livekit/protocol` (the shared wire constants), so no
-browser dependencies are pulled into the worker.
+`@maelstrom-co/realtime-livekit/protocol` (the shared wire constants) at
+runtime, so loading that subpath does not evaluate browser or server modules.
 
 | Package                                 | Runtime            | Responsibility                                                                                                                           |
 | --------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -40,7 +40,7 @@ A complete hold-to-talk turn follows this sequence:
 5. The browser adapter converts the transcript into an `update_ui` intent.
 6. `RealtimeSession` submits the intent through the normal Maelstrom client and Engine path.
 7. The client waits until the resulting UI commands have settled.
-8. The browser sends the Engine’s `userMessage`, or the structural summary fallback, to the worker.
+8. The browser sends `userMessage ?? summary` to the worker.
 9. The worker synthesizes the text with Cartesia and publishes the resulting audio.
 10. The browser plays the assistant audio.
 
