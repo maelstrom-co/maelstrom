@@ -173,7 +173,16 @@ During `connect()`, the adapter acquires a local microphone track, creates the l
 
 ## Configure browser VAD
 
-Automatic VAD is enabled when `vad` is omitted or `true`. It uses `/vad-web/`, retains `250` milliseconds of transport pre-roll, and otherwise uses provider defaults. Copy the package-matched VAD and ONNX Runtime assets into that public directory:
+Leaving the `vad` property out of the options object passed to `new LiveKitAdapter(...)` enables default automatic mode. `vad: true` does the same, while an object keeps automatic mode and customizes it:
+
+```ts
+new LiveKitAdapter({ mintToken, roomName }); // `vad` omitted
+new LiveKitAdapter({ mintToken, roomName, vad: true });
+new LiveKitAdapter({ mintToken, roomName, vad: { preRollMs: 300 } });
+new LiveKitAdapter({ mintToken, roomName, vad: false });
+```
+
+Automatic mode uses `/vad-web/`, retains `250` milliseconds of transport pre-roll, and otherwise uses provider defaults. Copy the package-matched VAD and ONNX Runtime assets into that public directory:
 
 ```bash
 maelstrom-livekit-assets public/vad-web

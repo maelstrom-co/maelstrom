@@ -2,7 +2,12 @@ import type { RealTimeVADOptions } from '@ricky0123/vad-web';
 
 import type { LiveKitTokenGrant } from './livekit-token.js';
 
-/** VAD tuning that cannot replace adapter-owned lifecycle or asset behavior. */
+/**
+ * Supported provider tuning: `model`, `positiveSpeechThreshold`,
+ * `negativeSpeechThreshold`, `redemptionMs`, `preSpeechPadMs`, `minSpeechMs`,
+ * `processorType`, and `workletOptions`. Other provider options cannot replace
+ * adapter-owned lifecycle, stream, callback, or asset behavior.
+ */
 export interface LiveKitBrowserVadProviderOptions {
   /** Silero model generation loaded from the configured asset directory. */
   readonly model?: RealTimeVADOptions['model'];
@@ -26,20 +31,29 @@ export interface LiveKitBrowserVadProviderOptions {
 }
 
 /**
- * Adapter-owned browser VAD configuration. Malformed values degrade a
- * connected adapter to manual mode rather than being clamped or ignored.
+ * Adapter-owned browser VAD configuration. Invalid configuration and VAD
+ * setup, runtime, or callback failures can degrade an otherwise usable
+ * connection to manual mode, but only after upstream audio is safely paused.
+ * Fatal transport or audio-safety failures tear down the connection instead.
  */
 export interface LiveKitBrowserVadOptions {
   /**
-   * Trusted runtime asset directory. Relative URLs stay same-origin. Absolute
-   * URLs must be credential-free HTTPS; protocol-relative URLs, query strings,
-   * and fragments are rejected. The package-owned build helper must deploy the
-   * matching files separately.
+   * Trusted VAD runtime asset directory. Defaults to `/vad-web/`. Relative URLs
+   * stay same-origin. Absolute URLs must be credential-free HTTPS;
+   * protocol-relative URLs, query strings, and fragments are rejected. The
+   * package-owned build helper must deploy the matching files separately.
    */
   readonly assetBaseUrl?: string;
-  /** Browser-local transport pre-roll in the inclusive 0–500ms range. Defaults to 250ms. */
+  /**
+   * Bounded browser-local transport pre-roll, sent once when speech begins.
+   * Defaults to 250 ms and accepts 0–500 ms. Provider `preSpeechPadMs` changes
+   * the detected segment; it does not populate or replace transport pre-roll.
+   */
   readonly preRollMs?: number;
-  /** Supported provider tuning; lifecycle, streams, callbacks, and assets remain adapter-owned. */
+  /**
+   * Only the keys declared by {@link LiveKitBrowserVadProviderOptions} are
+   * accepted.
+   */
   readonly providerOptions?: LiveKitBrowserVadProviderOptions;
 }
 
@@ -60,11 +74,25 @@ export interface LiveKitAdapterOptions {
    */
   readonly roomName: string;
   /**
-   * Browser VAD policy. Omitted or `true` enables automatic mode with defaults;
-   * an object overrides supported settings; `false` selects manual turns without
-   * loading VAD or pre-roll worklets. Automatic setup/runtime failures degrade
-   * a usable connection to diagnostic manual mode only after upstream audio is
-   * paused; LiveKit transport failures reject instead of degrading.
+   * Browser VAD policy. Omitting `vad` means leaving the `vad` property out of
+   * the options object passed to `new LiveKitAdapter(...)`. Omission and `true`
+   * enable automatic mode with defaults, an object customizes supported
+   * settings, and `false` selects manual mode without loading VAD or pre-roll
+   * worklets.
+   *
+   * ```ts
+   * new LiveKitAdapter({ mintToken, roomName }); // `vad` omitted
+   * new LiveKitAdapter({ mintToken, roomName, vad: true });
+   * new LiveKitAdapter({ mintToken, roomName, vad: { preRollMs: 300 } });
+   * new LiveKitAdapter({ mintToken, roomName, vad: false });
+   * ```
+   *
+   * If VAD setup, runtime, or a VAD callback fails and upstream audio can be
+   * paused safely, the live connection degrades to manual mode. `turnControl` is
+   * dynamic and available only while the retained turn mode is `manual`.
+   * Failures that prevent a safe audio stop, and LiveKit token, room,
+   * publication, required data-channel, or unexpected disconnect failures, are
+   * fatal and do not degrade to manual mode.
    */
   readonly vad?: boolean | LiveKitBrowserVadOptions;
   /** Enable verbose debug tracing (default false). */
