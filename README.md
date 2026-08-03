@@ -89,9 +89,10 @@ bunx nx dev demo
 
 ## Define a Vessel
 
-A Vessel is a state machine. Variants are its states, and each declares the size
-it wants — a floor the engine honours in grid mode, and a hint it weighs against
-the split tree in tiling mode:
+A Vessel is a state machine. Variants are its states, and each declares a
+`minSize` in grid cells. Grid mode enforces it: the engine drops any placement
+below the minimum, and names the number when it re-prompts. Tiling mode ignores
+it — a leaf's size comes from the split tree:
 
 ```tsx
 import { defineVessel } from '@maelstrom-co/react';
@@ -192,8 +193,10 @@ flowchart LR
   chart -.->|"ResizeObserver: new grid size"| client
 ```
 
-The engine is stateless: it receives the current state and the Chart's dimensions
-in grid cells, and returns where things go and what to invoke. `protocol` gives
+The engine holds no layout state: it receives the current state and the Chart's
+dimensions in grid cells, and returns where things go and what to invoke.
+Conversation history is opt-in — hand it a `HistoryStore` and prior turns ride
+along in the prompt; leave it out and every request stands alone. `protocol` gives
 every package the same TypeScript types and the zod schemas that validate what
 actually crosses the wire — a malformed or incompatible message gets rejected at
 runtime, where engine and client, built and deployed separately, actually meet.
