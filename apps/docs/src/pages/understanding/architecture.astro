@@ -54,8 +54,9 @@ import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagr
 
   <h3>The engine decides</h3>
   <p>
-    <a href="/understanding/engine/"><code>@maelstrom-co/engine</code></a> is
-    stateless per request. It assembles a prompt, calls an LLM, and returns a
+    <a href="/understanding/engine/"><code>@maelstrom-co/engine</code></a> holds
+    no layout state — the client owns that — and keeps prior turns only when you
+    configure a history store. It assembles a prompt, calls an LLM, and returns a
     <code>MaelstromResponse</code> with four parts: a <code>userMessage</code>
     (the conversational reply), a <code>rationale</code> (its private reasoning),
     an <code>executionPlan</code> (the actions to run), and a new
@@ -102,9 +103,11 @@ import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagr
     </dd>
     <dt><strong>Chart</strong></dt>
     <dd>
-      The grid the Vessels live in. The engine works in integer cells
-      (<code>rows</code> × <code>columns</code>), never pixels — the
-      <code>ResizeObserver</code> is what converts the two.
+      The surface the Vessels live in. Never pixels: in grid mode the engine
+      works in integer cells (<code>rows</code> × <code>columns</code>), and in
+      tiling mode — the default — in a preorder tree of <code>H</code>/
+      <code>V</code> splits. The <code>ResizeObserver</code> is what converts
+      either one to pixels.
     </dd>
   </dl>
 
