@@ -10,11 +10,14 @@ import { z } from 'zod';
 
 /**
  * What a caller passes {@link mintLiveKitToken} to scope a token to one room.
- * Validated in-package so the trust boundary lives with the minter rather
- * than each consuming app.
+ * The package validates this request shape, while application transport retains
+ * authentication, authorization, CSRF, origin, rate-limit, and trusted-scope
+ * responsibilities.
  */
 export interface LiveKitTokenRequest {
+  /** Caller-provided room scope; validation trims surrounding whitespace before token scoping. */
   readonly roomName: string;
+  /** Participant identity, defaulting to `"user"` when omitted. */
   readonly identity?: string;
 }
 
@@ -43,25 +46,103 @@ const DEFAULT_TTL = '15m';
  * `missing-api-key` failure and a malformed request an `invalid-request`
  * failure, so a misconfigured deploy surfaces a typed reason a transport can
  * map to a status instead of a raw throw. The returned grant carries
- * `expiresAt` (computed from the TTL) so the browser can refresh proactively
- * before the JWT lapses — the TTL is a server-side env the client can't
- * otherwise see. Unlike the OpenAI minter there is no upstream HTTP call to
- * inject a fake `fetch` into: the JWT is signed locally, so tests exercise it
- * by mocking `livekit-server-sdk`.
+ * `expiresAt` (computed from the TTL), which describes when the JWT can no
+ * longer authenticate an initial or fresh room connection. Token expiry is
+ * checked for each such connection, including an explicit `connect()` after
+ * `disconnect()`. It does not impact SDK-managed reconnects for an already
+ * connected participant: LiveKit pushes refreshed tokens to connected clients,
+ * and the SDK uses the refreshed token for managed reconnects. Expiry alone does
+ * not disconnect an active participant or end the room. Each fresh `connect()`
+ * invokes `mintToken`; the adapter does not schedule its own proactive renewal.
+ * Expiry does not impose a maximum room duration or adapter cleanup. Production
+ * hosts must enforce session-duration and cleanup policy independently.
+ *
+ * This mint operation is an **unauthenticated bootstrap**. Production transport
+ * code must authenticate and authorize callers, enforce a trusted room and
+ * identity policy instead of forwarding untrusted values, and add origin
+ * controls, rate limits, and abuse controls before exposing the minter.
+ * The example's imported authentication, CSRF, origin, shared rate-limit, and
+ * telemetry functions are mandatory app-provided fail-closed controls; this
+ * package does not implement them. `requireAuthenticatedVoiceSession`
+ * authenticates and authorizes the request, binds the principal to trusted
+ * session state, and derives room scope; it does not validate CSRF.
+ * `isValidVoiceMintCsrf` is the only control in the example that validates the
+ * CSRF proof. The controls must deny when policy cannot be evaluated and keep
+ * raw failures inside the redacted telemetry boundary.
+ *
+ * Unlike the OpenAI minter there is no upstream HTTP call to inject a fake
+ * `fetch` into: the JWT is signed locally, so tests exercise it by mocking
+ * `livekit-server-sdk`.
  *
  * @example
  * ```ts
- * // In a TanStack Start server fn:
  * import { isErr } from '@maelstrom-co/protocol';
- * import { mintLiveKitToken } from '@maelstrom-co/realtime-livekit-server';
+ * import {
+ *   mintFailureHttpStatus,
+ *   mintLiveKitToken,
+ * } from '@maelstrom-co/realtime-livekit-server';
+ * import { requireAuthenticatedVoiceSession } from './auth';
+ * import {
+ *   consumeVoiceMintRateLimit,
+ *   isTrustedVoiceMintOrigin,
+ *   isValidVoiceMintCsrf,
+ * } from './voice-mint-policy';
+ * import { reportRedactedVoiceMintFailure } from './redacted-telemetry';
  *
- * export const getLivekitToken = createServerFn({ method: 'GET' })
- *   .inputValidator((d: unknown) => d)
- *   .handler(async ({ data }) => {
- *     const result = await mintLiveKitToken(data);
- *     if (isErr(result)) throw new Error(result.error.reason);
- *     return result.value;
- *   });
+ * export async function POST(request: Request): Promise<Response> {
+ *   const headers = { 'Cache-Control': 'private, no-store' };
+ *   try {
+ *     if (!isTrustedVoiceMintOrigin(request)) {
+ *       return Response.json({ error: 'request-denied' }, { status: 403, headers });
+ *     }
+ *
+ *     const session = await requireAuthenticatedVoiceSession(request);
+ *     if (session === null) {
+ *       return Response.json({ error: 'unauthorized' }, { status: 401, headers });
+ *     }
+ *
+ *     if (!isValidVoiceMintCsrf(request, session)) {
+ *       return Response.json({ error: 'request-denied' }, { status: 403, headers });
+ *     }
+ *
+ *     const rateLimit = await consumeVoiceMintRateLimit(session.principalId);
+ *     if (!rateLimit.allowed) {
+ *       return Response.json(
+ *         { error: 'rate-limited' },
+ *         {
+ *           status: 429,
+ *           headers: { ...headers, 'Retry-After': String(rateLimit.retryAfterSeconds) },
+ *         },
+ *       );
+ *     }
+ *
+ *     const result = await mintLiveKitToken({
+ *       roomName: session.roomName,
+ *       identity: session.identity,
+ *     });
+ *
+ *     if (isErr(result)) {
+ *       return Response.json(
+ *         { error: 'mint-failed' },
+ *         { status: mintFailureHttpStatus(result.error.reason), headers },
+ *       );
+ *     }
+ *     return Response.json(result.value, { headers });
+ *   } catch (error) {
+ *     try {
+ *       await reportRedactedVoiceMintFailure({
+ *         source: 'livekit-token-route',
+ *         error,
+ *       });
+ *     } catch {
+ *       // Telemetry failure must not escape the HTTP boundary.
+ *     }
+ *     return Response.json(
+ *       { error: 'mint-failed' },
+ *       { status: 500, headers },
+ *     );
+ *   }
+ * }
  * ```
  */
 export async function mintLiveKitToken(

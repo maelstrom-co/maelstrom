@@ -31,10 +31,23 @@ bunx nx dev demo
 This runs the WebSocket engine host (`ws-server.ts`, port 3001) and Vite
 (port 3000) together. Open http://localhost:3000.
 
+The mint route this path uses (`src/routes/api/realtime-token.ts`) is
+development-only, for the same reason the LiveKit one below is: it does not
+authenticate the caller, and it forwards the request body to the minter, so the
+caller chooses the model. Replace it with the server-owned route from the
+[OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/)
+before any deployment.
+
 The `nx` commands in this README run from the repository root. Commands shown
 as `bun run ...` under the LiveKit section run from `apps/demo/`.
 
 ## Run (LiveKit voice)
+
+This is the repository's development-only LiveKit checkpoint. It exercises the
+browser adapter and local worker, but its mint route is not a production token
+boundary. For deployment, follow the
+[LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/)
+after validating the local path.
 
 1. Install and run a LiveKit server in dev mode:
 
@@ -214,6 +227,7 @@ presenting hold-to-talk as a safe fallback.
 
 ## Further reading
 
+- [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) — browser integration first, then the production token and worker checkpoint
 - [`packages/realtime-livekit-agent/README.md`](../../packages/realtime-livekit-agent/README.md) — voice agent worker internals
 - [`packages/realtime-livekit/README.md`](../../packages/realtime-livekit/README.md) — adapter VAD configuration and asset deployment
 - [`packages/react-realtime/README.md`](../../packages/react-realtime/README.md) — `useVoice()` turn-mode state

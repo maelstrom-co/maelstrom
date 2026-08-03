@@ -13,6 +13,30 @@
   "exclude": ["dist", "node_modules"],
   "references": [
     {
+      "path": "../../packages/realtime-server/tsconfig.json"
+    },
+    {
+      "path": "../../packages/client/tsconfig.json"
+    },
+    {
+      "path": "../../packages/react/tsconfig.json"
+    },
+    {
+      "path": "../../packages/realtime-livekit-server/tsconfig.json"
+    },
+    {
+      "path": "../../packages/protocol/tsconfig.json"
+    },
+    {
+      "path": "../../packages/realtime-livekit/tsconfig.json"
+    },
+    {
+      "path": "../../packages/realtime/tsconfig.json"
+    },
+    {
+      "path": "../../packages/react-realtime/tsconfig.json"
+    },
+    {
       "path": "./tsconfig.e2e.json"
     }
   ]

@@ -16,6 +16,16 @@ Maelstrom is an open-source library for **AI-orchestrated UI**. You author your 
 - [How Maelstrom compares](https://docs.maelstrom-ai.co/understanding/comparison/) — vs chat-UI libraries and agent frameworks
 - [API reference](https://docs.maelstrom-ai.co/reference/)
 
+## Voice
+
+Hear it working first: [Run the voice demo locally](https://docs.maelstrom-ai.co/tutorials/run-voice-locally/) takes one API key and one command.
+
+- [Voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/) — choose a mode and find the guide that builds it
+- [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/) — direct browser-to-provider speech sessions
+- [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) — browser, room, and worker setup
+- [The voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/) — why a voice model never plans your UI
+- [Realtime voice architecture](https://github.com/maelstrom-co/maelstrom/blob/main/docs/realtime-voice-architecture.md) — design constraints and decisions behind the integrations
+
 ## Packages
 
 | Package | Description |
@@ -24,6 +34,12 @@ Maelstrom is an open-source library for **AI-orchestrated UI**. You author your 
 | [`@maelstrom-co/client`](./packages/client) | Framework-agnostic client |
 | [`@maelstrom-co/react`](./packages/react) | React bindings and components |
 | [`@maelstrom-co/engine`](./packages/engine) | LLM decision engine |
+| [`@maelstrom-co/realtime`](./packages/realtime) | Provider-neutral realtime voice session core |
+| [`@maelstrom-co/react-realtime`](./packages/react-realtime) | React bindings for realtime voice sessions |
+| [`@maelstrom-co/realtime-server`](./packages/realtime-server) | Server-side OpenAI ephemeral-token minter |
+| [`@maelstrom-co/realtime-livekit`](./packages/realtime-livekit) | LiveKit cascade browser adapter and protocol |
+| [`@maelstrom-co/realtime-livekit-server`](./packages/realtime-livekit-server) | Server-side LiveKit room-token minter |
+| [`@maelstrom-co/realtime-livekit-agent`](./packages/realtime-livekit-agent) | LiveKit speech worker runtime |
 
 ## Running the demo
 

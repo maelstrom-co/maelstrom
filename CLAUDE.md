@@ -143,9 +143,9 @@ is only CSS `overflow: hidden`; there is no resolver.
 
 ### Comments and JSDoc
 
-The `@maelstrom-co/*` packages are published to external consumers, so the comment policy is tiered by API surface. To classify a symbol: check whether it's re-exported from its package's `src/index.ts`. If yes, it's **public**. If no, it's **internal**.
+The `@maelstrom-co/*` packages are published to external consumers, so the comment policy is tiered by API surface. To classify a symbol: check whether it's reachable from a **published entry point** — the package root (`src/index.ts`) or any subpath in the `exports` map with its own source entry, such as `@maelstrom-co/realtime-livekit/token` → `src/livekit-token.ts`. If yes, it's **public**. If no, it's **internal**. The root barrel is the common case, not the whole test; see [the JSDoc contract](apps/docs/src/content/docs/community/jsdoc-contract.mdx) for the full checklist.
 
-**Public API** — symbols in the package's root barrel (visible in consumer `.d.ts`, IDE hover, TypeDoc):
+**Public API** — symbols reachable from a published entry point (visible in consumer `.d.ts`, IDE hover, TypeDoc):
 - JSDoc every public function, type, class, and exported field
 - Cover WHAT + WHY + load-bearing invariants; add `@example` blocks on entry points where the call pattern isn't obvious from the signature
 - Consumers can't ask on Slack — the docstring is the documentation
