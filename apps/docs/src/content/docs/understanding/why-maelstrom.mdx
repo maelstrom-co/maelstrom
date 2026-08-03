@@ -20,18 +20,23 @@ Both miss the point. The interface doesn't need to be retired into a chat log, a
 Three commitments separate Maelstrom from free-form generative UI:
 
 1. **The component system stays yours.** You declare Vessels — components with explicit state machines (variants and actions). The LLM never invents new components, never writes JSX. It chooses among the ones you shipped.
-2. **The model reasons over a small, validated domain.** Branded IDs. Discrete variants. Integer grid coordinates instead of pixels. A `minSize` per variant. Every input the LLM sees is constrained and typed; every output it returns is parsed against a schema before anything renders.
+2. **The model reasons over a small, validated domain.** Branded IDs. Discrete variants. Layout as integers or split tokens instead of pixels. A `minSize` per variant. Every input the LLM sees is constrained and typed; every output it returns is parsed against a schema before anything renders.
 3. **Decisions and rendering are different jobs.** The engine decides; the framework binding renders. The two halves can swap independently — replace the reference engine without touching the React app, replace React without touching the engine.
 
-Those three together are the bet: *if you give the model a closed world of well-typed components and a grid to place them on, it can orchestrate UIs reliably enough to put in front of users.*
+Those three together are the bet: *if you give the model a closed world of well-typed components and a discrete surface to place them on, it can orchestrate UIs reliably enough to put in front of users.*
 
-## Why state machines and a grid?
+## Why state machines and a discrete layout surface?
 
 Both choices look opinionated. Both are load-bearing.
 
 **State machines** ([The Vessel State Machine](/understanding/vessel-state-machine/)) because the LLM needs a closed set of legal moves. When the Calendar is collapsed, the model sees `expand` and nothing else — it cannot ask for `showWeek` and silently fail. Each variant also declares its `minSize` — the footprint that state needs — which the engine holds grid layouts to. That's what turns "collapse Calendar to fit Weather" into a move the system can represent and enforce, rather than a guess about pixels.
 
-**A grid** because integer coordinates are the smallest reasoning surface that still describes layout. The LLM never sees pixels — only `row`, `column`, `width`, `height`. Two natural layout modes fall out: [explicit grid placement and a recursive tiling tree](/understanding/grid-vs-tiling/). Both stay inside the same small numeric domain. The container computes its own pixel size; the model never has to.
+**A discrete surface** because the smallest thing that still describes layout is not a pixel. The LLM never sees one. It works in whichever of [two modes](/understanding/grid-vs-tiling/) the app chose, and both are small enough to validate exhaustively:
+
+- **Tiling** (the default) — a binary tree serialized as a preorder token array: `H` to split top/bottom, `V` to split left/right, an instance ID for a leaf, `null` for empty space. Each split halves its region. There are no coordinates; the shape of the tree *is* the layout.
+- **Grid** — explicit integer placement: `row`, `column`, `width`, `height`, in whole cells.
+
+The container computes its own pixel size in both cases; the model never has to.
 
 The result is an architecture an LLM can drive with the failure modes you'd want: the schema rejects a response that's malformed outright, and the heal pass drops any schema-valid layout element that still violates a domain constraint — like `minSize` or the grid bounds — so the rest of the turn still renders. For how a decision actually flows through the system, see [How the LLM Orchestrates UI](/understanding/llm-orchestration/).
 
@@ -46,7 +51,7 @@ A separation that mirrors how teams already think:
 And a separation that matches how systems should be built:
 
 - **[Protocol](/understanding/protocol/)** — transport-agnostic types both sides speak.
-- **[Engine](/understanding/engine/)** — stateless decision core, swappable.
+- **[Engine](/understanding/engine/)** — decision core, swappable; holds no layout state, and conversation history is opt-in.
 - **Client** — framework-agnostic runtime that applies decisions.
 - **Framework bindings** — `@maelstrom-co/react` today, others later.
 
