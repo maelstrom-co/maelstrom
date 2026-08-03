@@ -1,5 +1,3 @@
-import { existsSync, rmSync } from 'node:fs';
-import path from 'node:path';
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
@@ -44,78 +42,20 @@ const multiEntryTypeDocOptions = {
   sourceLinkTemplate,
 };
 
-const docsRoot = path.resolve(
-  process.cwd(),
-  'apps/docs/src/content/docs/reference',
-);
-const distRoot = path.resolve(process.cwd(), 'apps/docs/dist/reference');
-const prunedReferencePaths = [
-  'voice',
-  'voice-server',
-  'react-voice',
-  'client/classes/VoiceWebSocketConnector.md',
-  'client/README.md',
-  'client/interfaces/AudioChunk.md',
-  'client/interfaces/ConnectorCapabilities.md',
-  'client/interfaces/EngineConnector.md',
-  'client/interfaces/PushConnector.md',
-  'client/interfaces/VoiceConnector.md',
-  'client/interfaces/VoiceWebSocketConnectorOptions.md',
-  'client/functions/packAudioFrame.md',
-  'client/functions/parseAudioFrame.md',
-  'protocol/README.md',
-  'protocol/classes/VoiceError.md',
-  'protocol/interfaces/TranscriptMessage.md',
-  'protocol/type-aliases/VoiceClientMessage.md',
-  'protocol/type-aliases/VoiceErrorCode.md',
-  'protocol/type-aliases/VoiceServerMessage.md',
-  'protocol/variables/VoiceClientMessageSchema.md',
-  'protocol/variables/VoiceServerMessageSchema.md',
-  'react/type-aliases/MaelstromExtension.md',
-];
-
-const prunedOutputPaths = [
-  'voice',
-  'voice-server',
-  'react-voice',
-  'client/readme',
-  'client/classes/voicewebsocketconnector',
-  'client/functions/packaudioframe',
-  'client/functions/parseaudioframe',
-  'client/interfaces/audiochunk',
-  'client/interfaces/connectorcapabilities',
-  'client/interfaces/engineconnector',
-  'client/interfaces/pushconnector',
-  'client/interfaces/voiceconnector',
-  'client/interfaces/voicewebsocketconnectoroptions',
-  'protocol/readme',
-  'protocol/classes/voiceerror',
-  'protocol/interfaces/transcriptmessage',
-  'protocol/type-aliases/voiceclientmessage',
-  'protocol/type-aliases/voiceerrorcode',
-  'protocol/type-aliases/voiceservermessage',
-  'protocol/variables/voiceclientmessageschema',
-  'protocol/variables/voiceservermessageschema',
-  'react/type-aliases/maelstromextension',
-];
-
-function pruneReferenceDocs() {
-  for (const relativePath of prunedReferencePaths) {
-    const absolutePath = path.join(docsRoot, relativePath);
-    if (existsSync(absolutePath)) {
-      rmSync(absolutePath, { recursive: true, force: true });
-    }
-  }
-}
-
-function pruneBuiltDocs() {
-  for (const relativePath of prunedOutputPaths) {
-    const absolutePath = path.join(distRoot, relativePath);
-    if (existsSync(absolutePath)) {
-      rmSync(absolutePath, { recursive: true, force: true });
-    }
-  }
-}
+// A `prunedReferencePaths` list used to sit here and delete generated reference
+// pages before the content collection loaded. It is gone on purpose, and the
+// reason is the JSDoc contract rather than the build. All four surviving entries
+// were exported from their package's root barrel, which is what makes a symbol
+// public here, so each was owed a reference page rather than denied one.
+//
+// The build agreed. TypeDoc links a symbol's page from every signature that
+// mentions it, so deleting the page strands the links — `HttpConnector` renders
+// `implements EngineConnector` as a link whether or not the target exists. No
+// build phase avoids that, which is why this is not a timing fix.
+//
+// The list had also never run: it resolved against process.cwd(), and Nx sets
+// that to the project directory. So the pages had always shipped, and nothing
+// was broken until the resolution was corrected.
 
 export default defineConfig({
   site: 'https://docs.maelstrom-ai.co',
@@ -457,18 +397,6 @@ export default defineConfig({
       lastUpdated: true,
       pagination: true,
     }),
-    {
-      name: 'prune-reference-docs',
-      hooks: {
-        'astro:build:start': () => {
-          pruneReferenceDocs();
-        },
-        'astro:build:done': () => {
-          pruneReferenceDocs();
-          pruneBuiltDocs();
-        },
-      },
-    },
     react(),
     sitemap(),
   ],

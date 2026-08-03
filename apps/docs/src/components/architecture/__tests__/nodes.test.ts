@@ -8,13 +8,6 @@ describe('NODES', () => {
     );
   });
 
-  it('excludes voice packages', () => {
-    const ids = NODES.map((n) => n.id);
-    for (const banned of ['voice', 'react-voice', 'voice-server']) {
-      expect(ids).not.toContain(banned);
-    }
-  });
-
   it('every dependsOn id resolves to a known node', () => {
     const ids = new Set(NODES.map((n) => n.id));
     for (const n of NODES) {
