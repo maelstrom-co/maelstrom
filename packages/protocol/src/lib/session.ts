@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
-import { type Brand, requireNonEmptyBrand } from './brand.js';
+import { type Brand, requireNonEmptyBrand } from './brand.ts';
 
 /**
  * Opaque session identifier representing a conversation thread.

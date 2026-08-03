@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
-import { type Brand, requireNonEmptyBrand } from './brand.js';
+import { type Brand, requireNonEmptyBrand } from './brand.ts';
 
 /**
  * Opaque identifier for messages sent to the engine.

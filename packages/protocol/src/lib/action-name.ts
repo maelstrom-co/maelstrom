@@ -1,4 +1,4 @@
-import { type Brand, requireNonEmptyBrand } from './brand.js';
+import { type Brand, requireNonEmptyBrand } from './brand.ts';
 
 /**
  * Opaque identifier for an action defined on a vessel variant.
