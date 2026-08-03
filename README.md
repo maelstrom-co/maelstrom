@@ -9,21 +9,11 @@
 <br />
 
 <div align="center">
-  <a href="https://npmjs.com/package/@maelstrom-co/react" target="_parent">
-    <img alt="NPM version" src="https://img.shields.io/npm/v/@maelstrom-co/react.svg" />
-  </a>
-  <a href="https://bundlephobia.com/result?p=@maelstrom-co/react@latest" target="_parent">
-    <img alt="Bundle size" src="https://badgen.net/bundlephobia/minzip/@maelstrom-co/react@latest" />
-  </a>
-  <a href="./LICENSE" target="_parent">
-    <img alt="License" src="https://img.shields.io/npm/l/@maelstrom-co/react.svg" />
-  </a>
-  <a href="https://github.com/maelstrom-co/maelstrom" target="_parent">
-    <img alt="GitHub stars" src="https://img.shields.io/github/stars/maelstrom-co/maelstrom.svg?style=social&label=Star" />
-  </a>
-  <a href="https://x.com/maelstrom_co">
-    <img alt="Follow @maelstrom_co" src="https://img.shields.io/twitter/follow/maelstrom_co.svg?style=social" />
-  </a>
+  <a href="https://npmjs.com/package/@maelstrom-co/react" target="_parent"><img alt="NPM version" src="https://img.shields.io/npm/v/@maelstrom-co/react.svg" /></a>
+  <a href="https://bundlephobia.com/result?p=@maelstrom-co/react@latest" target="_parent"><img alt="Bundle size" src="https://badgen.net/bundlephobia/minzip/@maelstrom-co/react@latest" /></a>
+  <a href="./LICENSE" target="_parent"><img alt="License" src="https://img.shields.io/npm/l/@maelstrom-co/react.svg" /></a>
+  <a href="https://github.com/maelstrom-co/maelstrom" target="_parent"><img alt="GitHub stars" src="https://img.shields.io/github/stars/maelstrom-co/maelstrom.svg?style=social&label=Star" /></a>
+  <a href="https://x.com/maelstrom_co" target="_parent"><img alt="Follow @maelstrom_co" src="https://img.shields.io/twitter/follow/maelstrom_co.svg?style=social" /></a>
 </div>
 
 # Maelstrom
@@ -47,8 +37,6 @@ layout surface, from whatever the user is trying to do.
   your first Vessel, from install to a running chart.
 - [Core Concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) -
   Vessels, the Chart, and the Engine.
-- [Creating Vessels](https://docs.maelstrom-ai.co/guides/react/creating-vessels/) -
-  variants, actions, and size hints in depth.
 - [How Maelstrom Compares](https://docs.maelstrom-ai.co/understanding/comparison/) -
   against chat-UI libraries and agent frameworks.
 - [API Reference](https://docs.maelstrom-ai.co/reference/react/readme/) - every
@@ -80,18 +68,6 @@ in the moment, out of pieces you designed on purpose.
 Intent has many forms — voice, text, channels not yet invented. To the model
 they're the same signal. No one has built UI this way before; we think it's the
 right shape, and we're figuring it out in the open.
-
-## What You Can Build
-
-- Dashboards that rearrange themselves around the question being asked, instead
-  of around the layout someone froze at design time.
-- Operator consoles where "show me the failing region" pulls up the map, sizes it
-  to the space, and leaves the incident list beside it.
-- Multi-step tools driven by voice or text, where the same intent signal both
-  moves the layout and fires the action behind it.
-- Any surface where the useful arrangement changes with the task — and where you
-  still want your own components, your own design system, and your own code
-  paths.
 
 ## Install
 
@@ -242,12 +218,9 @@ components, or render into a chat thread?**
 Tambo is the closest — it lets the model pick *your* registered components — but
 renders them inline and never decides layout or state transitions. LangGraph,
 AG-UI, and the Vercel AI SDK are substrate rather than competition: Maelstrom is
-the layout layer their output can drive.
-
-Full detail, including
-[where Maelstrom is the wrong tool](https://docs.maelstrom-ai.co/understanding/comparison/#where-maelstrom-is-the-wrong-tool),
-is in the
-[comparison docs](https://docs.maelstrom-ai.co/understanding/comparison/).
+the layout layer their output can drive. The comparison docs carry the full
+tables and
+[where Maelstrom is the wrong tool](https://docs.maelstrom-ai.co/understanding/comparison/#where-maelstrom-is-the-wrong-tool).
 
 ## Packages
 
@@ -273,9 +246,7 @@ for why a voice model never plans your UI.
 - See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup instructions.
 - Follow [@maelstrom_co](https://x.com/maelstrom_co) for what we're building.
 
-## License
-
-MIT — see [LICENSE](./LICENSE).
+MIT licensed — see [LICENSE](./LICENSE).
 
 ## Star History
 
