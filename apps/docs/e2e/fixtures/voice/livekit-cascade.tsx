@@ -13,6 +13,8 @@ declare function fetchLiveKitToken(
 // Supplied by the reader's own app: the Vessel list and the guide's grant
 // fetch, which the browser-grant region above defines in full.
 declare const vessels: [];
+declare const roomName: string;
+declare const mintToken: (roomName: string) => Promise<LiveKitTokenGrant>;
 
 /* docs:livekit-adapter-setup:start */
 export function createLiveKitAdapter({
@@ -44,6 +46,31 @@ export const m = createMaelstrom({ vessels }).with(
   }),
 );
 /* docs:livekit-guide-adapter:end */
+
+/**
+ * Tuning and opting out. Compiled here because the `vad` object is an allowlist:
+ * a key the adapter does not accept is a type error, and a guide that showed one
+ * would send readers to a runtime rejection.
+ */
+/* docs:livekit-vad-tuning:start */
+new LiveKitAdapter({
+  roomName,
+  mintToken,
+  vad: {
+    // Where the build step copied the assets. `/vad-web/` is the default.
+    assetBaseUrl: '/vad-web/',
+    preRollMs: 300,
+    providerOptions: {
+      positiveSpeechThreshold: 0.8,
+      minSpeechMs: 100,
+    },
+  },
+});
+/* docs:livekit-vad-tuning:end */
+
+/* docs:livekit-vad-off:start */
+new LiveKitAdapter({ roomName, mintToken, vad: false });
+/* docs:livekit-vad-off:end */
 
 declare function waitForRelease(): Promise<void>;
 

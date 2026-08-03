@@ -213,9 +213,54 @@ export const m = createMaelstrom({ vessels }).with(
 
 The `roomName` option remains necessary to satisfy the generic adapter API, and the adapter forwards it only to `mintToken(roomName)`. It is not an authorization input in this integration. The browser fetch sends no room or identity in its body; the authenticated endpoint's signed grant is the authority used when LiveKit joins the participant.
 
-`connect()` joins the room, acquires the microphone track locally, mutes it, and only then publishes it and pauses it upstream. The order is deliberate: `setMicrophoneEnabled(true)` would publish an enabled track before the adapter could apply its gate, so the adapter does not use it. This implementation therefore requests microphone access during connection, before the first held turn. The browser retains microphone access while the published track is muted, until `disconnect()` leaves the room and stops the adapter's media resources. Hold-to-talk changes the existing track's mute state; it does not acquire or release microphone permission. This mode has no provider-managed voice activity detection.
+`connect()` joins the room, acquires the microphone track locally, mutes it, and only then publishes it and pauses it upstream. The order is deliberate: `setMicrophoneEnabled(true)` would publish an enabled track before the adapter could apply its gate, so the adapter does not use it. This implementation therefore requests microphone access during connection, before the first held turn. The browser retains microphone access while the published track is muted, until `disconnect()` leaves the room and stops the adapter's media resources. Starting a turn changes the existing track's mute state; it does not acquire or release microphone permission. Turn boundaries are found in the browser, not by LiveKit or the worker — see [Configure browser VAD](#configure-browser-vad) next.
 
 Token expiry is checked for each initial or fresh room connection, including an explicit `connect()` after `disconnect()`. It does not impact LiveKit SDK-managed reconnects for an already connected participant because LiveKit pushes refreshed tokens to connected clients, and the SDK uses the refreshed token for managed reconnects. Expiry alone does not disconnect an active participant or end the room. Each fresh `connect()` invokes `mintToken`; the adapter does not read `expiresAt` or schedule proactive renewal. Expiry does not impose a maximum room duration or schedule adapter cleanup, so production hosts must enforce their own maximum session duration, call `disconnect()` on policy termination, and clean up abandoned rooms and participants separately.
+
+## Configure browser VAD
+
+The adapter detects turn boundaries in the browser, and does so unless you pass `vad: false`. The adapter above therefore runs in automatic mode: your users talk, and nothing has to be held.
+
+Automatic mode needs asset files that this package does not publish for you. Copy them before your build, so the versions match the ones this package pins:
+
+```json title="package.json"
+{
+  "scripts": {
+    "prepare:vad": "maelstrom-livekit-assets public/vad-web",
+    "build": "bun run prepare:vad && vite build"
+  }
+}
+```
+
+Skip this step and the outcome is quiet rather than loud. The assets fail to load, the session degrades to manual turns, and your users are told to hold a button you may not have built. Serve the directory from the same origin, or from a credential-free HTTPS host you control — the browser executes worklet, JavaScript, and WebAssembly from it.
+
+To tune detection, pass an object. An unsupported key fails to compile, and fails again at runtime with a `TypeError`, so it can never become a setting that silently does nothing:
+
+```ts title="src/maelstrom.ts"
+new LiveKitAdapter({
+  roomName,
+  mintToken,
+  vad: {
+    // Where the build step copied the assets. `/vad-web/` is the default.
+    assetBaseUrl: '/vad-web/',
+    preRollMs: 300,
+    providerOptions: {
+      positiveSpeechThreshold: 0.8,
+      minSpeechMs: 100,
+    },
+  },
+});
+```
+
+Raising `positiveSpeechThreshold` cuts false interruptions and starts missing quiet speakers. `preRollMs` is the audio sent at the start of a turn so the first word survives; the provider's `preSpeechPadMs` is a different setting and does not do this. [`LiveKitBrowserVadOptions`](/reference/realtime-livekit/packages/realtime-livekit/src/interfaces/livekitbrowservadoptions/) lists every key and its accepted values.
+
+To take the boundary yourself instead, turn detection off:
+
+```ts title="src/maelstrom.ts"
+new LiveKitAdapter({ roomName, mintToken, vad: false });
+```
+
+That is one of the two ways `turnControl` appears; [Delimit each manual turn](#delimit-each-manual-turn) builds the control. For why this decision sits in the browser at all, read [Turn detection in the browser](/understanding/browser-vad-and-barge-in/).
 
 ## Use the protocol entry point
 
@@ -231,7 +276,9 @@ import {
 
 `TURN_TOPIC` carries turn-end and TTS-cancel data messages. `SPEAK_TOPIC` carries settled result text to the worker, and `TTS_TOPIC` carries playout-complete or synthesis-error status back to the browser. Application code normally lets the adapter and worker publish these messages.
 
-## Hold a turn
+## Delimit each manual turn
+
+Build this only if you configured `vad: false`, or if you want a fallback ready for a session that degrades to manual mode. `turnControl` is `undefined` while automatic detection is healthy, so this control renders in exactly those two cases and stays hidden otherwise.
 
 Disable hold-to-talk until the transport is connected. Prevent repeated starts and queue serialized, best-effort cleanup when a normal release is lost to pointer-capture loss, control or window blur, a hidden document, disconnect, or unmount. Browser termination can still prevent JavaScript cleanup, so server-side session limits remain necessary.
 

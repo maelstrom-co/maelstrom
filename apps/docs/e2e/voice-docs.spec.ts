@@ -16,8 +16,10 @@ import {
 import { LiveKitTokenGrantSchema as TokenEntryLiveKitTokenGrantSchema } from '@maelstrom-co/realtime-livekit/token';
 import { expect, test } from '@playwright/test';
 import { LIVEKIT_CASCADE_OWNERSHIP } from '../src/components/ownership/livekit-cascade';
+import { LIVEKIT_TURN_OWNERSHIP } from '../src/components/ownership/livekit-turn-ownership';
 import { OPENAI_REALTIME_OWNERSHIP } from '../src/components/ownership/openai-realtime';
 import { VOICE_BOUNDARY } from '../src/components/ownership/voice-boundary';
+import { LIVEKIT_BARGE_IN } from '../src/components/sequence/livekit-barge-in';
 
 // This suite checks that the voice docs are *alive and complete*, not that they
 // are worded a particular way.
@@ -107,6 +109,11 @@ const GUIDE_ROUTES: readonly DocsRoute[] = [
     name: 'voice boundary explanation',
     path: '/understanding/voice-architecture/',
     heading: 'The voice boundary',
+  },
+  {
+    name: 'turn detection explanation',
+    path: '/understanding/browser-vad-and-barge-in/',
+    heading: 'Turn detection in the browser',
   },
   {
     name: 'realtime voice tutorial',
@@ -283,6 +290,17 @@ for (const route of [...GUIDE_ROUTES, ...REFERENCE_ROUTES]) {
   });
 }
 
+// The sidebar is hand-curated, not generated from the content collection, so a
+// new page renders perfectly and is reachable only by whoever already knows its
+// URL. Nothing else in the build notices.
+for (const route of GUIDE_ROUTES) {
+  test(`${route.name} is reachable from the sidebar`, async ({ page }) => {
+    await page.goto(route.path);
+    const sidebar = page.getByRole('navigation', { name: 'Main' });
+    await expect(sidebar.locator(`a[href="${route.path}"]`)).toHaveCount(1);
+  });
+}
+
 // Each ownership diagram is the only place its guide states some facts — which
 // role holds the provider secret, which role the reader does not deploy. An
 // Astro component that silently stopped rendering would take those with it, and
@@ -307,6 +325,12 @@ const OWNERSHIP_DIAGRAMS = [
     // Not a credential here: the claim this page turns on is an absence, and a
     // struck path is invisible to a screen reader unless the text says so.
     secret: 'has no path to Engine',
+  },
+  {
+    name: 'turn ownership',
+    path: '/understanding/browser-vad-and-barge-in/',
+    model: LIVEKIT_TURN_OWNERSHIP,
+    secret: 'has no path to LiveKit room',
   },
 ] as const;
 
@@ -340,6 +364,45 @@ for (const diagram of OWNERSHIP_DIAGRAMS) {
     await expect(page.locator('.own-sr')).toContainText(diagram.secret);
   });
 }
+
+// The barge-in drawing's whole claim is ordering, and the SVG is aria-hidden,
+// so the ordered text alternative is the only version of that claim most tools
+// can read. A component that stopped emitting it would take the argument with
+// it while the picture still looked fine.
+test('the barge-in sequence renders every participant, step, and its order', async ({
+  page,
+}) => {
+  await page.goto('/understanding/browser-vad-and-barge-in/');
+  const canvas = page.locator('.seq-canvas');
+  await expect(canvas).toBeVisible();
+
+  for (const participant of LIVEKIT_BARGE_IN.participants) {
+    await expect(canvas).toContainText(participant.label);
+  }
+  for (const step of LIVEKIT_BARGE_IN.steps) {
+    await expect(canvas).toContainText(step.label);
+  }
+  // The drawing is hidden from assistive technology, so the alternative has to
+  // carry the summary as well as the steps. Asserting the summary here rather
+  // than as the SVG's aria-label is the point: two labelled representations of
+  // one diagram get announced back to back.
+  await expect(canvas).toHaveAttribute('aria-hidden', 'true');
+  await expect(page.locator('.seq-sr')).toContainText(LIVEKIT_BARGE_IN.summary);
+
+  const steps = page.locator('.seq-sr li');
+  await expect(steps).toHaveCount(LIVEKIT_BARGE_IN.steps.length);
+
+  // Concurrent steps share a number. Muting playback and dropping the utterance
+  // id are one instant of local work, and numbering them 3 and 4 would tell a
+  // reader to expect a delay between them. The cancel that follows is a
+  // published message and deliberately keeps its own later number.
+  const numbered = await steps.allTextContents();
+  const shared = numbered.filter((text) => text.startsWith('3.'));
+  expect(shared.length).toBe(2);
+  expect(numbered.some((text) => text.startsWith('4. LiveKitAdapter'))).toBe(
+    true,
+  );
+});
 
 test('voice consumer imports resolve from roots and documented subpaths', async ({
   page,
@@ -547,6 +610,11 @@ test('LiveKit production fixture is compile checked and rendered verbatim', asyn
       'minimal-minter',
       'browser-grant',
       'guide-adapter',
+      // Both `vad` forms. The guide's default path depends on automatic mode
+      // working, and an unaccepted key here is a type error rather than a
+      // setting that quietly does nothing — so the examples have to compile.
+      'vad-tuning',
+      'vad-off',
       'worker-reference',
     ].map((name) => region(fixture, `livekit-${name}`)),
     region(readFixture('livekit-session-state'), 'livekit-session-state'),
