@@ -447,3 +447,37 @@ describe('removing a stored key', () => {
     });
   });
 });
+
+describe('captions placement (footer chrome)', () => {
+  it('keeps captions outside main and between the voice error note and the orb', async () => {
+    // Captions over main covered vessel flash borders. This asserts the mount
+    // site, not class names — CSS or a moved parent would still fail here.
+    vi.stubEnv('VITE_HOSTED', '0');
+    const { HomePage } = await import('./index');
+    const { container } = render(<HomePage />);
+
+    const captions = must(container.querySelector('[data-testid="captions"]'));
+    const main = must(container.querySelector('main'));
+    expect(main.contains(captions)).toBe(false);
+
+    const footer = must(captions.parentElement);
+    const kids = Array.from(footer.children);
+    const captionsIdx = kids.indexOf(captions);
+    const orbIdx = kids.findIndex((el) => el.querySelector('.voice-orb'));
+    expect(orbIdx).toBeGreaterThan(-1);
+    expect(captionsIdx).toBeLessThan(orbIdx);
+
+    // VoiceErrorNote mounts only on error — when present it must sit above captions.
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      session.emitState('error');
+    });
+    const errorNote = must(container.querySelector('.voice-error-note'));
+    const kidsWithError = Array.from(must(captions.parentElement).children);
+    expect(kidsWithError.indexOf(errorNote)).toBeLessThan(
+      kidsWithError.indexOf(
+        must(container.querySelector('[data-testid="captions"]')),
+      ),
+    );
+  });
+});

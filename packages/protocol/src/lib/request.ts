@@ -1,24 +1,24 @@
 import { z } from 'zod';
 
-import type { Mutable } from './_drift-guards.js';
-import type { ChartDimensions } from './chart.js';
-import { ChartDimensionsSchema } from './chart.js';
+import type { Mutable } from './_drift-guards.ts';
+import type { ChartDimensions } from './chart.ts';
+import { ChartDimensionsSchema } from './chart.ts';
 // Referenced via `{@link}` in the ChartRequest JSDoc below — type-only import
 // keeps IDE hover/jump-to-definition uniform across resolvers.
-import type { ChartRequestMessage } from './engine-message.js';
-import { InstanceId } from './instance.js';
-import type { LayoutMode } from './layout.js';
-import type { GridLayout, TilingLayout } from './response.js';
+import type { ChartRequestMessage } from './engine-message.ts';
+import { InstanceId } from './instance.ts';
+import type { LayoutMode } from './layout.ts';
+import type { GridLayout, TilingLayout } from './response.ts';
 import {
   ActionExecutionSchema,
   GridLayoutSchema,
   TilingLayoutSchema,
   VesselInstanceSnapshotSchema,
-} from './schemas.js';
-import type { VariantName } from './variant-name.js';
-import type { Vessel } from './vessel.js';
-import { VesselSchema } from './vessel.js';
-import type { VesselId } from './vessel-id.js';
+} from './schemas.ts';
+import type { VariantName } from './variant-name.ts';
+import type { Vessel } from './vessel.ts';
+import { VesselSchema } from './vessel.ts';
+import type { VesselId } from './vessel-id.ts';
 
 // ---------------------------------------------------------------------------
 // Update reasons

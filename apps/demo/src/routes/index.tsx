@@ -247,7 +247,6 @@ function DemoApp({
         </div>
         <FirstRunHint />
         <ActionFlash />
-        <Captions />
       </main>
 
       {/* Intent input */}
@@ -395,6 +394,10 @@ function IntentInput({
       style={{ borderColor: 'var(--line)' }}
     >
       <VoiceErrorNote />
+      {/* Captions stay in footer chrome (never under main): a chart-bottom
+          scrim covered vessel flash borders, and in-flow height changes here
+          would fire engine chart_resize. Captions always reserves a fixed band. */}
+      <Captions />
       <div
         className="flex justify-center mb-3"
         onClickCapture={handleOrbClickCapture}

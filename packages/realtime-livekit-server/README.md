@@ -1,11 +1,6 @@
 # @maelstrom-co/realtime-livekit-server
 
-[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-livekit-server.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-livekit-server)
-[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
-
 Server-only handler for minting LiveKit room access tokens.
-
-📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
 The server sibling of `@maelstrom-co/realtime-livekit`: the browser package
 declares the `LiveKitTokenGrant` contract the adapter consumes, and this
@@ -24,9 +19,16 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server
 
 - `mintLiveKitToken` — a `(input: unknown) => Promise<LiveKitMintResult>` that
   signs a LiveKit room JWT scoped to a room + identity, reading credentials
-  and the token TTL from `LIVEKIT_*` env vars. Request validation is in-package
-  (the trust boundary lives with the minter); the returned grant carries
-  `expiresAt` so the browser can refresh proactively.
+  and the token TTL from `LIVEKIT_*` env vars. The minter owns only request
+  shape validation and local provider interaction; application transport owns
+  authentication, authorization, CSRF, origin checks, shared rate limits, and
+  trusted room scope. The returned grant carries
+  `expiresAt`. Token expiry is checked for each initial or fresh room connection,
+  including an explicit `connect()` after `disconnect()`. It does not impact
+  SDK-managed reconnects for an already connected participant because LiveKit
+  pushes refreshed tokens to connected clients, and the SDK uses the refreshed
+  token for managed reconnects. Expiry alone does not disconnect an active
+  participant or end the room. Each fresh `connect()` invokes `mintToken`.
 - `mintFailureHttpStatus` — a suggested `MintFailureReason -> HTTP status`
   mapping, re-exported from `@maelstrom-co/realtime` for callers wiring the
   minter into an HTTP transport.
@@ -34,32 +36,55 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server
 ## Quick example
 
 ```ts
-import { createServerFn } from '@tanstack/react-start';
 import { isErr } from '@maelstrom-co/protocol';
-import { mintLiveKitToken } from '@maelstrom-co/realtime-livekit-server';
+import {
+  mintLiveKitToken,
+  LiveKitTokenRequestSchema,
+} from '@maelstrom-co/realtime-livekit-server';
 
-// Wire into a TanStack Start server fn, or any framework of choice:
-export const getLivekitToken = createServerFn({ method: 'GET' })
-  .inputValidator((d: unknown) => d)
-  .handler(async ({ data }) => {
-    const result = await mintLiveKitToken(data);
-    if (isErr(result)) throw new Error(result.error.reason);
-    return result.value;
-  });
+// Room name and participant identity come from authenticated server policy,
+// never from the browser. This package signs the scope it is handed; it does
+// not decide who may ask for one.
+const result = await mintLiveKitToken({
+  roomName: authenticated.roomName,
+  identity: authenticated.identity,
+});
+
+const response = isErr(result)
+  ? Response.json({ error: 'mint-failed' }, { status: 500 })
+  : Response.json(result.value);
 ```
 
-`mintLiveKitToken` validates request shape only — it performs no authentication
-or authorization. The example above forwards client-supplied `roomName` and
-`identity` straight through, which is fine for a local demo or spike but not
-for production: a real deployment must authenticate the request first, then
-derive or allowlist `roomName`/`identity` server-side from trusted session
-state rather than forwarding raw client input, since a minted grant lets its
-holder join, publish, and subscribe in the named room.
+`LiveKitTokenRequestSchema` validates the shape of a mint request when your
+transport needs it. The grant carries `roomJoin` for that one room,
+`canPublish`, and `canSubscribe` — no room administration, recording, ingress,
+or egress.
+
+Everything that makes this route safe to expose — authentication, origin and
+CSRF checks, rate limits, short token lifetimes, session duration limits,
+no-store headers, redacted telemetry — belongs to the route around it, and is
+worked through step by step in the
+[LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/#harden-the-mint-route).
+
+The server process requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and
+`LIVEKIT_API_SECRET`. `LIVEKIT_TOKEN_TTL` is optional and defaults to `15m`.
+Token TTL does not bound a session: LiveKit pushes refreshed tokens to
+connected participants, so expiry only affects new connections.
+
+> **Development-only demo route:** The repository demo mint route at
+> `apps/demo/src/lib/voice/get-livekit-token.ts` currently lacks production
+> authentication, trusted scope derivation, and explicit no-store cache headers.
+> Do not deploy it; use the hardened route from the guide above.
+
 
 ## Docs
 
-- Client guides: https://docs.maelstrom-ai.co/guides/client/custom-connectors/
-- API reference: https://docs.maelstrom-ai.co/reference/client/readme/
+- Production guide: https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/
+- Voice overview: https://docs.maelstrom-ai.co/guides/voice/overview/
+- API reference: https://docs.maelstrom-ai.co/reference/realtime-livekit-server/readme/
+- Architecture: https://docs.maelstrom-ai.co/understanding/architecture/
+- LiveKit token generation: https://docs.livekit.io/home/server/generating-tokens/
+- LiveKit voice AI worker guide: https://docs.livekit.io/agents/start/voice-ai/
 
 ## License
 

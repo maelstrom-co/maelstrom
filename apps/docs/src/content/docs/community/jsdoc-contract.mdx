@@ -3,21 +3,33 @@ title: Document a public symbol
 description: How to write JSDoc that renders correctly on the Maelstrom docs site.
 ---
 
-import { Steps, Aside } from '@astrojs/starlight/components';
+import { Steps, Aside } from "@astrojs/starlight/components";
 
-API reference pages on this site are generated from each package's `src/index.ts`
-exports and their JSDoc. That means JSDoc is public documentation, not an internal code comment — no markdown is hand-written between a code change and
-a docs rebuild. Anything you re-export from a package barrel becomes a public
-page; anything you don't, doesn't.
+API reference pages on this site are generated from the exports of every source
+file listed in that package's `entryPoints` configuration in
+`apps/docs/astro.config.ts`. JSDoc on those exports is public documentation, not
+an internal code comment: no reference Markdown is hand-written between a code
+change and a docs rebuild.
+
+`src/index.ts` is the conventional package-root entry point, but it is not the
+only supported entry point. A published subpath can have its own source entry
+point, such as:
+
+- `@maelstrom-co/realtime/openai` → `src/openai.ts`.
+- `@maelstrom-co/realtime-livekit/protocol` → `src/protocol.ts`.
+- `@maelstrom-co/realtime-livekit/token` → `src/livekit-token.ts`.
 
 ## Before you start
 
-- The symbol you want to document must be re-exported from the package's
-  `src/index.ts`. Helpers reachable only inside the package aren't in the
-  public API and don't appear in Reference.
-- The package's `tsconfig.lib.json` must already include the file the symbol
-  lives in. Every published package does; new files inside an existing
-  package are picked up automatically.
+- Check the package's `exports` map. The symbol must be exported from a
+  published package root or subpath rather than only from an internal source
+  file.
+- Check `apps/docs/astro.config.ts`. The public root or subpath source file must
+  be listed explicitly in the matching TypeDoc plugin's `entryPoints` array.
+- Check the package's `tsconfig.lib.json`. TypeDoc's `resolve` strategy expects
+  each configured entry point to belong to that TypeScript project, so the
+  entry-point file and the declaration it exports must be included and not
+  excluded.
 
 ## Steps
 
@@ -49,24 +61,25 @@ page; anything you don't, doesn't.
     handle(message: EngineMessage): Promise<Result<EngineOutput, EngineError>>;
     ```
 
-3.  **Mark barrel-exported helpers that aren't user-facing with `@internal`.**
-    If a symbol is re-exported from `src/index.ts` only because a sibling
-    `@maelstrom-co` package needs to import it, tag it `@internal`. The
-    generator is configured with `excludeInternal: true`, so the symbol
-    stays reachable to TypeScript but does not appear in the docs site.
-    Symbols that aren't re-exported from the barrel are already invisible
-    to the generator — `@internal` is unnecessary there.
+3.  **Mark public-entry-point exports that aren't user-facing with
+    `@internal`.** If a symbol is exported from a configured root or subpath
+    only because a sibling `@maelstrom-co` package needs it, tag it
+    `@internal`. The generator uses `excludeInternal: true`, so the symbol
+    remains importable but does not appear on the docs site. A helper that is
+    not reachable from any configured entry point is already absent from the
+    generated reference; `@internal` is unnecessary there.
 
-    ```ts
-    /**
-     * Wire helper for cross-package consumers.
-     *
-     * @internal
-     */
-    export function someBarrelExportedHelper(): SomeShape {
-      // ...
-    }
-    ```
+        ```ts
+        /**
+         * Wire helper for cross-package consumers.
+         *
+         * @internal
+         */
+        export function someBarrelExportedHelper(): SomeShape {
+          // ...
+        }
+        ```
+
 </Steps>
 
 ## Variations
@@ -76,7 +89,7 @@ page; anything you don't, doesn't.
 Use `@example` followed by a fenced code block. The plugin renders it as an
 `## Example` section under the symbol.
 
-```ts
+````ts
 /**
  * Build the system + user prompt halves.
  *
@@ -87,8 +100,11 @@ Use `@example` followed by a fenced code block. The plugin renders it as an
  * });
  * ```
  */
-export function buildPrompt(request: ChartRequest, options?: PromptOptions): PromptResult;
-```
+export function buildPrompt(
+  request: ChartRequest,
+  options?: PromptOptions,
+): PromptResult;
+````
 
 ### Deprecate a symbol
 
@@ -153,8 +169,15 @@ processIntent(intent: string): Promise<void>;
   its own `##` sections (`Parameters`, `Returns`, `Throws`, `Example`).
   Authoring sibling `##` headings inside a comment block produces a jumbled
   page hierarchy. Stick to prose paragraphs and bullet lists.
-- **Don't document a non-exported symbol expecting it to appear.** Only
-  symbols re-exported from `src/index.ts` are reachable to the generator.
+- **Don't document an internal source export expecting it to appear.** The
+  symbol must be reachable from an explicitly configured package root or
+  subpath entry point.
+- **Don't configure an internal file as an entry point.** First publish a root
+  or subpath in the package `exports` map, then configure its source file and
+  confirm that `tsconfig.lib.json` includes it.
+- **Don't guess a generated URL from a symbol name or source filename.**
+  Multi-entry packages can include source-entry-point segments in their route
+  hierarchy. Build the site and record the route that Astro actually emits.
 
 <Aside type="note">
   Cross-package `{@link}` resolution (e.g. an `engine` JSDoc linking to a
@@ -171,20 +194,26 @@ Before you call a public symbol documented, reread the rendered prose and check:
 - **Completeness:** edge cases, no-ops, throw conditions, and invariants are documented where they matter.
 - **Contrast:** related APIs that behave differently are distinguished explicitly.
 - **Examples:** examples compile conceptually and do not rely on hidden setup.
-- **Surface:** helper symbols that are exported only for package internals are marked `@internal`.
+- **Surface:** each symbol is reachable from the intended published root or
+  subpath, and exports meant only for package internals are marked `@internal`.
 
 ## Verify
 
-Build the docs and open the generated page for the symbol you changed:
+Build the docs, inventory the configured output, and open the generated page
+for the symbol you changed:
 
 ```bash
-nx build docs
+bunx nx run docs:build
+rg --files apps/docs/dist/reference/<configured-output>
 ```
 
-Find the page under `apps/docs/dist/reference/<package>/<kind>/<symbol>/index.html`
-and confirm the prose, parameters, returns, and any `{@link}` cross-references
-render as expected. For an iterative loop, `nx dev docs` regenerates on
-startup — restart the dev server after editing JSDoc to see the change.
+Treat the files under `apps/docs/dist/reference/<configured-output>` as the
+route authority. Do not assume a fixed `<kind>/<symbol>` pattern: the generated
+path depends on TypeDoc's project model, and multi-entry packages can render
+additional module or source-entry-point segments. Open the observed page and
+confirm the prose, parameters, returns, `@internal` exclusions, and any
+`{@link}` cross-references. For an iterative loop, `bunx nx run docs:dev`
+regenerates on startup; restart the dev server after editing JSDoc.
 
 ## Next steps
 

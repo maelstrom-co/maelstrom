@@ -56,12 +56,30 @@ bunx nx dev demo
 
 The command builds the required workspace packages, then starts:
 
-- Vite at `http://localhost:3000`
-- the Bun Engine WebSocket host at `ws://localhost:3001/ws`
+The mint route this path uses (`src/routes/api/realtime-token.ts`) is
+development-only, for the same reason the LiveKit one below is: it does not
+authenticate the caller, and it forwards the request body to the minter, so the
+caller chooses the model. Replace it with the server-owned route from the
+[OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/)
+before any deployment.
+
+The `nx` commands in this README run from the repository root. Commands shown
+as `bun run ...` under the LiveKit section run from `apps/demo/`.
 
 The terminal is ready when the Vite output shows `http://localhost:3000` and the Engine host output shows `ws://localhost:3001/ws`. Neither process should exit.
 
-Open http://localhost:3000. When the status shows `connected`, type something like "Clear all this — just show me today" and submit. §The board should rearrange in response.
+This is the repository's development-only LiveKit checkpoint. It exercises the
+browser adapter and local worker, but its mint route is not a production token
+boundary. For deployment, follow the
+[LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/)
+after validating the local path.
+
+1. Install and run a LiveKit server in dev mode:
+
+   ```bash
+   brew install livekit   # or download a release: https://github.com/livekit/livekit/releases
+   livekit-server --dev
+   ```
 
 ## Optional: OpenAI realtime voice
 
@@ -141,5 +159,8 @@ Press `Ctrl-C` once in the startup terminal to stop both baseline processes. Del
 
 ## Further reading
 
-- [`packages/realtime-livekit-agent/README.md`](../../packages/realtime-livekit-agent/README.md) — voice-agent worker internals
-- [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) — OpenAI-track realtime voice architecture
+- [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) — browser integration first, then the production token and worker checkpoint
+- [`packages/realtime-livekit-agent/README.md`](../../packages/realtime-livekit-agent/README.md) — voice agent worker internals
+- [`packages/realtime-livekit/README.md`](../../packages/realtime-livekit/README.md) — adapter VAD configuration and asset deployment
+- [`packages/react-realtime/README.md`](../../packages/react-realtime/README.md) — `useVoice()` turn-mode state
+- [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) — realtime voice architecture

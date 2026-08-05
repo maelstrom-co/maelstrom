@@ -1,6 +1,6 @@
-import type { MessageId } from './message.js';
-import type { MaelstromResponse } from './response.js';
-import type { SessionId } from './session.js';
+import type { MessageId } from './message.ts';
+import type { MaelstromResponse } from './response.ts';
+import type { SessionId } from './session.ts';
 
 /**
  * Common metadata on every engine output. The `id` echoes the id of the input

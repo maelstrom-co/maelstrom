@@ -30,7 +30,7 @@ it('mints an ephemeral secret without leaking the api key', async () => {
   expect(isOk(result)).toBe(true);
   if (!isOk(result)) throw new Error('expected ok result');
   expect(result.value.value).toBe('ek-xyz');
-  expect(result.value.expiresAt).toBe(1712345678);
+  expect(result.value.expiresAt as number).toBe(1712345678);
   expect(result.value.model).toBe('gpt-realtime-1.5');
   expect(sentAuth).toBe('Bearer sk-secret');
   expect(JSON.stringify(result)).not.toContain('sk-secret');
@@ -246,6 +246,7 @@ it('maps every MintFailureReason to its suggested HTTP status', () => {
     'invalid-request': 400,
     'unsupported-provider': 400,
     'missing-api-key': 500,
+    'invalid-config': 500,
     'upstream-failure': 502,
   };
 

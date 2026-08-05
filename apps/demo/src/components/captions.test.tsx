@@ -53,31 +53,65 @@ function renderCaptions() {
 }
 
 describe('Captions', () => {
-  it('renders nothing while idle', () => {
+  it('always reserves a fixed-height band so chart layout cannot shift with voice', () => {
+    // Mount/unmount of an in-flow caption row shrinks <main> and fires engine
+    // chart_resize. The band must stay mounted at a stable height even idle.
     const { container } = renderCaptions();
-    expect(
-      container.querySelector('[data-testid="captions-overlay"]'),
-    ).toBeNull();
+    const root = must(container.querySelector('[data-testid="captions"]'));
+    expect(root.className).toMatch(/\bh-5\b/);
+    expect(container.querySelector('[data-role="assistant"]')).toBeNull();
+    expect(container.querySelector('[data-role="user"]')).toBeNull();
   });
 
-  it('renders nothing in error state', async () => {
+  it('keeps the band empty in error state', async () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('error');
     });
-    expect(
-      container.querySelector('[data-testid="captions-overlay"]'),
-    ).toBeNull();
+    expect(container.querySelector('[data-testid="captions"]')).not.toBeNull();
+    expect(container.querySelector('[data-role="assistant"]')).toBeNull();
+    expect(container.querySelector('[data-role="user"]')).toBeNull();
   });
 
-  it('stays hidden in a live state until a transcript arrives', async () => {
+  it('keeps the band empty in a live state until a transcript arrives', async () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
     });
-    expect(
-      container.querySelector('[data-testid="captions-overlay"]'),
-    ).toBeNull();
+    expect(container.querySelector('[data-testid="captions"]')).not.toBeNull();
+    expect(container.querySelector('[data-role="assistant"]')).toBeNull();
+    expect(container.querySelector('[data-role="user"]')).toBeNull();
+  });
+
+  it('does not render a caption line for empty or whitespace-only transcript text', async () => {
+    // Empty entries still produce a FadingCaption object; rendering them leaves
+    // a lone accent dot or blank paragraph in the fixed band.
+    const { container, session } = renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitTranscript({ role: 'assistant', text: '', final: false });
+      session.emitTranscript({ role: 'user', text: '   ', final: true });
+    });
+    expect(container.querySelector('[data-role="assistant"]')).toBeNull();
+    expect(container.querySelector('[data-role="user"]')).toBeNull();
+  });
+
+  it('clamps caption text to a single line so streaming cannot grow the band', async () => {
+    const { container, session } = renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitTranscript({
+        role: 'assistant',
+        text: 'Opening the weather vessel and moving tasks to the right column for the morning review',
+        final: false,
+      });
+    });
+
+    const line = must(container.querySelector('[data-role="assistant"]'));
+    // Truncation lives on the text span (flex parent + truncate on the same
+    // node does not ellipsize); the line itself is width-capped at half.
+    expect(line.className).toMatch(/max-w-\[50%\]/);
+    expect(line.querySelector('.truncate')).not.toBeNull();
   });
 
   it('streams non-final assistant text live, left-aligned with an accent color', async () => {
@@ -88,7 +122,7 @@ describe('Captions', () => {
     });
 
     let line = must(container.querySelector('[data-role="assistant"]'));
-    expect(line.textContent).toBe('On ');
+    expect(line.textContent).toContain('On ');
     expect(line.className).toContain('text-ink');
     expect(line.querySelector('.caption-dot')).not.toBeNull();
 
@@ -97,7 +131,7 @@ describe('Captions', () => {
     });
 
     line = must(container.querySelector('[data-role="assistant"]'));
-    expect(line.textContent).toBe('On it');
+    expect(line.textContent).toContain('it');
   });
 
   it('renders the user transcript right-aligned and dim', async () => {
@@ -113,17 +147,15 @@ describe('Captions', () => {
     expect(line.className).toContain('text-ink-3');
   });
 
-  it('omits the assistant caption dot when only a user transcript is present', async () => {
+  it('omits the empty side so a single caption can use up to half the row', async () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
       session.emitTranscript({ role: 'user', text: 'show labs', final: true });
     });
 
-    const assistantLine = must(
-      container.querySelector('[data-role="assistant"]'),
-    );
-    expect(assistantLine.querySelector('.caption-dot')).toBeNull();
+    expect(container.querySelector('[data-role="assistant"]')).toBeNull();
+    expect(container.querySelector('[data-role="user"]')).not.toBeNull();
   });
 
   it('keeps the assistant caption dot when an assistant transcript is present', async () => {
@@ -141,9 +173,10 @@ describe('Captions', () => {
       container.querySelector('[data-role="assistant"]'),
     );
     expect(assistantLine.querySelector('.caption-dot')).not.toBeNull();
+    expect(container.querySelector('[data-role="user"]')).toBeNull();
   });
 
-  it('keeps a finalized caption visible for ~3.5s then marks it faded', async () => {
+  it('keeps a finalized caption visible for ~3.5s then marks it faded without unmounting the band', async () => {
     vi.useFakeTimers();
     const { container, session } = renderCaptions();
 
@@ -166,6 +199,8 @@ describe('Captions', () => {
     });
     line = must(container.querySelector('[data-role="user"]'));
     expect(line.getAttribute('data-faded')).toBe('true');
+    // Band stays — faded opacity must not collapse footer height.
+    expect(container.querySelector('[data-testid="captions"]')).not.toBeNull();
   });
 
   it('resets fade state when a fresh fragment starts streaming again', async () => {
@@ -195,21 +230,19 @@ describe('Captions', () => {
     ).toBe('false');
   });
 
-  it('hides again once voice state returns to idle', async () => {
+  it('clears caption lines once voice state returns to idle, keeping the band', async () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
       session.emitTranscript({ role: 'assistant', text: 'done', final: true });
     });
-    expect(
-      container.querySelector('[data-testid="captions-overlay"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('[data-role="assistant"]')).not.toBeNull();
 
     await act(async () => {
       session.emitState('idle');
     });
-    expect(
-      container.querySelector('[data-testid="captions-overlay"]'),
-    ).toBeNull();
+    expect(container.querySelector('[data-testid="captions"]')).not.toBeNull();
+    expect(container.querySelector('[data-role="assistant"]')).toBeNull();
+    expect(container.querySelector('[data-role="user"]')).toBeNull();
   });
 });

@@ -1,0 +1,319 @@
+---
+title: OpenAI Realtime
+description: Connect OpenAI Realtime to Maelstrom with a server-minted credential and browser-direct WebRTC.
+---
+
+import { Aside, CardGrid, LinkCard } from "@astrojs/starlight/components";
+import OwnershipDiagram from "../../../../components/ownership/OwnershipDiagram.astro";
+import { OPENAI_REALTIME_OWNERSHIP } from "../../../../components/ownership/openai-realtime";
+
+OpenAI Realtime adds speech-native voice to a Maelstrom app. Your server mints a short-lived client credential, the browser connects directly to OpenAI over WebRTC, and `RealtimeSession` turns provider tool calls into ordinary Maelstrom intents.
+
+By the end you will speak to your interface, watch it adapt, and hear the model describe what changed. You add a mint route, connect voice in the browser, render session state, then harden the route before it ships.
+
+## Before you start
+
+Provide:
+
+- a Maelstrom React instance with its normal Engine Connector
+- a server runtime that can read `OPENAI_API_KEY`
+- a browser secure context with microphone permission
+- the `@maelstrom-co/react`, `@maelstrom-co/protocol`, `@maelstrom-co/realtime`, `@maelstrom-co/react-realtime`, and `@maelstrom-co/realtime-server` packages
+
+Three things decide whether this integration is safe, and none of them are optional.
+
+<Aside type="danger" title="Read these before you write any code">
+  **`OPENAI_API_KEY` stays on the server.** It mints short-lived client
+  credentials and never reaches browser code, bundles, or responses.
+
+  **The minter does not authenticate callers.** `createOpenAIMinter` exchanges
+  credentials; it does not decide who may ask. An unauthenticated route lets
+  anyone spend your OpenAI account. Every example here authenticates first.
+
+  **Audio goes from the browser to OpenAI directly.** It does not pass through
+  your infrastructure. Your consent copy, privacy policy, and data-handling
+  review must say so, and consent belongs before the first `connect()`.
+</Aside>
+
+OpenAI manages voice activity and turn detection for this mode. `OpenAIAdapter` therefore does not expose `turnControl`; render an always-on connect/disconnect control rather than hold-to-talk controls.
+
+<Aside type="note" title="Examples are integration excerpts">
+  The code fences in this guide are illustrative integration excerpts. They omit
+  app-specific route registration, authentication and session policy, dependency
+  configuration, UI styling, telemetry, and consent copy.
+</Aside>
+
+## What you own
+
+OpenAI Realtime uses two application-owned runtime roles: the browser session and a server token route.
+
+<OwnershipDiagram
+  id="openai-ownership"
+  model={OPENAI_REALTIME_OWNERSHIP}
+  caption="Solid cards are yours to deploy. The dashed card is OpenAI's."
+/>
+
+The arc is the part to remember: audio and session data go between the browser and OpenAI over the top of your server, not through it. That is why the mint route can end after each request while the call keeps running.
+
+The same split decides which package goes where. The browser owns `RealtimeSession`, the OpenAI adapter, and the React binding. The application server owns the minter and the long-lived OpenAI API key. The Engine is unchanged and receives the same client-built request that typed intent uses.
+
+Because audio travels between the browser and OpenAI rather than through Maelstrom infrastructure, OpenAI's own terms govern it. Review the [OpenAI Realtime WebRTC guide](https://platform.openai.com/docs/guides/realtime-webrtc) for the browser transport and the [OpenAI Realtime guide](https://platform.openai.com/docs/guides/realtime) for provider-managed session behavior and data handling.
+
+## Mint a credential on your server
+
+Build the minter once in server-only code, authenticate the caller, then map the minter's `Result` to your framework's HTTP response. This is the smallest route that is safe to run at all — it authenticates, and it refuses to cache the credential:
+
+```ts title="server/realtime-token.ts" {1-5,7-10,13,18-22}
+import { isOk } from '@maelstrom-co/protocol';
+import {
+  createOpenAIMinter,
+  mintFailureHttpStatus,
+} from '@maelstrom-co/realtime-server';
+
+const mint = createOpenAIMinter({
+  apiKey: process.env.OPENAI_API_KEY ?? '',
+  model: 'gpt-realtime-2',
+});
+
+export async function POST(request: Request): Promise<Response> {
+  const authenticated = await requireAuthenticatedRealtimeSession(request);
+  if (authenticated === null) {
+    return Response.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  const result = await mint({
+    provider: 'openai',
+    sessionId: authenticated.sessionId,
+    model: 'gpt-realtime-2',
+  });
+  if (!isOk(result)) {
+    return Response.json(
+      { error: 'mint-failed' },
+      { status: mintFailureHttpStatus(result.error.reason) },
+    );
+  }
+
+  return Response.json(result.value, {
+    headers: { 'Cache-Control': 'private, no-store' },
+  });
+}
+```
+
+`requireAuthenticatedRealtimeSession` is yours to implement. It is not exported by any Maelstrom package — the minter deliberately has no opinion about who may call it. The server derives `sessionId` from trusted application state; the browser never sends one.
+
+The credential is short-lived and scoped to the selected model. OpenAI returns the authoritative `expiresAt` in the grant.
+
+<Aside type="danger" title="Repository demo route is development-only">
+  The repository demo mint route at `apps/demo/src/routes/api/realtime-token.ts`
+  is development-only. It does not authenticate callers, it passes the request
+  body straight to the minter so the caller selects the model, and it sets no
+  cache headers. Do not deploy that route.
+</Aside>
+
+This route is enough to get voice working and is **not** enough to deploy. [Harden the mint route](#harden-the-mint-route) names the origin, CSRF, rate-limit, model-policy, and telemetry controls it is missing.
+
+## Fetch and validate the grant
+
+Fetch the credential from the same origin and treat the route response as unknown data. Validate it with `OpenAITokenGrantSchema` before handing the opaque credential to `OpenAIAdapter`.
+
+```ts title="src/voice/mint-openai-token.ts" {1-4,22}
+import {
+  OpenAITokenGrantSchema,
+  type OpenAITokenGrant,
+} from '@maelstrom-co/realtime/openai';
+import { getCsrfToken } from '../auth/csrf';
+
+export async function mintOpenAIToken(): Promise<OpenAITokenGrant> {
+  const response = await fetch('/api/realtime-token', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': getCsrfToken(),
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Token mint failed with status ${response.status}`);
+  }
+
+  return OpenAITokenGrantSchema.parse(await response.json());
+}
+```
+
+The browser sends only its same-origin session credentials, the app-provided CSRF proof, and an empty JSON object required by this POST contract. It does not send `sessionId`, a model, or model-policy data. The server derives the session, principal, and allowed model from trusted application state before calling the minter. Schema validation proves only that the response has the expected wire shape.
+
+## Connect voice
+
+Give `OpenAIAdapter` the validated mint function, then extend the Maelstrom React instance with `maelstromRealtime`. Build one adapter per Maelstrom session: `maelstromRealtime` creates one shared `RealtimeSession` for all `useVoice()` consumers under that Maelstrom Provider.
+
+The factory runs once per session, not per render, and receives a `CreateAdapterContext` carrying that session's `sessionId`. Use it to scope provider-side resources you create in the browser. This mode creates none — the mint route derives the session server-side — so the factory takes no argument here.
+
+```ts title="src/maelstrom.ts"
+import { createMaelstrom } from '@maelstrom-co/react';
+import { maelstromRealtime } from '@maelstrom-co/react-realtime';
+import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';
+import { mintOpenAIToken } from './voice/mint-openai-token';
+import { vessels } from './vessels';
+
+export function createOpenAIAdapter(): OpenAIAdapter {
+  return new OpenAIAdapter({
+    mintToken: mintOpenAIToken,
+  });
+}
+
+export const m = createMaelstrom({ vessels }).with(
+  maelstromRealtime({
+    createAdapter: createOpenAIAdapter,
+  }),
+);
+```
+
+Calling `connect()` mints a fresh credential and begins microphone capture. Once WebRTC connects, the browser sends that microphone track directly to OpenAI until `disconnect()` stops the track and closes the peer connection. Make this media lifecycle clear in consent and connection UI. A second session-level `connect()` while the session is already live is a no-op; the adapter itself rejects a direct duplicate connection.
+
+OpenAI manages turn detection, model responses, and response audio for this mode. When OpenAI publishes audio, `OpenAIAdapter` attaches the remote audio stream to an autoplay audio element and exposes both microphone and playback streams through `getAudioStreams()`. `disconnect()` stops local tracks, pauses playback, clears both streams, and closes the data channel and peer connection. The adapter does not expose manual turn controls or an application-owned audio-response queue; this differs from the LiveKit cascade mode, where the application explicitly starts and ends held turns and the worker owns TTS.
+
+## Show session state
+
+Use the extension's hook for lifecycle state, connection controls, and the latest user and assistant transcript entries. The following custom control calls the public `connect()` and `disconnect()` functions from `UseVoiceResult`.
+
+```tsx title="src/VoiceControl.tsx"
+export function VoiceControl() {
+  const {
+    state,
+    error,
+    userTranscript,
+    assistantTranscript,
+    connect,
+    disconnect,
+  } = m.useVoice();
+  const [operationFailed, setOperationFailed] = useState(false);
+  const canStart = state === 'idle' || state === 'error';
+  const hasFailure = operationFailed || error !== undefined;
+
+  return (
+    <section aria-label="Voice controls">
+      <button
+        type="button"
+        disabled={state === 'connecting'}
+        aria-describedby={hasFailure ? 'voice-error' : undefined}
+        onClick={() => {
+          setOperationFailed(false);
+          // connect() and disconnect() both reject on failure. A rejected
+          // disconnect must stay visible, so the user can retry cleanup.
+          void (canStart ? connect() : disconnect()).catch(() => {
+            setOperationFailed(true);
+          });
+        }}
+      >
+        {canStart ? 'Start voice' : 'Stop voice'}
+      </button>
+      <p>Voice: {state}</p>
+      {userTranscript && <p>You: {userTranscript.text}</p>}
+      {assistantTranscript && <p>Assistant: {assistantTranscript.text}</p>}
+      {hasFailure && (
+        <div id="voice-error" role="alert">
+          Voice is unavailable.{' '}
+          {canStart
+            ? 'Select Start voice to retry.'
+            : 'Select Stop voice to retry cleanup.'}
+        </div>
+      )}
+    </section>
+  );
+}
+```
+
+The session accumulates non-final transcript fragments and replaces them with the final entry. The control starts from `idle` or `error` and disables itself while a connection is being established.
+
+Two failure channels reach this component. A failed `connect()` rejects *and* moves the session to `error`, so the same failure can arrive twice — deduplicate before reporting. A rejected `disconnect()` only rejects; it never becomes a session error, which is why `operationFailed` exists rather than an empty catch that would hide a failed cleanup.
+
+The alert copy is fixed on purpose. Before you add telemetry, decide what it may emit: allowlisted fields such as the operation and a typed error code, never raw messages, stacks, request or response bodies, credentials, transcript text, or session data. Wrap the reporting call so a synchronous throw and a rejected promise both land in one handled chain, and log a stable string if reporting itself fails.
+
+`m.VoiceOrb` is the built-in alternative to a hand-written toggle. It renders a button that connects and disconnects the shared session, colours itself per state, and drives an audio-reactive meter. Take it when it fits and keep your own markup for the transcripts:
+
+```tsx
+<m.VoiceOrb size={48} />
+```
+
+It trades away the error surface built above: it discards `connect()` and `disconnect()` rejections rather than reporting them. Keep the hand-written toggle wherever a failed connection or a failed cleanup has to reach the user. `size` is a diameter in pixels, defaulting to `64`; keep it at `24` or above so the control stays a usable touch target.
+
+## Verify
+
+Confirm each observable boundary before relying on the integration:
+
+1. Call the token route and confirm that `OpenAITokenGrantSchema` accepts the response body. The successful response is a schema-valid grant with `Cache-Control: private, no-store`.
+2. Start voice and confirm that the session state reaches `connected`.
+3. Speak one utterance and confirm that it appears as a user transcript.
+4. Request a successful UI change and confirm that the intent and rendering settle before assistant narration begins. Then send malformed tool arguments or force a genuine submission failure and confirm that the failure result returns immediately without waiting for render settlement.
+
+## Harden the mint route
+
+The route above authenticates, and that is all. Add these controls before it is reachable from the internet. Each one closes a specific hole:
+
+| Control | Without it |
+| --- | --- |
+| Exact-origin allowlist, checked first | Any site can drive a browser to spend your quota |
+| Pre-auth transport throttle | Unauthenticated floods reach your auth path |
+| CSRF proof bound to the session | A logged-in user's browser mints on an attacker's behalf |
+| Shared rate limit keyed by principal | One compromised account drains the account |
+| Server-derived model allowlist | The browser selects an expensive model |
+| `Cache-Control: private, no-store` | A shared cache serves one user's credential to another |
+| Redacted failure telemetry | Stack traces leak credentials and session data into logs |
+| Bounded session limits | An abandoned open session bills until it is noticed |
+
+Every control is yours to implement. None are exported by a Maelstrom package or supplied by a server runtime, and **each one must fail closed** — a check that throws or times out denies the request rather than falling through. `createOpenAIMinter` validates the final mint request and exchanges credentials; it does not decide who may ask.
+
+Order is part of the control. The origin check runs first, before anything reads the body. The pre-auth throttle only matters when authentication and CSRF validation are not demonstrably cheap and constant-time, and then it runs before both — derive its client address from a trusted server or proxy, and reject browser-controlled forwarding headers rather than treating them as address data.
+
+Authentication and CSRF are separate checks. Authenticating the caller supplies the server-derived `sessionId` and proves who is asking; it does not prove the request was intended. Validate CSRF separately, then apply the shared rate limit, keyed by principal and atomic across instances. Both throttles must deny on store failure, return a bounded `Retry-After`, and share one generic 429 body.
+
+The model allowlist may read the parsed body only to pick from a list derived from server policy. Browser input must never define or widen that policy.
+
+Every response — success, denial, malformed JSON, mapped mint failure, unexpected exception — carries `Cache-Control: private, no-store` and a stable public error. `mintFailureHttpStatus` maps the status and nothing else: no `MintFailureReason`, credential diagnostic, raw exception, request body, or session data reaches the response or the logs. Unexpected failures go only to your redacted-telemetry boundary, which must emit allowlisted metadata and fail without escaping the route.
+
+<Aside type="note" title="Missing safety identifier">
+  OpenAI recommends the privacy-preserving `OpenAI-Safety-Identifier` header
+  when creating client secrets. `createOpenAIMinter` cannot send it today, so
+  this example does not.
+</Aside>
+
+## Recover from failures
+
+| Scoped outcome                  | Recovery                                                                                                                   |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `400 Bad Request`               | Fix the route-body or integration contract before retrying.                                                                |
+| `401 Unauthorized`              | Reauthenticate, obtain a fresh CSRF proof, and start a new mint attempt.                                                    |
+| `403 Forbidden`                 | Do not retry until origin, CSRF, session authorization, or server-derived model policy is corrected.                       |
+| `429 Too Many Requests`         | Keep voice disconnected and wait for the bounded `Retry-After` interval before a deliberate retry.                         |
+| `500 Internal Server Error`     | Treat the mint service or its configuration as unavailable; alert operators without exposing diagnostics to the browser.   |
+| `502 Bad Gateway`               | Treat OpenAI minting as temporarily unavailable and retry later with bounded backoff.                                      |
+| Grant validation fails          | Reject the response; do not pass partial data to the adapter.                                                               |
+| Microphone permission is denied | Explain how to enable site microphone permission, then let the user call `connect()` again.                                 |
+| WebRTC connection fails         | Show the session's `error` state, disconnect stale UI controls, and offer a deliberate reconnect.                           |
+| A UI update is superseded       | Let the latest voice correction proceed; the superseded call still receives a result, so no manual retry is required.       |
+
+## What you get without asking
+
+Two behaviors are already wired by the time voice connects. Neither needs configuration, and both are easy to break by working around them.
+
+**Speak-after-render.** `RealtimeSession` exposes `update_ui`, `get_ui_state`, and `get_capabilities` to the provider. For a successful `update_ui` call, it withholds the successful tool result until the client reports that rendering has settled — so OpenAI describes a change the user can already see, rather than predicting one. Malformed tool arguments and genuine submission failures return failure results immediately, without waiting for render settlement.
+
+**Grounding that cannot plan.** Settled UI changes produce a debounced, latest-wins structural summary on a separate, weaker channel. The adapter deletes the previous grounding item and recreates it at the conversation tail, while `get_ui_state` lets the model pull current structural state when it needs certainty. Grounding contains structure, not Vessel domain data, and never becomes Engine planning input.
+
+## API reference
+
+Use the generated reference for the public contracts used in this guide:
+
+- [`RealtimeSession`](/reference/realtime/packages/realtime/src/classes/realtimesession/) from `@maelstrom-co/realtime`
+- [`OpenAIAdapter`](/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/) and [`OpenAITokenGrantSchema`](/reference/realtime/packages/realtime/src/openai/variables/openaitokengrantschema/) from `@maelstrom-co/realtime/openai`
+- [`maelstromRealtime`](/reference/react-realtime/functions/maelstromrealtime/) and [`UseVoiceResult`](/reference/react-realtime/interfaces/usevoiceresult/) from `@maelstrom-co/react-realtime`
+- [`createOpenAIMinter`](/reference/realtime-server/functions/createopenaiminter/) from `@maelstrom-co/realtime-server`
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="LiveKit cascade" href="/guides/voice/livekit-cascade/" description="The other shipped mode: an STT/TTS pipeline you operate, with a model you choose and a worker you run." />
+  <LinkCard title="The voice boundary" href="/understanding/voice-architecture/" description="Why speech becomes natural-language intent before it reaches the Engine, and what each mode pays for that boundary." />
+</CardGrid>
