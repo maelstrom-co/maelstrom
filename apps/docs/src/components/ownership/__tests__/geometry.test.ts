@@ -8,6 +8,7 @@ import {
   nodeRect,
 } from '../geometry';
 import { LIVEKIT_CASCADE_OWNERSHIP } from '../livekit-cascade';
+import { LIVEKIT_TURN_OWNERSHIP } from '../livekit-turn-ownership';
 import { OPENAI_REALTIME_OWNERSHIP } from '../openai-realtime';
 import type { OwnershipNode } from '../types';
 import { VOICE_BOUNDARY } from '../voice-boundary';
@@ -91,6 +92,7 @@ describe('labelPoint', () => {
 const MODELS = [
   ['OpenAI Realtime', OPENAI_REALTIME_OWNERSHIP],
   ['LiveKit cascade', LIVEKIT_CASCADE_OWNERSHIP],
+  ['LiveKit turn ownership', LIVEKIT_TURN_OWNERSHIP],
   ['voice boundary', VOICE_BOUNDARY],
 ] as const;
 

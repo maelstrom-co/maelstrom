@@ -1,0 +1,81 @@
+---
+title: Turn detection in the browser
+description: Why the LiveKit cascade decides where a turn starts and ends in the browser, and what that buys.
+---
+
+import OwnershipDiagram from '../../../components/ownership/OwnershipDiagram.astro';
+import SequenceDiagram from '../../../components/sequence/SequenceDiagram.astro';
+import { LIVEKIT_TURN_OWNERSHIP } from '../../../components/ownership/livekit-turn-ownership';
+import { LIVEKIT_BARGE_IN } from '../../../components/sequence/livekit-barge-in';
+
+A speech-native model hears where your sentence ended. A cascade has no such thing: a speech-to-text worker receives audio and returns words, and nothing in that exchange knows when you stopped talking.
+
+Someone has to decide. The LiveKit adapter decides in the browser, and turns detection on unless you turn it off. This page is about why that choice sits there rather than in the worker, and what follows from it.
+
+For the setup, read [Configure browser VAD](/guides/voice/livekit-cascade/#configure-browser-vad). For every option and its accepted values, read [`LiveKitBrowserVadOptions`](/reference/realtime-livekit/packages/realtime-livekit/src/interfaces/livekitbrowservadoptions/).
+
+## What the transport is allowed to carry
+
+<OwnershipDiagram
+  id="turn-ownership"
+  model={LIVEKIT_TURN_OWNERSHIP}
+  caption="The detector runs on a local stream. Nothing it has not accepted has a path to the room."
+/>
+
+The microphone stream and the microphone publication are two different things, and the distinction carries the whole design. The stream is local and runs continuously, because a detector with nothing to listen to cannot detect anything. The publication to the LiveKit room stays paused until the detector accepts speech, opens for that turn, and pauses again when the turn ends.
+
+So the worker sees only audio the browser admitted. That is not a policy the worker enforces or a promise the browser keeps. Between turns the published track is muted and its upstream is paused, so there is no audio in flight to enforce anything about.
+
+## Why the decision belongs in the browser
+
+**An interruption should not wait for a round trip.** A detector running on the server can only react once your audio has crossed the network. A detector in the browser reacts as soon as it accepts speech. This does not remove the LiveKit, recognition, Engine, rendering, and synthesis latency that follows; it removes the delay before Maelstrom treats you as interrupting at all.
+
+**What you hear is local, so stopping it must be local too.** When you talk over the assistant, the thing that needs to stop is audio already playing in your browser. Asking the worker to stop cannot silence a buffer that has already arrived. The browser mutes its own playback, and the request to the worker is a courtesy that follows.
+
+**An idle microphone should not be on the wire.** Keeping the publication paused during silence is a privacy property you can inspect in the network panel, which is a stronger claim than any sentence in this document.
+
+## Interrupting the assistant
+
+<SequenceDiagram
+  id="barge-in"
+  model={LIVEKIT_BARGE_IN}
+  caption="Every stop is local and immediate. The message asking the worker to stop is sent afterwards, and may fail."
+/>
+
+Read the order rather than the steps. Muting playback and dropping the utterance id happen in the browser, at once, before anything is sent. Only then does a cancellation go to the worker, and it is explicitly best effort: if publishing it fails, the adapter warns once and carries on opening your new turn. Nothing you can hear depends on that message arriving.
+
+Dropping the utterance id is the part that is easy to miss. The worker may finish speaking the old response and report it complete, long after you interrupted. Invalidating the id before the cancel goes out is what makes that late report ignorable rather than a state change that stomps on the turn you just started.
+
+A speech start can also arrive while the session is `thinking` with a response still in flight, rather than while it is `speaking`. These are different situations, and the adapter serializes them: interruption and turn opening cannot overlap, and a fast speech end cannot overtake a start that has not finished. `RealtimeSession` keeps the newest intent rather than queueing every correction, and still returns one result per call.
+
+## Why a turn carries audio from before it started
+
+A detector needs frames before it can conclude that speech began. If the transport opened only at that conclusion, the first consonant would already be gone.
+
+The adapter keeps a small local buffer for exactly that. At speech start it sends the retained audio once, then continues live. More of it protects the beginnings of words and admits more audio from before the accepted boundary, so it is worth raising only after you have reproduced clipping on a browser you support.
+
+There are two settings with similar names and only one of them does this. `preRollMs` is the buffer above. The provider's `preSpeechPadMs` widens the segment the detector considers and never becomes transport audio, so reaching for it to fix a clipped word start will not fix it.
+
+## Degrading is a safety decision, not a severity one
+
+Detection can fail: assets may not load, a worklet may not start, a callback may throw. When that happens while the room, transcripts, and synthesis are all still healthy, the session does not fail. It fences further callbacks, closes any turn the failed detector owned, pauses upstream audio, retires the failed resources, and then exposes `turnControl` so your application can offer a button.
+
+The order matters more than the list. Upstream audio is paused before manual mode is advertised, so a hold-to-talk control never appears over a microphone that is still publishing.
+
+That condition is also what separates degrading from failing. If the adapter cannot stop microphone media safely, or the failure is in token minting, room connection, track publication, a required data channel, or an unexpected disconnect, the session fails instead. Manual mode is never offered on a connection that cannot hold the upstream invariant.
+
+Two consequences reach your components. `turnControl` is dynamic: it is absent in healthy automatic mode and appears only after `vad: false` or a safe degradation, so read it from current state and never cache it. And `turnModeError` tells you a degradation happened; its value is a diagnostic, so use its presence to choose fixed recovery copy and never render it or store it.
+
+## Why none of this applies to OpenAI Realtime
+
+OpenAI Realtime is a speech-native provider session. Turn detection, response cancellation, and spoken output are all the provider's. Adding browser-side turn control there would create two owners for one boundary, and the two would eventually disagree about when your turn ended.
+
+That is why the `vad` option lives on the LiveKit adapter rather than on the shared session. It is not a Maelstrom-wide voice setting; it is how one adapter solves a problem the other adapter does not have.
+
+## What to measure
+
+Unit tests cannot establish any of this. Real AudioWorklets, real ONNX assets, a real microphone, real CORS, and real LiveKit publication behave in ways a mock does not, so the numbers that matter come from a browser.
+
+Measure the delay from speaking to interruption, false barge-ins, quiet speech that was missed, clipped word starts, the time from speech end to a final transcript, and misfires. Then confirm the invariant directly: watch the network while idle, after a degradation, and after a disconnect, and check that no microphone media is going out.
+
+To compare this with the provider-owned alternative, read [The voice boundary](/understanding/voice-architecture/).

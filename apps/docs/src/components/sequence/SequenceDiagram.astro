@@ -1,0 +1,329 @@
+---
+import {
+  HEADER_HEIGHT,
+  labelPoint,
+  laneX,
+  numberPoint,
+  stageFor,
+  stepNumbers,
+  stepPath,
+  stepY,
+} from './geometry';
+import { SEQUENCE_STEP_KINDS, type SequenceModel } from './types';
+
+interface Props {
+  /** Unique on the page — namespaces the SVG marker ids. */
+  id: string;
+  model: SequenceModel;
+  caption?: string;
+}
+
+// Plain Astro, never an island, for the same reason as OwnershipDiagram: a
+// framework component inside a content-collection entry crashes the
+// starlight-llms-txt build. Nothing here needs client JS.
+const { id, model, caption } = Astro.props;
+const { participants, steps, summary } = model;
+
+const stage = stageFor(model);
+const laneOf = new Map(participants.map((p, index) => [p.id, index]));
+const numbers = stepNumbers(steps);
+
+const resolved = steps.flatMap((step, index) => {
+  const fromLane = laneOf.get(step.from);
+  const toLane = laneOf.get(step.to);
+  // Dropping the step instead would remove it from the drawing *and* from the
+  // text alternative built below, so a typo in a participant id would silently
+  // delete an event from a diagram whose entire argument is which events happen
+  // and in what order. Fail the build instead.
+  if (fromLane === undefined || toLane === undefined) {
+    const unknown = fromLane === undefined ? step.from : step.to;
+    throw new Error(
+      `SequenceDiagram: step "${step.id}" references unknown participant "${unknown}". ` +
+        `Known participants: ${participants.map((p) => p.id).join(', ')}.`,
+    );
+  }
+
+  const y = stepY(index);
+  const path = stepPath(laneX(fromLane), laneX(toLane), y);
+  return [
+    {
+      step,
+      number: numbers[index],
+      path,
+      dot: numberPoint(path),
+      label: labelPoint(path),
+    },
+  ];
+});
+
+// Built here, not in the template: the Astro compiler reads `<` inside a
+// template expression as the start of a tag.
+const stepDescriptions = resolved.map(({ step, number }) => {
+  const from = participants.find((p) => p.id === step.from)?.label ?? step.from;
+  const to = participants.find((p) => p.id === step.to)?.label ?? step.to;
+  if (step.from === step.to) {
+    return `${number}. ${from}: ${step.label}.`;
+  }
+  return `${number}. ${from} to ${to}: ${step.label}.`;
+});
+---
+
+<figure class="seq">
+  <div class="seq-scroll">
+    <div class="seq-stage">
+      <svg
+        class="seq-canvas"
+        viewBox={`0 0 ${stage.w} ${stage.h}`}
+        aria-hidden="true"
+      >
+        <defs>
+          {
+            SEQUENCE_STEP_KINDS.map((kind) => (
+              <marker
+                id={`${id}-arrow-${kind}`}
+                class={`seq-arrow seq-arrow--${kind}`}
+                viewBox="0 0 9 9"
+                refX="8"
+                refY="4.5"
+                markerWidth="9"
+                markerHeight="9"
+                markerUnits="userSpaceOnUse"
+                orient="auto-start-reverse"
+              >
+                <path d="M0,0 L9,4.5 L0,9 z" />
+              </marker>
+            ))
+          }
+        </defs>
+
+        <g class="seq-lifelines" aria-hidden="true">
+          {
+            participants.map((participant, index) => (
+              <g class={`seq-lane seq-lane--${participant.tone}`}>
+                <line
+                  class="seq-lifeline"
+                  x1={laneX(index)}
+                  y1={HEADER_HEIGHT}
+                  x2={laneX(index)}
+                  y2={stage.h - 18}
+                />
+                <foreignObject
+                  class="seq-head-fo"
+                  x={laneX(index) - 84}
+                  y={22}
+                  width={168}
+                  height={40}
+                >
+                  <div class="seq-head">{participant.label}</div>
+                </foreignObject>
+              </g>
+            ))
+          }
+        </g>
+
+        <g class="seq-steps" aria-hidden="true">
+          {
+            resolved.map(({ step, number, path, dot, label }) => (
+              <g class={`seq-step seq-step--${step.kind}`}>
+                <path
+                  class="seq-rail"
+                  d={path.d}
+                  marker-end={`url(#${id}-arrow-${step.kind})`}
+                />
+                <circle class="seq-dot" cx={dot.x} cy={dot.y} r="10" />
+                <text class="seq-number" x={dot.x} y={dot.y + 4}>
+                  {number}
+                </text>
+                <text
+                  class="seq-label"
+                  x={label.x}
+                  y={label.y}
+                  text-anchor={path.anchor}
+                >
+                  {step.label}
+                </text>
+              </g>
+            ))
+          }
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  {caption && <figcaption class="seq-caption">{caption}</figcaption>}
+
+  {/* The SVG is aria-hidden, so this block is the whole of what assistive
+      technology reads: the summary for orientation, then the steps. It carries
+      the summary rather than the SVG doing it through `aria-label`, because two
+      labelled representations of one diagram get announced one after the other.
+      A sequence whose order is its argument must survive losing the picture.
+
+      Unordered on purpose. Each item already carries its own step number, and
+      concurrent steps share one; an <ol> would add native markers on top, so a
+      text export reads "4. 3. Cancel speech" and the shared numbering that
+      makes three simultaneous actions legible turns into noise. */}
+  <div class="seq-sr">
+    <p>{summary}</p>
+    <ul>
+      {stepDescriptions.map((description) => <li>{description}</li>)}
+    </ul>
+  </div>
+</figure>
+
+<style>
+  /* Same drawing language as the ownership diagram: same panel, same card
+     treatment, same edge colours, so a reader recognises both as one system. */
+  .seq {
+    --seq-border: var(--sl-color-gray-5);
+    --seq-panel: linear-gradient(
+      165deg,
+      var(--sl-color-gray-7),
+      var(--sl-color-gray-6)
+    );
+    --seq-lifeline: rgba(15, 23, 42, 0.16);
+    --seq-card-bg: linear-gradient(180deg, #ffffff, var(--sl-color-gray-7));
+    --seq-card-border: var(--sl-color-gray-4);
+    --seq-text: #0f172a;
+    --seq-media: #7c3aed;
+    --seq-intent: #64748b;
+    --seq-halt: #b91c1c;
+
+    margin: 1.5rem 0;
+  }
+  :global(:root[data-theme='dark']) .seq {
+    --seq-border: rgba(148, 163, 184, 0.16);
+    --seq-panel: linear-gradient(165deg, #0b1018, #070a10);
+    --seq-lifeline: rgba(148, 163, 184, 0.24);
+    --seq-card-bg: linear-gradient(
+      180deg,
+      rgba(30, 41, 59, 0.94),
+      rgba(15, 23, 42, 0.94)
+    );
+    --seq-card-border: rgba(148, 163, 184, 0.24);
+    --seq-text: #e2e8f0;
+    --seq-media: #a78bfa;
+    --seq-intent: #94a3b8;
+    --seq-halt: #f87171;
+  }
+
+  .seq-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  .seq-stage {
+    min-width: 760px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--seq-border);
+    background: var(--seq-panel);
+  }
+  .seq-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .seq-lifeline {
+    stroke: var(--seq-lifeline);
+    stroke-width: 2;
+    stroke-dasharray: 3 7;
+  }
+  .seq-head-fo {
+    overflow: visible;
+  }
+  .seq-head {
+    box-sizing: border-box;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    border: 1px solid var(--seq-card-border);
+    border-radius: 10px;
+    background: var(--seq-card-bg);
+    color: var(--seq-text);
+    font: 600 15px ui-sans-serif, system-ui, sans-serif;
+    text-align: center;
+    line-height: 1.15;
+  }
+  /* What someone else runs: dashed and quieter, matching the ownership cards. */
+  .seq-lane--theirs .seq-head {
+    border-style: dashed;
+    background: none;
+  }
+
+  .seq-step--media {
+    color: var(--seq-media);
+  }
+  .seq-step--intent {
+    color: var(--seq-intent);
+  }
+  .seq-step--halt {
+    color: var(--seq-halt);
+  }
+  .seq-rail {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* A stop is drawn as a stop: dashed, so it reads differently from the audio
+     and intent it interrupts even before the colour registers. */
+  .seq-step--halt .seq-rail {
+    stroke-dasharray: 7 6;
+  }
+  .seq-arrow path {
+    fill: currentColor;
+  }
+  .seq-arrow--media {
+    color: var(--seq-media);
+  }
+  .seq-arrow--intent {
+    color: var(--seq-intent);
+  }
+  .seq-arrow--halt {
+    color: var(--seq-halt);
+  }
+
+  .seq-dot {
+    fill: currentColor;
+  }
+  .seq-number {
+    fill: #ffffff;
+    font: 700 12px ui-sans-serif, system-ui, sans-serif;
+    text-anchor: middle;
+  }
+  .seq-label {
+    fill: var(--seq-text);
+    font: 500 14px ui-sans-serif, system-ui, sans-serif;
+    /* Painted under the glyphs so a label stays readable where it crosses a
+       lifeline. */
+    paint-order: stroke;
+    stroke: var(--sl-color-gray-7);
+    stroke-width: 5;
+    stroke-linejoin: round;
+  }
+  :global(:root[data-theme='dark']) .seq-label {
+    stroke: #080c13;
+  }
+
+  .seq-caption {
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+    opacity: 0.75;
+    text-align: center;
+  }
+
+  .seq-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>

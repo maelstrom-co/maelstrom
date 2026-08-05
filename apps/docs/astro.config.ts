@@ -417,6 +417,7 @@ export default defineConfig({
               link: '/understanding/architecture/',
             },
             { slug: 'understanding/voice-architecture' },
+            { slug: 'understanding/browser-vad-and-barge-in' },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },
