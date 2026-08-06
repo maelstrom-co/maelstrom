@@ -91,8 +91,21 @@ describe('Orchestrator identity', () => {
         ],
       },
     };
+    let firstConnectorCalls = 0;
+    let secondConnectorCalls = 0;
     const firstConnector = createMockConnector({
-      process: async () => seededResponse,
+      process: async () => {
+        firstConnectorCalls++;
+        return seededResponse;
+      },
+    });
+    // Re-seeds the same board so the swap itself stays observable through the
+    // call counters rather than through the board being torn down.
+    const secondConnector = createMockConnector({
+      process: async (message) => {
+        secondConnectorCalls++;
+        return { ...seededResponse, requestId: message.id };
+      },
     });
 
     let props: { instanceId: string } | null | undefined;
@@ -125,13 +138,26 @@ describe('Orchestrator identity', () => {
     // board vanished. The board must simply survive.
     await act(async () => {
       rerender(
-        <m.Provider connector={createMockConnector()}>
+        <m.Provider connector={secondConnector}>
           <App />
         </m.Provider>,
       );
     });
 
     expect(props?.instanceId).toBe('seed-1');
+
+    // Surviving the rerender follows from the construction effect's deps
+    // alone; it says nothing about which transport the Orchestrator is still
+    // holding. Issuing a request after the swap is what proves the new
+    // connector actually took over — the re-auth case fails closed otherwise,
+    // with the Provider quietly talking to a revoked connector.
+    const firstCallsBeforeSwap = firstConnectorCalls;
+    await act(async () => {
+      await processIntent('after swap');
+    });
+
+    expect(secondConnectorCalls).toBe(1);
+    expect(firstConnectorCalls).toBe(firstCallsBeforeSwap);
   });
 
   it('rebuilds the Orchestrator when the session changes', async () => {

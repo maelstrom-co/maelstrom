@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import * as realClient from '@maelstrom-co/client';
 import { DEFAULT_LAYOUT_MODE } from '@maelstrom-co/client';
 import type { LayoutMode } from '@maelstrom-co/protocol';
@@ -13,6 +13,9 @@ import { createProvider } from './provider.js';
 // depending on a live connection. Mirrors
 // provider-construction-failure.test.tsx's approach.
 class FakeOrchestrator {
+  // Counts constructions across the whole file so a test can assert the
+  // Provider built exactly one Orchestrator per mount. Reset in beforeEach.
+  static constructions = 0;
   readonly setLayoutModeCalls: LayoutMode[] = [];
   #layoutMode: LayoutMode;
   readonly vesselManager = { registerVessel: () => {} };
@@ -21,6 +24,7 @@ class FakeOrchestrator {
     public readonly connector: unknown,
     public readonly options: { layoutMode?: LayoutMode },
   ) {
+    FakeOrchestrator.constructions += 1;
     this.#layoutMode = options.layoutMode ?? DEFAULT_LAYOUT_MODE;
   }
 
@@ -47,6 +51,10 @@ class FakeOrchestrator {
 }
 
 const RealOrchestrator = realClient.Orchestrator;
+
+beforeEach(() => {
+  FakeOrchestrator.constructions = 0;
+});
 
 describe('Provider layoutMode prop (fix: clearing the prop must reset the live Orchestrator to the default, not freeze it on the last explicit mode)', () => {
   it('pushes the default back into the Orchestrator when a previously-set layoutMode prop is omitted', async () => {
@@ -137,6 +145,84 @@ describe('Provider layoutMode prop (fix: clearing the prop must reset the live O
       });
 
       expect(instance.getConfig().layoutMode).toBe(DEFAULT_LAYOUT_MODE);
+    } finally {
+      mock.module('@maelstrom-co/client', () => ({
+        ...realClient,
+        Orchestrator: RealOrchestrator,
+      }));
+      cleanup();
+    }
+  });
+});
+
+describe('Provider Orchestrator construction (fix: a prop change must not throw away the session)', () => {
+  it('constructs the Orchestrator exactly once per mount across debug, layoutMode and connector changes', async () => {
+    mock.module('@maelstrom-co/client', () => ({
+      ...realClient,
+      Orchestrator: FakeOrchestrator,
+    }));
+
+    try {
+      const contextPair = createMaelstromContext();
+      const Provider = createProvider(contextPair, [], {});
+      const connector = createMockConnector();
+      const currentInstance = () =>
+        contextPair.contextRef.current
+          ?.orchestrator as unknown as FakeOrchestrator;
+
+      let rerender!: (ui: ReactElement) => void;
+      await act(async () => {
+        ({ rerender } = render(
+          <Provider connector={connector}>
+            <div />
+          </Provider>,
+        ));
+      });
+
+      const instance = currentInstance();
+      expect(instance).toBeInstanceOf(FakeOrchestrator);
+      expect(FakeOrchestrator.constructions).toBe(1);
+
+      // `debug` is the motivating bug: it only gates logging, yet flipping it
+      // used to rebuild the Orchestrator — "toggling a logging flag threw away
+      // the session". Counting constructions is what pins that down; asserting
+      // on a *captured* instance can't, since a stale instance keeps answering
+      // as if nothing happened.
+      await act(async () => {
+        rerender(
+          <Provider connector={connector} debug>
+            <div />
+          </Provider>,
+        );
+      });
+
+      expect(FakeOrchestrator.constructions).toBe(1);
+      expect(currentInstance()).toBe(instance);
+
+      // layoutMode is pushed into the live instance by setLayoutMode.
+      await act(async () => {
+        rerender(
+          <Provider connector={connector} debug layoutMode="grid">
+            <div />
+          </Provider>,
+        );
+      });
+
+      expect(FakeOrchestrator.constructions).toBe(1);
+      expect(currentInstance()).toBe(instance);
+
+      // A fresh connector identity is the re-auth case: swapped in via
+      // setConnector, never by rebuilding.
+      await act(async () => {
+        rerender(
+          <Provider connector={createMockConnector()} debug layoutMode="grid">
+            <div />
+          </Provider>,
+        );
+      });
+
+      expect(FakeOrchestrator.constructions).toBe(1);
+      expect(currentInstance()).toBe(instance);
     } finally {
       mock.module('@maelstrom-co/client', () => ({
         ...realClient,
