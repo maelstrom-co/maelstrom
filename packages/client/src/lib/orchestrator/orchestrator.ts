@@ -27,6 +27,7 @@ import { UpdateCoordinator } from '../update-coordination/update-coordinator.js'
 import { Logger } from '../utils/logger.js';
 import { VesselManager } from '../vessel-management/vessel-manager.js';
 import {
+  type CapabilityOptionOmission,
   type CapabilitySnapshot,
   readCapabilitySnapshot,
 } from '../voice-session/capability-snapshot.js';
@@ -85,6 +86,7 @@ export class Orchestrator {
   // 'connection_status_changed' reports 'connected' (mirrors ChartManager's
   // pendingResize pattern).
   #pendingMutations: VesselMutationReason[] = [];
+  #optionOmissionWarned = false;
 
   constructor(connector: EngineConnector, options: OrchestratorOptions = {}) {
     this.#connector = connector;
@@ -168,7 +170,11 @@ export class Orchestrator {
 
   /** Capability catalog (vessels, variants, actions) for `get_capabilities` pulls. */
   getCapabilitySnapshot(): CapabilitySnapshot {
-    return readCapabilitySnapshot(this.#vesselManager.getAll());
+    const { snapshot, optionOmissions } = readCapabilitySnapshot(
+      this.#vesselManager.getAll(),
+    );
+    this.#reportOptionOmissions(optionOmissions);
+    return snapshot;
   }
 
   /**
@@ -625,6 +631,22 @@ export class Orchestrator {
       this.scheduleUpdate(reason);
     } else {
       this.#pendingMutations.push(reason);
+    }
+  }
+
+  // The snapshot only tells the model that values are missing; the vessel
+  // author gets no signal at all unless it surfaces here. Warn once — a
+  // snapshot is read on every `get_capabilities` pull, so warning each time
+  // would flood the console — and keep repeats at debug level so the detail
+  // is still recoverable with debug logging on.
+  #reportOptionOmissions(omissions: readonly CapabilityOptionOmission[]): void {
+    if (omissions.length === 0) return;
+    const message = `capability snapshot omitted declared option values for ${omissions.length} parameter(s)`;
+    if (this.#optionOmissionWarned) {
+      this.#logger.debug(message, omissions);
+    } else {
+      this.#optionOmissionWarned = true;
+      this.#logger.warn(message, omissions);
     }
   }
 

@@ -139,15 +139,17 @@ export {
 export type { VesselManagerOptions } from './lib/vessel-management/vessel-manager.types.js';
 // Voice Session
 export type {
+  CapabilityOptionOmission,
   CapabilitySnapshot,
+  CapabilitySnapshotProjection,
   VesselCapability,
   VesselCapabilityAction,
   VesselCapabilityParameter,
   VesselCapabilityVariant,
 } from './lib/voice-session/capability-snapshot.js';
 export {
-  MAX_OPTION_COUNT,
-  MAX_OPTIONS_TOTAL_CHARS,
+  MAX_CAPABILITY_OPTION_COUNT,
+  MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
   readCapabilitySnapshot,
 } from './lib/voice-session/capability-snapshot.js';
 export type { UIStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';

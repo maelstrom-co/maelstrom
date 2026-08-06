@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
+import type { AuthorVessel } from '../__test-helpers__/fixtures.js';
 import {
   makeGridRequest,
   makeTilingRequest,
@@ -392,45 +393,99 @@ describe('buildVesselsSection', () => {
     expect(output).not.toContain(String.fromCharCode(0x2028));
   });
 
-  test('falls back to a String() rendering for an enum value that cannot be JSON-serialized', () => {
-    // biome-ignore lint/suspicious/noExplicitAny: constructing a deliberately cyclic object for the test.
-    const cyclic: any = { name: 'loop' };
-    cyclic.self = cyclic;
+  // A value JSON.stringify cannot represent has no faithful rendering, and the
+  // prompt asks the model to copy a displayed value verbatim into `paramsJson`
+  // — so a placeholder like "[object Object]" would read as a genuine option.
+  // Dropping it is the only rendering that cannot mislead.
+  test('omits an enum value that cannot be JSON-serialized and keeps the renderable ones', () => {
     const request = makeGridRequest({
-      vessels: [
-        {
-          id: 'tasks',
-          name: 'Tasks',
-          description: 'Tasks',
-          defaultVariant: 'list',
-          variants: {
-            list: {
-              props: {},
-              minSize: { width: 4, height: 4 },
-              actions: [
-                {
-                  name: 'checkTask',
-                  description: 'Check a task',
-                  parameters: [
-                    {
-                      name: 'title',
-                      type: 'object',
-                      description: 'Task title',
-                      enum: [cyclic],
-                    },
-                  ],
-                },
-              ],
-            },
-          },
-        },
-      ],
+      vessels: [makeEnumVessel([makeCyclicValue(), 'Other task'])],
     });
     expect(() => buildVesselsSection(request.vessels)).not.toThrow();
     const output = buildVesselsSection(request.vessels);
-    expect(output).toContain('checkTask(title:');
+    expect(output).toContain('checkTask(title: "Other task")');
+    expect(output).not.toContain('[object Object]');
+  });
+
+  test('omits an enum value whose toJSON throws', () => {
+    const hostile = {
+      toJSON() {
+        throw new Error('nope');
+      },
+    };
+    const request = makeGridRequest({
+      vessels: [makeEnumVessel(['Ship v2', hostile, 'Other task'])],
+    });
+    const output = buildVesselsSection(request.vessels);
+    expect(output).toContain('checkTask(title: "Ship v2"|"Other task")');
+  });
+
+  test('falls back to the declared type when every enum value is unrenderable', () => {
+    const request = makeGridRequest({
+      vessels: [makeEnumVessel([makeCyclicValue(), makeCyclicValue()])],
+    });
+    const output = buildVesselsSection(request.vessels);
+    expect(output).toContain('checkTask(title: object)');
+    expect(output).not.toContain('title: |');
+    expect(output).not.toContain('title: )');
+  });
+
+  test('warns naming the parameter and the action when an enum value is dropped', () => {
+    const { logger, warns } = createSpyLogger();
+    const request = makeGridRequest({
+      vessels: [makeEnumVessel([makeCyclicValue(), 'Other task'])],
+    });
+    buildVesselsSection(request.vessels, logger);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('title');
+    expect(warns[0]).toContain('checkTask');
+  });
+
+  test('does not warn when every enum value renders', () => {
+    const { logger, warns } = createSpyLogger();
+    const request = makeGridRequest({
+      vessels: [makeEnumVessel(['Ship v2', 'Other task'])],
+    });
+    buildVesselsSection(request.vessels, logger);
+    expect(warns).toHaveLength(0);
   });
 });
+
+function makeCyclicValue(): unknown {
+  // biome-ignore lint/suspicious/noExplicitAny: constructing a deliberately cyclic object for the test.
+  const cyclic: any = { name: 'loop' };
+  cyclic.self = cyclic;
+  return cyclic;
+}
+
+function makeEnumVessel(values: unknown[]): AuthorVessel {
+  return {
+    id: 'tasks',
+    name: 'Tasks',
+    description: 'Tasks',
+    defaultVariant: 'list',
+    variants: {
+      list: {
+        props: {},
+        minSize: { width: 4, height: 4 },
+        actions: [
+          {
+            name: 'checkTask',
+            description: 'Check a task',
+            parameters: [
+              {
+                name: 'title',
+                type: 'object',
+                description: 'Task title',
+                enum: values,
+              },
+            ],
+          },
+        ],
+      },
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Grid chart state
@@ -758,6 +813,18 @@ describe('buildDefaultUserSections', () => {
     const sections = buildDefaultUserSections(makeGridRequest());
     const chartState = sections.find((s) => s.key === 'chartState');
     expect(chartState?.content).toContain('Layout Mode: Grid');
+  });
+
+  test('forwards the logger into the vessels section', () => {
+    const { logger, warns } = createSpyLogger();
+    const request = makeGridRequest({
+      vessels: [makeEnumVessel([makeCyclicValue(), 'Other task'])],
+      instances: [],
+      layout: { type: 'grid', positions: [] },
+    });
+    buildDefaultUserSections(request, logger);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('checkTask');
   });
 
   test('routes to tiling chart-state builder for tiling mode', () => {
