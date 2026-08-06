@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  ChartRequestSchema,
   InstanceId,
   type LayoutMode,
   VariantName,
@@ -142,5 +143,81 @@ describe('buildChartRequest', () => {
     const request = buildChartRequest(buildParams({ layout: existingLayout }));
 
     expect(request.layout).toBe(existingLayout);
+  });
+
+  it('should synthesize a fresh empty layout of layoutMode when the stored layout is a different type', () => {
+    // The wire schema rejects a request whose layout.type disagrees with
+    // context.layoutMode. A stored layout can predate a layout-mode change
+    // (Orchestrator.setLayoutMode does not touch it), so this is the one
+    // place that invariant actually has to hold.
+    const staleTilingLayout = {
+      type: 'tiling' as const,
+      tree: [],
+      instances: [
+        {
+          instanceId: InstanceId('i-1'),
+          vesselId: VesselId('v-1'),
+          variant: VariantName('default'),
+        },
+      ],
+    };
+
+    const request = buildChartRequest(
+      buildParams({
+        layout: staleTilingLayout,
+        config: { layoutMode: 'grid' as LayoutMode },
+      }),
+    );
+
+    expect(request.context.layoutMode).toBe('grid');
+    expect(request.layout).toEqual({ type: 'grid', positions: [] });
+    // Not just equal in shape — a genuinely fresh object, not the stale one.
+    expect(request.layout).not.toBe(staleTilingLayout);
+  });
+
+  it('declares every live instance in the synthesized tiling layout when switching from grid to tiling', () => {
+    // Regression: the tiling fallback used to synthesize `instances: []`
+    // unconditionally. ChartRequestSchema's tiling branch requires every
+    // top-level instance to also appear in layout.instances, so a board
+    // with live instances produced a request the schema rejects outright —
+    // and since only a successful engine response can replace the stored
+    // layout, that wedges the session permanently.
+    const instances = new Map([
+      [
+        InstanceId('i-1'),
+        {
+          instanceId: InstanceId('i-1'),
+          vesselId: testVessel.id,
+          variant: VariantName('default'),
+          position: { column: 0, row: 0 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+    ]);
+    const staleGridLayout = { type: 'grid' as const, positions: [] };
+
+    const request = buildChartRequest(
+      buildParams({
+        instances,
+        layout: staleGridLayout,
+        config: { layoutMode: 'tiling' as LayoutMode },
+      }),
+    );
+
+    expect(request.layout).toEqual({
+      type: 'tiling',
+      tree: [],
+      instances: [
+        {
+          instanceId: InstanceId('i-1'),
+          vesselId: testVessel.id,
+          variant: VariantName('default'),
+        },
+      ],
+    });
+
+    // Assert against the real wire schema, not a hand-rolled shape check —
+    // this is exactly the request the orchestrator would send.
+    expect(() => ChartRequestSchema.parse(request)).not.toThrow();
   });
 });

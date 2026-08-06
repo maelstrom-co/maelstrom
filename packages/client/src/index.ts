@@ -106,12 +106,14 @@ export type { WebSocketConnectorOptions } from './lib/connection-manager/connect
 export { WebSocketConnector } from './lib/connection-manager/connectors/web-socket-connector.js';
 // Orchestrator
 export { buildChartRequest } from './lib/orchestrator/build-chart-request.js';
+export { ConnectorSupersededError } from './lib/orchestrator/connector-superseded-error.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';
 export type {
   OrchestratorOptions,
   OrchestratorViewState,
   ResolvedOrchestratorOptions,
 } from './lib/orchestrator/orchestrator.types.js';
+export { DEFAULT_LAYOUT_MODE } from './lib/orchestrator/orchestrator.types.js';
 export type {
   RequestCoordinatorEvents,
   RequestCoordinatorState,

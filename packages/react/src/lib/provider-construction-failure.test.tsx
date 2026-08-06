@@ -32,6 +32,14 @@ class FakeOrchestrator {
     return Promise.resolve();
   }
 
+  setConnector(): void {
+    // no-op — the Provider's config-push effects call this unconditionally.
+  }
+
+  setLayoutMode(): void {
+    // no-op — same reason as setConnector above.
+  }
+
   dispose(): Promise<void> {
     this.#disposed = true;
     FakeOrchestrator.disposeCalls += 1;
@@ -73,11 +81,12 @@ describe('Provider construction-failure recovery (fix: disposed orchestrator mus
       FakeOrchestrator.shouldFailNextConstruction = false;
       FakeOrchestrator.disposeCalls = 0;
 
+      const connector = createMockConnector();
       let rerender!: (ui: ReactElement) => void;
       let container!: HTMLElement;
       await act(async () => {
         ({ rerender, container } = render(
-          <Provider connector={createMockConnector()}>
+          <Provider key="session-a" connector={connector} sessionId="session-a">
             <App />
           </Provider>,
         ));
@@ -90,13 +99,14 @@ describe('Provider construction-failure recovery (fix: disposed orchestrator mus
         ?.orchestrator as unknown as FakeOrchestrator;
       expect(firstInstance).toBeInstanceOf(FakeOrchestrator);
 
-      // A new `connector` reference rebuilds the Orchestrator (connector is
-      // a watched dep): cleanup disposes the first instance, then the
-      // second construction attempt fails.
+      // A session change rebuilds the Orchestrator — sessionId is captured
+      // once per mount, so switching sessions means remounting under a new
+      // key (the documented, supported pattern): cleanup disposes the first
+      // instance, then the second construction attempt fails.
       FakeOrchestrator.shouldFailNextConstruction = true;
       await act(async () => {
         rerender(
-          <Provider connector={createMockConnector()}>
+          <Provider key="session-b" connector={connector} sessionId="session-b">
             <App />
           </Provider>,
         );

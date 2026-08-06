@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+import {
+  InstanceId,
+  type MaelstromResponse,
+  MessageId,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { assertDefined } from './__tests__/assert-defined.js';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { testVessel } from './__tests__/test-vessel.fixture.js';
@@ -57,6 +65,135 @@ describe('m.Provider', () => {
         </m2.Provider>,
       ),
     ).toThrow('useMaelstrom() must be used within a <Provider>');
+  });
+});
+
+describe('Orchestrator identity', () => {
+  it('preserves the board when the connector is swapped', async () => {
+    const entry = vessel(testVessel, () => null);
+    const m = createMaelstrom({ vessels: [entry] });
+
+    const seededResponse: MaelstromResponse = {
+      type: 'maelstrom_response',
+      requestId: MessageId('req-seed'),
+      userMessage: '',
+      rationale: '',
+      executionPlan: [],
+      layout: {
+        type: 'tiling',
+        tree: [InstanceId('seed-1')],
+        instances: [
+          {
+            instanceId: InstanceId('seed-1'),
+            vesselId: VesselId(testVessel.id),
+            variant: VariantName(testVessel.defaultVariant),
+          },
+        ],
+      },
+    };
+    let firstConnectorCalls = 0;
+    let secondConnectorCalls = 0;
+    const firstConnector = createMockConnector({
+      process: async () => {
+        firstConnectorCalls++;
+        return seededResponse;
+      },
+    });
+    // Re-seeds the same board so the swap itself stays observable through the
+    // call counters rather than through the board being torn down.
+    const secondConnector = createMockConnector({
+      process: async (message) => {
+        secondConnectorCalls++;
+        return { ...seededResponse, requestId: message.id };
+      },
+    });
+
+    let props: { instanceId: string } | null | undefined;
+    let processIntent!: (intent: string) => Promise<void>;
+    function App() {
+      props = m.useInstance('seed-1');
+      processIntent = m.useMaelstrom().processIntent;
+      return null;
+    }
+
+    let rerender!: (ui: ReactElement) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={firstConnector}>
+          <App />
+        </m.Provider>,
+      ));
+    });
+
+    // Seed the board through a normal engine round trip — there is no
+    // initialLayout prop yet, that lands in a later PR.
+    await act(async () => {
+      await processIntent('seed the board');
+    });
+    expect(props?.instanceId).toBe('seed-1');
+
+    // A connector swap is a transport change, not a session change — re-auth
+    // is the real case. Before this refactor it tore the Orchestrator down
+    // (a fresh instance with an empty CommandProcessor store), so the seeded
+    // board vanished. The board must simply survive.
+    await act(async () => {
+      rerender(
+        <m.Provider connector={secondConnector}>
+          <App />
+        </m.Provider>,
+      );
+    });
+
+    expect(props?.instanceId).toBe('seed-1');
+
+    // Surviving the rerender follows from the construction effect's deps
+    // alone; it says nothing about which transport the Orchestrator is still
+    // holding. Issuing a request after the swap is what proves the new
+    // connector actually took over — the re-auth case fails closed otherwise,
+    // with the Provider quietly talking to a revoked connector.
+    const firstCallsBeforeSwap = firstConnectorCalls;
+    await act(async () => {
+      await processIntent('after swap');
+    });
+
+    expect(secondConnectorCalls).toBe(1);
+    expect(firstConnectorCalls).toBe(firstCallsBeforeSwap);
+  });
+
+  it('rebuilds the Orchestrator when the session changes', async () => {
+    const entry = vessel(testVessel, () => null);
+    const m = createMaelstrom({ vessels: [entry] });
+    const connector = createMockConnector();
+
+    const seen: unknown[] = [];
+    function App() {
+      seen.push(m.useMaelstrom().sessionId);
+      return null;
+    }
+
+    let rerender!: (ui: ReactElement) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider key="session-a" connector={connector} sessionId="session-a">
+          <App />
+        </m.Provider>,
+      ));
+    });
+
+    // sessionId is captured once per mount (see the "captured once on
+    // mount" warning in provider.tsx), so switching sessions is done by
+    // remounting the Provider under a new key — the documented, supported
+    // way an app changes sessions. sessionId is the one dep that still
+    // justifies a teardown: a new session starts empty by definition.
+    await act(async () => {
+      rerender(
+        <m.Provider key="session-b" connector={connector} sessionId="session-b">
+          <App />
+        </m.Provider>,
+      );
+    });
+
+    expect(seen).toContain('session-b');
   });
 });
 
