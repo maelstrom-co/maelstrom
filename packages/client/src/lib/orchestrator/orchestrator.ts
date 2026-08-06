@@ -46,6 +46,11 @@ import { resolveOrchestratorOptions } from './orchestrator.types.js';
 import { RequestCoordinator } from './request-coordinator.js';
 import { RequestInFlightError } from './request-in-flight-error.js';
 
+type FencedSend =
+  | { readonly kind: 'ok'; readonly response: MaelstromResponse }
+  | { readonly kind: 'stale'; readonly response: MaelstromResponse }
+  | { readonly kind: 'rejected'; readonly error: Error };
+
 /**
  * Composition root that creates, wires, and coordinates all microkernels.
  *
@@ -265,26 +270,18 @@ export class Orchestrator {
 
     const request = this.#newRequest(updates);
     const epoch = this.#connectorEpoch;
-    const response = await this.#requestCoordinator.send(request);
-    if (this.#isSuperseded(epoch)) {
-      // Same gap flushUpdates() and the timer-flush handler already close:
-      // takeCoalesced() drained pendingUpdates before the request was sent,
-      // so without requeuing them here they vanish for good instead of
-      // riding the next flush. Requeue `pendingUpdates`, NOT `updates` — the
-      // synthetic `user_intent` reason this call added must not be replayed.
-      for (const update of pendingUpdates)
-        this.#updateCoordinator.schedule(update);
-      // A flush queued behind this (now-superseded) request via
-      // queueFlush() must be settled here too, or it hangs until an
-      // unrelated later request happens to resolve it with an irrelevant
-      // response. `null` mirrors what flushUpdates() itself already returns
-      // when there is nothing to report — the response was never applied.
-      this.#requestCoordinator.resolveFlushPromises(null);
-      return response;
-    }
-    this.#dispatchResponse(response);
-    this.#requestCoordinator.resolveFlushPromises(response);
-    return response;
+    // Recovery replays `pendingUpdates`, NOT `updates` — the synthetic
+    // `user_intent` reason this call appended is the caller's to re-issue,
+    // and replaying it would re-ask the engine for an intent nobody repeated.
+    const outcome = await this.#sendFenced(request, epoch, pendingUpdates);
+    // Asymmetric on purpose: a stale response still satisfies this method's
+    // non-nullable return, but a fenced rejection keeps its original identity
+    // so consumers matching on the transport error still see it.
+    if (outcome.kind === 'rejected') throw outcome.error;
+    if (outcome.kind === 'stale') return outcome.response;
+    this.#dispatchResponse(outcome.response);
+    this.#requestCoordinator.resolveFlushPromises(outcome.response);
+    return outcome.response;
   }
 
   scheduleUpdate(reason: ChartResizeReason | VesselMutationReason): void {
@@ -307,24 +304,11 @@ export class Orchestrator {
 
     const request = this.#newRequest(updates);
     const epoch = this.#connectorEpoch;
-    const response = await this.#requestCoordinator.send(request);
-    if (this.#isSuperseded(epoch)) {
-      // The response is discarded, correctly — it was minted under a
-      // connector this session no longer speaks through. But
-      // takeCoalesced() already drained these updates before the request
-      // was sent, so without requeuing them here they vanish for good
-      // instead of riding the next flush.
-      for (const update of updates) this.#updateCoordinator.schedule(update);
-      // A SECOND caller that arrived while this request was in flight
-      // queued behind it via queueFlush() (see the isProcessing branch
-      // above) and must be settled here too, or it hangs until an unrelated
-      // later request happens to resolve it with an irrelevant response.
-      this.#requestCoordinator.resolveFlushPromises(null);
-      return null;
-    }
-    this.#dispatchResponse(response);
-    this.#requestCoordinator.resolveFlushPromises(response);
-    return response;
+    const outcome = await this.#sendFenced(request, epoch, updates);
+    if (outcome.kind !== 'ok') return null;
+    this.#dispatchResponse(outcome.response);
+    this.#requestCoordinator.resolveFlushPromises(outcome.response);
+    return outcome.response;
   }
 
   // ==========================================================================
@@ -643,35 +627,22 @@ export class Orchestrator {
         }
 
         const epoch = this.#connectorEpoch;
-        let response: MaelstromResponse;
+        let outcome: FencedSend;
         try {
-          response = await this.#requestCoordinator.send(request);
+          outcome = await this.#sendFenced(request, epoch, event.updates);
         } catch (err) {
-          // send() already surfaces the error via the 'error' event.
-          // Settle queued flush promises so consumers don't time out.
+          // Only genuine failures reach here now — a swap-induced rejection
+          // is a fenced outcome, not something to reject queued flushes with.
+          // send() already surfaces the error via the 'error' event. Settle
+          // queued flush promises so consumers don't time out.
           const error = toError(err);
           this.#requestCoordinator.rejectFlushPromises(error);
           return;
         }
-
-        if (this.#isSuperseded(epoch)) {
-          // Same gap as flushUpdates(): the request already carried these
-          // updates out of the coordinator, so discarding the (correctly
-          // fenced) response without requeuing them would drop the reasons
-          // for good instead of letting the next flush pick them up.
-          for (const update of event.updates) {
-            this.#updateCoordinator.schedule(update);
-          }
-          // A caller that arrived while this timer-triggered request was in
-          // flight queued behind it via queueFlush() and must be settled
-          // here too, or it hangs until an unrelated later request happens
-          // to resolve it with an irrelevant response.
-          this.#requestCoordinator.resolveFlushPromises(null);
-          return;
-        }
+        if (outcome.kind !== 'ok') return;
 
         try {
-          this.#dispatchResponse(response);
+          this.#dispatchResponse(outcome.response);
         } catch (err) {
           // dispatchResponse delegates to CommandProcessor; failures here are
           // not surfaced upstream, so we log and reject queued flushes.
@@ -680,7 +651,7 @@ export class Orchestrator {
           this.#requestCoordinator.rejectFlushPromises(error);
           return;
         }
-        this.#requestCoordinator.resolveFlushPromises(response);
+        this.#requestCoordinator.resolveFlushPromises(outcome.response);
       },
     );
     this.#unsubscribers.push(unsubFlush);
@@ -712,6 +683,48 @@ export class Orchestrator {
   // that no longer speaks for this session.
   #isSuperseded(epoch: number): boolean {
     return this.#isDisposed || epoch !== this.#connectorEpoch;
+  }
+
+  // Fencing a request costs more than dropping its response, because the
+  // request already carried these updates out of the coordinator — nothing
+  // else replays them, so without requeuing they are gone for good instead of
+  // riding the next flush. And every flush that queued behind the fenced
+  // request via queueFlush() has to be settled here or it hangs until an
+  // unrelated later request happens to resolve it with an irrelevant
+  // response. `null`, not the response: it was never applied, and `null` is
+  // already what flushUpdates() returns when there is nothing to report.
+  #recoverFencedRequest(ownedUpdates: readonly UpdateReason[]): void {
+    for (const update of ownedUpdates) this.#updateCoordinator.schedule(update);
+    this.#requestCoordinator.resolveFlushPromises(null);
+  }
+
+  // A swap supersedes an in-flight request two ways, not one: the old
+  // connector may still resolve (nothing cancels it), or it may reject
+  // because ConnectionManager disconnected it out from under the request.
+  // Both are the same event, so both fence — reading the epoch once, on
+  // whichever exit the send takes, is what stops those shapes drifting apart.
+  //
+  // The try wraps only the send: a throw raised by the fence path itself must
+  // not be caught by its own handler. A failure under the CURRENT epoch is an
+  // ordinary transport error and rethrows untouched.
+  async #sendFenced(
+    request: ChartRequestMessage,
+    epoch: number,
+    ownedUpdates: readonly UpdateReason[],
+  ): Promise<FencedSend> {
+    let response: MaelstromResponse;
+    try {
+      response = await this.#requestCoordinator.send(request);
+    } catch (err) {
+      if (!this.#isSuperseded(epoch)) throw err;
+      this.#recoverFencedRequest(ownedUpdates);
+      return { kind: 'rejected', error: toError(err) };
+    }
+    if (this.#isSuperseded(epoch)) {
+      this.#recoverFencedRequest(ownedUpdates);
+      return { kind: 'stale', response };
+    }
+    return { kind: 'ok', response };
   }
 
   async #runLocalAction(

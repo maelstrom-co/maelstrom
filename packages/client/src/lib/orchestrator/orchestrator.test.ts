@@ -32,7 +32,10 @@ import {
   createMockResponse,
 } from '../../../test-utils/mocks.js';
 import type { ActionResult } from '../command-processor/action-result.js';
-import type { PushConnector } from '../connection-manager/connector.types.js';
+import type {
+  EngineConnector,
+  PushConnector,
+} from '../connection-manager/connector.types.js';
 import type { Unsubscribe, VesselInstance } from '../types.js';
 import type { Orchestrator } from './orchestrator.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
@@ -53,6 +56,61 @@ function createMockPushConnector(
     ),
     ...overrides,
   } as PushConnector;
+}
+
+// What a real transport does on a connector swap: ConnectionManager
+// disconnects the outgoing connector, and WebSocketConnector.disconnect()
+// rejects everything its correlator still has in flight. The default mock's
+// no-op resolve hides that entire path, so a fenced send only ever *resolves*
+// there.
+function createDisconnectRejectingConnector(): EngineConnector {
+  const inFlight = new Set<(error: Error) => void>();
+  return createMockConnector({
+    process: mock(
+      () =>
+        new Promise<MaelstromResponse>((_, reject) => {
+          inFlight.add(reject);
+        }),
+    ),
+    disconnect: mock(() => {
+      for (const reject of inFlight) reject(new Error('Disconnected'));
+      inFlight.clear();
+      return Promise.resolve();
+    }),
+  });
+}
+
+type Settled<T> =
+  | { readonly state: 'pending' }
+  | { readonly state: 'resolved'; readonly value: T }
+  | { readonly state: 'rejected'; readonly error: unknown };
+
+// Observes how a promise settled without awaiting it — so a promise that
+// never settles reads as 'pending' instead of hanging the test, and a
+// rejection is captured rather than escaping as an unhandled rejection.
+function track<T>(promise: Promise<T>): () => Settled<T> {
+  let settled: Settled<T> = { state: 'pending' };
+  promise.then(
+    (value) => {
+      settled = { state: 'resolved', value };
+    },
+    (error) => {
+      settled = { state: 'rejected', error };
+    },
+  );
+  return () => settled;
+}
+
+function sentReasons(
+  connector: EngineConnector,
+  callIndex = 0,
+): readonly string[] {
+  const envelope = (connector.process as ReturnType<typeof mock>).mock.calls[
+    callIndex
+  ][0] as ChartRequestMessage;
+  return envelope.request.context.updateReasons.map((r) =>
+    r.type === 'vessel_mutation' ? r.changes : r.type,
+  );
 }
 
 // A vessel whose actions exercise every invokeAction branch: `expand` and
@@ -600,6 +658,55 @@ describe('Orchestrator', () => {
 
       orchestrator.dispose();
     });
+
+    it('recovers a fenced-out processIntent() whose send REJECTS on the connector swap', async () => {
+      // A real swap makes the in-flight send reject, not resolve:
+      // ConnectionManager.setConnector disconnects the outgoing connector and
+      // WebSocketConnector.disconnect() rejects the correlator. That rejection
+      // sails straight past a fence that only guards the success path, so the
+      // drained updates vanish and the queued flush never settles.
+      const first = createDisconnectRejectingConnector();
+      const { orchestrator } = createTestOrchestrator(first);
+      // Required: the swap only disconnects the outgoing connector when the
+      // manager is already connected/connecting.
+      await orchestrator.connect();
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'must not vanish',
+      });
+
+      const pending = orchestrator.processIntent('show chart');
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-2'),
+        changes: 'queued behind the intent',
+      });
+      const queued = track(orchestrator.flushUpdates());
+
+      const second = createMockConnector();
+      orchestrator.setConnector(second);
+
+      // processIntent keeps its rejection identity — a swap is not something
+      // it can resolve a response for.
+      await expect(pending).rejects.toThrow('Disconnected');
+      await flushMicrotasks();
+
+      expect(queued()).toEqual({ state: 'resolved', value: null });
+
+      await orchestrator.flushUpdates();
+      expect(second.process).toHaveBeenCalledTimes(1);
+      const reasons = sentReasons(second);
+      expect(reasons).toContain('must not vanish');
+      expect(reasons).toContain('queued behind the intent');
+      // Only `pendingUpdates` are replayed — the synthetic user_intent this
+      // call appended is the caller's to re-issue.
+      expect(reasons).not.toContain('user_intent');
+
+      orchestrator.dispose();
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -865,6 +972,104 @@ describe('Orchestrator', () => {
       if (result !== 'timeout') {
         expect(result.resolved).toBeNull();
       }
+
+      orchestrator.dispose();
+    });
+
+    it('recovers a fenced-out flushUpdates() whose send REJECTS on the connector swap', async () => {
+      const first = createDisconnectRejectingConnector();
+      const { orchestrator } = createTestOrchestrator(first);
+      await orchestrator.connect();
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'primary',
+      });
+      const primary = track(orchestrator.flushUpdates());
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-2'),
+        changes: 'queued behind the primary',
+      });
+      const queued = track(orchestrator.flushUpdates());
+
+      const second = createMockConnector();
+      orchestrator.setConnector(second);
+      await flushMicrotasks();
+
+      // A swap is not a failure: both settle with the same `null`
+      // flushUpdates() already returns when there is nothing to report.
+      expect(primary()).toEqual({ state: 'resolved', value: null });
+      expect(queued()).toEqual({ state: 'resolved', value: null });
+
+      await orchestrator.flushUpdates();
+      expect(second.process).toHaveBeenCalledTimes(1);
+      const reasons = sentReasons(second);
+      expect(reasons).toContain('primary');
+      expect(reasons).toContain('queued behind the primary');
+
+      orchestrator.dispose();
+    });
+
+    it('recovers a fenced-out timer flush whose send REJECTS on the connector swap', async () => {
+      const first = createDisconnectRejectingConnector();
+      const { orchestrator } = createTestOrchestrator(first);
+      await orchestrator.connect();
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'timer-primary',
+      });
+
+      // Fires the debounce timer → updates_flushed → #requestCoordinator.send
+      // is now in flight against `first`.
+      await clock.tickAsync(350);
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-2'),
+        changes: 'queued behind the timer flush',
+      });
+      const queued = track(orchestrator.flushUpdates());
+
+      const second = createMockConnector();
+      orchestrator.setConnector(second);
+      await waitFor(() => !orchestrator.requestCoordinator.isProcessing);
+      await flushMicrotasks();
+
+      // This handler's catch rejects queued flushes, so a swap-induced
+      // rejection used to surface as a `Disconnected` failure — contradicting
+      // the success-path contract that a swap resolves `null`.
+      expect(queued()).toEqual({ state: 'resolved', value: null });
+
+      await orchestrator.flushUpdates();
+      expect(second.process).toHaveBeenCalledTimes(1);
+      const reasons = sentReasons(second);
+      expect(reasons).toContain('timer-primary');
+      expect(reasons).toContain('queued behind the timer flush');
+
+      orchestrator.dispose();
+    });
+
+    it('still rejects a send failure that is NOT superseded', async () => {
+      // The fence must only swallow rejections that a swap (or dispose)
+      // caused. An ordinary transport failure under the current epoch keeps
+      // propagating untouched.
+      const connector = createMockConnector({
+        process: mock(() => Promise.reject(new Error('engine down'))),
+      });
+      const { orchestrator } = createTestOrchestrator(connector);
+
+      orchestrator.scheduleUpdate({
+        type: 'vessel_mutation',
+        instanceId: InstanceId('i-1'),
+        changes: 'test',
+      });
+
+      await expect(orchestrator.flushUpdates()).rejects.toThrow('engine down');
 
       orchestrator.dispose();
     });
