@@ -23,6 +23,7 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import {
   createMockConnector,
   createTestOrchestrator,
@@ -37,6 +38,7 @@ import type {
   PushConnector,
 } from '../connection-manager/connector.types.js';
 import type { Unsubscribe, VesselInstance } from '../types.js';
+import { ConnectorSupersededError } from './connector-superseded-error.js';
 import type { Orchestrator } from './orchestrator.js';
 import type { RequestCoordinatorEvents } from './request-coordinator.js';
 import { RequestInFlightError } from './request-in-flight-error.js';
@@ -206,12 +208,6 @@ function currentVariant(
 ): string | undefined {
   return orchestrator.commandProcessor.store.state.instances.get(instanceId)
     ?.variant;
-}
-
-// Drains queued microtasks (command completion + revert continuation) without
-// advancing timers past a still-pending deferred runner.
-async function flushMicrotasks(): Promise<void> {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
 // Polls until `predicate` holds, yielding microtasks between checks (without
@@ -549,6 +545,32 @@ describe('Orchestrator', () => {
       orchestrator.dispose();
     });
 
+    it('rejects with ConnectorSupersededError when a connector swap fences the response', async () => {
+      // Resolving with the ghost response would be indistinguishable from an
+      // applied one: same non-nullable return type, same `userMessage`. A
+      // realtime bridge hands that string straight to the speech adapter, so
+      // the user hears a board change that never happened.
+      let releaseResponse!: (response: MaelstromResponse) => void;
+      const first = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((resolve) => {
+            releaseResponse = resolve;
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      const pending = orchestrator.processIntent('show sales');
+      orchestrator.setConnector(createMockConnector());
+
+      releaseResponse(
+        createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
+      );
+
+      await expect(pending).rejects.toThrow(ConnectorSupersededError);
+
+      orchestrator.dispose();
+    });
+
     it('requeues a fenced-out processIntent() vessel_mutation instead of dropping it', async () => {
       // Same gap as flushUpdates() and the timer-flush handler: takeCoalesced()
       // already drained #pendingUpdates before the request was sent, so if the
@@ -577,7 +599,7 @@ describe('Orchestrator', () => {
       releaseResponse(
         createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
       );
-      await pending;
+      await expect(pending).rejects.toThrow(ConnectorSupersededError);
 
       // The mutation must have been requeued, not dropped — a subsequent
       // flush on the fresh connector must still carry it. Critically, the
@@ -634,7 +656,7 @@ describe('Orchestrator', () => {
       releaseResponse(
         createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
       );
-      await intentPromise;
+      await expect(intentPromise).rejects.toThrow(ConnectorSupersededError);
 
       // The queued flush must settle, not hang — detect a hang via a
       // fake-timer race rather than letting the test itself stall.
@@ -1013,6 +1035,45 @@ describe('Orchestrator', () => {
       orchestrator.dispose();
     });
 
+    it('logs the swallowed rejection with epoch context when a flush is fenced', async () => {
+      // The `null` return is right — a swap is not a caller-visible failure —
+      // but it is the same `null` that means "nothing to report", so without
+      // a log a genuine transport rejection that merely raced the swap leaves
+      // no trace at all. RequestCoordinator's own error log carries no epoch,
+      // so it cannot say whether the fence ate this or something else did.
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      const first = createDisconnectRejectingConnector();
+      const { orchestrator } = createTestOrchestrator(first);
+
+      try {
+        await orchestrator.connect();
+        orchestrator.scheduleUpdate({
+          type: 'vessel_mutation',
+          instanceId: InstanceId('i-1'),
+          changes: 'primary',
+        });
+        const primary = track(orchestrator.flushUpdates());
+
+        orchestrator.setConnector(createMockConnector());
+        await flushMicrotasks();
+
+        expect(primary()).toEqual({ state: 'resolved', value: null });
+
+        const messages = warnSpy.mock.calls.map((args) => args.join(' '));
+        expect(
+          messages.some(
+            (m) =>
+              m.includes('epoch 0 → 1') &&
+              m.includes('superseded') &&
+              m.includes('Disconnected'),
+          ),
+        ).toBe(true);
+      } finally {
+        warnSpy.mockRestore();
+        orchestrator.dispose();
+      }
+    });
+
     it('recovers a fenced-out timer flush whose send REJECTS on the connector swap', async () => {
       const first = createDisconnectRejectingConnector();
       const { orchestrator } = createTestOrchestrator(first);
@@ -1199,6 +1260,41 @@ describe('Orchestrator', () => {
       expect(orchestrator.commandProcessor.store.state.instances.size).toBe(0);
 
       orchestrator.dispose();
+    });
+
+    it('logs the discarded push message with epoch context', async () => {
+      // An engine-authored layout is dropped whole here. Discarding is
+      // legitimate, so the log is the only evidence it ever happened —
+      // otherwise "the board stopped updating" is indistinguishable from a
+      // message that was never sent.
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      let capturedCallback: ((response: MaelstromResponse) => void) | undefined;
+      const first = createMockPushConnector({
+        onPushMessage: mock(
+          (cb: (response: MaelstromResponse) => void): Unsubscribe => {
+            capturedCallback = cb;
+            return () => {};
+          },
+        ),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      try {
+        orchestrator.setConnector(createMockPushConnector());
+        capturedCallback?.(
+          createMockResponse(MessageId('req-ghost'), 'ghost-instance', 'show'),
+        );
+
+        const messages = warnSpy.mock.calls.map((args) => args.join(' '));
+        expect(
+          messages.some(
+            (m) => m.includes('epoch 0 → 1') && m.includes('superseded'),
+          ),
+        ).toBe(true);
+      } finally {
+        warnSpy.mockRestore();
+        await orchestrator.dispose();
+      }
     });
   });
 
@@ -2492,7 +2588,7 @@ describe('Orchestrator', () => {
       orchestrator.dispose();
     });
 
-    it('moves the push subscription and leaves the others attached', () => {
+    it('moves the push subscription and leaves the others attached', async () => {
       const firstUnsub = mock((): void => {});
       const first = createMockPushConnector({
         onPushMessage: mock(
@@ -2502,6 +2598,10 @@ describe('Orchestrator', () => {
       });
       const second = createMockPushConnector();
       const { orchestrator } = createTestOrchestrator(first);
+      // The 'dimensions_changed' handler only schedules while connected, so
+      // an unconnected orchestrator would no-op with the subscription intact
+      // and prove nothing.
+      await orchestrator.connect();
 
       orchestrator.setConnector(second);
 
@@ -2510,16 +2610,76 @@ describe('Orchestrator', () => {
       // ...re-attached to the new one.
       expect(second.onPushMessage).toHaveBeenCalledTimes(1);
       // The other three subscriptions are on internal microkernels and have
-      // nothing to do with the connector. If the swap tore down the whole
-      // #unsubscribers array, this dimension change would no longer schedule
-      // an update and the chart would stop reacting to resizes for the rest
-      // of the session.
+      // nothing to do with the connector. Asserting the ChartManager store
+      // would prove nothing — setDimensions writes it whether or not anyone
+      // is subscribed. What the surviving subscription buys is the scheduled
+      // chart_resize, so assert on what actually reaches the wire.
+      // The swap redials in the background; the handler is gated on
+      // 'connected', so wait for the new connector to be live first.
+      await waitFor(
+        () =>
+          orchestrator.connectionManager.store.state.connectionStatus ===
+          'connected',
+      );
       orchestrator.chartManager.setDimensions({ columns: 8, rows: 4 });
-      expect(
-        orchestrator.chartManager.store.state.chartDimensions.columns,
-      ).toBe(8);
+      await orchestrator.flushUpdates();
+
+      expect(second.process).toHaveBeenCalledTimes(1);
+      expect(sentReasons(second)).toContain('chart_resize');
 
       orchestrator.dispose();
+    });
+
+    it('applies a push message delivered through the NEW connector', () => {
+      // The counterpart to the discard test: `setConnector` bumps the epoch
+      // before re-attaching, so the new subscription captures the new epoch.
+      // Reverse that ordering and every push message after a swap is silently
+      // dropped — with the rest of the suite still green.
+      let secondCallback: ((response: MaelstromResponse) => void) | undefined;
+      const first = createMockPushConnector();
+      const second = createMockPushConnector({
+        onPushMessage: mock(
+          (cb: (response: MaelstromResponse) => void): Unsubscribe => {
+            secondCallback = cb;
+            return () => {};
+          },
+        ),
+      });
+      const { orchestrator } = createTestOrchestrator(first);
+
+      orchestrator.setConnector(second);
+      secondCallback?.(
+        createMockResponse(MessageId('req-live'), 'live-instance', 'show'),
+      );
+
+      expect(orchestrator.commandProcessor.store.state.instances.size).toBe(1);
+
+      orchestrator.dispose();
+    });
+
+    it('after dispose does not subscribe to the incoming connector', async () => {
+      const first = createMockPushConnector();
+      const second = createMockPushConnector();
+      const { orchestrator } = createTestOrchestrator(first);
+
+      await orchestrator.dispose();
+      orchestrator.setConnector(second);
+
+      // dispose() early-returns on a second call, so a subscription attached
+      // after it is never torn down: the incoming connector would hold a live
+      // callback closing over the disposed Orchestrator forever.
+      expect(second.onPushMessage).not.toHaveBeenCalled();
+    });
+
+    it('after dispose leaves the layout mode alone', async () => {
+      const { orchestrator } = createTestOrchestrator(createMockConnector(), {
+        layoutMode: 'tiling' as LayoutMode,
+      });
+
+      await orchestrator.dispose();
+      orchestrator.setLayoutMode('grid');
+
+      expect(orchestrator.getConfig().layoutMode).toBe('tiling');
     });
 
     it('with the same reference is a no-op', () => {
@@ -2554,7 +2714,7 @@ describe('Orchestrator', () => {
       releaseResponse(
         createMockResponse(MessageId('req-ghost'), 'ghost', 'someAction'),
       );
-      await pending;
+      await expect(pending).rejects.toThrow(ConnectorSupersededError);
 
       // The whole point of the fence: a response minted by a connector that
       // has been replaced (the re-auth case) must never reach the screen.

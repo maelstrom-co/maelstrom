@@ -37,6 +37,7 @@ import {
   type UIStructuralSnapshot,
 } from '../voice-session/ui-structural-snapshot.js';
 import { buildChartRequest } from './build-chart-request.js';
+import { ConnectorSupersededError } from './connector-superseded-error.js';
 import type {
   OrchestratorOptions,
   OrchestratorViewState,
@@ -46,10 +47,24 @@ import { resolveOrchestratorOptions } from './orchestrator.types.js';
 import { RequestCoordinator } from './request-coordinator.js';
 import { RequestInFlightError } from './request-in-flight-error.js';
 
+// Disposal and a connector swap both fence, but they are not the same event to
+// a caller: teardown is expected and its response is still the caller's own,
+// while a swap means the response speaks for a connector this Orchestrator no
+// longer uses.
+type FenceReason = 'disposed' | 'superseded';
+
 type FencedSend =
   | { readonly kind: 'ok'; readonly response: MaelstromResponse }
-  | { readonly kind: 'stale'; readonly response: MaelstromResponse }
-  | { readonly kind: 'rejected'; readonly error: Error };
+  | {
+      readonly kind: 'stale';
+      readonly reason: FenceReason;
+      readonly response: MaelstromResponse;
+    }
+  | {
+      readonly kind: 'rejected';
+      readonly reason: FenceReason;
+      readonly error: Error;
+    };
 
 /**
  * Composition root that creates, wires, and coordinates all microkernels.
@@ -73,7 +88,10 @@ type FencedSend =
  */
 export class Orchestrator {
   #connector: EngineConnector;
-  readonly #config: ResolvedOrchestratorOptions;
+  // Not `readonly`: a setter replaces this object rather than writing through
+  // it, so every field can stay `readonly` and the compiler rejects the
+  // second, unguarded write path a mutable field would leave open.
+  #config: ResolvedOrchestratorOptions;
   readonly #logger: Logger;
 
   // Composed microkernels
@@ -195,7 +213,11 @@ export class Orchestrator {
    * that has to happen at build time rather than here.
    */
   setLayoutMode(mode: LayoutMode): void {
-    this.#config.layoutMode = mode;
+    if (this.#isDisposed) {
+      this.#logger.warn('setLayoutMode called after dispose; ignoring');
+      return;
+    }
+    this.#config = { ...this.#config, layoutMode: mode };
   }
 
   /** Capability catalog (vessels, variants, actions) for `get_capabilities` pulls. */
@@ -250,6 +272,40 @@ export class Orchestrator {
   // Request lifecycle (sequencing only — no state)
   // ==========================================================================
 
+  /**
+   * Send a user intent to the engine and apply the response it plans.
+   *
+   * Any updates buffered by the UpdateCoordinator ride along in the same
+   * request, so an intent typed right after a resize or a vessel mutation
+   * asks the engine to plan against what the board actually looks like. The
+   * response is dispatched as one atomic batch — layout first, then actions
+   * — and only then are queued flush promises settled, so a consumer awaiting
+   * a flush observes fully updated state.
+   *
+   * Single-flight: only one engine request may be outstanding, so this
+   * rejects with {@link RequestInFlightError} rather than queueing.
+   *
+   * REJECTS WITH:
+   * - `RequestInFlightError` — a request is already in flight; retry when
+   *   `requestCoordinator.isProcessing` clears.
+   * - `ConnectorSupersededError` — a concurrent {@link setConnector} replaced
+   *   the connector while this request was in flight. The response was
+   *   deliberately never applied, so the intent must be re-issued; see
+   *   `setConnector` for why the fence exists.
+   * - the transport's own error — either an ordinary send failure, or the
+   *   failure a swap itself caused when the outgoing connector was
+   *   disconnected out from under this request. Both shapes mean the intent
+   *   must be re-issued.
+   * - `Error('Orchestrator is disposed')` — called after {@link dispose}.
+   *
+   * INVARIANTS:
+   * - Whenever a fenced outcome discards the response, the updates that rode
+   *   along are requeued for the next flush — but the intent itself is not.
+   *   Re-issuing it is the caller's call to make.
+   * - A response that arrives after {@link dispose} still resolves here: the
+   *   request was legitimately issued, it simply is never dispatched into a
+   *   torn-down CommandProcessor.
+   */
   async processIntent(intent: string): Promise<MaelstromResponse> {
     if (this.#isDisposed) {
       throw new Error('Orchestrator is disposed');
@@ -269,16 +325,23 @@ export class Orchestrator {
     );
 
     const request = this.#newRequest(updates);
-    const epoch = this.#connectorEpoch;
     // Recovery replays `pendingUpdates`, NOT `updates` — the synthetic
     // `user_intent` reason this call appended is the caller's to re-issue,
     // and replaying it would re-ask the engine for an intent nobody repeated.
-    const outcome = await this.#sendFenced(request, epoch, pendingUpdates);
-    // Asymmetric on purpose: a stale response still satisfies this method's
-    // non-nullable return, but a fenced rejection keeps its original identity
-    // so consumers matching on the transport error still see it.
+    const outcome = await this.#sendFenced(request, pendingUpdates);
+    // A fenced rejection keeps its original identity so consumers matching on
+    // the transport error still see it.
     if (outcome.kind === 'rejected') throw outcome.error;
-    if (outcome.kind === 'stale') return outcome.response;
+    if (outcome.kind === 'stale') {
+      // Disposal is teardown, not failure: the request was legitimately issued
+      // under a connector that still speaks for this session, so the caller
+      // keeps its response — it simply is never dispatched into a torn-down
+      // CommandProcessor. A swap is the opposite: the response describes a
+      // board this Orchestrator never moved, and returning it would be
+      // indistinguishable from an applied one.
+      if (outcome.reason === 'superseded') throw new ConnectorSupersededError();
+      return outcome.response;
+    }
     this.#dispatchResponse(outcome.response);
     this.#requestCoordinator.resolveFlushPromises(outcome.response);
     return outcome.response;
@@ -288,6 +351,31 @@ export class Orchestrator {
     this.#updateCoordinator.schedule(reason);
   }
 
+  /**
+   * Send whatever the UpdateCoordinator has buffered now, instead of waiting
+   * for its debounce to fire, and apply the response the same way
+   * {@link processIntent} does.
+   *
+   * Use it when something must reach the engine at a known moment — a test, a
+   * teardown, a UI gesture that should not sit out the debounce window. If a
+   * request is already in flight this coalesces with it rather than sending a
+   * second one: the buffered updates are put back and the returned promise
+   * settles with that request's outcome.
+   *
+   * RESOLVES `null` — deliberately the same value for every "nothing landed"
+   * case, because none of them is a failure the caller can act on:
+   * - the Orchestrator is disposed;
+   * - nothing was buffered;
+   * - a concurrent {@link setConnector} superseded the response, which was
+   *   therefore never applied (the updates are requeued for the next flush);
+   * - the send itself failed *because* of that swap — the transport error is
+   *   swallowed rather than thrown, and logged at warn with the epoch that
+   *   fenced it, which is the only thing distinguishing it from a request
+   *   that was never sent.
+   *
+   * REJECTS with the transport's error when a send fails under the current
+   * connector — an ordinary failure, not a fenced one, is never swallowed.
+   */
   async flushUpdates(): Promise<MaelstromResponse | null> {
     if (this.#isDisposed) return null;
 
@@ -303,8 +391,13 @@ export class Orchestrator {
     }
 
     const request = this.#newRequest(updates);
-    const epoch = this.#connectorEpoch;
-    const outcome = await this.#sendFenced(request, epoch, updates);
+    const outcome = await this.#sendFenced(request, updates);
+    // Both fenced shapes collapse into the `null` that already means "nothing
+    // to report" — a swap is not a failure the caller can act on, and the
+    // updates were requeued. The rejected shape swallows a real transport
+    // error to get there, which is why the fence logs it with epoch context:
+    // that log is the only thing separating "the fence ate it" from a request
+    // that was never sent.
     if (outcome.kind !== 'ok') return null;
     this.#dispatchResponse(outcome.response);
     this.#requestCoordinator.resolveFlushPromises(outcome.response);
@@ -512,11 +605,29 @@ export class Orchestrator {
    *
    * Any request already in flight is *fenced*, not cancelled: `EngineConnector`
    * exposes no abort, so the old request runs to completion and its response
-   * is discarded rather than applied. A response computed under superseded
-   * credentials can therefore never reach the UI, but the caller's pending
-   * `processIntent` resolves without taking effect and must be re-issued.
+   * is discarded rather than applied. The guarantee is scoped to dispatch: a
+   * response computed under superseded credentials is never handed to the
+   * CommandProcessor, so it cannot reach the UI — but it has already been
+   * committed to `requestCoordinator.lastResponse` and emitted as
+   * `processing_completed` by the time the fence runs, so anything subscribed
+   * to those two surfaces still observes it.
+   *
+   * A caller's pending {@link processIntent} always *rejects* under a swap,
+   * in one of two shapes: {@link ConnectorSupersededError} when the response
+   * arrived after the swap, or the transport's own error when the swap made
+   * the send itself fail (the outgoing connector was disconnected out from
+   * under it). Either way the intent took no effect and must be re-issued.
+   * A pending {@link flushUpdates} resolves `null` for both shapes instead —
+   * its updates are requeued, so there is nothing for the caller to redo.
    */
   setConnector(next: EngineConnector): void {
+    if (this.#isDisposed) {
+      // dispose() early-returns on a second call, so a push subscription
+      // attached past this point would never be torn down — the incoming
+      // connector would keep the whole disposed graph reachable.
+      this.#logger.warn('setConnector called after dispose; ignoring');
+      return;
+    }
     if (Object.is(next, this.#connector)) return;
 
     this.#unsubPush?.();
@@ -626,10 +737,9 @@ export class Orchestrator {
           return;
         }
 
-        const epoch = this.#connectorEpoch;
         let outcome: FencedSend;
         try {
-          outcome = await this.#sendFenced(request, epoch, event.updates);
+          outcome = await this.#sendFenced(request, event.updates);
         } catch (err) {
           // Only genuine failures reach here now — a swap-induced rejection
           // is a fenced outcome, not something to reject queued flushes with.
@@ -661,15 +771,14 @@ export class Orchestrator {
 
   #attachPushSubscription(): void {
     if (!('onPushMessage' in this.#connector)) return;
-    // Captured at subscribe time, not read back through the live field: a
-    // callback already queued by this transport when a later setConnector()
-    // unsubscribes must still see the epoch it was attached under, or the
-    // fence compares the field to itself and never trips.
-    const epoch = this.#connectorEpoch;
+    const isFenced = this.#captureFence('Push message');
     this.#unsubPush = (this.#connector as PushConnector).onPushMessage(
       (response: MaelstromResponse) => {
-        if (this.#isSuperseded(epoch)) return;
-        this.#logger.info('Received push message, processing');
+        // Logged before the fence, not after: the discarded case drops an
+        // entire engine-authored layout, so it must be at least as visible as
+        // the applied one.
+        this.#logger.info('Received push message');
+        if (isFenced()) return;
         this.#dispatchResponse(response);
       },
     );
@@ -681,8 +790,29 @@ export class Orchestrator {
   // Applying either anyway throws from the torn-down CommandProcessor as an
   // unhandled rejection, or worse, lands a layout computed under a connector
   // that no longer speaks for this session.
-  #isSuperseded(epoch: number): boolean {
-    return this.#isDisposed || epoch !== this.#connectorEpoch;
+  //
+  // The epoch is captured here, when the work is issued, and read back through
+  // the live field only inside the returned check: a caller that captured it
+  // itself could pass a value read after an await, leaving a fence that
+  // compares the field to itself and silently never trips.
+  //
+  // The check logs when it trips because discarding is legitimate here — the
+  // log is the only evidence it happened, and without it "my intent did
+  // nothing after re-auth" is indistinguishable from a request never sent.
+  // A swap drops work someone asked for (warn); teardown is expected (debug).
+  #captureFence(subject: string): (detail?: string) => FenceReason | null {
+    const epoch = this.#connectorEpoch;
+    return (detail?: string) => {
+      let reason: FenceReason | null = null;
+      if (this.#isDisposed) reason = 'disposed';
+      else if (epoch !== this.#connectorEpoch) reason = 'superseded';
+      if (reason === null) return null;
+
+      const message = `${subject} discarded (${reason}); epoch ${epoch} → ${this.#connectorEpoch}${detail ? `; ${detail}` : ''}`;
+      if (reason === 'disposed') this.#logger.debug(message);
+      else this.#logger.warn(message);
+      return reason;
+    };
   }
 
   // Fencing a request costs more than dropping its response, because the
@@ -694,6 +824,11 @@ export class Orchestrator {
   // response. `null`, not the response: it was never applied, and `null` is
   // already what flushUpdates() returns when there is nothing to report.
   #recoverFencedRequest(ownedUpdates: readonly UpdateReason[]): void {
+    // Debug, not warn: the fence itself already warned, and this is the
+    // recovery it triggered rather than a second thing going wrong.
+    this.#logger.debug(
+      `Recovering fenced request: requeued ${ownedUpdates.length} update reason(s), settled queued flushes with null`,
+    );
     for (const update of ownedUpdates) this.#updateCoordinator.schedule(update);
     this.#requestCoordinator.resolveFlushPromises(null);
   }
@@ -709,20 +844,23 @@ export class Orchestrator {
   // ordinary transport error and rethrows untouched.
   async #sendFenced(
     request: ChartRequestMessage,
-    epoch: number,
     ownedUpdates: readonly UpdateReason[],
   ): Promise<FencedSend> {
+    const isFenced = this.#captureFence(`Request ${request.id}`);
     let response: MaelstromResponse;
     try {
       response = await this.#requestCoordinator.send(request);
     } catch (err) {
-      if (!this.#isSuperseded(epoch)) throw err;
+      const error = toError(err);
+      const reason = isFenced(`send rejected: ${error.message}`);
+      if (!reason) throw err;
       this.#recoverFencedRequest(ownedUpdates);
-      return { kind: 'rejected', error: toError(err) };
+      return { kind: 'rejected', reason, error };
     }
-    if (this.#isSuperseded(epoch)) {
+    const reason = isFenced('response arrived after the fence closed');
+    if (reason) {
       this.#recoverFencedRequest(ownedUpdates);
-      return { kind: 'stale', response };
+      return { kind: 'stale', reason, response };
     }
     return { kind: 'ok', response };
   }

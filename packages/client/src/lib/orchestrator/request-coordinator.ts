@@ -82,6 +82,11 @@ export class RequestCoordinator {
    * Point subsequent requests at a different connector. In-flight requests
    * are unaffected — the transport has no cancellation — so the caller is
    * responsible for discarding any response that arrives from the old one.
+   *
+   * @internal Intended to be driven only by `Orchestrator.setConnector`,
+   * which is what keeps every copy of the connector reference in step.
+   * Calling this directly leaves the Orchestrator's in-flight responses
+   * unfenced, because its epoch will not have advanced.
    */
   setConnector(next: EngineConnector): void {
     this.#connector = next;
