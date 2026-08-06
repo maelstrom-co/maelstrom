@@ -1,0 +1,69 @@
+---
+title: Run the voice demo locally
+description: Hear a realtime voice turn end to end on your own machine, with one API key and one command.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+By the end of this tutorial you will talk to the repository demo, watch the UI rearrange itself, and hear it describe what it just did.
+
+This is the shortest path to hearing Maelstrom speak. Realtime voice is what the demo runs by default, so there is one command, and the only key you add is an OpenAI one.
+
+This is a learning checkpoint, not a deployment. The demo mint route is development-only and is not deployable.
+
+## What you need
+
+- The repository cloned, with `bun install` already run.
+- An `OPENAI_API_KEY` with access to the realtime models.
+- A `GOOGLE_API_KEY` or `GEMINI_API_KEY` for the Engine.
+- A browser with microphone permission.
+
+## Start the demo
+
+<Aside type="danger" title="Repository demo route is development-only">
+  The checked-in mint route does not authenticate the caller, and it forwards
+  the request body to the minter, so the caller chooses the model. It exists to
+  make this tutorial runnable. Replace it with the server-owned route from the
+  [OpenAI Realtime
+  guide](/guides/voice/openai-realtime/#mint-a-credential-on-your-server) before
+  any deployment.
+</Aside>
+
+1. Copy the root `.env.example` to `.env`. Fill in `OPENAI_API_KEY` and either `GOOGLE_API_KEY` or `GEMINI_API_KEY`. Leave everything else as it is — the Deepgram, Cartesia, and LiveKit values belong to the [cascade tutorial](/tutorials/run-the-cascade-locally/), and this one never reads them.
+2. From the repository root, start the demo:
+
+   ```bash
+   bunx nx dev demo
+   ```
+
+   This starts two processes: the Engine host and the browser app. Wait until both report ready.
+
+## Take a turn
+
+Open [http://localhost:3000](http://localhost:3000) and connect voice. The browser asks for microphone permission — allow it.
+
+Now just talk. There is no button to hold. OpenAI decides where your turn ends, so ask for something the demo can show and then stop speaking.
+
+Three things should happen in order: your words appear as a transcript, the UI rearranges itself, and then the model describes the result out loud.
+
+Watch that order. The model speaks *after* the screen changes, never before — it is describing a layout it has already been told about, rather than predicting one. That is [the settle wait](/understanding/voice-architecture/#why-the-boundary-holds) doing its job.
+
+Try one more thing: start a new request while it is still speaking. The provider handles the interruption, and if your second intent arrives while the first is still being applied, the session keeps the newer one instead of queueing both.
+
+If nothing is spoken back, check the terminal running `nx dev demo`. A rejected mint is reported there, and an expired or unauthorized `OPENAI_API_KEY` is the usual cause.
+
+## What you just ran
+
+You did not write any of this, but three parts of it are worth knowing before you build your own.
+
+**The demo chose the provider for you.** It selects OpenAI unless the client is built with `VITE_VOICE_PROVIDER=livekit`, which `apps/demo/.env.livekit` sets and the `dev-livekit` target uses. Both modes reach the same `m.useVoice()` hook and the same Vessels; only the adapter differs.
+
+**Your key never reached the browser.** The browser posted to `/api/realtime-token`, and the server minted a short-lived credential from `OPENAI_API_KEY` and returned only that. Audio then went from the browser straight to OpenAI over WebRTC, so it never passed through the process you started. The [OpenAI Realtime guide](/guides/voice/openai-realtime/) shows the route you would deploy in place of the demo's.
+
+**Nothing you said reached the Engine as structure.** The model called one tool with one sentence, and the Maelstrom client attached the Chart snapshot itself. That is why speaking to the demo could not break a Vessel, and it is the subject of [The voice boundary](/understanding/voice-architecture/).
+
+## Next steps
+
+- [OpenAI Realtime](/guides/voice/openai-realtime/) — build the deployable integration, with an authenticated mint route
+- [Run the cascade demo locally](/tutorials/run-the-cascade-locally/) — the same demo with speech recognition and synthesis you operate
+- [The voice boundary](/understanding/voice-architecture/) — why a voice model never plans your UI

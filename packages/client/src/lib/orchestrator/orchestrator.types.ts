@@ -24,16 +24,31 @@ export interface OrchestratorOptions {
 
 /**
  * Resolved configuration with defaults applied.
+ *
+ * Every field is `readonly` because {@link Orchestrator.getConfig} hands out
+ * the live object, not a copy: the Orchestrator replaces this object wholesale
+ * when a setter changes a field (see `setLayoutMode`), so a caller writing
+ * through the returned reference would bypass whatever else that setter owns
+ * — and `sessionId` is captured-once identity that nothing may rewrite.
  */
 export interface ResolvedOrchestratorOptions {
-  sessionId: SessionId;
-  layoutMode: LayoutMode;
-  debug: boolean;
-  debounceDelayMs: number;
-  maxWaitMs: number;
-  readyTimeoutMs: number;
-  connection: ConnectionOptions;
+  readonly sessionId: SessionId;
+  readonly layoutMode: LayoutMode;
+  readonly debug: boolean;
+  readonly debounceDelayMs: number;
+  readonly maxWaitMs: number;
+  readonly readyTimeoutMs: number;
+  readonly connection: ConnectionOptions;
 }
+
+/**
+ * Layout mode applied when {@link OrchestratorOptions.layoutMode} is
+ * omitted. The one definition of that default — {@link resolveOrchestratorOptions}
+ * consumes it internally, and consumers that need to know it (a "reset to
+ * default" control, for example) should import this constant rather than
+ * duplicating the literal.
+ */
+export const DEFAULT_LAYOUT_MODE: LayoutMode = 'tiling';
 
 /**
  * Resolves orchestrator options with defaults.
@@ -43,7 +58,7 @@ export function resolveOrchestratorOptions(
 ): ResolvedOrchestratorOptions {
   return {
     sessionId: options.sessionId ?? SessionId(),
-    layoutMode: options.layoutMode ?? 'tiling',
+    layoutMode: options.layoutMode ?? DEFAULT_LAYOUT_MODE,
     debug: options.debug ?? false,
     debounceDelayMs: options.debounceDelayMs ?? 300,
     maxWaitMs: options.maxWaitMs ?? 1000,

@@ -13,6 +13,8 @@ import type {
   AnyVesselEntry,
   ExtractVesselByIdFromEntries,
   TypedVesselProps,
+  UpdateVesselPayload,
+  UpdateVesselResult,
   VesselIds,
 } from './vessel-entry-types.js';
 
@@ -30,6 +32,7 @@ export type ReservedInstanceKeys =
   | 'useActions'
   | 'useInstance'
   | 'registerVessel'
+  | 'updateVessel'
   | 'with';
 
 /**
@@ -122,7 +125,7 @@ export interface MaelstromInstanceCore<
 
   /**
    * Dynamically register a vessel at runtime. Returns a typed handle with
-   * scoped `useVessel`, `useActions`, and `unregister()`.
+   * scoped `useVessel`, `useActions`, `update()`, and `unregister()`.
    * Throws if the vessel fails validation.
    *
    * Must be called while a Provider is mounted. The vessel becomes available
@@ -138,6 +141,109 @@ export interface MaelstromInstanceCore<
   registerVessel: <V extends VesselDefinition>(
     entry: AnyVesselEntry<V>,
   ) => DynamicVesselHandle<V>;
+
+  /**
+   * Republish a registered vessel's definition — its description, variants,
+   * and action parameters — without touching its component registration.
+   *
+   * Use this to keep the LLM-facing contract in sync with live data, e.g.
+   * re-declaring an action parameter's `enum` as the underlying list changes.
+   * Unlike `registerVessel`, this never re-wraps the component, so the vessel
+   * does not remount and keeps any DOM/canvas state it owns.
+   *
+   * `updateVessel` replaces the definition wholesale — it does not merge —
+   * so a rebuild that keeps only the variant or action being edited silently
+   * drops every other one, and reports a conflict if any live instance's
+   * current variant is missing from the rebuild. Map over every variant and
+   * every action instead, as below, so nothing but the targeted parameter
+   * changes.
+   *
+   * For a vessel id declared in `createMaelstrom({ vessels })`, every
+   * variant's `props` must match the shape of some variant on that
+   * vessel's factory-declared entry — the entry passed to
+   * `createMaelstrom({ vessels })`, fixed at compile time — which is what
+   * stops a rebuild from silently handing a mounted component a
+   * `variantProps` object missing a field it destructures. That check is
+   * per-vessel, not per-variant-key: it does not catch swapping two
+   * variants' `props` shapes with each other. `actions`, `enum` values,
+   * `description`, and `minSize` are not checked and stay free to change;
+   * that is exactly the workflow the example below relies on.
+   *
+   * For a vessel id registered only at runtime via `registerVessel()`, `Id`
+   * is outside `VesselIds<T>` and this function cannot name it — call
+   * `update()` on the handle `registerVessel()` returns instead. That
+   * handle is typed to its own inferred vessel definition, so it gets the
+   * same `props`-shape check as above, just checked against the handle's
+   * `V` rather than a factory-declared entry.
+   *
+   * The republish is lazy: it updates the local store immediately, but
+   * nothing schedules a fresh engine request on its own. The engine keeps
+   * working from the previous definition until some other event sends a
+   * request — an intent, an action, a resize. If the change raises a
+   * variant's `minSize`, live tiles on that variant also keep their old
+   * rect until then.
+   *
+   * @returns `{ ok: true }` once the definition is committed. `{ ok: false,
+   * conflict }` when the republish was refused for a recoverable,
+   * user-triggerable reason — not a bug — and the previous definition
+   * stays in force: `conflict.code === 'variant_dropped'` means a live
+   * instance's current variant is absent from the new definition;
+   * `'action_dropped'` means the new definition drops an action the
+   * current definition declares on that instance's variant (for example a
+   * `detail` variant that only exists while its record does, and the user
+   * just deleted that record); `'batch_in_flight'` means a command batch
+   * was already queued or executing, so the instance snapshot this check
+   * would scan cannot be trusted yet — retry once it settles. The
+   * variant/action scan covers every instance in the command-processor
+   * store, including instances not currently rendered as a tile. Branch on
+   * `conflict.code`, not on `conflict.message` text, which this package is
+   * free to reword.
+   *
+   * @throws `Error` if no Provider is mounted, if the vessel id is not
+   * already registered, or if the definition fails validation — those are
+   * caller mistakes, not recoverable states.
+   *
+   * @example
+   * const titles = ['Sprint kickoff', 'Architecture review'];
+   * const result = m.updateVessel({
+   *   ...journalVessel,
+   *   variants: Object.fromEntries(
+   *     Object.entries(journalVessel.variants).map(([variantName, variant]) => [
+   *       variantName,
+   *       {
+   *         ...variant,
+   *         actions: variant.actions.map((action) =>
+   *           action.name === 'openEntry' && action.parameters
+   *             ? {
+   *                 ...action,
+   *                 parameters: action.parameters.map((parameter) =>
+   *                   parameter.name === 'title'
+   *                     ? { ...parameter, enum: titles }
+   *                     : parameter,
+   *                 ),
+   *               }
+   *             : action,
+   *         ),
+   *       },
+   *     ]),
+   *   ),
+   * });
+   * if (!result.ok) {
+   *   switch (result.conflict.code) {
+   *     case 'variant_dropped':
+   *     case 'action_dropped':
+   *       // A live instance would be stranded by this republish — skip it,
+   *       // or surface a message and retry once the record exists again.
+   *       break;
+   *     case 'batch_in_flight':
+   *       // A batch was already in flight — retry on the next render.
+   *       break;
+   *   }
+   * }
+   */
+  updateVessel: <Id extends VesselIds<T>>(
+    vessel: UpdateVesselPayload<T, Id>,
+  ) => UpdateVesselResult;
 
   /**
    * Apply an extension to the instance, returning a new instance with the

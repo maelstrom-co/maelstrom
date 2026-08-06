@@ -1,40 +1,78 @@
 # Maelstrom Demo
 
-A day-planner UI — calendar, weather, map, journal, tasks — arranged entirely by an LLM. Talk or type: the engine reads your intent and the current state of the board, then decides what to show, where, and how big. Voice is client-direct WebRTC straight to OpenAI's realtime model (the default), or a self-hosted LiveKit cascade; the engine can't tell whether an intent came from your keyboard or your mouth.
+The Maelstrom demo is a day-planner UI whose Chart is arranged by an LLM. This walkthrough starts the typed demo from a cold clone. Voice is optional and uses the same Engine path after it turns speech into an intent.
 
 <!-- screenshot: busy board mid-rearrange, orb active -->
 
-## Quickstart (default: OpenAI realtime voice)
+## Prerequisites
 
-From the repo root:
+Before starting, install or confirm the following:
+
+- Git
+- the current stable version of Bun
+- Node.js 24, as specified by the repository's `.nvmrc` and CI configuration
+- free local ports 3000 and 3001
+- outbound network access to Gemini; weather and map data also use optional external services
+- a Gemini API key for the baseline typed flow
+
+The baseline does not require microphone permission, an OpenAI key, a LiveKit server, Deepgram, or Cartesia.
+
+## Start the typed demo
+
+Clone the repository from its public Git URL, then change into the clone directory:
+
+```bash
+git clone https://github.com/maelstrom-co/maelstrom
+cd maelstrom
+```
+
+The clone directory is the repository root. Every remaining command in this walkthrough runs there.
+
+From the repository root, install the workspace dependencies:
 
 ```bash
 bun install
+```
+
+From the repository root, create your local environment file:
+
+```bash
 cp .env.example .env
 ```
 
-Fill in `.env`:
+Edit `.env` and set `GOOGLE_API_KEY` to your Gemini API key. The Engine falls back to `GEMINI_API_KEY` when `GOOGLE_API_KEY` is absent, so you may add and use the fallback name instead. If you use `GEMINI_API_KEY`, the empty `GOOGLE_API_KEY=` line copied from `.env.example` may remain in `.env`; the runtime treats its empty value as absent. Only one of these keys is required for the baseline:
 
-| Key | Required for | Notes |
-| --- | --- | --- |
-| `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) | Text planning engine | Powers the engine's Gemini adapter |
-| `OPENAI_API_KEY` | Voice | Mints ephemeral realtime tokens server-side; never reaches the browser |
-| `OPENAI_REALTIME_MODEL` | Voice (optional) | Overrides the realtime model; defaults to `gpt-realtime-2` |
-| `ANTHROPIC_API_KEY` | Optional | For the engine's custom LLM provider support |
+```dotenv
+GOOGLE_API_KEY=<redacted>
+```
 
-One command runs both the WebSocket engine server and the Vite dev server:
+The repository ignores `.env`. Never commit it or paste its contents into logs, issues, or other shared material. Keep examples empty or redacted as shown above.
+
+From the repository root, start both baseline processes with the canonical command:
 
 ```bash
 bunx nx dev demo
 ```
 
-This runs the WebSocket engine host (`ws-server.ts`, port 3001) and Vite
-(port 3000) together. Open http://localhost:3000.
+The command builds the required workspace packages, then starts:
+
+The mint route this path uses (`src/routes/api/realtime-token.ts`) is
+development-only, for the same reason the LiveKit one below is: it does not
+authenticate the caller, and it forwards the request body to the minter, so the
+caller chooses the model. Replace it with the server-owned route from the
+[OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/)
+before any deployment.
 
 The `nx` commands in this README run from the repository root. Commands shown
 as `bun run ...` under the LiveKit section run from `apps/demo/`.
 
-## Run (LiveKit voice)
+The terminal is ready when the Vite output shows `http://localhost:3000` and the Engine host output shows `ws://localhost:3001/ws`. Neither process should exit.
+
+This is the repository's development-only LiveKit checkpoint. It exercises the
+browser adapter and local worker, but its mint route is not a production token
+boundary. For deployment, follow the
+[LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/)
+after validating the local path.
 
 1. Install and run a LiveKit server in dev mode:
 
@@ -43,105 +81,52 @@ as `bun run ...` under the LiveKit section run from `apps/demo/`.
    livekit-server --dev
    ```
 
-   `--dev` mode's well-known `devkey` / `secret` credentials already match the
-   pre-filled `LIVEKIT_*` values in `.env.example` (`ws://localhost:7880`), so
-   no LiveKit-side config changes are needed for local dev.
+## Optional: OpenAI realtime voice
 
-2. In `.env`, additionally set real keys for:
-   - `DEEPGRAM_API_KEY` — speech-to-text
-   - `CARTESIA_API_KEY` — text-to-speech
+OpenAI realtime voice is optional. The typed baseline works without voice and does not request microphone permission unless you use the voice orb.
 
-   `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_URL` can stay at
-   their `.env.example` defaults when using `livekit-server --dev`.
+To enable this track, add the following to `.env` from the repository root:
 
-3. From the repo root:
+```dotenv
+OPENAI_API_KEY=<redacted>
+# Optional model override; omit it to use gpt-realtime-2.
+OPENAI_REALTIME_MODEL=
+```
+
+Keep the API key only in the ignored `.env` file. The demo's server-side minter uses it to create a short-lived browser credential; do not expose the API key in browser code or shared output. Start the demo with the same baseline command above, allow microphone access when the browser asks, and use the voice orb.
+
+## Optional: LiveKit cascade voice
+
+The LiveKit cascade is also optional. It requires a local LiveKit server plus real Deepgram and Cartesia credentials.
+
+1. Install and run a LiveKit server in development mode:
+
+   ```bash
+   brew install livekit   # or download a release: https://github.com/livekit/livekit/releases
+   livekit-server --dev
+   ```
+
+   The development server's local-only `devkey` and `secret` credentials match the `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_URL` defaults in `.env.example`.
+
+2. In the repository root's ignored `.env`, set these optional voice-provider credentials:
+
+   ```dotenv
+   DEEPGRAM_API_KEY=<redacted>
+   CARTESIA_API_KEY=<redacted>
+   LIVEKIT_API_KEY=devkey
+   LIVEKIT_API_SECRET=secret
+   LIVEKIT_URL=ws://localhost:7880
+   ```
+
+3. From the repository root, start the LiveKit variant:
 
    ```bash
    bunx nx dev-livekit demo
    ```
 
-   Run it through Nx (not `bun run dev-livekit` from `apps/demo/`) so the
-   `^build` dependency fires and workspace packages are built first.
+   Run this variant through Nx so its build dependencies run first. It starts the Bun Engine host, the LiveKit voice-agent worker, and Vite in `livekit` mode.
 
-This starts three processes managed by `concurrently --kill-others-on-fail`:
-the WebSocket engine host (`ws-server.ts`, port 3001), the LiveKit voice agent
-worker (STT/TTS relay), and Vite (port 3000) in `livekit` mode. Vite mode loads
-`.env.livekit`, which sets `VITE_VOICE_PROVIDER=livekit` so the client selects
-`LiveKitAdapter` instead of the OpenAI realtime adapter.
-
-### LiveKit browser VAD
-
-The LiveKit demo uses adapter-owned browser VAD, which is also the
-`LiveKitAdapter` default when `vad` is omitted or `true`. The demo supplies an
-options object with `assetBaseUrl: '/vad-web/'`; the remaining defaults include
-250 ms of transport pre-roll. Set `vad: false` in the adapter to skip all VAD
-assets and worklets and use intentional manual turns.
-
-The complete `providerOptions` override set — `positiveSpeechThreshold: 0.8`,
-`negativeSpeechThreshold: 0.65`, `redemptionMs: 200`, `preSpeechPadMs: 100`, and
-`minSpeechMs: 100` — is aggressive demo-only tuning. Validate all five settings
-against real application speech before reusing them in production.
-
-Automatic mode keeps microphone audio in the browser while idle. If automatic
-detection cannot initialize, the adapter safely switches that connected
-session to manual turns and exposes `turnControl` for hold-to-talk. OpenAI
-realtime is unchanged and continues to use its speech-native turn handling.
-
-VAD initialization uses self-hosted assets. Prepare them from the repository
-root with:
-
-```bash
-bunx nx run demo:prepare-voice-assets
-```
-
-The equivalent command from `apps/demo/` is:
-
-```bash
-bun run prepare:voice-assets
-```
-
-The Nx target builds `@maelstrom-co/realtime-livekit` first, then runs the
-package command. Its `maelstrom-livekit-assets` CLI atomically replaces the
-ignored `apps/demo/public/vad-web/` directory with the complete asset set that
-matches the adapter's pinned VAD and ONNX Runtime dependencies. The Nx
-`serve`, `dev`, `dev-livekit`, and `build-livekit` targets run this preparation
-automatically. An ordinary `build` does not prepare VAD assets; run the root Nx
-command first if that build needs them.
-
-This build-time step is required even though automatic VAD is the runtime
-default: the default `/vad-web/` URL does not create or publish the assets. Vite
-serves the generated directory at `/vad-web/`, which is the demo's current
-`assetBaseUrl`. Do not commit the generated binaries.
-
-For production, either publish the complete directory at `/vad-web/` on the
-demo origin or set `assetBaseUrl` to an absolute HTTPS CDN directory. Use an
-immutable, versioned path such as
-`https://cdn.example.com/maelstrom/vad-web/0.0.30-ort-1.27.0/`; never replace
-files at that path. Return `Access-Control-Allow-Origin` for the demo origin,
-serve `.js` and `.mjs` as `text/javascript`, `.wasm` as `application/wasm`, and
-`.onnx` as `application/octet-stream`. The browser executes the JavaScript,
-worklet, and WASM assets, so publish the complete set only from controlled,
-trusted storage. CORS and MIME handling are operator and browser requirements;
-Maelstrom does not inspect response headers. Browser or VAD-runtime asset
-rejections surface as initialization errors and restore hold-to-talk fallback.
-
-The LiveKit adapter also creates its local pre-roll processor from a Blob-backed
-AudioWorklet module. Production Content Security Policy must allow `blob:` for
-worklet scripts under the directive used by the target browser. If AudioWorklet
-is unavailable, blocked, or fails to initialize, the adapter keeps manual turn
-control and the demo safely restores hold-to-talk rather than opening an
-unbuffered automatic turn.
-
-VAD is LiveKit-only. OpenAI realtime keeps its existing speech-native turn
-handling and does not create a browser VAD controller. When LiveKit VAD is
-healthy, turns are automatic and the hold-to-talk control is hidden. If VAD
-assets or runtime initialization fail, the demo switches to manual mode,
-shows a concise fallback notice, and restores hold-to-talk with its existing
-pointer and keyboard safeguards.
-
-## Things to say
-
-Type these into the input, or say them to the orb:
+## Things to type or say
 
 - "Clear all this — just show me today"
 - "What's my morning look like? I need to be at the design review by 10"
@@ -150,70 +135,31 @@ Type these into the input, or say them to the orb:
 
 ## How voice works
 
-The browser holds the OpenAI realtime session directly, authenticated by a short-lived token minted by `/api/realtime-token` — `OPENAI_API_KEY` never leaves the server. The model has one write path: an `update_ui` tool call carrying a plain-text intent, which flows through the same path as typed input — the engine plans against the app's own state, never the model's beliefs about the screen. The model only narrates a change after the render has settled, so it never talks ahead of what you see. Full design: [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md).
+The browser holds the OpenAI realtime session directly, authenticated by a short-lived token minted by `/api/realtime-token`. The model has one write path: an `update_ui` tool call carrying a plain-text intent, which follows the same path as typed input. The Engine plans against the app's own state, never the model's beliefs about the screen. The model receives the tool result only after rendering settles, so it does not narrate a change before it appears. See [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) for the full design.
 
 ## Debug overlays
 
-Append `?debug` to the URL (e.g. `http://localhost:3000/?debug`) to show the grid/tiling overlay and instance-id/size labels on every vessel. Off by default, so a plain `bunx nx dev demo` renders clean.
+Append `?debug` to the URL, for example `http://localhost:3000/?debug`, to show the grid and tiling overlay plus Instance ID and size labels for every Vessel. The overlay is off by default.
 
-**Recording tip:** macOS's "Reduce Motion" setting (System Settings → Accessibility → Display) disables all of the demo's choreography via `prefers-reduced-motion` — turn it off before recording the launch video.
+**Recording tip:** macOS's Reduce Motion setting (System Settings → Accessibility → Display) disables the demo's choreography through `prefers-reduced-motion`.
 
-## Troubleshooting
+## Troubleshooting and shutdown
 
-- **Mic blocked** — allow microphone access for this site in your browser's site settings, then click the orb to retry.
-- **Voice error: "couldn't start"** — `OPENAI_API_KEY` isn't set in `.env` for the dev server (`bunx nx dev demo`), which mints the realtime token via `/api/realtime-token`.
-- **Weather shows fixture data** — the demo is offline (no network to Open-Meteo); it falls back to canned values silently rather than erroring.
-- **Map tiles blank** — no network to `tiles.openfreemap.org`.
+- **The browser shows `connected`, but an intent returns an Engine error:** confirm that `.env` contains a valid `GOOGLE_API_KEY` or fallback `GEMINI_API_KEY`. The WebSocket connection can succeed even when the Gemini credential required to process requests is missing.
+- **Port 3000 or 3001 is occupied:** stop the process using that port, then run the canonical startup command again. Do not work around the conflict by changing the documented ports or command.
+- **Weather shows fixture data:** the demo could not reach Open-Meteo, so it silently uses canned values.
+- **Map tiles are blank:** confirm network access to `tiles.openfreemap.org`.
+- **OpenAI voice cannot start:** confirm that the optional OpenAI credential is present in `.env`, then allow microphone access for the site and retry the orb.
+- **LiveKit reports missing environment variables:** provide the optional `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`, and LiveKit settings described above.
+- **LiveKit reports `ECONNREFUSED ws://localhost:7880`:** start `livekit-server --dev` before starting the LiveKit variant.
+- **A LiveKit token configuration fails:** `LIVEKIT_TOKEN_TTL` must be a bare number of seconds or an integer followed by `s`, `m`, `h`, or `d`; its default is `15m`.
+- **The LiveKit agent rejects its flush timeout:** `MAELSTROM_STT_FLUSH_TIMEOUT_MS` must be a positive number; its default is `2000`.
 
-LiveKit-specific failure modes:
-
-Manual mode means browser VAD no longer starts or owns turn boundaries. The
-LiveKit `turnControl.startTurn()` and `endTurn()` controls become available only
-after the adapter has paused upstream publication and established manual mode.
-The demo reads this dynamic control through `useVoice()`; it does not retain an
-automatic-turn capability.
-
-`useVoice().turnModeError` is diagnostic-only. The demo uses its presence to
-show a fixed fallback notice. Never render the underlying value verbatim or
-serialize it into application state or telemetry.
-
-`providerOptions` accepts only the documented detection tuning fields. Stream
-callbacks, speech callbacks, asset paths, `ortConfig`, and other runtime-owned
-fields are invalid configuration and cause diagnostic manual degradation rather
-than being ignored.
-
-`preRollMs` defaults to 250 ms and applies only to automatic transport audio;
-it does not affect manual hold-to-talk turns. The provider's
-`preSpeechPadMs` changes the detected speech segment, not transport pre-roll,
-and cannot replace it.
-
-VAD setup and runtime failures fall back to manual mode only when the adapter
-can pause upstream audio safely. Token, room, publication, required
-data-channel, pause, and unexpected disconnection failures that make the
-transport unusable are fatal: the session enters its error path instead of
-presenting hold-to-talk as a safe fallback.
-
-- Missing `DEEPGRAM_API_KEY` / `CARTESIA_API_KEY` / LiveKit credentials → the
-  agent worker prints a clear missing-env-var error and exits.
-- No `livekit-server` running → `ECONNREFUSED ws://localhost:7880` from the
-  agent worker and/or the browser client.
-- `LIVEKIT_TOKEN_TTL` must be a bare integer (seconds) or `<int><unit>` with
-  unit `s`/`m`/`h`/`d` (default `15m`); anything else (e.g. `2 days`, `1w`)
-  fails closed with an HTTP 500 invalid-config response and a console error
-  naming the bad value.
-- `MAELSTROM_STT_DRAIN_TIMEOUT_MS` (optional, default `5000`) sets the positive
-  millisecond deadline for the provider stream to finish draining after
-  `endInput()`. If the stream stalls, the agent closes it and installs a clean
-  successor while the track remains active. A non-numeric or non-positive value
-  fails the agent worker's startup with a clear error naming the bad value.
-- The three processes run under `concurrently --kill-others-on-fail`, so a
-  worker that dies (e.g. on a missing `DEEPGRAM_API_KEY`/`CARTESIA_API_KEY`)
-  takes the other two down with it and the command exits non-zero. The failure
-  is visible rather than silent — check the terminal output for the agent
-  worker's error.
+Press `Ctrl-C` once in the startup terminal to stop both baseline processes. Delete `.env` afterward only if you also want to remove the local credentials; otherwise keep the ignored file for the next run.
 
 ## Further reading
 
+- [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) — browser integration first, then the production token and worker checkpoint
 - [`packages/realtime-livekit-agent/README.md`](../../packages/realtime-livekit-agent/README.md) — voice agent worker internals
 - [`packages/realtime-livekit/README.md`](../../packages/realtime-livekit/README.md) — adapter VAD configuration and asset deployment
 - [`packages/react-realtime/README.md`](../../packages/react-realtime/README.md) — `useVoice()` turn-mode state

@@ -1,1 +1,1 @@
-export { MaelstromError } from './base.js';
+export { MaelstromError } from './base.ts';

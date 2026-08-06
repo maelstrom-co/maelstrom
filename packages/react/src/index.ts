@@ -37,7 +37,12 @@ export { vessel } from './lib/vessel.js';
 export type {
   LazyVesselComponentLoader,
   LazyVesselEntry,
+  RepublishableVessel,
   TypedVesselProps,
+  UpdateVesselConflict,
+  UpdateVesselConflictCode,
+  UpdateVesselPayload,
+  UpdateVesselResult,
   VariantProps,
   VesselEntry,
   VesselIds,

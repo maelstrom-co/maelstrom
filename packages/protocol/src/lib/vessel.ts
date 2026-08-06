@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-import { ActionName } from './action-name.js';
-import { ChartSizeSchema } from './schemas.js';
-import { VariantName } from './variant-name.js';
-import { VesselId } from './vessel-id.js';
+import { ActionName } from './action-name.ts';
+import { ChartSizeSchema } from './schemas.ts';
+import { VariantName } from './variant-name.ts';
+import { VesselId } from './vessel-id.ts';
 
 // ---------------------------------------------------------------------------
 // Zod schemas

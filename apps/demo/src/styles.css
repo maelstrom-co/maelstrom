@@ -266,28 +266,25 @@ body {
   }
 }
 
-/* Action flash: a one-shot accent outline pulse on vessels the assistant
-   just changed. Plays once (animation, not transition) — the touched-id
-   timer removes the data-flash attribute shortly after this finishes. */
+/* Action flash: a one-shot inset ring on vessels the assistant just changed.
+   Inset (not outline-offset) so Chart's overflow:hidden cannot clip the pulse
+   on edge vessels. Plays once — the touched-id timer removes data-flash shortly
+   after this finishes. */
 @keyframes action-flash-pulse {
   0% {
-    outline-color: transparent;
-    outline-offset: 0;
+    box-shadow: inset 0 0 0 0 transparent;
   }
   25% {
-    outline-color: var(--color-brand);
-    outline-offset: 2px;
+    box-shadow: inset 0 0 0 2px var(--color-brand);
   }
   100% {
-    outline-color: transparent;
-    outline-offset: 8px;
+    box-shadow: inset 0 0 0 2px transparent;
   }
 }
 
 [data-flash='true'] {
-  outline: 2px solid transparent;
-  outline-offset: 0;
-  border-radius: 4px;
+  /* Match .vessel-card radius so the pulse tracks the glass chrome. */
+  border-radius: var(--r-md);
   animation: action-flash-pulse 1.2s ease-out 1;
 }
 
@@ -557,5 +554,7 @@ body {
 
   [data-flash='true'] {
     animation: none;
+    /* Static ring so reduced-motion users still see which vessel changed. */
+    box-shadow: inset 0 0 0 2px var(--color-brand);
   }
 }

@@ -18,7 +18,7 @@ export interface RequestCoordinatorState {
 }
 
 type FlushResolver = {
-  resolve: (value: MaelstromResponse) => void;
+  resolve: (value: MaelstromResponse | null) => void;
   reject: (error: Error) => void;
 };
 
@@ -49,7 +49,7 @@ export type RequestCoordinatorEvents = {
  * ```
  */
 export class RequestCoordinator {
-  readonly #connector: EngineConnector;
+  #connector: EngineConnector;
   readonly #emitter = new TypedEmitter<RequestCoordinatorEvents>();
   readonly events: EventSubscriber<RequestCoordinatorEvents> = this.#emitter;
   readonly #logger: Logger;
@@ -76,6 +76,20 @@ export class RequestCoordinator {
 
   get lastResponse(): MaelstromResponse | null {
     return this.store.state.lastResponse;
+  }
+
+  /**
+   * Point subsequent requests at a different connector. In-flight requests
+   * are unaffected — the transport has no cancellation — so the caller is
+   * responsible for discarding any response that arrives from the old one.
+   *
+   * @internal Intended to be driven only by `Orchestrator.setConnector`,
+   * which is what keeps every copy of the connector reference in step.
+   * Calling this directly leaves the Orchestrator's in-flight responses
+   * unfenced, because its epoch will not have advanced.
+   */
+  setConnector(next: EngineConnector): void {
+    this.#connector = next;
   }
 
   async send(message: ChartRequestMessage): Promise<MaelstromResponse> {
@@ -123,18 +137,29 @@ export class RequestCoordinator {
    * Returns a promise that settles when the next response arrives or the
    * next flush failure occurs. Use this to await an in-flight request when
    * `isProcessing` is true and you want to coalesce with it.
+   *
+   * Resolves to `null` rather than a response when the in-flight request it
+   * was coalescing with turns out to have been superseded (see
+   * {@link resolveFlushPromises}) — mirroring the `null` a caller already
+   * gets back from `flushUpdates()` when there was nothing to report.
    */
-  queueFlush(): Promise<MaelstromResponse> {
+  queueFlush(): Promise<MaelstromResponse | null> {
     return new Promise((resolve, reject) => {
       this.#flushResolvers.push({ resolve, reject });
     });
   }
 
   /**
-   * Resolves all queued flush promises with the given response and clears
-   * the queue.
+   * Resolves all queued flush promises and clears the queue.
+   *
+   * Pass `null` when the request they were coalescing with was discarded
+   * (e.g. fenced out by a connector swap) rather than actually applied —
+   * resolving with the discarded response itself would hand callers a
+   * layout that was never dispatched, and every fenced call site must
+   * settle these promises somehow or they hang until an unrelated later
+   * request happens to resolve them with an irrelevant response.
    */
-  resolveFlushPromises(response: MaelstromResponse): void {
+  resolveFlushPromises(response: MaelstromResponse | null): void {
     for (const { resolve } of this.#flushResolvers) {
       resolve(response);
     }

@@ -16,6 +16,18 @@ const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [realtimeTypeDoc, realtimeTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [reactRealtimeTypeDoc, reactRealtimeTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeServerTypeDoc, realtimeServerTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeLivekitTypeDoc, realtimeLivekitTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeLivekitServerTypeDoc, realtimeLivekitServerTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeLivekitAgentTypeDoc, realtimeLivekitAgentTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 
 // TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
 // the workspace root on every plugin call, so {path} carries the full
@@ -24,6 +36,13 @@ const [engineTypeDoc, engineTypeDocSidebarGroup] =
 const repoRoot = '../../';
 const sourceLinkTemplate =
   'https://github.com/maelstrom-co/maelstrom/blob/main/{path}#L{line}';
+const multiEntryTypeDocOptions = {
+  entryPointStrategy: 'resolve' as const,
+  excludeInternal: true,
+  disableGit: true,
+  basePath: repoRoot,
+  sourceLinkTemplate,
+};
 
 const docsRoot = path.resolve(
   process.cwd(),
@@ -232,6 +251,71 @@ export default defineConfig({
             sourceLinkTemplate,
           },
         }),
+        realtimeTypeDoc({
+          entryPoints: [
+            '../../packages/realtime/src/index.ts',
+            '../../packages/realtime/src/openai.ts',
+          ],
+          tsconfig: '../../packages/realtime/tsconfig.lib.json',
+          output: 'reference/realtime',
+          sidebar: { label: '@maelstrom-co/realtime', collapsed: true },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        reactRealtimeTypeDoc({
+          entryPoints: ['../../packages/react-realtime/src/index.ts'],
+          tsconfig: '../../packages/react-realtime/tsconfig.lib.json',
+          output: 'reference/react-realtime',
+          sidebar: {
+            label: '@maelstrom-co/react-realtime',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeServerTypeDoc({
+          entryPoints: ['../../packages/realtime-server/src/index.ts'],
+          tsconfig: '../../packages/realtime-server/tsconfig.lib.json',
+          output: 'reference/realtime-server',
+          sidebar: {
+            label: '@maelstrom-co/realtime-server',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeLivekitTypeDoc({
+          entryPoints: [
+            '../../packages/realtime-livekit/src/index.ts',
+            '../../packages/realtime-livekit/src/protocol.ts',
+            '../../packages/realtime-livekit/src/livekit-token.ts',
+            '../../packages/realtime-livekit/src/vad-assets.ts',
+          ],
+          tsconfig: '../../packages/realtime-livekit/tsconfig.lib.json',
+          output: 'reference/realtime-livekit',
+          sidebar: {
+            label: '@maelstrom-co/realtime-livekit',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeLivekitServerTypeDoc({
+          entryPoints: ['../../packages/realtime-livekit-server/src/index.ts'],
+          tsconfig: '../../packages/realtime-livekit-server/tsconfig.lib.json',
+          output: 'reference/realtime-livekit-server',
+          sidebar: {
+            label: '@maelstrom-co/realtime-livekit-server',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeLivekitAgentTypeDoc({
+          entryPoints: ['../../packages/realtime-livekit-agent/src/index.ts'],
+          tsconfig: '../../packages/realtime-livekit-agent/tsconfig.lib.json',
+          output: 'reference/realtime-livekit-agent',
+          sidebar: {
+            label: '@maelstrom-co/realtime-livekit-agent',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
       ],
       customCss: ['./src/styles/custom.css'],
       // Code blocks render through Expressive Code: native title frames
@@ -280,12 +364,22 @@ export default defineConfig({
           label: 'Tutorials',
           items: [
             { slug: 'tutorials/first-dashboard' },
+            { slug: 'tutorials/run-voice-locally' },
+            { slug: 'tutorials/run-the-cascade-locally' },
             { slug: 'tutorials/deploy-to-production' },
           ],
         },
         {
           label: 'Guides',
           items: [
+            {
+              label: 'Voice',
+              items: [
+                { slug: 'guides/voice/overview' },
+                { slug: 'guides/voice/openai-realtime' },
+                { slug: 'guides/voice/livekit-cascade' },
+              ],
+            },
             {
               label: 'React',
               items: [
@@ -322,6 +416,8 @@ export default defineConfig({
               label: 'Architecture Overview',
               link: '/understanding/architecture/',
             },
+            { slug: 'understanding/voice-architecture' },
+            { slug: 'understanding/browser-vad-and-barge-in' },
             { slug: 'understanding/engine' },
             { slug: 'understanding/protocol' },
             { slug: 'understanding/llm-orchestration' },
@@ -337,6 +433,17 @@ export default defineConfig({
             clientTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
+            {
+              label: 'Voice',
+              items: [
+                realtimeTypeDocSidebarGroup,
+                reactRealtimeTypeDocSidebarGroup,
+                realtimeServerTypeDocSidebarGroup,
+                realtimeLivekitTypeDocSidebarGroup,
+                realtimeLivekitServerTypeDocSidebarGroup,
+                realtimeLivekitAgentTypeDocSidebarGroup,
+              ],
+            },
           ],
         },
         {

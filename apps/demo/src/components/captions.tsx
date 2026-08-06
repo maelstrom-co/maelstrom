@@ -38,50 +38,61 @@ function useFadingCaption(
 }
 
 /**
- * Live voice captions anchored to the chart's bottom edge, above the intent
- * input. Streaming fragments render as they arrive; a finalized line stays
- * put for a few seconds and then fades rather than disappearing abruptly.
- * Hidden entirely while voice is idle, errored, or has nothing to show yet.
+ * Live voice captions in the footer chrome, above the orb and intent input.
+ * Streaming fragments render as they arrive; a finalized line stays put for
+ * a few seconds and then fades rather than disappearing abruptly.
+ *
+ * Always mounts a fixed-height band so showing or hiding captions cannot
+ * resize the chart (and fire engine `chart_resize`). Each side is single-line
+ * truncated and omitted when empty so one speaker does not claim half the row.
  */
 export function Captions() {
   const { state, userTranscript, assistantTranscript } = m.useVoice();
   const assistant = useFadingCaption(assistantTranscript);
   const user = useFadingCaption(userTranscript);
 
-  if (state === 'idle' || state === 'error') return null;
-  if (!assistant && !user) return null;
+  const voiceLive = state !== 'idle' && state !== 'error';
+  // Empty/whitespace entries still produce a FadingCaption object — do not
+  // render a lone accent dot or blank paragraph for those. Keep the truthy
+  // object check first so TS narrows inside each branch.
+  const showAssistant =
+    voiceLive && assistant !== undefined && assistant.text.trim().length > 0;
+  const showUser =
+    voiceLive && user !== undefined && user.text.trim().length > 0;
 
   return (
     <div
-      data-testid="captions-overlay"
-      className="captions-overlay pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-4 bg-gradient-to-t from-bg-1/90 via-bg-1/50 to-transparent px-6 pb-3 pt-10 backdrop-blur-sm"
+      data-testid="captions"
+      className="mx-auto mb-3 flex h-5 w-full max-w-4xl items-center justify-between gap-4"
     >
-      <p
-        data-role="assistant"
-        data-faded={Boolean(assistant?.faded)}
-        className={cn(
-          'caption-line flex items-center gap-2 text-sm font-medium text-ink',
-          assistant?.faded && 'caption-line--faded',
-        )}
-      >
-        {assistant && (
+      {showAssistant && assistant ? (
+        <p
+          data-role="assistant"
+          data-faded={Boolean(assistant.faded)}
+          className={cn(
+            'caption-line flex min-w-0 max-w-[50%] items-center gap-2 text-sm font-medium text-ink',
+            assistant.faded && 'caption-line--faded',
+          )}
+        >
           <span
             className="caption-dot inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-brand-2"
             style={{ boxShadow: '0 0 8px var(--color-brand-2)' }}
           />
-        )}
-        {assistant?.text}
-      </p>
-      <p
-        data-role="user"
-        data-faded={Boolean(user?.faded)}
-        className={cn(
-          'caption-line text-right text-sm text-ink-3',
-          user?.faded && 'caption-line--faded',
-        )}
-      >
-        {user?.text}
-      </p>
+          <span className="truncate">{assistant.text}</span>
+        </p>
+      ) : null}
+      {showUser && user ? (
+        <p
+          data-role="user"
+          data-faded={Boolean(user.faded)}
+          className={cn(
+            'caption-line ml-auto min-w-0 max-w-[50%] truncate text-right text-sm text-ink-3',
+            user.faded && 'caption-line--faded',
+          )}
+        >
+          {user.text}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -1,0 +1,106 @@
+---
+title: Run the cascade demo locally
+description: Hear a LiveKit cascade turn end to end on your own machine, with speech recognition and synthesis you operate.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+By the end of this tutorial you will speak to the repository demo, watch the UI adapt, and hear the result spoken back by a worker you are running yourself.
+
+You will run two commands. The first starts a local LiveKit server. The second starts everything else: the Engine host, the STT/TTS worker, and the browser app.
+
+This is the longer of the two voice tutorials, because a cascade has more pieces. If you only want to hear voice working, [Run the voice demo locally](/tutorials/run-voice-locally/) needs one key and one command.
+
+This is a learning checkpoint, not a deployment. The demo mint route is development-only and is not deployable.
+
+## What you need
+
+- The repository cloned, with `bun install` already run.
+- Deepgram and Cartesia API keys.
+- A `GOOGLE_API_KEY` or `GEMINI_API_KEY` for the Engine.
+- A browser with microphone permission.
+
+## Start the demo
+
+<Aside type="danger" title="Repository demo route is development-only">
+  The checked-in demo mint route signs grants without authenticating the caller.
+  It exists to make this tutorial runnable. Replace it with the server-owned
+  route from the [LiveKit cascade
+  guide](/guides/voice/livekit-cascade/#mint-a-room-grant-on-your-server) before
+  any deployment.
+</Aside>
+
+1. Copy the root `.env.example` to `.env`. Keep the existing `GOOGLE_API_KEY` or `GEMINI_API_KEY` for the Engine, add real `DEEPGRAM_API_KEY` and `CARTESIA_API_KEY` values, and leave the example `LIVEKIT_*` values unchanged.
+2. Follow the official [Install LiveKit Server](https://docs.livekit.io/home/self-hosting/local) instructions if the binary is not installed. Then start the local LiveKit process in one terminal:
+
+   ```bash
+   livekit-server --dev
+   ```
+
+   The `--dev` flag uses well-known insecure `devkey` / `secret` credentials that are suitable only for local development.
+3. From the repository root, start the demo in a second terminal:
+
+   ```bash
+   bunx nx dev-livekit demo
+   ```
+
+   This one command starts three processes: the Engine host, the long-running STT/TTS worker, and the browser app. Wait until all three report ready.
+
+## Take a turn
+
+Open [http://localhost:3000](http://localhost:3000) and connect voice. The browser asks for microphone permission — allow it.
+
+Now ask for something the demo can show, then stop speaking. The adapter detects the end of your turn in the browser, so there is nothing to hold. `dev-livekit` copied the detection assets before it started the app.
+
+Three things should happen in order: your words appear as a transcript, the UI rearranges itself, and then the worker speaks the result back to you.
+
+If a hold-to-talk button appears instead, the detection assets did not load, and the session fell back to marking turns by hand. That fallback is the button. Hold it, speak, release, and the rest of this tutorial is unchanged.
+
+If the UI moved but nothing was spoken, check your Cartesia key. If nothing happened at all, read the terminal running `dev-livekit` — recognition failures are reported there, not in the browser.
+
+## What you just ran
+
+Two pieces of the demo are worth reading now that you have watched them work.
+
+Every voice session gets one `LiveKitAdapter`. The callback that fetches the room grant is application-provided, which is what keeps LiveKit signing credentials out of the browser bundle. This is the shape you would write; the demo's own version at `apps/demo/src/lib/maelstrom.ts` passes extra options for its local setup:
+
+```ts title="src/voice/livekit-adapter.ts"
+export function createLiveKitAdapter({
+  sessionId,
+}: CreateAdapterContext): LiveKitAdapter {
+  return new LiveKitAdapter({
+    roomName: `maelstrom-${sessionId}`,
+    mintToken: fetchLiveKitToken,
+    thinkingFallbackMs: 10_000,
+  });
+}
+```
+
+During `connect()`, the adapter acquires the microphone track and mutes it before publishing it, so no enabled track is ever on the wire before a turn starts. A denied browser permission surfaces as `MIC_PERMISSION_DENIED`.
+
+The adapter ignores partial and blank transcription segments. Each non-empty final transcript emits a user transcript event and exactly one synthetic `update_ui` tool call whose `intent` is the trimmed transcript. That natural-language intent follows the normal Maelstrom path; the worker never plans the UI.
+
+Turn boundaries are the cascade's own problem. A speech-native model hears where your turn ended; a worker running speech-to-text does not. So the adapter either finds the boundary in the browser, as it just did, or hands the application a pair of controls to mark it:
+
+```ts title="src/voice/held-turn.ts"
+export async function runHeldTurn(
+  turnControl: AdapterTurnControl,
+): Promise<void> {
+  await turnControl.startTurn();
+  try {
+    await waitForRelease();
+  } finally {
+    await turnControl.endTurn();
+  }
+}
+```
+
+`startTurn()` unmutes the published microphone. `endTurn()` mutes it before signaling the worker to flush the turn. If a turn produces no final transcript, the `thinkingFallbackMs` timer returns the session from `thinking` to `connected`. The adapter snippet earlier sets that timer explicitly; leave it out and the adapter's own default applies, as the demo does.
+
+These controls reach your components only while the session is marking turns by hand, so a button bound to them cannot appear in a session that is listening on its own. Turn detection belongs to the adapter, not to the shared voice architecture: a realtime adapter always detects turns itself and never offers the controls at all.
+
+## Next steps
+
+- [LiveKit cascade](/guides/voice/livekit-cascade/) — build the deployable integration, with server-owned room and participant scope
+- [The voice boundary](/understanding/voice-architecture/) — why the turn is split this way
+- [Run the voice demo locally](/tutorials/run-voice-locally/) — the same demo in realtime mode, for comparison

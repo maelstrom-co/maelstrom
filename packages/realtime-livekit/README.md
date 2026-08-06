@@ -1,29 +1,51 @@
 # @maelstrom-co/realtime-livekit
 
-`@maelstrom-co/realtime-livekit` connects `RealtimeSession` to a cascaded
-LiveKit STT/TTS pipeline. The browser adapter owns microphone publication,
-browser voice activity detection (VAD), pre-roll, and turn boundaries. The
-companion `@maelstrom-co/realtime-livekit-agent` worker runs Deepgram STT and
-Cartesia TTS; it does not run a voice-side LLM.
+A `RealtimeProviderAdapter` (from `@maelstrom-co/realtime`) backed by a LiveKit
+cascaded STT/TTS voice pipeline instead of a speech-native realtime model.
 
-The package is separate from `@maelstrom-co/realtime` so applications that do
-not use LiveKit do not install `livekit-client` or the browser VAD runtime.
+Shipped separately from `@maelstrom-co/realtime` so consumers of the core never
+have `livekit-client` forced on them — pull this in only when you want the
+LiveKit transport.
 
-## How the adapter drives Maelstrom
+## The idea
 
-`LiveKitAdapter` converts each final user transcript into an `update_ui` tool
-call. The intent then follows the same `RealtimeSession` path as a speech-native
-adapter, including speak-after-render, barge-in, and sidechannel events.
+`LiveKitAdapter` **synthesizes an `update_ui` tool call from each final user
+transcript**, so a cascaded pipeline drives the exact same `RealtimeSession`
+machinery (speak-after-render, barge-in, sidechannel events) as the OpenAI
+realtime adapter — with no voice-side LLM in the worker or adapter. The
+synthesized intent still flows through Maelstrom's engine LLM via
+`RealtimeSession`, exactly as an OpenAI-realtime session would.
 
-- `RoomEvent.TranscriptionReceived` produces transcript events and the
-  synthesized `update_ui` call.
-- `sendToolResult()` sends the Engine's `userMessage` over the `speak` text
-  stream when present, otherwise it sends the post-settle structural summary.
-- The worker synthesizes that summary through Cartesia.
+- **Transcripts in:** `RoomEvent.TranscriptionReceived` → `transcript` event +
+  a synthesized `update_ui` `tool_call`.
+- **Speak out:** the worker has no model, so `sendToolResult` picks the words:
+  the engine's `userMessage` when present, else the structural `summary`. It
+  goes over the `speak` text stream and the worker synthesizes it via Cartesia.
+- **Hold-to-talk:** `adapter.turnControl.startTurn()` /
+  `adapter.turnControl.endTurn()` unmute and mute the published microphone;
+  ending the turn also asks the worker to flush its STT buffer.
 
-## Configure turn detection
+The companion worker (`@maelstrom-co/realtime-livekit-agent`) owns the actual
+STT (Deepgram) and TTS (Cartesia), and holds no LLM of its own.
 
-Browser VAD is enabled by default:
+## Entry points
+
+Every subpath this package exports:
+
+- **`@maelstrom-co/realtime-livekit`** — `LiveKitAdapter` (browser), plus
+  `LiveKitTokenGrant` and `LiveKitTokenGrantSchema` re-exported from `./token`.
+- **`@maelstrom-co/realtime-livekit/protocol`** — wire topic constants shared
+  with the worker.
+- **`@maelstrom-co/realtime-livekit/token`** — the grant type and schema on
+  their own, for code that validates a grant without pulling in the adapter.
+- **`@maelstrom-co/realtime-livekit/vad-assets`** — `copyLiveKitVadAssets`, the
+  Node-only helper behind the build step in
+  [Deploy browser VAD assets](#deploy-browser-vad-assets).
+
+The Node-only token minter is a **separate package**, not a subpath here:
+`@maelstrom-co/realtime-livekit-server` (`mintLiveKitToken`).
+
+## Usage
 
 ```ts
 import { RealtimeSession } from '@maelstrom-co/realtime';
@@ -32,64 +54,21 @@ import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
 const adapter = new LiveKitAdapter({
   mintToken: (roomName) => fetchLiveKitToken(roomName),
   roomName: `maelstrom-${sessionId}`,
-  vad: {
-    assetBaseUrl: '/vad-web/',
-    preRollMs: 250,
-    providerOptions: { positiveSpeechThreshold: 0.8 },
-  },
 });
-
 const session = new RealtimeSession({ adapter, instance, sessionId });
 await session.connect();
+
+// Hold-to-talk. `turnControl` is optional on the adapter seam, so read it
+// through the session, which exposes it only while manual mode is established:
+await session.turnControl?.startTurn();
+await session.turnControl?.endTurn();
 ```
 
-The `vad` option accepts four forms:
-
-- Omitted: enable automatic turns with `assetBaseUrl: '/vad-web/'`,
-  `preRollMs: 250`, and the provider defaults.
-- `true`: use the same automatic defaults as an omitted value.
-- An options object: enable automatic turns and override supported settings.
-- `false`: use manual turns without fetching VAD assets or creating the VAD and
-  pre-roll worklets.
-
-`preRollMs` must be a finite value from 0 through 500. It controls transport
-pre-roll: audio retained locally before speech detection is sent once before
-live speech. `providerOptions.preSpeechPadMs` is different; it changes the
-provider's detection segment and does not replace or populate transport
-pre-roll.
-
-`providerOptions` exposes only supported detection tuning. Applications cannot
-replace adapter-owned streams, callbacks, asset paths, audio context, start
-policy, or ONNX Runtime configuration.
-
-### Automatic and manual behavior
-
-In automatic mode, the adapter observes the microphone locally and keeps the
-upstream publication paused while the user is silent. Speech start sends the
-bounded pre-roll once and opens live upstream audio. Speech end drains accepted
-audio, pauses publication, and signals the worker to flush STT. No idle
-microphone media is sent upstream between turns.
-
-Invalid VAD configuration and asset, initialization, runtime, or VAD callback
-failures degrade that connected session to manual mode. The adapter first ends
-any active automatic turn and pauses upstream publication; only then does it
-emit manual mode and expose `turnControl`. The LiveKit room, transcripts, and
-TTS remain available.
-
-Manual controls are dynamic and are available only after manual mode is
-established:
-
-```ts
-const turnControl = session.turnControl;
-await turnControl?.startTurn();
-await turnControl?.endTurn();
-```
-
-A transport failure is different from VAD degradation. Token minting, room,
-publication, required data-channel, pause, or unexpected disconnection failures
-that leave the transport dead or unable to stop upstream audio are fatal. The
-adapter tears down the connection instead of presenting manual mode as a safe
-fallback.
+`connect()` acquires the microphone track, mutes it, and only then publishes it
+and pauses it upstream — never `setMicrophoneEnabled(true)`, which would put an
+enabled track on the wire before the gate is applied. It stays muted until
+`startTurn()`. Each non-empty final transcript becomes one `update_ui` intent. An empty turn returns from `thinking` to `connected` after the bounded
+`thinkingFallbackMs` interval (10 seconds by default).
 
 ## Deploy browser VAD assets
 
@@ -166,43 +145,23 @@ failure.
 
 ## Contributor testing
 
-From the workspace root, run
-`nx test @maelstrom-co/realtime-livekit --skipSync`. This target builds the
-package dependencies before running `bun test --isolate` from this package. For
-direct reruns after those dependencies are built, run `bun test --isolate` from
-this package. The `--isolate` flag deliberately fences process-global
-happy-dom, browser, audio, module, and Bun mocks between test files by giving
-each file a fresh global and module environment. This boundary prevents one
-file's browser shims or `mock.module()` registrations from changing another
-file's imports.
+This package runs `bun test --isolate`, and it is the only package here that
+does. The flag gives every test file a fresh global and module environment. That
+boundary is required: these tests install process-global happy-dom, browser,
+audio, and `mock.module()` shims, and without it one file's shims change what
+another file imports.
 
 Isolation does not replace teardown. Each test must still restore mutated
-globals and spies, stop tracks and worklets, clear timers, and release other
-resources so failures and tests within the same file cannot leak state.
+globals and spies, stop tracks and worklets, and clear timers, so state cannot
+leak between tests inside one file.
 
-## Entry points
+See the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/)
+for the compile-checked browser integration and exact local demo commands. The
+[Voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/) compares
+the provider tracks. Production token and worker setup is the guide's next
+checkpoint; the checked-in demo route is development-only.
 
-- `@maelstrom-co/realtime-livekit` — browser `LiveKitAdapter` and configuration
-  types.
-- `@maelstrom-co/realtime-livekit/token` — shared LiveKit token grant type.
-- `@maelstrom-co/realtime-livekit/protocol` — wire topics shared with the
-  worker.
-- `@maelstrom-co/realtime-livekit/vad-assets` — Node-only asset deployment
-  helper; never import this subpath into browser code.
-
-## Breaking pre-release migration
-
-Browser VAD moved from `@maelstrom-co/react-realtime` into `LiveKitAdapter`.
-
-- Move supported `assetBaseUrl`, `preRollMs`, and `providerOptions` values from
-  `maelstromRealtime(...).withVAD(options)` to
-  `new LiveKitAdapter({ ..., vad: options })`.
-- Replace the old VAD error callback and `vadError` with the provider-neutral
-  `turnModeError` from `useVoice()`.
-- Do not call a public automatic-turn capability. Automatic turn serialization
-  is private to the adapter; only manual `turnControl` remains public.
-- Remove the React package's VAD controller and direct VAD dependencies. Use
-  this package's asset helper or CLI during the application build instead.
-
-See [`@maelstrom-co/react-realtime`](../react-realtime/README.md) for the React
-hook and turn-mode state.
+API details are available in the
+[generated reference](https://docs.maelstrom-ai.co/reference/). For design
+context, read the
+[voice architecture reference](https://github.com/maelstrom-co/maelstrom/blob/main/docs/realtime-voice-architecture.md).

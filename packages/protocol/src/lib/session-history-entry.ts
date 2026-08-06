@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
-import type { Mutable } from './_drift-guards.js';
-import type { MessageId } from './message.js';
-import { MessageIdSchema } from './message.js';
-import type { SessionId } from './session.js';
-import { SessionIdSchema } from './session.js';
+import type { Mutable } from './_drift-guards.ts';
+import type { MessageId } from './message.ts';
+import { MessageIdSchema } from './message.ts';
+import type { SessionId } from './session.ts';
+import { SessionIdSchema } from './session.ts';
 
 /**
  * Wire-format projection of a single recorded history entry, returned by

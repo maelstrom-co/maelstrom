@@ -2,10 +2,20 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "allowJs": true,
+    "jsx": "react-jsx",
     "outDir": "out-tsc/playwright",
     "sourceMap": false,
     "rootDir": "."
   },
-  "include": ["e2e/**/*.ts", "e2e/**/*.js", "playwright.config.ts"],
+  "include": [
+    "e2e/**/*.ts",
+    "e2e/**/*.tsx",
+    "e2e/**/*.js",
+    "playwright.config.ts",
+    // Diagram models. The e2e suite asserts a page renders every role, path, and
+    // step its model declares, so the model is the assertion's source of truth.
+    "src/components/ownership/*.ts",
+    "src/components/sequence/*.ts"
+  ],
   "exclude": ["out-tsc", "test-output"]
 }
