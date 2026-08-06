@@ -47,6 +47,3 @@ export type {
   VesselEntry,
   VesselIds,
 } from './lib/vessel-entry-types.js';
-
-// Utilities — reusable by extension packages
-export { warnOnce } from './lib/warn-once.js';
