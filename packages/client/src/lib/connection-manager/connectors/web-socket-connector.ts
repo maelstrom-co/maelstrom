@@ -143,8 +143,9 @@ export class WebSocketConnector implements EngineConnector {
 
   #ws: WebSocket | null = null;
   // Tracks an in-flight connect() so a second call while CONNECTING reuses
-  // it instead of constructing another socket. Cleared once the attempt
-  // settles, success or failure.
+  // it instead of constructing another socket. Cleared once that attempt
+  // settles, success or failure — but only by the attempt still holding this
+  // field, never by one a later connect() has already superseded.
   #connectPromise: Promise<void> | null = null;
   // Identifies the socket a close event is allowed to act on. Unlike `#ws`
   // (which `disconnect()` nulls immediately, before the browser's close
@@ -278,10 +279,18 @@ export class WebSocketConnector implements EngineConnector {
       }
     });
 
-    this.#connectPromise = attempt.finally(() => {
-      this.#connectPromise = null;
+    // Only the attempt that still owns the field may clear it. A call for a
+    // different session dials fresh over an in-flight one (never idempotent,
+    // per the contract above), so an unconditional clear would let the
+    // superseded attempt's settle erase the live attempt's join point — and
+    // the CONNECTING branch above would then fall through and construct
+    // another socket over `#ws`. The callback runs after `settled` is
+    // initialised, so the self-reference is safe.
+    const settled: Promise<void> = attempt.finally(() => {
+      if (this.#connectPromise === settled) this.#connectPromise = null;
     });
-    return this.#connectPromise;
+    this.#connectPromise = settled;
+    return settled;
   }
 
   /**

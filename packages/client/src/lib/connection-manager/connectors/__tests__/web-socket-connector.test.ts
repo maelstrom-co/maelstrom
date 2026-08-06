@@ -246,6 +246,45 @@ describe('WebSocketConnector.connect() session scoping', () => {
       clock.uninstall();
     }
   });
+
+  test('a superseded attempt settling does not clear the live attempt so a same-session retry still joins it', async () => {
+    // The in-flight-connect join point is a single field, and a cross-session
+    // connect() overwrites it (never idempotent, by contract). If the
+    // superseded attempt's settle cleared that field unconditionally it would
+    // erase the *live* attempt's join point, so the CONNECTING guard below
+    // falls through and constructs a third socket over the live one — the
+    // exact double-socket the guard exists to prevent.
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+
+    const first = connector.connect(SessionId('session-1'));
+    await Promise.resolve();
+    const ws1 = FakeWebSocket.instances.at(-1);
+    if (!ws1) throw new Error('FakeWebSocket was not constructed');
+
+    // Different session: dials fresh over the still-CONNECTING first socket.
+    const second = connector.connect(SessionId('session-2'));
+    await Promise.resolve();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const ws2 = FakeWebSocket.instances.at(-1);
+    if (!ws2) throw new Error('expected a second FakeWebSocket');
+
+    // The superseded socket finally opens, settling the attempt nobody is
+    // waiting on any more.
+    ws1.emitOpen();
+    await first;
+
+    // The live attempt's socket is still CONNECTING, so this must join it.
+    expect(ws2.readyState).toBe(FakeWebSocket.CONNECTING);
+    const third = connector.connect(SessionId('session-2'));
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    ws2.emitOpen();
+    await second;
+    await third;
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    await connector.disconnect();
+  });
 });
 
 describe('WebSocketConnector wire contract', () => {
