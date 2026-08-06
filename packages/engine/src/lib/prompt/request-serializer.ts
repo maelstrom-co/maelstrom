@@ -8,7 +8,7 @@ import type {
   VesselAction,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { isInstanceIdNode } from '@maelstrom-co/protocol';
+import { isInstanceIdNode, sanitizeControlChars } from '@maelstrom-co/protocol';
 import type { Logger } from '../logger.js';
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
@@ -36,7 +36,10 @@ export function buildDefaultUserSections(
   })();
 
   return [
-    { key: UserSection.VESSELS, content: buildVesselsSection(request.vessels) },
+    {
+      key: UserSection.VESSELS,
+      content: buildVesselsSection(request.vessels, logger),
+    },
     { key: UserSection.CHART_STATE, content: chartStateContent },
     {
       key: UserSection.UPDATE_TRIGGERS,
@@ -45,17 +48,20 @@ export function buildDefaultUserSections(
   ];
 }
 
-export function buildVesselsSection(vessels: readonly Vessel[]): string {
+export function buildVesselsSection(
+  vessels: readonly Vessel[],
+  logger?: Logger,
+): string {
   const lines: string[] = ['## Registered Vessels', ''];
 
   for (const vessel of vessels) {
-    lines.push(serializeVessel(vessel));
+    lines.push(serializeVessel(vessel, logger));
   }
 
   return lines.join('\n');
 }
 
-function serializeVessel(vessel: Vessel): string {
+function serializeVessel(vessel: Vessel, logger?: Logger): string {
   const lines: string[] = [];
   lines.push(`### ${vessel.id} - ${vessel.name}`);
   lines.push(vessel.description);
@@ -69,7 +75,7 @@ function serializeVessel(vessel: Vessel): string {
     lines.push(`- ${variantName}${defaultMarker}${variantDesc}`);
 
     if (variant.actions.length > 0) {
-      lines.push(`  Actions: ${formatActions(variant.actions)}`);
+      lines.push(`  Actions: ${formatActions(variant.actions, logger)}`);
     }
   }
 
@@ -77,14 +83,35 @@ function serializeVessel(vessel: Vessel): string {
   return lines.join('\n');
 }
 
-function serializeAction(action: VesselAction): string {
+// Enum values are free-form, LLM- or voice-transcript-produced strings (task
+// and journal titles), so they can't be trusted to omit the '|' delimiter or
+// a line break. The system prompt asks the model to copy a chosen value
+// straight into a JSON `paramsJson` blob, so the displayed literal has to
+// already be valid JSON: a string renders quoted with proper escaping, and a
+// number or boolean renders bare, matching its declared `type` instead of
+// being silently coerced to a string. `sanitizeControlChars` strips
+// control characters after stringifying, otherwise a value could still
+// spill the "Actions:" line into what would read as a fresh top-level
+// prompt instruction. A value JSON.stringify cannot represent (a cyclic
+// object, a throwing `toJSON`, `undefined`) has no faithful literal at all,
+// so it yields `undefined` and is dropped by the caller: a placeholder like
+// "[object Object]" would read to the model as a genuine, copyable option.
+function serializeEnumValue(value: unknown): string | undefined {
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(value);
+  } catch {
+    json = undefined;
+  }
+  return json === undefined ? undefined : sanitizeControlChars(json);
+}
+
+function serializeAction(action: VesselAction, logger?: Logger): string {
   let str: string = action.name;
 
   if (action.parameters && action.parameters.length > 0) {
     const params = action.parameters
-      .map((p: ActionParameter) =>
-        p.enum ? `${p.name}: ${p.enum.join('|')}` : `${p.name}: ${p.type}`,
-      )
+      .map((p: ActionParameter) => serializeParameter(p, action.name, logger))
       .join(', ');
     str += `(${params})`;
   }
@@ -100,8 +127,37 @@ function serializeAction(action: VesselAction): string {
   return str;
 }
 
-function formatActions(actions: readonly VesselAction[]): string {
-  return actions.map(serializeAction).join(', ');
+// An enum whose every value is unrenderable is indistinguishable, for prompt
+// purposes, from a parameter that declares no enum at all — fall back to the
+// declared `type` rather than emitting a dangling or empty option list.
+function serializeParameter(
+  parameter: ActionParameter,
+  actionName: string,
+  logger?: Logger,
+): string {
+  const values = parameter.enum ?? [];
+  if (values.length === 0) return `${parameter.name}: ${parameter.type}`;
+
+  const serialized = values
+    .map(serializeEnumValue)
+    .filter((value): value is string => value !== undefined);
+
+  const dropped = values.length - serialized.length;
+  if (dropped > 0) {
+    logger?.warn(
+      `Dropped ${dropped} enum value(s) that cannot be rendered as JSON for parameter "${parameter.name}" on action "${actionName}"`,
+    );
+  }
+
+  if (serialized.length === 0) return `${parameter.name}: ${parameter.type}`;
+  return `${parameter.name}: ${serialized.join('|')}`;
+}
+
+function formatActions(
+  actions: readonly VesselAction[],
+  logger?: Logger,
+): string {
+  return actions.map((action) => serializeAction(action, logger)).join(', ');
 }
 
 function lookupVesselForInstance(
@@ -186,7 +242,7 @@ function serializeInstanceActions(
     return '';
   }
   if (variant.actions.length > 0) {
-    return `  Actions: ${formatActions(variant.actions)}`;
+    return `  Actions: ${formatActions(variant.actions, logger)}`;
   }
   return '';
 }
@@ -254,7 +310,7 @@ function serializeInstanceForTiling(
   let line = `- ${instance.instanceId} (${instance.vesselId}), variant: ${instance.variant}`;
 
   if (variant && variant.actions.length > 0) {
-    line += `\n  Available: ${formatActions(variant.actions)}`;
+    line += `\n  Available: ${formatActions(variant.actions, logger)}`;
   }
 
   return line;
