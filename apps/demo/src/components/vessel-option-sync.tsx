@@ -1,6 +1,6 @@
 import {
-  MAX_OPTION_COUNT,
-  MAX_OPTIONS_TOTAL_CHARS,
+  MAX_CAPABILITY_OPTION_COUNT,
+  MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
 } from '@maelstrom-co/client';
 import type { UpdateVesselResult } from '@maelstrom-co/react';
 import { useEffect } from 'react';
@@ -73,25 +73,26 @@ export function cleanTitles(
   // truncations below warn.
   let result = [...new Set(safe)];
 
-  if (result.length > MAX_OPTION_COUNT) {
-    const dropped = result.length - MAX_OPTION_COUNT;
+  if (result.length > MAX_CAPABILITY_OPTION_COUNT) {
+    const dropped = result.length - MAX_CAPABILITY_OPTION_COUNT;
     console.warn(
-      `[vessel-option-sync] ${label}: dropping ${dropped} of ${result.length} titles to stay under the ${MAX_OPTION_COUNT}-option cap`,
+      `[vessel-option-sync] ${label}: dropping ${dropped} of ${result.length} titles to stay under the ${MAX_CAPABILITY_OPTION_COUNT}-option cap`,
     );
-    result = result.slice(0, MAX_OPTION_COUNT);
+    result = result.slice(0, MAX_CAPABILITY_OPTION_COUNT);
   }
 
   const totalChars = result.reduce((sum, title) => sum + title.length, 0);
-  if (totalChars > MAX_OPTIONS_TOTAL_CHARS) {
+  if (totalChars > MAX_CAPABILITY_OPTIONS_TOTAL_CHARS) {
     const fitted: string[] = [];
     let runningChars = 0;
     for (const title of result) {
-      if (runningChars + title.length > MAX_OPTIONS_TOTAL_CHARS) break;
+      if (runningChars + title.length > MAX_CAPABILITY_OPTIONS_TOTAL_CHARS)
+        break;
       fitted.push(title);
       runningChars += title.length;
     }
     console.warn(
-      `[vessel-option-sync] ${label}: dropping ${result.length - fitted.length} of ${result.length} titles to stay under the ${MAX_OPTIONS_TOTAL_CHARS}-character budget`,
+      `[vessel-option-sync] ${label}: dropping ${result.length - fitted.length} of ${result.length} titles to stay under the ${MAX_CAPABILITY_OPTIONS_TOTAL_CHARS}-character budget`,
     );
     result = fitted;
   }

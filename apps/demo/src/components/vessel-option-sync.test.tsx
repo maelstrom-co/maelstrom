@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
 import {
-  MAX_OPTION_COUNT,
-  MAX_OPTIONS_TOTAL_CHARS,
+  MAX_CAPABILITY_OPTION_COUNT,
+  MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
 } from '@maelstrom-co/client';
 import type { VesselDefinition } from '@maelstrom-co/protocol';
 import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
@@ -476,28 +476,28 @@ describe('cleanTitles', () => {
   // Hardening, not an observed bug: the demo's shipped seed data never
   // reaches this scale (tasks.store.ts seeds only 3 tasks). It guards
   // against a live session accumulating enough long-titled options that the
-  // count cap (MAX_OPTION_COUNT) is satisfied but the character budget
-  // (MAX_OPTIONS_TOTAL_CHARS) the package enforces in
+  // count cap (MAX_CAPABILITY_OPTION_COUNT) is satisfied but the character budget
+  // (MAX_CAPABILITY_OPTIONS_TOTAL_CHARS) the package enforces in
   // capability-snapshot.ts is not — which would otherwise make the package
   // omit the parameter's options entirely (`optionsOmitted: true`) instead
   // of the demo handing it a list it can actually accept.
   it('truncates to the character budget when titles pass the count cap but blow the character budget (hardening: not reachable with shipped seed data)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // Each title is well under MAX_OPTION_COUNT in list length but long
-    // enough that the combined length exceeds MAX_OPTIONS_TOTAL_CHARS.
-    const titleLength = Math.ceil(MAX_OPTIONS_TOTAL_CHARS / 50) + 10;
+    // Each title is well under MAX_CAPABILITY_OPTION_COUNT in list length but long
+    // enough that the combined length exceeds MAX_CAPABILITY_OPTIONS_TOTAL_CHARS.
+    const titleLength = Math.ceil(MAX_CAPABILITY_OPTIONS_TOTAL_CHARS / 50) + 10;
     const titles = Array.from({ length: 50 }, (_, i) =>
       `Task ${i}`.padEnd(titleLength, 'x'),
     );
-    expect(titles.length).toBeLessThanOrEqual(MAX_OPTION_COUNT);
+    expect(titles.length).toBeLessThanOrEqual(MAX_CAPABILITY_OPTION_COUNT);
     const totalChars = titles.reduce((sum, t) => sum + t.length, 0);
-    expect(totalChars).toBeGreaterThan(MAX_OPTIONS_TOTAL_CHARS);
+    expect(totalChars).toBeGreaterThan(MAX_CAPABILITY_OPTIONS_TOTAL_CHARS);
 
     const result = cleanTitles(titles, 'tasks');
 
-    expect(result.length).toBeLessThanOrEqual(MAX_OPTION_COUNT);
+    expect(result.length).toBeLessThanOrEqual(MAX_CAPABILITY_OPTION_COUNT);
     expect(result.reduce((sum, t) => sum + t.length, 0)).toBeLessThanOrEqual(
-      MAX_OPTIONS_TOTAL_CHARS,
+      MAX_CAPABILITY_OPTIONS_TOTAL_CHARS,
     );
     expect(warn).toHaveBeenCalled();
     const messages = warn.mock.calls.map(([message]) => String(message));
