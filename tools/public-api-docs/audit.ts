@@ -808,6 +808,12 @@ function mergeReports(reports: AuditReport[]): AuditReport {
   };
 }
 
+/**
+ * Runs the selected audits and returns a process exit code. Invalid CLI option
+ * combinations remain usage errors on stderr with exit code 2; unmet artifact
+ * prerequisites and audit findings are emitted in the JSON report and return
+ * exit code 1.
+ */
 async function main(): Promise<number> {
   const root = resolve(import.meta.dir, '../..');
   const arguments_ = process.argv.slice(2);
@@ -912,18 +918,33 @@ async function main(): Promise<number> {
       }
     }
     if (typedoc) {
-      const roots = [
-        join(root, 'apps/docs/src/content/docs/reference'),
-        join(root, 'apps/docs/dist/reference'),
-      ];
-      const files = (
-        await Promise.all(
-          roots.map((typedocRoot) =>
-            filesRecursively(typedocRoot, ['.md', '.html']),
-          ),
-        )
-      ).flat();
-      reports.push(await auditArtifactFiles(files));
+      const generatedRootPath = 'apps/docs/dist/reference';
+      const generatedFiles = await filesRecursively(
+        join(root, generatedRootPath),
+        ['.html'],
+      );
+      if (generatedFiles.length === 0) {
+        reports.push({
+          errors: [
+            {
+              path: generatedRootPath,
+              rule: 'missing-typedoc-html',
+              message:
+                'Generated TypeDoc output contains no HTML; build the documentation site before running the TypeDoc audit.',
+            },
+          ],
+          findings: [],
+          scanned: [],
+        });
+      } else {
+        const sourceFiles = await filesRecursively(
+          join(root, 'apps/docs/src/content/docs/reference'),
+          ['.md'],
+        );
+        reports.push(
+          await auditArtifactFiles([...sourceFiles, ...generatedFiles]),
+        );
+      }
     }
     const merged = mergeReports(reports);
     for (const message of consumerErrors) {

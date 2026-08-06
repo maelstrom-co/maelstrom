@@ -104,6 +104,92 @@ function runTool(path: string, arguments_: string[]) {
   );
 }
 
+/**
+ * Runs the TypeDoc audit from an isolated repository-shaped workspace. Source
+ * Markdown is always present so the generated-HTML prerequisite is exercised
+ * independently of supplemental documentation content.
+ */
+async function runTypedocAudit(
+  generated: 'missing' | 'empty' | 'valid',
+) {
+  const workspace = await temporaryRoot();
+  await write(
+    join(workspace, 'tools/public-api-docs/audit.ts'),
+    await readFile(join(import.meta.dir, 'audit.ts'), 'utf8'),
+  );
+  await symlink(
+    join(import.meta.dir, '../../node_modules'),
+    join(workspace, 'node_modules'),
+  );
+  await write(
+    join(workspace, 'apps/docs/src/content/docs/reference/index.md'),
+    '# Supplemental source reference\n',
+  );
+  const generatedRoot = join(workspace, 'apps/docs/dist/reference');
+  if (generated === 'empty') {
+    await write(join(generatedRoot, 'ignored.txt'), 'not generated HTML');
+  } else if (generated === 'valid') {
+    await write(join(generatedRoot, 'index.html'), '<h1>Generated API</h1>');
+  }
+  return Bun.spawnSync(
+    [
+      process.execPath,
+      join(workspace, 'tools/public-api-docs/audit.ts'),
+      '--typedoc',
+    ],
+    { cwd: workspace, stderr: 'pipe', stdout: 'pipe' },
+  );
+}
+
+describe('generated TypeDoc prerequisite', () => {
+  test('reports missing generated HTML as a JSON audit error', async () => {
+    const result = await runTypedocAudit('missing');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toBe('');
+    expect(JSON.parse(result.stdout.toString()).errors).toEqual([
+      {
+        path: 'apps/docs/dist/reference',
+        rule: 'missing-typedoc-html',
+        message:
+          'Generated TypeDoc output contains no HTML; build the documentation site before running the TypeDoc audit.',
+      },
+    ]);
+  });
+
+  test('reports an HTML-free generated directory as a JSON audit error', async () => {
+    const result = await runTypedocAudit('empty');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toBe('');
+    expect(JSON.parse(result.stdout.toString()).errors).toEqual([
+      {
+        path: 'apps/docs/dist/reference',
+        rule: 'missing-typedoc-html',
+        message:
+          'Generated TypeDoc output contains no HTML; build the documentation site before running the TypeDoc audit.',
+      },
+    ]);
+  });
+
+  test('scans valid generated HTML with supplemental source Markdown', async () => {
+    const result = await runTypedocAudit('valid');
+    const report = JSON.parse(result.stdout.toString());
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr.toString()).toBe('');
+    expect(report.errors).toEqual([]);
+    expect(report.scanned.map((path: string) => path.replaceAll('\\', '/'))).toEqual([
+      expect.stringContaining(
+        '/apps/docs/dist/reference/index.html',
+      ),
+      expect.stringContaining(
+        '/apps/docs/src/content/docs/reference/index.md',
+      ),
+    ]);
+  });
+});
+
 describe('forbidden public documentation prose', () => {
   test('finds a ticket leak after TypeScript declaration emit', async () => {
     const { declaration } = await emitDeclaration(
@@ -154,7 +240,11 @@ describe('forbidden public documentation prose', () => {
       }),
     );
     const typedoc = Bun.spawnSync([
-      join(import.meta.dir, '../../node_modules/.bin/typedoc'),
+      process.execPath,
+      'run',
+      '--cwd',
+      join(import.meta.dir, '../../apps/docs'),
+      'typedoc',
       '--entryPoints',
       declaration,
       '--tsconfig',
