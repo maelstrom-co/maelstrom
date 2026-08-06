@@ -164,45 +164,70 @@ export class ConnectionManager {
    * health of the engine behind the connector, not the connector object, and a
    * re-auth does not make a failing engine healthy.
    *
-   * When the manager is `connected` OR already mid-dial (`connecting` — an
-   * initial `connect()`, an auto-reconnect attempt, or a half-open probe all
-   * leave it in this state), the swap best-effort disconnects the outgoing
-   * connector and drives the incoming one through the same
-   * connect-with-retries path `connect()` uses — so the event-stream
-   * subscription moves as a side effect of that connect (success
-   * re-subscribes, same as any other connect), and `connectionStatus`
-   * transitions honestly (`connecting` → `connected`/`error`) instead of
-   * either holding the old connector's `connected` value for a socket nobody
-   * has opened, or leaving the incoming connector undialed while whatever
-   * dial was already in flight quietly answers for it. The in-flight dial
-   * being superseded is fenced at its own call site (see the per-attempt
-   * connector capture in `#connectWithRetries`, `#handleAutoReconnect`, and
+   * Severing the outgoing connector is unconditional and happens in every
+   * state: its event subscription is torn down and it is best-effort
+   * disconnected. A swap means this manager no longer speaks to it, so it
+   * must no longer be able to drive `connectionStatus` / `connectionError`,
+   * and its socket must not be left open. `error` and `disconnected` are not
+   * exceptions — both are reachable with a live subscription (a connector
+   * `error` event, or an unclean `disconnected` whose auto-reconnect is still
+   * sitting in backoff).
+   *
+   * Redialing is what varies. When the manager was `connected`, mid-dial
+   * (`connecting` — an initial `connect()`, an auto-reconnect attempt, or a
+   * half-open probe all leave it in this state), or had an auto-reconnect
+   * armed and waiting out its backoff, the incoming connector is driven
+   * through the same connect-with-retries path `connect()` uses — so the
+   * subscription lands on it as a side effect of that connect, and
+   * `connectionStatus` transitions honestly (`connecting` →
+   * `connected`/`error`) instead of holding a value that describes a socket
+   * nobody has opened. The armed reconnect counts because cancelling it
+   * without redialing would strand the manager: it was going to reconnect,
+   * and after the swap nothing ever would. Any dial already in flight is
+   * fenced at its own call site (the connector capture in
+   * `#connectWithRetries`, `#handleAutoReconnect`, and
    * `#attemptHalfOpenProbe`): its eventual settlement is a no-op once this
    * has moved `#connector` on.
+   *
+   * Otherwise — a genuinely idle manager, with nothing connected, no dial in
+   * flight and no reconnect armed — the swap severs and stops there;
+   * `connect()` remains the caller's own explicit trigger.
    *
    * This runs from a React effect and must never throw into render: a
    * failure surfaces the same way any other connect failure does — through
    * `connectionStatus`, `connectionError`, and the `connection_error` /
    * `circuit_opened` events — not as a rejected call.
    *
-   * When the manager is `disconnected` or `error` (no dial in flight and
-   * nothing connected), the swap does nothing beyond pointing at the new
-   * connector — there is no live subscription or socket to hand off, and
-   * `connect()` remains the caller's own explicit trigger.
+   * @internal Intended to be driven only by `Orchestrator.setConnector`,
+   * which is what keeps every copy of the connector reference in step.
+   * Calling this directly leaves the Orchestrator's in-flight responses
+   * unfenced, because its epoch will not have advanced.
    */
   setConnector(next: EngineConnector): void {
     if (Object.is(next, this.#connector)) return;
     const previous = this.#connector;
     const status = this.store.state.connectionStatus;
-    const shouldRedial = status === 'connected' || status === 'connecting';
+    // Read before the timeout is cleared below.
+    const shouldRedial =
+      status === 'connected' ||
+      status === 'connecting' ||
+      this.#reconnectTimeoutId !== null;
     this.#connector = next;
-
-    if (!shouldRedial) return;
 
     this.#cleanupConnectorSubscription();
     previous.disconnect().catch((err) => {
       this.#logger.warn('Outgoing connector disconnect failed', err);
     });
+
+    // Deliberately not #clearTimeouts(): that also kills the circuit-breaker
+    // timer, and the breaker's state carries across the swap — clearing it
+    // would strand an open breaker with no half-open probe ever due.
+    if (this.#reconnectTimeoutId) {
+      clearTimeout(this.#reconnectTimeoutId);
+      this.#reconnectTimeoutId = null;
+    }
+
+    if (!shouldRedial) return;
 
     this.#connectWithRetries().catch(() => {
       // Failure is already recorded on the store and emitted via events
@@ -231,6 +256,14 @@ export class ConnectionManager {
     let attempt = 0;
     let lastError: Error | null = null;
 
+    // Captured once per INVOCATION, not per attempt. setConnector can move
+    // `#connector` on at any suspension point below — mid-dial or mid-backoff
+    // — and starts its own loop for the incoming connector, so every await
+    // re-checks this capture to keep exactly one loop per connector. Reading
+    // the field back instead would let a superseded loop dial the connector
+    // the swap already owns, concurrently with that swap's own loop.
+    const connector = this.#connector;
+
     while (attempt < maxAttempts) {
       attempt++;
 
@@ -245,14 +278,6 @@ export class ConnectionManager {
         maxAttempts,
       });
 
-      // Captured per attempt, not read back through the field: setConnector
-      // can move `#connector` on while this call is in flight (it now
-      // redials during 'connecting', not just 'connected'), and a belated
-      // settlement — success OR failure — from the connector THIS attempt
-      // actually dialed must not be attributed to whatever connector the
-      // field points at by the time the promise settles. Declared outside
-      // the try so the catch below can see it too.
-      const connector = this.#connector;
       try {
         await connector.connect(this.#sessionId);
         if (!Object.is(connector, this.#connector)) return; // superseded mid-dial
@@ -273,17 +298,11 @@ export class ConnectionManager {
 
         return;
       } catch (error) {
-        // Same supersession guard as the success branch, checked FIRST —
-        // before any emit or store write, and returning (not breaking) out
-        // of the whole loop. A failure from a connector setConnector has
-        // already moved past must not: (1) emit connection_error or write
-        // connectionError describing a connector nobody uses any more; (2)
-        // sleep-and-loop, because the next iteration re-reads
-        // `this.#connector` and would redial the NEW connector a second
-        // time, concurrently with the legitimate #connectWithRetries
-        // setConnector already kicked off; or (3) fall through to the
-        // circuit-breaker-opening tail below, which would stomp a dial that
-        // may be seconds from succeeding — or already has.
+        // Checked FIRST — before any emit or store write, and returning (not
+        // breaking) out of the whole loop. A failure on a superseded
+        // connector must not describe itself on the store, and must not fall
+        // through to the circuit-breaker-opening tail below, which would
+        // stomp a dial that may be seconds from succeeding — or already has.
         if (!Object.is(connector, this.#connector)) {
           this.#logger.debug(
             'Connection attempt failed on a superseded connector; abandoning this retry loop',
@@ -312,6 +331,15 @@ export class ConnectionManager {
         if (attempt < maxAttempts) {
           const delay = this.#calculateBackoffDelay(attempt);
           await this.#sleep(delay);
+          // The backoff sleep is the widest suspension point of all — a
+          // re-auth swap lands here, not mid-dial, in the case this whole
+          // seam exists for.
+          if (!Object.is(connector, this.#connector)) {
+            this.#logger.debug(
+              'Connector superseded during backoff; abandoning this retry loop',
+            );
+            return;
+          }
         }
       }
     }

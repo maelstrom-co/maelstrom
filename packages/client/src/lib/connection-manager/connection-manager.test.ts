@@ -5,6 +5,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+import { flushMicrotasks } from '../../../test-utils/async-utils.js';
 import type { Unsubscribe } from '../types.js';
 import type { ConnectionManagerEvents } from './connection-manager.js';
 import { ConnectionManager } from './connection-manager.js';
@@ -61,13 +62,6 @@ function createMockConnector(): EngineConnector & {
 
     getSubscriberCount: () => handlers.size,
   };
-}
-
-// Drains queued microtasks so a fire-and-forget async chain (setConnector's
-// internal #connectWithRetries call) gets the chance to run to completion
-// before assertions inspect its result.
-async function flushMicrotasks(): Promise<void> {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
 describe('ConnectionManager', () => {
@@ -1451,6 +1445,122 @@ describe('ConnectionManager', () => {
 
       expect(nextConnector.connect).not.toHaveBeenCalled();
       expect(manager.store.state.connectionStatus).toBe('disconnected');
+    });
+
+    it('severs the outgoing connector when swapped while in error', async () => {
+      // 'error' is reachable with a LIVE subscription: the connector emits an
+      // error event, the handler records it, and nothing tears the
+      // subscription down. A swap here used to reassign the field and return,
+      // leaving the dead transport wired to this manager's state.
+      await manager.connect();
+      mockConnector.triggerEvent({
+        type: 'error',
+        error: new Error('transport blew up'),
+      });
+      expect(manager.store.state.connectionStatus).toBe('error');
+
+      const nextConnector = createMockConnector();
+      manager.setConnector(nextConnector);
+      await flushMicrotasks();
+
+      // The contract: a connector the manager has swapped away from can no
+      // longer move its state.
+      mockConnector.triggerEvent({
+        type: 'disconnected',
+        clean: true,
+        message: 'ghost',
+      });
+      expect(manager.store.state.connectionStatus).toBe('error');
+
+      expect(mockConnector.getSubscriberCount()).toBe(0);
+      expect(mockConnector.disconnect).toHaveBeenCalled();
+    });
+
+    it('does not let a pending auto-reconnect dial a connector swapped in mid-backoff', async () => {
+      // An unclean disconnect arms the reconnect timer but only sets
+      // 'connecting' inside the timer callback, so the whole backoff window
+      // reads 'disconnected'. The armed timer dials whatever `#connector`
+      // points at when it fires — the connector swapped in behind its back.
+      await manager.connect();
+      mockConnector.triggerEvent({
+        type: 'disconnected',
+        clean: false,
+        message: 'network died',
+      });
+      expect(manager.store.state.connectionStatus).toBe('disconnected');
+
+      const nextConnector = createMockConnector();
+      manager.setConnector(nextConnector);
+      await flushMicrotasks();
+
+      // The swap itself is the only thing allowed to dial, and it does so
+      // synchronously via the explicit connect-with-retries path — cancelling
+      // the armed timer without redialing would strand the manager.
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+
+      // Past the first backoff window: the orphaned timer is dead, so no
+      // second, unattended dial appears.
+      await clock.tickAsync(5000);
+      await flushMicrotasks();
+
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('abandons a retry loop whose connector was swapped out during the backoff sleep', async () => {
+      // The motivating case for the whole swap feature: connect() fails
+      // because the token expired, the app re-auths and swaps the connector
+      // while the retry loop is asleep between attempts. Status is
+      // 'connecting' for the whole sleep, so setConnector redials on its own
+      // account — and the sleeping loop must not wake up, re-read the field,
+      // and dial the NEW connector a second time on top of that.
+      manager = new ConnectionManager(mockConnector, {
+        sessionId: SessionId('test-session'),
+        maxRetries: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 1000,
+        backoffMultiplier: 1,
+        circuitBreakerTimeoutMs: 5000,
+      });
+
+      mockConnector.connect = mock(() =>
+        Promise.reject(new Error('token expired')),
+      );
+
+      const connectPromise = manager.connect().catch(() => {
+        // Pre-fix the stale loop exhausts its budget and throws past
+        // connect()'s caller; post-fix it returns quietly. This test asserts
+        // on manager STATE either way.
+      });
+      await flushMicrotasks();
+      expect(manager.store.state.connectionStatus).toBe('connecting');
+
+      const nextConnector = createMockConnector();
+      let nextConnectorCallCount = 0;
+      nextConnector.connect = mock(() => {
+        nextConnectorCallCount++;
+        // The one legitimate dial: setConnector's own retry loop.
+        if (nextConnectorCallCount === 1) return Promise.resolve();
+        // Any further call is the hazard: the stale loop waking from its
+        // sleep and dialing whatever the field now points at.
+        return Promise.reject(new Error('should never be dialed again'));
+      });
+
+      manager.setConnector(nextConnector);
+      await flushMicrotasks();
+
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+      expect(manager.store.state.connectionStatus).toBe('connected');
+
+      // Let the stale loop's sleep expire and run whatever it was going to do.
+      await clock.tickAsync(10000);
+      await flushMicrotasks();
+      await connectPromise;
+
+      expect(nextConnector.connect).toHaveBeenCalledTimes(1);
+      // A stale loop exhausting its remaining budget must not open the breaker
+      // over the connection the swap just established successfully.
+      expect(manager.store.state.circuitBreakerStatus).toBe('closed');
+      expect(manager.store.state.connectionStatus).toBe('connected');
     });
 
     it('connects the new connector and disconnects the old one when swapped on a connected manager', async () => {
