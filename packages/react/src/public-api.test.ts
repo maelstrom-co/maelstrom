@@ -1,10 +1,14 @@
 import { expect, spyOn, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+
 import * as testingApi from './_testing.js';
 import { warnOnce } from './lib/warn-once.js';
 
 test('keeps warning helpers off the root and exposes only reset through _testing', () => {
-  const rootSource = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
+  const rootSource = readFileSync(
+    new URL('./index.ts', import.meta.url),
+    'utf8',
+  );
   expect(rootSource).not.toMatch(/\bwarnOnce\b/);
   expect(rootSource).not.toMatch(/\bresetWarnings\b/);
   expect(Object.keys(testingApi)).toEqual(['resetWarnings']);

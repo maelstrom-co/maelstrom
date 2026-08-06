@@ -3,17 +3,15 @@ import {
   access,
   mkdir,
   mkdtemp,
-  readFile,
   readdir,
+  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  installPackedConsumer,
-  type PackageAuditInput,
-} from './audit';
+
+import { installPackedConsumer, type PackageAuditInput } from './audit';
 
 const repositoryRoot = join(import.meta.dir, '../..');
 const temporaryRoots: string[] = [];
@@ -99,10 +97,7 @@ test('the current packed React package keeps warning utilities behind _testing',
     [],
   );
 
-  const installedReact = join(
-    consumerRoot,
-    'node_modules/@maelstrom-co/react',
-  );
+  const installedReact = join(consumerRoot, 'node_modules/@maelstrom-co/react');
   const manifest = JSON.parse(
     await readFile(join(installedReact, 'package.json'), 'utf8'),
   ) as { exports: Record<string, unknown> };
@@ -142,7 +137,12 @@ test('the current packed React package keeps warning utilities behind _testing',
   const node = Bun.which('node');
   expect(node).not.toBeNull();
   const runtimeDeepImport = run(
-    [node!, '--input-type=module', '--eval', `await import('${deepSpecifier}')`],
+    [
+      node!,
+      '--input-type=module',
+      '--eval',
+      `await import('${deepSpecifier}')`,
+    ],
     consumerRoot,
   );
   expect(runtimeDeepImport.exitCode).not.toBe(0);
@@ -152,7 +152,7 @@ test('the current packed React package keeps warning utilities behind _testing',
 
   await writeFile(
     join(consumerRoot, 'deep-import.ts'),
-    `import '${deepSpecifier}';\n`,
+    `import { warnOnce } from '${deepSpecifier}';\nvoid warnOnce;\n`,
   );
   await writeFile(
     join(consumerRoot, 'deep-import-tsconfig.json'),

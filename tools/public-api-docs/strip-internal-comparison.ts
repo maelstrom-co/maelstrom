@@ -53,6 +53,7 @@ function compilerConfiguration(
     ts.sys,
     dirname(tsconfig),
     {
+      allowImportingTsExtensions: true,
       declaration: true,
       declarationMap: false,
       emitDeclarationOnly: true,

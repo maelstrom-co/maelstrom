@@ -11,6 +11,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+
 import {
   auditArtifactFiles,
   auditPackedPackage,
@@ -109,9 +110,7 @@ function runTool(path: string, arguments_: string[]) {
  * Markdown is always present so the generated-HTML prerequisite is exercised
  * independently of supplemental documentation content.
  */
-async function runTypedocAudit(
-  generated: 'missing' | 'empty' | 'valid',
-) {
+async function runTypedocAudit(generated: 'missing' | 'empty' | 'valid') {
   const workspace = await temporaryRoot();
   await write(
     join(workspace, 'tools/public-api-docs/audit.ts'),
@@ -179,13 +178,11 @@ describe('generated TypeDoc prerequisite', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr.toString()).toBe('');
     expect(report.errors).toEqual([]);
-    expect(report.scanned.map((path: string) => path.replaceAll('\\', '/'))).toEqual([
-      expect.stringContaining(
-        '/apps/docs/dist/reference/index.html',
-      ),
-      expect.stringContaining(
-        '/apps/docs/src/content/docs/reference/index.md',
-      ),
+    expect(
+      report.scanned.map((path: string) => path.replaceAll('\\', '/')),
+    ).toEqual([
+      expect.stringContaining('/apps/docs/dist/reference/index.html'),
+      expect.stringContaining('/apps/docs/src/content/docs/reference/index.md'),
     ]);
   });
 });
@@ -994,6 +991,36 @@ test('stripInternal comparison supports composite package configurations', async
   );
 
   expect(result.status).toBe('identical');
+}, 30_000);
+
+test('stripInternal comparison supports source imports with TypeScript extensions', async () => {
+  const root = await temporaryRoot();
+  await write(
+    join(root, 'src/index.ts'),
+    "export { value } from './value.ts';",
+  );
+  await write(join(root, 'src/value.ts'), 'export const value = 1;');
+  await write(
+    join(root, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: {
+        declaration: true,
+        module: 'ESNext',
+        moduleResolution: 'Bundler',
+        outDir: 'dist',
+        rewriteRelativeImportExtensions: true,
+      },
+      include: ['src/**/*.ts'],
+    }),
+  );
+
+  const result = await compareStripInternal(
+    join(root, 'tsconfig.json'),
+    await temporaryRoot(),
+  );
+
+  expect(result.status).toBe('identical');
+  expect(result.inputCount).toBe(2);
 }, 30_000);
 
 test('stripInternal comparison does not create the configured tsbuildinfo cache', async () => {
