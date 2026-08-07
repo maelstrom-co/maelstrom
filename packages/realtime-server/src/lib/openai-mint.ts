@@ -93,7 +93,7 @@ export type MintResult = Result<OpenAITokenGrant, MintFailure>;
  *
  * const mint = createOpenAIMinter({
  *   apiKey: process.env.OPENAI_API_KEY!,
- *   model: 'gpt-realtime-2',
+ *   model: 'gpt-realtime-2.1',
  * });
  * const headers = { 'Cache-Control': 'private, no-store' };
  *

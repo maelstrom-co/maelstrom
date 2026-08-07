@@ -56,8 +56,8 @@ Coverage is enforced two ways, and both matter: each project with a `biome.json`
 ## Environment Setup
 
 Copy `.env.example` to `.env` and configure API keys for LLM providers:
-- `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) - Google Gemini (used by demo)
-- `OPENAI_API_KEY` - OpenAI
+- `OPENAI_API_KEY` - OpenAI (demo engine + realtime voice)
+- `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) - Google Gemini (optional future adapter; not used by the demo)
 - `ANTHROPIC_API_KEY` - Anthropic Claude
 
 Packages are published to public npm (`registry.npmjs.org`) under the `@maelstrom-co` scope. No registry or auth config is needed to install or develop — the root `.npmrc` maps no `@maelstrom-co` scope and holds no token. Per-PR preview packages are the one exception: they go to GitHub Packages. CI publishes them with the workflow's own `GITHUB_TOKEN`; installing one is what requires a `read:packages` PAT, supplied by whoever installs it.
@@ -161,8 +161,8 @@ is only CSS `overflow: hidden`; there is no resolver.
 - **Testing**: Bun test (packages), Vitest with Testing Library (apps)
 - **Frontend**: React 19, TanStack Router/Start
 - **Styling**: Tailwind CSS
-- **LLM**: @tanstack/ai with @tanstack/ai-gemini, Effect for functional composition
-- **Voice/Realtime**: OpenAI gpt-realtime over WebRTC (client-direct, ephemeral tokens), or LiveKit (self-hosted or cloud) with a Deepgram/Cartesia STT/TTS agent worker
+- **LLM**: @tanstack/ai with @tanstack/ai-openai (`gpt-5.6-luna` in the demo), Effect for functional composition
+- **Voice/Realtime**: OpenAI `gpt-realtime-2.1` over WebRTC (client-direct, ephemeral tokens), or LiveKit (self-hosted or cloud) with a Deepgram/Cartesia STT/TTS agent worker
 
 ## Coding Conventions
 

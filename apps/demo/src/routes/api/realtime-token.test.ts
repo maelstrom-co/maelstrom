@@ -4,9 +4,7 @@ import type {
   MintResult,
 } from '@maelstrom-co/realtime-server';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-
-// Mirrors the default in realtime-token.ts; this branch has no shared constant.
-const DEFAULT_REALTIME_MODEL = 'gpt-realtime-2';
+import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
 
 // Regression test for the error-precedence bug: with no OPENAI_API_KEY
 // configured, a malformed request body must still surface as a server
@@ -129,7 +127,7 @@ it('passes the parsed body to the minter and returns its response on success', a
       provider: 'openai',
       value: 'ek-xyz',
       expiresAt: 1712345678 as UnixSeconds,
-      model: 'gpt-realtime-2',
+      model: 'gpt-realtime-2.1',
     },
   };
   const res = await handleRealtimeTokenRequest(

@@ -12,10 +12,10 @@ Before starting, install or confirm the following:
 - the current stable version of Bun
 - Node.js 24, as specified by the repository's `.nvmrc` and CI configuration
 - free local ports 3000 and 3001
-- outbound network access to Gemini; weather and map data also use optional external services
-- a Gemini API key for the baseline typed flow
+- outbound network access to OpenAI; weather and map data also use optional external services
+- an OpenAI API key for the baseline typed flow
 
-The baseline does not require microphone permission, an OpenAI key, a LiveKit server, Deepgram, or Cartesia.
+The baseline does not require microphone permission, a LiveKit server, Deepgram, or Cartesia.
 
 ## Start the typed demo
 
@@ -40,10 +40,12 @@ From the repository root, create your local environment file:
 cp .env.example .env
 ```
 
-Edit `.env` and set `GOOGLE_API_KEY` to your Gemini API key. The Engine falls back to `GEMINI_API_KEY` when `GOOGLE_API_KEY` is absent, so you may add and use the fallback name instead. If you use `GEMINI_API_KEY`, the empty `GOOGLE_API_KEY=` line copied from `.env.example` may remain in `.env`; the runtime treats its empty value as absent. Only one of these keys is required for the baseline:
+Edit `.env` and set `OPENAI_API_KEY` to your OpenAI API key. The same server-side key powers the text-planning Engine and, when enabled, mints short-lived realtime voice credentials:
 
 ```dotenv
-GOOGLE_API_KEY=<redacted>
+OPENAI_API_KEY=<redacted>
+# Optional; defaults to gpt-5.6-luna.
+ENGINE_MODEL=
 ```
 
 The repository ignores `.env`. Never commit it or paste its contents into logs, issues, or other shared material. Keep examples empty or redacted as shown above.
@@ -89,7 +91,7 @@ To enable this track, add the following to `.env` from the repository root:
 
 ```dotenv
 OPENAI_API_KEY=<redacted>
-# Optional model override; omit it to use gpt-realtime-2.
+# Optional model override; omit it to use gpt-realtime-2.1.
 OPENAI_REALTIME_MODEL=
 ```
 
@@ -145,7 +147,7 @@ Append `?debug` to the URL, for example `http://localhost:3000/?debug`, to show 
 
 ## Troubleshooting and shutdown
 
-- **The browser shows `connected`, but an intent returns an Engine error:** confirm that `.env` contains a valid `GOOGLE_API_KEY` or fallback `GEMINI_API_KEY`. The WebSocket connection can succeed even when the Gemini credential required to process requests is missing.
+- **The browser shows `connected`, but an intent returns an Engine error:** confirm that `.env` contains a valid `OPENAI_API_KEY`. The WebSocket connection can succeed even when the OpenAI credential required to process requests is missing.
 - **Port 3000 or 3001 is occupied:** stop the process using that port, then run the canonical startup command again. Do not work around the conflict by changing the documented ports or command.
 - **Weather shows fixture data:** the demo could not reach Open-Meteo, so it silently uses canned values.
 - **Map tiles are blank:** confirm network access to `tiles.openfreemap.org`.

@@ -10,7 +10,7 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
 ## Packages
 
 | Package | Purpose |
-|---------|---------|
+| --------- | --------- |
 | `@maelstrom-co/react` | React bindings — `createMaelstrom()`, `vessel()`, hooks, Provider, Chart |
 | `@maelstrom-co/client` | Framework-agnostic client — Orchestrator, connectors, managers |
 | `@maelstrom-co/protocol` | Shared types, Zod schemas, message definitions |
@@ -33,8 +33,10 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
   # Client-side React app
   npm install @maelstrom-co/react
 
-  # Server-side reference engine
+# Server-side reference engine
+
   npm install @maelstrom-co/engine
+
   ```
   </TabItem>
   <TabItem label="bun">
@@ -45,14 +47,17 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
   # Server-side reference engine
   bun add @maelstrom-co/engine
   ```
+
   </TabItem>
   <TabItem label="pnpm">
   ```bash
   # Client-side React app
   pnpm add @maelstrom-co/react
 
-  # Server-side reference engine
+# Server-side reference engine
+
   pnpm add @maelstrom-co/engine
+
   ```
   </TabItem>
 </Tabs>
@@ -66,17 +71,18 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
 
 ## Environment variables
 
-The demo engine uses Google Gemini. Set one of the following environment variables:
+The demo engine uses OpenAI. Set the following environment variables:
 
 ```bash
 # .env
-GOOGLE_API_KEY=your-key        # Google Gemini (primary)
-GEMINI_API_KEY=your-key        # Alternative name for the same key
+ENGINE_MODEL=                  # Optional — defaults to gpt-5.6-luna
+OPENAI_API_KEY=your-key        # Demo engine + realtime voice mint
+OPENAI_REALTIME_MODEL=         # Optional — defaults to gpt-realtime-2.1
 WS_PORT=3001                   # Optional — WebSocket port (defaults to 3001)
 ```
 
 <Aside type="tip">
-  The demo engine uses `@tanstack/ai-gemini` with `gemini-3.1-flash-lite-preview`. You can switch providers later by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
+  The demo engine uses `@tanstack/ai-openai` with `gpt-5.6-luna` by default. Access to that model is organization/project-specific — if your key cannot call it, set `ENGINE_MODEL` to a model your project can use. You can also switch providers entirely by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
 </Aside>
 
 ## Next steps

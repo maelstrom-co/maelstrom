@@ -1,10 +1,9 @@
 /// <reference types="bun" />
 /**
  * Text-only WebSocket engine server for local dev: one shared module-scope
- * engine, Gemini, keyed by env vars — the `geminiText` adapter reads
- * GOOGLE_API_KEY (or GEMINI_API_KEY as a fallback, via `@tanstack/ai-gemini`'s
- * `getGeminiApiKeyFromEnv`). If it's missing the socket still connects and
- * each request returns an `engine.error` rather than failing the connection.
+ * engine, OpenAI, keyed by OPENAI_API_KEY. If it's missing the socket still
+ * connects and each request returns an `engine.error` rather than failing the
+ * connection.
  *
  * Speaks the same handleEnvelope/encodeEnvelope loop from @maelstrom-co/engine
  * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),
@@ -12,9 +11,10 @@
  */
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/client';
 import type { Engine } from '@maelstrom-co/engine';
-import { geminiText } from '@tanstack/ai-gemini';
 import { dispatchFrame } from './dispatch';
 import { createPlaygroundEngine } from './engine-config';
+import { createDemoOpenaiChat } from './engine-model';
+import { createRedactingLogger, redactSecrets } from './redact';
 
 const PORT = Number(process.env.WS_PORT ?? 3001);
 
@@ -46,22 +46,50 @@ export function truncateCloseReason(reason: string, maxBytes = 123): string {
   return '';
 }
 
-let sharedEngine: Engine | null = null;
-let sharedEngineInitError: string | null = null;
-try {
-  // No logger override: local dev keys the engine from env vars, so there is
-  // no visitor secret for a redacting logger to scrub. See engine-config.ts.
-  sharedEngine = createPlaygroundEngine({
-    adapter: geminiText('gemini-3.1-flash-lite-preview'),
-  });
-} catch (err) {
-  sharedEngineInitError = err instanceof Error ? err.message : String(err);
-  console.warn(
-    `[demo ws] engine unavailable: ${sharedEngineInitError}\n` +
-      '  Set GOOGLE_API_KEY (or GEMINI_API_KEY). The socket still connects; ' +
-      'chart requests will return an error until a key is set.',
-  );
+export interface SharedEngineResult {
+  readonly engine: Engine | null;
+  readonly initError: string | null;
 }
+
+/**
+ * Builds the shared local-dev engine, redacting `apiKey` out of both the
+ * returned init-error string and the console warning if construction fails.
+ *
+ * This is defence in depth, not a demonstrated leak: the try below wraps
+ * only synchronous construction (`new OpenAI(config)` plus zod config
+ * validation), and neither one echoes the key back into its error message
+ * today. The realistic 401 key-echo happens later, inside `engine.handle()`,
+ * which returns an `Err` rather than throwing here — see dispatch.ts.
+ * Redacting anyway means a future construction-time failure that DOES carry
+ * the key can't reach this log line or the `engine.error` reply it seeds.
+ */
+export function buildSharedEngine(apiKey: string): SharedEngineResult {
+  try {
+    // Same redacting logger as hosted: OpenAI 401s can echo the key into
+    // provider errors, and the Engine logs those via logger.error before any
+    // outbound wire scrub runs. Local holds a long-lived OPENAI_API_KEY.
+    return {
+      engine: createPlaygroundEngine({
+        adapter: createDemoOpenaiChat(apiKey),
+        logger: createRedactingLogger(apiKey),
+      }),
+      initError: null,
+    };
+  } catch (err) {
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    const initError = redactSecrets(rawMessage, apiKey);
+    console.warn(
+      `[demo ws] engine unavailable: ${initError}\n` +
+        '  Set OPENAI_API_KEY. The socket still connects; ' +
+        'chart requests will return an error until a key is set.',
+    );
+    return { engine: null, initError };
+  }
+}
+
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? '';
+const { engine: sharedEngine, initError: sharedEngineInitError } =
+  buildSharedEngine(OPENAI_API_KEY);
 
 export interface SocketData {
   helloReceived: boolean;
@@ -70,6 +98,8 @@ export interface SocketData {
 export interface WebSocketHandlerDeps {
   readonly sharedEngine: Engine | null;
   readonly sharedEngineInitError: string | null;
+  /** Defense in depth if a secret reaches an outbound reply. */
+  readonly apiKey?: string;
 }
 
 /**
@@ -81,7 +111,7 @@ export interface WebSocketHandlerDeps {
 export function createWebSocketHandlers(
   deps: WebSocketHandlerDeps,
 ): Bun.WebSocketHandler<SocketData> {
-  const { sharedEngine, sharedEngineInitError } = deps;
+  const { sharedEngine, sharedEngineInitError, apiKey } = deps;
 
   return {
     async message(ws, raw) {
@@ -115,7 +145,7 @@ export function createWebSocketHandlers(
           ws.close(result.code, truncateCloseReason(result.reason));
           return;
         case 'reply':
-          ws.send(result.wire);
+          ws.send(redactSecrets(result.wire, apiKey));
           return;
         case 'none':
           return;
@@ -127,6 +157,7 @@ export function createWebSocketHandlers(
 const webSocketHandlers = createWebSocketHandlers({
   sharedEngine,
   sharedEngineInitError,
+  apiKey: OPENAI_API_KEY,
 });
 
 // Guarded so importing this module (e.g. from a test) builds the handlers
@@ -136,8 +167,13 @@ if (import.meta.main) {
   const server = Bun.serve<SocketData>({
     port: PORT,
     fetch(req, srv) {
-      const url = new URL(req.url);
-      if (url.pathname === '/ws') {
+      let pathname: string;
+      try {
+        pathname = new URL(req.url).pathname;
+      } catch {
+        return new Response('Bad Request', { status: 400 });
+      }
+      if (pathname === '/ws') {
         return srv.upgrade(req, {
           data: { helloReceived: true },
         })
