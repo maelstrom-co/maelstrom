@@ -10,10 +10,29 @@ import type { UpdateVesselResult } from '@maelstrom-co/react';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { m } from '../lib/maelstrom';
-import { resetCalendarStore } from '../vessels/calendar.store';
-import { journalActions, resetJournalStore } from '../vessels/journal.store';
-import { resetTasksStore, tasksActions } from '../vessels/tasks.store';
+import { calendarActions, resetCalendarStore } from '../vessels/calendar.store';
+import {
+  __resetJournalStoreForTests,
+  journalActions,
+} from '../vessels/journal.store';
+import {
+  __resetTasksStoreForTests,
+  tasksActions,
+} from '../vessels/tasks.store';
 import { cleanTitles, VesselOptionSync } from './vessel-option-sync';
+
+function parameterFor(
+  published: VesselDefinition[],
+  vesselId: string,
+  variant: string,
+  action: string,
+  parameter: string,
+) {
+  const latest = published.filter((v) => v.id === vesselId).at(-1);
+  return latest?.variants[variant]?.actions
+    .find((a) => a.name === action)
+    ?.parameters?.find((p) => p.name === parameter);
+}
 
 function optionsFor(
   published: VesselDefinition[],
@@ -22,11 +41,26 @@ function optionsFor(
   action: string,
   parameter: string,
 ): readonly unknown[] | undefined {
-  const latest = published.filter((v) => v.id === vesselId).at(-1);
-  const found = latest?.variants[variant]?.actions
-    .find((a) => a.name === action)
-    ?.parameters?.find((p) => p.name === parameter);
-  return found?.enum;
+  return parameterFor(published, vesselId, variant, action, parameter)?.enum;
+}
+
+// The component reads `isProcessing` through m.useMaelstrom, which throws
+// outside a mounted <m.Provider>. Stubbing the hook keeps these specs about
+// the sync component itself and makes the flag directly drivable, which is
+// what the "settles" case below needs; routes/index.test.tsx is what proves
+// the component works inside the real provider tree. Returns a setter for
+// the flag the stub reports.
+function stubIsProcessing(): (value: boolean) => void {
+  let processing = false;
+  vi.spyOn(m, 'useMaelstrom').mockImplementation(((
+    selector?: (state: { isProcessing: boolean }) => unknown,
+  ) => {
+    const state = { isProcessing: processing };
+    return selector ? selector(state) : state;
+  }) as unknown as typeof m.useMaelstrom);
+  return (value: boolean) => {
+    processing = value;
+  };
 }
 
 describe('VesselOptionSync', () => {
@@ -34,6 +68,7 @@ describe('VesselOptionSync', () => {
 
   beforeEach(() => {
     published = [];
+    stubIsProcessing();
     vi.spyOn(m, 'updateVessel').mockImplementation((vessel) => {
       published.push(vessel as VesselDefinition);
       return { ok: true };
@@ -48,8 +83,8 @@ describe('VesselOptionSync', () => {
     // restore any test appended after them would inherit whatever state they
     // left behind — including the order-dependence this suite used to have
     // between the journal tests.
-    resetTasksStore();
-    resetJournalStore();
+    __resetTasksStoreForTests();
+    __resetJournalStoreForTests();
     resetCalendarStore();
   });
 
@@ -150,6 +185,61 @@ describe('VesselOptionSync', () => {
     ).toContain('Retro notes');
   });
 
+  // The calendar effect is the one the mount test can't distinguish: on
+  // mount all three effects fire regardless of their dep arrays, so a
+  // copy-paste slip that left `[entryKey]` on the calendar effect would stay
+  // green there. Driving the calendar store past mount is what pins the dep
+  // array — and the live consequence of getting it wrong is removeEvent /
+  // moveEvent offering the model an event list that no longer exists.
+  it('republishes the calendar options when the event list changes', async () => {
+    await act(async () => {
+      render(<VesselOptionSync />);
+    });
+    const before = published.length;
+
+    await act(async () => {
+      calendarActions.addEvent('Retro', '15:00');
+      calendarActions.removeEvent('Design review');
+    });
+
+    expect(published.length).toBeGreaterThan(before);
+    for (const action of ['removeEvent', 'moveEvent']) {
+      const titles = optionsFor(published, 'calendar', 'day', action, 'title');
+      expect(titles, action).toContain('Retro');
+      expect(titles, action).not.toContain('Design review');
+    }
+  });
+
+  // Emptying a list is the one transition the feature's value hinges on:
+  // withActionOptions omits `enum` entirely for an empty list, so the
+  // parameter goes from constrained back to a bare `title: string` and the
+  // model starts inventing values again. Asserting the enum is *absent*, not
+  // merely unchanged, is what pins that.
+  it('publishes a title parameter with no enum once the task list empties', async () => {
+    await act(async () => {
+      render(<VesselOptionSync />);
+    });
+    const before = published.length;
+
+    await act(async () => {
+      tasksActions.removeTask('Setup CI pipeline');
+      tasksActions.removeTask('Prep design review notes');
+      tasksActions.removeTask('Ship this sprint');
+    });
+
+    expect(published.length).toBeGreaterThan(before);
+    for (const [action, parameter] of [
+      ['checkTask', 'title'],
+      ['removeTask', 'title'],
+      ['uncheckTask', 'title'],
+      ['addSubtask', 'taskTitle'],
+    ]) {
+      const found = parameterFor(published, 'tasks', 'list', action, parameter);
+      expect(found, action).toBeDefined();
+      expect(found, action).not.toHaveProperty('enum');
+    }
+  });
+
   it('stays quiet when only entry content changes', async () => {
     // writeContent replaces the entries array on every dictated word. The
     // titles the engine chooses from are identical, so republishing would be
@@ -232,9 +322,20 @@ describe('VesselOptionSync', () => {
 
 describe('VesselOptionSync republish conflicts', () => {
   let published: VesselDefinition[];
+  let setProcessing: (value: boolean) => void;
+
+  const batchInFlight = (): UpdateVesselResult => ({
+    ok: false,
+    conflict: {
+      code: 'batch_in_flight',
+      vesselId: VesselId('journal'),
+      message: 'journal has a command batch in flight',
+    },
+  });
 
   beforeEach(() => {
     published = [];
+    setProcessing = stubIsProcessing();
     vi.useFakeTimers();
   });
 
@@ -242,8 +343,8 @@ describe('VesselOptionSync republish conflicts', () => {
     cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
-    resetTasksStore();
-    resetJournalStore();
+    __resetTasksStoreForTests();
+    __resetJournalStoreForTests();
     resetCalendarStore();
   });
 
@@ -299,6 +400,142 @@ describe('VesselOptionSync republish conflicts', () => {
     expect(
       optionsFor(published, 'journal', 'list', 'openEntry', 'title'),
     ).toContain('Sprint kickoff');
+  });
+
+  // The ceiling is the only thing bounding this loop against the
+  // orchestrator, and the test above cannot pin it: it needs exactly one
+  // retry to land, so `setTimeout(() => attempt(retryCount), delayMs)` — the
+  // counter never advancing — would keep it green while the live component
+  // retried `m.updateVessel` forever at a fixed 100ms. The expected count is
+  // restated as a literal rather than imported so it pins the ceiling
+  // instead of tracking whatever the component currently does.
+  it('stops after the retry ceiling when batch_in_flight never clears', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let journalAttempts = 0;
+    vi.spyOn(m, 'updateVessel').mockImplementation(
+      (vessel): UpdateVesselResult => {
+        const v = vessel as VesselDefinition;
+        if (v.id === 'journal') {
+          journalAttempts += 1;
+          return batchInFlight();
+        }
+        published.push(v);
+        return { ok: true };
+      },
+    );
+
+    await act(async () => {
+      render(<VesselOptionSync />);
+    });
+
+    // Far past the ~3.1s of cumulative backoff, so an unbounded retry chain
+    // surfaces as hundreds of attempts rather than as a hung test.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    // One initial attempt plus MAX_BATCH_IN_FLIGHT_RETRIES (5) retries.
+    expect(journalAttempts).toBe(6);
+    expect(
+      optionsFor(published, 'journal', 'list', 'openEntry', 'title'),
+    ).toBeUndefined();
+    const gaveUp = warn.mock.calls.filter(([message]) =>
+      String(message).includes('gave up republishing'),
+    );
+    expect(gaveUp).toHaveLength(1);
+    expect(String(gaveUp[0]?.[0])).toContain('journal');
+    warn.mockRestore();
+  });
+
+  // Stepped rather than advanced in one jump: a single 5000ms advance can't
+  // tell `RETRY_BASE_DELAY_MS * 2 ** retryCount` apart from a fixed delay,
+  // and `RETRY_BASE_DELAY_MS * retryCount` would make the first retry a
+  // setTimeout(…, 0) busy-loop that the coarse test would still pass.
+  it('doubles the backoff delay between successive retries', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let journalAttempts = 0;
+    vi.spyOn(m, 'updateVessel').mockImplementation(
+      (vessel): UpdateVesselResult => {
+        const v = vessel as VesselDefinition;
+        if (v.id === 'journal') {
+          journalAttempts += 1;
+          return batchInFlight();
+        }
+        published.push(v);
+        return { ok: true };
+      },
+    );
+
+    await act(async () => {
+      render(<VesselOptionSync />);
+    });
+
+    let expected = 1;
+    expect(journalAttempts).toBe(expected);
+    for (const delayMs of [100, 200, 400]) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(delayMs - 1);
+      });
+      expect(journalAttempts, `no retry before ${delayMs}ms`).toBe(expected);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expected += 1;
+      expect(journalAttempts, `retry due at ${delayMs}ms`).toBe(expected);
+    }
+    warn.mockRestore();
+  });
+
+  // Exhausting the backoff must not be terminal. The title keys that drive
+  // these effects have already changed and settled by the time the retries
+  // run, so with nothing else to re-trigger them the published option lists
+  // stay stale until the user happens to rename something — the exact
+  // staleness this component exists to prevent. `isProcessing` falling back
+  // to false is that second trigger: it is when the engine round-trip whose
+  // command batch caused the refusal has settled.
+  it('re-attempts a republish it gave up on once the engine settles', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let refuse = true;
+    let journalAttempts = 0;
+    vi.spyOn(m, 'updateVessel').mockImplementation(
+      (vessel): UpdateVesselResult => {
+        const v = vessel as VesselDefinition;
+        if (v.id === 'journal') {
+          journalAttempts += 1;
+          if (refuse) return batchInFlight();
+        }
+        published.push(v);
+        return { ok: true };
+      },
+    );
+
+    setProcessing(true);
+    let view: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      view = render(<VesselOptionSync />);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(journalAttempts).toBe(6);
+    expect(
+      optionsFor(published, 'journal', 'list', 'openEntry', 'title'),
+    ).toBeUndefined();
+
+    // The queued batch drains and the round-trip settles.
+    refuse = false;
+    setProcessing(false);
+    await act(async () => {
+      view?.rerender(<VesselOptionSync />);
+    });
+
+    expect(journalAttempts).toBe(7);
+    expect(
+      optionsFor(published, 'journal', 'list', 'openEntry', 'title'),
+    ).toContain('Sprint kickoff');
+    warn.mockRestore();
   });
 
   // `variant_dropped` (and `action_dropped`) mean the republish itself is
@@ -502,6 +739,84 @@ describe('cleanTitles', () => {
     expect(warn).toHaveBeenCalled();
     const messages = warn.mock.calls.map(([message]) => String(message));
     expect(messages.some((message) => message.includes('tasks'))).toBe(true);
+    warn.mockRestore();
+  });
+
+  // The budget test above uses 50 equal-length titles, where truncating at
+  // the first title that doesn't fit and skipping over it produce the same
+  // list — so it can't pin either. This one can: 'Ship it' fits the ~500
+  // characters left after the first title, and is dropped anyway. That is
+  // deliberate (see the comment beside the fitter loop): the published enum
+  // stays a prefix of the store's own order, at the cost of one long title
+  // starving every shorter one behind it. Flipping to skip-and-continue is a
+  // one-word change, and this is the test that would flag the flip.
+  it('truncates at the first title over budget rather than skipping past it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const nearBudget = 'a'.repeat(
+      Math.floor(MAX_CAPABILITY_OPTIONS_TOTAL_CHARS * 0.75),
+    );
+    const overflowing = 'b'.repeat(
+      Math.floor(MAX_CAPABILITY_OPTIONS_TOTAL_CHARS * 0.3),
+    );
+
+    const result = cleanTitles([nearBudget, overflowing, 'Ship it'], 'journal');
+
+    expect(result).toEqual([nearBudget]);
+    warn.mockRestore();
+  });
+
+  // One over-long title — journal titles are voice-transcript-produced and
+  // free-form, so this is reachable — takes every option list on the vessel
+  // down with it: withActionOptions omits `enum` for an empty list, so all
+  // four task parameters (or both calendar ones) revert to unconstrained at
+  // once. The per-drop warnings don't say that, so the empty result gets its
+  // own line naming the consequence.
+  it('returns nothing and names the consequence when one title blows the whole budget', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const huge = 'x'.repeat(MAX_CAPABILITY_OPTIONS_TOTAL_CHARS + 1);
+
+    const result = cleanTitles([huge], 'journal');
+
+    expect(result).toEqual([]);
+    const messages = warn.mock.calls.map(([message]) => String(message));
+    expect(
+      messages.some(
+        (message) =>
+          message.includes('journal') &&
+          message.includes('no titles survived cleaning'),
+      ),
+    ).toBe(true);
+    warn.mockRestore();
+  });
+
+  // The same warning has to cover the other route to an empty list, so it
+  // reads as "the option list is now empty" rather than as a budget-specific
+  // diagnostic.
+  it('warns the same way when every title is rejected as blank or unsafe', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = cleanTitles(['   ', 'Ship v2 | rollback plan'], 'tasks');
+
+    expect(result).toEqual([]);
+    const messages = warn.mock.calls.map(([message]) => String(message));
+    expect(
+      messages.some(
+        (message) =>
+          message.includes('tasks') &&
+          message.includes('no titles survived cleaning'),
+      ),
+    ).toBe(true);
+    warn.mockRestore();
+  });
+
+  // An empty store is the ordinary state, not a defect — warning here would
+  // make the empty-result line noise and cost it the meaning it has above.
+  it('stays silent when the input list was empty to begin with', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(cleanTitles([], 'tasks')).toEqual([]);
+
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 });

@@ -13,38 +13,19 @@ import { journalVessel } from '../vessels/journal.vessel';
 import { useTasksStore } from '../vessels/tasks.store';
 import { tasksVessel } from '../vessels/tasks.vessel';
 
-// Serialized into a single scalar so the effects re-run on a changed *list*,
-// not on a new array identity — journal writeContent replaces the entries
-// array on every dictated word without touching a single title. Titles are
-// free-form (LLM- or voice-transcript-produced), so any in-band delimiter
-// (e.g. join('\n')) can collide — ['a\nb'] and ['a', 'b'] would flatten to
-// the same key and silently skip a republish. JSON.stringify escapes
-// embedded delimiters, so distinct lists always produce distinct keys.
-function optionKey(values: readonly string[]): string {
-  return JSON.stringify(values);
-}
-
-// Imported rather than a local copy of the same numbers: the package
-// (packages/client/src/lib/voice-session/capability-snapshot.ts) applies
-// these same two limits when it projects a vessel's `enum` into voice
-// `options`, dropping the parameter's options entirely (`optionsOmitted:
-// true`) if either is exceeded. A hardcoded copy here would silently drift
-// from the package's actual limits the moment either one changes.
+// The two caps are imported rather than a local copy of the same numbers:
+// the package (packages/client/src/lib/voice-session/capability-snapshot.ts)
+// applies these same two limits when it projects a vessel's `enum` into
+// voice `options`, dropping the parameter's options entirely
+// (`optionsOmitted: true`) if either is exceeded. A hardcoded copy here
+// would silently drift from the package's actual limits the moment either
+// one changes.
 //
 // Generous for a demo: real usage tops out at a handful of seeded items per
 // list, so these are headroom, not a realistic ceiling. They exist to bound
 // prompt size (400 tasks would otherwise pay the full title list four times
 // per request — removeTask, checkTask, uncheckTask, addSubtask) rather than
 // to reflect any expected task count.
-
-// A title containing the engine prompt's option delimiter ('|'), a
-// newline/CR, or another control character must never reach `enum` even
-// though the engine serializer now escapes these itself (packages/engine's
-// request-serializer.ts) — this is defence in depth from a component that
-// has no visibility into how the engine renders its output, not the primary
-// fix.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point — a title containing one must be rejected.
-const UNSAFE_TITLE_CHARS = /[|\r\n\x00-\x1f\x7f]/;
 
 // A blank or duplicate title would otherwise flow straight into `enum`
 // verbatim — two tasks named "Ship it" would serialize as
@@ -85,6 +66,12 @@ export function cleanTitles(
   if (totalChars > MAX_CAPABILITY_OPTIONS_TOTAL_CHARS) {
     const fitted: string[] = [];
     let runningChars = 0;
+    // Prefix truncation is deliberate: the first title that doesn't fit the
+    // remaining budget ends the list rather than being skipped over, so the
+    // published `enum` is always a prefix of the store's own order. The
+    // trade-off is starvation — one near-budget title discards every shorter
+    // one behind it — accepted so the published list never silently reorders
+    // or holes out relative to what the user sees on screen.
     for (const title of result) {
       if (runningChars + title.length > MAX_CAPABILITY_OPTIONS_TOTAL_CHARS)
         break;
@@ -97,8 +84,119 @@ export function cleanTitles(
     result = fitted;
   }
 
+  // An empty result from a non-empty input is always a defect — every title
+  // was blank/unsafe, or the first one alone blew the character budget. It
+  // publishes identically to the ordinary empty-store case: `withActionOptions`
+  // omits `enum` for an empty list, so every parameter fed from this list
+  // loses its constraint and the engine goes back to inventing values. The
+  // per-drop warnings above don't name that consequence, so this does.
+  if (titles.length > 0 && result.length === 0) {
+    console.warn(
+      `[vessel-option-sync] ${label}: no titles survived cleaning — the parameter keeps no enum and the engine will invent values`,
+    );
+  }
+
   return result;
 }
+
+/**
+ * Renders nothing. Keeps the option lists the engine and the voice model
+ * choose from in step with what the demo's stores actually hold, so
+ * `openEntry`, `removeEvent` and `checkTask` name real things instead of
+ * relying on the runners' fuzzy fallback.
+ */
+export function VesselOptionSync() {
+  const { entries } = useJournalStore();
+  const { events } = useCalendarStore();
+  const { tasks } = useTasksStore();
+  // A republish refused with `batch_in_flight` exhausts its bounded backoff
+  // in ~3.1s and is then abandoned — the title keys that would re-trigger the
+  // effect have already changed and settled, so nothing re-attempts it and
+  // the engine keeps reading the pre-mutation list until the user happens to
+  // rename something. Keying the effects on this flag too means a settled
+  // engine round-trip re-runs them, which is the point at which the command
+  // batch that caused the refusal has drained.
+  const isProcessing = m.useMaelstrom((s) => s.isProcessing);
+
+  const entryTitles = cleanTitles(
+    entries.map((entry) => entry.title),
+    'journal',
+  );
+  const eventTitles = cleanTitles(
+    events.map((event) => event.title),
+    'calendar',
+  );
+  const taskTitles = cleanTitles(
+    tasks.map((task) => task.title),
+    'tasks',
+  );
+
+  const entryKey = optionKey(entryTitles);
+  const eventKey = optionKey(eventTitles);
+  const taskKey = optionKey(taskTitles);
+
+  useEffect(
+    () =>
+      republishWithRetry(() =>
+        m.updateVessel(
+          withActionOptions(journalVessel, {
+            openEntry: { title: entryTitles },
+          }),
+        ),
+      ),
+    [entryKey, isProcessing],
+  );
+
+  useEffect(
+    () =>
+      republishWithRetry(() =>
+        m.updateVessel(
+          withActionOptions(calendarVessel, {
+            removeEvent: { title: eventTitles },
+            moveEvent: { title: eventTitles },
+          }),
+        ),
+      ),
+    [eventKey, isProcessing],
+  );
+
+  useEffect(
+    () =>
+      republishWithRetry(() =>
+        m.updateVessel(
+          withActionOptions(tasksVessel, {
+            removeTask: { title: taskTitles },
+            checkTask: { title: taskTitles },
+            uncheckTask: { title: taskTitles },
+            addSubtask: { taskTitle: taskTitles },
+          }),
+        ),
+      ),
+    [taskKey, isProcessing],
+  );
+
+  return null;
+}
+
+// Serialized into a single scalar so the effects re-run on a changed *list*,
+// not on a new array identity — journal writeContent replaces the entries
+// array on every dictated word without touching a single title. Titles are
+// free-form (LLM- or voice-transcript-produced), so any in-band delimiter
+// (e.g. join('\n')) can collide — ['a\nb'] and ['a', 'b'] would flatten to
+// the same key and silently skip a republish. JSON.stringify escapes
+// embedded delimiters, so distinct lists always produce distinct keys.
+function optionKey(values: readonly string[]): string {
+  return JSON.stringify(values);
+}
+
+// A title containing the engine prompt's option delimiter ('|'), a
+// newline/CR, or another control character must never reach `enum` even
+// though the engine serializer escapes these itself (packages/engine's
+// request-serializer.ts) — this is defence in depth from a component that
+// has no visibility into how the engine renders its output, not the primary
+// fix.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point — a title containing one must be rejected.
+const UNSAFE_TITLE_CHARS = /[|\r\n\x00-\x1f\x7f]/;
 
 // `'batch_in_flight'` fires whenever a command batch is queued or executing
 // when the republish is attempted — the common case, since the engine
@@ -106,12 +204,12 @@ export function cleanTitles(
 // place. It is transient: retrying later with the same payload succeeds
 // once the batch settles. `useMaelstrom().isProcessing` tracks the
 // *request* coordinator (whether an engine round-trip is in flight), which
-// is a different, and already-false-by-the-time-the-batch-runs, signal —
-// the command-processor idle event this actually depends on
-// (`orchestrator.onSettled` / `commandProcessor.waitForIdle()`) is not part
-// of the public React API surface (`MaelstromInstanceCore`), so there is no
-// clean idle signal to subscribe to from here. A short bounded backoff is
-// the fallback: cheap, capped, and self-terminating.
+// is a different signal from the command-processor idle event this actually
+// depends on (`orchestrator.onSettled` / `commandProcessor.waitForIdle()`),
+// and that one is not part of the public React API surface
+// (`MaelstromInstanceCore`) — so `isProcessing` is used as the coarse
+// re-trigger on the effect deps, and this short bounded backoff covers the
+// window inside a single settled round-trip.
 const MAX_BATCH_IN_FLIGHT_RETRIES = 5;
 const RETRY_BASE_DELAY_MS = 100;
 
@@ -161,75 +259,4 @@ function republishWithRetry(publish: () => UpdateVesselResult): () => void {
     cancelled = true;
     clearTimeout(timeoutId);
   };
-}
-
-/**
- * Renders nothing. Keeps the option lists the engine and the voice model
- * choose from in step with what the demo's stores actually hold, so
- * `openEntry`, `removeEvent` and `checkTask` name real things instead of
- * relying on the runners' fuzzy fallback.
- */
-export function VesselOptionSync() {
-  const { entries } = useJournalStore();
-  const { events } = useCalendarStore();
-  const { tasks } = useTasksStore();
-
-  const entryTitles = cleanTitles(
-    entries.map((entry) => entry.title),
-    'journal',
-  );
-  const eventTitles = cleanTitles(
-    events.map((event) => event.title),
-    'calendar',
-  );
-  const taskTitles = cleanTitles(
-    tasks.map((task) => task.title),
-    'tasks',
-  );
-
-  const entryKey = optionKey(entryTitles);
-  const eventKey = optionKey(eventTitles);
-  const taskKey = optionKey(taskTitles);
-
-  useEffect(
-    () =>
-      republishWithRetry(() =>
-        m.updateVessel(
-          withActionOptions(journalVessel, {
-            openEntry: { title: entryTitles },
-          }),
-        ),
-      ),
-    [entryKey],
-  );
-
-  useEffect(
-    () =>
-      republishWithRetry(() =>
-        m.updateVessel(
-          withActionOptions(calendarVessel, {
-            removeEvent: { title: eventTitles },
-            moveEvent: { title: eventTitles },
-          }),
-        ),
-      ),
-    [eventKey],
-  );
-
-  useEffect(
-    () =>
-      republishWithRetry(() =>
-        m.updateVessel(
-          withActionOptions(tasksVessel, {
-            removeTask: { title: taskTitles },
-            checkTask: { title: taskTitles },
-            uncheckTask: { title: taskTitles },
-            addSubtask: { taskTitle: taskTitles },
-          }),
-        ),
-      ),
-    [taskKey],
-  );
-
-  return null;
 }
