@@ -45,14 +45,47 @@ Every subpath this package exports:
 The Node-only token minter is a **separate package**, not a subpath here:
 `@maelstrom-co/realtime-livekit-server` (`mintLiveKitToken`).
 
+## Install
+
+```bash
+bun add @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
+```
+
+```bash
+npm install @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
+pnpm add @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
+yarn add @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
+```
+
+`@maelstrom-co/realtime` is listed explicitly because the usage below imports
+`RealtimeSession` from it directly; relying on it arriving transitively breaks
+under a stricter installer. `livekit-client` is a peer dependency, so your
+application owns its version.
+
 ## Usage
 
 ```ts
 import { RealtimeSession } from '@maelstrom-co/realtime';
-import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
+import {
+  LiveKitAdapter,
+  LiveKitTokenGrantSchema,
+} from '@maelstrom-co/realtime-livekit';
 
 const adapter = new LiveKitAdapter({
-  mintToken: (roomName) => fetchLiveKitToken(roomName),
+  mintToken: async (roomName) => {
+    const response = await fetch('/api/voice/livekit-token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      // Send the room name as a hint only. The route derives the room and
+      // identity it will actually sign from the caller's own session, because
+      // a browser-chosen room name would let one caller join another's room.
+      body: JSON.stringify({ roomName }),
+    });
+    if (!response.ok) throw new Error('Unable to start voice session');
+    // Parse rather than cast: a malformed grant should fail here, not later
+    // inside the room connection.
+    return LiveKitTokenGrantSchema.parse(await response.json());
+  },
   roomName: `maelstrom-${sessionId}`,
 });
 const session = new RealtimeSession({ adapter, instance, sessionId });
@@ -162,6 +195,6 @@ the provider tracks. Production token and worker setup is the guide's next
 checkpoint; the checked-in demo route is development-only.
 
 API details are available in the
-[generated reference](https://docs.maelstrom-ai.co/reference/). For design
-context, read the
-[voice architecture reference](https://github.com/maelstrom-co/maelstrom/blob/main/docs/realtime-voice-architecture.md).
+[generated reference](https://docs.maelstrom-ai.co/reference/realtime-livekit/readme/).
+For the reasoning behind the seams, read the
+[voice architecture decisions](https://github.com/maelstrom-co/maelstrom/blob/main/docs/realtime-voice-architecture.md).

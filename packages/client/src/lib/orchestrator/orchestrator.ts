@@ -4,11 +4,14 @@ import {
   ChartRequestMessage,
   type ChartResizeReason,
   type InstanceId,
+  isInstanceIdNode,
   type LayoutMode,
   type MaelstromResponse,
   MessageId,
   type SessionHistoryEntry,
   type SessionId,
+  type TilingLayout,
+  TilingLayoutSchema,
   toError,
   type UpdateReason,
   type VariantName,
@@ -85,6 +88,18 @@ type FencedSend =
  * orchestrator.requestCoordinator.events.on('processing_completed', (e) => { ... });
  * orchestrator.chartManager.setDimensions({ columns: 10, rows: 6 });
  * ```
+ *
+ * @throws If `options.initialLayout` is not a tiling layout (a grid layout
+ * only repositions instances that already exist, and none do at
+ * construction).
+ * @throws If `options.initialLayout` is present and `options.layoutMode` is
+ * `'grid'` — the seed's type and the mode must agree.
+ * @throws If `options.initialLayout` declares the same `instanceId` twice.
+ * @throws If an `options.initialLayout` tree leaf is not declared in its
+ * `instances`, or a declared instance is referenced by no tree leaf.
+ * @throws If an `options.initialLayout` instance names a vessel that is not
+ * registered via `options.vessels`, or a variant that vessel does not
+ * declare.
  */
 export class Orchestrator {
   #connector: EngineConnector;
@@ -122,6 +137,58 @@ export class Orchestrator {
     this.#config = resolveOrchestratorOptions(options);
     this.#logger = new Logger(this.#config.debug, 'Orchestrator');
 
+    const { initialLayout } = options;
+    // Rejected before any microkernel exists: the static type says
+    // TilingLayout, but nothing stops an untyped (JS) caller, or an `as`
+    // escape hatch, from handing us a non-tiling layout at runtime. A grid
+    // layout can only reposition instances that already exist — none do at
+    // construction — so applying one would drop every position (one
+    // console.warn each, from applyGridLayout) while still writing the now
+    // instance-less layout into the store.
+    if (initialLayout && initialLayout.type !== 'tiling') {
+      if (initialLayout.type !== 'grid') {
+        throw new Error(
+          `initialLayout.type must be "tiling", received "${initialLayout.type}".`,
+        );
+      }
+      // Under layoutMode: 'grid' the generic "seed with a tiling layout"
+      // advice walks the caller straight into the mismatch throw below, so
+      // the remediation tracks the resolved mode.
+      const gridModeAdvice =
+        this.#config.layoutMode === 'grid'
+          ? ` There is no way to seed a first screen under layoutMode: 'grid' — drop initialLayout or switch to layoutMode: 'tiling'.`
+          : '';
+      throw new Error(
+        `initialLayout cannot be a grid layout: a grid layout only repositions instances that already exist, and none exist yet at construction. Seed with a tiling layout instead.${gridModeAdvice}`,
+      );
+    }
+    // Rejected up front, but for a different reason than the layout-type
+    // guard above: this is not a wedge, it is a silent discard.
+    // buildChartRequest resynthesizes a fresh, empty layout of
+    // `layoutMode`'s own type whenever the stored layout's type disagrees
+    // with it — so a mismatched seed would apply, then have its arranged
+    // tree thrown away on the very first request.
+    //
+    // Fatal here even though invalid `vessels` below are only reported, and
+    // even though setLayoutMode tolerates the same disagreement at runtime,
+    // because neither case is this one:
+    //   - `vessels` is a collection; skipping one entry costs that vessel
+    //     and keeps the rest. `initialLayout` is a single whole value with
+    //     no partial application, so non-fatal would mean dropping the
+    //     entire feature the caller asked for, with nothing in the return
+    //     surface to notice it in.
+    //   - setLayoutMode tolerates the disagreement because there the layout
+    //     was arranged under the mode in force at the time, and resynthesis
+    //     is the deliberate cost of a later mode change. At construction
+    //     there is no prior valid state — the seed was never coherent with
+    //     the mode it shipped alongside.
+    if (initialLayout && initialLayout.type !== this.#config.layoutMode) {
+      const layoutType = initialLayout.type;
+      throw new Error(
+        `initialLayout.type is "${layoutType}" but layoutMode is "${this.#config.layoutMode}". Pass an initialLayout of type "${this.#config.layoutMode}", or construct with layoutMode: "${layoutType}".`,
+      );
+    }
+
     // Create microkernels
     this.#connectionManager = new ConnectionManager(connector, {
       debug: this.#config.debug,
@@ -140,12 +207,67 @@ export class Orchestrator {
     this.#vesselManager = new VesselManager({
       debug: this.#config.debug,
     });
+    // Registered before `initialLayout` is validated below, so a seed can
+    // reference these vessels — the registry starts out empty otherwise.
+    const invalidVesselIssues = new Map<string, string>();
+    if (options.vessels) {
+      for (const vessel of options.vessels) {
+        const result = this.#vesselManager.registerVessel(vessel);
+        if (!result.valid) {
+          invalidVesselIssues.set(
+            vessel.id,
+            result.issues.map((issue) => issue.message).join('; '),
+          );
+        }
+      }
+    }
     this.#chartManager = new ChartManager({
       debug: this.#config.debug,
     });
     this.#requestCoordinator = new RequestCoordinator(connector, {
       debug: this.#config.debug,
     });
+
+    // Validated ahead of #setupSubscriptions(): that call installs a push
+    // subscription on the caller-supplied connector (see #attachPushSubscription),
+    // which outlives this constructor even if it throws. Every throwing check
+    // must run before it, or a rejected construction leaves that subscription
+    // attached to a connector whose Orchestrator never came into being.
+    //
+    // The seed-to-registry reference resolves at runtime because it cannot
+    // resolve at compile time: `vesselId` / `variant` are opaque protocol
+    // brands, so no literal-type inference from the `vessels` array can
+    // reach them, and `VesselDefinition.id` is plain `string` on the other
+    // side of the join.
+    if (initialLayout) {
+      validateTilingSeedInvariants(initialLayout);
+      for (const instance of initialLayout.instances) {
+        const vessel = this.#vesselManager.get(instance.vesselId);
+        if (!vessel) {
+          const failureReason = invalidVesselIssues.get(instance.vesselId);
+          throw new Error(
+            failureReason
+              ? `initialLayout seeds instance "${instance.instanceId}" with vessel "${instance.vesselId}", which failed vessel validation: ${failureReason}.`
+              : `initialLayout seeds instance "${instance.instanceId}" with vessel "${instance.vesselId}", which is not registered. Register it via the "vessels" option before construction.`,
+          );
+        }
+        if (!Object.hasOwn(vessel.variants, instance.variant)) {
+          throw new Error(
+            `initialLayout seeds instance "${instance.instanceId}" with variant "${instance.variant}", which vessel "${instance.vesselId}" does not declare.`,
+          );
+        }
+      }
+    }
+
+    // setLayout writes straight into the store with no registry check of its
+    // own; the validation above already guaranteed every seeded instance
+    // resolves, so this cannot fail. Applied before #setupSubscriptions()
+    // attaches a push subscription: the `PushConnector` interface makes no
+    // ordering promise, so the seed goes first to stay a proposal a
+    // replayed response can overwrite.
+    if (initialLayout) {
+      this.#commandProcessor.setLayout(initialLayout);
+    }
 
     this.#setupSubscriptions();
   }
@@ -202,20 +324,29 @@ export class Orchestrator {
    *
    * The mode is read fresh on every request and view-state read — it is
    * never captured at construction — so this takes effect on the next
-   * request with no rebuild and no loss of the arranged board. The client
-   * does not lay anything out itself; the mode is forwarded to the engine,
-   * which decides.
+   * request with no rebuild and no session teardown. The client does not
+   * lay anything out itself; the mode is forwarded to the engine, which
+   * decides.
    *
    * This does not touch the stored layout. If the stored layout's own
    * `type` no longer agrees with `mode`, `buildChartRequest` resynthesizes
    * a fresh, empty layout of the requested type at request-build time
    * instead of forwarding the stale one — see the comment there for why
-   * that has to happen at build time rather than here.
+   * that has to happen at build time rather than here. That resynthesis
+   * costs the arranged board, so this warns when it commits to it: the
+   * same combination the constructor rejects outright is merely lossy
+   * here, and the loss is otherwise invisible.
    */
   setLayoutMode(mode: LayoutMode): void {
     if (this.#isDisposed) {
       this.#logger.warn('setLayoutMode called after dispose; ignoring');
       return;
+    }
+    const stored = this.#commandProcessor.store.state.layout;
+    if (stored && stored.type !== mode) {
+      this.#logger.warn(
+        `setLayoutMode("${mode}") leaves a stored "${stored.type}" layout that can no longer be sent: the next chart request carries a fresh, empty "${mode}" layout instead, discarding the arranged board.`,
+      );
     }
     this.#config = { ...this.#config, layoutMode: mode };
   }
@@ -950,5 +1081,62 @@ export class Orchestrator {
   // single edit to change the recipe.
   #nextRequestId(): MessageId {
     return MessageId(`req-${Date.now()}-${++this.#requestCounter}`);
+  }
+}
+
+// Mirrors the two tiling-tree invariants ChartRequestSchema's superRefine
+// enforces on every chart_request (packages/protocol/src/lib/request.ts):
+// duplicate instance ids, and tree leaves that don't resolve to a declared
+// instance. A seed that violates either would pass construction, get stored,
+// and then keep failing that same check on every subsequent
+// chart_resize/intent request until some later layout write — an engine
+// response, or a programmatic commandProcessor.setLayout — replaces it.
+//
+// The reverse membership check has no counterpart on the wire: a
+// declared-but-untreed instance is legal there (the engine places it later),
+// but in a seed it is a tile the developer asked for and will never see.
+function validateTilingSeedInvariants(layout: TilingLayout): void {
+  // The bespoke checks below index into `tree` and `instances` directly. The
+  // static type promises both exist; an untyped caller, an `as` cast, or a
+  // deserialized layout does not, and the branded ids are compile-time only,
+  // so an empty-string instanceId would otherwise ride through to the wire.
+  const shape = TilingLayoutSchema.safeParse(layout);
+  if (!shape.success) {
+    const issues = shape.error.issues
+      .map(
+        (issue) =>
+          `${issue.path.join('.') || 'initialLayout'}: ${issue.message}`,
+      )
+      .join('; ');
+    throw new Error(`initialLayout is not a valid tiling layout — ${issues}.`);
+  }
+
+  const seenIds = new Set<InstanceId>();
+  for (const instance of layout.instances) {
+    if (seenIds.has(instance.instanceId)) {
+      throw new Error(
+        `initialLayout.instances contains duplicate instanceId "${instance.instanceId}".`,
+      );
+    }
+    seenIds.add(instance.instanceId);
+  }
+
+  const treedIds = new Set<InstanceId>();
+  for (const node of layout.tree) {
+    if (!isInstanceIdNode(node)) continue;
+    if (!seenIds.has(node)) {
+      throw new Error(
+        `initialLayout.tree references instance "${node}", which is not declared in initialLayout.instances.`,
+      );
+    }
+    treedIds.add(node);
+  }
+
+  for (const instance of layout.instances) {
+    if (!treedIds.has(instance.instanceId)) {
+      throw new Error(
+        `initialLayout.instances declares "${instance.instanceId}", which no initialLayout.tree leaf references — it would be created but never rendered. Add it as a tree leaf, or drop it from instances.`,
+      );
+    }
   }
 }

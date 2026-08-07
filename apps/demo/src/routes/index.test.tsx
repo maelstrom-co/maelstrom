@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { WireEngineError } from '@maelstrom-co/client';
+import type { VesselDefinition } from '@maelstrom-co/protocol';
 import {
   act,
   cleanup,
@@ -12,11 +13,23 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import { m } from '../lib/maelstrom';
 import {
   clearPlaygroundKey,
   STORAGE_KEY,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
+
+function enumFor(
+  vessel: VesselDefinition,
+  variant: string,
+  action: string,
+  parameter: string,
+): readonly unknown[] | undefined {
+  return vessel.variants[variant]?.actions
+    .find((a) => a.name === action)
+    ?.parameters?.find((p) => p.name === parameter)?.enum;
+}
 
 // Keeps RealtimeVoiceError real (the drawer-reopen effect's `instanceof`
 // check must hold against the actual class) while swapping only
@@ -479,5 +492,78 @@ describe('captions placement (footer chrome)', () => {
         must(container.querySelector('[data-testid="captions"]')),
       ),
     );
+  });
+});
+
+describe('the seeded first screen', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('lands on the default layout instead of the empty-chart hint', async () => {
+    // FirstRunHint's visibility condition is `isFirstRunHintVisible` — see
+    // first-run-hint.tsx for the exact predicate. Its absence right after
+    // mount is what proves DEFAULT_LAYOUT's seeded instances reached the
+    // store through the real <m.Provider> mount in routes/index.tsx —
+    // default-layout.test.ts only checks the constant in isolation, and
+    // would stay green even if `initialLayout={DEFAULT_LAYOUT}` were
+    // deleted from the route.
+    const { HomePage } = await import('./index');
+    await act(async () => {
+      render(<HomePage />);
+    });
+
+    expect(screen.queryByTestId('first-run-hint')).toBeNull();
+    // Positive assertions: both seeded tiles actually rendered their
+    // content, which the hint's absence alone doesn't prove — a malformed
+    // tree, an unregistered vesselId, or a bad variant name would all leave
+    // the hint absent (instanceCount still 2) while the chart stays blank.
+    await screen.findByText(/Design review/);
+    await screen.findByText('Ship this sprint');
+  });
+
+  it('keeps published action options in sync through the real provider tree', async () => {
+    // vessel-option-sync.test.tsx renders <VesselOptionSync /> in isolation,
+    // which would stay green even if the route stopped mounting it at all.
+    // Spying on the real m.updateVessel here and rendering the actual
+    // HomePage tree proves <VesselOptionSync /> is mounted where it matters
+    // and republishes real store data (a seeded task title) through the
+    // real orchestrator, not a mock.
+    const updateVesselSpy = vi.spyOn(m, 'updateVessel');
+
+    const { HomePage } = await import('./index');
+    await act(async () => {
+      render(<HomePage />);
+    });
+
+    // The mount-time republish can lose an initial race against the
+    // instance-seeding batch (result.ok === false, conflict.code ===
+    // 'batch_in_flight') and only succeed on VesselOptionSync's retry, so
+    // this polls for a *successful* 'tasks' call rather than asserting on
+    // the first one. Asserting on the call args alone (what the original
+    // test did) is only proof the update was attempted, not accepted —
+    // m.updateVessel returns {ok:false, conflict} rather than throwing, so
+    // a wholly-refused republish (e.g. batch_in_flight on every retry)
+    // would look identical to a successful one if only the args were
+    // checked.
+    const findSucceededTasksCallIndex = () =>
+      updateVesselSpy.mock.calls.findIndex(
+        ([vessel], i) =>
+          vessel.id === 'tasks' &&
+          updateVesselSpy.mock.results[i]?.value.ok === true,
+      );
+    await waitFor(() => expect(findSucceededTasksCallIndex()).not.toBe(-1), {
+      timeout: 2000,
+    });
+
+    const tasksCallIndex = findSucceededTasksCallIndex();
+    const tasksCall = updateVesselSpy.mock.calls[tasksCallIndex];
+    const titleEnum = enumFor(
+      tasksCall?.[0] as VesselDefinition,
+      'list',
+      'checkTask',
+      'title',
+    );
+    expect(titleEnum).toContain('Ship this sprint');
   });
 });

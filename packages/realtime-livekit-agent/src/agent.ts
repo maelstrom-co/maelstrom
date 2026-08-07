@@ -2,14 +2,15 @@
  * Maelstrom voice agent worker.
  *
  * STT path: user mic audio → Deepgram STT → transcript → client via publishTranscription.
- * TTS path: client sends a `speak` text stream (the response's summary) → Cartesia TTS
+ * TTS path: client sends a `speak` text stream (`userMessage ?? summary`) → Cartesia TTS
  *   → published back to the room as an audio track the client attaches and plays.
  *
  * No agent LLM — the Maelstrom engine is the only orchestrator. The client receives the
- * transcript (synthesized into an update_ui tool call) and sends the tool-result summary
- * back to speak.
+ * transcript (synthesized into an update_ui tool call) and, once the UI settles, sends
+ * the spoken reply back to speak.
  */
 
+import { fileURLToPath } from 'node:url';
 import {
   cli,
   defineAgent,
@@ -343,7 +344,7 @@ const entry = async (ctx: JobContext) => {
         if (activeTtsStream === stream) activeTtsStream = null;
       }
     }
-    // Tell the client the summary has finished playing (empty summaries play
+    // Tell the client the reply has finished playing (empty replies play
     // nothing, but still resolve the client's `speaking` state). The utterance id
     // lets the client drop this if it already barged past this utterance.
     const done: TtsDoneMessage = { type: 'tts_done', utteranceId };
@@ -355,7 +356,7 @@ const entry = async (ctx: JobContext) => {
 
   cancelActiveTts = () => cancelInFlightTts(activeTtsStream, ttsSource);
 
-  // Client sends the tool-result summary over the `speak` text stream.
+  // Client sends `userMessage ?? summary` over the `speak` text stream.
   room.registerTextStreamHandler(
     SPEAK_TOPIC,
     createSpeakHandler({
@@ -483,10 +484,33 @@ export function defineMaelstromVoiceAgent() {
 export default defineMaelstromVoiceAgent();
 
 /**
- * Boots the agent as a standalone worker process (separate from the app). Reads
- * LiveKit connection config from the environment; run it from a thin entry that
- * loads `.env` first. Invalid drain timeout or derived pending-audio budget
- * rejects before `cli.runApp`, so a worker cannot start with an unsafe cap.
+ * Boots the agent as a standalone worker process, separate from the application
+ * server that mints browser room tokens.
+ *
+ * Reads LiveKit connection config from the environment, so call it from a thin
+ * entry that has already loaded `.env`. An invalid drain timeout or derived
+ * pending-audio budget rejects before `cli.runApp`, so a worker can never start
+ * with an unsafe cap and discover it mid-turn.
+ *
+ * `ServerOptions.agent` is set to this module's own resolved path, because the
+ * LiveKit CLI re-spawns the agent per job and needs a file it can import. That
+ * makes the path an invariant rather than a detail: this module must remain
+ * importable from disk at the location it was loaded from, which is why it is
+ * derived from `import.meta.url` and not from the caller's entry file.
+ *
+ * @example
+ * ```js
+ * // voice-worker.mjs
+ * import { runVoiceAgent } from '@maelstrom-co/realtime-livekit-agent';
+ *
+ * runVoiceAgent();
+ * ```
+ *
+ * Then start it with the LiveKit worker CLI verb:
+ *
+ * ```bash
+ * node --env-file=.env voice-worker.mjs start
+ * ```
  */
 export function runVoiceAgent() {
   const { wsURL, apiKey, apiSecret } = resolveLiveKitCredentials();
@@ -495,7 +519,10 @@ export function runVoiceAgent() {
   derivePendingAudioMsLimit(resolveSttDrainTimeoutMs());
   cli.runApp(
     new ServerOptions({
-      agent: import.meta.filename,
+      // Not `import.meta.filename`, which Node added in 20.11 while this
+      // package's `engines` allows 20.0. On those releases it is undefined, so
+      // the worker starts with no agent module path and fails far from here.
+      agent: fileURLToPath(import.meta.url),
       wsURL,
       apiKey,
       apiSecret,

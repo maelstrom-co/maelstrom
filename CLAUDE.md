@@ -108,18 +108,43 @@ Packages are published to public npm (`registry.npmjs.org`) under the `@maelstro
 
 **Vessels**: State machines representing UI components. Each has:
 - Unique ID and semantic description (for LLM understanding)
-- Variants (discrete states with specific size requirements)
+- Variants (discrete states, each declaring a `minSize` in grid cells)
 - Actions (transitions between variants that the LLM can invoke)
 
-**Chart**: Grid-based layout system. The LLM works with integer grid coordinates (not pixels). Grid calculations are based on Chart container size, not browser viewport.
+`minSize` binds in grid mode only. `healGridLayout` drops any placement below
+the variant minimum (`size_below_minimum`) and the retry prompt names the number
+back to the model. Tiling never reads it — a leaf's size comes from the split
+tree. The model is not told `minSize` up front either: the request serializer
+omits it from the vessels section, so the only way the model learns a minimum is
+by violating it and being re-prompted.
 
-**Engine**: Stateless decision core. Takes context (user intent, current state, chart dimensions) and returns execution plan (actions to invoke) + layout directives (where to position Vessels).
+**Chart**: Layout surface in one of two modes, defaulting to `tiling`.
+- **Tiling** (default): the model emits a binary tree as a preorder token array —
+  `H` (split top/bottom), `V` (split left/right), an instance ID, or `null`. Each
+  split halves its region; there are no coordinates. The client computes pixel
+  rects from the container.
+- **Grid**: the model emits integer cell coordinates and sizes, which the engine
+  validates against the chart bounds and the variant's `minSize`.
+
+Either way, sizing derives from the Chart container, not the browser viewport.
+Only grid mode puts `Chart Dimensions: N×M cells` in the prompt; the tiling
+prompt carries the tree and no dimensions.
+
+**Engine**: Holds no layout state — the client owns that. Takes context (user
+intent, current state, chart dimensions) and returns execution plan (actions to
+invoke) + layout directives (where to position Vessels). Conversation history is
+opt-in: pass `history: { store }` to `createEngine` and a `HistoryManager`
+persists per-session turns and feeds them into the next prompt. The demo does
+exactly this (`apps/demo/src/server/engine-config.ts`, in-memory store, 20-entry
+window), so "stateless" describes only the no-history configuration.
 
 ### Execution Order (Critical)
 
 When processing an engine response, the orchestrator dispatches an atomic batch
-in this order — and the order is load-bearing, because an action can transition a
-Vessel to another variant (which carries its own `minSize`):
+in this order — and the order is load-bearing, because layout is what declares
+which instances exist. `applyTilingLayout` rebuilds the instance map from
+`layout.instances`, so an action targeting a newly created instance has nothing
+to run against until layout has created it:
 1. Apply layout (`set_layout` — positions and sizes)
 2. Execute actions (`execute_actions` — runs the `executionPlan`; may transition variants)
 
