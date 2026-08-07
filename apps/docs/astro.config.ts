@@ -95,7 +95,7 @@ export default defineConfig({
           details: `
 ## Key Concepts
 - **Vessels**: State machines representing UI components with variants and actions
-- **Chart**: Grid-based layout system using integer coordinates
+- **Chart**: Layout surface in one of two modes — tiling (default: a preorder H/V split tree) or grid (integer cell coordinates)
 - **Engine**: Server-side LLM decision core that returns execution plans
 - **Protocol**: Shared types and message definitions between client and engine
 
