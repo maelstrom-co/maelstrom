@@ -9,9 +9,7 @@
 <br />
 
 <div align="center">
-  <a href="https://npmjs.com/package/@maelstrom-co/react" target="_parent"><img alt="NPM version" src="https://img.shields.io/npm/v/@maelstrom-co/react.svg" /></a>
-  <a href="https://bundlephobia.com/result?p=@maelstrom-co/react@latest" target="_parent"><img alt="Bundle size" src="https://badgen.net/bundlephobia/minzip/@maelstrom-co/react@latest" /></a>
-  <a href="./LICENSE" target="_parent"><img alt="License" src="https://img.shields.io/npm/l/@maelstrom-co/react.svg" /></a>
+  <a href="./LICENSE" target="_parent"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <a href="https://github.com/maelstrom-co/maelstrom" target="_parent"><img alt="GitHub stars" src="https://img.shields.io/github/stars/maelstrom-co/maelstrom.svg?style=social&label=Star" /></a>
   <a href="https://x.com/maelstrom_co" target="_parent"><img alt="Follow @maelstrom_co" src="https://img.shields.io/twitter/follow/maelstrom_co.svg?style=social" /></a>
 </div>
@@ -66,12 +64,16 @@ and actions against the application's registered Vessels and current Chart.
 
 ## Install
 
+Maelstrom is currently a private beta on GitHub Packages. Configure access using
+the [beta installation guide](https://docs.maelstrom-ai.co/getting-started/install-beta/),
+then install the React package:
+
 ```bash
-npm install @maelstrom-co/react
+npm install @maelstrom-co/react@alpha
 ```
 
-Bun, pnpm, and Yarn work the same way. `@maelstrom-co/react` re-exports the
-vessel helpers and connectors, so you do not need to install
+The guide includes npm, Bun, pnpm, and Yarn configuration. `@maelstrom-co/react`
+re-exports the vessel helpers and connectors, so you do not need to install
 `@maelstrom-co/client` or `@maelstrom-co/protocol` separately. Processing intent
 still requires a compatible Maelstrom engine endpoint.
 

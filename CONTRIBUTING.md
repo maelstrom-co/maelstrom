@@ -197,83 +197,40 @@ See the [README](./README.md) for the package architecture and core concepts.
   commit subject, so the title is the permanent changelog entry.
 - To publish preview packages for a PR, add the `publish-preview` label. CI
   publishes versioned previews to GitHub Packages and comments install
-  instructions on the PR. This is separate from a real release (below):
-  previews deliberately stay off public npm, because an npm publish is
-  permanent once the 72-hour unpublish window closes and `0.0.0-pr.*` versions
-  would accumulate on the public registry forever. Installing a preview needs a
-  `read:packages` PAT; installing a release needs nothing.
+  instructions on the PR. Preview versions use `0.0.0-pr.*` and a `pr-<number>`
+  dist-tag. Installing any package requires a classic `read:packages` PAT from a
+  GitHub user with repository access.
 
 ## Releasing
 
 Releases are **cut locally and published by CI**. A maintainer versions, tags,
 and pushes from their machine; pushing the `v*` tag triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds
-and publishes every package to **public npm** (`registry.npmjs.org`). Apart from
-the one-time bootstrap below, nobody publishes from a laptop — a provenance
-attestation is only meaningful when the build it describes ran somewhere
-auditable.
-
-Per-PR previews are a separate flow that targets GitHub Packages.
-
-CI authenticates to npm with **OIDC trusted publishing** — no token is stored
-anywhere. There is no `NPM_TOKEN` secret, and there should never be one: npm
-caps granular write tokens at 90 days, so a stored token means rotating a secret
-every quarter and a broken release the one time it's forgotten.
+and publishes every package to **GitHub Packages** (`npm.pkg.github.com`). CI
+authenticates with the repository's short-lived `GITHUB_TOKEN`; no package
+secret is stored.
 
 The workflow runs as **two jobs, and only the second one can publish**:
 
 | Job | Permissions | Does |
 | --- | --- | --- |
 | `prepare` | `contents: read` | Checks tag ancestry, installs, builds, packs tarballs |
-| `publish` | `id-token: write` | Downloads tarballs, `npm publish`, verifies |
+| `publish` | `contents: read`, `packages: write` | Downloads tarballs, publishes, verifies |
 
 `prepare` is where `bun install` runs dependency lifecycle scripts and the build
-executes package code — so it holds no npm identity to steal. `publish` holds
+executes package code, so it holds no package write permission. `publish` holds
 one, and runs nothing but `npm publish` against tarballs `prepare` already
 produced: no install, no build, no third-party code. Keep it that way. Adding an
-install step to `publish` hands the OIDC token back to the dependency tree and
-undoes the split.
+install step to `publish` hands package write access back to the dependency tree
+and undoes the split.
 
 Cutting a release needs `gh` authenticated (or `GITHUB_TOKEN` set) — the script
-creates the GitHub release. No npm credentials are needed locally after the
-bootstrap below.
-
-### Bootstrap (once per package, already done for existing packages)
-
-Trusted publishing cannot be configured for a package that does not exist yet —
-npm only exposes the setting on a published package. So each **new** package
-needs one manual publish before CI can take it over:
-
-1. Log in to npm as a member of the `@maelstrom-co` org with publish rights.
-   Sessions are short-lived, so do this immediately before publishing:
-
-   ```bash
-   npm login --registry=https://registry.npmjs.org
-   ```
-
-2. Publish the first version with the release script, not bare `npm publish` —
-   the script rewrites `workspace:*` and `catalog:` specs to concrete versions,
-   which npm will not do for you:
-
-   ```bash
-   bun scripts/publish-packages.ts --tag alpha --skip-published
-   ```
-
-3. On npmjs.org, open each package → **Settings → Trusted publishing**, and add
-   a GitHub Actions publisher pointing at this repository and `release.yml`.
-   The publisher's **environment** field must either be left empty or say
-   `production`, because that is the environment `release.yml` declares — a
-   mismatch here is rejected at publish time, and the error does not say which
-   side is wrong.
-
-4. Log out locally. Nothing else should ever publish from a laptop.
-
-This first version ships **without provenance** — attestation requires a build
-CI can vouch for. Every release after it is CI-published and attested.
+creates the GitHub release. Local package credentials are not needed because the
+normal command uses `--skip-publish`.
 
 ### Release-boundary prerequisites (once per repository)
 
-A `v*` tag push publishes to public npm. Everything that decides *who can cause
+A `v*` tag push publishes to GitHub Packages. Everything that decides *who can cause
 that* lives in repository settings, not in this repo — configure all of it
 **before the first release**:
 
@@ -288,10 +245,15 @@ that* lives in repository settings, not in this repo — configure all of it
    The gate sits on the `publish` job, so approval is requested after the build
    and ancestry check have already passed.
 
-3. **npm trusted publisher.** Each package's publisher must point at this
-   repository, `release.yml`, and the `production` environment. A mismatch is
-   rejected at publish time with an error that does not say which side is wrong.
-   See the bootstrap section above.
+3. **Package access.** For every package under the organization, open **Package
+   settings** and confirm the source repository is `maelstrom-co/maelstrom`.
+   Enable **Inherit access from repository**. Keep package visibility private.
+   Existing package records need this manual check because repository metadata
+   cannot change a package setting after publication.
+
+4. **Workflow access.** Repository-linked packages normally grant their source
+   repository Actions access. If publishing returns `permission_denied`, add
+   `maelstrom-co/maelstrom` under **Manage Actions access** with write access.
 
 The workflow enforces one boundary on its own, independent of the settings
 above: `prepare` refuses to continue unless the tagged commit is reachable from
@@ -341,32 +303,21 @@ re-run work.
 
 ### Flags and gotchas
 
-- **Git state is pushed before the npm publish**, and now by a different actor:
-  the tag, commit, and GitHub release exist the moment you push, while npm
-  publishes seconds later in CI. A failed publish leaves that gap — close it by
+- **Git state is pushed before the package publish**, and now by a different
+  actor: the tag, commit, and GitHub release exist the moment you push, while the
+  package publish completes seconds later in CI. A failed publish leaves that gap — close it by
   re-running the workflow (see "Recovering a partial release"), never by
   re-cutting, which would bump the version again.
 - **`RELEASE_REGISTRY` is an override, not a requirement.** Publishing defaults
-  to public npm (`https://registry.npmjs.org`). Set it only to aim somewhere
-  else — a local Verdaccio (`nx local-registry`, `http://localhost:4873`) to
+  to GitHub Packages (`https://npm.pkg.github.com`). Set it only to aim somewhere
+  else, such as local Verdaccio (`nx local-registry`, `http://localhost:4873`) to
   rehearse the whole flow without touching the real registry.
-- **Provenance turns itself on when the repo goes public.** npm refuses to
-  attest a build it cannot link to public source, so the release job passes
-  `--provenance` only when the repository is public and warns when it does not.
-  Nothing to change on the day it flips.
-- **`--dry-run` does not exercise provenance.** npm skips attestation entirely
-  under `--dry-run`, so a green rehearsal says nothing about whether provenance
-  works. The first real publish is the first real test. This matters more now
-  that `publish` uploads a pre-packed tarball rather than packing in place:
-  attestation is generated by the job that uploads, and that path has not been
-  exercised against the real registry yet. Watch the first public release.
-- **A new package will fail its first CI release.** It has no trusted publisher
-  yet, and it cannot have one until it exists on the registry. Run the bootstrap
-  above for it before adding it to a release.
-- **Never add an `NPM_TOKEN` secret to work around an auth failure.** A token in
-  `.npmrc` can stop npm from attempting the OIDC exchange at all, so it turns a
-  fixable misconfiguration into a permanent one — and reintroduces the 90-day
-  rotation. Fix the trusted publisher instead.
+- **`--dry-run` does not prove package access.** It validates manifests and
+  tarballs but does not upload. Use a labeled PR preview to test real GitHub
+  Packages authentication before the first tagged release.
+- **A new package links to this repository through `repository.url`.** The
+  metadata assertion enforces that URL and the GitHub registry. Confirm inherited
+  access in package settings after the first preview publishes it.
 - **`--preid` sets both the prerelease identifier and the npm dist-tag.** While
   in prerelease, pass `--preid alpha` so the release publishes under the `alpha`
   dist-tag and `npm install @maelstrom-co/<pkg>` does not resolve to a
@@ -375,7 +326,7 @@ re-run work.
 - **`--version`** accepts an explicit version (`0.1.0-alpha.0`) or a bump
   (`patch` | `minor` | `major` | `prerelease`).
 - **`--skip-publish`** versions, tags, pushes, and creates the GitHub release
-  without publishing to npm.
+  without publishing from the local machine.
 - The publish step rewrites `workspace:*` and `catalog:` specs to concrete
   versions before packing (npm doesn't do this from a package dir), so those
   protocols stay the source of truth in the repo.

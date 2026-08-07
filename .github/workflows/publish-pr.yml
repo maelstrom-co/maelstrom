@@ -60,12 +60,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Real releases go to public npm; per-PR previews stay on GitHub Packages
-      # so throwaway 0.0.0-pr.* versions never reach the public registry (npm
-      # publishes are permanent after the 72h unpublish window). The root
-      # .npmrc no longer carries registry or auth config — consumers must be
-      # able to install with none — so this job supplies its own, in a runner
-      # temp file that holds only an env reference, never the token itself.
+      # The temp file holds only an environment reference, never the token.
       - name: Configure GitHub Packages auth
         run: |
           echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
@@ -80,8 +75,8 @@ jobs:
         # dist-tag pre-check runs `npm view <pkg> versions dist-tags --json`,
         # GitHub Packages answers with an empty `_id`, npm emits nothing, and
         # Nx throws on `JSON.parse('')`.
-        # --registry is explicit because the script defaults to public npm, and
-        # it overrides each package's publishConfig.registry.
+        # --registry remains explicit so this security-sensitive destination is
+        # visible in the workflow as well as package metadata.
         run: |
           bun scripts/publish-packages.ts \
             --tag pr-${{ github.event.pull_request.number }} \
@@ -155,34 +150,12 @@ jobs:
 
             **Version:** `${{ steps.version.outputs.version }}`
             **Tag:** `pr-${{ github.event.pull_request.number }}`
-            **Registry:** GitHub Packages (previews only — released versions are on public npm)
+            **Registry:** GitHub Packages
 
-            Previews are not on npmjs.org, so point the scope at GitHub Packages
-            first and authenticate with your own PAT that has `read:packages`.
-            GitHub documents classic tokens only for its npm registry. Export
-            the token, then add the `.npmrc`:
+            Follow the [beta installation guide](https://docs.maelstrom-ai.co/getting-started/install-beta/) once to configure GitHub Packages. Then install this preview by exact version:
 
             ```sh
-            export GH_PACKAGES_TOKEN=ghp_your_read_packages_pat
-            ```
-
-            ```sh
-            # .npmrc in the consuming project
-            @maelstrom-co:registry=https://npm.pkg.github.com
-            //npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}
-            ```
-
-            ```sh
-            bun add @maelstrom-co/protocol@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/engine@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/client@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/react@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/react-realtime@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime-server@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime-livekit@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime-livekit-agent@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime-livekit-server@${{ steps.version.outputs.version }}
+            ${{ steps.packages.outputs.commands }}
             ```
 
             Or install by tag:

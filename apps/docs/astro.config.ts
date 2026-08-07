@@ -298,6 +298,7 @@ export default defineConfig({
             { slug: 'getting-started/quick-start' },
             { slug: 'getting-started/core-concepts' },
             { slug: 'getting-started/installation' },
+            { slug: 'getting-started/install-beta' },
           ],
         },
         {

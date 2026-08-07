@@ -9,7 +9,7 @@ import {
 import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
 
 // The publishing half of the release. It runs in the only job that holds an
-// npm OIDC identity, and it deliberately does nothing that could execute
+// GitHub Packages identity, and it deliberately does nothing that could execute
 // third-party code: no dependency install, no build, no project graph — just
 // tarballs that another job already produced, uploaded one at a time.
 //
@@ -108,7 +108,7 @@ for (const pkg of packages) {
 
   try {
     // No shell: `tag` derives from a git tag name, and a shell string here was
-    // a confirmed injection into the one job that can publish to npm.
+    // a confirmed injection into the one job that can publish packages.
     execFileSync('npm', args, { stdio: ['ignore', 'inherit', 'inherit'] });
     succeeded.push(pkg.name);
   } catch {
@@ -123,15 +123,9 @@ console.log(
 
 if (failures.length > 0) {
   console.error(`\nPublish failed for: ${failures.join(', ')}`);
-  // "A brand-new package cannot publish from CI" is a baffling failure
-  // without this: npm refuses to configure a trusted publisher for a package
-  // that does not exist yet, so the first version of each has to go out by
-  // hand before CI can ever own it.
   console.error(
-    'If this was an authentication error, check that every package above has a ' +
-      'trusted publisher on npmjs.org pointing at this repository, release.yml, and ' +
-      'the production environment. A package that has never been published cannot ' +
-      'have one — see the bootstrap procedure in CONTRIBUTING.md.',
+    'If this was an authentication error, confirm this repository has package write ' +
+      'access and the workflow job grants packages: write. See CONTRIBUTING.md.',
   );
   process.exit(1);
 }

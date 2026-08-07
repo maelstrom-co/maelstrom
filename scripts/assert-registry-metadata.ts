@@ -9,6 +9,8 @@ import { listPublishablePackages } from './lib/workspace-packages.ts';
 // a green CI run. This asserts the floor so package eleven cannot.
 
 const MIN_KEYWORDS = 3;
+const EXPECTED_REPOSITORY = 'https://github.com/maelstrom-co/maelstrom.git';
+const EXPECTED_REGISTRY = 'https://npm.pkg.github.com';
 
 type Manifest = {
   description?: string;
@@ -16,7 +18,8 @@ type Manifest = {
   license?: string;
   homepage?: string;
   bugs?: { url?: string };
-  repository?: { directory?: string };
+  repository?: { directory?: string; url?: string };
+  publishConfig?: { access?: string; registry?: string };
 };
 
 const problems: { file: string; message: string }[] = [];
@@ -46,6 +49,18 @@ for (const pkg of packages) {
   if (!manifest.license?.trim()) fail(`${pkg.name} has no license`);
   if (!manifest.homepage?.trim()) fail(`${pkg.name} has no homepage`);
   if (!manifest.bugs?.url?.trim()) fail(`${pkg.name} has no bugs.url`);
+
+  if (manifest.repository?.url !== EXPECTED_REPOSITORY) {
+    fail(
+      `${pkg.name} repository.url must be "${EXPECTED_REPOSITORY}" so GitHub links the package to this repository`,
+    );
+  }
+  if (manifest.publishConfig?.registry !== EXPECTED_REGISTRY) {
+    fail(`${pkg.name} publishConfig.registry must be "${EXPECTED_REGISTRY}"`);
+  }
+  if (manifest.publishConfig?.access === 'public') {
+    fail(`${pkg.name} must not request public package visibility`);
+  }
 
   // A wrong `repository.directory` sends every "view source" link on the npm
   // page to a path that does not exist, and it survives a rename silently.

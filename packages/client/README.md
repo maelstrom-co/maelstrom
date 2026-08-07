@@ -1,6 +1,5 @@
 # @maelstrom-co/client
 
-[![npm](https://img.shields.io/npm/v/@maelstrom-co/client.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/client)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
 
 Framework-agnostic client core for Maelstrom.

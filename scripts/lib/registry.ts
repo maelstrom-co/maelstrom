@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 
-export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
+export const DEFAULT_REGISTRY = 'https://npm.pkg.github.com';
 
 export function resolveRegistry(explicit?: string): string {
   return explicit ?? process.env.RELEASE_REGISTRY ?? DEFAULT_REGISTRY;
@@ -25,8 +25,8 @@ export function isAlreadyPublished(
     // execFileSync, never a shell string: `version` derives from a git tag or
     // a workflow_dispatch input, so interpolating it into a command line would
     // let anyone who can push a tag run arbitrary code in the release job —
-    // which holds an OIDC identity that can publish to npm.
-    execFileSync(
+    // which holds permission to publish packages.
+    const output = execFileSync(
       'npm',
       [
         'view',
@@ -43,7 +43,7 @@ export function isAlreadyPublished(
       ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
-    return true;
+    return parsePublishedVersion(String(output), name, version, registry);
   } catch (err) {
     const stderr = String((err as { stderr?: Buffer | string })?.stderr ?? '');
     if (/E404|404 Not Found|code E404/.test(stderr)) return false;
@@ -52,4 +52,30 @@ export function isAlreadyPublished(
         `Refusing to guess.\n${stderr.trim()}`,
     );
   }
+}
+
+export function parsePublishedVersion(
+  output: string,
+  name: string,
+  version: string,
+  registry: string,
+): boolean {
+  const value = output.trim();
+  // GitHub Packages returns a successful response with no body when an exact
+  // version is absent. Exit status alone would incorrectly skip the publish.
+  if (!value) return false;
+
+  let published: unknown;
+  try {
+    published = JSON.parse(value);
+  } catch {
+    throw new Error(
+      `${name}: registry returned invalid JSON while checking ${version} on ${registry}.`,
+    );
+  }
+
+  if (published === version) return true;
+  throw new Error(
+    `${name}: registry returned ${JSON.stringify(published)} while checking ${version} on ${registry}. Refusing to guess.`,
+  );
 }
