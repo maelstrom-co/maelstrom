@@ -496,19 +496,30 @@ describe('captions placement (footer chrome)', () => {
 });
 
 describe('the seeded first screen', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('lands on the default layout instead of the empty-chart hint', async () => {
-    // FirstRunHint renders data-testid="first-run-hint" iff instanceCount
-    // === 0 (see first-run-hint.tsx). Its absence right after mount is what
-    // proves DEFAULT_LAYOUT's seeded instances reached the store through the
-    // real <m.Provider> mount in routes/index.tsx — default-layout.test.ts
-    // only checks the constant in isolation, and would stay green even if
-    // `initialLayout={DEFAULT_LAYOUT}` were deleted from the route.
+    // FirstRunHint's visibility condition is `isFirstRunHintVisible` — see
+    // first-run-hint.tsx for the exact predicate. Its absence right after
+    // mount is what proves DEFAULT_LAYOUT's seeded instances reached the
+    // store through the real <m.Provider> mount in routes/index.tsx —
+    // default-layout.test.ts only checks the constant in isolation, and
+    // would stay green even if `initialLayout={DEFAULT_LAYOUT}` were
+    // deleted from the route.
     const { HomePage } = await import('./index');
     await act(async () => {
       render(<HomePage />);
     });
 
     expect(screen.queryByTestId('first-run-hint')).toBeNull();
+    // Positive assertions: both seeded tiles actually rendered their
+    // content, which the hint's absence alone doesn't prove — a malformed
+    // tree, an unregistered vesselId, or a bad variant name would all leave
+    // the hint absent (instanceCount still 2) while the chart stays blank.
+    await screen.findByText(/Design review/);
+    await screen.findByText('Ship this sprint');
   });
 
   it('keeps published action options in sync through the real provider tree', async () => {
@@ -525,10 +536,28 @@ describe('the seeded first screen', () => {
       render(<HomePage />);
     });
 
-    const tasksCall = updateVesselSpy.mock.calls.find(
-      ([vessel]) => vessel.id === 'tasks',
-    );
-    expect(tasksCall).toBeDefined();
+    // The mount-time republish can lose an initial race against the
+    // instance-seeding batch (result.ok === false, conflict.code ===
+    // 'batch_in_flight') and only succeed on VesselOptionSync's retry, so
+    // this polls for a *successful* 'tasks' call rather than asserting on
+    // the first one. Asserting on the call args alone (what the original
+    // test did) is only proof the update was attempted, not accepted —
+    // m.updateVessel returns {ok:false, conflict} rather than throwing, so
+    // a wholly-refused republish (e.g. batch_in_flight on every retry)
+    // would look identical to a successful one if only the args were
+    // checked.
+    const findSucceededTasksCallIndex = () =>
+      updateVesselSpy.mock.calls.findIndex(
+        ([vessel], i) =>
+          vessel.id === 'tasks' &&
+          updateVesselSpy.mock.results[i]?.value.ok === true,
+      );
+    await waitFor(() => expect(findSucceededTasksCallIndex()).not.toBe(-1), {
+      timeout: 2000,
+    });
+
+    const tasksCallIndex = findSucceededTasksCallIndex();
+    const tasksCall = updateVesselSpy.mock.calls[tasksCallIndex];
     const titleEnum = enumFor(
       tasksCall?.[0] as VesselDefinition,
       'list',
@@ -536,7 +565,5 @@ describe('the seeded first screen', () => {
       'title',
     );
     expect(titleEnum).toContain('Ship this sprint');
-
-    updateVesselSpy.mockRestore();
   });
 });
