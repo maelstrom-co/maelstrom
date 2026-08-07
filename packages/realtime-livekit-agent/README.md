@@ -75,8 +75,8 @@ if you need to embed it in your own worker harness.
 Deploy this entry as a long-running process, separate from the application
 server that mints browser room tokens. The worker runs only Deepgram STT and
 Cartesia TTS; it does not convert transcripts into UI plans. The commands and
-APIs in this README are scoped to the locked `@livekit/agents`, Deepgram plugin,
-and Cartesia plugin 1.4.8 releases.
+APIs in this README are scoped to the `^1.4.8` ranges declared for
+`@livekit/agents` and the Deepgram and Cartesia plugins.
 
 ### Monorepo development
 
@@ -108,7 +108,9 @@ above, which has neither requirement.
 
 The browser receives a short-lived room token and the LiveKit URL, minted by
 `@maelstrom-co/realtime-livekit-server`, and LiveKit may push it a refreshed
-token while it stays connected. Neither LiveKit credential ever reaches it.
+token while it stays connected. The token exposes `LIVEKIT_API_KEY` as its
+public issuer; `LIVEKIT_API_SECRET`, which signs the token, never reaches the
+browser.
 
 ## Env vars (root .env)
 

@@ -5,8 +5,9 @@ Server-only handler for minting LiveKit room access tokens.
 The server sibling of `@maelstrom-co/realtime-livekit`: the browser package
 declares the `LiveKitTokenGrant` contract the adapter consumes, and this
 package implements it. This package and the agent worker both read
-`LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`; the browser gets only a scoped,
-short-lived grant, and neither credential ever ships to it.
+`LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`; the browser gets a scoped, short-lived
+grant whose token exposes the API key as its public issuer. The signing secret
+never ships to the browser.
 
 ## Install
 
