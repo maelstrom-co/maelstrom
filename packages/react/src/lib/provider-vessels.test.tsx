@@ -24,13 +24,10 @@ const brokenEntry = vessel(brokenVessel, () => null);
 afterEach(() => cleanup());
 
 describe('Provider vessels — invalid vessel resilience', () => {
-  // This is the actual regression: an Orchestrator built with a static
-  // `vessels` list containing one bad definition used to throw during
-  // construction, which the Provider's construction effect catches by
-  // setting `orchestrator` to null — collapsing the whole subtree to
-  // nothing (`if (!value) return null`). Registering-and-reporting instead
-  // means an unrelated vessel's typo can no longer take the rest of the app
-  // down with it.
+  // A vessel definition that fails schema validation must be skipped and
+  // logged, not abort Orchestrator construction — a construction failure
+  // collapses the whole subtree, since the Provider renders null when
+  // `orchestrator` is null.
   it('still renders children when one of the static vessels is invalid', async () => {
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
     const contextPair = createMaelstromContext();
@@ -52,6 +49,15 @@ describe('Provider vessels — invalid vessel resilience', () => {
     expect(orchestrator).toBeDefined();
     expect(orchestrator?.vesselManager.has('broken')).toBe(false);
     expect(orchestrator?.vesselManager.has('orders')).toBe(true);
+
+    // With the throw gone, this log IS the contract: it is the only way a
+    // developer learns their vessel silently vanished, so assert it named the
+    // vessel and said why — not merely that something logged.
+    const brokenReports = errorSpy.mock.calls.filter((args) =>
+      args.some((a) => typeof a === 'string' && a.includes('"broken"')),
+    );
+    expect(brokenReports).toHaveLength(1);
+    expect(JSON.stringify(brokenReports[0])).toContain('at least one variant');
 
     errorSpy.mockRestore();
   });

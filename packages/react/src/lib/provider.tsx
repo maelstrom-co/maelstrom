@@ -1,14 +1,13 @@
-import type { EngineConnector } from '@maelstrom-co/client';
+import type {
+  EngineConnector,
+  OrchestratorOptions,
+} from '@maelstrom-co/client';
 import {
   DEFAULT_LAYOUT_MODE,
   Orchestrator,
   SessionId,
 } from '@maelstrom-co/client';
-import type {
-  LayoutMode,
-  TilingLayout,
-  VesselId,
-} from '@maelstrom-co/protocol';
+import type { TilingLayout, VesselId } from '@maelstrom-co/protocol';
 import { toError } from '@maelstrom-co/protocol';
 import type { ComponentType, ReactNode } from 'react';
 import { lazy, useEffect, useMemo, useRef, useState } from 'react';
@@ -24,8 +23,18 @@ import type {
 } from './vessel-entry-types.js';
 import { isLazyEntry } from './vessel-entry-types.js';
 
-/** Props for the Maelstrom Provider component. */
-export interface MaelstromProviderProps {
+/**
+ * Props for the Maelstrom Provider component.
+ *
+ * Split by `layoutMode` so the one combination the Orchestrator can only
+ * reject at runtime — a first-screen seed under `layoutMode: 'grid'` — is
+ * unrepresentable in TypeScript rather than a guaranteed construction
+ * failure that typechecks.
+ */
+export type MaelstromProviderProps = TilingProviderProps | GridProviderProps;
+
+/** Props shared by both `layoutMode` branches. */
+interface MaelstromProviderBaseProps {
   /**
    * Engine connector. Changing the identity of this prop swaps the
    * transport on the live Orchestrator (`Orchestrator.setConnector`) rather
@@ -41,13 +50,6 @@ export interface MaelstromProviderProps {
    * `key`.
    */
   sessionId?: string;
-  /**
-   * Layout algorithm used by the engine. Changing this pushes the new mode
-   * into the live Orchestrator (`Orchestrator.setLayoutMode`) rather than
-   * rebuilding it. Omitting it after having set it falls back to the
-   * Orchestrator's own default rather than freezing on the last mode.
-   */
-  layoutMode?: LayoutMode;
   /** Grid cell size in pixels. Overrides the factory default. */
   cellSizePx?: number;
   /** Tiling layout gap in pixels. Overrides the factory default. */
@@ -64,20 +66,65 @@ export interface MaelstromProviderProps {
   motion?: ChartMotionConfig;
   /** Called on Orchestrator startup failures, connection failures, processIntent failures, and executeAction failures. Errors also surface via useMaelstrom(). */
   onError?: (error: Error) => void;
+  children: ReactNode;
+}
+
+/** Provider props under the default tiling mode, the only seedable one. */
+interface TilingProviderProps extends MaelstromProviderBaseProps {
+  /**
+   * Layout algorithm used by the engine. Changing this pushes the new mode
+   * into the live Orchestrator (`Orchestrator.setLayoutMode`) rather than
+   * rebuilding it. Omitting it after having set it falls back to the
+   * Orchestrator's own default rather than freezing on the last mode.
+   */
+  layoutMode?: 'tiling';
   /**
    * Layout applied once when the Provider mounts, before any engine
    * round-trip — a *proposed* first screen. The engine sees it in the next
    * chart request and may reshape or drop tiles to fit the real viewport.
-   * Requires `layoutMode: 'tiling'` (the default): any `initialLayout` value
-   * throws when the Orchestrator is constructed under `layoutMode: 'grid'`
-   * — a grid layout can only reposition instances that already exist (none
-   * do at construction), and a tiling layout mismatches `layoutMode`
-   * outright. There is no way to seed a first screen in grid mode. Captured
-   * once: changing this prop after mount is ignored (a console warning says
-   * so); remount with a new `key` to seed a different screen.
+   *
+   * Requires `layoutMode: 'tiling'` (the default): a grid layout can only
+   * reposition instances that already exist (none do at construction), and a
+   * tiling layout mismatches `layoutMode: 'grid'` outright. There is no way
+   * to seed a first screen in grid mode, which is why the two are split
+   * across the prop union; the Orchestrator still throws on the combination
+   * for untyped callers that route around the types.
+   *
+   * Every instance the seed names must resolve against the *static* vessel
+   * list passed to `createMaelstrom`: a `vesselId` that list registers, and
+   * a variant that vessel declares. Vessels registered later through
+   * `m.registerVessel()` or `useVessel` are not eligible — they register
+   * after the Orchestrator has already been built and validated, so a seed
+   * naming one can never resolve. The seed must also carry no duplicate
+   * `instanceId`, and every leaf of `tree` must appear in `instances`.
+   *
+   * Validated during construction, and a validation failure is fatal to the
+   * Provider: the error goes to `onError` and `console.error`, but the
+   * Orchestrator is never created and everything under `<MaelstromProvider>`
+   * renders nothing. A seed naming an unregistered vessel id, an undeclared
+   * variant, or any seed under `layoutMode: 'grid'` white-screens the app —
+   * it does not silently fall back to an unseeded boot. Treat `initialLayout`
+   * as configuration to verify at build time, not as a best-effort hint.
+   *
+   * Captured once: changing this prop after mount is ignored (a console
+   * warning says so); remount with a new `key` to seed a different screen.
    */
   initialLayout?: TilingLayout;
-  children: ReactNode;
+}
+
+/** Provider props under grid mode, where no first screen can be seeded. */
+interface GridProviderProps extends MaelstromProviderBaseProps {
+  /**
+   * Layout algorithm used by the engine — see the tiling branch for how a
+   * change is pushed into the live Orchestrator. Selecting `'grid'` forbids
+   * `initialLayout`.
+   */
+  layoutMode: 'grid';
+  /**
+   * Unavailable under `layoutMode: 'grid'` — see the tiling branch's
+   * `initialLayout` for why a grid board cannot be seeded.
+   */
+  initialLayout?: never;
 }
 
 export function createProvider(
@@ -158,28 +205,21 @@ export function createProvider(
 
     // initialLayout is an object prop, so `!==` would false-positive on every
     // re-render that passes a structurally identical but newly allocated
-    // literal (the common case). Compare serialized signatures instead;
-    // TilingLayout is plain JSON (strings, arrays, plain objects), so
-    // JSON.stringify is exact here.
+    // literal (the common case). Compare serialized signatures instead. That
+    // is a structural approximation rather than deep equality: JSON.stringify
+    // is key-order sensitive, so an equivalent layout whose object literals
+    // list their keys in a different order reads as changed and warns. With
+    // no initialLayout the signature is `undefined` rather than a string,
+    // which still compares correctly against itself.
     //
     // Re-serializing on every render is wasted work when the caller passes a
     // stable reference (a module-level constant, or state that lives above
     // the Provider and re-renders it on unrelated changes) — cache the
     // signature and only recompute it when the reference itself changes.
-    const layoutSignatureCacheRef = useRef<{
-      layout: TilingLayout | undefined;
-      signature: string;
-    } | null>(null);
-    if (
-      layoutSignatureCacheRef.current === null ||
-      layoutSignatureCacheRef.current.layout !== initialLayout
-    ) {
-      layoutSignatureCacheRef.current = {
-        layout: initialLayout,
-        signature: JSON.stringify(initialLayout),
-      };
-    }
-    const initialLayoutSignature = layoutSignatureCacheRef.current.signature;
+    const initialLayoutSignature = useMemo(
+      () => JSON.stringify(initialLayout),
+      [initialLayout],
+    );
     const initialLayoutSignatureRef = useRef(initialLayoutSignature);
     const hasWarnedLayoutChangeRef = useRef(false);
 
@@ -205,20 +245,25 @@ export function createProvider(
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: onErrorRef and connectorRef are useLatestRef (stable identity, .current always fresh) — listing their .current would re-create the Orchestrator on every onError/connector identity change, defeating the point of narrowing this effect to session identity alone. connector, layoutMode, and debug are deliberately excluded: a connector change is pushed into the live Orchestrator by the setConnector effect below, layoutMode by the setLayoutMode effect below, and debug only gates logging so it applies starting from the next mount rather than live. initialLayout is excluded the same way — it is read once, from whichever render this effect's closure happened to run in (mount, or both mount passes under StrictMode's double-invoke using the *same* closure), and a later value has nothing left to attach to since the Orchestrator is already built.
     useEffect(() => {
+      // `layoutMode: 'grid'` with an `initialLayout` is unrepresentable in
+      // both this component's props and `OrchestratorOptions`, hence the
+      // cast — but an untyped (JS) caller can still pass the pair, and the
+      // Orchestrator's constructor guard is what reports it. Forwarding it
+      // intact keeps that backstop reachable; dropping the seed here would
+      // boot a screen the caller never asked for, silently.
+      const options = {
+        sessionId: stableSessionId,
+        ...(layoutMode && { layoutMode }),
+        ...(initialLayout && { initialLayout }),
+        // Registered before `initialLayout` is validated (see the `vessels`
+        // option), which registering afterward could not be.
+        vessels: vesselEntries.map((entry) => entry.vessel),
+        debug: config.debug,
+      } as OrchestratorOptions;
+
       let instance: Orchestrator;
       try {
-        instance = new Orchestrator(connectorRef.current, {
-          sessionId: stableSessionId,
-          ...(layoutMode && { layoutMode }),
-          ...(initialLayout && { initialLayout }),
-          // Registered before `initialLayout` is validated inside the
-          // Orchestrator constructor, so a seed naming one of these vessels
-          // resolves instead of failing construction — registering them
-          // afterward (as a separate `registerVessel` loop) would be too
-          // late, since the seed is validated during construction itself.
-          vessels: vesselEntries.map((entry) => entry.vessel),
-          debug: config.debug,
-        });
+        instance = new Orchestrator(connectorRef.current, options);
       } catch (err) {
         const error = toError(err);
         console.error('[Maelstrom] Failed to create Orchestrator:', error);

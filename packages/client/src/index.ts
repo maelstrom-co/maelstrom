@@ -109,9 +109,12 @@ export { buildChartRequest } from './lib/orchestrator/build-chart-request.js';
 export { ConnectorSupersededError } from './lib/orchestrator/connector-superseded-error.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';
 export type {
+  GridOrchestratorOptions,
   OrchestratorOptions,
+  OrchestratorOptionsBase,
   OrchestratorViewState,
   ResolvedOrchestratorOptions,
+  TilingOrchestratorOptions,
 } from './lib/orchestrator/orchestrator.types.js';
 export { DEFAULT_LAYOUT_MODE } from './lib/orchestrator/orchestrator.types.js';
 export type {

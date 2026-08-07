@@ -8,13 +8,14 @@ import {
 import type { ConnectionOptions } from '../connection-manager/connection-manager.types.js';
 
 /**
- * Configuration options for the Orchestrator / Maelstrom client.
+ * Options that apply under every layout mode.
+ *
+ * {@link OrchestratorOptions} pairs these with the mode-specific
+ * `layoutMode` / `initialLayout` fields.
  */
-export interface OrchestratorOptions {
+export interface OrchestratorOptionsBase {
   /** Session ID for conversation continuity. Auto-generated if omitted. */
   sessionId?: SessionId;
-  /** Layout mode (default: 'tiling') */
-  layoutMode?: LayoutMode;
   /** Enable debug logging (default: false) */
   debug?: boolean;
   /** Debounce delay for update batching in ms (default: 300) */
@@ -26,8 +27,9 @@ export interface OrchestratorOptions {
   /** Connection options for the ConnectionManager */
   connection?: Partial<ConnectionOptions>;
   /**
-   * Vessel definitions to register before `initialLayout` is validated and
-   * applied. Equivalent to calling `vesselManager.registerVessel()` for each
+   * Vessel definitions to register before
+   * {@link TilingOrchestratorOptions.initialLayout} is validated and applied.
+   * Equivalent to calling `vesselManager.registerVessel()` for each
    * immediately after construction — including its report-don't-throw
    * behavior: a definition that fails schema validation is skipped and
    * logged rather than aborting construction, so one bad vessel cannot take
@@ -36,26 +38,70 @@ export interface OrchestratorOptions {
    * vessels — the registry starts out empty otherwise. The one place this
    * still throws is indirect: if `initialLayout` names an instance whose
    * vessel failed validation (or was never listed here), construction
-   * throws naming that instance and vessel (see `initialLayout`) — a seed
-   * genuinely cannot be honored without the vessel it names.
+   * throws naming that instance and vessel — a seed genuinely cannot be
+   * honored without the vessel it names.
    */
   vessels?: readonly VesselDefinition[];
+}
+
+/**
+ * Options under the default tiling mode — the only mode that can seed a
+ * first screen.
+ */
+export interface TilingOrchestratorOptions extends OrchestratorOptionsBase {
+  /** Layout mode (default: 'tiling') */
+  layoutMode?: 'tiling';
   /**
    * Layout applied once at construction, before any engine round-trip — a
-   * *proposed* first screen. The engine sees it in the next chart request and
-   * may reshape or drop tiles to fit the real viewport. Must be a tiling
-   * layout: a grid layout can only reposition instances that already exist,
-   * and none do yet at construction, so it is rejected outright. Requires
-   * `layoutMode: 'tiling'` (the default) for the same reason in reverse —
-   * any `initialLayout` throws when `layoutMode` is `'grid'`, since a tiling
-   * value then mismatches the mode and a (cast) grid value is already
-   * rejected by the check above. There is no `layoutMode` under which a
-   * grid value works here. Every instance the seed names must resolve to a
-   * vessel and variant already registered via `vessels` above, or
-   * construction throws.
+   * *proposed* first screen. The engine sees it in the next chart request
+   * and may reshape or drop tiles to fit the real viewport.
+   *
+   * Tiling-only, and typed that way: a grid layout can only reposition
+   * instances that already exist, and none do yet at construction, so
+   * {@link GridOrchestratorOptions} types `initialLayout` as `never`. The
+   * constructor repeats both rules at runtime as a backstop for untyped
+   * (JS) callers and `as` casts.
+   *
+   * Every instance the seed names must resolve to a vessel and variant
+   * already registered via {@link OrchestratorOptionsBase.vessels}, every
+   * `tree` leaf must be declared in `instances`, and every declared
+   * instance must appear as a `tree` leaf; otherwise construction throws.
+   *
+   * Switching to grid later via `Orchestrator.setLayoutMode('grid')` is not
+   * an error and does not undo the seed's own validity — but the stored
+   * tiling layout can no longer be sent, so the next chart request carries
+   * a fresh empty grid layout and the arranged board is discarded (with a
+   * warning).
    */
   initialLayout?: TilingLayout;
 }
+
+/**
+ * Options under grid mode, where no first screen can be seeded.
+ */
+export interface GridOrchestratorOptions extends OrchestratorOptionsBase {
+  /** Layout mode. */
+  layoutMode: 'grid';
+  /**
+   * Unavailable under grid mode. A seed has to *create* the instances it
+   * arranges, which only a tiling tree expresses; grid positions can merely
+   * move instances that already exist. Seed under
+   * {@link TilingOrchestratorOptions.initialLayout} instead.
+   */
+  initialLayout?: never;
+}
+
+/**
+ * Configuration options for the Orchestrator / Maelstrom client.
+ *
+ * `layoutMode` and `initialLayout` are one paired choice rather than two
+ * independent fields: seeding a first screen is meaningful only under
+ * tiling, so the grid arm makes `initialLayout` unrepresentable instead of
+ * leaving that combination to a construction-time throw.
+ */
+export type OrchestratorOptions =
+  | TilingOrchestratorOptions
+  | GridOrchestratorOptions;
 
 /**
  * Resolved configuration with defaults applied.
@@ -74,11 +120,10 @@ export interface ResolvedOrchestratorOptions {
   readonly maxWaitMs: number;
   readonly readyTimeoutMs: number;
   readonly connection: ConnectionOptions;
-  readonly initialLayout?: TilingLayout;
 }
 
 /**
- * Layout mode applied when {@link OrchestratorOptions.layoutMode} is
+ * Layout mode applied when {@link TilingOrchestratorOptions.layoutMode} is
  * omitted. The one definition of that default — {@link resolveOrchestratorOptions}
  * consumes it internally, and consumers that need to know it (a "reset to
  * default" control, for example) should import this constant rather than
@@ -108,9 +153,6 @@ export function resolveOrchestratorOptions(
         options.connection?.circuitBreakerTimeoutMs ?? 60000,
       stabilityThresholdMs: options.connection?.stabilityThresholdMs ?? 5000,
     },
-    ...(options.initialLayout !== undefined && {
-      initialLayout: options.initialLayout,
-    }),
   };
 }
 
