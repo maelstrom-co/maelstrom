@@ -53,7 +53,7 @@ export function getTasksSnapshot(): TasksState {
 
 // Test-only: restores the module-singleton store to its seeded state so
 // specs don't leak mutations into one another.
-export function resetTasksStore(): void {
+export function __resetTasksStoreForTests(): void {
   setState({
     tasks: SEED_TASKS.map((t) => ({ ...t, subtasks: [...t.subtasks] })),
   });

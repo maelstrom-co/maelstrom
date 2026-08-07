@@ -1,11 +1,12 @@
 import { defineVessel } from '@maelstrom-co/protocol';
 import { vessel } from '@maelstrom-co/react';
 import { DEMO_LOCATIONS } from '../lib/locations';
+import { withActionOptions } from '../lib/vessel-options';
 import { MapSkeleton } from './map.skeleton';
 
 const LOCATION_NAMES = DEMO_LOCATIONS.map((location) => location.name);
 
-export const mapVessel = defineVessel({
+const baseMapVessel = defineVessel({
   id: 'map',
   name: 'Map',
   description:
@@ -25,7 +26,6 @@ export const mapVessel = defineVessel({
               name: 'destination',
               type: 'string',
               description: 'Name of the destination location',
-              enum: LOCATION_NAMES,
             },
           ],
           transitionsTo: 'route',
@@ -38,7 +38,6 @@ export const mapVessel = defineVessel({
               name: 'name',
               type: 'string',
               description: 'Name of the location to focus on',
-              enum: LOCATION_NAMES,
             },
           ],
           transitionsTo: 'compact',
@@ -63,7 +62,6 @@ export const mapVessel = defineVessel({
               name: 'destination',
               type: 'string',
               description: 'Name of the destination location',
-              enum: LOCATION_NAMES,
             },
           ],
         },
@@ -75,7 +73,6 @@ export const mapVessel = defineVessel({
               name: 'name',
               type: 'string',
               description: 'Name of the location to focus on',
-              enum: LOCATION_NAMES,
             },
           ],
           transitionsTo: 'compact',
@@ -100,7 +97,6 @@ export const mapVessel = defineVessel({
               name: 'destination',
               type: 'string',
               description: 'Name of the destination location',
-              enum: LOCATION_NAMES,
             },
           ],
           transitionsTo: 'route',
@@ -108,6 +104,11 @@ export const mapVessel = defineVessel({
       ],
     },
   },
+});
+
+export const mapVessel = withActionOptions(baseMapVessel, {
+  showRoute: { destination: LOCATION_NAMES },
+  focusLocation: { name: LOCATION_NAMES },
 });
 
 export const mapEntry = vessel(
