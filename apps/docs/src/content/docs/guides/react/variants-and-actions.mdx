@@ -84,7 +84,7 @@ export default function GreetingComponent({
 ```
 
 <Aside type="tip">
-  `minSize` is per-variant for a reason: `expanded` typically needs more grid cells than `card`. The engine reads the target variant's `minSize` after a transition to lay the vessel out (see [Grid vs Tiling](/understanding/grid-vs-tiling/)).
+  `minSize` is per-variant because `expanded` may need more grid cells than `card`. The engine enforces the active variant's minimum in grid mode. Tiling ignores `minSize` (see [Grid vs Tiling](/understanding/grid-vs-tiling/)).
 </Aside>
 
 ## Define actions
@@ -145,7 +145,7 @@ The `type` union maps to TypeScript as you'd expect: `'string'` → `string`, `'
 
 When an action defines `transitionsTo`, invoking it does two things: it runs the action's handler, and it moves the instance into the named target variant. The engine validates at definition time that every `transitionsTo` names a real variant: `defineVessel` paired with the schema rejects a transition to a variant that doesn't exist, so a typo fails fast rather than at runtime.
 
-After a transition, the engine lays the vessel out using the **target** variant's `minSize`, and your component re-renders with `variantProps` narrowed to the new variant. That is why `expand` above moves `card` → `expanded`: the next render hits the `expanded` branch and gains access to `message`.
+After a transition, your component re-renders with `variantProps` narrowed to the target variant. That is why `expand` above moves `card` → `expanded`: the next render hits the `expanded` branch and gains access to `message`. The target variant's `minSize` becomes the floor for later grid layout validation; it has no effect in tiling mode.
 
 An action without `transitionsTo` (like `setName`) keeps the vessel in its current variant. Use the transition only when the action should change the displayed state.
 

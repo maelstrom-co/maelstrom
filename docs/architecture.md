@@ -142,7 +142,7 @@ This design allows:
 - Register DOM elements for Vessels
 - Apply CSS transforms to position Vessels
 - Animate transitions between layouts
-- Detect and handle overflow (Vessels that don't fit)
+- Clip visual overflow at the Chart boundary
 
 ---
 
@@ -265,10 +265,8 @@ The envelope module in `@maelstrom-co/protocol` is the single home of the stream
                                     │
                                     ▼
 6. Client executes response (STRICT ORDER):
-   a. Apply layout (CSS transforms)
-   b. Execute actions (transitions variants)
-   c. Get new sizes (from variant minSize)
-   d. Handle overflow
+   a. Apply set_layout (declares instances and geometry)
+   b. Run execute_actions (may transition variants)
                                     │
                                     ▼
 7. UI updates, user sees result
@@ -278,16 +276,19 @@ The envelope module in `@maelstrom-co/protocol` is the single home of the stream
 
 The client MUST execute the response in this strict order:
 
-1. **Apply Layout First**: Position Vessels using CSS transforms
-2. **Execute Actions**: Run all actions sequentially, transitioning variants
-3. **Get New Sizes**: Look up minSize from the new variant
-4. **Handle Overflow**: Manage Vessels that don't fit
+1. **Apply `set_layout` first**: Declare the response's instances and geometry.
+2. **Run `execute_actions`**: Execute actions sequentially after the layout exists.
 
 This order matters because:
 
-- The engine response already contains the layout directive for the planned arrangement
-- Actions transition Vessels to new variants after placement
-- The final overflow pass catches variants whose minSize requirements changed after actions
+- The client dispatches layout and actions as one atomic command batch.
+- `applyTilingLayout` builds a fresh instance map from `layout.instances` instead of merging with the previous map.
+- An action may target an instance introduced by the same tiling response. Layout must create that instance before its action runner can become available.
+- Applying geometry first also prevents a transitioning Vessel from rendering briefly at stale coordinates.
+
+The client does not run an inline minimum-size reconciliation or overflow resolver after actions. Grid `minSize` validation happens in the engine before the response reaches the client. Tiling does not enforce `minSize`. The Chart clips visual overflow with CSS.
+
+The React Chart observes its container. When the container's pixel size crosses a whole-cell boundary, the `ResizeObserver` sends a new `chart_resize` request. That request starts a separate engine turn; it is not part of the response batch.
 
 ---
 
@@ -323,13 +324,16 @@ The LLM knows:
 
 - What actions are available in each instance's current variant
 - What variant each action transitions to
-- What size each variant requires
+- The current Chart dimensions in grid mode
+- The current allocated size of each grid instance
+
+The initial prompt omits each variant's numeric `minSize`. In grid mode, the engine validates the returned placement against the active variant's minimum. If a placement is too small, the engine drops it and may include the required dimensions in a retry prompt. Tiling never reads `minSize`.
 
 The LLM returns structured JSON with:
 
 - Rationale (for debugging/logging)
 - Execution plan (actions to invoke, must be valid for current variant)
-- Layout directive (where to place Vessels, size must meet variant minSize)
+- Layout directive (where to place Vessels; in grid mode, size must meet the active variant's `minSize`)
 
 ---
 
@@ -339,8 +343,8 @@ The LLM returns structured JSON with:
 
 If the LLM returns coordinates outside the Chart grid:
 
-- Clamp to nearest valid position
-- Log warning for debugging
+- Drop the overflowing position and keep valid positions from the same response
+- Record a structured `position_overflow` diagnostic for retry decisions and engine logs
 
 ### Invalid Actions
 

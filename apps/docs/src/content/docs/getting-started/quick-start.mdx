@@ -59,7 +59,7 @@ By the end of this guide you'll have a chart with one vessel, driven by a runnin
 
    A vessel is a state machine: variants are its states, actions are transitions between them, and the LLM uses the `description` fields to understand what the vessel does and how to position it.
 
-   `minSize` is in chart cells — both engine and client respect it as the variant's floor, regardless of layout mode (grid or tiling).
+   `minSize` is in chart cells. The engine enforces it for grid layouts. Tiling layouts derive each Vessel's size from the split tree and ignore `minSize`.
 
    ```tsx title="src/vessels/greeting.tsx" {9-22}
    import { defineVessel, vessel } from '@maelstrom-co/react';

@@ -24,7 +24,7 @@ flowchart TD
   Intent["User intent"]
   Snapshot["Client snapshots current Vessels<br/>and Chart state"]
   Engine["Engine chooses actions<br/>and layout"]
-  Apply["Client applies layout,<br/>executes actions, handles overflow"]
+  Apply["Client applies layout,<br/>then executes actions"]
   Render["Chart renders the updated<br/>Vessel arrangement"]
 
   Intent --> Snapshot
@@ -76,7 +76,7 @@ const weatherVessel = defineVessel({
 
 ## Chart
 
-The Chart is the layout container. In grid mode, the engine returns row and column positions. In tiling mode, it returns a split tree. Both modes use the same Vessel catalogue and both must respect each active variant's `minSize`.
+The Chart is the layout container. In grid mode, the engine returns row and column positions and enforces each active variant's `minSize`. In tiling mode, it returns a split tree whose leaves derive their size from the tree and container; tiling does not enforce `minSize`.
 
 The Chart also notifies the engine when it gets resized. When the container dimensions change, the client sends a `chart_resize` update to the engine so it can recalculate the layout and reposition Vessels that no longer fit.
 
@@ -105,13 +105,9 @@ When processing Engine responses, the client dispatches layout and actions as an
 ```mermaid
 flowchart LR
   Layout["Apply layout"] --> Actions["Execute actions"]
-  Actions --> Sizes["Read new sizes"]
-  Sizes --> Overflow["Handle overflow"]
 ```
 
 1. **Apply layout** using the layout directive the engine returned.
 2. **Execute actions** so variants can transition.
-3. **Read new sizes** from each resulting variant's `minSize`.
-4. **Handle overflow** if the requested arrangement does not fit.
 
-Layout is applied first because the engine already knows the target sizes when it produces the directive. Actions then transition variants, and the client resolves any size changes from variant transitions before handling overflow.
+Layout is applied first because it declares which instances exist. In tiling mode, the client rebuilds its instance map from the response, so an action targeting a newly introduced instance cannot run until layout creates that instance. The client applies both commands as one atomic batch and does not run a separate size or overflow pass afterward. See [How the LLM orchestrates UI](/understanding/llm-orchestration/) for the complete response lifecycle.
