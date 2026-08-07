@@ -327,6 +327,7 @@ export default defineConfig({
                 { slug: 'guides/react/variants-and-actions' },
                 { slug: 'guides/react/lazy-loading' },
                 { slug: 'guides/react/layout-modes' },
+                { slug: 'guides/react/default-screen' },
                 { slug: 'guides/react/error-handling' },
               ],
             },

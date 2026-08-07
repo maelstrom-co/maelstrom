@@ -12,14 +12,15 @@ import {
   type ChartRequestMessage,
   err,
   InstanceId,
-  type LayoutMode,
   type MaelstromResponse,
   MessageId,
   ok,
   type SessionHistoryEntry,
   SessionId,
+  type TilingLayout,
   VariantName,
   type Vessel,
+  type VesselDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
@@ -2455,7 +2456,7 @@ describe('Orchestrator', () => {
         }),
       });
       const { orchestrator } = createTestOrchestrator(connector, {
-        layoutMode: 'tiling' as LayoutMode,
+        layoutMode: 'tiling',
       });
 
       await orchestrator.processIntent('first');
@@ -2482,7 +2483,7 @@ describe('Orchestrator', () => {
         }),
       });
       const { orchestrator } = createTestOrchestrator(connector, {
-        layoutMode: 'tiling' as LayoutMode,
+        layoutMode: 'tiling',
       });
 
       await orchestrator.processIntent('first');
@@ -2520,7 +2521,7 @@ describe('Orchestrator', () => {
         }),
       });
       const { orchestrator } = createTestOrchestrator(connector, {
-        layoutMode: 'tiling' as LayoutMode,
+        layoutMode: 'tiling',
       });
 
       // First request/response: seed a tiling layout into the store.
@@ -2673,7 +2674,7 @@ describe('Orchestrator', () => {
 
     it('after dispose leaves the layout mode alone', async () => {
       const { orchestrator } = createTestOrchestrator(createMockConnector(), {
-        layoutMode: 'tiling' as LayoutMode,
+        layoutMode: 'tiling',
       });
 
       await orchestrator.dispose();
@@ -2723,6 +2724,601 @@ describe('Orchestrator', () => {
       expect(orchestrator.commandProcessor.store.state.instances.size).toBe(0);
 
       orchestrator.dispose();
+    });
+  });
+
+  // A vessel a seed can validly reference — registered via the `vessels`
+  // constructor option, which runs before the seed is validated (the
+  // ordering that makes construction-time validation possible at all).
+  const calendarVessel = {
+    id: 'calendar',
+    name: 'Calendar',
+    description: 'a test calendar vessel',
+    defaultVariant: 'day',
+    variants: {
+      day: { props: {}, minSize: { width: 2, height: 2 }, actions: [] },
+    },
+  } as const;
+
+  // Fails VesselSchema: `variants` is empty and `defaultVariant` names a
+  // variant that therefore cannot exist.
+  const brokenVessel: VesselDefinition = {
+    id: 'broken',
+    name: 'Broken',
+    description: 'a vessel with no variants',
+    defaultVariant: 'x',
+    variants: {},
+  };
+
+  // The minimal seed every initialLayout test starts from: one calendar
+  // instance, treed. Tests spread and override the one field under test.
+  const calendarSeed: TilingLayout = {
+    type: 'tiling',
+    tree: [InstanceId('calendar-main')],
+    instances: [
+      {
+        instanceId: InstanceId('calendar-main'),
+        vesselId: VesselId('calendar'),
+        variant: VariantName('day'),
+      },
+    ],
+  };
+
+  describe('Orchestrator initialLayout', () => {
+    it('seeds an instance before any engine response', async () => {
+      const { connector, orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [calendarVessel],
+        initialLayout: calendarSeed,
+      });
+
+      await orchestrator.commandProcessor.waitForIdle();
+
+      const seeded = orchestrator.commandProcessor.store.state.instances.get(
+        InstanceId('calendar-main'),
+      );
+      expect(seeded?.vesselId).toBe(VesselId('calendar'));
+      expect(seeded?.variant).toBe(VariantName('day'));
+      // The "before any engine response" half of the title: an eager
+      // construction-time request would leave this test green and its name
+      // false.
+      expect(connector.process).not.toHaveBeenCalled();
+
+      orchestrator.dispose();
+    });
+
+    // The store is an intermediate. What the feature promises is that the
+    // engine *sees* the proposal, which means surviving buildChartRequest's
+    // layout/mode reconciliation and landing on the wire.
+    it('carries the seeded tree and instances into the first chart request', async () => {
+      const { connector, orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [calendarVessel],
+        initialLayout: calendarSeed,
+      });
+
+      await orchestrator.connect();
+      orchestrator.chartManager.setDimensions({ columns: 10, rows: 6 });
+      await orchestrator.flushUpdates();
+
+      const { request } = (connector.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      expect(request.layout.type).toBe('tiling');
+      expect(
+        request.layout.type === 'tiling' ? request.layout.tree : [],
+      ).toContain(InstanceId('calendar-main'));
+      expect(request.instances).toEqual([
+        {
+          instanceId: InstanceId('calendar-main'),
+          vesselId: VesselId('calendar'),
+          variant: VariantName('day'),
+        },
+      ]);
+
+      orchestrator.dispose();
+    });
+
+    it('rejects a grid initialLayout outright — a grid layout only repositions instances that already exist, and none do at construction', () => {
+      expect(() =>
+        createTestOrchestrator(undefined, {
+          // @ts-expect-error initialLayout is typed TilingLayout-only; this
+          // exercises the runtime guard a plain-JS or `as`-cast caller can
+          // still trigger.
+          initialLayout: { type: 'grid', positions: [] },
+        }),
+      ).toThrow(/grid layout/i);
+    });
+
+    // Guard ordering: a grid seed must still produce the grid-specific
+    // message above, even though it is also a layoutMode mismatch whenever
+    // layoutMode defaults to 'tiling' — the grid check must run first.
+    it('still produces the grid-specific message for a grid seed, not the mismatch message, when layoutMode also happens to mismatch', () => {
+      expect(() =>
+        createTestOrchestrator(undefined, {
+          layoutMode: 'tiling',
+          // @ts-expect-error same runtime-guard exercise as above.
+          initialLayout: { type: 'grid', positions: [] },
+        }),
+      ).toThrow(/grid layout/i);
+    });
+
+    it('rejects a layoutMode/initialLayout type mismatch — a mismatched seed would be silently discarded by buildChartRequest on the first request, so fail fast instead of half-applying it', () => {
+      expect(() =>
+        createTestOrchestrator(undefined, {
+          layoutMode: 'grid',
+          vessels: [calendarVessel],
+          // @ts-expect-error the options union makes `initialLayout`
+          // unrepresentable under layoutMode: 'grid'; this exercises the
+          // runtime backstop a plain-JS or `as`-cast caller can still trip.
+          initialLayout: calendarSeed,
+        }),
+      ).toThrow(/initialLayout.*"tiling".*layoutMode.*"grid"/is);
+    });
+
+    // The constructor guard makes the mismatch look impossible, but
+    // setLayoutMode reopens it one call later through supported public API
+    // — and the React Provider drives that setter straight from a prop.
+    it('discards the seeded board with a warning when setLayoutMode flips to grid after construction', async () => {
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+      const { connector, orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [calendarVessel],
+        initialLayout: calendarSeed,
+      });
+
+      await orchestrator.commandProcessor.waitForIdle();
+      await orchestrator.connect();
+      orchestrator.setLayoutMode('grid');
+
+      // The discard is announced, not silent — this warning is the only
+      // signal a developer gets that their seeded screen just went away.
+      const discardWarnings = warnSpy.mock.calls.filter((args) =>
+        args.some(
+          (a) => typeof a === 'string' && a.includes('setLayoutMode("grid")'),
+        ),
+      );
+      expect(discardWarnings).toHaveLength(1);
+
+      orchestrator.chartManager.setDimensions({ columns: 10, rows: 6 });
+      await orchestrator.flushUpdates();
+
+      const { request } = (connector.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      expect(request.layout).toEqual({ type: 'grid', positions: [] });
+
+      warnSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    describe('validated against the vessel registry', () => {
+      // Discriminates the "never listed" branch from its sibling below:
+      // both messages name the instance and the vessel, so only the
+      // branch-specific phrase tells them apart.
+      it('throws naming the instance and vessel when the vessel is unregistered', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            initialLayout: calendarSeed,
+          }),
+        ).toThrow(/calendar-main.*calendar.*is not registered/is);
+      });
+
+      it('throws naming the instance and variant when the variant is undeclared on the vessel', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              ...calendarSeed,
+              instances: [
+                {
+                  instanceId: InstanceId('calendar-main'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('week'),
+                },
+              ],
+            },
+          }),
+        ).toThrow(/calendar-main.*week|week.*calendar-main/);
+      });
+
+      it('constructs and applies a seed whose vessel and variant are both valid', async () => {
+        const { orchestrator } = createTestOrchestrator(undefined, {
+          vessels: [calendarVessel],
+          initialLayout: calendarSeed,
+        });
+
+        await orchestrator.commandProcessor.waitForIdle();
+        expect(
+          orchestrator.commandProcessor.store.state.instances.get(
+            InstanceId('calendar-main'),
+          )?.variant,
+        ).toBe(VariantName('day'));
+
+        orchestrator.dispose();
+      });
+    });
+
+    describe('validated tiling tree invariants', () => {
+      it('throws when initialLayout.instances contains a duplicate instanceId', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              ...calendarSeed,
+              instances: [...calendarSeed.instances, ...calendarSeed.instances],
+            },
+          }),
+        ).toThrow(/duplicate.*calendar-main/i);
+      });
+
+      it('throws when initialLayout.tree references a leaf absent from initialLayout.instances', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              ...calendarSeed,
+              tree: [InstanceId('ghost-main')],
+            },
+          }),
+        ).toThrow(/ghost-main/);
+      });
+
+      // The dual of the check above, and the likelier authoring slip: a
+      // typo'd leaf already throws, but forgetting the leaf entirely used to
+      // construct cleanly and render nothing — the empty launch screen this
+      // whole feature exists to remove.
+      it('throws when initialLayout.instances declares an instance no tree leaf references', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              ...calendarSeed,
+              instances: [
+                ...calendarSeed.instances,
+                {
+                  instanceId: InstanceId('calendar-orphan'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+              ],
+            },
+          }),
+        ).toThrow(/calendar-orphan/);
+      });
+
+      it('throws when the whole seed is untreed (instances declared, tree empty)', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: { ...calendarSeed, tree: [] },
+          }),
+        ).toThrow(/calendar-main/);
+      });
+
+      it('constructs when the seed satisfies both invariants (two leaves joined by a split, no duplicates)', async () => {
+        const { orchestrator } = createTestOrchestrator(undefined, {
+          vessels: [calendarVessel],
+          initialLayout: {
+            type: 'tiling',
+            tree: [
+              'H',
+              InstanceId('calendar-main'),
+              InstanceId('calendar-side'),
+            ],
+            instances: [
+              {
+                instanceId: InstanceId('calendar-main'),
+                vesselId: VesselId('calendar'),
+                variant: VariantName('day'),
+              },
+              {
+                instanceId: InstanceId('calendar-side'),
+                vesselId: VesselId('calendar'),
+                variant: VariantName('day'),
+              },
+            ],
+          },
+        });
+
+        await orchestrator.commandProcessor.waitForIdle();
+        expect(orchestrator.commandProcessor.store.state.instances.size).toBe(
+          2,
+        );
+
+        orchestrator.dispose();
+      });
+
+      // A seed that proposes nothing is a legal no-op, not a wedge: there is
+      // no instance to strand and nothing for the engine to reject.
+      it('constructs with zero instances from an empty seed', async () => {
+        const { orchestrator } = createTestOrchestrator(undefined, {
+          vessels: [calendarVessel],
+          initialLayout: { type: 'tiling', tree: [], instances: [] },
+        });
+
+        await orchestrator.commandProcessor.waitForIdle();
+        expect(orchestrator.commandProcessor.store.state.instances.size).toBe(
+          0,
+        );
+
+        orchestrator.dispose();
+      });
+
+      it('constructs when the tree carries a null empty-space node', async () => {
+        const { orchestrator } = createTestOrchestrator(undefined, {
+          vessels: [calendarVessel],
+          initialLayout: {
+            ...calendarSeed,
+            tree: ['V', InstanceId('calendar-main'), null],
+          },
+        });
+
+        await orchestrator.commandProcessor.waitForIdle();
+        expect(orchestrator.commandProcessor.store.state.instances.size).toBe(
+          1,
+        );
+
+        orchestrator.dispose();
+      });
+
+      // Tolerated rather than validated: both membership directions hold, so
+      // the seed is coherent — the renderer decides what a twice-placed leaf
+      // means. Pinned here so a future decision to reject it is a deliberate
+      // change rather than an accident.
+      it('constructs when the same instance appears as a tree leaf twice', async () => {
+        const { orchestrator } = createTestOrchestrator(undefined, {
+          vessels: [calendarVessel],
+          initialLayout: {
+            ...calendarSeed,
+            tree: [
+              'V',
+              InstanceId('calendar-main'),
+              InstanceId('calendar-main'),
+            ],
+          },
+        });
+
+        await orchestrator.commandProcessor.waitForIdle();
+        expect(orchestrator.commandProcessor.store.state.instances.size).toBe(
+          1,
+        );
+
+        orchestrator.dispose();
+      });
+    });
+
+    // The bespoke invariant checks below assume a shape-valid seed, which an
+    // untyped (JS) caller or a `JSON.parse`d/persisted layout does not
+    // guarantee. Without a schema parse first, a missing array throws a bare
+    // `TypeError: undefined is not iterable` and an empty-string instanceId
+    // rides through to fail ChartRequestSchema on every later request.
+    describe('shape-validated before the invariant checks', () => {
+      it('throws a diagnostic error, not a TypeError, when instances is missing', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            // @ts-expect-error exercises the runtime backstop for a seed
+            // that never passed through the type system.
+            initialLayout: { type: 'tiling', tree: [] },
+          }),
+        ).toThrow(/initialLayout is not a valid tiling layout/i);
+      });
+
+      it('throws a diagnostic error, not a TypeError, when tree is missing', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            // @ts-expect-error same runtime-backstop exercise as above.
+            initialLayout: { type: 'tiling', instances: [] },
+          }),
+        ).toThrow(/initialLayout is not a valid tiling layout/i);
+      });
+
+      it('rejects an empty-string instanceId that the compile-time brand cannot stop', () => {
+        // The brand's own constructor rejects '', so a cast is how one
+        // actually arrives — same as a `JSON.parse`d or persisted seed.
+        const emptyId = '' as InstanceId;
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              type: 'tiling',
+              tree: [emptyId],
+              instances: [
+                {
+                  instanceId: emptyId,
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+              ],
+            },
+          }),
+        ).toThrow(/initialLayout is not a valid tiling layout/i);
+      });
+    });
+
+    // Every throwing check must run before #setupSubscriptions(), which
+    // installs a push subscription on the caller-supplied connector that a
+    // rejected construction can never dispose — the connector outlives the
+    // failed attempt and the caller keeps using it.
+    it('leaves no push subscription on the connector when construction throws', () => {
+      const pushConnector = createMockPushConnector();
+
+      expect(() =>
+        createTestOrchestrator(pushConnector, {
+          initialLayout: calendarSeed,
+        }),
+      ).toThrow();
+
+      expect(pushConnector.onPushMessage).not.toHaveBeenCalled();
+    });
+
+    // Ordering hardening: the PushConnector interface makes no ordering
+    // promise, so the seed is applied first to stay a proposal a replayed
+    // response can overwrite.
+    it('applies the seed before subscriptions attach, so a synchronously-replayed push response still lands on top of it', async () => {
+      const pushedResponse: MaelstromResponse = {
+        type: 'maelstrom_response',
+        requestId: MessageId('req-push'),
+        userMessage: 'pushed',
+        rationale: 'test',
+        executionPlan: [],
+        layout: {
+          type: 'tiling',
+          tree: [InstanceId('pushed-main')],
+          instances: [
+            {
+              instanceId: InstanceId('pushed-main'),
+              vesselId: VesselId('calendar'),
+              variant: VariantName('day'),
+            },
+          ],
+        },
+      };
+      const pushConnector = createMockPushConnector({
+        onPushMessage: mock((cb: (response: MaelstromResponse) => void) => {
+          cb(pushedResponse);
+          return () => {};
+        }),
+      });
+
+      const { orchestrator } = createTestOrchestrator(pushConnector, {
+        vessels: [calendarVessel],
+        initialLayout: calendarSeed,
+      });
+
+      await orchestrator.commandProcessor.waitForIdle();
+
+      const layout = orchestrator.commandProcessor.store.state.layout;
+      expect(layout?.type).toBe('tiling');
+      expect(
+        layout?.type === 'tiling' &&
+          layout.instances.some(
+            (i) => i.instanceId === InstanceId('pushed-main'),
+          ),
+      ).toBe(true);
+
+      orchestrator.dispose();
+    });
+  });
+
+  describe('Orchestrator vessels option', () => {
+    // One invalid vessel definition must not abort construction —
+    // registerVessel reports and skips (see vessel-manager.ts); only a
+    // vessel an initialLayout seed names escalates to a throw.
+    it('skips an invalid vessel definition and registers the rest — an unrelated typo must not abort construction', () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const { orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [brokenVessel, calendarVessel],
+      });
+
+      // The invalid vessel never entered the registry...
+      expect(orchestrator.vesselManager.has('broken')).toBe(false);
+      // ...but the valid one alongside it did, and is actually usable.
+      expect(orchestrator.vesselManager.has('calendar')).toBe(true);
+      expect(orchestrator.vesselManager.get('calendar')?.defaultVariant).toBe(
+        VariantName('day'),
+      );
+      // With the throw gone, this log IS the contract: it is the only way a
+      // developer learns their vessel silently vanished, so assert it named
+      // the vessel and said why — not merely that something logged.
+      const brokenReports = errorSpy.mock.calls.filter((args) =>
+        args.some((a) => typeof a === 'string' && a.includes('"broken"')),
+      );
+      expect(brokenReports).toHaveLength(1);
+      expect(JSON.stringify(brokenReports[0])).toContain(
+        'at least one variant',
+      );
+
+      errorSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    // Each invalid definition is skipped on its own: aggregating them into a
+    // single throw is what let one bad vessel take down construction.
+    it('skips multiple invalid vessel definitions independently instead of throwing', () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const { orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [
+          { ...brokenVessel, id: 'broken-a', name: 'Broken A' },
+          { ...brokenVessel, id: 'broken-b', name: 'Broken B' },
+        ],
+      });
+
+      expect(orchestrator.vesselManager.has('broken-a')).toBe(false);
+      expect(orchestrator.vesselManager.has('broken-b')).toBe(false);
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+
+      errorSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    it('registers a valid vessel with no error logged', () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const { orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [calendarVessel],
+      });
+
+      expect(orchestrator.vesselManager.has('calendar')).toBe(true);
+      expect(orchestrator.vesselManager.get('calendar')?.defaultVariant).toBe(
+        VariantName('day'),
+      );
+      // The one thing the mixed valid/invalid test above cannot assert: a
+      // clean vessel list reports nothing at all.
+      expect(errorSpy).not.toHaveBeenCalled();
+
+      errorSpy.mockRestore();
+      orchestrator.dispose();
+    });
+
+    // The exception to report-don't-throw: a vessel an initialLayout seed
+    // actually names is one construction cannot proceed without, so a
+    // definition that failed validation (and therefore never made it into
+    // the registry) must still surface as a throw naming the vessel —
+    // silently producing a broken first screen would be worse than the
+    // white-screen this fix removes for unrelated vessels.
+    it('still throws naming the vessel when initialLayout seeds an instance whose vessel definition failed validation', () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      expect(
+        () =>
+          createTestOrchestrator(undefined, {
+            vessels: [brokenVessel],
+            initialLayout: {
+              type: 'tiling',
+              tree: [InstanceId('broken-main')],
+              instances: [
+                {
+                  instanceId: InstanceId('broken-main'),
+                  vesselId: VesselId('broken'),
+                  variant: VariantName('x'),
+                },
+              ],
+            },
+          }),
+        // The generic "is not registered" message would satisfy a looser
+        // regex just as well; only the branch-specific phrase plus the
+        // schema issue text proves the failed-validation diagnostic
+        // survived.
+      ).toThrow(/broken-main.*broken.*failed vessel validation/is);
+
+      expect(() =>
+        createTestOrchestrator(undefined, {
+          vessels: [brokenVessel],
+          initialLayout: {
+            type: 'tiling',
+            tree: [InstanceId('broken-main')],
+            instances: [
+              {
+                instanceId: InstanceId('broken-main'),
+                vesselId: VesselId('broken'),
+                variant: VariantName('x'),
+              },
+            ],
+          },
+        }),
+      ).toThrow(/at least one variant/);
+
+      errorSpy.mockRestore();
     });
   });
 });

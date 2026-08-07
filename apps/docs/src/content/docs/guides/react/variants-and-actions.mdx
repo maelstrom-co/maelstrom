@@ -316,7 +316,7 @@ Mount `<GreetingOptionSync />` once, inside `<m.Provider>`, alongside the rest o
 <Aside type="caution">
   **Only a session change drops republished options — `connector` and `layoutMode` no longer do.** `<m.Provider>` keeps the same Orchestrator across a `connector` or `layoutMode` change: the new value is pushed into the live instance (`setConnector` / `setLayoutMode`) instead of rebuilding it, so `<GreetingOptionSync />` stays mounted with its republished options intact. `debug` behaves the same way in effect — it only gates logging, so changing it has nothing to revert.
 
-  A `sessionId` change is different: `sessionId` is captured once per mount, and switching sessions means remounting `<m.Provider key={...}>` under a new key — a new session starts empty by definition, including `greetingVessel`'s pristine, `enum`-less definition. `<GreetingOptionSync />` remounts along with everything else in that case, and its mount-time `updateVessel` call republishes fresh options immediately. If your app switches sessions, remount whatever republishes definitions (by `key`, at the same boundary) rather than relying on the effect to catch up.
+  A `sessionId` change is different: `sessionId` is captured once per mount, and switching sessions means remounting `<m.Provider key={...}>` under a new key — a new session starts empty by definition, including `greetingVessel`'s pristine, `enum`-less definition. `<GreetingOptionSync />` remounts along with everything else in that case, and its mount-time `updateVessel` call republishes fresh options immediately. If your app switches sessions, remount whatever republishes definitions (by `key`, at the same boundary) rather than relying on the effect to catch up. [`initialLayout`](/guides/react/default-screen/) is captured the same way — once per mount — so a remount is also how you'd seed a different default screen alongside the session switch.
 </Aside>
 
 ### Why not `registerVessel`
@@ -334,5 +334,6 @@ That difference in surface area is also why `registerVessel` *can* remount a ves
 ## Next steps
 
 - [Layout Modes](/guides/react/layout-modes/) — how variant `minSize` interacts with grid and tiling layouts
+- [Setting a Default Screen](/guides/react/default-screen/) — seed a known first screen with `initialLayout` instead of waiting on the engine's first response
 - [Error Handling](/guides/react/error-handling/) — surface `err(...)` results from action handlers in the UI
 - [Vessel State Machine](/understanding/vessel-state-machine/) — the conceptual model of how variants and actions compose
