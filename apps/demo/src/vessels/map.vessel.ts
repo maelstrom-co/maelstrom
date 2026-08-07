@@ -1,8 +1,12 @@
 import { defineVessel } from '@maelstrom-co/protocol';
 import { vessel } from '@maelstrom-co/react';
+import { DEMO_LOCATIONS } from '../lib/locations';
+import { withActionOptions } from '../lib/vessel-options';
 import { MapSkeleton } from './map.skeleton';
 
-export const mapVessel = defineVessel({
+const LOCATION_NAMES = DEMO_LOCATIONS.map((location) => location.name);
+
+const baseMapVessel = defineVessel({
   id: 'map',
   name: 'Map',
   description:
@@ -100,6 +104,11 @@ export const mapVessel = defineVessel({
       ],
     },
   },
+});
+
+export const mapVessel = withActionOptions(baseMapVessel, {
+  showRoute: { destination: LOCATION_NAMES },
+  focusLocation: { name: LOCATION_NAMES },
 });
 
 export const mapEntry = vessel(

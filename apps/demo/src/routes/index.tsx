@@ -7,10 +7,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Captions } from '../components/captions';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
 import { KeyDrawer } from '../components/key-drawer';
+import { VesselOptionSync } from '../components/vessel-option-sync';
 import { VoiceControl } from '../components/voice-control';
 import { VoiceErrorNote } from '../components/voice-error-note';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
+import { DEFAULT_LAYOUT } from '../lib/default-layout';
 import { STATUS_COLORS } from '../lib/design-tokens';
 import { isHosted } from '../lib/hosted-mode';
 import { m } from '../lib/maelstrom';
@@ -108,8 +110,10 @@ export function HomePage() {
         key={keyEpoch}
         sessionId={sessionId}
         connector={connector}
+        initialLayout={DEFAULT_LAYOUT}
         debug={debug}
       >
+        <VesselOptionSync />
         <DemoApp
           onRequireKey={() => setDrawerOpen(true)}
           onBlockedSubmit={() => {
