@@ -56,7 +56,9 @@ jobs:
           echo "Publishing version: $VERSION"
 
       - name: Version packages
-        run: bunx nx release version ${{ steps.version.outputs.version }} --git-commit false --git-tag false
+        # Preview versions never create release tags, so they cannot use tag
+        # history as a version baseline.
+        run: bunx nx release version ${{ steps.version.outputs.version }} --first-release --git-commit false --git-tag false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
