@@ -219,10 +219,11 @@ The workflow runs as **two jobs, and only the second one can publish**:
 
 `prepare` is where `bun install` runs dependency lifecycle scripts and the build
 executes package code, so it holds no package write permission. `publish` holds
-one, and runs nothing but `npm publish` against tarballs `prepare` already
-produced: no install, no build, no third-party code. Keep it that way. Adding an
-install step to `publish` hands package write access back to the dependency tree
-and undoes the split.
+one, but `npm publish` is its only package-write operation. Artifact download
+and registry verification are read-only. The job runs no install, build, or
+dependency or package code. Keep it that way. Adding an install step to
+`publish` hands package write access back to the dependency tree and undoes the
+split.
 
 Cutting a release needs `gh` authenticated (or `GITHUB_TOKEN` set) — the script
 creates the GitHub release. Local package credentials are not needed because the

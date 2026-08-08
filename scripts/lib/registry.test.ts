@@ -1,5 +1,40 @@
 import { describe, expect, test } from 'bun:test';
-import { parsePublishedVersion } from './registry.ts';
+import {
+  authenticationFailureHint,
+  parsePublishedVersion,
+  shouldTreatNotFoundAsUnpublished,
+} from './registry.ts';
+
+describe('shouldTreatNotFoundAsUnpublished', () => {
+  const notFound = 'npm error code E404\nnpm error 404 Not Found';
+
+  test('rejects ambiguous 404 responses from private GitHub Packages', () => {
+    expect(
+      shouldTreatNotFoundAsUnpublished(notFound, 'https://npm.pkg.github.com'),
+    ).toBe(false);
+  });
+
+  test('accepts npmjs 404 responses as an absent package version', () => {
+    expect(
+      shouldTreatNotFoundAsUnpublished(notFound, 'https://registry.npmjs.org'),
+    ).toBe(true);
+  });
+});
+
+describe('authenticationFailureHint', () => {
+  test('explains GitHub Packages repository access', () => {
+    expect(authenticationFailureHint('https://npm.pkg.github.com')).toContain(
+      'linked to this repository',
+    );
+  });
+
+  test('explains npmjs authentication without GitHub repository advice', () => {
+    const hint = authenticationFailureHint('https://registry.npmjs.org');
+
+    expect(hint).toContain('npmjs.org');
+    expect(hint).not.toContain('linked to this repository');
+  });
+});
 
 describe('parsePublishedVersion', () => {
   const registry = 'https://npm.pkg.github.com';

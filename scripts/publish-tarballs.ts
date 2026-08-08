@@ -6,16 +6,20 @@ import {
   PACKED_MANIFEST_FILENAME,
   type PackedPackage,
 } from './lib/packed-manifest.ts';
-import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
+import {
+  authenticationFailureHint,
+  isAlreadyPublished,
+  resolveRegistry,
+} from './lib/registry.ts';
 
-// The publishing half of the release. It runs in the only job that holds an
+// The publishing half of the release. It runs in the only job that holds a
 // GitHub Packages identity, and it deliberately does nothing that could execute
-// third-party code: no dependency install, no build, no project graph — just
+// dependency or package code: no install, no build, no project graph — just
 // tarballs that another job already produced, uploaded one at a time.
 //
 // That separation is the point. `bun install` runs dependency lifecycle
-// scripts and a build runs package code; either could ask for the same OIDC
-// token npm trusts. Keeping both out of this job means a compromised
+// scripts and a build runs package code; either could access the package-write
+// token. Keeping both out of this job means a compromised
 // dependency has nothing to reach for.
 
 const { values } = parseArgs({
@@ -123,9 +127,6 @@ console.log(
 
 if (failures.length > 0) {
   console.error(`\nPublish failed for: ${failures.join(', ')}`);
-  console.error(
-    'If this was an authentication error, confirm this repository has package write ' +
-      'access and the workflow job grants packages: write. See CONTRIBUTING.md.',
-  );
+  console.error(authenticationFailureHint(registry));
   process.exit(1);
 }

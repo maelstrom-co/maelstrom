@@ -7,7 +7,11 @@ import {
   PACKED_MANIFEST_FILENAME,
   type PackedPackage,
 } from './lib/packed-manifest.ts';
-import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
+import {
+  authenticationFailureHint,
+  isAlreadyPublished,
+  resolveRegistry,
+} from './lib/registry.ts';
 import { listWorkspacePackages } from './lib/workspace-packages.ts';
 
 // `workspace:*` and `catalog:` are Bun/pnpm-only protocols. npm doesn't
@@ -350,10 +354,7 @@ if (isDirectInvocation) {
       `\n${packTo ? 'Pack' : 'Publish'} failed for: ${failures.join(', ')}`,
     );
     if (!packTo) {
-      console.error(
-        'If this was an authentication error, confirm the token has package write ' +
-          'access and the package is linked to this repository. See CONTRIBUTING.md.',
-      );
+      console.error(authenticationFailureHint(registry));
     }
     process.exit(1);
   }

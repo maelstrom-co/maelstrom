@@ -9,7 +9,7 @@
 <br />
 
 <div align="center">
-  <a href="./LICENSE" target="_parent"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+  <a href="./LICENSE" target="_parent"><img alt="License" src="https://img.shields.io/github/license/maelstrom-co/maelstrom" /></a>
   <a href="https://github.com/maelstrom-co/maelstrom" target="_parent"><img alt="GitHub stars" src="https://img.shields.io/github/stars/maelstrom-co/maelstrom.svg?style=social&label=Star" /></a>
   <a href="https://x.com/maelstrom_co" target="_parent"><img alt="Follow @maelstrom_co" src="https://img.shields.io/twitter/follow/maelstrom_co.svg?style=social" /></a>
 </div>

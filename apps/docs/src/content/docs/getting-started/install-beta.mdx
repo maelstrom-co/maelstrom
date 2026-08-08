@@ -22,7 +22,10 @@ Maelstrom beta packages are private and hosted on GitHub Packages. Your GitHub a
 2. **Expose the token to your package manager.** Set it in your current shell. Store the value in your password manager or CI secret store, not in the project.
 
    ```bash
-   export GH_PACKAGES_TOKEN=ghp_your_token
+   printf 'GitHub Packages token: '
+   read -rs GH_PACKAGES_TOKEN
+   printf '\n'
+   export GH_PACKAGES_TOKEN
    ```
 
 3. **Route Maelstrom packages to GitHub.** Add the package-manager configuration beside your `package.json`. You can commit it because it contains an environment variable reference, not the token.
@@ -73,17 +76,34 @@ Maelstrom beta packages are private and hosted on GitHub Packages. Your GitHub a
 
 ## Install a PR preview
 
-The preview bot posts an exact version and a `pr-<number>` tag on labeled pull requests. Prefer the exact version when reporting bugs so every tester runs the same build:
+The preview bot posts an exact version and a `pr-<number>` tag on labeled pull requests. Prefer the exact version when reporting bugs so every tester runs the same build. Use the PR tag when you want subsequent installs to follow the newest preview from that pull request.
 
-```bash
-bun add @maelstrom-co/react@0.0.0-pr.123.456.1
-```
-
-Use the PR tag when you want subsequent installs to follow the newest preview from that pull request:
-
-```bash
-bun add @maelstrom-co/react@pr-123
-```
+<Tabs syncKey="package-manager">
+  <TabItem label="npm">
+    ```bash
+    npm install @maelstrom-co/react@0.0.0-pr.123.456.1
+    npm install @maelstrom-co/react@pr-123
+    ```
+  </TabItem>
+  <TabItem label="bun">
+    ```bash
+    bun add @maelstrom-co/react@0.0.0-pr.123.456.1
+    bun add @maelstrom-co/react@pr-123
+    ```
+  </TabItem>
+  <TabItem label="pnpm">
+    ```bash
+    pnpm add @maelstrom-co/react@0.0.0-pr.123.456.1
+    pnpm add @maelstrom-co/react@pr-123
+    ```
+  </TabItem>
+  <TabItem label="Yarn">
+    ```bash
+    yarn add @maelstrom-co/react@0.0.0-pr.123.456.1
+    yarn add @maelstrom-co/react@pr-123
+    ```
+  </TabItem>
+</Tabs>
 
 ## Configure GitHub Actions
 

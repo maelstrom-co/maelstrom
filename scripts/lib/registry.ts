@@ -6,6 +6,38 @@ export function resolveRegistry(explicit?: string): string {
   return explicit ?? process.env.RELEASE_REGISTRY ?? DEFAULT_REGISTRY;
 }
 
+function registryHost(registry: string): string | undefined {
+  try {
+    return new URL(registry).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+export function shouldTreatNotFoundAsUnpublished(
+  stderr: string,
+  registry: string,
+): boolean {
+  return (
+    registryHost(registry) !== 'npm.pkg.github.com' &&
+    /E404|404 Not Found|code E404/.test(stderr)
+  );
+}
+
+export function authenticationFailureHint(registry: string): string {
+  const host = registryHost(registry);
+  if (host === 'npm.pkg.github.com') {
+    return (
+      'If this was an authentication error, confirm the token has package write ' +
+      'access and the package is linked to this repository. See CONTRIBUTING.md.'
+    );
+  }
+  if (host === 'registry.npmjs.org') {
+    return 'If this was an authentication error, confirm npm credentials can publish to registry.npmjs.org.';
+  }
+  return `If this was an authentication error, confirm the configured credentials can publish to ${host ?? 'the configured registry'}.`;
+}
+
 // A version already on the registry is immutable, so re-publishing it is a
 // hard error rather than a no-op. Treating "already there" as success is what
 // makes a re-run after a partial publish able to finish the remaining
@@ -46,7 +78,7 @@ export function isAlreadyPublished(
     return parsePublishedVersion(String(output), name, version, registry);
   } catch (err) {
     const stderr = String((err as { stderr?: Buffer | string })?.stderr ?? '');
-    if (/E404|404 Not Found|code E404/.test(stderr)) return false;
+    if (shouldTreatNotFoundAsUnpublished(stderr, registry)) return false;
     throw new Error(
       `${name}: could not determine whether ${version} is already published on ${registry}. ` +
         `Refusing to guess.\n${stderr.trim()}`,

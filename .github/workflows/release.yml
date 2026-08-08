@@ -8,8 +8,8 @@ name: Release
 # installs dependencies and builds; `publish` holds package write access.
 # Neither job does both. A lifecycle script in the dependency tree, or a
 # compromised build plugin, runs in a job that has no identity to steal, and
-# the job that has one runs nothing but `npm publish` against tarballs that
-# were already packed.
+# the job that has one uses `npm publish` as its only package-write operation
+# against tarballs that were already packed.
 on:
   push:
     tags:

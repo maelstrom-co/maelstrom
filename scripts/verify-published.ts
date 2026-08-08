@@ -28,19 +28,11 @@ const attempts = Number(values.attempts ?? 5);
 // serve a version it just accepted, so absence is only meaningful after retry.
 const retryDelayMs = Number(values['retry-delay-ms'] ?? 5000);
 
-function isLive(name: string): boolean {
-  try {
-    return isAlreadyPublished(name, version, registry);
-  } catch {
-    return false;
-  }
-}
-
 const missing: string[] = [];
 for (const pkg of listPublishablePackages()) {
   let live = false;
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    if (isLive(pkg.name)) {
+    if (isAlreadyPublished(pkg.name, version, registry)) {
       console.log(`✓ ${pkg.name}@${version} is live`);
       live = true;
       break;
