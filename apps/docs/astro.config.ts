@@ -292,13 +292,16 @@ export default defineConfig({
       },
       sidebar: [
         {
+          label: 'Private Beta',
+          items: [{ slug: 'getting-started/install-beta' }],
+        },
+        {
           label: 'Getting Started',
           items: [
             { slug: 'getting-started/introduction' },
             { slug: 'getting-started/quick-start' },
             { slug: 'getting-started/core-concepts' },
             { slug: 'getting-started/installation' },
-            { slug: 'getting-started/install-beta' },
           ],
         },
         {

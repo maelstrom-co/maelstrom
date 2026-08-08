@@ -58,9 +58,10 @@ jobs:
       - name: Version packages
         # Preview versions never create release tags, so they cannot use tag
         # history as a version baseline.
-        run: bunx nx release version ${{ steps.version.outputs.version }} --first-release --git-commit false --git-tag false
+        run: bunx nx release version "$PREVIEW_VERSION" --first-release --git-commit false --git-tag false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIEW_VERSION: ${{ steps.version.outputs.version }}
 
       # The temp file holds only an environment reference, never the token.
       - name: Configure GitHub Packages auth

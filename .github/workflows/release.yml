@@ -54,6 +54,7 @@ jobs:
     # No `environment:` here. Approval belongs on the job that publishes; put
     # it here and a reviewer would be waved through before anything is built.
     outputs:
+      commit: ${{ steps.commit.outputs.commit }}
       version: ${{ steps.meta.outputs.version }}
       dist_tag: ${{ steps.meta.outputs.dist_tag }}
       dry_run: ${{ steps.meta.outputs.dry_run }}
@@ -72,6 +73,10 @@ jobs:
           # lifecycle script in the dependency tree would otherwise be able to
           # read the Actions token out of .git/config.
           persist-credentials: false
+
+      - name: Record prepared commit
+        id: commit
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # A tag can be pushed to any commit, including one that never went
       # through review. Checking ancestry here means a release can only ever
@@ -172,7 +177,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '') && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          ref: ${{ needs.prepare.outputs.commit }}
           filter: tree:0
           persist-credentials: false
 

@@ -129,15 +129,23 @@ steps:
   Do not commit the token, paste it into `.npmrc`, or expose it through a `NEXT_PUBLIC_`, `VITE_`, or other client-side environment variable.
 </Aside>
 
-## Verify the installation
+## Verify registry access
 
-Ask the configured registry for the installed package version:
+Ask the configured registry for the current beta version:
 
 ```bash
 npm view @maelstrom-co/react@alpha version
 ```
 
 An `E401` response means the token is missing or invalid. An `E404` response usually means the GitHub account that owns the token cannot access the repository, the SSO authorization is missing, or the requested version does not exist.
+
+## Verify the installed version
+
+Check the version installed in your local project:
+
+```bash
+npm list @maelstrom-co/react --depth=0
+```
 
 ## Remove access
 
