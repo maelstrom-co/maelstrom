@@ -1,5 +1,5 @@
 export const GITHUB_REPO_URL = 'https://github.com/maelstrom-co/maelstrom';
-export const INSTALL_COMMAND = 'npm install @maelstrom-co/react';
+export const INSTALL_COMMAND = 'npm install @maelstrom-co/react@alpha';
 
 export const navLinks = [
   { label: 'How It Works', href: '#how' },
