@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { PACKED_MANIFEST_FILENAME, PACKED_PACKAGE_NAMES, type ArchiveProcessRequest } from './lib/packed-manifest.ts';
 import { parsePublishArgs, publishTarballs } from './publish-tarballs.ts';
 
@@ -29,6 +31,36 @@ function archiveProcess(log: string[]) {
   };
 }
 
+function writeOctal(buffer: Buffer, offset: number, length: number, value: number) {
+  buffer.write(value.toString(8).padStart(length - 1, '0'), offset, length - 1, 'ascii');
+  buffer[offset + length - 1] = 0;
+}
+
+function packageTarball(name: string, version: string) {
+  const body = Buffer.from(JSON.stringify({ name, version }));
+  const header = Buffer.alloc(512);
+  header.write('package/package.json', 0, 100, 'utf8');
+  writeOctal(header, 100, 8, 0o644);
+  writeOctal(header, 108, 8, 0);
+  writeOctal(header, 116, 8, 0);
+  writeOctal(header, 124, 12, body.length);
+  writeOctal(header, 136, 12, 0);
+  header.fill(0x20, 148, 156);
+  header.write('0', 156, 1, 'ascii');
+  header.write('ustar\0', 257, 6, 'ascii');
+  header.write('00', 263, 2, 'ascii');
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  header.write(checksum.toString(8).padStart(6, '0'), 148, 6, 'ascii');
+  header[154] = 0;
+  header[155] = 0x20;
+  return gzipSync(Buffer.concat([
+    header,
+    body,
+    Buffer.alloc((512 - (body.length % 512)) % 512),
+    Buffer.alloc(1024),
+  ]));
+}
+
 describe('parsePublishArgs', () => {
   test('requires exactly one canonical expected version', () => {
     expect(parsePublishArgs(['--tag', 'latest', '--expected-version', '1.2.3'], '/repo').expectedVersion).toBe('1.2.3');
@@ -38,6 +70,8 @@ describe('parsePublishArgs', () => {
       ['--tag', 'latest', '--expected-version', '--dry-run'],
       ['--tag', 'latest', '--expected-version', '01.2.3'],
       ['--tag', 'latest', '--expected-version', '1.2.3', '--expected-version', '1.2.3'],
+      ['--tag', 'latest', '--expected-version=1.2.3'],
+      ['--tag', 'latest', '--expected-version', ''],
     ]) expect(() => parsePublishArgs(args, '/repo')).toThrow('expected-version');
   });
 });
@@ -81,6 +115,25 @@ describe('publishTarballs', () => {
     expect(log.slice(rerun + 1).findIndex((event) => event.startsWith('probe:'))).toBe(20);
   }));
 
+  test('publishes the same canonical paths and bytes that were validated', () => withArtifact((dir, log) => {
+    const before = new Map(PACKED_PACKAGE_NAMES.map((name, index) => {
+      const path = join(realpathSync(dir), `package-${index}.tgz`);
+      writeFileSync(path, packageTarball(name, '1.2.3'));
+      return [path, createHash('sha256').update(readFileSync(path)).digest('hex')];
+    }));
+    const publishedPaths: string[] = [];
+
+    publishTarballs({ dir, tag: 'latest', registry: 'https://example.test', expectedVersion: '1.2.3', dryRun: false, provenance: false, skipPublished: false }, {
+      isAlreadyPublished: () => false,
+      publish: (tarball) => publishedPaths.push(tarball),
+    });
+
+    expect(publishedPaths).toEqual([...before.keys()]);
+    for (const path of publishedPaths) {
+      expect(createHash('sha256').update(readFileSync(path)).digest('hex')).toBe(before.get(path));
+    }
+  }));
+
   test('preserves partial reruns and stops on an indeterminate probe', () => withArtifact((dir, log) => {
     let probe = 0;
     expect(() => publishTarballs({ dir, tag: 'latest', registry: 'https://example.test', expectedVersion: '1.2.3', dryRun: false, provenance: false, skipPublished: true }, {
@@ -101,4 +154,34 @@ describe('publishTarballs', () => {
       `probe:${PACKED_PACKAGE_NAMES[2]}`,
     ]);
   }));
+});
+
+function step(text: string, name: string) {
+  const marker = `      - name: ${name}\n`;
+  const start = text.indexOf(marker);
+  if (start < 0) throw new Error(`missing ${name} step`);
+  const next = text.indexOf('\n      - name: ', start + marker.length);
+  return text.slice(start, next < 0 ? text.length : next);
+}
+
+function expectTrustedVersion(stepText: string, version: RegExp) {
+  expect(stepText).toMatch(version);
+  expect(stepText).toMatch(/--expected-version\s+"\$VERSION"/);
+}
+
+describe('workflow expected-version authority', () => {
+  test('keeps trusted VERSION in each privileged publish step', async () => {
+    const preview = await Bun.file('.github/workflows/publish-pr.yml').text();
+    const release = await Bun.file('.github/workflows/release.yml').text();
+    expectTrustedVersion(step(preview, 'Publish packages'), /VERSION:\s*0\.0\.0-pr\.\$\{\{\s*github\.event\.pull_request\.number\s*\}\}\.\$\{\{\s*github\.run_number\s*\}\}\.\$\{\{\s*github\.run_attempt\s*\}\}/);
+    expectTrustedVersion(step(release, 'Publish'), /VERSION:\s*\$\{\{\s*needs\.prepare\.outputs\.version\s*\}\}/);
+  });
+
+  test.each([
+    ['missing', '      - name: Publish packages\n        run: bun publish --expected-version "$VERSION"\n'],
+    ['another step', '      - name: Other\n        env:\n          VERSION: 1.2.3\n      - name: Publish packages\n        run: bun publish --expected-version "$VERSION"\n'],
+    ['another variable', '      - name: Publish packages\n        env:\n          VERSION: 1.2.3\n        run: bun publish --expected-version "$OTHER"\n'],
+  ])('rejects VERSION authority that is %s', (_name, fixture) => {
+    expect(() => expectTrustedVersion(step(fixture, 'Publish packages'), /VERSION:\s*1\.2\.3/)).toThrow();
+  });
 });

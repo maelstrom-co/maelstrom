@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { gzipSync } from 'node:zlib';
 import {
   lstatSync,
+  mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -19,7 +21,7 @@ import {
 type TarMember = {
   name: string;
   body?: string;
-  type?: '0' | '1' | '2' | '3';
+  type?: '0' | '1' | '2' | '3' | '4' | '5' | '6';
   linkName?: string;
 };
 
@@ -90,6 +92,7 @@ describe('validatePackedManifest policy', () => {
     ['unknown package', manifest().map((entry, index) => (index === 0 ? { ...entry, name: '@maelstrom-co/unknown' } : entry))],
     ['missing package', manifest().slice(1)],
     ['duplicate package', manifest().map((entry, index, all) => (index === 1 ? { ...entry, name: all[0]!.name } : entry))],
+    ['duplicate tarball', manifest().map((entry, index, all) => (index === 1 ? { ...entry, tarball: all[0]!.tarball } : entry))],
     ['wrong version', manifest().map((entry, index) => (index === 9 ? { ...entry, version: '1.2.4' } : entry))],
   ])('rejects %s before archive inspection', (_name, input) => {
     let calls = 0;
@@ -103,26 +106,31 @@ describe('validatePackedManifest policy', () => {
     expect(() => validatePackedManifest(entries, '1.2.3', '/unused')).toThrow();
   });
 
-  test('rejects missing, symlinked, non-regular, and oversized tarballs', () => withTempDir((dir) => {
+  test.each(['missing', 'symlink', 'directory'])('rejects a %s tarball', (kind) => withTempDir((dir) => {
     const entries = manifest();
     writeManifestFiles(dir, entries);
+    const target = join(dir, entries[0]!.tarball);
+    rmSync(target);
+    if (kind === 'symlink') {
+      writeFileSync(join(dir, 'target.tgz'), 'fixture');
+      symlinkSync('target.tgz', target);
+    } else if (kind === 'directory') {
+      mkdirSync(target);
+    }
 
-    rmSync(join(dir, entries[0]!.tarball));
     expect(() => validatePackedManifest(entries, '1.2.3', dir, { runArchiveProcess: fakeArchiveProcess })).toThrow('regular file');
+  }));
 
-    writeFileSync(join(dir, 'target.tgz'), 'fixture');
-    symlinkSync('target.tgz', join(dir, entries[0]!.tarball));
-    expect(() => validatePackedManifest(entries, '1.2.3', dir, { runArchiveProcess: fakeArchiveProcess })).toThrow('regular file');
-
-    rmSync(join(dir, entries[0]!.tarball));
-    rmSync(join(dir, entries[1]!.tarball));
-    Bun.write(join(dir, entries[1]!.tarball), new Blob([]));
-    const stat = lstatSync(join(dir, entries[1]!.tarball));
-    expect(stat.isFile()).toBe(true);
-    writeFileSync(join(dir, entries[0]!.tarball), Buffer.alloc(1));
-    const oversized = { ...entries[0]!, tarball: 'oversized.tgz' };
-    writeFileSync(join(dir, oversized.tarball), Buffer.alloc(1));
-    Object.defineProperty(lstatSync(join(dir, oversized.tarball)), 'size', { value: MAX_PACKED_TARBALL_BYTES + 1 });
+  test('rejects an oversized tarball before archive inspection', () => withTempDir((dir) => {
+    const entries = manifest();
+    writeManifestFiles(dir, entries);
+    writeFileSync(join(dir, entries[0]!.tarball), Buffer.alloc(MAX_PACKED_TARBALL_BYTES + 1));
+    let calls = 0;
+    expect(() => validatePackedManifest(entries, '1.2.3', dir, { runArchiveProcess: (request) => {
+      calls++;
+      return fakeArchiveProcess(request);
+    } })).toThrow('size limit');
+    expect(calls).toBe(0);
   }));
 });
 
@@ -138,8 +146,12 @@ describe('validatePackedManifest archive process contract', () => {
   test.each([
     ['duplicate', [{ name: 'package/package.json', body: '{}' }, { name: 'package/package.json', body: '{}' }]],
     ['alias', [{ name: './package/package.json', body: '{}' }]],
-    ['symlink', [{ name: 'package/package.json', type: '2' as const, linkName: 'elsewhere' }]],
     ['hardlink', [{ name: 'package/package.json', type: '1' as const, linkName: 'elsewhere' }]],
+    ['symlink', [{ name: 'package/package.json', type: '2' as const, linkName: 'elsewhere' }]],
+    ['character device', [{ name: 'package/package.json', type: '3' as const }]],
+    ['block device', [{ name: 'package/package.json', type: '4' as const }]],
+    ['directory', [{ name: 'package/package.json', type: '5' as const }]],
+    ['FIFO', [{ name: 'package/package.json', type: '6' as const }]],
   ])('rejects a real archive with a %s metadata member', (_name, members) => withTempDir((dir) => {
     const entries = manifest();
     writeManifestFiles(dir, entries);
@@ -150,6 +162,7 @@ describe('validatePackedManifest archive process contract', () => {
   test.each([
     ['malformed listing', { status: 0, stdout: Buffer.from('nonsense\n'), stderr: Buffer.alloc(0) }],
     ['stderr warning', { status: 0, stdout: Buffer.from('- file\n'), stderr: Buffer.from('warning') }],
+    ['non-zero exit', { status: 2, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }],
     ['timeout', { status: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error: new Error('timed out') }],
     ['output overflow', { status: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error: Object.assign(new Error('overflow'), { code: 'ENOBUFS' }) }],
   ])('fails closed on %s', (_name, result) => withTempDir((dir) => {
@@ -166,6 +179,36 @@ describe('validatePackedManifest archive process contract', () => {
         ? fakeArchiveProcess(request)
         : { status: 0, stdout: Buffer.from(body), stderr: Buffer.alloc(0) };
       expect(() => validatePackedManifest(entries, '1.2.3', dir, { runArchiveProcess })).toThrow();
+    }
+  }));
+
+  test('uses bounded no-shell archive requests', () => withTempDir((dir) => {
+    const entries = manifest();
+    writeManifestFiles(dir, entries);
+    const requests: ArchiveProcessRequest[] = [];
+    validatePackedManifest(entries, '1.2.3', dir, { runArchiveProcess: (request) => {
+      requests.push(request);
+      return fakeArchiveProcess(request);
+    } });
+
+    expect(requests).toHaveLength(20);
+    for (let index = 0; index < entries.length; index++) {
+      const canonicalDir = realpathSync(dir);
+      const archive = join(canonicalDir, entries[index]!.tarball);
+      expect(requests[index * 2]).toMatchObject({
+        archive,
+        argv: ['-tvzf', archive, 'package/package.json'],
+        cwd: canonicalDir,
+        env: { LC_ALL: 'C' },
+      });
+      expect(requests[index * 2]!.timeoutMs).toBeGreaterThan(0);
+      expect(requests[index * 2]!.maxOutputBytes).toBeGreaterThan(0);
+      expect(requests[index * 2 + 1]).toMatchObject({
+        archive,
+        argv: ['-xOzf', archive, 'package/package.json'],
+        cwd: canonicalDir,
+        env: { LC_ALL: 'C' },
+      });
     }
   }));
 });

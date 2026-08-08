@@ -124,9 +124,11 @@ jobs:
         run: >-
           bun scripts/publish-tarballs.ts
           --dir "$TARBALL_DIR"
+          --expected-version "$VERSION"
           --tag "pr-${PR_NUMBER}"
           --registry https://npm.pkg.github.com
         env:
+          VERSION: 0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}.${{ github.run_attempt }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -211,12 +211,14 @@ jobs:
         # landed; npm versions are immutable, so re-publishing is a hard error.
         #
         env:
+          VERSION: ${{ needs.prepare.outputs.version }}
           DIST_TAG: ${{ needs.prepare.outputs.dist_tag }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run == 'true' && '--dry-run' || '' }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-
           bun scripts/publish-tarballs.ts
           --dir "$TARBALL_DIR"
+          --expected-version "$VERSION"
           --tag "$DIST_TAG"
           --registry "$RELEASE_REGISTRY"
           --skip-published
