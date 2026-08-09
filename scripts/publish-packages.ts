@@ -50,6 +50,39 @@ export type SubstitutionContext = {
   workspaceVersions: Map<string, string>;
 };
 
+export type VersionOverrides = ReadonlyMap<string, string>;
+
+export function applyVersionOverrides(
+  ctx: SubstitutionContext,
+  manifest: Manifest,
+  overrides: VersionOverrides,
+): { ctx: SubstitutionContext; manifest: Manifest } {
+  const workspaceVersions = new Map(ctx.workspaceVersions);
+  for (const [name, version] of overrides) {
+    workspaceVersions.set(name, version);
+  }
+
+  const version = overrides.get(manifest.name);
+  const overriddenManifest = version
+    ? { ...manifest, version }
+    : { ...manifest };
+  for (const field of PUBLISHED_DEP_FIELDS) {
+    const dependencies = manifest[field];
+    if (!dependencies) continue;
+    overriddenManifest[field] = Object.fromEntries(
+      Object.entries(dependencies).map(([name, spec]) => [
+        name,
+        overrides.get(name) ?? spec,
+      ]),
+    );
+  }
+
+  return {
+    ctx: { ...ctx, workspaceVersions },
+    manifest: overriddenManifest,
+  };
+}
+
 export function buildSubstitutionContext(
   cwd: string = process.cwd(),
 ): SubstitutionContext {
@@ -145,6 +178,8 @@ export type PublishOptions = {
   verbose?: boolean;
   provenance?: boolean;
   skipPublished?: boolean;
+  /** Versions simulated by Nx during a dry run, which are not written to disk. */
+  versionOverrides?: VersionOverrides;
   /**
    * Pack tarballs into this directory instead of publishing. Used by the
    * release workflow's prepare job, which builds without an npm identity and
@@ -199,13 +234,14 @@ export async function publishWorkspacePackages(
     verbose = false,
     provenance = false,
     skipPublished = false,
+    versionOverrides,
     packTo,
   } = options;
   const cwd = process.cwd();
   const packDestination = packTo ? resolve(cwd, packTo) : undefined;
   if (packDestination) mkdirSync(packDestination, { recursive: true });
 
-  const ctx = buildSubstitutionContext(cwd);
+  let ctx = buildSubstitutionContext(cwd);
   const projectGraph = await createProjectGraphAsync();
   const failures: string[] = [];
   const succeeded: string[] = [];
@@ -221,7 +257,14 @@ export async function publishWorkspacePackages(
     } catch {
       continue;
     }
-    const pkgJson = JSON.parse(originalContent) as Manifest;
+    let pkgJson = JSON.parse(originalContent) as Manifest;
+    if (versionOverrides) {
+      ({ ctx, manifest: pkgJson } = applyVersionOverrides(
+        ctx,
+        pkgJson,
+        versionOverrides,
+      ));
+    }
     if (pkgJson.private === true) {
       console.log(`Skipping ${pkgJson.name} (private).`);
       continue;

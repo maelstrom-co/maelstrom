@@ -13,6 +13,7 @@ import {
   handleDuplicateGitTags,
 } from 'nx/src/command-line/release/utils/shared';
 import { resolveRegistry } from './lib/registry.ts';
+import { distTagForVersion } from './lib/release-target.ts';
 import { publishWorkspacePackages } from './publish-packages.ts';
 
 const { values } = parseArgs({
@@ -133,14 +134,29 @@ if (values['skip-publish']) {
 // `npm publish`, which neither npm nor a from-package-dir invocation does for
 // us — consumers would otherwise get literal protocol strings they can't
 // resolve.
-const npmTag = preid ?? 'latest';
+const publishVersion =
+  workspaceVersion ??
+  Object.values(projectsVersionData).find((data) => data.newVersion)
+    ?.newVersion;
+if (!publishVersion) {
+  throw new Error('The release resolved no version to publish.');
+}
+const npmTag = distTagForVersion(publishVersion);
 const registry = resolveRegistry();
+const versionOverrides = dryRun
+  ? new Map(
+      Object.entries(projectsVersionData).flatMap(([name, data]) =>
+        data.newVersion ? [[name, data.newVersion] as const] : [],
+      ),
+    )
+  : undefined;
 
 const { failures } = await publishWorkspacePackages({
   tag: npmTag,
   registry,
   dryRun,
   verbose,
+  versionOverrides,
 });
 
 if (failures.length > 0) {
