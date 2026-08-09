@@ -160,6 +160,10 @@ jobs:
   publish:
     name: Publish to GitHub Packages
     needs: prepare
+    # A branch rehearsal has no release version to validate. Its contract ends
+    # after the unprivileged job builds and packs; tagged rehearsals continue
+    # through this job to validate the privileged artifact handoff.
+    if: needs.prepare.outputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
