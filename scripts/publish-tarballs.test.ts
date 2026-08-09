@@ -252,9 +252,13 @@ describe('publishTarballs', () => {
 
       expect(publishedPaths).toEqual([...before.keys()]);
       for (const path of publishedPaths) {
+        const expectedHash = before.get(path);
+        if (expectedHash === undefined) {
+          throw new Error(`Missing expected hash for published path: ${path}`);
+        }
         expect(
           createHash('sha256').update(readFileSync(path)).digest('hex'),
-        ).toBe(before.get(path));
+        ).toBe(expectedHash);
       }
     }));
 

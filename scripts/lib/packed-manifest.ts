@@ -216,14 +216,20 @@ function validateArchive(
       `Archive must contain exactly one literal ${PACKAGE_MANIFEST_MEMBER}`,
     );
   }
-  const match = lines[0]!.match(
+  const [line] = lines;
+  if (line === undefined) {
+    throw new Error(
+      `Archive must contain exactly one literal ${PACKAGE_MANIFEST_MEMBER}`,
+    );
+  }
+  const match = line.match(
     /^([-bcdhlps])[rwxStTs-]{9}\s+.*\s(package\/package\.json)(?:\s+(?:->|link to)\s+.*)?$/,
   );
   if (
     !match ||
     match[2] !== PACKAGE_MANIFEST_MEMBER ||
     match[1] !== '-' ||
-    !lines[0]!.endsWith(PACKAGE_MANIFEST_MEMBER)
+    !line.endsWith(PACKAGE_MANIFEST_MEMBER)
   ) {
     throw new Error(
       `Archive metadata member must be one regular literal ${PACKAGE_MANIFEST_MEMBER}`,

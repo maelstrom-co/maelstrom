@@ -145,7 +145,7 @@ describe('validatePackedManifest policy', () => {
             archive: '',
             argv: [],
             cwd: '',
-            env: {},
+            env: { LC_ALL: 'C' },
             timeoutMs: 0,
             maxOutputBytes: 0,
           });
