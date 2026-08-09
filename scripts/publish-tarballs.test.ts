@@ -312,6 +312,33 @@ function expectTrustedVersion(stepText: string, version: RegExp) {
 }
 
 describe('workflow expected-version authority', () => {
+  test('uses reviewed main publisher code when manually recovering a tag', async () => {
+    const release = await Bun.file('.github/workflows/release.yml').text();
+    const publishJob = release.slice(release.indexOf('\n  publish:'));
+    expect(release).toMatch(
+      /publisher_commit:\s*\$\{\{\s*github\.event_name == 'workflow_dispatch' && github\.sha \|\| steps\.commit\.outputs\.commit\s*\}\}/,
+    );
+    const publisherGuard = step(
+      release,
+      'Assert tagged dispatch uses main publisher',
+    );
+    expect(publisherGuard).toMatch(
+      /if:\s*github\.event_name == 'workflow_dispatch' && inputs\.tag != ''/,
+    );
+    expect(publisherGuard).toMatch(
+      /WORKFLOW_REF:\s*\$\{\{\s*github\.ref\s*\}\}/,
+    );
+    expect(publisherGuard).toMatch(
+      /if \[\[ "\$WORKFLOW_REF" != 'refs\/heads\/main' \]\]; then[\s\S]*exit 1/,
+    );
+    expect(step(publishJob, 'Checkout')).toMatch(
+      /ref:\s*\$\{\{\s*needs\.prepare\.outputs\.publisher_commit\s*\}\}/,
+    );
+    expect(step(publishJob, 'Verify packages are live')).toMatch(
+      /--manifest "\$TARBALL_DIR\/packed\.json"/,
+    );
+  });
+
   test('finishes an unversioned branch rehearsal after build and pack', async () => {
     const release = await Bun.file('.github/workflows/release.yml').text();
     expect(release).toMatch(

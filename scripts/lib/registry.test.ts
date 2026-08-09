@@ -101,6 +101,15 @@ describe('shouldTreatNotFoundAsUnpublished', () => {
     ).toBe(false);
   });
 
+  test('accepts GitHub Packages response that names a missing exact version', () => {
+    expect(
+      shouldTreatNotFoundAsUnpublished(
+        `${notFound}\nnpm error 404 No match found for version 0.1.0-alpha.0`,
+        'https://npm.pkg.github.com',
+      ),
+    ).toBe(true);
+  });
+
   test('accepts npmjs 404 responses as an absent package version', () => {
     expect(
       shouldTreatNotFoundAsUnpublished(notFound, 'https://registry.npmjs.org'),

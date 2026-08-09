@@ -18,10 +18,12 @@ export function shouldTreatNotFoundAsUnpublished(
   stderr: string,
   registry: string,
 ): boolean {
-  return (
-    registryHost(registry) !== 'npm.pkg.github.com' &&
-    /E404|404 Not Found|code E404/.test(stderr)
-  );
+  const notFound = /E404|404 Not Found|code E404/.test(stderr);
+  if (registryHost(registry) !== 'npm.pkg.github.com') return notFound;
+
+  // GitHub masks package authorization failures as generic 404s. It only
+  // proves absence when it says the package resolved but the version did not.
+  return notFound && /404 No match found for version\s/.test(stderr);
 }
 
 export function authenticationFailureHint(registry: string): string {
