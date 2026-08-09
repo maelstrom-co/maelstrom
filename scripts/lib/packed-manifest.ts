@@ -92,7 +92,7 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function parseManifest(
+export function parsePackedManifest(
   input: unknown,
   expectedVersion: string,
 ): PackedPackage[] {
@@ -268,7 +268,7 @@ export function validatePackedManifest(
   directory: string,
   dependencies: ValidationDependencies = {},
 ): ValidatedPackedPackage[] {
-  const packages = parseManifest(input, expectedVersion);
+  const packages = parsePackedManifest(input, expectedVersion);
   const cwd = realpathSync(resolve(directory));
   const execute = dependencies.runArchiveProcess ?? runArchiveProcess;
   const validated: ValidatedPackedPackage[] = [];
