@@ -345,11 +345,11 @@ re-run work.
 - **A new package links to this repository through `repository.url`.** The
   metadata assertion enforces that URL and the GitHub registry. Confirm inherited
   access in package settings after the first preview publishes it.
-- **`--preid` sets both the prerelease identifier and the npm dist-tag.** While
-  in prerelease, pass `--preid alpha` so the release publishes under the `alpha`
-  dist-tag and `npm install @maelstrom-co/<pkg>` does not resolve to a
-  prerelease. Omit `--preid` (dist-tag defaults to `latest`) only for the first
-  stable release.
+- **`--preid` tells Nx which prerelease identifier to use when calculating a
+  bump.** The npm dist-tag always comes from the resolved version:
+  `0.1.0-alpha.0` publishes under `alpha`, while a stable version publishes
+  under `latest`. Pass `--preid alpha` while calculating alpha releases so
+  `npm install @maelstrom-co/<pkg>` does not resolve to a prerelease.
 - **`--version`** accepts an explicit version (`0.1.0-alpha.0`) or a bump
   (`patch` | `minor` | `major` | `prerelease`).
 - **`--skip-publish`** versions, tags, pushes, and creates the GitHub release

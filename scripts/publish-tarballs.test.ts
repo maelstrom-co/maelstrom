@@ -312,6 +312,13 @@ function expectTrustedVersion(stepText: string, version: RegExp) {
 }
 
 describe('workflow expected-version authority', () => {
+  test('finishes an unversioned branch rehearsal after build and pack', async () => {
+    const release = await Bun.file('.github/workflows/release.yml').text();
+    expect(release).toMatch(
+      /publish:\n(?:.*\n){0,8}\s+if:\s*needs\.prepare\.outputs\.version\s*!=\s*''/,
+    );
+  });
+
   test('keeps trusted VERSION in each privileged publish step', async () => {
     const preview = await Bun.file('.github/workflows/publish-pr.yml').text();
     const release = await Bun.file('.github/workflows/release.yml').text();

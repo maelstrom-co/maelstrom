@@ -72,7 +72,9 @@ export function applyVersionOverrides(
     overriddenManifest[field] = Object.fromEntries(
       Object.entries(dependencies).map(([name, spec]) => [
         name,
-        overrides.get(name) ?? spec,
+        spec.startsWith('workspace:') || spec.startsWith('catalog:')
+          ? spec
+          : (overrides.get(name) ?? spec),
       ]),
     );
   }
