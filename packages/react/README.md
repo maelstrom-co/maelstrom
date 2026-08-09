@@ -1,6 +1,5 @@
 # @maelstrom-co/react
 
-[![npm](https://img.shields.io/npm/v/@maelstrom-co/react.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/react)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
 
 React bindings for Maelstrom — AI-orchestrated dynamic UIs.

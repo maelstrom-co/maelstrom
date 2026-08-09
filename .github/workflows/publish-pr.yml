@@ -1,15 +1,18 @@
 name: Publish PR Preview
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled]
+  # The workflow definition must come from the trusted base branch. Each
+  # revision needs an explicit label event before its artifacts are published.
+  pull_request_target:
+    types: [labeled]
 
 permissions:
   contents: read
-  packages: write
-  pull-requests: write
 
 env:
+  BUN_VERSION: '1.3.7'
+  NODE_VERSION: '24'
+  TARBALL_DIR: dist/tarballs
   NX_NO_CLOUD: ${{ vars.NX_NO_CLOUD }}
 
 concurrency:
@@ -17,16 +20,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish:
-    name: Publish Preview Packages
+  prepare:
+    name: Build and pack preview packages
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
-      && contains(github.event.pull_request.labels.*.name, 'publish-preview')
+      && github.event.label.name == 'publish-preview'
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
+      # PR code runs without package-write access or a persisted Actions token.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
           filter: tree:0
           fetch-depth: 0
@@ -34,12 +41,12 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -47,47 +54,82 @@ jobs:
       - name: Set preview version
         id: version
         # run_attempt is part of the version because run_number does not change
-        # when a run is retried. Without it, re-running after a partial publish
-        # would reuse a version that already exists, and registry versions are
-        # immutable — the retry could never succeed.
+        # when a run is retried. Registry versions are immutable.
         run: |
           VERSION="0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}.${{ github.run_attempt }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Publishing version: $VERSION"
 
       - name: Version packages
-        run: bunx nx release version ${{ steps.version.outputs.version }} --git-commit false --git-tag false
+        # Preview versions never create release tags, so they cannot use tag
+        # history as a version baseline.
+        run: bunx nx release version "$PREVIEW_VERSION" --first-release --git-commit false --git-tag false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIEW_VERSION: ${{ steps.version.outputs.version }}
 
-      # Real releases go to public npm; per-PR previews stay on GitHub Packages
-      # so throwaway 0.0.0-pr.* versions never reach the public registry (npm
-      # publishes are permanent after the 72h unpublish window). The root
-      # .npmrc no longer carries registry or auth config — consumers must be
-      # able to install with none — so this job supplies its own, in a runner
-      # temp file that holds only an env reference, never the token itself.
+      - name: Build packages
+        run: bunx nx run-many -t build --projects='packages/*'
+
+      - name: Pack packages
+        run: bun scripts/publish-packages.ts --pack-to "$TARBALL_DIR"
+
+      - name: Upload tarballs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: preview-tarballs
+          path: ${{ env.TARBALL_DIR }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish Preview Packages
+    needs: prepare
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+    steps:
+      # Only trusted base-branch publisher code runs beside the write token.
+      - name: Checkout publisher code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          filter: tree:0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Download tarballs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: preview-tarballs
+          path: ${{ env.TARBALL_DIR }}
+
+      # The file contains an environment reference, not the token itself.
       - name: Configure GitHub Packages auth
         run: |
           echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
           echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/.npmrc" >> "$GITHUB_ENV"
 
       - name: Publish packages
-        # Use scripts/publish-packages.ts (not `nx release publish`) so that
-        # `workspace:*` and `catalog:` specs are substituted to concrete
-        # versions in each manifest before npm packs the tarball — npm
-        # publish from inside a package dir does not do this on its own.
-        # `nx release publish` additionally breaks against GitHub Packages: its
-        # dist-tag pre-check runs `npm view <pkg> versions dist-tags --json`,
-        # GitHub Packages answers with an empty `_id`, npm emits nothing, and
-        # Nx throws on `JSON.parse('')`.
-        # --registry is explicit because the script defaults to public npm, and
-        # it overrides each package's publishConfig.registry.
-        run: |
-          bun scripts/publish-packages.ts \
-            --tag pr-${{ github.event.pull_request.number }} \
-            --registry https://npm.pkg.github.com
+        run: >-
+          bun scripts/publish-tarballs.ts
+          --dir "$TARBALL_DIR"
+          --expected-version "$VERSION"
+          --tag "pr-${PR_NUMBER}"
+          --registry https://npm.pkg.github.com
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: 0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}.${{ github.run_attempt }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Find previous preview comment
@@ -102,16 +144,13 @@ jobs:
       - name: Minimize previous preview comment
         if: steps.find-comment.outputs.comment-id != ''
         # Cosmetic, and it runs after a successful publish. A GitHub API hiccup
-        # must not turn a green publish red or suppress the install
-        # instructions below, so failures surface as a warning instead.
+        # must not suppress the install instructions below.
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMENT_NODE_ID: ${{ steps.find-comment.outputs.comment-node-id }}
         run: |
-          # $id is a GraphQL variable bound by -f, not a shell variable, so it
-          # must stay unexpanded inside the single-quoted query. Binding it
-          # keeps step output out of the query string entirely.
+          # $id is a GraphQL variable bound by -f, not a shell variable.
           # shellcheck disable=SC2016
           gh api graphql -f query='
             mutation ($id: ID!) {
@@ -121,25 +160,19 @@ jobs:
             }' -f id="$COMMENT_NODE_ID" \
             || echo "::warning::Could not minimize the previous preview comment (non-fatal); continuing."
 
-      # Derived from the workspace rather than hardcoded: the previous fixed
-      # list silently went stale every time a package was added or renamed, and
-      # a preview comment that names packages which were never published is
-      # worse than no list at all.
       - name: Build install command list
         id: packages
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           {
             echo 'commands<<PKGEOF'
             node -e '
               const fs = require("node:fs");
-              for (const dir of fs.readdirSync("packages").sort()) {
-                const path = `packages/${dir}/package.json`;
-                if (!fs.existsSync(path)) continue;
-                const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
-                if (manifest.private === true) continue;
-                console.log(`bun add ${manifest.name}@${process.env.VERSION}`);
+              const path = require("node:path");
+              const manifest = JSON.parse(fs.readFileSync(path.join(process.env.TARBALL_DIR, "packed.json"), "utf8"));
+              for (const pkg of manifest.sort((a, b) => a.name.localeCompare(b.name))) {
+                console.log(`bun add ${pkg.name}@${process.env.VERSION}`);
               }
             '
             echo 'PKGEOF'
@@ -153,36 +186,14 @@ jobs:
             <!-- pr-preview-packages -->
             **Preview packages published** for commit ${{ github.event.pull_request.head.sha }}
 
-            **Version:** `${{ steps.version.outputs.version }}`
+            **Version:** `${{ needs.prepare.outputs.version }}`
             **Tag:** `pr-${{ github.event.pull_request.number }}`
-            **Registry:** GitHub Packages (previews only — released versions are on public npm)
+            **Registry:** GitHub Packages
 
-            Previews are not on npmjs.org, so point the scope at GitHub Packages
-            first and authenticate with your own PAT that has `read:packages`.
-            GitHub documents classic tokens only for its npm registry. Export
-            the token, then add the `.npmrc`:
+            Follow the [beta installation guide](https://docs.maelstrom-ai.co/getting-started/install-beta/) once to configure GitHub Packages. Then install this preview by exact version:
 
             ```sh
-            export GH_PACKAGES_TOKEN=ghp_your_read_packages_pat
-            ```
-
-            ```sh
-            # .npmrc in the consuming project
-            @maelstrom-co:registry=https://npm.pkg.github.com
-            //npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}
-            ```
-
-            ```sh
-            bun add @maelstrom-co/protocol@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/engine@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/client@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/react@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/react-realtime@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime-server@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime-livekit@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime-livekit-agent@${{ steps.version.outputs.version }}
-            bun add @maelstrom-co/realtime-livekit-server@${{ steps.version.outputs.version }}
+            ${{ steps.packages.outputs.commands }}
             ```
 
             Or install by tag:

@@ -12,6 +12,7 @@ import {
   createGitTagValues,
   handleDuplicateGitTags,
 } from 'nx/src/command-line/release/utils/shared';
+import { resolveRegistry } from './lib/registry.ts';
 import { publishWorkspacePackages } from './publish-packages.ts';
 
 const { values } = parseArgs({
@@ -133,7 +134,7 @@ if (values['skip-publish']) {
 // us — consumers would otherwise get literal protocol strings they can't
 // resolve.
 const npmTag = preid ?? 'latest';
-const registry = process.env.RELEASE_REGISTRY ?? 'https://registry.npmjs.org';
+const registry = resolveRegistry();
 
 const { failures } = await publishWorkspacePackages({
   tag: npmTag,

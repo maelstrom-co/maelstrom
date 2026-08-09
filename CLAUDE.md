@@ -60,7 +60,7 @@ Copy `.env.example` to `.env` and configure API keys for LLM providers:
 - `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) - Google Gemini (optional future adapter; not used by the demo)
 - `ANTHROPIC_API_KEY` - Anthropic Claude
 
-Packages are published to public npm (`registry.npmjs.org`) under the `@maelstrom-co` scope. No registry or auth config is needed to install or develop — the root `.npmrc` maps no `@maelstrom-co` scope and holds no token. Per-PR preview packages are the one exception: they go to GitHub Packages. CI publishes them with the workflow's own `GITHUB_TOKEN`; installing one is what requires a `read:packages` PAT, supplied by whoever installs it.
+Packages are private and published under the `@maelstrom-co` scope on GitHub Packages. The root `.npmrc` maps the scope but stores no token. CI publishes releases and PR previews with its `GITHUB_TOKEN`; external installations require a classic PAT with `read:packages` from a user who can read the repository.
 
 ## Architecture
 

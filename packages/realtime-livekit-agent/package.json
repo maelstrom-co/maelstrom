@@ -40,7 +40,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/realtime-livekit-agent"
   },
   "homepage": "https://maelstrom-ai.co",
@@ -49,8 +49,7 @@
   },
   "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org"
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
     "@livekit/agents": "^1.4.8",

@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
+import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
 import { listPublishablePackages } from './lib/workspace-packages.ts';
 
 // A green publish step is not proof the registry serves the packages: a
@@ -16,39 +16,23 @@ const { values } = parseArgs({
   },
 });
 
-const version = values.version;
+const version = values.version ?? '';
 if (!version) {
   console.error('::error::Missing required --version');
   process.exit(1);
 }
 
-const registry =
-  values.registry ??
-  process.env.RELEASE_REGISTRY ??
-  'https://registry.npmjs.org';
+const registry = resolveRegistry(values.registry);
 const attempts = Number(values.attempts ?? 5);
 // Publishes are not immediately readable — the registry needs a moment to
 // serve a version it just accepted, so absence is only meaningful after retry.
 const retryDelayMs = Number(values['retry-delay-ms'] ?? 5000);
 
-function isLive(name: string): boolean {
-  try {
-    execFileSync(
-      'npm',
-      ['view', `${name}@${version}`, 'version', '--registry', registry],
-      { stdio: ['ignore', 'ignore', 'ignore'] },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 const missing: string[] = [];
 for (const pkg of listPublishablePackages()) {
   let live = false;
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    if (isLive(pkg.name)) {
+    if (isAlreadyPublished(pkg.name, version, registry)) {
       console.log(`✓ ${pkg.name}@${version} is live`);
       live = true;
       break;

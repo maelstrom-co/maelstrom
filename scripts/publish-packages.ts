@@ -7,7 +7,11 @@ import {
   PACKED_MANIFEST_FILENAME,
   type PackedPackage,
 } from './lib/packed-manifest.ts';
-import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
+import {
+  authenticationFailureHint,
+  isAlreadyPublished,
+  resolveRegistry,
+} from './lib/registry.ts';
 import { listWorkspacePackages } from './lib/workspace-packages.ts';
 
 // `workspace:*` and `catalog:` are Bun/pnpm-only protocols. npm doesn't
@@ -349,17 +353,8 @@ if (isDirectInvocation) {
     console.error(
       `\n${packTo ? 'Pack' : 'Publish'} failed for: ${failures.join(', ')}`,
     );
-    // "A brand-new package cannot publish from CI" is a baffling failure
-    // without this: npm refuses to configure a trusted publisher for a package
-    // that does not exist yet, so the first version of each has to go out by
-    // hand before CI can ever own it.
     if (!packTo) {
-      console.error(
-        'If this was an authentication error, check that every package above has a ' +
-          'trusted publisher on npmjs.org pointing at this repository and release.yml. ' +
-          'A package that has never been published cannot have one — see the bootstrap ' +
-          'procedure in CONTRIBUTING.md.',
-      );
+      console.error(authenticationFailureHint(registry));
     }
     process.exit(1);
   }
