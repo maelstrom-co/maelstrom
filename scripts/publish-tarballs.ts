@@ -49,13 +49,18 @@ const CANONICAL_SEMVER =
  * `--expected-version VALUE` form exactly once; artifact metadata can never
  * supply or override it.
  */
-export function parsePublishArgs(argv: string[], cwd = process.cwd()): PublishOptions {
+export function parsePublishArgs(
+  argv: string[],
+  cwd = process.cwd(),
+): PublishOptions {
   const expectedFlags = argv.filter((arg) => arg === '--expected-version');
   if (
     expectedFlags.length !== 1 ||
     argv.some((arg) => arg.startsWith('--expected-version='))
   ) {
-    throw new Error('Invalid --expected-version: provide the flag exactly once');
+    throw new Error(
+      'Invalid --expected-version: provide the flag exactly once',
+    );
   }
 
   const { values } = (() => {
@@ -123,19 +128,30 @@ function defaultPublish(
  * Dry runs never probe for an existing version. Individual publish failures are
  * collected so later validated packages can still be attempted.
  */
-export function publishTarballs(options: PublishOptions, dependencies: PublishDependencies = {}) {
+export function publishTarballs(
+  options: PublishOptions,
+  dependencies: PublishDependencies = {},
+) {
   let input: unknown;
   try {
     input = JSON.parse(
       readFileSync(join(options.dir, PACKED_MANIFEST_FILENAME), 'utf8'),
     ) as unknown;
   } catch (error) {
-    throw new Error(`Cannot read ${PACKED_MANIFEST_FILENAME} in ${options.dir}`, { cause: error });
+    throw new Error(
+      `Cannot read ${PACKED_MANIFEST_FILENAME} in ${options.dir}`,
+      { cause: error },
+    );
   }
 
-  const packages = validatePackedManifest(input, options.expectedVersion, options.dir, {
-    runArchiveProcess: dependencies.runArchiveProcess,
-  });
+  const packages = validatePackedManifest(
+    input,
+    options.expectedVersion,
+    options.dir,
+    {
+      runArchiveProcess: dependencies.runArchiveProcess,
+    },
+  );
   const probe = dependencies.isAlreadyPublished ?? isAlreadyPublished;
   const publish = dependencies.publish ?? defaultPublish;
   const failures: string[] = [];
@@ -169,7 +185,9 @@ if (import.meta.main) {
     options = parsePublishArgs(process.argv.slice(2));
     const result = publishTarballs(options);
     const verb = options.dryRun ? 'Would publish' : 'Published';
-    console.log(`${verb} ${result.succeeded}, skipped ${result.skipped}, failed 0.`);
+    console.log(
+      `${verb} ${result.succeeded}, skipped ${result.skipped}, failed 0.`,
+    );
   } catch (error) {
     console.error(
       `::error::${error instanceof Error ? error.message : String(error)}`,

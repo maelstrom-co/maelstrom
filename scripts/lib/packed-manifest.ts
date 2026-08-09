@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { lstatSync, realpathSync } from 'node:fs';
+import { lstatSync, realpathSync, type Stats } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 
 /**
@@ -67,7 +67,9 @@ type ValidationDependencies = {
 
 export const PACKED_MANIFEST_FILENAME = 'packed.json';
 
-function runArchiveProcess(request: ArchiveProcessRequest): ArchiveProcessResult {
+function runArchiveProcess(
+  request: ArchiveProcessRequest,
+): ArchiveProcessResult {
   const result = spawnSync('tar', request.argv, {
     cwd: request.cwd,
     env: { ...process.env, ...request.env },
@@ -90,8 +92,12 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function parseManifest(input: unknown, expectedVersion: string): PackedPackage[] {
-  if (!Array.isArray(input)) throw new Error('Packed manifest must be an array');
+function parseManifest(
+  input: unknown,
+  expectedVersion: string,
+): PackedPackage[] {
+  if (!Array.isArray(input))
+    throw new Error('Packed manifest must be an array');
   if (input.length !== PACKED_PACKAGE_NAMES.length) {
     throw new Error(
       `Packed manifest must contain exactly ${PACKED_PACKAGE_NAMES.length} packages`,
@@ -118,7 +124,9 @@ function parseManifest(input: unknown, expectedVersion: string): PackedPackage[]
       throw new Error(`Packed manifest entry ${index} has invalid field types`);
     }
     if (!allowed.has(name)) {
-      throw new Error(`Packed manifest entry ${index} names an unknown package`);
+      throw new Error(
+        `Packed manifest entry ${index} names an unknown package`,
+      );
     }
     if (names.has(name)) {
       throw new Error(`Packed manifest contains duplicate package: ${name}`);
@@ -146,13 +154,14 @@ function parseManifest(input: unknown, expectedVersion: string): PackedPackage[]
   });
 
   for (const name of PACKED_PACKAGE_NAMES) {
-    if (!names.has(name)) throw new Error(`Packed manifest is missing package: ${name}`);
+    if (!names.has(name))
+      throw new Error(`Packed manifest is missing package: ${name}`);
   }
   return packages;
 }
 
 function assertRegularBoundedFile(path: string) {
-  let stat;
+  let stat: Stats;
   try {
     stat = lstatSync(path);
   } catch {
@@ -198,7 +207,9 @@ function validateArchive(
   cwd: string,
   execute: (request: ArchiveProcessRequest) => ArchiveProcessResult,
 ) {
-  const listing = invokeArchive(archive, cwd, '-tvzf', execute).toString('utf8');
+  const listing = invokeArchive(archive, cwd, '-tvzf', execute).toString(
+    'utf8',
+  );
   const lines = listing.split('\n').filter(Boolean);
   if (lines.length !== 1) {
     throw new Error(
@@ -206,7 +217,7 @@ function validateArchive(
     );
   }
   const match = lines[0]!.match(
-    /^([\-bcdhlps])[rwxStTs-]{9}\s+.*\s(package\/package\.json)(?:\s+(?:->|link to)\s+.*)?$/,
+    /^([-bcdhlps])[rwxStTs-]{9}\s+.*\s(package\/package\.json)(?:\s+(?:->|link to)\s+.*)?$/,
   );
   if (
     !match ||
@@ -227,7 +238,9 @@ function validateArchive(
       'Embedded package manifest',
     );
   } catch (error) {
-    throw new Error(`Cannot parse embedded package manifest for ${pkg.name}`, { cause: error });
+    throw new Error(`Cannot parse embedded package manifest for ${pkg.name}`, {
+      cause: error,
+    });
   }
   if (metadata.name !== pkg.name || metadata.version !== pkg.version) {
     throw new Error(
@@ -256,8 +269,13 @@ export function validatePackedManifest(
 
   for (const pkg of packages) {
     const tarballPath = resolve(cwd, pkg.tarball);
-    if (!tarballPath.startsWith(`${cwd}${sep}`) || tarballPath !== join(cwd, pkg.tarball)) {
-      throw new Error(`Tarball resolves outside the artifact directory: ${pkg.tarball}`);
+    if (
+      !tarballPath.startsWith(`${cwd}${sep}`) ||
+      tarballPath !== join(cwd, pkg.tarball)
+    ) {
+      throw new Error(
+        `Tarball resolves outside the artifact directory: ${pkg.tarball}`,
+      );
     }
     assertRegularBoundedFile(tarballPath);
     validateArchive(pkg, tarballPath, cwd, execute);
