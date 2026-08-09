@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/client",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.0",
   "description": "Framework-agnostic Maelstrom client: chart manager, connection manager, command processor, vessel registry, and orchestrator, with a voice-session seam for realtime grounding.",
   "keywords": [
     "maelstrom",
@@ -45,7 +45,7 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.0.0",
+    "@maelstrom-co/protocol": "0.1.0-alpha.0",
     "@tanstack/store": "catalog:"
   },
   "devDependencies": {

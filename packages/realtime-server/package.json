@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-server",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.0",
   "description": "Server-only minting of ephemeral OpenAI realtime credentials for Maelstrom. Never ships to the browser.",
   "keywords": [
     "maelstrom",
@@ -50,8 +50,8 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.0.0",
-    "@maelstrom-co/realtime": "0.0.0",
+    "@maelstrom-co/protocol": "0.1.0-alpha.0",
+    "@maelstrom-co/realtime": "0.1.0-alpha.0",
     "zod": "catalog:"
   },
   "nx": {

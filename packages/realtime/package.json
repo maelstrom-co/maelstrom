@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.0",
   "description": "Framework-agnostic realtime voice core for Maelstrom: RealtimeSession, the provider adapter seam, and an OpenAI realtime adapter.",
   "keywords": [
     "maelstrom",
@@ -58,8 +58,8 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.0.0",
-    "@maelstrom-co/protocol": "0.0.0",
+    "@maelstrom-co/client": "0.1.0-alpha.0",
+    "@maelstrom-co/protocol": "0.1.0-alpha.0",
     "zod": "catalog:"
   },
   "devDependencies": {

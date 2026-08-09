@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-livekit",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.0",
   "description": "LiveKit browser adapter for Maelstrom realtime voice: a RealtimeProviderAdapter backed by a cascaded STT/TTS pipeline.",
   "keywords": [
     "maelstrom",
@@ -68,9 +68,9 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.0.0",
-    "@maelstrom-co/protocol": "0.0.0",
-    "@maelstrom-co/realtime": "0.0.0",
+    "@maelstrom-co/client": "0.1.0-alpha.0",
+    "@maelstrom-co/protocol": "0.1.0-alpha.0",
+    "@maelstrom-co/realtime": "0.1.0-alpha.0",
     "@ricky0123/vad-web": "catalog:",
     "onnxruntime-web": "catalog:",
     "zod": "catalog:"

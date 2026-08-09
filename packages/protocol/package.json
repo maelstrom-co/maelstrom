@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/protocol",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.0",
   "description": "Shared types, Zod schemas, and message contract for Maelstrom — the transport-agnostic foundation for AI-orchestrated dynamic UI.",
   "keywords": [
     "maelstrom",
