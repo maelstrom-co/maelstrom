@@ -2,7 +2,10 @@
   "name": "@maelstrom-co/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "audit:public-api-docs": "bun tools/public-api-docs/audit.ts",
+    "audit:strip-internal": "bun tools/public-api-docs/strip-internal-comparison.ts"
+  },
   "private": true,
   "engines": {
     "node": ">=24"

@@ -45,8 +45,8 @@ export interface LiveKitBrowserVadProviderOptions {
    *
    * This changes what the detector considers and nothing else. It does not
    * populate transport pre-roll: the audio actually sent to the worker at
-   * speech start is {@link LiveKitBrowserVadOptions.preRollMs}. Setting this
-   * expecting to fix a clipped first word will not fix it.
+   * speech start is {@link LiveKitBrowserVadOptions.preRollMs}. Increasing the
+   * provider's detection padding does not address that transport clipping.
    */
   readonly preSpeechPadMs?: RealTimeVADOptions['preSpeechPadMs'];
   /**

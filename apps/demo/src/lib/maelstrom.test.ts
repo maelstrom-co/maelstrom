@@ -94,7 +94,7 @@ describe('demo voice provider wiring', () => {
       import('@maelstrom-co/realtime-livekit'),
     ]);
 
-    expect(react.warnOnce).toBeTypeOf('function');
+    expect(Object.keys(react)).not.toContain('warnOnce');
     expect(reactRealtime.createLevelMeter).toBeTypeOf('function');
     expect(openAI.OpenAITokenGrantSchema.safeParse).toBeTypeOf('function');
     expect(liveKit.LiveKitTokenGrantSchema.safeParse).toBeTypeOf('function');

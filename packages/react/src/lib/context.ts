@@ -9,7 +9,6 @@ import type {
   TypedVesselProps,
 } from './vessel-entry-types.js';
 
-/** Internal context value — not part of public API */
 export interface MaelstromContextValue {
   orchestrator: Orchestrator;
   connector: EngineConnector;
