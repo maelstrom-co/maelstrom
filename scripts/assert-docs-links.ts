@@ -36,12 +36,12 @@ const distRoot = resolve(import.meta.dir, '../apps/docs/dist');
  * the way a skip-if-missing list does.
  */
 const KNOWN_DEAD_TARGETS = new Set([
-  '/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/readme/',
-  '/reference/realtime-livekit/packages/realtime-livekit/src/protocol/readme/',
-  '/reference/realtime-livekit/packages/realtime-livekit/src/readme/',
-  '/reference/realtime-livekit/packages/realtime-livekit/src/vad-assets/readme/',
-  '/reference/realtime/packages/realtime/src/openai/readme/',
-  '/reference/realtime/packages/realtime/src/readme/',
+  '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/readme/',
+  '/reference/realtime-protocol/packages/realtime-protocol/src/livekit-wire/readme/',
+  '/reference/realtime-protocol/packages/realtime-protocol/src/openai/readme/',
+  '/reference/realtime-protocol/packages/realtime-protocol/src/readme/',
+  '/reference/realtime-vad/packages/realtime-vad/src/readme/',
+  '/reference/realtime-vad/packages/realtime-vad/src/vad-assets/readme/',
 ]);
 
 type Problem = { file: string; message: string };

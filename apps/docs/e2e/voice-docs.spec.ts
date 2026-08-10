@@ -148,13 +148,13 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
   },
   {
     name: 'RealtimeSession',
-    path: '/reference/realtime/packages/realtime/src/classes/realtimesession/',
+    path: '/reference/realtime/classes/realtimesession/',
     heading: 'RealtimeSession',
     context: 'packages/realtime/src',
   },
   {
     name: 'AdapterTurnControl',
-    path: '/reference/realtime/packages/realtime/src/interfaces/adapterturncontrol/',
+    path: '/reference/realtime/interfaces/adapterturncontrol/',
     heading: 'AdapterTurnControl',
     context:
       'packages/realtime/src/lib/realtime-session/provider-adapter.types.ts',
@@ -207,24 +207,23 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
   },
   {
     name: 'LiveKitAdapter',
-    path: '/reference/realtime-livekit/packages/realtime-livekit/src/classes/livekitadapter/',
+    path: '/reference/realtime-livekit/classes/livekitadapter/',
     heading: 'LiveKitAdapter',
     context: 'packages/realtime-livekit/src/livekit-adapter.ts',
-    entryPoint: 'packages/realtime-livekit/src',
   },
   {
     name: 'SPEAK_TOPIC',
-    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit-wire/variables/speak_topic/',
+    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/speak_topic/',
     heading: 'SPEAK_TOPIC',
-    context: 'packages/realtime-protocol/src/livekit-wire.ts',
-    entryPoint: 'packages/realtime-protocol/src/livekit-wire',
+    context: 'packages/realtime-protocol/src/lib/livekit-wire.ts',
+    entryPoint: 'packages/realtime-protocol/src/livekit',
   },
   {
     name: 'TtsDoneMessage',
-    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit-wire/interfaces/ttsdonemessage/',
+    path: '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/interfaces/ttsdonemessage/',
     heading: 'TtsDoneMessage',
-    context: 'packages/realtime-protocol/src/livekit-wire.ts',
-    entryPoint: 'packages/realtime-protocol/src/livekit-wire',
+    context: 'packages/realtime-protocol/src/lib/livekit-wire.ts',
+    entryPoint: 'packages/realtime-protocol/src/livekit',
   },
   {
     name: 'LiveKitTokenGrantSchema',
@@ -434,30 +433,25 @@ test('voice consumer imports resolve from roots and documented subpaths', async 
     }).success,
   ).toBe(true);
 
-  await page.goto('/reference/realtime-livekit/readme/');
+  await page.goto('/reference/realtime-protocol/readme/');
   const rootReference = page.locator('main');
   await expect(
-    rootReference.getByText('packages/realtime-livekit/src/protocol', {
+    rootReference.getByText('packages/realtime-protocol/src/livekit-wire', {
       exact: true,
     }),
   ).toBeVisible();
   await expect(
-    rootReference.getByText('packages/realtime-livekit/src/livekit-token', {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(
-    rootReference.getByText('packages/realtime-livekit/src/vad-assets', {
+    rootReference.getByText('packages/realtime-protocol/src/livekit', {
       exact: true,
     }),
   ).toBeVisible();
 
   await page.goto(
-    '/reference/realtime-livekit/packages/realtime-livekit/src/protocol/variables/speak_topic/',
+    '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/speak_topic/',
   );
   const sidebar = page.getByRole('navigation', { name: 'Main' });
   await expect(
-    sidebar.getByText('packages/realtime-livekit/src/protocol', {
+    sidebar.getByText('packages/realtime-protocol/src/livekit', {
       exact: true,
     }),
   ).toBeVisible();
@@ -466,10 +460,10 @@ test('voice consumer imports resolve from roots and documented subpaths', async 
   ).toBeVisible();
 
   await page.goto(
-    '/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/variables/livekittokengrantschema/',
+    '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/livekittokengrantschema/',
   );
   await expect(
-    sidebar.getByText('packages/realtime-livekit/src/livekit-token', {
+    sidebar.getByText('packages/realtime-protocol/src/livekit', {
       exact: true,
     }),
   ).toBeVisible();
