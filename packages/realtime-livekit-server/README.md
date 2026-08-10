@@ -2,12 +2,12 @@
 
 Server-only handler for minting LiveKit room access tokens.
 
-The server sibling of `@maelstrom-co/realtime-livekit`: the browser package
-declares the `LiveKitTokenGrant` contract the adapter consumes, and this
-package implements it. This package and the agent worker both read
-`LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`; the browser gets a scoped, short-lived
-grant whose token exposes the API key as its public issuer. The signing secret
-never ships to the browser.
+The server sibling of `@maelstrom-co/realtime-livekit`:
+`@maelstrom-co/realtime-protocol` owns the shared LiveKit grant and mint-failure
+contracts, and this package implements the token minter. This package and the
+agent worker both read `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`; the browser
+gets a scoped, short-lived grant whose token exposes the API key as its public
+issuer. The signing secret never ships to the browser.
 
 ## Install
 
@@ -38,8 +38,9 @@ process holding `LIVEKIT_API_SECRET` free of browser code.
   token for managed reconnects. Expiry alone does not disconnect an active
   participant or end the room. Each fresh `connect()` invokes `mintToken`.
 - `mintFailureHttpStatus` — a suggested `MintFailureReason -> HTTP status`
-  mapping, re-exported from `@maelstrom-co/realtime` for callers wiring the
-  minter into an HTTP transport.
+  mapping that this package provides by re-exporting it from
+  `@maelstrom-co/realtime-protocol` for callers wiring the minter into an HTTP
+  transport.
 
 ## Quick example
 

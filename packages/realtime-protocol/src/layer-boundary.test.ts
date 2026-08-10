@@ -336,18 +336,54 @@ function entryPointSourceFile(
     : undefined;
 }
 
+interface WorkspaceImportResolution {
+  /** Target identity retained alongside the entry so callers need not infer its package from a source path. */
+  package: WorkspacePackage;
+  /** Existing TypeScript source selected by the matching `exports` key. */
+  entry: string;
+}
+
+function rootReachesServerOrWorkerMessage(
+  rootPackage: WorkspacePackage,
+  rootLayer: Layer,
+  targetPackage: WorkspacePackage,
+  targetLayer: Layer,
+): string {
+  return `INVARIANT VIOLATED: no browser-side or contract-side package root may reach a server-side or worker-side package.
+
+  ${rootPackage.name} (root layer: ${rootLayer}) reaches ${targetPackage.name} (layer: ${targetLayer}).
+
+Browser and contract package roots are entry points for code that may ship to an untrusted browser tab. Server and worker packages are trusted, Node-only processes that may import Node-only SDKs or read provider credentials. A root import crossing into those layers puts that trusted code on the browser bundle graph even when the importing package forgot to declare the dependency in its manifest.
+
+Fix: remove the import of ${targetPackage.name} from the source graph rooted at ${rootPackage.name}'s "." export. Shared wire shapes belong in @maelstrom-co/protocol or @maelstrom-co/realtime-protocol; credentials cross the boundary at runtime, never through package imports.
+
+See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`;
+}
+
 /**
  * Walks the module graph from a package's `.` entry point and returns every
- * in-package source file a consumer's bundler would pull in.
+ * resolvable TypeScript source file a consumer's bundler would pull in across
+ * relative imports and allowed workspace-package edges. For a browser or
+ * contract root, an edge into a server or worker package throws before the
+ * target's export or source path is resolved, so an absent export cannot hide
+ * a forbidden package identity. Allowed edges remain traversable when their
+ * source entry resolves; an unresolvable allowed edge stays opaque and is skipped.
  *
  * The reachability walk is the point. Checking only whether a Node-only file
  * *is* a declared entry point answers the wrong question: a file can be the
  * source of `./assets` and still be re-exported from `src/index.ts`, in which
  * case it is both "declared" and reachable from `.` — the membership check
  * passes while the invariant is broken. Only the graph knows.
+ *
+ * `injectedRootSource` replaces only the root file's contents, allowing the
+ * regression tests to exercise this exact traversal without writing fixtures.
  */
-function filesReachableFromRoot(pkg: WorkspacePackage): Set<string> {
+function filesReachableFromRoot(
+  pkg: WorkspacePackage,
+  injectedRootSource?: string,
+): Set<string> {
   const rootEntry = entryPointSourceFile(pkg, '.');
+  const rootLayer = classify(pkg.name);
   // The entry must be TypeScript source under src/. A `.` export that is a
   // plain string, or whose source condition points into dist/, resolves to
   // built output: the walk would then inspect a bundled artifact — where the
@@ -380,7 +416,10 @@ See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
     const file = queue.pop() as string;
     let source: string;
     try {
-      source = readFileSync(file, 'utf8');
+      source =
+        file === rootEntry && injectedRootSource !== undefined
+          ? injectedRootSource
+          : readFileSync(file, 'utf8');
     } catch {
       continue;
     }
@@ -391,11 +430,29 @@ See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
       // '@maelstrom-co/realtime-vad/assets'` — and satisfy every guard: the
       // manifest test sees an allowed browser→browser edge, and this walk
       // never opens the file that imports `node:fs`.
-      const target = specifier.startsWith('.')
-        ? resolveRelativeImport(file, specifier)
-        : specifier.startsWith('@maelstrom-co/')
-          ? resolveWorkspaceImport(specifier)
-          : undefined;
+      let target: string | undefined;
+      if (specifier.startsWith('.')) {
+        target = resolveRelativeImport(file, specifier);
+      } else if (specifier.startsWith('@maelstrom-co/')) {
+        const targetPackage = workspacePackageForSpecifier(specifier);
+        if (targetPackage) {
+          const targetLayer = classify(targetPackage.name);
+          if (
+            (rootLayer === 'browser' || rootLayer === 'contract') &&
+            (targetLayer === 'server' || targetLayer === 'worker')
+          ) {
+            throw new Error(
+              rootReachesServerOrWorkerMessage(
+                pkg,
+                rootLayer,
+                targetPackage,
+                targetLayer,
+              ),
+            );
+          }
+          target = resolveWorkspaceImportEntry(targetPackage, specifier);
+        }
+      }
       if (!target || reachable.has(target)) continue;
       reachable.add(target);
       queue.push(target);
@@ -404,21 +461,129 @@ See ${LAYER_BOUNDARY_TEST_PATH} for the enforced rule.`);
   return reachable;
 }
 
-/**
- * Resolves `@maelstrom-co/foo` or `@maelstrom-co/foo/bar` to the source file
- * behind that package's matching `exports` key, so the walk above can continue
- * into sibling packages. External, non-workspace specifiers stay opaque.
- */
-function resolveWorkspaceImport(specifier: string): string | undefined {
+/** Returns package identity from a root or subpath specifier before export lookup; unknown workspace package names return `undefined`. */
+function workspacePackageForSpecifier(
+  specifier: string,
+): WorkspacePackage | undefined {
   const segments = specifier.split('/');
-  const target = packagesByName.get(`${segments[0]}/${segments[1]}`);
-  if (!target) return undefined;
+  return packagesByName.get(`${segments[0]}/${segments[1]}`);
+}
+
+/** Resolves an already identified, policy-allowed package's requested export to an existing source file; missing exports and source files return `undefined`. */
+function resolveWorkspaceImportEntry(
+  target: WorkspacePackage,
+  specifier: string,
+): string | undefined {
+  const segments = specifier.split('/');
   const key = segments.length > 2 ? `./${segments.slice(2).join('/')}` : '.';
   const entry = entryPointSourceFile(target, key);
   return entry && existsSync(entry) ? entry : undefined;
 }
 
+/**
+ * Resolves `@maelstrom-co/foo` or `@maelstrom-co/foo/bar` to the workspace
+ * package and source file behind its matching `exports` key.
+ * Unknown packages, missing export keys, and missing source files remain
+ * unresolved so external or unavailable specifiers stay opaque. This
+ * convenience composition is not suitable for custody enforcement by itself:
+ * it cannot distinguish an unknown package from a known package whose entry is
+ * unresolvable. The graph walk therefore performs package lookup and layer
+ * enforcement before attempting entry resolution.
+ */
+function resolveWorkspaceImport(
+  specifier: string,
+): WorkspaceImportResolution | undefined {
+  const target = workspacePackageForSpecifier(specifier);
+  if (!target) return undefined;
+  const entry = resolveWorkspaceImportEntry(target, specifier);
+  return entry ? { package: target, entry } : undefined;
+}
+
 describe('package layering — Node-only code must stay unreachable from "."', () => {
+  const forbiddenRootEdges = [
+    {
+      origin: '@maelstrom-co/realtime-openai',
+      destination: '@maelstrom-co/realtime-openai-server',
+    },
+    {
+      origin: '@maelstrom-co/realtime-openai',
+      destination: '@maelstrom-co/realtime-livekit-agent',
+    },
+    {
+      origin: '@maelstrom-co/realtime-protocol',
+      destination: '@maelstrom-co/realtime-openai-server',
+    },
+    {
+      origin: '@maelstrom-co/realtime-protocol',
+      destination: '@maelstrom-co/realtime-livekit-agent',
+    },
+  ] as const;
+
+  for (const { origin, destination } of forbiddenRootEdges) {
+    test(`${origin} root rejects reachability into ${destination}`, () => {
+      const originPackage = packagesByName.get(origin);
+      expect(originPackage).toBeDefined();
+      if (!originPackage) return;
+
+      const originLayer = classify(origin);
+      const destinationLayer = classify(destination);
+      expect(() =>
+        filesReachableFromRoot(
+          originPackage,
+          `export * from '${destination}';`,
+        ),
+      ).toThrow(
+        `INVARIANT VIOLATED: no browser-side or contract-side package root may reach a server-side or worker-side package.\n\n  ${origin} (root layer: ${originLayer}) reaches ${destination} (layer: ${destinationLayer}).`,
+      );
+    });
+  }
+
+  const unresolvableForbiddenRootEdges = [
+    {
+      origin: '@maelstrom-co/realtime-openai',
+      destination: '@maelstrom-co/realtime-openai-server',
+      specifier: '@maelstrom-co/realtime-openai-server/not-exported',
+    },
+    {
+      origin: '@maelstrom-co/realtime-protocol',
+      destination: '@maelstrom-co/realtime-livekit-agent',
+      specifier: '@maelstrom-co/realtime-livekit-agent/not-exported',
+    },
+  ] as const;
+
+  for (const {
+    origin,
+    destination,
+    specifier,
+  } of unresolvableForbiddenRootEdges) {
+    test(`${origin} root rejects ${specifier} before resolving its entry`, () => {
+      const originPackage = packagesByName.get(origin);
+      expect(originPackage).toBeDefined();
+      if (!originPackage) return;
+
+      const originLayer = classify(origin);
+      const destinationLayer = classify(destination);
+      expect(() =>
+        filesReachableFromRoot(originPackage, `export * from '${specifier}';`),
+      ).toThrow(
+        `INVARIANT VIOLATED: no browser-side or contract-side package root may reach a server-side or worker-side package.\n\n  ${origin} (root layer: ${originLayer}) reaches ${destination} (layer: ${destinationLayer}).`,
+      );
+    });
+  }
+
+  test('workspace imports retain package metadata for declared subpaths', () => {
+    const resolved = resolveWorkspaceImport(
+      '@maelstrom-co/realtime-protocol/openai',
+    );
+    expect(resolved?.package.name).toBe('@maelstrom-co/realtime-protocol');
+    expect(resolved?.entry).toBe(
+      resolve(
+        packagesByName.get('@maelstrom-co/realtime-protocol')?.dir ?? '',
+        'src/openai.ts',
+      ),
+    );
+  });
+
   for (const pkg of packages) {
     const layer = classify(pkg.name);
     // Contract packages are checked alongside browser ones because they are

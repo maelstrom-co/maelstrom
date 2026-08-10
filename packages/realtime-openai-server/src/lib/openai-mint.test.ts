@@ -12,8 +12,10 @@ import { createOpenAIMinter } from './openai-mint.js';
 
 it('mints an ephemeral secret without leaking the api key', async () => {
   let sentAuth = '';
+  let sentRedirect: RequestInit['redirect'];
   const fakeFetch = async (_url: string, init: RequestInit) => {
     sentAuth = (init.headers as Record<string, string>).Authorization;
+    sentRedirect = init.redirect;
     return new Response(
       JSON.stringify({
         value: 'ek-xyz',
@@ -35,6 +37,7 @@ it('mints an ephemeral secret without leaking the api key', async () => {
   expect(result.value.expiresAt).toBe(UnixSecondsSchema.parse(1712345678));
   expect(result.value.model).toBe('gpt-realtime-1.5');
   expect(sentAuth).toBe('Bearer sk-secret');
+  expect(sentRedirect).toBe('error');
   expect(JSON.stringify(result)).not.toContain('sk-secret');
 });
 

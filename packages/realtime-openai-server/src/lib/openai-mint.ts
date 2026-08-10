@@ -45,8 +45,10 @@ export type MintResult = Result<OpenAITokenGrant, MintFailure>;
  * OpenAI's `client_secrets` endpoint with the server-held key in the
  * `Authorization` header, and maps the upstream response to an
  * {@link OpenAITokenGrant}. The API key is only ever sent upstream —
- * it is never echoed back in the result. Callers own all transport
- * concerns: parsing the request body into `input`, and mapping
+ * it is never echoed back in the result. Redirects are rejected rather than
+ * forwarding that server-held credential to another URL; redirect and network
+ * failures return `upstream-failure` without an upstream status. Callers own
+ * all transport concerns: parsing the request body into `input`, and mapping
  * {@link MintResult} to a status code / response body.
  *
  * This mint operation is an **unauthenticated bootstrap**: anyone who can
@@ -215,6 +217,7 @@ export function createOpenAIMinter(
         'https://api.openai.com/v1/realtime/client_secrets',
         {
           method: 'POST',
+          redirect: 'error',
           headers: {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
