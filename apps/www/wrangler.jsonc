@@ -7,6 +7,9 @@
   // `node:module`. workerd rejects that module outright without this flag, so
   // the build dies in the prerender pass before a single route is emitted.
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "RESEND_SEGMENT_ID": "5b0cbb3a-8c80-4a78-b5ff-3fad686af8bb"
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
