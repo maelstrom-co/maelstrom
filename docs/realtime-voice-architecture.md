@@ -1,307 +1,205 @@
-# Realtime Voice Architecture
-
-How Maelstrom gives voice providers control of the UI through one realtime session boundary. The architecture began with the OpenAI `gpt-realtime` speech-to-speech track in PR #36 for [MAE-300](https://linear.app/maelstrom-vortex/issue/MAE-300/add-realtime-model-access-to-maelstrom) and now also supports a cascaded LiveKit STT/TTS track. This document explains the shared constraints, provider boundaries, and browser turn-control design. For the general system (Vessels, Chart, Engine), read [architecture.md](./architecture.md) first. The original decision log — including rejected alternatives — is the [D1–D8 decision record](https://linear.app/maelstrom-vortex/issue/MAE-300/add-realtime-model-access-to-maelstrom#comment-4abca3b2) on MAE-300.
-
-Use the implementation guides first: start with the [public voice overview](https://docs.maelstrom-ai.co/guides/voice/overview/), then follow either the [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/) or the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/). Keep this document as a secondary architecture reference for the design constraints and decisions behind those integrations.
-
----
-
-## The problem
-
-Maelstrom already has a brain: the engine plans layout and actions from a `ChartRequest` snapshot. A speech-native provider adds a **second model** — a realtime speech model living in the browser with its own beliefs about what's on screen. That creates the central hazard of the OpenAI path:
-
-> **Never let the model's belief be the engine's planning input.**
-
-The realtime model hears speech, holds a (small, lossy, eventually-consistent) picture of the UI, and decides *what the user wants*. The engine plans against *ground truth*. Every architectural choice below exists to keep those two roles from contaminating each other:
-
-- The realtime model's only power is emitting a **natural-language intent** — the same thing a keyboard produces. It never emits actions, layout, or vessel IDs.
-- The engine's planning context is the request-embedded snapshot the client builds from its own stores — never anything the model said.
-- The model's picture of the UI is maintained on a separate, deliberately loose **grounding channel** that can lag or drop without harming correctness.
-
-The cascaded LiveKit path has no voice-side LLM, but it preserves the same
-authority boundary: a final transcript becomes a natural-language intent, and
-only the Engine plans UI actions and layout.
-
-A second constraint shaped the packaging: voice is one capability with multiple implementations. Speech-native OpenAI and cascaded LiveKit adapters satisfy the same realtime provider seam, so the session and React layer do not branch on provider identity.
-
----
-
-## System overview
-
-```text
-┌────────────────────────────  Browser  ────────────────────────────┐
-│                                                                    │
-│   OpenAI gpt-realtime ◄──── WebRTC (audio) + data channel ────┐    │
-│                                                               │    │
-│   ┌──────────────────────── @maelstrom-co/realtime ───────────┴─┐  │
-│   │  new OpenAIAdapter()            RealtimeSession             │  │
-│   │  (transport, envelopes,   ◄──►  (tool routing, speak-after- │  │
-│   │   response pacing)               render, grounding cadence) │  │
-│   └───────────────────────────────────────────┬─────────────────┘  │
-│                                    RealtimeInstance bridge          │
-│   ┌──────────────────────── @maelstrom-co/client ─┴─────────────┐  │
-│   │  Orchestrator: processIntent · waitForIdle ·                │  │
-│   │  getStructuralSnapshot · onSettled                          │  │
-│   └───────────────────────────────────────────┬─────────────────┘  │
-│                                                │ ChartRequest       │
-└────────────────────────────────────────────────┼───────────────────┘
-                                                 ▼
-                                     @maelstrom-co/engine (unchanged)
-
-  Browser ──POST TokenHandshakeRequest──► @maelstrom-co/realtime-server
-          ◄──TokenHandshakeResponse────── (mints ephemeral secret;
-                                           sole holder of OPENAI_API_KEY)
-```
-
-The LiveKit track replaces the OpenAI-specific transport below the same
-`RealtimeSession` boundary:
-
-```
-Browser LiveKitAdapter ── WebRTC audio/data ──► LiveKit room
-        │                                        │
-        │ final transcript                       ▼
-        └─ synthesized update_ui          realtime-livekit-agent
-                                             Deepgram STT
-                                             Cartesia TTS
-```
-
-`LiveKitAdapter` owns browser VAD, microphone publication, transport pre-roll,
-and turn boundaries. The worker contains no voice-side LLM. A final transcript
-becomes a natural-language `update_ui` intent, and the Engine remains the only
-planner.
-
-Three facts to hold onto:
-
-1. **The engine is untouched.** A voice-driven `ChartRequest` is byte-identical to a keyboard-driven one. Voice is a new *intent source*, not a new planning path.
-2. **Provider transport stays below the adapter seam.** OpenAI uses client-direct WebRTC with a short-lived client secret. LiveKit uses a room plus an STT/TTS worker. `RealtimeSession` handles neither provider's credentials nor wire envelopes.
-3. **Two channels with different consistency guarantees**: the engine gets strong, request-embedded context; the realtime model gets eventual, latest-wins grounding.
-
----
-
-## Package topology
-
-```
-@maelstrom-co/protocol          token-handshake + sidechannel schemas (zod, drift-guarded)
-        │
-   ┌────┴────────────────────────────┐
-   ▼                                 ▼
-@maelstrom-co/client        @maelstrom-co/realtime-server
-  VoiceSession seam           createOpenAIMinter
-  UIStructuralSnapshot        (transport-agnostic (input) => Promise<MintResult>)
-  Orchestrator additions
-        ▲
-        │
-@maelstrom-co/realtime
-  RealtimeSession (root)
-  OpenAIAdapter (/openai subpath)
-  (/google subpath — reserved stub)
-        ▲                    ▲
-        │                    │
-        │       @maelstrom-co/realtime-livekit
-        │         LiveKitAdapter + browser VAD
-        │         /vad-assets (Node-only build helper)
-        │                    │
-        │       @maelstrom-co/realtime-livekit-agent
-        │         Deepgram STT + Cartesia TTS worker
-        │
-@maelstrom-co/react-realtime
-  maelstromRealtime() .with() extension
-  useVoice() / VoiceOrb
-```
-
-### Why separate packages
-
-- **`realtime` vs `client`**: the voice core carries browser-only weight (WebRTC, mic capture) and a provider surface that most Maelstrom apps never use. Apps that don't use voice pay zero bundle cost — the `VoiceSession` *seam* lives in `client` (types only), the *implementation* lives in `realtime`.
-- **`realtime` vs `realtime-server`**: these run on opposite sides of an HTTP boundary and must never share code, only wire schemas. `realtime-server` has **no dependency edge to `realtime`** — both depend only on `protocol`. This makes key custody a *package boundary*, not a convention: the only code that can read `OPENAI_API_KEY` is `realtime-server`, and it only ever writes the key into the upstream `Authorization` header.
-- **Provider adapters as subpath exports** (`@maelstrom-co/realtime/openai`, future `/google`): importing one provider doesn't pull the other's SDK weight, and the root package stays provider-neutral.
-- **`realtime-livekit` vs `realtime`**: LiveKit and browser VAD dependencies are optional transport weight. The adapter owns browser microphone and turn mechanics without adding them to the provider-neutral core.
-- **`realtime-livekit` vs `realtime-livekit-agent`**: the browser adapter and worker run on opposite sides of the LiveKit room. The adapter owns local capture and privacy gating; the worker owns provider STT/TTS credentials and processing.
-
-`@maelstrom-co/react-realtime` supplies the provider-neutral React layer. `maelstromRealtime()` is a `.with()` extension that adds a shared `useVoice()` hook (one `RealtimeSession` per Maelstrom instance, refcounted across consumers under a Provider) and a `VoiceOrb` component that meters the session's live mic/playback streams. The binding reports retained turn mode but does not own VAD, microphone publication, or automatic turn callbacks. The demo runs on this extension directly; generalizing it into a single `maelstromVoice(sessionFactory)` extension shared with other voice tracks remains MAE-332.
-
----
-
-## The runtime loop
-
-The model is given exactly three tools, defined in `RealtimeSession`:
-
-- **`update_ui { intent: string }`** — "change what's on screen." The only write path.
-- **`get_ui_state {}`** — "what's on screen right now?" A read-only pull for when the model needs certainty.
-- **`get_capabilities {}`** — "what can you show me?" A read-only pull over the vessel registry (purpose, variants, actions) for when the model needs discoverability.
-
-An OpenAI `update_ui` round-trip (`packages/realtime/src/lib/realtime-session/realtime-session.ts`):
-
-1. The model emits a `function_call` over the WebRTC data channel. `OpenAIAdapter` parses the raw envelope (`parseOpenAIServerEvent`, a pure function) into a provider-neutral `tool_call` event.
-2. `RealtimeSession` extracts the intent string — **only the plain string crosses this boundary** — and submits it through the `RealtimeInstance` bridge: `submitIntent(intent)` → `Orchestrator.processIntent`. From here it is an ordinary Maelstrom request: the client snapshots its own state into a `ChartRequest`, the engine plans, the client applies layout + actions in the standard strict order.
-3. The session then awaits `waitForIdle()` — the command queue draining back to idle, i.e. the render has settled.
-4. **Only now** does the session send the tool result, containing a terse summary derived from the *post-settle* snapshot.
-
-Step 4 is the **speak-after-render** rule: the model physically cannot narrate a change before the screen shows it, because the tool result *is* its evidence and the result is withheld until settle. The session's default instructions reinforce this ("Only narrate a UI change after update_ui's result confirms it rendered"), but the sequencing makes it structural rather than prompt-dependent. While it waits, the model is free to fill the 1.5–4s engine gap conversationally.
-
-LiveKit enters the same loop one step earlier: the adapter synthesizes an
-`update_ui` tool call from each final STT transcript. After settle,
-`sendToolResult()` sends the Engine's `userMessage` to the worker's `speak`
-text stream when present, otherwise it sends the post-settle structural
-summary. Speak-after-render therefore remains a session invariant rather than
-a provider-specific prompt convention.
-
-Note the two different settle mechanisms and why both exist:
-
-- **`waitForIdle()`** correlates a *specific* intent to *its own* settle — used for the tool result.
-- **`onSettled(cb)`** is a *global* queue-drained-to-idle signal that fires for any source (engine responses *and* direct manipulation like a user clicking a vessel) — used only as the grounding trigger. Using it for the tool result would race concurrent settles.
-
----
-
-## Grounding: the loose channel
-
-The model needs *some* picture of the screen or its conversation drifts. But realtime model contexts are small, and streaming every change would grow context O(changes). The design (D6):
-
-- On every `onSettled` fire, the session reads `getStructuralSnapshot()` and pushes a one-sentence summary ("3 vessels on screen, grid layout: calendar (month), weather (compact), …") through the adapter's `injectGrounding`.
-- Pushes are **debounced (~1s) and latest-wins** (`groundedDebounce`): a burst of settles produces one push carrying the final state. Intermediate states are unobservable by design.
-- Pushes are **clamped to 400 chars** (~100 tokens) before reaching the adapter. `summarize` is injectable, so without the clamp a consumer's verbose summary would silently eat the realtime context budget; the first clamp per session logs a warning.
-- On the wire, the OpenAI adapter keeps grounding at **O(1) context**: it maintains a single conversation item with a stable ID (`maelstrom-grounding`), deleting the previous one before inserting the replacement — the context holds exactly one grounding message at all times, never an accumulating log.
-- **Delete-and-recreate is load-bearing, not incidental — do not "optimize" it to update-in-place.** Recreating the item migrates it to the conversation *tail* on every settle. OpenAI truncates context head-first, so stale pull results and old transcript are evicted first while the one grounding item that must survive is always the last to go — the design is self-protecting under context pressure. An in-place update would pin the item at its original position and forfeit this property.
-- **Cost caveat (freshness over cache):** recreating the item invalidates OpenAI's cached-input prefix from the item's old position onward, so the suffix re-bills at full audio-input rate after each settle. This is a deliberate freshness-beats-cache tradeoff; under heavy UI churn it could dominate session cost, so it must be profiled before any long-session deployment ([MAE-352](https://linear.app/maelstrom-vortex/issue/MAE-352)).
-- The summary function is injectable (`SummarizeFn`) but must stay **deterministic and model-free** — grounding may never involve a model call.
-- When looseness isn't good enough (the model is about to make a claim), it pulls truth via `get_ui_state`, answered synchronously from the snapshot. `get_capabilities` covers the complementary gap — discoverability, what CAN be shown — rather than what IS currently shown.
-
-### The structural boundary
-
-`UIStructuralSnapshot` (in `client`) projects each instance to `{instanceId, vesselId, variant}` plus layout, layout mode, and chart dimensions. **Vessel domain data — props, contents — never reaches the realtime model**, for the same reason it never reaches the engine: both plan/ground on structure. A test enforces this projection; adding a data field breaks it.
-
----
-
-## Seams and contracts
-
-Five deliberate seams, ordered from innermost out:
-
-**1. `RealtimeInstance`** (`realtime`) — the five-method bridge (`submitIntent`, `waitForIdle`, `getStructuralSnapshot`, `getCapabilitySnapshot`, `onSettled`) that is *all* the voice core knows about Maelstrom. `@maelstrom-co/react-realtime` maps the `Orchestrator` onto it inside `maelstromRealtime()` (see `createBridge` in `packages/react-realtime/src/lib/maelstrom-realtime.ts`). This keeps `realtime` off the full `Orchestrator` surface and makes the session trivially testable with a fake instance.
-
-**2. `RealtimeProviderAdapter`** (`realtime`) — the provider seam: `connect(opts: AdapterConnectOptions)`, `disconnect()`, `getAudioStreams()`, `sendToolResult()`, `injectGrounding()`, optional manual `turnControl`, and an inbound event union that includes `tool_call`, `transcript`, `speech_started`, `turn_mode`, `state`, and `error`. The connect options object carries the provider-neutral tool specifications and session instructions. `getAudioStreams()` exposes live mic/playback `MediaStream`s for UI metering. Everything provider-shaped — WebRTC vs LiveKit room, envelope formats, token handshakes, response pacing, and automatic turn detection — lives below this line; `RealtimeSession` never branches on provider identity. Automatic turn controls are intentionally private to adapters. A manual control may appear, change, or disappear as the current connection establishes or leaves manual mode, and the session exposes it only while its retained `turnMode` is `manual`.
-
-**3. `VoiceSession`** (`client`) — the capability seam both voice tracks implement: `state`, `connect()`, `disconnect()`, `on('state')`, and `on('transcript')` (a `TranscriptEntry` stream of user/assistant utterance fragments, driving live captions directly off the session — no sidechannel receiver required). Deliberately minimal in v1; the fuller shape (intent-emission surface, speakable results, grounding flow) is to be settled jointly with the cascade track before the contract ossifies. `SpeakableResult` and `GroundingUpdate` types are exported ahead of that.
-
-**4. `TokenHandshakeRequest/Response`** (`protocol`) — the browser↔mint-endpoint wire contract, provider-tagged (`'openai' | 'google'`) with an opaque credential `value`, so one schema serves every provider. Zod-validated on both ends, with compile-time drift guards pinning the interfaces to the schemas.
-
-**5. `SidechannelEvent`** (`protocol`) — the observability stream (`transcript | tool_call | tool_result | timing`), stamped with `sessionId` and client-clock time (skew-prone by contract: receivers must stamp their own receipt time for anything cross-client, like metering), carrying **no audio**. `RealtimeSession` mirrors every tool round-trip onto its `onEvent` callback. This schema is the contract a future cloud tier's metering rides on, so it is additive-only. Live captions no longer depend on this stream: `RealtimeSession.on('transcript')` (and `VoiceSession.on('transcript')` on the `client` seam) is a first-class subscription apps can consume directly, so a UI can render captions without standing up a sidechannel receiver. `SidechannelEvent`'s own receiver — wiring `onEvent` to a transport and a storage-agnostic server handler, for telemetry/analytics rather than captions — remains emitter-only and is tracked as MAE-335.
-
----
-
-## Concurrency and lifecycle
-
-Voice is the first intent source that can fire *while a request is in flight* — a keyboard user waits for the spinner; a model doesn't. Three mechanisms handle this:
-
-**Barge-in as a typed contract, resolved by latest-wins queueing.** `Orchestrator.processIntent` throws `RequestInFlightError` (exported from `client`) when a request is already processing. `RealtimeSession` catches it *by type* — no cross-package string matching — and queues the intent in a single latest-wins slot: when the in-flight request settles, the queued intent is submitted and answered with the normal post-settle summary, so correcting yourself mid-request just works. A newer barge-in supersedes an older queued one (the superseded call is answered immediately, keeping the exactly-once tool-result guarantee per call). Because the command queue can drain while the engine round-trip is still processing, the retry is bounded (a few attempts, separated by `waitForIdle()` plus a short delay); only on exhaustion does the model get a "try again in a moment" answer. Crucially, any *other* rejection is surfaced as a distinct failure ("something went wrong"), not "try again" — mislabeling a genuine pipeline failure as busy-ness would put the model in a non-recovery retry loop. Raw exceptions never reach the adapter.
-
-**`response.create` pacing.** OpenAI rejects a `response.create` while a prior response is still active, and a single model response can contain multiple tool calls (`get_ui_state` answers instantly while `update_ui` is still settling). `response-lifecycle.ts` is a pure state machine — a discriminated `'idle' | 'active' | 'active-pending'` union, so the meaningless pending-without-active combination is unrepresentable — that defers at most one `response.create` behind the active response and flushes it on `response.done`/`response.cancelled`. It's driven off raw event types in the adapter, invisible to `RealtimeSession`.
-
-**Connection guards at both layers.** The session's `connect()` is re-entrant-safe (a second call while `connecting`/`connected` is a no-op) and unwinds its subscriptions plus the pending grounding debounce on failure. The adapter closes the guard-before-await race with a synchronous `connecting` flag — `mintToken()` is the first await, so without it a double-click during the mint round-trip would leak a second `RTCPeerConnection` and mic stream. A failed handshake tears down everything already opened (mic, data channel, peer connection) before rejecting. Session state distinguishes `'connected'` (transport live, no active turn) from `'idle'` (not connected) — collapsing them would make a live session unreadable in the UI.
-
-### LiveKit turn ownership
-
-`LiveKitAdapter` owns the resources needed to make browser turns safe: the
-microphone publication, local VAD stream, pre-roll bridge, connection
-generation, and turn serialization. Omitting `vad` or setting it to `true`
-enables automatic turns with `/vad-web/` and 250 ms of transport pre-roll. An
-options object can change supported detection tuning and pre-roll; `vad: false`
-selects manual mode without loading VAD assets or creating its worklets.
-
-Automatic mode keeps upstream microphone publication paused while speech is
-idle. Speech start sends bounded browser-local pre-roll once, then opens live
-audio. Speech end drains accepted audio, pauses publication, and signals STT
-turn end. Provider `preSpeechPadMs` changes the detection segment; it does not
-populate transport pre-roll and cannot replace `preRollMs`.
-
-Malformed VAD configuration and VAD asset, initialization, runtime, or callback
-failures retire automatic control for that connection. The adapter closes any
-active turn and pauses upstream media before it emits `turn_mode: manual` and
-makes `turnControl` observable. This is a capability degradation, not a
-transport failure: the room, transcript relay, and TTS remain usable. If the
-adapter cannot stop upstream audio safely, or if token, room, publication,
-required data-channel, or unexpected disconnection handling fails, teardown is
-fatal and manual mode is not advertised.
-
-`RealtimeSession` retains `turnMode` and `turnModeError`; `useVoice()` reflects
-them to every React consumer. `turnModeError` exists only for diagnostic manual
-degradation and clears on clean automatic mode or intentional manual mode. An
-application may use its presence for generic recovery guidance, but must never
-render the value verbatim or serialize it into application state or telemetry.
-`turnControl` is dynamic and exists only in retained manual mode.
-
----
-
-## Security model
-
-- **Custody**: `OPENAI_API_KEY` exists only in `@maelstrom-co/realtime-server`'s minter and only in the upstream `Authorization` header. Verified absent from the demo's built client bundle.
-- **Ephemeral credentials**: the mint requests a client secret with a 600s expiry, scoped to one model. The browser uses it once, for the SDP exchange.
-- **Adapter owns the credential**: `mintToken` is injected into `OpenAIAdapter`; `RealtimeSession` never sees a token, so no session-layer code path can leak one.
-- **Known gap, by design**: the minter is an **unauthenticated bootstrap** — anyone who can invoke it can mint a short-lived credential. Its JSDoc says so explicitly; origin allowlist, rate limiting, and an auth hook are required in the transport layer wrapping it (e.g. the demo's HTTP route) before any real deployment (MAE-337).
-- **Zero idle LiveKit transmission**: automatic VAD observes a local microphone stream while the upstream publication remains paused. Manual mode also pauses publication between turns. A fallback becomes visible only after the adapter has re-established that invariant.
-- **VAD asset trust**: automatic mode defaults to `/vad-web/`, but applications must copy and publish the matching assets during build with `copyLiveKitVadAssets()` or `maelstrom-livekit-assets`. Same-origin relative directories are supported. Cross-origin assets require a credential-free, immutable HTTPS directory, CORS for the application origin, and correct JavaScript, WebAssembly, and binary content types. The host serves executable worklet, JavaScript, and WebAssembly code and must be trusted operator configuration, never user input.
-
----
-
-## Testing strategy
-
-The strategy is **pure cores, live shell**. Everything that can be made a pure function was, and is unit-tested exhaustively: envelope parsing (`parseOpenAIServerEvent`), response pacing (`response-lifecycle.ts`), grounding debounce, the structural-snapshot projection (including the domain-data-leak guard), speak-after-render ordering, barge-in handling, connection lifecycle transitions, and the minter's request/response mapping (with an injected `fetch`). The impure shell — `RTCPeerConnection`, mic capture, the data channel — is deliberately not unit-tested; it's validated by running the demo against the real API. That live run already earned its keep: it corrected the model ID, the streamed function-call event shape, and the mint request's body nesting — three things no mock would have caught.
-
-The seam between shell and core is explicit: the adapter is "thin RTCPeerConnection glue" around parse + pacing, and the event mappings OpenAI doesn't document (transcripts, speech-started) are isolated in `parseOpenAIServerEvent` with comments marking them as best-known shapes, cheap to correct as real traffic teaches us. Shape drift is not silent: event types the parser doesn't map and that aren't on an explicit known-benign allowlist are warned once per distinct type (`unexpected-event-tracker.ts`, itself a tested pure core), so a provider-side rename shows up as a console warning instead of a quietly missing feature.
-
-The LiveKit adapter adds unit coverage for configuration forms, asset URL
-validation, provider-tuning allowlists, mode events, once-only pre-roll,
-generation fencing, manual degradation, fatal transport distinction, and
-failed-connect cleanup. The Node-only asset helper tests its complete manifest,
-staged replacement, restoration after failure, and CLI exit behavior. Browser
-acceptance remains necessary for real AudioWorklet, ONNX, microphone, CORS, and
-LiveKit publication behavior; network inspection must show no upstream media
-while automatic VAD is idle, between manual turns, after degradation settles,
-or after disconnect.
-
----
-
-## Decision → code map
-
-| Decision (MAE-300 record) | Where it lives |
-|---|---|
-| D1 — realtime + cascade are siblings behind one seam | `VoiceSession` in `client` |
-| D2 — OSS-first; cloud = same seam, hosted URL | `createOpenAIMinter` is `(input) => Promise<MintResult>`, transport-agnostic; HTTP framing lives in the demo route |
-| D3 — client-direct session, server-minted tokens, sidechannel | `OpenAIAdapter` + `createOpenAIMinter` + `SidechannelEvent` |
-| D4 — client-built requests, M1 context, engine unchanged | `submitIntent` → `processIntent`; no engine diff |
-| D5 — speak-after-render | tool result withheld until `waitForIdle()` |
-| D6 — debounced latest-wins grounding + pull tool | `groundedDebounce` + stable-ID grounding item + `get_ui_state` |
-| D7 — thin in-house provider adapter | `RealtimeProviderAdapter` + `/openai` subpath |
-| D8 — separate core, server, and React packages | `realtime` / `realtime-server` / `react-realtime`; LiveKit adds optional browser and worker packages below the same seams |
-
----
-
-## Follow-ups
-
-Tracked in Linear, all under Soft Preview Release:
-
-- **[MAE-311](https://linear.app/maelstrom-vortex/issue/MAE-311)** — Gemini Live adapter (`/google` subpath), the seam's first real pressure test, plus its minter.
-- **[MAE-330](https://linear.app/maelstrom-vortex/issue/MAE-330) / [MAE-331](https://linear.app/maelstrom-vortex/issue/MAE-331)** — rebase the LiveKit cascade voice track onto the `VoiceSession` seam and the token-handshake contract.
-- **[MAE-332](https://linear.app/maelstrom-vortex/issue/MAE-332)** — generalize `@maelstrom-co/react-realtime`'s `maelstromRealtime()` extension (shipped for the realtime track; session ownership already lives in the extension closure, out of component state) into a single `maelstromVoice(sessionFactory)` extension shared with the cascade track.
-- **[MAE-333](https://linear.app/maelstrom-vortex/issue/MAE-333)** — docs reconciliation across the voice packages.
-- **[MAE-334](https://linear.app/maelstrom-vortex/issue/MAE-334)** — acoustic false barge-in (noise triggering `speech_started`).
-- **[MAE-335](https://linear.app/maelstrom-vortex/issue/MAE-335)** — the sidechannel *receiver*: wire `onEvent` to a transport and a storage-agnostic server handler.
-- **[MAE-336](https://linear.app/maelstrom-vortex/issue/MAE-336)** *(done)* — latest-wins barge-in queueing implemented and live-validated along with the `response.create` deferral.
-- **[MAE-337](https://linear.app/maelstrom-vortex/issue/MAE-337)** — harden the mint endpoint (origin allowlist, rate limit, auth hook).
-- **[MAE-338](https://linear.app/maelstrom-vortex/issue/MAE-338)** — unify voice and typed conversation history via the orchestrator (`addAssistantMessage`).
-- **[MAE-339](https://linear.app/maelstrom-vortex/issue/MAE-339)** — inject a compact vessel-capability catalog on the slow channel (the second half of D6: the model currently knows what's on screen, not what the app *can* do).
-- **[MAE-340](https://linear.app/maelstrom-vortex/issue/MAE-340)** — shared-primitive cleanups from the PR #36 review (typed emitter, shared mock connector, drift-guard pattern, `CommandProcessor.onIdle`).
-
-## What I'd improve now
-
-Of the seven judgments this section originally flagged, five have since been implemented (2026-07-07) and folded into the body above:
-
-- **Session ownership** — the session lives in the `maelstromRealtime()` extension closure (`WeakMap` keyed by orchestrator, subscriber refcount), not a `useState` initializer; hooks only subscribe. The demo consumes this package extension for both OpenAI and LiveKit adapters.
-- **Latest-wins barge-in queueing** — the "try again in a moment" busy answer is gone; see *Concurrency and lifecycle*.
-- **Parser drift visibility** — unexpected event types now warn once per distinct type; see *Testing strategy*.
-- **Grounding length clamp** — the ~100-token budget is enforced, not conventional; see *Grounding*.
-- **Sidechannel clock semantics** — the schema contract now states `at` is skew-prone client time and receivers must stamp receipt time for metering.
-
-- **Live validation of the `response.create` deferral and barge-in queue** — done 2026-07-09 against real `gpt-realtime-2` traffic: the deferral flushed on `response.done` with no "active response" errors, and mid-request corrections applied latest-wins (MAE-336, closed).
-
-One remains open, deliberately:
-
-1. **`VoiceSession` shipped thinner than its exports suggest.** `SpeakableResult` and `GroundingUpdate` are exported but unreferenced by the interface — reserved names for a contract not yet settled. That's honest (the JSDoc says so), but it's also API surface consumers can import and misread as functional. Settle the full seam shape before external code grows around the placeholder types. This is a joint design decision, not a unilateral code change.
+# Voice architecture decisions
+
+Why the voice packages are shaped the way they are.
+
+This document argues for the design. It is not a build guide and not a type
+listing, because both already exist and both stay current on their own:
+
+- To **build** with voice, follow the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) or the [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/).
+- To **understand how voice behaves**, read [the voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/) and [turn detection in the browser](https://docs.maelstrom-ai.co/understanding/browser-vad-and-barge-in/).
+- For **exact shapes**, read the generated [API reference](https://docs.maelstrom-ai.co/reference/realtime/readme/).
+
+What is left here is the reasoning a contributor needs before changing any of
+it. Every section answers "why is it like this, and what breaks if you undo it".
+For the general system — Vessels, Chart, Engine — read
+[architecture.md](./architecture.md) first.
+
+## The rule everything else protects
+
+A voice provider adds a second thing that talks to the user. It must not add a
+second thing that decides what the user sees.
+
+A speech model holds a picture of your interface as it speaks: what it believes
+is on screen, what it just described, what it thinks it changed. That picture is
+useful for conversation and wrong about as often as speech is. It never becomes
+planning input. The model's only power is emitting a natural-language intent —
+the same thing a keyboard produces — and the Engine plans against a snapshot the
+client builds from its own stores.
+
+[The voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/)
+explains how that holds at runtime. Everything below is a consequence of it.
+
+## Why the packages split where they do
+
+Voice is one capability with several implementations, so the split follows the
+boundaries that would otherwise be honour-system conventions.
+
+**`realtime` apart from `client`.** The voice core carries browser-only weight —
+WebRTC, microphone capture — and a provider surface most Maelstrom apps never
+touch. The *seam* lives in `client` as types; the *implementation* lives in
+`realtime`. An app that never speaks pays nothing for the option.
+
+**`realtime-server` apart from `realtime`.** These run on opposite sides of an
+HTTP boundary, and only one of them may ever hold a provider key. The edge
+between them runs one way: `realtime-server` imports failure types from
+`realtime`, and `realtime` imports nothing from `realtime-server`. That
+direction is the property worth keeping. Nothing reachable from a browser bundle
+can reach code that touches a key, because the browser package has no path to
+the server package at all. Reverse that edge and key custody stops being
+structural.
+
+**Providers as subpath exports** (`@maelstrom-co/realtime/openai`, and a
+reserved `/google`). Importing one provider does not drag another provider's SDK
+into the bundle, and the root package stays provider-neutral — it never branches
+on provider identity, so a second adapter is an addition rather than a
+conditional.
+
+**`realtime-livekit` apart from `realtime`.** LiveKit and the browser VAD assets
+are optional transport weight. The adapter owns the microphone and turn
+mechanics without imposing them on apps using a different provider.
+
+**The LiveKit adapter apart from its agent.** These sit on opposite sides of the
+room. The adapter owns local capture and the privacy gate; the worker owns the
+worker-only `DEEPGRAM_API_KEY` and `CARTESIA_API_KEY` credentials for STT and
+TTS. It also holds `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` to register with
+LiveKit; the separate token endpoint uses the same LiveKit credentials to sign
+browser room tokens. The browser receives only a short-lived room token, never
+any of those credentials. The worker holds no planning model, and it is never
+given Vessels, Chart state, or grounding, because a worker that could see
+structure could plan against it.
+
+It is not sealed off, though, and the distinction is worth stating precisely. It
+does receive the words to speak: after a successful update that is the Engine's
+own message, or failing that a short summary of the settled UI. So UI-derived
+*text* does reach the worker. What never reaches it is UI *structure*, which is
+the thing a second planner would need.
+
+## Two channels, deliberately unequal
+
+The Engine and the model both need to know what is on screen, and they are given
+that knowledge with different guarantees on purpose.
+
+The Engine gets **strong** context: the client snapshots its stores while
+handling the intent and embeds that snapshot in the request. It remains the
+planning input for that request even if client state changes while the request
+executes.
+
+The model gets **eventual** context: a short structural summary pushed after
+renders settle, debounced and latest-wins. It can lag. It can be skipped
+entirely under a burst.
+
+That asymmetry is not a compromise, it is the point. Grounding exists so the
+model can *talk* about the interface, and conversation tolerates being a beat
+behind. Planning does not. If grounding were made strong, it would either cost a
+round trip per change or grow the model's context in proportion to how much the
+UI moves — and it would still not be safe to plan from, because it arrives
+through the model. When the model needs certainty rather than ambience, it pulls
+the current snapshot on demand instead.
+
+Neither channel carries live instance content. An instance is projected to its
+id, its Vessel, and its current variant before it goes anywhere, and a test
+enforces that projection, so adding a data field breaks the build rather than
+leaking quietly.
+
+The two channels are not equally narrow, though, and that is worth being exact
+about, because people do put sensitive strings in Vessel definitions. Alongside
+those instance projections, the Engine receives the Vessel definitions
+themselves — descriptions, variants, action descriptions — because that is the
+material it plans against. The Engine plans from that full request. When history
+is configured, the raw request is also persisted by default, but the host can use
+`transformEntry` to sanitise the representation before it reaches the store. The
+model receives only the projection and a summary built from it. "The model is
+told less than the Engine" is accurate. "Nothing but structure reaches either"
+is not.
+
+A production history deployment must therefore define retention and deletion,
+encrypt stored entries, authorise every tenant and session read, and configure
+`transformEntry` to redact sensitive Vessel strings before storage. These
+controls belong to the host application. The instance projection does not
+provide them.
+
+## Why grounding is rewritten, never edited
+
+The OpenAI adapter keeps exactly one grounding message in the conversation, at a
+stable id. On each update it deletes that item and inserts a replacement.
+
+Updating it in place would be the obvious optimisation, and it would quietly
+remove the property the design depends on. Recreating the item moves it to the
+tail at the time of that update. OpenAI truncates context from the head, so
+material already present — stale pull results, old transcript — is eligible for
+eviction before that grounding version. Later conversation items can follow it,
+so it does not remain permanently last. Recreating it on each settle still keeps
+refreshing its position; an in-place update would pin it at its original position
+and forfeit that protection entirely.
+
+It is not free. Recreating the item invalidates the cached-input prefix from the
+old position onward, so the suffix re-bills after each settle. That is a
+deliberate choice of freshness over cache cost, and it is the one part of this
+design that should be profiled before a long-session deployment, because heavy
+UI churn is exactly the case where it gets expensive.
+
+## Why "busy" is not a failure
+
+Voice is the first intent source that can fire while a request is still in
+flight. A person typing waits for the spinner. A model does not.
+
+When an intent arrives mid-request, it is held in a single latest-wins slot and
+submitted once the in-flight request settles, so correcting yourself mid-sentence
+simply works. A newer interruption supersedes an older queued one, and the
+superseded call is still answered, because every tool call must be answered
+exactly once or the model waits forever.
+
+The subtle part is what happens to *other* errors. The in-flight case is caught
+by type, never by matching an error string across a package boundary, and
+anything else surfaces as a distinct failure rather than as busy-ness. That
+distinction is load-bearing: telling a model "try again in a moment" after a
+genuine pipeline failure invites it to retry a thing that cannot succeed, and it
+will keep doing so. A wrong answer here does not degrade the experience, it
+creates a loop.
+
+## Where the keys live
+
+Provider credentials stay in the server-side process that needs them. The OpenAI
+key exists only in its minter and authorises the upstream request. LiveKit's key
+and secret exist in both the token endpoint that signs room tokens and the agent
+worker that registers with LiveKit. Deepgram and Cartesia keys exist only in that
+worker. The browser receives short-lived, narrowly scoped credentials instead,
+and each adapter is handed a mint function rather than a provider key — so no
+session-layer code path can leak one, because no session-layer code path ever
+holds one.
+
+One gap is deliberate and worth stating plainly rather than burying: **the
+minters do not authenticate callers.** They validate shape and sign a
+credential; they have no opinion about who is allowed to ask. Authentication,
+authorisation, origin policy, and rate limiting belong to the route that wraps
+the minter, and that route is the application's to write. The repository's demo
+routes do not implement them and are not deployable.
+
+Production deployments must also keep every credential-bearing hop encrypted
+and redirect-free: browser-to-mint routes use HTTPS, LiveKit connections use
+`wss://`, and credential-bearing requests reject redirects. Plain HTTP and
+`ws://` are local-development options, not production transports.
+
+The same reasoning governs the browser's VAD assets. The browser executes
+worklet, JavaScript, and WebAssembly code from whatever directory is configured,
+so that directory is trusted infrastructure. It may never be derived from user
+input.
+
+## What we deliberately have not built
+
+The reserved `/google` subpath is a stub. It exists to keep the provider-neutral
+claim honest, and it will only be proven by a second speech-native adapter
+actually landing behind the seam.
+
+The `VoiceSession` seam shipped thinner than its exports suggest.
+`SpeakableResult` and `GroundingUpdate` are exported but not referenced by the
+interface — reserved names for a contract not yet settled. The JSDoc says so,
+which makes it honest but not harmless: they are still importable, and external
+code that grows around a placeholder will make the real shape harder to choose.
+Settling that seam is a joint design decision, not a unilateral change.
+
+The sidechannel is emitter-only. Every tool round-trip is mirrored onto a
+callback, but nothing in this repository consumes it. The schema is additive-only
+because a metering or telemetry consumer would ride on it, and its timestamps are
+client-clock and skew-prone by contract — any receiver correlating across clients
+must stamp its own receipt time.
