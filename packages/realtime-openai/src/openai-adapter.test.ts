@@ -25,6 +25,14 @@ function flushMicrotasks(): Promise<void> {
 
 class FakeTrack {
   stopped = false;
+  getSettingsCalls = 0;
+  getSettingsImpl: (() => MediaTrackSettings) | undefined;
+
+  getSettings(): MediaTrackSettings {
+    this.getSettingsCalls += 1;
+    return this.getSettingsImpl?.() ?? {};
+  }
+
   stop(): void {
     this.stopped = true;
   }
@@ -40,6 +48,10 @@ class FakeMediaStream {
   }
 
   getTracks(): FakeTrack[] {
+    return this.tracks;
+  }
+
+  getAudioTracks(): FakeTrack[] {
     return this.tracks;
   }
 }
@@ -175,7 +187,9 @@ const connectOpts: AdapterConnectOptions = {
   instructions: 'be helpful',
 };
 
-let getUserMediaImpl: () => Promise<FakeMediaStream>;
+let getUserMediaImpl: (
+  constraints?: MediaStreamConstraints,
+) => Promise<FakeMediaStream>;
 let fetchImpl: () => Promise<{
   ok: boolean;
   status: number;
@@ -238,7 +252,12 @@ beforeEach(() => {
     writable: true,
   });
   Object.defineProperty(globalThis, 'navigator', {
-    value: { mediaDevices: { getUserMedia: () => getUserMediaImpl() } },
+    value: {
+      mediaDevices: {
+        getUserMedia: (constraints?: MediaStreamConstraints) =>
+          getUserMediaImpl(constraints),
+      },
+    },
     configurable: true,
     writable: true,
   });
@@ -318,6 +337,343 @@ describe('OpenAIAdapter — getUserMedia failure', () => {
     await adapter.connect(connectOpts);
     expect(FakeRTCPeerConnection.instances).toHaveLength(2);
     expect(FakeRTCPeerConnection.instances[1]?.closed).toBe(false);
+  });
+});
+
+// ============================================================================
+// Microphone audio processing
+// ============================================================================
+
+describe('OpenAIAdapter — microphone audio processing', () => {
+  it('requests non-mandatory AEC, noise suppression, and automatic gain control preferences', async () => {
+    let requested: MediaStreamConstraints | undefined;
+    getUserMediaImpl = async (constraints) => {
+      requested = constraints;
+      return new FakeMediaStream(1);
+    };
+
+    await new OpenAIAdapter({ mintToken: async () => fakeToken }).connect(
+      connectOpts,
+    );
+
+    expect(requested).toEqual({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    expect(JSON.stringify(requested)).not.toContain('exact');
+  });
+
+  it('logs only requested values and boolean applied settings for the accepted original track', async () => {
+    const stream = new FakeMediaStream(1);
+    stream.tracks[0]!.getSettingsImpl = () => ({
+      echoCancellation: false,
+      noiseSuppression: true,
+      autoGainControl: false,
+      deviceId: 'sensitive-device-id',
+      groupId: 'sensitive-group-id',
+      sampleRate: 48_000,
+    });
+    getUserMediaImpl = async () => stream;
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      await new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        debug: true,
+      }).connect(connectOpts);
+    } finally {
+      console.debug = originalDebug;
+    }
+
+    const audioProcessingCall = debugCalls.find(
+      (call) => call[1] === 'microphone audio processing',
+    );
+    expect(audioProcessingCall?.[2]).toEqual({
+      audioProcessing: {
+        requested: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        applied: {
+          echoCancellation: false,
+          noiseSuppression: true,
+          autoGainControl: false,
+        },
+      },
+    });
+    expect(JSON.stringify(audioProcessingCall)).not.toContain('sensitive');
+    expect(JSON.stringify(audioProcessingCall)).not.toContain('sampleRate');
+  });
+
+  it('projects missing and non-boolean applied settings as unavailable', async () => {
+    const stream = new FakeMediaStream(1);
+    stream.tracks[0]!.getSettingsImpl = () =>
+      ({
+        echoCancellation: true,
+        noiseSuppression: 'enabled',
+      }) as unknown as MediaTrackSettings;
+    getUserMediaImpl = async () => stream;
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      await new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        debug: true,
+      }).connect(connectOpts);
+    } finally {
+      console.debug = originalDebug;
+    }
+
+    expect(
+      debugCalls.find((call) => call[1] === 'microphone audio processing')?.[2],
+    ).toEqual({
+      audioProcessing: {
+        requested: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        applied: {
+          echoCancellation: true,
+          noiseSuppression: 'unavailable',
+          autoGainControl: 'unavailable',
+        },
+      },
+    });
+  });
+
+  it('keeps connecting and projects unavailable settings when getSettings throws', async () => {
+    const stream = new FakeMediaStream(1);
+    stream.tracks[0]!.getSettingsImpl = () => {
+      throw new Error('settings unavailable');
+    };
+    getUserMediaImpl = async () => stream;
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      await new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        debug: true,
+      }).connect(connectOpts);
+    } finally {
+      console.debug = originalDebug;
+    }
+
+    expect(
+      debugCalls.find((call) => call[1] === 'microphone audio processing')?.[2],
+    ).toEqual({
+      audioProcessing: {
+        requested: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        applied: {
+          echoCancellation: 'unavailable',
+          noiseSuppression: 'unavailable',
+          autoGainControl: 'unavailable',
+        },
+      },
+    });
+  });
+
+  it('keeps connecting and projects unavailable settings when getSettings is absent', async () => {
+    const stream = new FakeMediaStream(1);
+    Object.defineProperty(stream.tracks[0], 'getSettings', {
+      value: undefined,
+      configurable: true,
+    });
+    getUserMediaImpl = async () => stream;
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      await new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        debug: true,
+      }).connect(connectOpts);
+    } finally {
+      console.debug = originalDebug;
+    }
+
+    expect(
+      debugCalls.find((call) => call[1] === 'microphone audio processing')?.[2],
+    ).toEqual({
+      audioProcessing: {
+        requested: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        applied: {
+          echoCancellation: 'unavailable',
+          noiseSuppression: 'unavailable',
+          autoGainControl: 'unavailable',
+        },
+      },
+    });
+  });
+
+  it('contains throwing getSettings lookup and applied-setting access without failing connect', async () => {
+    const unavailable = {
+      echoCancellation: 'unavailable',
+      noiseSuppression: 'unavailable',
+      autoGainControl: 'unavailable',
+    };
+    const cases: Array<{
+      configure: (track: FakeTrack) => void;
+      expected:
+        | typeof unavailable
+        | {
+            echoCancellation: true;
+            noiseSuppression: 'unavailable';
+            autoGainControl: false;
+          };
+    }> = [
+      {
+        configure: (track) => {
+          Object.defineProperty(track, 'getSettings', {
+            configurable: true,
+            get: () => {
+              throw new Error('getSettings lookup failed');
+            },
+          });
+        },
+        expected: unavailable,
+      },
+      {
+        configure: (track) => {
+          track.getSettingsImpl = () =>
+            ({
+              echoCancellation: true,
+              get noiseSuppression(): boolean {
+                throw new Error('noise suppression access failed');
+              },
+              autoGainControl: false,
+            }) as MediaTrackSettings;
+        },
+        expected: {
+          echoCancellation: true,
+          noiseSuppression: 'unavailable',
+          autoGainControl: false,
+        },
+      },
+    ];
+    const originalDebug = console.debug;
+
+    try {
+      for (const testCase of cases) {
+        const stream = new FakeMediaStream(1);
+        testCase.configure(stream.tracks[0]!);
+        getUserMediaImpl = async () => stream;
+        const debugCalls: unknown[][] = [];
+        console.debug = (...args: unknown[]) => debugCalls.push(args);
+        const adapter = new OpenAIAdapter({
+          mintToken: async () => fakeToken,
+          debug: true,
+        });
+
+        await adapter.connect(connectOpts);
+
+        expect(
+          (
+            debugCalls.find(
+              (call) => call[1] === 'microphone audio processing',
+            )?.[2] as {
+              audioProcessing?: { applied?: unknown };
+            }
+          )?.audioProcessing?.applied,
+        ).toEqual(testCase.expected);
+        await adapter.disconnect();
+      }
+    } finally {
+      console.debug = originalDebug;
+    }
+  });
+
+  it('snapshots each applied setting exactly once before boolean validation', async () => {
+    const stream = new FakeMediaStream(1);
+    const reads = {
+      echoCancellation: 0,
+      noiseSuppression: 0,
+      autoGainControl: 0,
+    };
+    stream.tracks[0]!.getSettingsImpl = () =>
+      ({
+        get echoCancellation(): boolean | string {
+          reads.echoCancellation += 1;
+          return reads.echoCancellation === 1 ? true : 'sensitive-device-id';
+        },
+        get noiseSuppression(): boolean | string {
+          reads.noiseSuppression += 1;
+          return reads.noiseSuppression === 1 ? false : 'sensitive-device-id';
+        },
+        get autoGainControl(): boolean | string {
+          reads.autoGainControl += 1;
+          return reads.autoGainControl === 1 ? true : 'sensitive-device-id';
+        },
+      }) as unknown as MediaTrackSettings;
+    getUserMediaImpl = async () => stream;
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      await new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        debug: true,
+      }).connect(connectOpts);
+
+      const audioProcessingCall = debugCalls.find(
+        (call) => call[1] === 'microphone audio processing',
+      );
+      expect(audioProcessingCall?.[2]).toEqual({
+        audioProcessing: {
+          requested: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          applied: {
+            echoCancellation: true,
+            noiseSuppression: false,
+            autoGainControl: true,
+          },
+        },
+      });
+      expect(reads).toEqual({
+        echoCancellation: 1,
+        noiseSuppression: 1,
+        autoGainControl: 1,
+      });
+      expect(JSON.stringify(audioProcessingCall)).not.toContain('sensitive');
+    } finally {
+      console.debug = originalDebug;
+    }
+  });
+
+  it('does not evaluate settings or log audio processing when debug logging is disabled', async () => {
+    const stream = new FakeMediaStream(1);
+    getUserMediaImpl = async () => stream;
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      await new OpenAIAdapter({ mintToken: async () => fakeToken }).connect(
+        connectOpts,
+      );
+    } finally {
+      console.debug = originalDebug;
+    }
+
+    expect(debugCalls).toEqual([]);
+    expect(stream.tracks[0]?.getSettingsCalls).toBe(0);
   });
 });
 
@@ -707,49 +1063,65 @@ describe('OpenAIAdapter — superseded connect abandonment', () => {
         });
       });
 
-    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      const adapter = new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        debug: true,
+      });
 
-    // Attempt 1 parks at getUserMedia after creating pc1.
-    const first = adapter.connect(connectOpts);
-    await flushMicrotasks();
-    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
-    const pc1 = FakeRTCPeerConnection.instances[0];
+      // Attempt 1 parks at getUserMedia after creating pc1.
+      const first = adapter.connect(connectOpts);
+      await flushMicrotasks();
+      expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+      const pc1 = FakeRTCPeerConnection.instances[0];
 
-    // Teardown clears the connecting guard and bumps the generation, so a
-    // second connect() can start; attempt 1 is now stale.
-    await adapter.disconnect();
+      // Teardown clears the connecting guard and bumps the generation, so a
+      // second connect() can start; attempt 1 is now stale.
+      await adapter.disconnect();
 
-    // Attempt 2 parks at its own getUserMedia after creating pc2.
-    const second = adapter.connect(connectOpts);
-    await flushMicrotasks();
-    expect(FakeRTCPeerConnection.instances).toHaveLength(2);
-    const pc2 = FakeRTCPeerConnection.instances[1];
+      // Attempt 2 parks at its own getUserMedia after creating pc2.
+      const second = adapter.connect(connectOpts);
+      await flushMicrotasks();
+      expect(FakeRTCPeerConnection.instances).toHaveLength(2);
+      const pc2 = FakeRTCPeerConnection.instances[1];
 
-    // Winner first: attempt 2's mic resolves, so it publishes to the shared
-    // fields and finishes its handshake.
-    micResolvers[1]?.();
-    await second;
-    const winnerMic = micStreams[0];
+      // Winner first: attempt 2's mic resolves, so it publishes to the shared
+      // fields and finishes its handshake.
+      micResolvers[1]?.();
+      await second;
+      const winnerMic = micStreams[0];
 
-    // Loser last: attempt 1's mic resolves, it discovers it is stale and
-    // abandons its own pc1 + mic without touching the shared fields.
-    micResolvers[0]?.();
-    const firstResult = await first.catch((e: unknown) => e);
-    const loserMic = micStreams[1];
+      // Loser last: attempt 1's mic resolves, it discovers it is stale and
+      // abandons its own pc1 + mic without touching the shared fields.
+      micResolvers[0]?.();
+      const firstResult = await first.catch((e: unknown) => e);
+      const loserMic = micStreams[1];
 
-    expect(firstResult).toBeInstanceOf(RealtimeVoiceError);
-    expect((firstResult as RealtimeVoiceError).code).toBe('CONNECT_SUPERSEDED');
+      expect(firstResult).toBeInstanceOf(RealtimeVoiceError);
+      expect((firstResult as RealtimeVoiceError).code).toBe(
+        'CONNECT_SUPERSEDED',
+      );
 
-    // Stale attempt's pc + mic are closed/stopped...
-    expect(pc1?.closed).toBe(true);
-    expect(loserMic?.tracks.every((track) => track.stopped)).toBe(true);
+      // Stale attempt's pc + mic are closed/stopped...
+      expect(pc1?.closed).toBe(true);
+      expect(pc1?.getSenders()).toHaveLength(0);
+      expect(loserMic?.tracks.every((track) => track.stopped)).toBe(true);
+      expect(
+        debugCalls.filter((call) => call[1] === 'microphone audio processing'),
+      ).toHaveLength(1);
 
-    // ...while the winner stays live and owns the shared fields.
-    expect(pc2?.closed).toBe(false);
-    expect(winnerMic?.tracks.some((track) => track.stopped)).toBe(false);
-    expect(adapter.getAudioStreams().mic).toBe(
-      winnerMic as unknown as MediaStream,
-    );
+      // ...while the winner stays live and owns the shared fields.
+      expect(pc2?.closed).toBe(false);
+      expect(winnerMic?.tracks.some((track) => track.stopped)).toBe(false);
+      expect(adapter.getAudioStreams().mic).toBe(
+        winnerMic as unknown as MediaStream,
+      );
+    } finally {
+      console.debug = originalDebug;
+    }
   });
 });
 

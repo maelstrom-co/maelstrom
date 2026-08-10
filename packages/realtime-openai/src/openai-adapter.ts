@@ -41,6 +41,68 @@ const ICE_DISCONNECT_GRACE_MS = 5000;
 
 const DEFAULT_TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe';
 
+const AUDIO_PROCESSING_PREFERENCES = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+} as const;
+
+const UNAVAILABLE_AUDIO_PROCESSING_SETTINGS = {
+  echoCancellation: 'unavailable',
+  noiseSuppression: 'unavailable',
+  autoGainControl: 'unavailable',
+} as const;
+
+/**
+ * Projects only applied AEC/NS/AGC booleans from the original audio track.
+ * Missing, throwing, malformed, and non-boolean settings become `unavailable`;
+ * each browser-owned field is snapshotted exactly once before boolean
+ * validation, so changing accessors cannot substitute later values. The result
+ * never retains device metadata from the browser settings object.
+ */
+function audioProcessingSettings(track: MediaStreamTrack | undefined) {
+  let getSettings: unknown;
+  try {
+    getSettings = (
+      track as { getSettings?: () => MediaTrackSettings } | undefined
+    )?.getSettings;
+  } catch {
+    return UNAVAILABLE_AUDIO_PROCESSING_SETTINGS;
+  }
+  if (typeof getSettings !== 'function') {
+    return UNAVAILABLE_AUDIO_PROCESSING_SETTINGS;
+  }
+
+  let settings: unknown;
+  try {
+    settings = Reflect.apply(getSettings, track, []);
+  } catch {
+    return UNAVAILABLE_AUDIO_PROCESSING_SETTINGS;
+  }
+
+  if (typeof settings !== 'object' || settings === null) {
+    return UNAVAILABLE_AUDIO_PROCESSING_SETTINGS;
+  }
+
+  const booleanSetting = (
+    key: 'echoCancellation' | 'noiseSuppression' | 'autoGainControl',
+  ): boolean | 'unavailable' => {
+    let value: unknown;
+    try {
+      value = Reflect.get(settings, key);
+    } catch {
+      return 'unavailable';
+    }
+    return typeof value === 'boolean' ? value : 'unavailable';
+  };
+
+  return {
+    echoCancellation: booleanSetting('echoCancellation'),
+    noiseSuppression: booleanSetting('noiseSuppression'),
+    autoGainControl: booleanSetting('autoGainControl'),
+  } as const;
+}
+
 function toOpenAITool(spec: RealtimeToolSpec): unknown {
   return {
     type: 'function',
@@ -102,6 +164,20 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     this.#logger = new Logger(options.debug ?? false, 'OpenAIAdapter');
   }
 
+  /**
+   * Mints a token, captures the microphone, and opens the browser-to-OpenAI
+   * WebRTC session. Capture requests AEC, noise suppression, and automatic gain
+   * control as best-effort browser preferences; it does not promise that a
+   * browser, device, or audio route applies them. After acquisition is confirmed
+   * as current, enabled debug logging projects only applied booleans (or
+   * `unavailable`) from the original track before attachment. Superseded
+   * acquisitions are stopped without attachment or diagnostics, and missing or
+   * throwing settings APIs do not fail connection.
+   *
+   * Duplicate connections are rejected. Token, microphone, and SDP failures
+   * reject after this attempt's resources are released. Unlike LiveKit, OpenAI
+   * owns turn detection and has no local VAD clone or publication gate.
+   */
   async connect(opts: AdapterConnectOptions): Promise<void> {
     if (this.#pc || this.#connecting) {
       throw new RealtimeVoiceError(
@@ -140,8 +216,23 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
 
       connection = new RTCPeerConnection();
 
-      micStream = await this.#attachMicrophone(connection, connectStart);
+      micStream = await this.#acquireMicrophone();
       attempt.assertCurrent();
+      this.#logger.debug('connect timing', {
+        step: 'getUserMedia',
+        ms: Date.now() - connectStart,
+      });
+      if (this.#logger.isEnabled) {
+        this.#logger.debug('microphone audio processing', {
+          audioProcessing: {
+            requested: AUDIO_PROCESSING_PREFERENCES,
+            applied: audioProcessingSettings(micStream.getAudioTracks()[0]),
+          },
+        });
+      }
+      for (const track of micStream.getTracks()) {
+        connection.addTrack(track, micStream);
+      }
 
       // Past the post-getUserMedia check — this attempt is still current, so
       // publishing to the shared fields is safe.
@@ -329,16 +420,17 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     }
   }
 
-  // Returns the acquired stream rather than self-assigning `#micStream`, so
-  // connect() can publish it to the shared field only after confirming this
-  // attempt hasn't been superseded.
-  async #attachMicrophone(
-    connection: RTCPeerConnection,
-    connectStart: number,
-  ): Promise<MediaStream> {
+  /**
+   * Acquires a microphone with non-mandatory browser processing preferences.
+   * The stream remains unattached and unlogged until `connect()` confirms that
+   * this acquisition still belongs to the current connection attempt.
+   */
+  async #acquireMicrophone(): Promise<MediaStream> {
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: AUDIO_PROCESSING_PREFERENCES,
+      });
     } catch (error) {
       const name = (error as { name?: unknown } | null)?.name;
       throw name === 'NotAllowedError' || name === 'PermissionDeniedError'
@@ -352,13 +444,6 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
             'Failed to acquire the microphone',
             error,
           );
-    }
-    this.#logger.debug('connect timing', {
-      step: 'getUserMedia',
-      ms: Date.now() - connectStart,
-    });
-    for (const track of stream.getTracks()) {
-      connection.addTrack(track, stream);
     }
     return stream;
   }

@@ -87,6 +87,62 @@ const SAFELY_PAUSED_MISFIRE_CANCELLATION = Symbol(
   'safely-paused-misfire-cancellation',
 );
 
+const AUDIO_PROCESSING_PREFERENCES = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+} as const;
+
+const UNAVAILABLE_AUDIO_PROCESSING_SETTINGS = {
+  echoCancellation: 'unavailable',
+  noiseSuppression: 'unavailable',
+  autoGainControl: 'unavailable',
+} as const;
+
+/**
+ * Projects only the applied AEC/NS/AGC booleans from the original audio track.
+ * Missing, throwing, malformed, and non-boolean settings become `unavailable`;
+ * each browser-owned field is snapshotted exactly once before boolean
+ * validation, so changing accessors cannot substitute later values. Unlike the
+ * browser's settings object, the result contains no device metadata.
+ */
+function audioProcessingSettings(track: MediaStreamTrack) {
+  let settings: unknown;
+  try {
+    const getSettings = (track as { getSettings?: () => MediaTrackSettings })
+      .getSettings;
+    if (typeof getSettings !== 'function') {
+      return UNAVAILABLE_AUDIO_PROCESSING_SETTINGS;
+    }
+    settings = getSettings.call(track);
+  } catch {
+    return UNAVAILABLE_AUDIO_PROCESSING_SETTINGS;
+  }
+
+  const applied =
+    typeof settings === 'object' && settings !== null
+      ? (settings as MediaTrackSettings)
+      : {};
+
+  return {
+    echoCancellation: booleanAudioSetting(applied, 'echoCancellation'),
+    noiseSuppression: booleanAudioSetting(applied, 'noiseSuppression'),
+    autoGainControl: booleanAudioSetting(applied, 'autoGainControl'),
+  } as const;
+}
+
+function booleanAudioSetting(
+  settings: MediaTrackSettings,
+  key: 'echoCancellation' | 'noiseSuppression' | 'autoGainControl',
+): boolean | 'unavailable' {
+  try {
+    const value = settings[key];
+    return typeof value === 'boolean' ? value : 'unavailable';
+  } catch {
+    return 'unavailable';
+  }
+}
+
 /**
  * A {@link RealtimeProviderAdapter} backed by a LiveKit cascaded STT/TTS
  * pipeline instead of a speech-native realtime model. It joins a LiveKit room,
@@ -260,12 +316,20 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   /**
    * Joins the LiveKit room and wires the transcript/TTS relay.
    *
-   * Microphone capture is acquired locally, cloned for metering/VAD, and muted
-   * before publication. This deliberately avoids `setMicrophoneEnabled(true)`,
+   * Microphone capture requests browser AEC, noise suppression, and automatic
+   * gain control as best-effort preferences, not guaranteed device behavior.
+   * When debug logging is enabled, the accepted original track's applied
+   * boolean settings are projected to bounded output before it is cloned for
+   * metering/VAD and muted before publication. Superseded acquisitions emit no
+   * settings diagnostic. Missing, malformed, or throwing settings APIs produce
+   * `unavailable` and never fail the connection. This deliberately avoids
+   * `setMicrophoneEnabled(true)`,
    * which publishes an enabled track before the adapter can apply its upstream
    * gate. The connection does not expose automatic or manual turn mode until
-   * the published track is upstream-paused. Capture, clone, mute, publication,
-   * or pause failures are fatal and release all acquired local tracks.
+   * the published track is upstream-paused. `vad: false` changes only turn
+   * detection: capture still requests the same processing preferences and the
+   * publication remains gated. Capture, clone, mute, publication, or pause
+   * failures are fatal and release all acquired local tracks.
    *
    * Phase-1 degeneracy: `opts.tools` and `opts.instructions` are intentionally
    * ignored. There is no LLM in the worker to configure — this adapter always
@@ -317,25 +381,51 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       // publication. The enabled clone remains browser-local for metering, VAD,
       // and pre-roll while the publication starts muted and upstream-paused.
       let microphone: ConnectMicrophoneResources;
+      let unpublishedMicTrack: LocalAudioTrack | undefined;
+      let unpublishedClone: MediaStreamTrack | undefined;
       try {
-        const micTrack = await createLocalAudioTrack();
-        if (!attempt.isCurrent) micTrack.stop();
+        const micTrack = await createLocalAudioTrack(
+          AUDIO_PROCESSING_PREFERENCES,
+        );
+        unpublishedMicTrack = micTrack;
         attempt.assertCurrent();
         const rawMicTrack = micTrack.mediaStreamTrack;
+        if (this.#logger.isEnabled) {
+          this.#logger.debug('microphone audio processing', {
+            audioProcessing: {
+              requested: AUDIO_PROCESSING_PREFERENCES,
+              applied: audioProcessingSettings(rawMicTrack),
+            },
+          });
+        }
         const clone = rawMicTrack.clone();
+        unpublishedClone = clone;
         clone.enabled = true;
         const stream = new MediaStream([clone]);
         microphone = { micTrack, rawMicTrack, clone, stream };
-        this.#rawMicTrack = rawMicTrack;
-        this.#micClone = clone;
-        this.#micStream = stream;
         await micTrack.mute();
         attempt.assertCurrent();
         await room.localParticipant.publishTrack(micTrack);
         attempt.assertCurrent();
+        unpublishedMicTrack = undefined;
+        this.#rawMicTrack = rawMicTrack;
+        this.#micClone = clone;
+        this.#micStream = stream;
+        unpublishedClone = undefined;
         await micTrack.pauseUpstream();
         attempt.assertCurrent();
       } catch (error) {
+        const micTrack = unpublishedMicTrack;
+        unpublishedMicTrack = undefined;
+        try {
+          micTrack?.stop();
+        } catch {}
+        const clone = unpublishedClone;
+        unpublishedClone = undefined;
+        try {
+          if (clone) clone.enabled = false;
+          clone?.stop();
+        } catch {}
         if (error instanceof RealtimeVoiceError) throw error;
         throw this.#micEnableError(error);
       }

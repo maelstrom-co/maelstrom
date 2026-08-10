@@ -72,10 +72,36 @@ OpenAI Realtime is a speech-native provider session. Turn detection, response ca
 
 That is why the `vad` option lives on the LiveKit adapter rather than on the shared session. It is not a Maelstrom-wide voice setting; it is how one adapter solves a problem the other adapter does not have.
 
-## What to measure
+## Browser processing is a request, not a result
+
+Both adapters request echo cancellation (AEC), noise suppression (NS), and automatic gain control (AGC) when they acquire a microphone. OpenAI captures the original browser track directly and attaches it to its peer connection. LiveKit inspects its accepted original track, then clones it for local VAD, metering, and pre-roll while the published track remains behind the mute/upstream gate.
+
+The browser treats these plain booleans as preferences. Support and results vary by browser, operating system, microphone, speaker, and Bluetooth or wired route. Debug output narrows the observation to `true`, `false`, or `unavailable` for each applied setting on the accepted original track. `unavailable` also covers missing or throwing settings APIs and missing or non-boolean fields. The output excludes device identity, complete settings objects, tracks, streams, and audio. An applied `true` still does not prove that playback echo is removed or that human interruption remains usable.
+
+## Validate browser audio processing
 
 Unit tests cannot establish any of this. Real AudioWorklets, real ONNX assets, a real microphone, real CORS, and real LiveKit publication behave in ways a mock does not, so the numbers that matter come from a browser.
 
-Measure the delay from speaking to interruption, false barge-ins, quiet speech that was missed, clipped word starts, the time from speech end to a final transcript, and misfires. Then confirm the invariant directly: watch the network while idle, after a degradation, and after a disconnect, and check that no microphone media is going out.
+Use the same setup for every required cell:
+
+- Record the adapter, device model, OS/browser version, app/library revision, audio route, bounded debug projection, and result. Do not record device labels or IDs, raw audio, transcripts, or credentials.
+- Use a quiet indoor room, a stationary device on a hard surface, and a microphone 50 cm from the tester. Set system media volume to 70% and application/player volume to 100%. Disable external EQ or accessibility audio processing unless the route requires it.
+- Use this 12-second TTS passage: “Today we are checking the calendar, weather, travel time, and the next three tasks before the afternoon meeting begins.”
+- At 4.0 seconds after audible TTS starts, say “Stop and show my calendar” at normal conversational volume. Measure from phrase onset with an external stopwatch or video clock.
+- Reset the voice session between trials. For each adapter and route, run 10 no-speech trials followed by 10 interruption trials. LiveKit uses default VAD; also run one `vad: false` control per route and confirm that no upstream audio leaves the browser outside an admitted manual turn.
+
+A **self-trigger** occurs when TTS playback alone enters the user-speech/barge-in path, stops TTS, admits upstream audio, or produces a user turn before playback ends plus two seconds. A **genuine interruption** succeeds when the fixed phrase stops TTS, admits a turn, and retains enough speech to recognize the command. Record interruption latency from phrase onset to audible TTS stop, plus missed interruptions that do not stop TTS or admit a turn within two seconds. Any LiveKit microphone media sent outside an admitted turn is a privacy failure.
+
+The required release matrix is iOS Safari with built-in speaker/microphone, Android Chrome with built-in speaker/microphone, and a desktop Chromium built-in speaker/microphone control. Every adapter/route cell must have 10 quiet and 10 interruption trials with:
+
+- zero self-triggers;
+- at least 9 of 10 genuine interruption successes;
+- median interruption latency at or below 750 ms;
+- slowest successful interruption at or below 1500 ms; and
+- no LiveKit privacy failure.
+
+Bluetooth and wired/USB routes are optional characterization unless separately made release-gating. Never generalize results to an untested device or route.
+
+Only complete passing evidence supports `ACOUSTIC ACCEPTANCE PASSED` or a claim that the change works acoustically. Missing required iOS or Android hardware is `ACOUSTIC ACCEPTANCE BLOCKED—REQUIRED HARDWARE UNAVAILABLE`, not a pass. Any threshold or privacy failure is `ACOUSTIC ACCEPTANCE FAILED`; fix the behavior and rerun the complete matrix before release. Automated checks can establish implementation correctness, but they cannot replace this evidence or justify an acoustic release claim.
 
 To compare this with the provider-owned alternative, read [The voice boundary](/understanding/voice-architecture/).

@@ -93,10 +93,17 @@ await session.turnControl?.startTurn();
 await session.turnControl?.endTurn();
 ```
 
-`connect()` acquires the microphone track, mutes it, and only then publishes it
-and pauses it upstream — never `setMicrophoneEnabled(true)`, which would put an
-enabled track on the wire before the gate is applied. It stays muted until
-`startTurn()`. Each non-empty final transcript becomes one `update_ui` intent. An empty turn returns from `thinking` to `connected` after the bounded
+`connect()` requests browser echo cancellation, noise suppression, and automatic
+gain control as best-effort preferences. It inspects the accepted original
+track, clones that track for local VAD and metering, mutes the LiveKit track, and
+only then publishes and pauses it upstream — never
+`setMicrophoneEnabled(true)`, which would put an enabled track on the wire before
+the gate is applied. With `debug: true`, applied processing is reported only as
+three booleans or `unavailable`; no device identity, complete settings object,
+track, stream, or audio is logged. These values do not prove acoustic behavior.
+The publication stays muted and upstream-paused until `startTurn()`; `vad: false`
+keeps this gate and changes only turn detection. Each non-empty final transcript
+becomes one `update_ui` intent. An empty turn returns from `thinking` to `connected` after the bounded
 `thinkingFallbackMs` interval (10 seconds by default).
 
 ## Deploy browser VAD assets
