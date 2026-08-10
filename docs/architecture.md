@@ -382,26 +382,36 @@ These enable:
 
 ## Package Dependencies
 
+Packages sit in four layers. Nothing server-side or worker-side may depend on
+anything browser-side; a minter and its adapter meet only in the contract layer.
+
 ```
-@maelstrom-co/protocol     (foundation: types + messages)
-         │
-    ┌────┼───────────────┐
-    ▼    ▼               ▼
-@maelstrom-co/client  @maelstrom-co/engine  @maelstrom-co/realtime-server
-    │
-    ├──────────┐
-    ▼          ▼
-@maelstrom-co/react  @maelstrom-co/realtime
+CONTRACT  protocol ◀───────────── realtime-protocol
+             ▲                             ▲
+BROWSER   client ◀── realtime ◀── realtime-openai
+             ▲                 ◀── realtime-livekit ──▶ realtime-vad
+          react ◀── react-realtime
+
+SERVER    engine    realtime-openai-server    realtime-livekit-server
+
+WORKER    realtime-livekit-agent
 ```
 
 ### Why This Structure?
 
 - **protocol**: Foundation - types and message contract shared by all
+- **realtime-protocol**: the realtime contract leaf — token-grant types, mint-failure taxonomy, wire topics. Depends on nothing but `protocol` and `zod`, so a minter can import it without pulling in a browser SDK
 - **client**: Framework-agnostic client, can be used anywhere
 - **engine**: Server-side only, has LLM provider dependencies
-- **react**: React-specific bindings, optional
+- **react** / **react-realtime**: React-specific bindings, optional
 - **realtime**: browser-side realtime voice core; talks to the provider directly with ephemeral tokens, feeds intents into the client
-- **realtime-server**: mints ephemeral provider tokens; the sole holder of provider API keys; shares only protocol schemas with the browser side (no code crosses the HTTP boundary)
+- **realtime-vad**: provider-neutral browser voice-activity detector; `MediaStream` in, speech boundaries out
+- **realtime-openai** / **realtime-livekit**: browser adapters implementing the `RealtimeProviderAdapter` seam
+- **realtime-openai-server** / **realtime-livekit-server**: mint credentials; the sole holders of `OPENAI_API_KEY` and `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`. They share only contract schemas with the browser side — no code crosses the HTTP boundary
+- **realtime-livekit-agent**: Node voice-agent worker running the STT/TTS pipeline for the cascade provider
+
+`packages/realtime-protocol/src/layer-boundary.test.ts` enforces the layering
+and fails the build when it is broken. See `docs/adr/0001`–`0003`.
 
 ---
 

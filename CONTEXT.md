@@ -43,3 +43,27 @@ _Avoid_: frame, packet, wire message
 **Connector**:
 The client-side adapter that carries Envelopes (or their HTTP equivalents) over a concrete transport.
 _Avoid_: transport (that names the medium, not the adapter)
+
+**Provider Adapter**:
+The implementation that drives one voice provider's transport behind the shared realtime session seam. Everything provider-shaped lives below it.
+_Avoid_: driver, integration, plugin
+
+**Speech-native Provider**:
+A voice provider that owns speech recognition, the model, speech synthesis, and turn detection behind a single connection.
+_Avoid_: realtime provider (that names the whole category, not this kind)
+
+**Cascade Provider**:
+A voice provider that supplies transport only, with speech recognition and synthesis run server-side as a separate process.
+_Avoid_: STT/TTS provider, pipeline provider
+
+**Grant**:
+An ephemeral, provider-scoped credential the browser uses to open a voice session directly. Carries an expiry so it can be refreshed before it lapses.
+_Avoid_: token, secret, key
+
+**Minter**:
+The server-side component that exchanges a long-lived provider API key for a Grant. The only side that ever holds the key.
+_Avoid_: token service, auth endpoint
+
+**Turn Mode**:
+Whether the boundaries of a user's speaking turn are detected automatically or delimited by the user. A property of a live connection, not of a provider.
+_Avoid_: push-to-talk, VAD mode

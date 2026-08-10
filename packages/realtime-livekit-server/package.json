@@ -51,15 +51,14 @@
   },
   "dependencies": {
     "@maelstrom-co/protocol": "0.1.0-alpha.0",
-    "@maelstrom-co/realtime": "0.1.0-alpha.0",
-    "@maelstrom-co/realtime-livekit": "0.1.0-alpha.0",
+    "@maelstrom-co/realtime-protocol": "0.0.0",
     "livekit-server-sdk": "^2.13.1",
     "zod": "catalog:"
   },
   "nx": {
     "targets": {
       "typecheck": {
-        "command": "tsc -p tsconfig.lib.json --noEmit",
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
         "options": {
           "cwd": "{projectRoot}"
         }

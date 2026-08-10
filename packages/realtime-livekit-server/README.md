@@ -2,20 +2,26 @@
 
 Server-only handler for minting LiveKit room access tokens.
 
-The server sibling of `@maelstrom-co/realtime-livekit`: the browser package
-declares the `LiveKitTokenGrant` contract the adapter consumes, and this
-package implements it. This package and the agent worker both read
-`LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`; the browser gets a scoped, short-lived
-grant whose token exposes the API key as its public issuer. The signing secret
-never ships to the browser.
+The server sibling of `@maelstrom-co/realtime-livekit`:
+`@maelstrom-co/realtime-protocol` owns the shared LiveKit grant and mint-failure
+contracts, and this package implements the token minter. This package and the
+agent worker both read `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`; the browser
+gets a scoped, short-lived grant whose token exposes the API key as its public
+issuer. The signing secret never ships to the browser.
 
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime-livekit-server @maelstrom-co/realtime-livekit
+bun add @maelstrom-co/realtime-livekit-server
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server @maelstrom-co/realtime-livekit`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server`
+
+Do not install `@maelstrom-co/realtime-livekit` here. That is the browser
+adapter; it carries the LiveKit WebRTC peer surface and the browser VAD
+runtime. This package reaches the shared contract through
+`@maelstrom-co/realtime-protocol/livekit` instead, which is what keeps the
+process holding `LIVEKIT_API_SECRET` free of browser code.
 
 ## What it does
 
@@ -32,8 +38,9 @@ Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server
   token for managed reconnects. Expiry alone does not disconnect an active
   participant or end the room. Each fresh `connect()` invokes `mintToken`.
 - `mintFailureHttpStatus` — a suggested `MintFailureReason -> HTTP status`
-  mapping, re-exported from `@maelstrom-co/realtime` for callers wiring the
-  minter into an HTTP transport.
+  mapping that this package provides by re-exporting it from
+  `@maelstrom-co/realtime-protocol` for callers wiring the minter into an HTTP
+  transport.
 
 ## Quick example
 

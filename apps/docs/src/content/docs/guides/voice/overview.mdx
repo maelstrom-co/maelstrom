@@ -38,9 +38,9 @@ Each package runs in exactly one place. That is what keeps `OPENAI_API_KEY`, Liv
 | Package                                                                                                    | Runtime | Responsibility                                          |
 | ---------------------------------------------------------------------------------------------------------- | ------- | --------------------------------------------------------- |
 | [`@maelstrom-co/realtime`](/reference/realtime/readme/)                                                    | Browser | Provider-neutral session and intent routing             |
-| [`@maelstrom-co/realtime/openai`](/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/) | Browser | OpenAI WebRTC transport and token grant schemas         |
+| [`@maelstrom-co/realtime-openai`](/reference/realtime-openai/classes/openaiadapter/)                      | Browser | OpenAI WebRTC transport                                 |
 | [`@maelstrom-co/react-realtime`](/reference/react-realtime/readme/)                                        | Browser | React binding: `useVoice()`, transcripts, and `VoiceOrb` |
-| [`@maelstrom-co/realtime-server`](/reference/realtime-server/readme/)                                      | Server  | Mint a short-lived OpenAI client credential             |
+| [`@maelstrom-co/realtime-openai-server`](/reference/realtime-openai-server/readme/)                        | Server  | Mint a short-lived OpenAI client credential             |
 | [`@maelstrom-co/realtime-livekit`](/reference/realtime-livekit/readme/)                                    | Browser | LiveKit room transport and turn control                 |
 | [`@maelstrom-co/realtime-livekit-server`](/reference/realtime-livekit-server/readme/)                      | Server  | Sign a short-lived grant for one LiveKit room           |
 | [`@maelstrom-co/realtime-livekit-agent`](/reference/realtime-livekit-agent/readme/)                        | Worker  | Run Deepgram STT and Cartesia TTS, with no LLM          |

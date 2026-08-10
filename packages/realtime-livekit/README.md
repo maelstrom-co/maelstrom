@@ -1,7 +1,12 @@
 # @maelstrom-co/realtime-livekit
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/realtime-livekit.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/realtime-livekit)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 A `RealtimeProviderAdapter` (from `@maelstrom-co/realtime`) backed by a LiveKit
 cascaded STT/TTS voice pipeline instead of a speech-native realtime model.
+
+**Full documentation:** <https://docs.maelstrom-ai.co>
 
 Shipped separately from `@maelstrom-co/realtime` so consumers of the core never
 have `livekit-client` forced on them — pull this in only when you want the
@@ -30,17 +35,10 @@ STT (Deepgram) and TTS (Cartesia), and holds no LLM of its own.
 
 ## Entry points
 
-Every subpath this package exports:
-
-- **`@maelstrom-co/realtime-livekit`** — `LiveKitAdapter` (browser), plus
-  `LiveKitTokenGrant` and `LiveKitTokenGrantSchema` re-exported from `./token`.
-- **`@maelstrom-co/realtime-livekit/protocol`** — wire topic constants shared
-  with the worker.
-- **`@maelstrom-co/realtime-livekit/token`** — the grant type and schema on
-  their own, for code that validates a grant without pulling in the adapter.
-- **`@maelstrom-co/realtime-livekit/vad-assets`** — `copyLiveKitVadAssets`, the
-  Node-only helper behind the build step in
-  [Deploy browser VAD assets](#deploy-browser-vad-assets).
+This package exports `@maelstrom-co/realtime-livekit`, the browser
+`LiveKitAdapter` and its configuration types. Shared grants and room topics live
+in `@maelstrom-co/realtime-protocol/livekit`. The provider-neutral VAD engine and
+its Node-only asset helper live in `@maelstrom-co/realtime-vad`.
 
 The Node-only token minter is a **separate package**, not a subpath here:
 `@maelstrom-co/realtime-livekit-server` (`mintLiveKitToken`).
@@ -48,13 +46,13 @@ The Node-only token minter is a **separate package**, not a subpath here:
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
+bun add @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
 ```
 
 ```bash
-npm install @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
-pnpm add @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
-yarn add @maelstrom-co/realtime @maelstrom-co/realtime-livekit livekit-client
+npm install @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
+pnpm add @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
+yarn add @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
 ```
 
 `@maelstrom-co/realtime` is listed explicitly because the usage below imports
@@ -66,10 +64,8 @@ application owns its version.
 
 ```ts
 import { RealtimeSession } from '@maelstrom-co/realtime';
-import {
-  LiveKitAdapter,
-  LiveKitTokenGrantSchema,
-} from '@maelstrom-co/realtime-livekit';
+import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
+import { LiveKitTokenGrantSchema } from '@maelstrom-co/realtime-protocol/livekit';
 
 const adapter = new LiveKitAdapter({
   mintToken: async (roomName) => {
@@ -105,10 +101,10 @@ enabled track on the wire before the gate is applied. It stays muted until
 
 ## Deploy browser VAD assets
 
-Default-on VAD still requires a build-time asset step. The default
-`/vad-web/` URL does not create or publish files for the application. Use the
-package-owned Node subpath or CLI so the copied assets match this adapter's
-pinned VAD and ONNX Runtime dependencies. The workspace catalog pins
+Default-on VAD still requires a build-time asset step. The default `/vad-web/`
+URL does not create or publish files for the application. Use the
+`@maelstrom-co/realtime-vad` Node subpath or CLI so copied assets match the
+engine's pinned VAD and ONNX Runtime dependencies. The workspace catalog pins
 `@ricky0123/vad-web` to `0.0.30` and `onnxruntime-web` to `1.27.0` exactly.
 Keeping both pins exact ensures that the copied worklet and model files stay
 aligned with the ONNX Runtime JavaScript and WebAssembly files that load them.
@@ -116,9 +112,9 @@ aligned with the ONNX Runtime JavaScript and WebAssembly files that load them.
 ### Node API
 
 ```ts
-import { copyLiveKitVadAssets } from '@maelstrom-co/realtime-livekit/vad-assets';
+import { copyBrowserVadAssets } from '@maelstrom-co/realtime-vad/assets';
 
-const copied = await copyLiveKitVadAssets({ outputDir: 'public/vad-web' });
+const copied = await copyBrowserVadAssets({ outputDir: 'public/vad-web' });
 ```
 
 Relative destinations resolve from the caller's current working directory. The
@@ -133,7 +129,7 @@ non-directory targets are rejected.
 ### CLI
 
 ```sh
-maelstrom-livekit-assets public/vad-web
+maelstrom-vad-assets public/vad-web
 ```
 
 The CLI applies the same replacement rules. It prints the copied-file count on
@@ -143,11 +139,16 @@ runs it before its normal build:
 ```json
 {
   "scripts": {
-    "prepare:vad": "maelstrom-livekit-assets public/vad-web",
+    "prepare:vad": "maelstrom-vad-assets public/vad-web",
     "build": "bun run prepare:vad && vite build"
   }
 }
 ```
+
+Add `@maelstrom-co/realtime-vad` as a direct dependency before running the CLI.
+It reaches an application only transitively through this package, and package
+managers link a bin into the root `node_modules/.bin` only for direct
+dependencies — so without that entry `maelstrom-vad-assets` is not on `PATH`.
 
 ### Asset URL and hosting rules
 
@@ -184,9 +185,18 @@ boundary is required: these tests install process-global happy-dom, browser,
 audio, and `mock.module()` shims, and without it one file's shims change what
 another file imports.
 
+Match your local Bun to `.bun-version` at the repo root; every workflow reads
+that file. `--isolate` is absent in 1.3.7 and present in 1.3.14, and Bun
+accepts unknown flags silently rather than rejecting them, so on an older
+version this suite runs unisolated and still passes locally while leaking
+across files anywhere else. This package's suite genuinely depends on the
+boundary.
+
 Isolation does not replace teardown. Each test must still restore mutated
 globals and spies, stop tracks and worklets, and clear timers, so state cannot
 leak between tests inside one file.
+
+## Docs
 
 See the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/)
 for the compile-checked browser integration and exact local demo commands. The
@@ -198,3 +208,7 @@ API details are available in the
 [generated reference](https://docs.maelstrom-ai.co/reference/realtime-livekit/readme/).
 For the reasoning behind the seams, read the
 [voice architecture decisions](https://github.com/maelstrom-co/maelstrom/blob/main/docs/realtime-voice-architecture.md).
+
+## License
+
+MIT

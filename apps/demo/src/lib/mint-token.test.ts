@@ -95,6 +95,25 @@ describe('createBrowserMintToken', () => {
     expect(JSON.stringify(body)).not.toContain('sk-visitor-key');
   });
 
+  it('rejects redirects for the direct OpenAI credential request', async () => {
+    let capturedUrl: string | undefined;
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return new Response(JSON.stringify({ value: 'ek_x', expires_at: 1 }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+
+    await createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
+
+    expect(capturedUrl).toBe(
+      'https://api.openai.com/v1/realtime/client_secrets',
+    );
+    expect(capturedInit?.redirect).toBe('error');
+  });
+
   // The browser-direct and server-held mint paths hand out credentials for
   // the same session; if only one pins a lifetime, a change to OpenAI's
   // default silently gives hosted visitors a different-lived token than

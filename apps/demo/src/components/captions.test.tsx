@@ -10,8 +10,8 @@ vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
   RealtimeSession: FakeRealtimeSession,
 }));
 
-vi.mock('@maelstrom-co/realtime/openai', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@maelstrom-co/realtime/openai')>()),
+vi.mock('@maelstrom-co/realtime-openai', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/realtime-openai')>()),
   OpenAIAdapter: class {},
 }));
 

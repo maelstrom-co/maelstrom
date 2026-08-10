@@ -20,6 +20,12 @@
     },
     {
       "path": "../realtime/tsconfig.lib.json"
+    },
+    {
+      "path": "../realtime-protocol/tsconfig.lib.json"
+    },
+    {
+      "path": "../realtime-vad/tsconfig.lib.json"
     }
   ],
   "exclude": [

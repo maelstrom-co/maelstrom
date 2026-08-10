@@ -2,7 +2,7 @@ import type { SessionId } from '@maelstrom-co/protocol';
 import {
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
-} from '@maelstrom-co/realtime/openai';
+} from '@maelstrom-co/realtime-protocol/openai';
 import { withFetchTimeout } from './fetch-timeout';
 
 /**
@@ -70,11 +70,13 @@ export async function mintOpenAIToken(
  *
  * Each invocation requests a 600-second realtime credential for `model` and
  * maps OpenAI's `value` and `expires_at` fields into a schema-validated
- * `OpenAITokenGrant`. It rejects when no key is available; when the request
- * times out or otherwise fails at the network layer; when OpenAI returns an
- * HTTP error (with a distinct invalid-key error for 401); when the response is
- * not JSON or lacks the expected client-secret fields; or when the mapped
- * grant fails schema validation.
+ * `OpenAITokenGrant`. Redirects are rejected before the browser can forward the
+ * visitor's key to another URL and surface through the same actionable network
+ * error as other rejected fetches. The minter also rejects when no key is
+ * available; when the request times out or otherwise fails at the network
+ * layer; when OpenAI returns an HTTP error (with a distinct invalid-key error
+ * for 401); when the response is not JSON or lacks the expected client-secret
+ * fields; or when the mapped grant fails schema validation.
  */
 export function createBrowserMintToken(
   getApiKey: () => string | null,
@@ -102,6 +104,7 @@ export function createBrowserMintToken(
           expires_after: { anchor: 'created_at', seconds: 600 },
           session: { type: 'realtime', model },
         }),
+        redirect: 'error',
         signal: withFetchTimeout(),
       });
     } catch {

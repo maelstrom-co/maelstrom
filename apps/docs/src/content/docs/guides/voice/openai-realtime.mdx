@@ -18,7 +18,7 @@ Provide:
 - a Maelstrom React instance with its normal Engine Connector
 - a server runtime that can read `OPENAI_API_KEY`
 - a browser secure context with microphone permission
-- the `@maelstrom-co/react`, `@maelstrom-co/protocol`, `@maelstrom-co/realtime`, `@maelstrom-co/react-realtime`, and `@maelstrom-co/realtime-server` packages
+- the `@maelstrom-co/react`, `@maelstrom-co/protocol`, `@maelstrom-co/realtime`, `@maelstrom-co/react-realtime`, `@maelstrom-co/realtime-openai`, and `@maelstrom-co/realtime-openai-server` packages
 
 Three things decide whether this integration is safe, and none of them are optional.
 
@@ -68,7 +68,7 @@ import { isOk } from '@maelstrom-co/protocol';
 import {
   createOpenAIMinter,
   mintFailureHttpStatus,
-} from '@maelstrom-co/realtime-server';
+} from '@maelstrom-co/realtime-openai-server';
 
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY ?? '',
@@ -120,7 +120,7 @@ Fetch the credential from the same origin and treat the route response as unknow
 import {
   OpenAITokenGrantSchema,
   type OpenAITokenGrant,
-} from '@maelstrom-co/realtime/openai';
+} from '@maelstrom-co/realtime-openai';
 import { getCsrfToken } from '../auth/csrf';
 
 export async function mintOpenAIToken(): Promise<OpenAITokenGrant> {
@@ -153,7 +153,7 @@ The factory runs once per session, not per render, and receives a `CreateAdapter
 ```ts title="src/maelstrom.ts"
 import { createMaelstrom } from '@maelstrom-co/react';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
-import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';
+import { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
 import { mintOpenAIToken } from './voice/mint-openai-token';
 import { vessels } from './vessels';
 
@@ -306,10 +306,10 @@ Two behaviors are already wired by the time voice connects. Neither needs config
 
 Use the generated reference for the public contracts used in this guide:
 
-- [`RealtimeSession`](/reference/realtime/packages/realtime/src/classes/realtimesession/) from `@maelstrom-co/realtime`
-- [`OpenAIAdapter`](/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/) and [`OpenAITokenGrantSchema`](/reference/realtime/packages/realtime/src/openai/variables/openaitokengrantschema/) from `@maelstrom-co/realtime/openai`
+- [`RealtimeSession`](/reference/realtime/classes/realtimesession/) from `@maelstrom-co/realtime`
+- [`OpenAIAdapter`](/reference/realtime-openai/classes/openaiadapter/) from `@maelstrom-co/realtime-openai` and [`OpenAITokenGrantSchema`](/reference/realtime-protocol/packages/realtime-protocol/src/openai/variables/openaitokengrantschema/) from `@maelstrom-co/realtime-protocol/openai`
 - [`maelstromRealtime`](/reference/react-realtime/functions/maelstromrealtime/) and [`UseVoiceResult`](/reference/react-realtime/interfaces/usevoiceresult/) from `@maelstrom-co/react-realtime`
-- [`createOpenAIMinter`](/reference/realtime-server/functions/createopenaiminter/) from `@maelstrom-co/realtime-server`
+- [`createOpenAIMinter`](/reference/realtime-openai-server/functions/createopenaiminter/) from `@maelstrom-co/realtime-openai-server`
 
 ## Next steps
 

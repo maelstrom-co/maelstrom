@@ -2,7 +2,7 @@ import { isOk } from '@maelstrom-co/protocol';
 import {
   createOpenAIMinter,
   mintFailureHttpStatus,
-} from '@maelstrom-co/realtime-server';
+} from '@maelstrom-co/realtime-openai-server';
 import { createFileRoute } from '@tanstack/react-router';
 import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
 

@@ -1,10 +1,10 @@
 import { err, ok, type Result } from '@maelstrom-co/protocol';
-import type { MintFailure, UnixSeconds } from '@maelstrom-co/realtime';
-import { USER_PARTICIPANT_IDENTITY } from '@maelstrom-co/realtime-livekit/protocol';
+import type { MintFailure, UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import {
   type LiveKitTokenGrant,
   LiveKitTokenGrantSchema,
-} from '@maelstrom-co/realtime-livekit/token';
+  USER_PARTICIPANT_IDENTITY,
+} from '@maelstrom-co/realtime-protocol/livekit';
 import { AccessToken } from 'livekit-server-sdk';
 import { z } from 'zod';
 

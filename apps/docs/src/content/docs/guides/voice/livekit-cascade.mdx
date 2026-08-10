@@ -123,7 +123,7 @@ Fetch the grant with same-origin credentials and a CSRF proof, then validate the
 import {
   type LiveKitTokenGrant,
   LiveKitTokenGrantSchema,
-} from '@maelstrom-co/realtime-livekit/token';
+} from '@maelstrom-co/realtime-protocol/livekit';
 
 export async function fetchAuthenticatedLiveKitToken(): Promise<LiveKitTokenGrant> {
   const response = await fetch('/api/livekit-token', {
@@ -140,7 +140,7 @@ export async function fetchAuthenticatedLiveKitToken(): Promise<LiveKitTokenGran
 }
 ```
 
-`LiveKitTokenGrantSchema` comes from the `@maelstrom-co/realtime-livekit/token` entry point, which carries the grant schema without pulling in the LiveKit browser transport. The request sends the app's session credentials and CSRF token, and no client-selected room or participant identity. The schema requires a non-empty token, a `ws:` or `wss:` LiveKit URL, and an absolute expiry in Unix seconds. Shape validation does not replace endpoint authentication or authorization.
+`LiveKitTokenGrantSchema` comes from the `@maelstrom-co/realtime-protocol/livekit` entry point, which carries the grant schema without pulling in the LiveKit browser transport. The request sends the app's session credentials and CSRF token, and no client-selected room or participant identity. The schema requires a non-empty token, a `ws:` or `wss:` LiveKit URL, and an absolute expiry in Unix seconds. Shape validation does not replace endpoint authentication or authorization.
 
 ## Start the STT/TTS worker
 
@@ -226,7 +226,7 @@ Automatic mode needs asset files that this package does not publish for you. Cop
 ```json title="package.json"
 {
   "scripts": {
-    "prepare:vad": "maelstrom-livekit-assets public/vad-web",
+    "prepare:vad": "maelstrom-vad-assets public/vad-web",
     "build": "bun run prepare:vad && vite build"
   }
 }
@@ -252,7 +252,7 @@ new LiveKitAdapter({
 });
 ```
 
-Raising `positiveSpeechThreshold` cuts false interruptions and starts missing quiet speakers. `preRollMs` is the audio sent at the start of a turn so the first word survives; the provider's `preSpeechPadMs` is a different setting and does not do this. [`LiveKitBrowserVadOptions`](/reference/realtime-livekit/packages/realtime-livekit/src/interfaces/livekitbrowservadoptions/) lists every key and its accepted values.
+Raising `positiveSpeechThreshold` cuts false interruptions and starts missing quiet speakers. `preRollMs` is the audio sent at the start of a turn so the first word survives; the provider's `preSpeechPadMs` is a different setting and does not do this. [`BrowserVadOptions`](/reference/realtime-vad/packages/realtime-vad/src/interfaces/browservadoptions/) lists every key and its accepted values.
 
 To take the boundary yourself instead, turn detection off:
 
@@ -271,7 +271,7 @@ import {
   SPEAK_TOPIC,
   TURN_TOPIC,
   TTS_TOPIC,
-} from "@maelstrom-co/realtime-livekit/protocol";
+} from "@maelstrom-co/realtime-protocol/livekit-wire";
 ```
 
 `TURN_TOPIC` carries turn-end and TTS-cancel data messages. `SPEAK_TOPIC` carries settled result text to the worker, and `TTS_TOPIC` carries playout-complete or synthesis-error status back to the browser. Application code normally lets the adapter and worker publish these messages.
@@ -553,9 +553,9 @@ Teams may accept the custom-worker cost to specialize recognition by language or
 
 Use the generated reference for the public contracts used in this guide:
 
-- [`LiveKitAdapter`](/reference/realtime-livekit/packages/realtime-livekit/src/classes/livekitadapter/) from the `@maelstrom-co/realtime-livekit` root
-- [`SPEAK_TOPIC`](/reference/realtime-livekit/packages/realtime-livekit/src/protocol/variables/speak_topic/) from `@maelstrom-co/realtime-livekit/protocol`
-- [`LiveKitTokenGrantSchema`](/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/variables/livekittokengrantschema/) from `@maelstrom-co/realtime-livekit/token`
+- [`LiveKitAdapter`](/reference/realtime-livekit/classes/livekitadapter/) from the `@maelstrom-co/realtime-livekit` root
+- [`SPEAK_TOPIC`](/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/speak_topic/) from `@maelstrom-co/realtime-protocol/livekit-wire`
+- [`LiveKitTokenGrantSchema`](/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/livekittokengrantschema/) from `@maelstrom-co/realtime-protocol/livekit`
 - [`mintLiveKitToken`](/reference/realtime-livekit-server/functions/mintlivekittoken/) and [`LiveKitTokenRequestSchema`](/reference/realtime-livekit-server/variables/livekittokenrequestschema/) from `@maelstrom-co/realtime-livekit-server`
 - [`defineMaelstromVoiceAgent`](/reference/realtime-livekit-agent/functions/definemaelstromvoiceagent/) and [`runVoiceAgent`](/reference/realtime-livekit-agent/functions/runvoiceagent/) from `@maelstrom-co/realtime-livekit-agent`
 

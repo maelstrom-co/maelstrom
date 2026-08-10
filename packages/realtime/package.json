@@ -26,18 +26,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./openai": {
-      "@maelstrom-co/source": "./src/openai.ts",
-      "types": "./dist/openai.d.ts",
-      "import": "./dist/openai.js",
-      "default": "./dist/openai.js"
-    },
-    "./google": {
-      "@maelstrom-co/source": "./src/google.ts",
-      "types": "./dist/google.d.ts",
-      "import": "./dist/google.js",
-      "default": "./dist/google.js"
     }
   },
   "files": [
@@ -59,8 +47,7 @@
   },
   "dependencies": {
     "@maelstrom-co/client": "0.1.0-alpha.0",
-    "@maelstrom-co/protocol": "0.1.0-alpha.0",
-    "zod": "catalog:"
+    "@maelstrom-co/protocol": "0.1.0-alpha.0"
   },
   "devDependencies": {
     "@sinonjs/fake-timers": "catalog:"
@@ -68,7 +55,7 @@
   "nx": {
     "targets": {
       "typecheck": {
-        "command": "tsc -p tsconfig.lib.json --noEmit",
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
         "options": {
           "cwd": "{projectRoot}"
         }

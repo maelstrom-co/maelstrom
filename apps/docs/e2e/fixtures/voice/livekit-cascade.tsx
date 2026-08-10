@@ -145,7 +145,7 @@ export async function POST(request: Request): Promise<Response> {
 import {
   type LiveKitTokenGrant,
   LiveKitTokenGrantSchema,
-} from '@maelstrom-co/realtime-livekit/token';
+} from '@maelstrom-co/realtime-protocol/livekit';
 
 export async function fetchAuthenticatedLiveKitToken(): Promise<LiveKitTokenGrant> {
   const response = await fetch('/api/livekit-token', {

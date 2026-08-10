@@ -11,6 +11,21 @@ import type {
 } from '@maelstrom-co/realtime';
 import { ConnectRaceGuard, RealtimeVoiceError } from '@maelstrom-co/realtime';
 import type {
+  TtsCancelMessage,
+  TurnEndMessage,
+} from '@maelstrom-co/realtime-protocol/livekit';
+import {
+  SPEAK_TOPIC,
+  SPEAK_UTTERANCE_ID_ATTR,
+  TTS_TOPIC,
+  TURN_TOPIC,
+} from '@maelstrom-co/realtime-protocol/livekit';
+import {
+  type BrowserVad,
+  createBrowserVad,
+  resolveBrowserVadConfig,
+} from '@maelstrom-co/realtime-vad';
+import type {
   LocalAudioTrack,
   RemoteTrack,
   TranscriptionSegment,
@@ -23,23 +38,11 @@ import {
   Track,
 } from 'livekit-client';
 
-import {
-  type BrowserVad,
-  createBrowserVad,
-  resolveBrowserVadConfig,
-} from './browser-vad.js';
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
 import {
   createLocalAudioPreRoll,
   type LocalAudioPreRoll,
 } from './local-audio-pre-roll.js';
-import type { TtsCancelMessage, TurnEndMessage } from './protocol.js';
-import {
-  SPEAK_TOPIC,
-  SPEAK_UTTERANCE_ID_ATTR,
-  TTS_TOPIC,
-  TURN_TOPIC,
-} from './protocol.js';
 
 /** Microphone resources acquired and owned by one asynchronous connect attempt. */
 interface ConnectMicrophoneResources {

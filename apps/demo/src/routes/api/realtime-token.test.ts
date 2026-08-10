@@ -1,8 +1,8 @@
-import type { UnixSeconds } from '@maelstrom-co/realtime';
 import type {
   MintFailureReason,
   MintResult,
-} from '@maelstrom-co/realtime-server';
+} from '@maelstrom-co/realtime-openai-server';
+import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
 
@@ -53,7 +53,7 @@ const STATUS: Record<MintFailureReason, number> = {
   'upstream-failure': 502,
 };
 
-vi.doMock('@maelstrom-co/realtime-server', () => ({
+vi.doMock('@maelstrom-co/realtime-openai-server', () => ({
   createOpenAIMinter: (options: { apiKey: string; model: string }) => {
     lastMinterOptions = options;
     return (input: unknown) => {

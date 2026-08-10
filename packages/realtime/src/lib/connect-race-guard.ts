@@ -35,7 +35,7 @@ export interface ConnectAttempt {
  * One instance per adapter, held for the adapter's lifetime. `begin()` opens a
  * fresh attempt (superseding any in-flight one); `supersede()` invalidates the
  * current attempt from teardown so a mid-handshake `connect()` abandons itself.
- * Both adapters (`@maelstrom-co/realtime`'s OpenAI adapter and the separate
+ * Both provider adapters (`@maelstrom-co/realtime-openai` and
  * `@maelstrom-co/realtime-livekit`) share this so superseded-connect behavior is
  * uniform — a superseded attempt always rejects with `CONNECT_SUPERSEDED`,
  * never resolves as if it succeeded.

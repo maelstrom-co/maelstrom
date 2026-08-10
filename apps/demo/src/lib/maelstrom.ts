@@ -4,8 +4,8 @@ import {
   maelstromRealtime,
 } from '@maelstrom-co/react-realtime';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
-import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';
 import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
+import { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
 import { calendarEntry } from '../vessels/calendar.vessel';
 import { journalEntry } from '../vessels/journal.vessel';
 import { mapEntry } from '../vessels/map.vessel';
