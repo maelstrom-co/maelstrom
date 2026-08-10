@@ -31,7 +31,7 @@ export default function WaitlistForm() {
         aria-live="polite"
       >
         <span className="ws-dot" aria-hidden="true" />
-        You're on the list. We'll be in touch.
+        You're on the beta list. We'll be in touch.
       </div>
     );
   }
@@ -41,7 +41,7 @@ export default function WaitlistForm() {
       <input
         type="email"
         required
-        placeholder="you@company.com"
+        placeholder="you@example.com"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         className={status === 'error' ? 'animate-shake' : undefined}
@@ -53,7 +53,7 @@ export default function WaitlistForm() {
         type="submit"
         disabled={status === 'loading'}
       >
-        {status === 'loading' ? 'Joining...' : 'Notify Me'}
+        {status === 'loading' ? 'Joining...' : 'Join the Beta'}
         <svg
           width="14"
           height="14"
