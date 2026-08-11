@@ -1,9 +1,10 @@
 /**
  * Cloudflare Worker entry for the hosted playground. Routes /ws to the
  * SessionDO Durable Object (session-do.ts) and everything else to the
- * static SPA build. OpenAI's client_secrets endpoint answers browser-direct
- * requests, so voice token minting happens entirely client-side and there
- * is no /api/mint route here.
+ * static SPA build. OpenAI's client_secrets and audio/speech endpoints answer
+ * browser-direct requests (hosted BYOK), so voice token minting and greeting
+ * TTS happen entirely client-side. There is no /api/mint or demo greeting TTS
+ * route on this Worker.
  */
 import type { PlaygroundEnv } from './session-do';
 

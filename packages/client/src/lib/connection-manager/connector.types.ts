@@ -489,3 +489,49 @@ export interface AssistantMessage {
   /** Message content */
   readonly message: string;
 }
+
+/**
+ * Result of an acknowledged assistant-message insertion.
+ *
+ * - `inserted`: the engine appended the message to session history.
+ * - `deduped`: the engine already held a message with the same id, so it
+ *   appended nothing.
+ *
+ * Callers use this to decide whether side effects tied to the message (for
+ * example a caption or speech playback) already ran in a previous attempt.
+ * Greeting flows treat `deduped` without a retained `inserted` as “already
+ * handled” and suppress caption and speech for that greeting forever.
+ */
+export type AssistantMessageOutcome = 'inserted' | 'deduped';
+
+/**
+ * Connector that reports whether an assistant message was inserted or deduped.
+ *
+ * Optional capability: {@link EngineConnector.addAssistantMessage} stays
+ * fire-and-forget. Detect support with
+ * {@link isAcknowledgedAssistantConnector}.
+ */
+export interface AcknowledgedAssistantConnector extends EngineConnector {
+  /**
+   * Insert an assistant message and wait for the engine outcome.
+   *
+   * Rejects when the transport is not connected, the engine reports an error,
+   * the connection closes, or the acknowledgement times out.
+   */
+  addAssistantMessageAcknowledged(
+    message: AssistantMessage,
+  ): Promise<AssistantMessageOutcome>;
+}
+
+/**
+ * Narrow an {@link EngineConnector} to one that supports acknowledged
+ * assistant-message insertion.
+ */
+export function isAcknowledgedAssistantConnector(
+  connector: EngineConnector,
+): connector is AcknowledgedAssistantConnector {
+  return (
+    'addAssistantMessageAcknowledged' in connector &&
+    typeof connector.addAssistantMessageAcknowledged === 'function'
+  );
+}

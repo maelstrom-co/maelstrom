@@ -12,12 +12,20 @@ import { mapEntry } from '../vessels/map.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
 import { isDebugRequested } from './debug-mode';
+import {
+  createHostedDemoGreetingSynthesizer,
+  createLocalDemoGreetingSynthesizer,
+  DEMO_GREETING,
+  DEMO_OPENAI_VOICE,
+} from './demo-greeting-tts';
 import { isHosted } from './hosted-mode';
 import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 import { orchestrationLegibility } from './orchestration-legibility';
 import { playgroundKeyStore } from './playground-key-store';
 import { DEFAULT_REALTIME_MODEL } from './realtime-model';
 import { getLivekitToken } from './voice/get-livekit-token';
+
+export { DEMO_GREETING, DEMO_OPENAI_VOICE };
 
 const vessels = [
   calendarEntry,
@@ -27,15 +35,28 @@ const vessels = [
   mapEntry,
 ] as const;
 
+// Factories only — no network at module load.
+const localSynthesizeGreeting = createLocalDemoGreetingSynthesizer();
+const hostedSynthesizeGreeting = createHostedDemoGreetingSynthesizer(
+  () => playgroundKeyStore.state.apiKey,
+);
+
 const hostedMintToken = createBrowserMintToken(
   () => playgroundKeyStore.state.apiKey,
   DEFAULT_REALTIME_MODEL,
+  DEMO_OPENAI_VOICE,
 );
 
 export const m = createMaelstrom({
   vessels,
 })
-  .with(maelstromRealtime({ createAdapter, debug: isDebugRequested() }))
+  .with(
+    maelstromRealtime({
+      createAdapter,
+      debug: isDebugRequested(),
+      greeting: { text: DEMO_GREETING },
+    }),
+  )
   .with(orchestrationLegibility);
 
 // Provider is chosen at build time by VITE_VOICE_PROVIDER: `livekit` selects the
@@ -46,7 +67,8 @@ export const m = createMaelstrom({
 // Hosted BYOK is OpenAI-only: the LiveKit path needs house-held server
 // credentials (LIVEKIT_API_KEY/secret) and a running agent worker that a
 // visitor's pasted OpenAI key can't reach, so the LiveKit branch is local-dev
-// only. In hosted mode the browser mints directly from the visitor's key.
+// only. In hosted mode the browser mints and synthesizes the greeting directly
+// with the visitor's key.
 function createAdapter({
   sessionId,
 }: CreateAdapterContext): RealtimeProviderAdapter {
@@ -71,6 +93,10 @@ function createAdapter({
   }
   return new OpenAIAdapter({
     mintToken: hosted ? hostedMintToken : () => mintOpenAIToken(sessionId),
+    voice: DEMO_OPENAI_VOICE,
+    synthesizeGreeting: hosted
+      ? hostedSynthesizeGreeting
+      : localSynthesizeGreeting,
     debug: isDebugRequested(),
   });
 }

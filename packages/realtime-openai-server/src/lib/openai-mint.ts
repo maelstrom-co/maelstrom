@@ -5,18 +5,34 @@ import type {
   UnixSeconds,
 } from '@maelstrom-co/realtime-protocol';
 import {
+  type OpenAIBuiltInVoice,
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
   OpenAITokenRequestSchema,
 } from '@maelstrom-co/realtime-protocol/openai';
 import { z } from 'zod';
 
-/** Options for {@link createOpenAIMinter}. */
+/**
+ * Trusted server-held configuration for {@link createOpenAIMinter}.
+ *
+ * These inputs stay on the mint host: the browser never supplies or overrides
+ * `apiKey` or `voice`. That boundary matters because the minter authenticates
+ * upstream with the long-lived key and pins Realtime output voice under
+ * `session.audio.output.voice`. Browser request data may select only
+ * schema-approved handshake fields (for example an optional model once the
+ * host has authorized it) and cannot widen this trusted configuration.
+ */
 export interface CreateOpenAIMinterOptions {
   /** Server-held OpenAI API key. Never forwarded to the caller. */
   readonly apiKey: string;
   /** Default realtime model; a validated request model overrides this value. */
   readonly model: string;
+  /**
+   * Trusted server-side Realtime output voice. When set, nested under
+   * `session.audio.output.voice` on the client-secret request. Browser input
+   * cannot override this value.
+   */
+  readonly voice?: OpenAIBuiltInVoice;
   /**
    * Fetch implementation used for the upstream call to OpenAI. Defaults to
    * the global `fetch`; inject a fake in tests to avoid a real network call.
@@ -192,7 +208,7 @@ export type MintResult = Result<OpenAITokenGrant, MintFailure>;
 export function createOpenAIMinter(
   options: CreateOpenAIMinterOptions,
 ): (input: unknown) => Promise<MintResult> {
-  const { apiKey, model, fetch: injectedFetch } = options;
+  const { apiKey, model, voice, fetch: injectedFetch } = options;
   const doFetch = injectedFetch ?? fetch;
 
   return async (input: unknown): Promise<MintResult> => {
@@ -213,6 +229,14 @@ export function createOpenAIMinter(
       // `/v1/realtime/client_secrets` nests the model under `session`, not at
       // top level (top-level `model` is rejected as unknown_parameter). Send the
       // documented nested shape so the model we configure is actually honored.
+      // Trusted output voice, when configured, belongs under session.audio.
+      const session: Record<string, unknown> = {
+        type: 'realtime',
+        model: resolvedModel,
+      };
+      if (voice !== undefined) {
+        session.audio = { output: { voice } };
+      }
       upstream = await doFetch(
         'https://api.openai.com/v1/realtime/client_secrets',
         {
@@ -224,7 +248,7 @@ export function createOpenAIMinter(
           },
           body: JSON.stringify({
             expires_after: { anchor: 'created_at', seconds: 600 },
-            session: { type: 'realtime', model: resolvedModel },
+            session,
           }),
         },
       );

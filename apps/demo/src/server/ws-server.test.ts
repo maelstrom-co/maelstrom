@@ -4,8 +4,11 @@ import {
 } from '@maelstrom-co/client';
 import type { Engine } from '@maelstrom-co/engine';
 import {
+  AssistantInjectionMessage,
   ChartRequestMessage,
+  decodeServerEnvelope,
   encodeEnvelope,
+  MessageId,
   ok,
   SessionId,
 } from '@maelstrom-co/protocol';
@@ -70,28 +73,40 @@ const chartRequest = encodeEnvelope(
   }),
 );
 
-/** A stub Engine whose chart_request handling always succeeds. */
+/** A stub Engine whose handled messages always succeed. */
 function stubEngine(): Engine {
   return {
     handle: async (message) => {
-      if (message.type !== 'chart_request') {
-        throw new Error(
-          `stubEngine only handles chart_request, got ${message.type}`,
-        );
+      switch (message.type) {
+        case 'assistant_message':
+          return ok({
+            type: 'assistant_message_result',
+            sessionId: message.sessionId,
+            id: message.id,
+            outcome: 'inserted',
+          });
+        case 'chart_request':
+          return ok({
+            type: 'chart_response',
+            sessionId: message.sessionId,
+            id: message.id,
+            response: {
+              type: 'maelstrom_response',
+              requestId: message.id,
+              userMessage: 'done',
+              rationale: 'because',
+              executionPlan: [],
+              layout: { type: 'grid', positions: [] },
+            },
+          });
+        default: {
+          // Keep surprising call sites loud if EngineMessage gains arms.
+          const unexpected: never = message;
+          throw new Error(
+            `stubEngine cannot handle ${(unexpected as { type: string }).type}`,
+          );
+        }
       }
-      return ok({
-        type: 'chart_response',
-        sessionId: message.sessionId,
-        id: message.id,
-        response: {
-          type: 'maelstrom_response',
-          requestId: message.id,
-          userMessage: 'done',
-          rationale: 'because',
-          executionPlan: [],
-          layout: { type: 'grid', positions: [] },
-        },
-      });
     },
     getHistory: async () => {
       throw new Error('getHistory not stubbed');
@@ -173,6 +188,40 @@ describe('createWebSocketHandlers send paths (local mode)', () => {
     // through to a reply.
     expect(ws.sent).toHaveLength(1);
     expect(ws.sent[0]).toContain('maelstrom_response');
+  });
+
+  it('sends assistant_message.result for an assistant_message', async () => {
+    const handlers = createWebSocketHandlers({
+      sharedEngine: stubEngine(),
+      sharedEngineInitError: null,
+    });
+    const ws = makeFakeWs();
+    const assistantFrame = encodeEnvelope(
+      AssistantInjectionMessage({
+        sessionId: SessionId('s-1'),
+        content: 'seeded note',
+        id: MessageId('inj-1'),
+      }),
+    );
+
+    await handlers.message(
+      ws as unknown as Parameters<typeof handlers.message>[0],
+      assistantFrame,
+    );
+
+    // Regression guard: deleting `case 'reply': ws.send(result.wire)` must
+    // fail for assistant acknowledgements as well as chart responses.
+    expect(ws.sent).toHaveLength(1);
+    const decoded = decodeServerEnvelope(ws.sent[0]);
+    expect(decoded.ok).toBe(true);
+    if (
+      !decoded.ok ||
+      decoded.value.type !== 'engine.assistant_message.result'
+    ) {
+      throw new Error('expected engine.assistant_message.result');
+    }
+    expect(decoded.value.requestId).toBe(MessageId('inj-1'));
+    expect(decoded.value.outcome).toBe('inserted');
   });
 
   it('answers a heartbeat ping with exactly the pong frame', async () => {

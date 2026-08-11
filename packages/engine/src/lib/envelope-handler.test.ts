@@ -211,7 +211,7 @@ describe('handleEnvelope — chart_request', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleEnvelope — assistant_message', () => {
-  test('returns null on Ok (fire-and-forget)', async () => {
+  test('maps Ok assistant_message_result to engine.assistant_message.result', async () => {
     const sessionId = SessionId('sess-1');
     const engine = stubEngine({
       handle: async () =>
@@ -230,7 +230,40 @@ describe('handleEnvelope — assistant_message', () => {
       timestamp: 1,
       content: 'seeded note',
     });
-    expect(reply).toBeNull();
+    expect(reply).toEqual({
+      type: 'engine.assistant_message.result',
+      requestId: MessageId('inj-1'),
+      sessionId,
+      outcome: 'inserted',
+    });
+  });
+
+  test('maps an unexpected Ok output type to engine.error UnexpectedOutput', async () => {
+    const sessionId = SessionId('sess-1');
+    const messageId = MessageId('inj-1');
+    const engine = stubEngine({
+      handle: async () =>
+        okOutput({
+          type: 'chart_response',
+          sessionId,
+          id: MessageId('other-id'),
+          response: maelstromResponse(MessageId('other-id')),
+        }),
+    });
+
+    const reply = await handleEnvelope(engine, {
+      type: 'assistant_message',
+      sessionId,
+      id: messageId,
+      timestamp: 1,
+      content: 'seeded note',
+    });
+
+    expect(reply?.type).toBe('engine.error');
+    if (reply?.type !== 'engine.error') return;
+    expect(reply.code).toBe('UnexpectedOutput');
+    expect(reply.requestId).toBe(messageId);
+    expect(reply.sessionId).toBe(sessionId);
   });
 
   test('surfaces an engine Err as engine.error correlated to the message id', async () => {

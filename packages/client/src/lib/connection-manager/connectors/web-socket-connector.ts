@@ -18,10 +18,11 @@ import {
 import type { Unsubscribe } from '../../types.js';
 import { RequestCorrelator } from '../../utils/request-correlator.js';
 import {
+  type AcknowledgedAssistantConnector,
   type AssistantMessage,
+  type AssistantMessageOutcome,
   type ConnectorCapabilities,
   type ConnectorEvent,
-  type EngineConnector,
   WireEngineError,
 } from '../connector.types.js';
 import {
@@ -119,7 +120,7 @@ export interface WebSocketConnectorOptions {
  * await manager.connect(); // ConnectionManager handles state & retries
  * ```
  */
-export class WebSocketConnector implements EngineConnector {
+export class WebSocketConnector implements AcknowledgedAssistantConnector {
   readonly #url: string;
   readonly #timeout: number;
   readonly #connectTimeoutMs: number;
@@ -161,6 +162,8 @@ export class WebSocketConnector implements EngineConnector {
   // collide with chart_request replies (typed as MaelstromResponse) on the
   // shared MessageId space, and so each correlator stays strongly typed.
   #historyCorrelator = new RequestCorrelator<readonly SessionHistoryEntry[]>();
+  #assistantCorrelator = new RequestCorrelator<AssistantMessageOutcome>();
+  #unacknowledgedAssistantIds = new Set<MessageId>();
   #handlers = new Set<(event: ConnectorEvent) => void>();
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   // Pings sent since the last pong was seen. Reset to 0 whenever a pong
@@ -301,6 +304,8 @@ export class WebSocketConnector implements EngineConnector {
     const disconnected = new Error('Disconnected');
     this.#correlator.rejectAll(disconnected);
     this.#historyCorrelator.rejectAll(disconnected);
+    this.#assistantCorrelator.rejectAll(disconnected);
+    this.#unacknowledgedAssistantIds.clear();
     if (this.#ws) {
       // Explicit 1000, not a bare close(): closing without a status code
       // sends an empty close frame, and the resulting close event reports
@@ -311,6 +316,53 @@ export class WebSocketConnector implements EngineConnector {
       this.#ws.close(1000);
       this.#ws = null;
     }
+  }
+
+  /**
+   * Insert an assistant message and wait for the correlated
+   * {@link AssistantMessageOutcome} from `engine.assistant_message.result`.
+   *
+   * Correlation uses `message.id` as `requestId` and times out after the
+   * connector `timeout` (default 30s).
+   *
+   * @throws If the WebSocket is disconnected or the session is not yet
+   *   established.
+   * @throws If `WebSocket.send` fails while enqueueing the frame.
+   * @throws {WireEngineError} If the engine reports a correlated
+   *   `engine.error`.
+   * @throws If the socket closes before the result arrives, or if the
+   *   acknowledgement times out.
+   */
+  async addAssistantMessageAcknowledged(
+    message: AssistantMessage,
+  ): Promise<AssistantMessageOutcome> {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+    if (this.#sessionId === null) {
+      throw new Error(
+        'WebSocketConnector.addAssistantMessageAcknowledged called before connect() completed',
+      );
+    }
+    const promise = this.#assistantCorrelator.create(message.id, this.#timeout);
+    try {
+      this.#ws.send(
+        encodeEnvelope(
+          AssistantInjectionMessage({
+            sessionId: this.#sessionId,
+            content: message.message,
+            id: message.id,
+          }),
+        ),
+      );
+    } catch (error) {
+      // Reject the correlator (and return its promise) so a send failure does
+      // not strand a pending entry until timeout or leave an unhandled
+      // rejection beside a thrown error.
+      this.#assistantCorrelator.reject(message.id, toError(error));
+      return promise;
+    }
+    return promise;
   }
 
   /**
@@ -338,7 +390,7 @@ export class WebSocketConnector implements EngineConnector {
 
   /**
    * Sends an assistant message to the server.
-   * Fire-and-forget — the server does not send an ack for this message type.
+   * Fire-and-forget — callers do not wait for the server acknowledgement.
    * Throws if the WebSocket is not connected.
    *
    * Translates the connector-facing {@link AssistantMessage} into the real
@@ -360,15 +412,21 @@ export class WebSocketConnector implements EngineConnector {
       );
     }
 
-    this.#ws.send(
-      encodeEnvelope(
-        AssistantInjectionMessage({
-          sessionId: this.#sessionId,
-          content: message.message,
-          id: message.id,
-        }),
-      ),
-    );
+    this.#unacknowledgedAssistantIds.add(message.id);
+    try {
+      this.#ws.send(
+        encodeEnvelope(
+          AssistantInjectionMessage({
+            sessionId: this.#sessionId,
+            content: message.message,
+            id: message.id,
+          }),
+        ),
+      );
+    } catch (error) {
+      this.#unacknowledgedAssistantIds.delete(message.id);
+      throw error;
+    }
   }
 
   /**
@@ -464,6 +522,8 @@ export class WebSocketConnector implements EngineConnector {
       const closed = new Error('WebSocket closed');
       this.#correlator.rejectAll(closed);
       this.#historyCorrelator.rejectAll(closed);
+      this.#assistantCorrelator.rejectAll(closed);
+      this.#unacknowledgedAssistantIds.clear();
       const isClean = event.code === 1000;
       // RFC 6455: 1008 ("Policy Violation") means the server is deliberately
       // rejecting this client. Retrying is pointless by definition, so this
@@ -577,6 +637,24 @@ export class WebSocketConnector implements EngineConnector {
         return;
       }
 
+      case 'engine.assistant_message.result': {
+        // Acknowledged waiters share the MessageId space with fire-and-forget
+        // sends. Prefer the correlator so a mixed-path retry (same id) still
+        // settles the waiter instead of being swallowed as unacknowledged.
+        const resolved = this.#assistantCorrelator.resolve(
+          envelope.requestId,
+          envelope.outcome,
+        );
+        if (resolved) return;
+        if (this.#unacknowledgedAssistantIds.delete(envelope.requestId)) {
+          return;
+        }
+        console.warn(
+          `[WebSocketConnector] engine.assistant_message.result with no pending request: requestId=${envelope.requestId}`,
+        );
+        return;
+      }
+
       case 'engine.error': {
         if (envelope.requestId === undefined) {
           // A stream-level fault the host could not correlate to a request
@@ -593,12 +671,17 @@ export class WebSocketConnector implements EngineConnector {
         // error rather than silently waiting until its own timeout fires.
         // reject() is a no-op for unknown ids, so the redundant call is free.
         const error = new WireEngineError(envelope.error, envelope.code);
+        this.#unacknowledgedAssistantIds.delete(envelope.requestId);
         const inChart = this.#correlator.reject(envelope.requestId, error);
         const inHistory = this.#historyCorrelator.reject(
           envelope.requestId,
           error,
         );
-        if (!inChart && !inHistory) {
+        const inAssistant = this.#assistantCorrelator.reject(
+          envelope.requestId,
+          error,
+        );
+        if (!inChart && !inHistory && !inAssistant) {
           // Most likely cause: post-timeout server failure delivery. The
           // chart/history paths warn on the same condition; symmetry here
           // keeps a real diagnostic from being silently swallowed.
@@ -627,7 +710,8 @@ export class WebSocketConnector implements EngineConnector {
     }
     const inChart = this.#correlator.reject(requestId, error);
     const inHistory = this.#historyCorrelator.reject(requestId, error);
-    if (!inChart && !inHistory) {
+    const inAssistant = this.#assistantCorrelator.reject(requestId, error);
+    if (!inChart && !inHistory && !inAssistant) {
       console.warn(
         `[WebSocketConnector] undecodable frame with no pending request: requestId=${requestId}: ${error.message}`,
       );

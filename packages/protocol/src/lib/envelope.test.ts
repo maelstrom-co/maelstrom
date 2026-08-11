@@ -6,6 +6,7 @@ import {
   ChartRequestMessage,
 } from './engine-message.js';
 import {
+  AssistantMessageResultMessage,
   ClientEnvelopeSchema,
   decodeClientEnvelope,
   decodeServerEnvelope,
@@ -137,6 +138,27 @@ describe('ClientEnvelope round-trip', () => {
 // ---------------------------------------------------------------------------
 
 describe('ServerEnvelope round-trip', () => {
+  test.each([
+    'inserted',
+    'deduped',
+  ] as const)('engine.assistant_message.result (%s)', (outcome) => {
+    const msg = AssistantMessageResultMessage({
+      requestId: MessageId('req-X'),
+      sessionId: SessionId('s-1'),
+      outcome,
+    });
+    const decoded = decodeServerEnvelope(encodeEnvelope(msg));
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) throw new Error('expected a decodable server envelope');
+    expect(decoded.value.type).toBe('engine.assistant_message.result');
+    if (decoded.value.type !== 'engine.assistant_message.result') {
+      throw new Error('expected engine.assistant_message.result');
+    }
+    expect(decoded.value.requestId).toBe(MessageId('req-X'));
+    expect(decoded.value.sessionId).toBe(SessionId('s-1'));
+    expect(decoded.value.outcome).toBe(outcome);
+  });
+
   test('engine.maelstrom.response', () => {
     const msg = MaelstromResponseMessage({
       requestId: MessageId('req-1'),
@@ -369,6 +391,6 @@ describe('EngineMessage ↔ ClientEnvelope', () => {
     // Guards against a member silently dropping out of a union: the schema a
     // host would safeParse against must accept exactly what the codec accepts.
     expect(ClientEnvelopeSchema.options).toHaveLength(3);
-    expect(ServerEnvelopeSchema.options).toHaveLength(3);
+    expect(ServerEnvelopeSchema.options).toHaveLength(4);
   });
 });

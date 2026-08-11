@@ -40,13 +40,15 @@ From the repository root, create your local environment file:
 cp .env.example .env
 ```
 
-Edit `.env` and set `OPENAI_API_KEY` to your OpenAI API key. The same server-side key powers the text-planning Engine and, when enabled, mints short-lived realtime voice credentials:
+Edit `.env` and set `OPENAI_API_KEY` to your OpenAI API key. The same server-side key powers the text-planning Engine, mints short-lived realtime voice credentials, and synthesizes the one fixed local greeting via OpenAI TTS (`gpt-4o-mini-tts`, recommended voice `cedar`, WAV). The local greeting route is development-only: bodyless same-origin POST, exact fixed payload, process-local cache, and at most three upstream attempts per process — not a general speech API.
 
 ```dotenv
 OPENAI_API_KEY=<redacted>
 # Optional; defaults to gpt-5.6-luna.
 ENGINE_MODEL=
 ```
+
+The UI shows a compact disclosure next to the voice orb: “AI-generated voice”. Hosted BYOK mode calls OpenAI speech and client-secret endpoints directly from the browser with the visitor key; that key never passes through Maelstrom servers.
 
 The repository ignores `.env`. Never commit it or paste its contents into logs, issues, or other shared material. Keep examples empty or redacted as shown above.
 
@@ -63,7 +65,16 @@ development-only, for the same reason the LiveKit one below is: it does not
 authenticate the caller, and it forwards the request body to the minter, so the
 caller chooses the model. Replace it with the server-owned route from the
 [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/)
-before any deployment.
+before any deployment. The fixed greeting TTS route
+(`src/routes/api/demo-greeting-tts.ts`) is likewise development-only and must not
+be treated as production abuse protection.
+
+**Greeting TTS troubleshooting.** If the caption appears but there is no audio,
+confirm the browser allowed microphone/autoplay after the orb click, check that
+`POST /api/demo-greeting-tts` returned `audio/wav`, and verify `OPENAI_API_KEY`
+can call `/v1/audio/speech`. A second greeting after reconnect within the same
+session is a bug; a second upstream OpenAI TTS call after a successful cache fill
+in the same server process is also unexpected.
 
 The `nx` commands in this README run from the repository root. Commands shown
 as `bun run ...` under the LiveKit section run from `apps/demo/`.

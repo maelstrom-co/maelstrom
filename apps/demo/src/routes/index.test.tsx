@@ -2,6 +2,7 @@
 
 import { WireEngineError } from '@maelstrom-co/client';
 import type { VesselDefinition } from '@maelstrom-co/protocol';
+import { isInaccessible } from '@testing-library/dom';
 import {
   act,
   cleanup,
@@ -13,7 +14,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
-import { m } from '../lib/maelstrom';
+import { DEMO_GREETING, m } from '../lib/maelstrom';
 import {
   clearPlaygroundKey,
   STORAGE_KEY,
@@ -372,6 +373,164 @@ describe('mic-path key gating (hosted, no key)', () => {
     expect(screen.getByLabelText(/api key/i)).toBeTruthy();
     const session = must(FakeRealtimeSession.instances[0]);
     expect(session.connectCalls).toBe(0);
+  });
+});
+
+const DISCLOSURE_COPY = 'AI-generated voice';
+
+/**
+ * Failure-capable visibility check for the AI-voice disclosure.
+ * Catches hidden attribute, aria-hidden, inert, display/visibility none,
+ * opacity 0, and common screen-reader-only class/style patterns — cases
+ * that testid/textContent-only queries would miss.
+ */
+function expectVisibleDisclosure(): HTMLElement {
+  const nodes = screen.getAllByTestId('ai-voice-disclosure');
+  expect(nodes).toHaveLength(1);
+  const el = nodes[0]!;
+  expect(el.textContent).toBe(DISCLOSURE_COPY);
+
+  // Accessibility-tree exclusion (hidden, aria-hidden, display:none, etc.).
+  expect(isInaccessible(el)).toBe(false);
+
+  // Explicit attribute gates (belt + suspenders for happy-dom gaps).
+  expect(el.hasAttribute('hidden')).toBe(false);
+  expect(el.getAttribute('aria-hidden')).not.toBe('true');
+  expect(el.hasAttribute('inert')).toBe(false);
+
+  // Ancestor chain must also be accessible/visible.
+  let ancestor: HTMLElement | null = el.parentElement;
+  while (ancestor && ancestor !== document.body) {
+    expect(ancestor.hasAttribute('hidden')).toBe(false);
+    expect(ancestor.getAttribute('aria-hidden')).not.toBe('true');
+    expect(ancestor.hasAttribute('inert')).toBe(false);
+    expect(isInaccessible(ancestor)).toBe(false);
+    ancestor = ancestor.parentElement;
+  }
+
+  const className =
+    typeof el.className === 'string' ? el.className : String(el.className);
+  expect(className).not.toMatch(
+    /\b(sr-only|screen-reader-only|visually-hidden|u-vh|clip-only)\b/i,
+  );
+
+  const style = getComputedStyle(el);
+  expect(style.display).not.toBe('none');
+  expect(style.visibility).not.toBe('hidden');
+  expect(style.opacity === '' || Number(style.opacity) > 0).toBe(true);
+
+  // Off-screen / 1px clip sr-only techniques.
+  const width = Number.parseFloat(style.width);
+  const height = Number.parseFloat(style.height);
+  if (style.position === 'absolute' || style.position === 'fixed') {
+    expect(style.clip).not.toMatch(/rect\(\s*0/);
+    expect(style.clipPath).not.toMatch(/inset\(\s*50%/);
+    if (Number.isFinite(width) && Number.isFinite(height)) {
+      expect(width <= 1 && height <= 1).toBe(false);
+    }
+    const left = Number.parseFloat(style.left);
+    if (Number.isFinite(left)) {
+      expect(left).toBeGreaterThan(-100);
+    }
+  }
+
+  // Text query must resolve to the same visible node (not a duplicate hidden copy).
+  expect(screen.getByText(DISCLOSURE_COPY)).toBe(el);
+  return el;
+}
+
+describe('voice greeting (hosted, with a key)', () => {
+  it('shows the exact AI-generated disclosure before any orb click in local and hosted modes', async () => {
+    const { HomePage } = await import('./index');
+
+    // Local mode: no visitor key, disclosure must be visible before interaction.
+    vi.stubEnv('VITE_HOSTED', '0');
+    clearPlaygroundKey();
+    const local = render(<HomePage />);
+    expectVisibleDisclosure();
+    local.unmount();
+
+    // Hosted mode: same unconditional visible copy before any orb click.
+    vi.stubEnv('VITE_HOSTED', '1');
+    setPlaygroundKey('sk-greeting-1234567890', true);
+    render(<HomePage />);
+    expectVisibleDisclosure();
+  });
+
+  it('greets through the voice orb once, exactly, per session', async () => {
+    setPlaygroundKey('sk-greeting-1234567890', true);
+    const { HomePage } = await import('./index');
+    render(<HomePage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /voice/i }));
+
+    const session = must(FakeRealtimeSession.instances[0]);
+    await waitFor(() => expect(session.connectCalls).toBe(1));
+
+    await act(async () => {
+      session.emitGreeting();
+    });
+
+    const caption = document.querySelectorAll('[data-role="assistant"]');
+    expect(caption).toHaveLength(1);
+    expect(caption[0]?.textContent).toContain(DEMO_GREETING);
+
+    await act(async () => {
+      session.emitGreeting();
+    });
+    expect(document.querySelectorAll('[data-role="assistant"]')).toHaveLength(
+      1,
+    );
+  });
+
+  it('greets again on a new session (new keyEpoch)', async () => {
+    setPlaygroundKey('sk-first-key-1234567890', true);
+    const { HomePage } = await import('./index');
+    render(<HomePage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /voice/i }));
+    const first = must(FakeRealtimeSession.instances[0]);
+    await waitFor(() => expect(first.connectCalls).toBe(1));
+    await act(async () => {
+      first.emitGreeting();
+    });
+    expect(
+      document.querySelector('[data-role="assistant"]')?.textContent,
+    ).toContain(DEMO_GREETING);
+
+    const sessionCountBefore = FakeRealtimeSession.instances.length;
+
+    // Different key → new keyEpoch → new Provider/session.
+    fireEvent.click(screen.getByRole('button', { name: /api key/i }));
+    fireEvent.change(screen.getByLabelText(/api key/i), {
+      target: { value: 'sk-second-key-1234567890' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/api key/i)).toBeNull();
+    });
+    await waitFor(() => {
+      expect(FakeRealtimeSession.instances.length).toBeGreaterThan(
+        sessionCountBefore,
+      );
+    });
+
+    const second = must(
+      FakeRealtimeSession.instances[FakeRealtimeSession.instances.length - 1],
+    );
+    expect(second).not.toBe(first);
+
+    fireEvent.click(screen.getByRole('button', { name: /voice/i }));
+    await waitFor(() => expect(second.connectCalls).toBe(1));
+    await act(async () => {
+      second.emitGreeting();
+    });
+
+    const assistants = document.querySelectorAll('[data-role="assistant"]');
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.textContent).toContain(DEMO_GREETING);
   });
 });
 

@@ -17,7 +17,11 @@ describe('createBrowserMintToken', () => {
       });
     }) as unknown as typeof fetch;
 
-    await createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
+    await createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+      'marin',
+    )();
 
     expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
     expect(capturedInit?.signal?.aborted).toBe(false);
@@ -43,6 +47,7 @@ describe('createBrowserMintToken', () => {
       const mintPromise = createBrowserMintToken(
         () => 'sk-visitor-key',
         'gpt-realtime',
+        'marin',
       )();
       // Simulates the 8s timeout firing, without waiting 8 real seconds.
       controller.abort();
@@ -66,6 +71,7 @@ describe('createBrowserMintToken', () => {
     const mintToken = createBrowserMintToken(
       () => 'sk-visitor-key',
       'gpt-realtime',
+      'marin',
     );
     const result = await mintToken();
 
@@ -86,13 +92,18 @@ describe('createBrowserMintToken', () => {
       });
     }) as unknown as typeof fetch;
 
-    await createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
+    await createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+      'marin',
+    )();
 
     expect(capturedInit?.headers).toMatchObject({
       Authorization: 'Bearer sk-visitor-key',
     });
     const body = JSON.parse(String(capturedInit?.body));
     expect(JSON.stringify(body)).not.toContain('sk-visitor-key');
+    expect(body.session.audio.output.voice).toBe('marin');
   });
 
   it('rejects redirects for the direct OpenAI credential request', async () => {
@@ -106,7 +117,11 @@ describe('createBrowserMintToken', () => {
       });
     }) as unknown as typeof fetch;
 
-    await createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
+    await createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+      'marin',
+    )();
 
     expect(capturedUrl).toBe(
       'https://api.openai.com/v1/realtime/client_secrets',
@@ -117,7 +132,7 @@ describe('createBrowserMintToken', () => {
   // The browser-direct and server-held mint paths hand out credentials for
   // the same session; if only one pins a lifetime, a change to OpenAI's
   // default silently gives hosted visitors a different-lived token than
-  // local ones. Keep this in step with realtime-server's openai-mint.
+  // local ones. Keep this in step with realtime-openai-server's minter.
   it('pins the same token lifetime the server-held mint sends', async () => {
     let capturedInit: RequestInit | undefined;
     globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -127,7 +142,11 @@ describe('createBrowserMintToken', () => {
       });
     }) as unknown as typeof fetch;
 
-    await createBrowserMintToken(() => 'sk-visitor-key', 'gpt-realtime')();
+    await createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+      'marin',
+    )();
 
     const body = JSON.parse(String(capturedInit?.body));
     expect(body.expires_after).toEqual({ anchor: 'created_at', seconds: 600 });
@@ -141,6 +160,7 @@ describe('createBrowserMintToken', () => {
     const mintToken = createBrowserMintToken(
       () => 'sk-visitor-key',
       'gpt-realtime',
+      'marin',
     );
     await expect(mintToken()).rejects.toThrow(/invalid api key/i);
   });
@@ -151,7 +171,11 @@ describe('createBrowserMintToken', () => {
     ) as unknown as typeof fetch;
     globalThis.fetch = fetchSpy;
 
-    const mintToken = createBrowserMintToken(() => null, 'gpt-realtime');
+    const mintToken = createBrowserMintToken(
+      () => null,
+      'gpt-realtime',
+      'marin',
+    );
     await expect(mintToken()).rejects.toThrow(/key/i);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -164,6 +188,7 @@ describe('createBrowserMintToken', () => {
     const mintToken = createBrowserMintToken(
       () => 'sk-visitor-key',
       'gpt-realtime',
+      'marin',
     );
     let error: unknown;
     try {
@@ -187,6 +212,7 @@ describe('createBrowserMintToken', () => {
     const mintToken = createBrowserMintToken(
       () => 'sk-visitor-key',
       'gpt-realtime',
+      'marin',
     );
     await expect(mintToken()).rejects.toThrow(/status 500/i);
   });
@@ -208,6 +234,7 @@ describe('createBrowserMintToken', () => {
     const mintToken = createBrowserMintToken(
       () => 'sk-visitor-key',
       'gpt-realtime',
+      'marin',
     );
     let error: unknown;
     try {

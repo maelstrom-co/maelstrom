@@ -11,18 +11,21 @@ import type {
   SidechannelEvent,
   ToolCallId,
 } from '@maelstrom-co/protocol';
+import type { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import { groundedDebounce } from './grounding-debounce.js';
 import type {
   AdapterAudioStreams,
   AdapterTurnControl,
   RealtimeAdapterEvent,
+  RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
   TurnMode,
   TurnModeEvent,
   UpdateUIToolResult,
 } from './provider-adapter.types.js';
+import { isRealtimeGreetingAdapter } from './provider-adapter.types.js';
 import type {
   RealtimeInstance,
   RealtimeSessionOptions,
@@ -172,6 +175,14 @@ export class RealtimeSession implements VoiceSession {
     cancel(): void;
   };
   readonly #logger: Logger;
+  readonly #greeting:
+    | {
+        readonly text: string;
+        readonly coordinator: GreetingCoordinator;
+      }
+    | undefined;
+  #greetingAdapter: RealtimeGreetingAdapter | undefined;
+  #greetingController: AbortController | undefined;
 
   #state: VoiceSessionState = 'idle';
   #turnMode: TurnMode = 'automatic';
@@ -214,6 +225,7 @@ export class RealtimeSession implements VoiceSession {
     this.#summarize = options.summarize ?? defaultSummarize;
     this.#onEvent = options.onEvent ?? (() => {});
     this.#logger = new Logger(options.debug ?? false, 'RealtimeSession');
+    this.#greeting = options.greeting;
     this.#pushGrounding = groundedDebounce((snapshot: UIStructuralSnapshot) => {
       this.#adapter.injectGrounding(
         this.#clampGrounding(this.#summarize(snapshot)),
@@ -277,6 +289,21 @@ export class RealtimeSession implements VoiceSession {
     // so only idle or error may (re)connect.
     if (this.#state !== 'idle' && this.#state !== 'error') return;
 
+    if (this.#greeting) {
+      if (!isRealtimeGreetingAdapter(this.#adapter)) {
+        this.#lastError = new RealtimeVoiceError(
+          'GREETING_ADAPTER_UNSUPPORTED',
+          'greeting configured but the adapter does not implement RealtimeGreetingAdapter',
+        );
+        this.#setState('error');
+        throw this.#lastError;
+      }
+      this.#greetingAdapter = this.#adapter;
+      // Inside the initiating user gesture: connect() runs synchronously to this
+      // point, so the unlock lands within the gesture.
+      this.#greetingAdapter.activateAudio();
+    }
+
     const epoch = ++this.#connectEpoch;
     this.#lastError = undefined;
     this.#setState('connecting');
@@ -317,6 +344,13 @@ export class RealtimeSession implements VoiceSession {
       this.#pushGrounding(this.#instance.getStructuralSnapshot());
     });
     this.#setState('connected');
+
+    if (this.#greeting) {
+      this.#greetingController?.abort();
+      const controller = new AbortController();
+      this.#greetingController = controller;
+      void this.#runGreetingGeneration(controller.signal);
+    }
   }
 
   async disconnect(): Promise<void> {
@@ -341,6 +375,8 @@ export class RealtimeSession implements VoiceSession {
     this.#unsubscribeAdapter = undefined;
     this.#unsubscribeSettled = undefined;
     this.#pushGrounding.cancel();
+    this.#greetingController?.abort();
+    this.#greetingController = undefined;
     // Dropped silently, not answered: the adapter this call would have
     // replied on is going away too. The retry loop (if any is mid-wait)
     // notices the identity mismatch on its next wake and stops on its own.
@@ -349,6 +385,35 @@ export class RealtimeSession implements VoiceSession {
     // it `false` before clearing.
     this.#queuedIntent?.resolve(false);
     this.#queuedIntent = undefined;
+  }
+
+  async #runGreetingGeneration(signal: AbortSignal): Promise<void> {
+    if (!this.#greeting || !this.#greetingAdapter) return;
+    try {
+      await this.#greeting.coordinator.run({
+        sessionId: this.#sessionId,
+        text: this.#greeting.text,
+        instance: this.#instance,
+        adapter: this.#greetingAdapter,
+        signal,
+        emitTranscript: (text) => this.#emitGreetingTranscript(text),
+      });
+    } catch (error) {
+      this.#logger.warn('greeting generation failed', error);
+    }
+  }
+
+  #emitGreetingTranscript(text: string): void {
+    const entry: TranscriptEntry = { role: 'assistant', text, final: true };
+    for (const handler of this.#transcriptHandlers) handler(entry);
+    this.#emit({
+      type: 'transcript',
+      sessionId: this.#sessionId,
+      at: Date.now(),
+      role: 'assistant',
+      text,
+      final: true,
+    });
   }
 
   on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe;

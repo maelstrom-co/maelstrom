@@ -3,6 +3,14 @@ import type {
   MaelstromRealtimeOptions,
 } from '@maelstrom-co/react-realtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { makeValidWavBytes } from './__tests__/wav-fixtures';
+import {
+  DEMO_GREETING,
+  DEMO_GREETING_TTS_ROUTE,
+  DEMO_GREETING_TTS_URL,
+  DEMO_OPENAI_VOICE,
+} from './demo-greeting-tts';
+import { clearPlaygroundKey, setPlaygroundKey } from './playground-key-store';
 
 const state = vi.hoisted(() => ({
   extension: {},
@@ -67,6 +75,7 @@ vi.mock('./voice/get-livekit-token', () => ({
   getLivekitToken: () => Promise.resolve(),
 }));
 
+// Static import of maelstrom under a stable specifier (existing pattern).
 const providerTestSpecifier = './maelstrom.ts' + '?provider-test';
 await import(providerTestSpecifier);
 
@@ -79,8 +88,22 @@ function createAdapter(provider: 'livekit' | 'openai') {
   } as CreateAdapterContext);
 }
 
+type OpenAIOptions = {
+  voice?: string;
+  synthesizeGreeting?: (args: {
+    text: string;
+    voice: typeof DEMO_OPENAI_VOICE;
+    signal: AbortSignal;
+  }) => Promise<ArrayBuffer>;
+  mintToken?: () => Promise<unknown>;
+};
+
+const originalFetch = globalThis.fetch;
+
 afterEach(() => {
   vi.unstubAllEnvs();
+  globalThis.fetch = originalFetch;
+  clearPlaygroundKey();
   state.liveKitAdapterOptions.length = 0;
   state.openAIAdapterOptions.length = 0;
 });
@@ -136,5 +159,104 @@ describe('demo voice provider wiring', () => {
     expect(state.openAIAdapterOptions[0]).toMatchObject({ debug: true });
     expect(state.openAIAdapterOptions[0]).not.toHaveProperty('vad');
     expect(state.liveKitAdapterOptions).toHaveLength(0);
+  });
+
+  it('passes the demo greeting to maelstromRealtime', () => {
+    expect(state.realtimeOptions?.greeting).toEqual({ text: DEMO_GREETING });
+    // Greeting must not disturb either provider's adapter construction.
+    createAdapter('openai');
+    createAdapter('livekit');
+    expect(state.openAIAdapterOptions).toHaveLength(1);
+    expect(state.liveKitAdapterOptions).toHaveLength(1);
+  });
+
+  it('wires cedar and the local same-origin synthesizer in non-hosted mode', async () => {
+    vi.stubEnv('VITE_HOSTED', undefined);
+    createAdapter('openai');
+    const options = state.openAIAdapterOptions[0] as OpenAIOptions;
+    expect(options.voice).toBe(DEMO_OPENAI_VOICE);
+    expect(options.voice).toBe('cedar');
+    expect(typeof options.synthesizeGreeting).toBe('function');
+
+    let capturedUrl: string | undefined;
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      capturedUrl = String(url);
+      capturedInit = init;
+      const body = makeValidWavBytes();
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'audio/wav',
+          'Content-Length': String(body.byteLength),
+        },
+      });
+    }) as unknown as typeof fetch;
+
+    await options.synthesizeGreeting!({
+      text: DEMO_GREETING,
+      voice: DEMO_OPENAI_VOICE,
+      signal: new AbortController().signal,
+    });
+
+    expect(capturedUrl).toBe(DEMO_GREETING_TTS_ROUTE);
+    expect(capturedInit?.method).toBe('POST');
+    expect(capturedInit?.body).toBeUndefined();
+    const auth = (capturedInit?.headers as Record<string, string> | undefined)
+      ?.Authorization;
+    expect(auth).toBeUndefined();
+  });
+
+  it('wires cedar and the browser-direct synthesizer with lazy key reads in hosted mode', async () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    createAdapter('openai');
+    const options = state.openAIAdapterOptions[0] as OpenAIOptions;
+    expect(options.voice).toBe('cedar');
+    expect(typeof options.synthesizeGreeting).toBe('function');
+
+    const auths: string[] = [];
+    const urls: string[] = [];
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      urls.push(String(url));
+      const headers = init?.headers as Record<string, string> | undefined;
+      if (headers?.Authorization) auths.push(headers.Authorization);
+      const body = makeValidWavBytes();
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'audio/wav',
+          'Content-Length': String(body.byteLength),
+        },
+      });
+    }) as unknown as typeof fetch;
+
+    // No key yet — must fail before fetch.
+    await expect(
+      options.synthesizeGreeting!({
+        text: DEMO_GREETING,
+        voice: DEMO_OPENAI_VOICE,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/key/i);
+    expect(urls).toHaveLength(0);
+
+    setPlaygroundKey('sk-first-key-1234567890', true);
+    await options.synthesizeGreeting!({
+      text: DEMO_GREETING,
+      voice: DEMO_OPENAI_VOICE,
+      signal: new AbortController().signal,
+    });
+    expect(urls).toEqual([DEMO_GREETING_TTS_URL]);
+    expect(auths).toEqual(['Bearer sk-first-key-1234567890']);
+
+    // Lazy re-read on the next attempt after a key change.
+    setPlaygroundKey('sk-second-key-0987654321', true);
+    await options.synthesizeGreeting!({
+      text: DEMO_GREETING,
+      voice: DEMO_OPENAI_VOICE,
+      signal: new AbortController().signal,
+    });
+    expect(urls).toHaveLength(2);
+    expect(auths[1]).toBe('Bearer sk-second-key-0987654321');
   });
 });

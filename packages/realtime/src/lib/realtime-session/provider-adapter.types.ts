@@ -4,7 +4,7 @@ import type {
   Unsubscribe,
   VoiceSessionState,
 } from '@maelstrom-co/client';
-import type { ToolCallId } from '@maelstrom-co/protocol';
+import type { MessageId, ToolCallId } from '@maelstrom-co/protocol';
 
 /**
  * A single tool exposed to the realtime model, in provider-neutral form.
@@ -190,4 +190,44 @@ export interface RealtimeProviderAdapter {
    * value to binding/UI code only while retained `turnMode` is `manual`.
    */
   readonly turnControl?: AdapterTurnControl;
+}
+
+/** Verdict of a greeting speech attempt. */
+export type GreetingSpeechResult = 'accepted' | 'not_started';
+
+/**
+ * Optional greeting-only capability. A provider opts in by also implementing
+ * this; base {@link RealtimeProviderAdapter} gets no greeting methods.
+ */
+export interface RealtimeGreetingAdapter extends RealtimeProviderAdapter {
+  /**
+   * Unlock audio synchronously within a user gesture (the click that calls
+   * `RealtimeSession.connect()`). Must never throw. Failures are not reported
+   * from this call — they surface later via speech `not_started` (or adapter
+   * events). Called at most once per real connection attempt.
+   */
+  activateAudio(): void;
+  /**
+   * Speak the exact configured text once. `not_started` proves no provider
+   * send or playback began — the only retriable outcome. `accepted` is
+   * terminal: delivery is ambiguous past invocation and is never retried.
+   */
+  speakAssistantText(args: {
+    readonly id: MessageId;
+    readonly text: string;
+    readonly signal: AbortSignal;
+  }): Promise<GreetingSpeechResult>;
+}
+
+/** Structural guard mirroring `isAcknowledgedAssistantConnector`. */
+export function isRealtimeGreetingAdapter(
+  adapter: RealtimeProviderAdapter,
+): adapter is RealtimeGreetingAdapter {
+  return (
+    'activateAudio' in adapter &&
+    'speakAssistantText' in adapter &&
+    typeof (adapter as RealtimeGreetingAdapter).activateAudio === 'function' &&
+    typeof (adapter as RealtimeGreetingAdapter).speakAssistantText ===
+      'function'
+  );
 }

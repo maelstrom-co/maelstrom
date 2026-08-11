@@ -212,3 +212,104 @@ callback, but nothing in this repository consumes it. The schema is additive-onl
 because a metering or telemetry consumer would ride on it, and its timestamps are
 client-clock and skew-prone by contract — any receiver correlating across clients
 must stamp its own receipt time.
+
+## Why the greeting is recorded before it is spoken
+
+The demo greets once when voice connects. Ordering is fixed:
+
+**Engine ack → caption → provider history item → TTS fetch → Web Audio playback.**
+
+The greeting is persisted to engine history first (`addAssistantMessageAcknowledged`
+over the unchanged WebSocket transport), then the assistant caption is emitted,
+then the OpenAI adapter sends the exact assistant item into provider conversation
+and fetches WAV bytes for playback. It speaks once per session; reconnect and
+session recreation within the same session do not repeat it (retained coordinator
+proofs). A new session greets again.
+
+Activation sits inside the initiating gesture on purpose. `RealtimeSession.connect()`
+calls `adapter.activateAudio()` synchronously within the click so Web Audio unlock
+work begins before any async handshake. Failures after a successful provider-item
+send settle as `accepted` (terminal); only pre-send failures return `not_started`.
+
+### OpenAI greeting TTS (demo)
+
+OpenAI retains the exact assistant item in provider conversation
+(`conversation.item.create`, `status: completed`, single `output_text`) and never
+issues a greeting `response.create`, so an active model response cannot be
+disturbed and the model never paraphrases the fixed text. Playback does **not**
+wait for a provider `conversation.item.created` ack — engine acknowledgement is
+the authoritative outer gate.
+
+Speech uses OpenAI Text-to-Speech (`gpt-4o-mini-tts`, WAV, recommended built-in
+voice `cedar`) so the greeting matches subsequent Realtime model audio. A fixed
+style instruction asks for warm, natural, conversational delivery. The same
+`cedar` value is configured on:
+
+- the adapter's initial `session.update` `audio.output.voice`;
+- local client-secret minting (`createOpenAIMinter` trusted option);
+- hosted browser-direct client-secret creation.
+
+**Local custody.** The browser POSTs a bodyless same-origin request to
+`/api/demo-greeting-tts`. The route requires matching `Origin` and
+`Sec-Fetch-Site: same-origin`, accepts no caller JSON/text, and calls OpenAI with
+the server-held `OPENAI_API_KEY` and a fixed payload. Concurrent callers coalesce
+onto one upstream request; the first validated WAV is cached process-locally; at
+most three upstream attempts are allowed per server process. This budget/cache is
+development-only — not production distributed abuse protection. The browser never
+sees the server key.
+
+**Hosted BYOK custody.** The visitor key is used only in the browser Authorization
+header for direct `POST https://api.openai.com/v1/audio/speech` (and client-secret
+minting). It is never forwarded through Maelstrom servers, logs, or error bodies.
+
+External audio is validated before Web Audio decode:
+
+- HTTP success and an allowed WAV media type (`audio/wav`, `audio/x-wav`,
+  `audio/wave`, or `audio/vnd.wave`);
+- when `Content-Length` is present, the streamed byte count must match it exactly;
+- a 1 MiB (`1_048_576`) actual-byte ceiling;
+- a minimum complete WAV container size (44 bytes);
+- `RIFF`/`WAVE` magic plus either an exact RIFF-declared file-size match
+  (`chunkSize + 8`) or the standard `0xFFFFFFFF` unknown-length marker used by
+  OpenAI streaming WAV responses.
+
+Both credential-bearing TTS requests (hosted browser→OpenAI and the local route’s
+server-key upstream call) set `redirect: 'error'` and fail closed rather than
+following redirects. Abort races ensure hanging resume/fetch cannot leave greeting
+work pending after disconnect.
+
+OpenAI requires disclosing that voice audio is AI-generated. The demo renders a
+compact visible label next to the voice orb: “AI-generated voice”.
+
+### LiveKit greeting
+
+LiveKit needs a narrow readiness gate. The worker registers `SPEAK_TOPIC`
+asynchronously after the user joins (and after the TTS track publish), while the
+browser `connect()` resolves at join — a greeting sent earlier is silently
+dropped. The single-packet `tts_ready` closes that gap; on absence the greeting
+suppresses (non-fatal, at-most-once). The greeting reuses the existing
+`SPEAK_TOPIC` / status machinery (`tts_done` / `tts_error`), so barge-in and
+state collapse semantics are unchanged. Stale data from a torn-down room is
+dropped by a room-currency guard on the adapter's `DataReceived` handler.
+
+### Manual verification (both providers)
+
+Verify before you trust. Run these steps in order.
+
+1. **Prerequisites.** Valid provider credentials. The LiveKit path additionally
+   needs the agent worker running (`bun --cwd apps/demo run dev-livekit` runs
+   both; `voice-worker.ts` sits on top of `ws-server`).
+2. **OpenAI** (`bun --cwd apps/demo run dev`). Confirm the AI-voice disclosure is
+   visible before clicking. One click on the orb grants the mic, unlocks Web Audio,
+   and produces exactly one assistant caption matching the greeting text and one
+   audible TTS playback. Network shows bodyless same-origin
+   `POST /api/demo-greeting-tts` with `Sec-Fetch-Site: same-origin`. In DevTools,
+   expect a `conversation.item.create` (assistant, `completed`) on the data channel
+   **before** the TTS request and **no** greeting `response.create`. Confirm the
+   engine history contains the greeting before the caption. Force a WS disconnect
+   and reconnect → no second caption, TTS request, or playback. A fresh session →
+   greets once again; local route cache means no second upstream OpenAI synthesis.
+3. **LiveKit** (`bun --cwd apps/demo run dev-livekit`). The greeting is spoken
+   only after `tts_ready` (worker log order shows track publish → `SPEAK_TOPIC`
+   registration → `tts_ready`). Exactly one caption; reconnect → no repeat; new
+   session → greets once.

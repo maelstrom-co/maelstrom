@@ -219,6 +219,53 @@ export const HistoryResponseMessageSchema = z.object({
 });
 
 /**
+ * Engine acknowledgement that an assistant-message injection finished.
+ *
+ * `requestId` echoes the originating {@link AssistantInjectionMessage} `id`
+ * so clients can correlate the result to a waiter. `outcome` is load-bearing:
+ * `'inserted'` means the engine stored a new history entry; `'deduped'` means
+ * an entry with that id already existed and nothing was appended. Greeting
+ * and other idempotent injectors branch on that distinction before running
+ * side effects such as speech.
+ */
+export interface AssistantMessageResultMessage {
+  readonly type: 'engine.assistant_message.result';
+  readonly requestId: MessageId;
+  readonly sessionId: SessionId;
+  readonly outcome: 'inserted' | 'deduped';
+}
+
+/**
+ * Smart constructor for {@link AssistantMessageResultMessage}.
+ *
+ * `requestId` must be the injection message id being acknowledged.
+ * `outcome` is `'inserted'` when history grew and `'deduped'` when the engine
+ * already held that id.
+ */
+export const AssistantMessageResultMessage = (args: {
+  requestId: MessageId;
+  sessionId: SessionId;
+  outcome: 'inserted' | 'deduped';
+}): AssistantMessageResultMessage => ({
+  type: 'engine.assistant_message.result',
+  ...args,
+});
+
+/**
+ * Wire-format Zod parser for {@link AssistantMessageResultMessage}.
+ *
+ * Validates the discriminator, branded `requestId` / `sessionId`, and the
+ * closed `'inserted' | 'deduped'` outcome so consumers can trust correlation
+ * and branching semantics at the decode boundary.
+ */
+export const AssistantMessageResultMessageSchema = z.object({
+  type: z.literal('engine.assistant_message.result'),
+  requestId: MessageIdSchema,
+  sessionId: SessionIdSchema,
+  outcome: z.union([z.literal('inserted'), z.literal('deduped')]),
+});
+
+/**
  * A failure the engine host reports for a request (or for a stream-level fault
  * with no recoverable request).
  *
@@ -275,6 +322,7 @@ export const EngineErrorMessageSchema = z.object({
 export type ServerEnvelope =
   | MaelstromResponseMessage
   | HistoryResponseMessage
+  | AssistantMessageResultMessage
   | EngineErrorMessage;
 
 /**
@@ -284,6 +332,7 @@ export type ServerEnvelope =
 export const ServerEnvelopeSchema = z.discriminatedUnion('type', [
   MaelstromResponseMessageSchema,
   HistoryResponseMessageSchema,
+  AssistantMessageResultMessageSchema,
   EngineErrorMessageSchema,
 ]);
 

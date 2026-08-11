@@ -26,6 +26,8 @@ export type {
   ServerEnvelope,
 } from './lib/envelope.ts';
 export {
+  AssistantMessageResultMessage,
+  AssistantMessageResultMessageSchema,
   ClientEnvelopeSchema,
   decodeClientEnvelope,
   decodeServerEnvelope,

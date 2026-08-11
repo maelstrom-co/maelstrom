@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { ToolCallId } from '@maelstrom-co/protocol';
 
 import { parseOpenAIServerEvent } from './parse-openai-event.js';
@@ -119,6 +120,15 @@ describe('parseOpenAIServerEvent — speech and error', () => {
 describe('parseOpenAIServerEvent — unknown / malformed input', () => {
   it('returns null for an unrecognized event type', () => {
     expect(parseOpenAIServerEvent({ type: 'session.updated' })).toBeNull();
+  });
+
+  it('returns null for conversation.item.created (greeting no longer consumes it)', () => {
+    expect(
+      parseOpenAIServerEvent({
+        type: 'conversation.item.created',
+        item: { id: 'x', type: 'message', role: 'assistant' },
+      }),
+    ).toBeNull();
   });
 
   it('returns null for non-object input', () => {

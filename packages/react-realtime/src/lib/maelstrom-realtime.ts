@@ -14,7 +14,7 @@ import type {
   RealtimeProviderAdapter,
   SummarizeFn,
 } from '@maelstrom-co/realtime';
-import { RealtimeSession } from '@maelstrom-co/realtime';
+import { GreetingCoordinator, RealtimeSession } from '@maelstrom-co/realtime';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
 
 import { createVoiceOrb, type VoiceOrbProps } from './voice-orb.js';
@@ -42,6 +42,15 @@ export interface MaelstromRealtimeOptions {
   readonly onEvent?: (event: SidechannelEvent) => void;
   /** Enables verbose tracing in the underlying session. */
   readonly debug?: boolean;
+  /**
+   * Optional fixed assistant greeting for each voice session.
+   *
+   * When set, `text` is spoken verbatim once per voice session. The shared
+   * {@link GreetingCoordinator} acknowledges the line in Engine history before
+   * speech starts, so reconnects and remounts do not double-speak a greeting
+   * the engine already retained.
+   */
+  readonly greeting?: { readonly text: string };
 }
 
 /**
@@ -109,6 +118,19 @@ function createBridge(orchestrator: Orchestrator): RealtimeInstance {
     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
     getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
     onSettled: (callback) => orchestrator.onSettled(callback),
+    addAssistantMessageAcknowledged: (args) =>
+      orchestrator.addAssistantMessageAcknowledged(args),
+    observeEngineConnection: (cb) => {
+      const unsubscribe = orchestrator.connectionManager.events.on(
+        'connection_status_changed',
+        (event) => cb(event.status === 'connected'),
+      );
+      cb(
+        orchestrator.connectionManager.store.state.connectionStatus ===
+          'connected',
+      );
+      return unsubscribe;
+    },
   };
 }
 
@@ -121,17 +143,39 @@ type RealtimeExtension = MaelstromExtension<{
  * Creates one React extension that adds a shared realtime session, `useVoice`,
  * and `VoiceOrb`. Provider adapters own turn detection and publish their mode
  * through `RealtimeSession`; this layer only reflects retained session state.
+ *
+ * Configure {@link MaelstromRealtimeOptions.greeting} when each voice session
+ * should present a fixed assistant line. The greeting text is exact, spoken at
+ * most once per voice session, and acknowledged into Engine history before any
+ * speech starts so retries cannot invent a second greeting for the same session.
+ *
+ * @example
+ * ```ts
+ * const realtime = maelstromRealtime({
+ *   createAdapter: () =>
+ *     new OpenAIAdapter({
+ *       mintToken: mintOpenAIToken,
+ *     }),
+ *   greeting: {
+ *     text: 'Hello! How can I help?',
+ *   },
+ * });
+ * ```
  */
 export function maelstromRealtime(
   options: MaelstromRealtimeOptions,
 ): RealtimeExtension {
   const sessions = new WeakMap<Orchestrator, VoiceSessionEntry>();
+  const coordinators = new WeakMap<Orchestrator, GreetingCoordinator>();
 
   function getOrCreateSession(orchestrator: Orchestrator): VoiceSessionEntry {
     const existing = sessions.get(orchestrator);
     if (existing) return existing;
 
     const sessionId = orchestrator.getConfig().sessionId;
+    const coordinator =
+      coordinators.get(orchestrator) ?? new GreetingCoordinator();
+    coordinators.set(orchestrator, coordinator);
     const session = new RealtimeSession({
       adapter: options.createAdapter({ sessionId }),
       instance: createBridge(orchestrator),
@@ -140,6 +184,14 @@ export function maelstromRealtime(
       groundingDebounceMs: options.groundingDebounceMs,
       onEvent: options.onEvent,
       debug: options.debug,
+      ...(options.greeting
+        ? {
+            greeting: {
+              text: options.greeting.text,
+              coordinator,
+            },
+          }
+        : {}),
     });
     const entry: VoiceSessionEntry = {
       session,

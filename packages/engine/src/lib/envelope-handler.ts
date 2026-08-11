@@ -5,6 +5,7 @@ import type {
   SessionId,
 } from '@maelstrom-co/protocol';
 import {
+  AssistantMessageResultMessage,
   MessageId as brandMessageId,
   SessionId as brandSessionId,
   decodeClientEnvelope,
@@ -88,9 +89,11 @@ export const recoverCorrelation = (
  *   `code`), an `Ok` `chart_response` to `engine.maelstrom.response`, any other
  *   `Ok` output to `engine.error` with `code: 'UnexpectedOutput'` (a
  *   contract violation, not a case that should strand the client silently).
- * - **`assistant_message`** → `engine.handle` fire-and-forget: `Ok` → `null`,
- *   `Err` → `engine.error`. Failures are surfaced (not swallowed) so a
- *   misconfiguration such as history-not-configured is visible to the client.
+ * - **`assistant_message`** → `engine.handle`; an `Ok`
+ *   `assistant_message_result` maps to `engine.assistant_message.result`,
+ *   echoing the envelope id as `requestId` and its `inserted` or `deduped`
+ *   outcome. Any other `Ok` maps to `engine.error` with `UnexpectedOutput`;
+ *   an `Err` maps to a correlated `engine.error`.
  * - **`client.history.get`** → `engine.getHistory`; `Ok` → `engine.history.response`,
  *   `Err` → `engine.error`.
  *
@@ -158,7 +161,18 @@ export async function handleEnvelope(
             code: result.error._tag,
           });
         }
-        return null;
+        return result.value.type === 'assistant_message_result'
+          ? AssistantMessageResultMessage({
+              requestId: envelope.id,
+              sessionId: envelope.sessionId,
+              outcome: result.value.outcome,
+            })
+          : EngineErrorMessage({
+              requestId: envelope.id,
+              sessionId: envelope.sessionId,
+              error: `engine returned unexpected output type "${result.value.type}" for assistant_message`,
+              code: 'UnexpectedOutput',
+            });
       }
 
       case 'client.history.get': {

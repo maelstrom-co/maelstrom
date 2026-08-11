@@ -1,5 +1,6 @@
 import type { SessionId } from '@maelstrom-co/protocol';
 import {
+  type OpenAIBuiltInVoice,
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
 } from '@maelstrom-co/realtime-protocol/openai';
@@ -81,6 +82,7 @@ export async function mintOpenAIToken(
 export function createBrowserMintToken(
   getApiKey: () => string | null,
   model: string,
+  voice: OpenAIBuiltInVoice,
 ): () => Promise<OpenAITokenGrant> {
   return async () => {
     const apiKey = getApiKey();
@@ -99,10 +101,15 @@ export function createBrowserMintToken(
         // expires_after is sent explicitly rather than left to OpenAI's
         // default so both mint paths pin the same token lifetime — a
         // default that shifts under us would silently change it for
-        // browser-direct visitors only.
+        // browser-direct visitors only. Trusted output voice is nested under
+        // session.audio.output so Realtime audio matches greeting TTS.
         body: JSON.stringify({
           expires_after: { anchor: 'created_at', seconds: 600 },
-          session: { type: 'realtime', model },
+          session: {
+            type: 'realtime',
+            model,
+            audio: { output: { voice } },
+          },
         }),
         redirect: 'error',
         signal: withFetchTimeout(),

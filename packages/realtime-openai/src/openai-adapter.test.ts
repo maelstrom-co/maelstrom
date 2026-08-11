@@ -3,13 +3,17 @@ import type {
   CapabilitySnapshot,
   UIStructuralSnapshot,
 } from '@maelstrom-co/client';
-import { SessionId, ToolCallId } from '@maelstrom-co/protocol';
+import { MessageId, SessionId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterConnectOptions,
   RealtimeInstance,
   RealtimeProviderAdapter,
 } from '@maelstrom-co/realtime';
-import { RealtimeSession, RealtimeVoiceError } from '@maelstrom-co/realtime';
+import {
+  GreetingCoordinator,
+  RealtimeSession,
+  RealtimeVoiceError,
+} from '@maelstrom-co/realtime';
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type { OpenAITokenGrant } from '@maelstrom-co/realtime-protocol/openai';
 import FakeTimers from '@sinonjs/fake-timers';
@@ -63,6 +67,7 @@ class FakeDataChannel {
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onerror: (() => void) | null = null;
+  onclose: (() => void) | null = null;
 
   send(data: string): void {
     this.sent.push(data);
@@ -71,11 +76,16 @@ class FakeDataChannel {
   close(): void {
     this.closed = true;
     this.readyState = 'closed';
+    this.onclose?.();
   }
 
   triggerOpen(): void {
     this.readyState = 'open';
     this.onopen?.();
+  }
+
+  triggerError(): void {
+    this.onerror?.();
   }
 
   receive(payload: unknown): void {
@@ -269,13 +279,33 @@ async function connectWithChannel(): Promise<{
   connection: FakeRTCPeerConnection;
 }> {
   const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
-  await adapter.connect(connectOpts);
+  const channel = await connectAndOpen(adapter);
   const pc = FakeRTCPeerConnection.instances[0];
-  const channel = pc?.dataChannel;
   if (!channel || !pc)
     throw new Error('connectWithChannel: no data channel created');
-  channel.triggerOpen();
   return { adapter, channel, connection: pc };
+}
+
+async function latestDataChannel(
+  exclude?: FakeDataChannel,
+): Promise<FakeDataChannel> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const channel = FakeRTCPeerConnection.instances.at(-1)?.dataChannel;
+    if (channel && channel !== exclude) return channel;
+    await Promise.resolve();
+  }
+  throw new Error('no data channel');
+}
+
+async function connectAndOpen(
+  adapter: OpenAIAdapter,
+): Promise<FakeDataChannel> {
+  const previousChannel = FakeRTCPeerConnection.instances.at(-1)?.dataChannel;
+  const connecting = adapter.connect(connectOpts);
+  const channel = await latestDataChannel(previousChannel);
+  channel.triggerOpen();
+  await connecting;
+  return channel;
 }
 
 afterEach(() => {
@@ -311,7 +341,7 @@ describe('OpenAIAdapter — mintToken failure', () => {
 
     // The `connecting` guard must have been reset by teardown() — otherwise
     // this retry would spuriously hit the "already connected" guard.
-    await adapter.connect(connectOpts);
+    await connectAndOpen(adapter);
     expect(FakeRTCPeerConnection.instances).toHaveLength(1);
   });
 });
@@ -334,7 +364,7 @@ describe('OpenAIAdapter — getUserMedia failure', () => {
     expect(FakeRTCPeerConnection.instances[0]?.closed).toBe(true);
 
     getUserMediaImpl = async () => new FakeMediaStream(1);
-    await adapter.connect(connectOpts);
+    await connectAndOpen(adapter);
     expect(FakeRTCPeerConnection.instances).toHaveLength(2);
     expect(FakeRTCPeerConnection.instances[1]?.closed).toBe(false);
   });
@@ -352,9 +382,8 @@ describe('OpenAIAdapter — microphone audio processing', () => {
       return new FakeMediaStream(1);
     };
 
-    await new OpenAIAdapter({ mintToken: async () => fakeToken }).connect(
-      connectOpts,
-    );
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    await connectAndOpen(adapter);
 
     expect(requested).toEqual({
       audio: {
@@ -381,10 +410,11 @@ describe('OpenAIAdapter — microphone audio processing', () => {
     const originalDebug = console.debug;
     console.debug = (...args: unknown[]) => debugCalls.push(args);
     try {
-      await new OpenAIAdapter({
+      const adapter = new OpenAIAdapter({
         mintToken: async () => fakeToken,
         debug: true,
-      }).connect(connectOpts);
+      });
+      await connectAndOpen(adapter);
     } finally {
       console.debug = originalDebug;
     }
@@ -422,10 +452,11 @@ describe('OpenAIAdapter — microphone audio processing', () => {
     const originalDebug = console.debug;
     console.debug = (...args: unknown[]) => debugCalls.push(args);
     try {
-      await new OpenAIAdapter({
+      const adapter = new OpenAIAdapter({
         mintToken: async () => fakeToken,
         debug: true,
-      }).connect(connectOpts);
+      });
+      await connectAndOpen(adapter);
     } finally {
       console.debug = originalDebug;
     }
@@ -458,10 +489,11 @@ describe('OpenAIAdapter — microphone audio processing', () => {
     const originalDebug = console.debug;
     console.debug = (...args: unknown[]) => debugCalls.push(args);
     try {
-      await new OpenAIAdapter({
+      const adapter = new OpenAIAdapter({
         mintToken: async () => fakeToken,
         debug: true,
-      }).connect(connectOpts);
+      });
+      await connectAndOpen(adapter);
     } finally {
       console.debug = originalDebug;
     }
@@ -495,10 +527,11 @@ describe('OpenAIAdapter — microphone audio processing', () => {
     const originalDebug = console.debug;
     console.debug = (...args: unknown[]) => debugCalls.push(args);
     try {
-      await new OpenAIAdapter({
+      const adapter = new OpenAIAdapter({
         mintToken: async () => fakeToken,
         debug: true,
-      }).connect(connectOpts);
+      });
+      await connectAndOpen(adapter);
     } finally {
       console.debug = originalDebug;
     }
@@ -580,7 +613,7 @@ describe('OpenAIAdapter — microphone audio processing', () => {
           debug: true,
         });
 
-        await adapter.connect(connectOpts);
+        await connectAndOpen(adapter);
 
         expect(
           (
@@ -625,10 +658,11 @@ describe('OpenAIAdapter — microphone audio processing', () => {
     const originalDebug = console.debug;
     console.debug = (...args: unknown[]) => debugCalls.push(args);
     try {
-      await new OpenAIAdapter({
+      const adapter = new OpenAIAdapter({
         mintToken: async () => fakeToken,
         debug: true,
-      }).connect(connectOpts);
+      });
+      await connectAndOpen(adapter);
 
       const audioProcessingCall = debugCalls.find(
         (call) => call[1] === 'microphone audio processing',
@@ -665,9 +699,8 @@ describe('OpenAIAdapter — microphone audio processing', () => {
     const originalDebug = console.debug;
     console.debug = (...args: unknown[]) => debugCalls.push(args);
     try {
-      await new OpenAIAdapter({ mintToken: async () => fakeToken }).connect(
-        connectOpts,
-      );
+      const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+      await connectAndOpen(adapter);
     } finally {
       console.debug = originalDebug;
     }
@@ -766,6 +799,8 @@ describe('OpenAIAdapter — double connect during mint', () => {
     );
 
     resolveMint(fakeToken);
+    const channel = await latestDataChannel();
+    channel.triggerOpen();
     await first;
 
     expect(FakeRTCPeerConnection.instances).toHaveLength(1);
@@ -777,13 +812,160 @@ describe('OpenAIAdapter — double connect during mint', () => {
 // Droppable grounding vs. error-worthy tool results on a closed channel
 // ============================================================================
 
+describe('OpenAIAdapter — data-channel readiness', () => {
+  it('keeps connect pending after SDP exchange until the data channel opens', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    let connected = false;
+
+    const connecting = adapter.connect(connectOpts).then(() => {
+      connected = true;
+    });
+    await flushMicrotasks();
+
+    const channel = FakeRTCPeerConnection.instances[0]?.dataChannel;
+    if (!channel) throw new Error('no channel');
+    expect(channel.readyState).toBe('connecting');
+    expect(connected).toBe(false);
+
+    channel.triggerOpen();
+    await connecting;
+    expect(connected).toBe(true);
+  });
+
+  it('rejects as superseded when disconnect closes a channel that is still opening', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const connecting = adapter
+      .connect(connectOpts)
+      .catch((error: unknown) => error);
+    const channel = await latestDataChannel();
+    expect(channel.readyState).toBe('connecting');
+
+    await adapter.disconnect();
+    const error = await connecting;
+
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('CONNECT_SUPERSEDED');
+    expect(channel.closed).toBe(true);
+  });
+
+  it('rejects and cleans up when the data channel errors before opening', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const connecting = adapter
+      .connect(connectOpts)
+      .catch((error: unknown) => error);
+    const channel = await latestDataChannel();
+
+    channel.triggerError();
+    const error = await connecting;
+
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('DATA_CHANNEL_ERROR');
+    expect(channel.closed).toBe(true);
+    expect(FakeRTCPeerConnection.instances[0]?.closed).toBe(true);
+  });
+
+  it('preserves DATA_CHANNEL_ERROR through a RealtimeSession pre-open failure', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeInertInstance(),
+      sessionId: SessionId('sess-channel-error'),
+    });
+    const connecting = session.connect().catch((error: unknown) => error);
+    const channel = await latestDataChannel();
+
+    channel.triggerError();
+    const error = await connecting;
+
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('DATA_CHANNEL_ERROR');
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(error);
+  });
+
+  it('ignores open and error callbacks from an abandoned data channel', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const events: unknown[] = [];
+    adapter.on((event) => events.push(event));
+
+    const first = adapter.connect(connectOpts).catch((error: unknown) => error);
+    const abandoned = await latestDataChannel();
+    await adapter.disconnect();
+    await first;
+
+    const second = adapter.connect(connectOpts);
+    const winner = await latestDataChannel(abandoned);
+    abandoned.triggerOpen();
+    abandoned.triggerError();
+
+    expect(abandoned.sent).toEqual([]);
+    expect(events).toEqual([]);
+    expect(winner.closed).toBe(false);
+
+    winner.triggerOpen();
+    await second;
+  });
+
+  it('does not send or emit after the first pre-open channel error', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const events: unknown[] = [];
+    adapter.on((event) => events.push(event));
+    const connecting = adapter
+      .connect(connectOpts)
+      .catch((error: unknown) => error);
+    const channel = await latestDataChannel();
+
+    channel.triggerError();
+    channel.triggerError();
+    channel.triggerOpen();
+    const error = await connecting;
+
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('DATA_CHANNEL_ERROR');
+    expect(channel.sent).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it('rejects when the channel closes after opening but before SDP completes', async () => {
+    let resolveFetch!: (response: {
+      ok: boolean;
+      status: number;
+      text: () => Promise<string>;
+    }) => void;
+    fetchImpl = () =>
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      });
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const connecting = adapter
+      .connect(connectOpts)
+      .catch((error: unknown) => error);
+    const channel = await latestDataChannel();
+    await flushMicrotasks();
+
+    channel.triggerOpen();
+    channel.close();
+    resolveFetch({
+      ok: true,
+      status: 200,
+      text: async () => 'fake-answer-sdp',
+    });
+    const error = await connecting;
+
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('DATA_CHANNEL_ERROR');
+    expect(FakeRTCPeerConnection.instances[0]?.closed).toBe(true);
+    expect(FakeMediaStream.instances[0]?.tracks[0]?.stopped).toBe(true);
+  });
+});
+
 describe('OpenAIAdapter — closed data channel', () => {
   it('injectGrounding on a non-open channel drops silently, without emitting an error or sending anything', async () => {
     const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
-    await adapter.connect(connectOpts);
+    const connecting = adapter.connect(connectOpts);
+    void connecting.catch(() => {});
+    const dc = await latestDataChannel();
     // Data channel never opened (triggerOpen() not called) — readyState stays 'connecting'.
-    const pc = FakeRTCPeerConnection.instances[0];
-    const dc = pc?.dataChannel;
     expect(dc?.readyState).toBe('connecting');
 
     const events: unknown[] = [];
@@ -793,13 +975,14 @@ describe('OpenAIAdapter — closed data channel', () => {
 
     expect(events).toEqual([]); // no error emitted — grounding is droppable
     expect(dc?.sent).toEqual([]); // nothing sent on the closed channel
+    await adapter.disconnect();
   });
 
   it('sendToolResult on a non-open channel still emits an error', async () => {
     const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
-    await adapter.connect(connectOpts);
-    const pc = FakeRTCPeerConnection.instances[0];
-    const dc = pc?.dataChannel;
+    const connecting = adapter.connect(connectOpts);
+    void connecting.catch(() => {});
+    const dc = await latestDataChannel();
     expect(dc?.readyState).toBe('connecting');
 
     const events: Array<{ type: string; error?: unknown }> = [];
@@ -817,6 +1000,7 @@ describe('OpenAIAdapter — closed data channel', () => {
     expect((events[0]?.error as Error)?.message).toContain(
       'data channel not open',
     );
+    await adapter.disconnect();
   });
 });
 
@@ -827,12 +1011,10 @@ describe('OpenAIAdapter — closed data channel', () => {
 describe('OpenAIAdapter — successful connect then disconnect', () => {
   it('sends session.update with tools and instructions on channel open, then disconnect tears everything down', async () => {
     const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
-    await adapter.connect(connectOpts);
+    const dc = await connectAndOpen(adapter);
 
     const pc = FakeRTCPeerConnection.instances[0];
-    const dc = pc?.dataChannel;
     expect(dc).toBeDefined();
-    dc?.triggerOpen();
 
     expect(dc?.sent).toHaveLength(1);
     const sessionUpdate = JSON.parse(dc?.sent[0] ?? '{}');
@@ -863,7 +1045,7 @@ describe('OpenAIAdapter — successful connect then disconnect', () => {
 describe('OpenAIAdapter — typed errors', () => {
   it('throws ALREADY_CONNECTED on double connect', async () => {
     const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
-    await adapter.connect(connectOpts);
+    await connectAndOpen(adapter);
     const err = await adapter.connect(connectOpts).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RealtimeVoiceError);
     expect((err as RealtimeVoiceError).code).toBe('ALREADY_CONNECTED');
@@ -984,6 +1166,8 @@ function makeInertInstance(): RealtimeInstance {
     getStructuralSnapshot: () => snapshot,
     getCapabilitySnapshot: () => capabilitySnapshot,
     onSettled: () => () => {},
+    addAssistantMessageAcknowledged: async () => 'inserted' as const,
+    observeEngineConnection: () => () => {},
   };
 }
 
@@ -1011,7 +1195,9 @@ describe('RealtimeSession + OpenAIAdapter — fatal in-session error recovery', 
       sessionId: SessionId('sess-fatal-ice'),
     });
 
-    await session.connect();
+    const firstConnect = session.connect();
+    (await latestDataChannel()).triggerOpen();
+    await firstConnect;
     expect(session.state).toBe('connected');
 
     const pc = FakeRTCPeerConnection.instances[0];
@@ -1035,7 +1221,9 @@ describe('RealtimeSession + OpenAIAdapter — fatal in-session error recovery', 
     // Retry: without tearing down the adapter, this would throw
     // ALREADY_CONNECTED (the adapter still thinks it's connected) and
     // clobber lastError instead of establishing a fresh connection.
-    await session.connect();
+    const retryConnect = session.connect();
+    (await latestDataChannel(pc.dataChannel)).triggerOpen();
+    await retryConnect;
 
     expect(session.state).toBe('connected');
     expect(session.lastError).toBeUndefined();
@@ -1091,6 +1279,7 @@ describe('OpenAIAdapter — superseded connect abandonment', () => {
       // Winner first: attempt 2's mic resolves, so it publishes to the shared
       // fields and finishes its handshake.
       micResolvers[1]?.();
+      (await latestDataChannel()).triggerOpen();
       await second;
       const winnerMic = micStreams[0];
 
@@ -1205,31 +1394,32 @@ describe('OpenAIAdapter — ICE disconnected grace window', () => {
 
 describe('OpenAIAdapter — transcription config', () => {
   async function connectAndReadSessionUpdate(adapter: OpenAIAdapter) {
-    await adapter.connect(connectOpts);
-    const dc = FakeRTCPeerConnection.instances[0]?.dataChannel;
-    dc?.triggerOpen();
+    const dc = await connectAndOpen(adapter);
     return JSON.parse(dc?.sent[0] ?? '{}');
   }
 
-  it('enables input-audio transcription with the default model by default', async () => {
+  it('enables input-audio transcription with the default model and marin output voice by default', async () => {
     const update = await connectAndReadSessionUpdate(
       new OpenAIAdapter({ mintToken: async () => fakeToken }),
     );
     expect(update.session.audio.input.transcription).toEqual({
       model: 'gpt-4o-mini-transcribe',
     });
+    expect(update.session.audio.output.voice).toBe('marin');
   });
 
-  it('uses a caller-supplied transcription model', async () => {
+  it('uses a caller-supplied transcription model alongside output voice', async () => {
     const update = await connectAndReadSessionUpdate(
       new OpenAIAdapter({
         mintToken: async () => fakeToken,
         transcription: { model: 'whisper-1' },
+        voice: 'cedar',
       }),
     );
     expect(update.session.audio.input.transcription).toEqual({
       model: 'whisper-1',
     });
+    expect(update.session.audio.output.voice).toBe('cedar');
   });
 
   it('falls back to the default model when the transcription object omits model', async () => {
@@ -1242,15 +1432,760 @@ describe('OpenAIAdapter — transcription config', () => {
     expect(update.session.audio.input.transcription).toEqual({
       model: 'gpt-4o-mini-transcribe',
     });
+    expect(update.session.audio.output.voice).toBe('marin');
   });
 
-  it('omits input-audio transcription entirely when disabled', async () => {
+  it('omits input transcription when disabled but retains output voice', async () => {
     const update = await connectAndReadSessionUpdate(
       new OpenAIAdapter({
         mintToken: async () => fakeToken,
         transcription: false,
       }),
     );
-    expect(update.session.audio).toBeUndefined();
+    expect(update.session.audio.input).toBeUndefined();
+    expect(update.session.audio.output.voice).toBe('marin');
+  });
+});
+
+// ============================================================================
+// Greeting capability (RealtimeGreetingAdapter)
+// ============================================================================
+
+class GreetingFakeAudioBuffer {
+  constructor(
+    readonly numberOfChannels: number,
+    readonly length: number,
+    readonly sampleRate: number,
+  ) {}
+}
+
+class GreetingFakeBufferSource {
+  buffer: GreetingFakeAudioBuffer | null = null;
+  onended: (() => void) | null = null;
+  connectedTo: unknown = null;
+  started = false;
+  stopped = false;
+  disconnected = false;
+
+  connect(destination: unknown): void {
+    this.connectedTo = destination;
+  }
+
+  disconnect(): void {
+    this.disconnected = true;
+  }
+
+  start(): void {
+    this.started = true;
+  }
+
+  stop(): void {
+    this.stopped = true;
+  }
+
+  end(): void {
+    this.onended?.();
+  }
+}
+
+class GreetingFakeAudioContext {
+  static instances: GreetingFakeAudioContext[] = [];
+  readonly destination = { kind: 'destination' as const };
+  readonly sampleRate = 44100;
+  state: AudioContextState = 'running';
+  sources: GreetingFakeBufferSource[] = [];
+
+  constructor() {
+    GreetingFakeAudioContext.instances.push(this);
+  }
+
+  resume(): Promise<void> {
+    this.state = 'running';
+    return Promise.resolve();
+  }
+
+  createBuffer(
+    numberOfChannels: number,
+    length: number,
+    sampleRate: number,
+  ): GreetingFakeAudioBuffer {
+    return new GreetingFakeAudioBuffer(numberOfChannels, length, sampleRate);
+  }
+
+  createBufferSource(): GreetingFakeBufferSource {
+    const source = new GreetingFakeBufferSource();
+    this.sources.push(source);
+    return source;
+  }
+
+  async decodeAudioData(_data: ArrayBuffer): Promise<GreetingFakeAudioBuffer> {
+    return new GreetingFakeAudioBuffer(1, 8, this.sampleRate);
+  }
+}
+
+/** End the latest playback source so play() can resolve. */
+function endLatestPlayback(): void {
+  const ctx = GreetingFakeAudioContext.instances.at(-1);
+  const source = ctx?.sources.at(-1);
+  source?.end();
+}
+
+async function settleGreetingPlay(speak: Promise<unknown>): Promise<unknown> {
+  // Allow synthesize + decode microtasks, then end the buffer source.
+  for (let i = 0; i < 10; i += 1) {
+    await Promise.resolve();
+    const ctx = GreetingFakeAudioContext.instances.at(-1);
+    // sources[0] is silent unlock; playback is later.
+    if (ctx && ctx.sources.length >= 2 && ctx.sources.at(-1)?.started) {
+      endLatestPlayback();
+      return speak;
+    }
+  }
+  throw new Error('greeting playback source never started');
+}
+
+describe('OpenAIAdapter — greeting speakAssistantText', () => {
+  const greetingId = MessageId('greeting:s1');
+  const greetingText = 'Welcome aboard.';
+  let originalAudioContext: unknown;
+
+  beforeEach(() => {
+    GreetingFakeAudioContext.instances = [];
+    originalAudioContext = Reflect.get(globalThis, 'AudioContext');
+    Object.defineProperty(globalThis, 'AudioContext', {
+      value: GreetingFakeAudioContext,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    restoreGlobal('AudioContext', originalAudioContext);
+    GreetingFakeAudioContext.instances = [];
+  });
+
+  function makeSynthesizer(opts?: {
+    impl?: (args: {
+      text: string;
+      voice: string;
+      signal: AbortSignal;
+    }) => Promise<ArrayBuffer>;
+    calls?: Array<{ text: string; voice: string; signal: AbortSignal }>;
+  }) {
+    const calls =
+      opts?.calls ??
+      ([] as Array<{ text: string; voice: string; signal: AbortSignal }>);
+    const synthesizeGreeting =
+      opts?.impl ??
+      (async (args: { text: string; voice: string; signal: AbortSignal }) => {
+        calls.push(args);
+        return new ArrayBuffer(8);
+      });
+    return { synthesizeGreeting, calls };
+  }
+
+  it('sends the exact assistant item before TTS without forwarding an engine ID that OpenAI may reject', async () => {
+    const order: string[] = [];
+    const { synthesizeGreeting, calls } = makeSynthesizer({
+      impl: async (args) => {
+        order.push('tts');
+        calls.push(args);
+        return new ArrayBuffer(8);
+      },
+    });
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+    expect(GreetingFakeAudioContext.instances).toHaveLength(1);
+
+    const originalSend = channel.send.bind(channel);
+    channel.send = (data: string) => {
+      order.push('send');
+      originalSend(data);
+    };
+
+    const engineGreetingId = MessageId(
+      'greeting:session-123456789012345678901',
+    );
+    expect(String(engineGreetingId)).toHaveLength(38);
+
+    await settleGreetingPlay(
+      adapter.speakAssistantText({
+        id: engineGreetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(order).toEqual(['send', 'tts']);
+    const frames = channel.sent.map(
+      (s) => JSON.parse(s) as { type: string; item?: unknown },
+    );
+    const creates = frames.filter((f) => f.type === 'conversation.item.create');
+    const responses = frames.filter((f) => f.type === 'response.create');
+    expect(creates).toHaveLength(1);
+    expect(creates[0]).toEqual({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        content: [{ type: 'output_text', text: greetingText }],
+      },
+    });
+    expect(responses).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.text).toBe(greetingText);
+    expect(calls[0]?.voice).toBe('marin');
+  });
+
+  it('completes without any conversation.item.created provider event', async () => {
+    const { synthesizeGreeting } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    await expect(
+      settleGreetingPlay(
+        adapter.speakAssistantText({
+          id: greetingId,
+          text: greetingText,
+          signal: new AbortController().signal,
+        }),
+      ),
+    ).resolves.toBe('accepted');
+  });
+
+  it('returns not_started when the data channel is absent', async () => {
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    adapter.activateAudio();
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('returns not_started without a synthesizer and does not unlock Web Audio', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(
+      channel.sent.filter((s) => s.includes('conversation.item.create')),
+    ).toHaveLength(0);
+    expect(GreetingFakeAudioContext.instances).toHaveLength(0);
+  });
+
+  it('returns not_started when activateAudio was never called', async () => {
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    const channel = await connectAndOpen(adapter);
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(
+      channel.sent.filter((s) => s.includes('conversation.item.create')),
+    ).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('returns not_started when the caller signal is already aborted', async () => {
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: aborted.signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('returns not_started when dc.send throws and never calls TTS', async () => {
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+    channel.send = () => {
+      throw new Error('dc closed');
+    };
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('returns accepted when synthesis fails after send', async () => {
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async () => {
+        throw new Error('tts boom');
+      },
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('accepted');
+    expect(
+      channel.sent.some((s) => s.includes('conversation.item.create')),
+    ).toBe(true);
+  });
+
+  it('returns accepted when decode/playback fails after send', async () => {
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async () => new ArrayBuffer(8),
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    const ctx = GreetingFakeAudioContext.instances[0]!;
+    ctx.decodeAudioData = async () => {
+      throw new Error('bad wav');
+    };
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('accepted');
+  });
+
+  it('abort after send settles accepted and aborts the synthesizer signal without releasing it', async () => {
+    let observedSignal: AbortSignal | undefined;
+    // Intentionally never resolve — abort race must settle the adapter.
+    const synthGate = new Promise<void>(() => {});
+
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async ({ signal }) => {
+        observedSignal = signal;
+        await synthGate;
+        return new ArrayBuffer(8);
+      },
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    const controller = new AbortController();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: controller.signal,
+    });
+    await flushMicrotasks();
+    expect(observedSignal).toBeDefined();
+    expect(observedSignal?.aborted).toBe(false);
+
+    controller.abort();
+    expect(observedSignal?.aborted).toBe(true);
+    await expect(speak).resolves.toBe('accepted');
+  });
+
+  it('disconnect settles an uncooperative pending synthesizer without releasing it', async () => {
+    let observedSignal: AbortSignal | undefined;
+    // Never resolves — proves disconnect/abort race, not cooperative synth.
+    const synthGate = new Promise<void>(() => {});
+
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async ({ signal }) => {
+        observedSignal = signal;
+        await synthGate;
+        return new ArrayBuffer(8);
+      },
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+    await flushMicrotasks();
+    expect(observedSignal?.aborted).toBe(false);
+
+    await adapter.disconnect();
+    expect(observedSignal?.aborted).toBe(true);
+    await expect(speak).resolves.toBe('accepted');
+  });
+
+  it('pre-send abort while resume hangs returns not_started without releasing resume', async () => {
+    // Hang AudioContext.resume so ensureReady would pend forever without abort race.
+    const Original = GreetingFakeAudioContext;
+    const resumeGate = new Promise<void>(() => {});
+    class HangingResumeContext extends Original {
+      override resume(): Promise<void> {
+        return resumeGate;
+      }
+    }
+    Object.defineProperty(globalThis, 'AudioContext', {
+      value: HangingResumeContext,
+      configurable: true,
+      writable: true,
+    });
+
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    const controller = new AbortController();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: controller.signal,
+    });
+    await flushMicrotasks();
+    controller.abort();
+    await expect(speak).resolves.toBe('not_started');
+    expect(calls).toHaveLength(0);
+    expect(
+      channel.sent.filter((s) => s.includes('conversation.item.create')),
+    ).toHaveLength(0);
+  });
+
+  it('stale operation finally does not stop a newer operation playback', async () => {
+    // A hangs forever on synth; B starts while A is still in-flight, then A is
+    // aborted so A's finally runs after #greetingOp points at B.
+    // If A unconditionally stop()s the shared player, B's source is stopped
+    // and speakB settles early — this test must fail under that bug.
+    const synthA = new Promise<ArrayBuffer>(() => {});
+    let bCalls = 0;
+
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async ({ text }) => {
+        if (text === 'Hi A') return synthA;
+        bCalls += 1;
+        return new ArrayBuffer(8);
+      },
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    const controllerA = new AbortController();
+    const speakA = adapter.speakAssistantText({
+      id: MessageId('greeting:a'),
+      text: 'Hi A',
+      signal: controllerA.signal,
+    });
+    await flushMicrotasks();
+
+    // B starts while A is still awaiting its synthesizer.
+    const speakB = adapter.speakAssistantText({
+      id: MessageId('greeting:b'),
+      text: 'Hi B',
+      signal: new AbortController().signal,
+    });
+    await flushMicrotasks();
+    expect(bCalls).toBe(1);
+
+    const ctx = GreetingFakeAudioContext.instances.at(-1)!;
+    let bSource: GreetingFakeBufferSource | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const candidate = ctx.sources.at(-1);
+      if (candidate?.started && ctx.sources.length >= 2) {
+        bSource = candidate;
+        break;
+      }
+      await Promise.resolve();
+    }
+    expect(bSource).toBeDefined();
+    expect(bSource!.started).toBe(true);
+    expect(bSource!.stopped).toBe(false);
+    expect(bSource!.disconnected).toBe(false);
+
+    let bSettled = false;
+    void speakB.then(
+      () => {
+        bSettled = true;
+      },
+      () => {
+        bSettled = true;
+      },
+    );
+
+    // Abort A: race settles speakA; finally must not stop B's source.
+    controllerA.abort();
+    await expect(speakA).resolves.toBe('accepted');
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // B must still be mid-playback: not stopped by stale A, and not settled.
+    expect(bSource!.started).toBe(true);
+    expect(bSource!.stopped).toBe(false);
+    expect(bSource!.disconnected).toBe(false);
+    expect(bSettled).toBe(false);
+
+    // Only B's own onended may complete speakB.
+    bSource!.end();
+    await expect(speakB).resolves.toBe('accepted');
+    expect(bSettled).toBe(true);
+  });
+
+  it('passes the configured voice to the synthesizer', async () => {
+    const { synthesizeGreeting, calls } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      voice: 'cedar',
+      synthesizeGreeting,
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    await settleGreetingPlay(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(calls[0]?.voice).toBe('cedar');
+  });
+
+  it('stops active greeting playback on speech_started without tearing down the session', async () => {
+    const { synthesizeGreeting } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+
+    const ctx = GreetingFakeAudioContext.instances.at(-1)!;
+    let playback: GreetingFakeBufferSource | undefined;
+    for (let i = 0; i < 20; i += 1) {
+      const candidate = ctx.sources.at(-1);
+      if (candidate?.started && ctx.sources.length >= 2) {
+        playback = candidate;
+        break;
+      }
+      await Promise.resolve();
+    }
+    expect(playback).toBeDefined();
+    expect(playback!.stopped).toBe(false);
+
+    const createsBefore = channel.sent.filter((s) =>
+      s.includes('conversation.item.create'),
+    ).length;
+    expect(createsBefore).toBe(1);
+
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    await flushMicrotasks();
+
+    // Adapter-owned Web Audio greeting stops; speak settles accepted (post-send).
+    expect(playback!.stopped).toBe(true);
+    await expect(speak).resolves.toBe('accepted');
+
+    // Session stays connected and usable; history is not resent/duplicated.
+    expect(channel.readyState).toBe('open');
+    expect(channel.closed).toBe(false);
+    channel.send(JSON.stringify({ type: 'response.create' }));
+    expect(
+      channel.sent.filter((s) => s.includes('conversation.item.create')),
+    ).toHaveLength(1);
+    expect(
+      channel.sent.filter((s) => {
+        try {
+          return (
+            (JSON.parse(s) as { type?: string }).type === 'response.create'
+          );
+        } catch {
+          return false;
+        }
+      }),
+    ).toHaveLength(1);
+  });
+});
+
+describe('GreetingCoordinator × OpenAIAdapter — cross-layer ordering', () => {
+  const layerText = 'Cross-layer greeting text stays exact.';
+  let originalAudioContext: unknown;
+
+  beforeEach(() => {
+    GreetingFakeAudioContext.instances = [];
+    originalAudioContext = Reflect.get(globalThis, 'AudioContext');
+    Object.defineProperty(globalThis, 'AudioContext', {
+      value: GreetingFakeAudioContext,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    restoreGlobal('AudioContext', originalAudioContext);
+    GreetingFakeAudioContext.instances = [];
+  });
+
+  it('orders Engine ack → caption → exact provider item → TTS without provider ack or response.create', async () => {
+    const order: string[] = [];
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async ({ text, voice }) => {
+        order.push('tts');
+        expect(text).toBe(layerText);
+        expect(voice).toBe('marin');
+        return new ArrayBuffer(8);
+      },
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+
+    const originalSend = channel.send.bind(channel);
+    channel.send = (data: string) => {
+      originalSend(data);
+      let parsed: { type?: string; item?: Record<string, unknown> };
+      try {
+        parsed = JSON.parse(data) as {
+          type?: string;
+          item?: Record<string, unknown>;
+        };
+      } catch {
+        return;
+      }
+      if (
+        parsed.type === 'conversation.item.create' &&
+        parsed.item?.role === 'assistant'
+      ) {
+        order.push('provider-item');
+      }
+    };
+
+    const sessionId = SessionId('cross-layer-sess');
+    const coordinator = new GreetingCoordinator();
+    const expectedId = coordinator.greetingIdFor(sessionId);
+
+    const instance: RealtimeInstance = {
+      submitIntent: async () => ({}),
+      waitForIdle: async () => {},
+      getStructuralSnapshot: () => ({
+        instances: [],
+        layout: null,
+        layoutMode: 'grid',
+        chartDimensions: { rows: 8, columns: 12 },
+      }),
+      getCapabilitySnapshot: () => ({ vessels: [] }),
+      onSettled: () => () => {},
+      addAssistantMessageAcknowledged: async (args) => {
+        order.push('engine-ack');
+        expect(args.id).toBe(expectedId);
+        expect(args.message).toBe(layerText);
+        return 'inserted';
+      },
+      observeEngineConnection: (cb) => {
+        cb(true);
+        return () => {};
+      },
+    };
+
+    const run = coordinator.run({
+      sessionId,
+      text: layerText,
+      instance,
+      adapter,
+      signal: new AbortController().signal,
+      emitTranscript: (text) => {
+        order.push('caption');
+        expect(text).toBe(layerText);
+      },
+    });
+
+    // Coordinator has more async steps than a bare speakAssistantText call;
+    // wait until TTS has started playback, then end the buffer source.
+    for (let i = 0; i < 40; i += 1) {
+      await flushMicrotasks();
+      const ctx = GreetingFakeAudioContext.instances.at(-1);
+      if (
+        order.includes('tts') &&
+        ctx &&
+        ctx.sources.length >= 2 &&
+        ctx.sources.at(-1)?.started
+      ) {
+        endLatestPlayback();
+        break;
+      }
+    }
+    await run;
+
+    expect(order).toEqual(['engine-ack', 'caption', 'provider-item', 'tts']);
+
+    const frames = channel.sent.map(
+      (s) => JSON.parse(s) as { type: string; item?: unknown },
+    );
+    const creates = frames.filter((f) => f.type === 'conversation.item.create');
+    const responses = frames.filter((f) => f.type === 'response.create');
+    expect(creates).toHaveLength(1);
+    expect(creates[0]).toEqual({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        content: [{ type: 'output_text', text: layerText }],
+      },
+    });
+    expect(responses).toHaveLength(0);
+    // Completes without any conversation.item.created provider echo.
   });
 });
