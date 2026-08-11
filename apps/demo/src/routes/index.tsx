@@ -4,6 +4,7 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { createFileRoute } from '@tanstack/react-router';
 import { useStore } from '@tanstack/react-store';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AssistantResponse } from '../components/assistant-response';
 import { Captions } from '../components/captions';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
 import { KeyDrawer } from '../components/key-drawer';
@@ -314,8 +315,14 @@ function IntentInput({
   resumeIntent,
   onResumeIntentHandled,
 }: IntentInputProps) {
-  const { processIntent, isProcessing, lastError, connectionStatus } =
-    m.useMaelstrom();
+  const {
+    processIntent,
+    isProcessing,
+    lastError,
+    lastResponse,
+    connectionStatus,
+  } = m.useMaelstrom();
+  const { state: voiceState } = m.useVoice();
   const hosted = isHosted();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const needsKey = hosted && !apiKey;
@@ -394,9 +401,14 @@ function IntentInput({
 
   return (
     <div
-      className="border-t p-4 bg-bg-1"
+      className="relative border-t p-4 bg-bg-1"
       style={{ borderColor: 'var(--line)' }}
     >
+      <AssistantResponse
+        isProcessing={isProcessing}
+        message={lastResponse?.userMessage}
+        voiceActive={voiceState !== 'idle' && voiceState !== 'error'}
+      />
       <VoiceErrorNote />
       {/* Captions stay in footer chrome (never under main): a chart-bottom
           scrim covered vessel flash borders, and in-flow height changes here
@@ -414,7 +426,7 @@ function IntentInput({
             type="text"
             value={intent}
             onChange={(e) => onIntentChange(e.target.value)}
-            placeholder="Tell Maelstrom what you want to do..."
+            placeholder="Tell Maelstrom what you want to arrange..."
             className="intent-pill flex-1 px-4 py-3"
             disabled={isProcessing}
           />

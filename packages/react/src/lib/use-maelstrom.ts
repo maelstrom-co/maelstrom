@@ -1,4 +1,4 @@
-import { toError } from '@maelstrom-co/protocol';
+import { type MaelstromResponse, toError } from '@maelstrom-co/protocol';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { MaelstromContextPair } from './context.js';
 import type { MaelstromState } from './maelstrom-state-types.js';
@@ -14,12 +14,17 @@ export function createUseMaelstrom(contextPair: MaelstromContextPair) {
     const { orchestrator, onErrorRef, config } = useMaelstromContext();
 
     const [lastError, setLastError] = useState<Error | null>(null);
+    const [lastResponse, setLastResponse] = useState<MaelstromResponse | null>(
+      null,
+    );
 
     const processIntent = useCallback(
       async (intent: string): Promise<void> => {
         setLastError(null);
+        setLastResponse(null);
         try {
-          await orchestrator.processIntent(intent);
+          const response = await orchestrator.processIntent(intent);
+          setLastResponse(response);
         } catch (err) {
           const error = toError(err);
           setLastError(error);
@@ -38,6 +43,8 @@ export function createUseMaelstrom(contextPair: MaelstromContextPair) {
     processIntentRef.current = processIntent;
     const lastErrorRef = useRef(lastError);
     lastErrorRef.current = lastError;
+    const lastResponseRef = useRef(lastResponse);
+    lastResponseRef.current = lastResponse;
 
     const stores = useMemo(
       () => [
@@ -56,6 +63,7 @@ export function createUseMaelstrom(contextPair: MaelstromContextPair) {
         connectionError: connState.connectionError,
         isProcessing: reqState.isProcessing,
         lastError: lastErrorRef.current,
+        lastResponse: lastResponseRef.current,
         sessionId: orchestrator.getConfig().sessionId,
       };
     };
