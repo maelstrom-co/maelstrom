@@ -1,5 +1,5 @@
 import type { ConnectionStatus } from '@maelstrom-co/client';
-import type { SessionId } from '@maelstrom-co/protocol';
+import type { MaelstromResponse, SessionId } from '@maelstrom-co/protocol';
 
 /** Return type of m.useMaelstrom() */
 export interface MaelstromState {
@@ -13,6 +13,8 @@ export interface MaelstromState {
   isProcessing: boolean;
   /** Last error from processIntent — auto-clears on next call */
   lastError: Error | null;
+  /** Last successful engine response — clears when the next call starts */
+  lastResponse: MaelstromResponse | null;
   /** Current session ID */
   sessionId: SessionId;
 }

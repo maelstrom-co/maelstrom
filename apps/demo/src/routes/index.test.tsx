@@ -121,6 +121,43 @@ describe('key drawer gating (hosted, no key)', () => {
   });
 });
 
+describe('typed assistant feedback', () => {
+  it('shows feedback for an unchanged chart and hides it when voice connects', async () => {
+    setPlaygroundKey('sk-test', true);
+    connectorOverride.process = async (message) => ({
+      type: 'maelstrom_response',
+      requestId: (message as { id: string }).id,
+      userMessage:
+        'I can arrange your calendar, tasks, journal, weather, and routes.',
+      rationale: 'The user asked what the workspace can do.',
+      executionPlan: [],
+      layout: { type: 'grid', positions: [] },
+    });
+
+    const { HomePage } = await import('./index');
+    render(<HomePage />);
+
+    fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
+      target: { value: 'what can you do?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    expect(
+      await screen.findByText(
+        'I can arrange your calendar, tasks, journal, weather, and routes.',
+      ),
+    ).toBeTruthy();
+
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => session.emitState('connected'));
+    expect(
+      screen.queryByText(
+        'I can arrange your calendar, tasks, journal, weather, and routes.',
+      ),
+    ).toBeNull();
+  });
+});
+
 describe('voice mint failures (hosted)', () => {
   it('reopens the drawer with an actionable message on a token-mint failure', async () => {
     const { HomePage } = await import('./index');

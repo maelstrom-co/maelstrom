@@ -29,7 +29,7 @@ afterEach(() => cleanup());
 
 describe('useMaelstrom', () => {
   describe('no-arg call', () => {
-    it('returns full MaelstromState with all 6 fields', async () => {
+    it('returns full MaelstromState with all 7 fields', async () => {
       const m = createMaelstrom({ vessels: [entry] });
       const connector = createMockConnector();
 
@@ -55,6 +55,7 @@ describe('useMaelstrom', () => {
       expect(state.connectionError).toBeNull();
       expect(typeof state.isProcessing).toBe('boolean');
       expect(state.lastError).toBeNull();
+      expect(state.lastResponse).toBeNull();
       expect(typeof state.sessionId).toBe('string');
     });
   });
@@ -252,6 +253,104 @@ describe('useMaelstrom', () => {
       expect(state.lastError).toBeInstanceOf(Error);
       assertDefined(state.lastError);
       expect(state.lastError.message).toBe('boom');
+    });
+
+    it('lastResponse exposes the engine reply after a successful processIntent', async () => {
+      const m = createMaelstrom({ vessels: [entry] });
+      const connector = createMockConnector({
+        process: async (message) => ({
+          type: 'maelstrom_response',
+          requestId: message.id,
+          userMessage: 'I can arrange and update your workspace.',
+          rationale: 'The user asked about capabilities.',
+          executionPlan: [],
+          layout: { type: 'grid', positions: [] },
+        }),
+      });
+
+      let state: MaelstromState | undefined;
+
+      function App() {
+        state = m.useMaelstrom();
+        return null;
+      }
+
+      await act(async () => {
+        render(
+          <m.Provider connector={connector}>
+            <App />
+          </m.Provider>,
+        );
+      });
+
+      assertDefined(state);
+      const stateSnapshot = state;
+      await act(async () => {
+        await stateSnapshot.processIntent('what can you do?');
+      });
+
+      assertDefined(state);
+      expect(state.lastError).toBeNull();
+      expect(state.lastResponse?.userMessage).toBe(
+        'I can arrange and update your workspace.',
+      );
+    });
+
+    it('clears lastResponse when the next request starts and keeps it clear on failure', async () => {
+      let callCount = 0;
+      let rejectSecondRequest: (() => void) | undefined;
+      const m = createMaelstrom({ vessels: [entry] });
+      const connector = createMockConnector({
+        process: async (message) => {
+          callCount += 1;
+          if (callCount === 1) {
+            return {
+              type: 'maelstrom_response',
+              requestId: message.id,
+              userMessage: 'First response.',
+              rationale: 'First request succeeded.',
+              executionPlan: [],
+              layout: { type: 'grid', positions: [] },
+            };
+          }
+          return new Promise((_, reject) => {
+            rejectSecondRequest = () => reject(new Error('second failed'));
+          });
+        },
+      });
+
+      let state: MaelstromState | undefined;
+
+      function App() {
+        state = m.useMaelstrom();
+        return null;
+      }
+
+      await act(async () => {
+        render(
+          <m.Provider connector={connector}>
+            <App />
+          </m.Provider>,
+        );
+      });
+
+      assertDefined(state);
+      await act(async () => state?.processIntent('first'));
+      expect(state?.lastResponse?.userMessage).toBe('First response.');
+
+      let secondRequest: Promise<void> | undefined;
+      await act(async () => {
+        secondRequest = state?.processIntent('second');
+        await Promise.resolve();
+      });
+      expect(state?.lastResponse).toBeNull();
+
+      await act(async () => {
+        rejectSecondRequest?.();
+        await secondRequest;
+      });
+      expect(state?.lastResponse).toBeNull();
+      expect(state?.lastError?.message).toBe('second failed');
     });
 
     it('derived object selector does not re-render when shallow-equal', async () => {
