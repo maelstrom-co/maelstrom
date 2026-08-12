@@ -400,6 +400,11 @@ export interface EngineConnector {
   /**
    * Add an assistant message to conversation history without LLM processing.
    * Used for programmatic messages (greetings, notifications).
+   *
+   * This legacy capability is fire-and-forget: it resolves after the transport
+   * accepts the send and does not confirm insertion. Use
+   * {@link AcknowledgedAssistantConnector.addAssistantMessageAcknowledged} when
+   * dependent side effects require a correlated engine outcome.
    */
   addAssistantMessage(message: AssistantMessage): Promise<void>;
 
@@ -515,8 +520,12 @@ export interface AcknowledgedAssistantConnector extends EngineConnector {
   /**
    * Insert an assistant message and wait for the engine outcome.
    *
-   * Rejects when the transport is not connected, the engine reports an error,
-   * the connection closes, or the acknowledgement times out.
+   * Unlike legacy {@link EngineConnector.addAssistantMessage}, this does not
+   * resolve merely because the transport accepted the send. It rejects when
+   * request construction or sending fails, the transport is not connected,
+   * the engine reports an error, the connection closes, or the bounded
+   * acknowledgement wait expires. A silent legacy server therefore times out
+   * rather than producing a false insertion result.
    */
   addAssistantMessageAcknowledged(
     message: AssistantMessage,

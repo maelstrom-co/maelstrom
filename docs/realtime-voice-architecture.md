@@ -222,9 +222,10 @@ The demo greets once when voice connects. Ordering is fixed:
 The greeting is persisted to engine history first (`addAssistantMessageAcknowledged`
 over the unchanged WebSocket transport), then the assistant caption is emitted,
 then the OpenAI adapter sends the exact assistant item into provider conversation
-and fetches WAV bytes for playback. It speaks once per session; reconnect and
-session recreation within the same session do not repeat it (retained coordinator
-proofs). A new session greets again.
+and fetches WAV bytes for playback. Once provider send begins, the coordinator
+treats the result as terminal so reconnecting or recreating the provider session
+cannot duplicate speech. A failure before provider send begins remains retriable
+by a later connection generation. A new session greets again.
 
 Activation sits inside the initiating gesture on purpose. `RealtimeSession.connect()`
 calls `adapter.activateAudio()` synchronously within the click so Web Audio unlock
@@ -253,10 +254,11 @@ style instruction asks for warm, natural, conversational delivery. The same
 `/api/demo-greeting-tts`. The route requires matching `Origin` and
 `Sec-Fetch-Site: same-origin`, accepts no caller JSON/text, and calls OpenAI with
 the server-held `OPENAI_API_KEY` and a fixed payload. Concurrent callers coalesce
-onto one upstream request; the first validated WAV is cached process-locally; at
-most three upstream attempts are allowed per server process. This budget/cache is
-development-only — not production distributed abuse protection. The browser never
-sees the server key.
+onto one upstream request; the first validated WAV is cached process-locally. The
+route allows at most three upstream attempts in a 60-second window. The budget
+resets when that window elapses and after a validated response is cached. This
+process-local budget and cache are development-only, not production distributed
+abuse protection. The browser never sees the server key.
 
 **Hosted BYOK custody.** The visitor key is used only in the browser Authorization
 header for direct `POST https://api.openai.com/v1/audio/speech` (and client-secret
@@ -286,11 +288,14 @@ compact visible label next to the voice orb: “AI-generated voice”.
 LiveKit needs a narrow readiness gate. The worker registers `SPEAK_TOPIC`
 asynchronously after the user joins (and after the TTS track publish), while the
 browser `connect()` resolves at join — a greeting sent earlier is silently
-dropped. The single-packet `tts_ready` closes that gap; on absence the greeting
-suppresses (non-fatal, at-most-once). The greeting reuses the existing
-`SPEAK_TOPIC` / status machinery (`tts_done` / `tts_error`), so barge-in and
-state collapse semantics are unchanged. Stale data from a torn-down room is
-dropped by a room-currency guard on the adapter's `DataReceived` handler.
+dropped. The single-packet `tts_ready` closes that gap. If readiness is absent or
+times out before `sendText()` begins, no provider send occurs and the adapter
+returns retriable `not_started`; a later connection generation may try again.
+Once `sendText()` begins, the outcome is terminal so an ambiguous completion
+cannot cause duplicate speech. The greeting reuses the existing `SPEAK_TOPIC` /
+status machinery (`tts_done` / `tts_error`), so barge-in and state collapse
+semantics are unchanged. Stale data from a torn-down room is dropped by a
+room-currency guard on the adapter's `DataReceived` handler.
 
 ### Manual verification (both providers)
 
@@ -311,5 +316,7 @@ Verify before you trust. Run these steps in order.
    greets once again; local route cache means no second upstream OpenAI synthesis.
 3. **LiveKit** (`bun --cwd apps/demo run dev-livekit`). The greeting is spoken
    only after `tts_ready` (worker log order shows track publish → `SPEAK_TOPIC`
-   registration → `tts_ready`). Exactly one caption; reconnect → no repeat; new
-   session → greets once.
+   registration → `tts_ready`). If readiness is absent or times out, confirm that
+   no `SPEAK_TOPIC` send occurs; reconnecting may retry on the later connection
+   generation. After a `SPEAK_TOPIC` send begins, reconnecting must not repeat the
+   greeting. A new session greets once.

@@ -5,6 +5,7 @@ import type {
   SessionId,
 } from '@maelstrom-co/protocol';
 import {
+  AssistantInjectionMessage,
   AssistantMessageResultMessage,
   MessageId as brandMessageId,
   SessionId as brandSessionId,
@@ -89,11 +90,13 @@ export const recoverCorrelation = (
  *   `code`), an `Ok` `chart_response` to `engine.maelstrom.response`, any other
  *   `Ok` output to `engine.error` with `code: 'UnexpectedOutput'` (a
  *   contract violation, not a case that should strand the client silently).
- * - **`assistant_message`** → `engine.handle`; an `Ok`
- *   `assistant_message_result` maps to `engine.assistant_message.result`,
- *   echoing the envelope id as `requestId` and its `inserted` or `deduped`
- *   outcome. Any other `Ok` maps to `engine.error` with `UnexpectedOutput`;
- *   an `Err` maps to a correlated `engine.error`.
+ * - **`assistant_message`** → `engine.handle`, then always `null`. This legacy
+ *   fire-and-forget arm emits no result or error frame, including when Engine
+ *   returns or throws a history failure.
+ * - **`client.assistant_message.acknowledged`** → the same assistant injection
+ *   semantics through `engine.handle`; an `Ok` `assistant_message_result` maps
+ *   to a correlated `engine.assistant_message.result`. Unexpected output,
+ *   Engine errors, and thrown failures map to a correlated `engine.error`.
  * - **`client.history.get`** → `engine.getHistory`; `Ok` → `engine.history.response`,
  *   `Err` → `engine.error`.
  *
@@ -152,7 +155,23 @@ export async function handleEnvelope(
       }
 
       case 'assistant_message': {
-        const result = await engine.handle(envelope);
+        try {
+          await engine.handle(envelope);
+        } catch {
+          // Legacy callers are fire-and-forget even when history insertion fails.
+        }
+        return null;
+      }
+
+      case 'client.assistant_message.acknowledged': {
+        const result = await engine.handle(
+          AssistantInjectionMessage({
+            sessionId: envelope.sessionId,
+            id: envelope.id,
+            timestamp: envelope.timestamp,
+            content: envelope.content,
+          }),
+        );
         if (isErr(result)) {
           return EngineErrorMessage({
             requestId: envelope.id,
@@ -170,7 +189,7 @@ export async function handleEnvelope(
           : EngineErrorMessage({
               requestId: envelope.id,
               sessionId: envelope.sessionId,
-              error: `engine returned unexpected output type "${result.value.type}" for assistant_message`,
+              error: `engine returned unexpected output type "${result.value.type}" for client.assistant_message.acknowledged`,
               code: 'UnexpectedOutput',
             });
       }

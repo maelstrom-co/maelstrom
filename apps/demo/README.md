@@ -40,7 +40,7 @@ From the repository root, create your local environment file:
 cp .env.example .env
 ```
 
-Edit `.env` and set `OPENAI_API_KEY` to your OpenAI API key. The same server-side key powers the text-planning Engine, mints short-lived realtime voice credentials, and synthesizes the one fixed local greeting via OpenAI TTS (`gpt-4o-mini-tts`, recommended voice `cedar`, WAV). The local greeting route is development-only: bodyless same-origin POST, exact fixed payload, process-local cache, and at most three upstream attempts per process — not a general speech API.
+Edit `.env` and set `OPENAI_API_KEY` to your OpenAI API key. The same server-side key powers the text-planning Engine, mints short-lived realtime voice credentials, and synthesizes the one fixed local greeting via OpenAI TTS (`gpt-4o-mini-tts`, recommended voice `cedar`, WAV). The local greeting route is development-only: bodyless same-origin POST, exact fixed payload, process-local cache, and at most three upstream attempts in a 60-second window. The budget resets after the window elapses and after a validated response is cached; it is not a general speech API or production distributed abuse protection.
 
 ```dotenv
 OPENAI_API_KEY=<redacted>

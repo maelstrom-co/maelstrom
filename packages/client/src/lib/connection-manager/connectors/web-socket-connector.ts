@@ -7,6 +7,7 @@ import type {
   SessionId,
 } from '@maelstrom-co/protocol';
 import {
+  AcknowledgedAssistantMessage,
   AssistantInjectionMessage,
   decodeServerEnvelope,
   encodeEnvelope,
@@ -163,7 +164,6 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
   // shared MessageId space, and so each correlator stays strongly typed.
   #historyCorrelator = new RequestCorrelator<readonly SessionHistoryEntry[]>();
   #assistantCorrelator = new RequestCorrelator<AssistantMessageOutcome>();
-  #unacknowledgedAssistantIds = new Set<MessageId>();
   #handlers = new Set<(event: ConnectorEvent) => void>();
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   // Pings sent since the last pong was seen. Reset to 0 whenever a pong
@@ -305,7 +305,6 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
     this.#correlator.rejectAll(disconnected);
     this.#historyCorrelator.rejectAll(disconnected);
     this.#assistantCorrelator.rejectAll(disconnected);
-    this.#unacknowledgedAssistantIds.clear();
     if (this.#ws) {
       // Explicit 1000, not a bare close(): closing without a status code
       // sends an empty close frame, and the resulting close event reports
@@ -322,12 +321,19 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
    * Insert an assistant message and wait for the correlated
    * {@link AssistantMessageOutcome} from `engine.assistant_message.result`.
    *
+   * Unlike {@link addAssistantMessage}, this sends the opt-in
+   * `client.assistant_message.acknowledged` envelope. A server that predates
+   * that envelope may reject it with a correlated `engine.error` or stay
+   * silent; those paths reject promptly or at the bounded timeout rather than
+   * being mistaken for successful persistence.
+   *
    * Correlation uses `message.id` as `requestId` and times out after the
    * connector `timeout` (default 30s).
    *
    * @throws If the WebSocket is disconnected or the session is not yet
-   *   established.
-   * @throws If `WebSocket.send` fails while enqueueing the frame.
+   *   established, or if construction rejects malformed message content.
+   * @throws If `WebSocket.send` fails while enqueueing the frame; the pending
+   *   correlator is cleared before the returned promise rejects.
    * @throws {WireEngineError} If the engine reports a correlated
    *   `engine.error`.
    * @throws If the socket closes before the result arrives, or if the
@@ -348,7 +354,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
     try {
       this.#ws.send(
         encodeEnvelope(
-          AssistantInjectionMessage({
+          AcknowledgedAssistantMessage({
             sessionId: this.#sessionId,
             content: message.message,
             id: message.id,
@@ -390,17 +396,21 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
 
   /**
    * Sends an assistant message to the server.
-   * Fire-and-forget — callers do not wait for the server acknowledgement.
-   * Throws if the WebSocket is not connected.
+   * Fire-and-forget: sends the legacy `assistant_message` envelope, for which
+   * the server sends no result frame, and resolves after the socket accepts the
+   * send. Use {@link addAssistantMessageAcknowledged} when persistence must be
+   * confirmed before a dependent side effect.
+   * Throws if the WebSocket is not connected, construction rejects malformed
+   * content, or the socket cannot accept the send. Later Engine insertion
+   * failures are intentionally unobservable on this legacy path.
    *
    * Translates the connector-facing {@link AssistantMessage} into the real
    * `assistant_message` envelope via {@link AssistantInjectionMessage} so the
    * frame goes through the same codec as every other send. The smart
    * constructor stamps a `Date.now()` epoch timestamp — the previous bespoke
    * frame used `performance.now()` (a monotonic clock offset from an arbitrary
-   * origin), which is not a wall-clock time. Injection failures may arrive as
-   * unsolicited `engine.error` frames; this method does not await or reject
-   * on them.
+   * origin), which is not a wall-clock time. A compatible server sends no frame
+   * for insertion success or failure, so this method cannot observe either.
    */
   async addAssistantMessage(message: AssistantMessage): Promise<void> {
     if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) {
@@ -412,21 +422,15 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       );
     }
 
-    this.#unacknowledgedAssistantIds.add(message.id);
-    try {
-      this.#ws.send(
-        encodeEnvelope(
-          AssistantInjectionMessage({
-            sessionId: this.#sessionId,
-            content: message.message,
-            id: message.id,
-          }),
-        ),
-      );
-    } catch (error) {
-      this.#unacknowledgedAssistantIds.delete(message.id);
-      throw error;
-    }
+    this.#ws.send(
+      encodeEnvelope(
+        AssistantInjectionMessage({
+          sessionId: this.#sessionId,
+          content: message.message,
+          id: message.id,
+        }),
+      ),
+    );
   }
 
   /**
@@ -523,7 +527,6 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       this.#correlator.rejectAll(closed);
       this.#historyCorrelator.rejectAll(closed);
       this.#assistantCorrelator.rejectAll(closed);
-      this.#unacknowledgedAssistantIds.clear();
       const isClean = event.code === 1000;
       // RFC 6455: 1008 ("Policy Violation") means the server is deliberately
       // rejecting this client. Retrying is pointless by definition, so this
@@ -638,17 +641,11 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       }
 
       case 'engine.assistant_message.result': {
-        // Acknowledged waiters share the MessageId space with fire-and-forget
-        // sends. Prefer the correlator so a mixed-path retry (same id) still
-        // settles the waiter instead of being swallowed as unacknowledged.
         const resolved = this.#assistantCorrelator.resolve(
           envelope.requestId,
           envelope.outcome,
         );
         if (resolved) return;
-        if (this.#unacknowledgedAssistantIds.delete(envelope.requestId)) {
-          return;
-        }
         console.warn(
           `[WebSocketConnector] engine.assistant_message.result with no pending request: requestId=${envelope.requestId}`,
         );
@@ -671,7 +668,6 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
         // error rather than silently waiting until its own timeout fires.
         // reject() is a no-op for unknown ids, so the redundant call is free.
         const error = new WireEngineError(envelope.error, envelope.code);
-        this.#unacknowledgedAssistantIds.delete(envelope.requestId);
         const inChart = this.#correlator.reject(envelope.requestId, error);
         const inHistory = this.#historyCorrelator.reject(
           envelope.requestId,

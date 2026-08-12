@@ -416,7 +416,7 @@ describe('WebSocketConnector assistant message', () => {
   });
 
   describe('addAssistantMessageAcknowledged', () => {
-    test('sends the acknowledgement frame and resolves inserted', async () => {
+    test('sends client.assistant_message.acknowledged and resolves inserted', async () => {
       const connector = new WebSocketConnector({ url: 'ws://test' });
       const ws = await connectAndOpen(connector);
       const promise = connector.addAssistantMessageAcknowledged({
@@ -427,8 +427,11 @@ describe('WebSocketConnector assistant message', () => {
       expect(ws.sent).toHaveLength(1);
       const decoded = decodeClientEnvelope(ws.sent[0]);
       expect(isOk(decoded)).toBe(true);
-      if (!isOk(decoded) || decoded.value.type !== 'assistant_message') {
-        throw new Error('expected assistant_message');
+      if (
+        !isOk(decoded) ||
+        decoded.value.type !== 'client.assistant_message.acknowledged'
+      ) {
+        throw new Error('expected client.assistant_message.acknowledged');
       }
       expect(decoded.value).toMatchObject({
         id: MessageId('a-1'),
@@ -463,7 +466,10 @@ describe('WebSocketConnector assistant message', () => {
       await connector.disconnect();
     });
 
-    test('rejects a correlated engine.error', async () => {
+    test.each([
+      ['invalid_envelope', 'invalid envelope'],
+      ['UnsupportedMessageType', 'unsupported message type'],
+    ])('rejects an old server %s engine.error instead of treating it as an acknowledgement', async (code, error) => {
       const connector = new WebSocketConnector({ url: 'ws://test' });
       const ws = await connectAndOpen(connector);
       const promise = connector.addAssistantMessageAcknowledged({
@@ -474,14 +480,14 @@ describe('WebSocketConnector assistant message', () => {
         ws,
         EngineErrorMessage({
           requestId: MessageId('a-1'),
-          error: 'history unavailable',
-          code: 'HistoryError',
+          error,
+          code,
         }),
       );
       await expect(promise).rejects.toMatchObject({
         name: 'WireEngineError',
-        message: 'history unavailable',
-        code: 'HistoryError',
+        message: error,
+        code,
       });
       await connector.disconnect();
     });
@@ -497,7 +503,7 @@ describe('WebSocketConnector assistant message', () => {
       await expect(promise).rejects.toThrow('WebSocket closed');
     });
 
-    test('rejects on timeout', async () => {
+    test('rejects after the bounded timeout when an old server stays silent', async () => {
       const clock = FakeTimers.install({ shouldAdvanceTime: true });
       try {
         const connector = new WebSocketConnector({
@@ -518,29 +524,6 @@ describe('WebSocketConnector assistant message', () => {
       }
     });
 
-    test('swallows a result for a fire-and-forget insertion', async () => {
-      const connector = new WebSocketConnector({ url: 'ws://test' });
-      const ws = await connectAndOpen(connector);
-      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
-      try {
-        await connector.addAssistantMessage({
-          id: MessageId('f-1'),
-          message: 'x',
-        });
-        ws.emitJson({
-          type: 'engine.assistant_message.result',
-          requestId: MessageId('f-1'),
-          sessionId: SessionId('session-1'),
-          outcome: 'inserted',
-        });
-        expect(ws.sent).toHaveLength(1);
-        expect(warnSpy).not.toHaveBeenCalled();
-      } finally {
-        warnSpy.mockRestore();
-        await connector.disconnect();
-      }
-    });
-
     test('rejects when WebSocket send throws', async () => {
       const connector = new WebSocketConnector({ url: 'ws://test' });
       const ws = await connectAndOpen(connector);
@@ -556,28 +539,6 @@ describe('WebSocketConnector assistant message', () => {
         }),
       ).rejects.toBe(sendError);
 
-      await connector.disconnect();
-    });
-
-    test('resolves an acknowledged send after a fire-and-forget send with the same id', async () => {
-      const connector = new WebSocketConnector({ url: 'ws://test' });
-      const ws = await connectAndOpen(connector);
-      const id = MessageId('shared-1');
-
-      await connector.addAssistantMessage({ id, message: 'first' });
-      const acknowledged = connector.addAssistantMessageAcknowledged({
-        id,
-        message: 'retry',
-      });
-
-      ws.emitJson({
-        type: 'engine.assistant_message.result',
-        requestId: id,
-        sessionId: SessionId('session-1'),
-        outcome: 'inserted',
-      });
-
-      await expect(acknowledged).resolves.toBe('inserted');
       await connector.disconnect();
     });
 

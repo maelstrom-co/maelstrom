@@ -4,6 +4,7 @@ import {
 } from '@maelstrom-co/client';
 import type { Engine } from '@maelstrom-co/engine';
 import {
+  AcknowledgedAssistantMessage,
   AssistantInjectionMessage,
   ChartRequestMessage,
   decodeServerEnvelope,
@@ -190,7 +191,7 @@ describe('createWebSocketHandlers send paths (local mode)', () => {
     expect(ws.sent[0]).toContain('maelstrom_response');
   });
 
-  it('sends assistant_message.result for an assistant_message', async () => {
+  it('sends no result or error frame for a legacy assistant_message', async () => {
     const handlers = createWebSocketHandlers({
       sharedEngine: stubEngine(),
       sharedEngineInitError: null,
@@ -209,8 +210,28 @@ describe('createWebSocketHandlers send paths (local mode)', () => {
       assistantFrame,
     );
 
-    // Regression guard: deleting `case 'reply': ws.send(result.wire)` must
-    // fail for assistant acknowledgements as well as chart responses.
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  it('sends a correlated result for an acknowledged assistant_message', async () => {
+    const handlers = createWebSocketHandlers({
+      sharedEngine: stubEngine(),
+      sharedEngineInitError: null,
+    });
+    const ws = makeFakeWs();
+    const assistantFrame = encodeEnvelope(
+      AcknowledgedAssistantMessage({
+        sessionId: SessionId('s-1'),
+        content: 'seeded note',
+        id: MessageId('inj-1'),
+      }),
+    );
+
+    await handlers.message(
+      ws as unknown as Parameters<typeof handlers.message>[0],
+      assistantFrame,
+    );
+
     expect(ws.sent).toHaveLength(1);
     const decoded = decodeServerEnvelope(ws.sent[0]);
     expect(decoded.ok).toBe(true);
