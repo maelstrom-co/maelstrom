@@ -58,6 +58,29 @@
       "@maelstrom-co/realtime-livekit-agent"
     ],
     "targets": {
+      "build": {
+        "inputs": [
+          "{projectRoot}/astro.config.ts",
+          "{projectRoot}/src/**/*",
+          "{projectRoot}/public/**/*",
+          {
+            "externalDependencies": [
+              "astro"
+            ]
+          },
+          {
+            "env": "DOCS_SOURCE_REF"
+          },
+          {
+            "env": "WORKERS_CI_COMMIT_SHA"
+          },
+          {
+            "env": "GITHUB_SHA"
+          },
+          "production",
+          "^production"
+        ]
+      },
       "typecheck": {
         "inputs": [
           "{projectRoot}/astro.config.ts",

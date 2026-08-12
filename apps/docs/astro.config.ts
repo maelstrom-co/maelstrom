@@ -6,6 +6,10 @@ import { defineConfig, fontProviders } from 'astro/config';
 import mermaid from 'astro-mermaid';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
+import {
+  createGitHubSourceLinkTemplate,
+  resolveDocsSourceRef,
+} from './src/lib/docs-source-links.js';
 
 const [reactTypeDoc, reactTypeDocSidebarGroup] = createStarlightTypeDocPlugin();
 const [clientTypeDoc, clientTypeDocSidebarGroup] =
@@ -33,17 +37,15 @@ const [realtimeLivekitAgentTypeDoc, realtimeLivekitAgentTypeDocSidebarGroup] =
 const [realtimeVadTypeDoc, realtimeVadTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 
-// TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
-// the workspace root on every plugin call, so {path} carries the full
-// repo-relative path (e.g. `packages/engine/src/lib/engine.ts`). One template
-// for all packages keeps the URL space coherent.
+// Git discovery makes TypeDoc's {path} repository-relative. `basePath` remains
+// the workspace root for displayed paths and relative documentation assets.
 const repoRoot = '../../';
-const sourceLinkTemplate =
-  'https://github.com/maelstrom-co/maelstrom/blob/main/{path}#L{line}';
+const sourceLinkTemplate = createGitHubSourceLinkTemplate(
+  resolveDocsSourceRef(process.env),
+);
 const multiEntryTypeDocOptions = {
   entryPointStrategy: 'resolve' as const,
   excludeInternal: true,
-  disableGit: true,
   basePath: repoRoot,
   sourceLinkTemplate,
 };
@@ -156,7 +158,6 @@ export default defineConfig({
           sidebar: { label: '@maelstrom-co/react', collapsed: true },
           typeDoc: {
             excludeInternal: true,
-            disableGit: true,
             basePath: repoRoot,
             sourceLinkTemplate,
           },
@@ -168,7 +169,6 @@ export default defineConfig({
           sidebar: { label: '@maelstrom-co/client', collapsed: true },
           typeDoc: {
             excludeInternal: true,
-            disableGit: true,
             basePath: repoRoot,
             sourceLinkTemplate,
           },
@@ -180,7 +180,6 @@ export default defineConfig({
           sidebar: { label: '@maelstrom-co/protocol', collapsed: true },
           typeDoc: {
             excludeInternal: true,
-            disableGit: true,
             basePath: repoRoot,
             sourceLinkTemplate,
           },
@@ -192,7 +191,6 @@ export default defineConfig({
           sidebar: { label: '@maelstrom-co/engine', collapsed: true },
           typeDoc: {
             excludeInternal: true,
-            disableGit: true,
             basePath: repoRoot,
             sourceLinkTemplate,
           },

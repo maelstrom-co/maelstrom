@@ -212,6 +212,20 @@ public package; `identical` and `not-applicable` are acceptable. A
 so verification scripts and CI consumers must parse the JSON and treat that
 status as a rejection.
 
+### Generated documentation source links
+
+TypeDoc source links use `DOCS_SOURCE_REF` when set, then the GitHub Actions
+`GITHUB_SHA`, and otherwise fall back to `main`. Maintainers building outside
+GitHub Actions should pin links to the exact build commit:
+
+```bash
+DOCS_SOURCE_REF="$(git rev-parse HEAD)" nx build docs
+```
+
+The selected value must be one URL-safe path segment; invalid values fail the
+build. Both environment variables are Nx build inputs, so changing either one
+invalidates the documentation build cache.
+
 See the [README](./README.md) for the package architecture and core concepts.
 
 ## Pull requests
