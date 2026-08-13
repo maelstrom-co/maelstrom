@@ -112,6 +112,7 @@
     "projects": ["packages/*"],
     "projectsRelationship": "fixed",
     "version": {
+      "specifierSource": "conventional-commits",
       "preVersionCommand": "bunx nx run-many -t build",
       "currentVersionResolver": "git-tag",
       "versionActionsOptions": {
