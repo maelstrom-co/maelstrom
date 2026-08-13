@@ -12,6 +12,7 @@ import {
   createGitTagValues,
   handleDuplicateGitTags,
 } from 'nx/src/command-line/release/utils/shared';
+import { assertRegistryMetadata } from './assert-registry-metadata.ts';
 import { resolveRegistry } from './lib/registry.ts';
 import { distTagForVersion } from './lib/release-target.ts';
 import { publishWorkspacePackages } from './publish-packages.ts';
@@ -31,6 +32,10 @@ const dryRun = values['dry-run'] ?? false;
 const verbose = values.verbose ?? false;
 const firstRelease = values['first-release'] ?? false;
 const preid = values.preid;
+
+// Fail before Nx versions manifests or creates release state. CI repeats this
+// check before packing, but by then the release commit and tag already exist.
+assertRegistryMetadata();
 
 // Step 1: Version — bump package.json files, stage only (no commit/tag)
 const { workspaceVersion, projectsVersionData, releaseGraph } =
