@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/engine",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Reference LLM decision core for Maelstrom: turns chart state and user intent into a layout and an execution plan.",
   "keywords": [
     "maelstrom",
@@ -45,7 +45,7 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.1.0-alpha.1",
+    "@maelstrom-co/protocol": "0.1.0-alpha.2",
     "@tanstack/ai": "catalog:",
     "zod": "catalog:"
   },
