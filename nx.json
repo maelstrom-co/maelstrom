@@ -113,7 +113,7 @@
     "projectsRelationship": "fixed",
     "version": {
       "specifierSource": "conventional-commits",
-      "preVersionCommand": "bunx nx run-many -t build",
+      "preVersionCommand": "bunx nx run-many -t build --projects='packages/*'",
       "currentVersionResolver": "git-tag",
       "versionActionsOptions": {
         "skipLockFileUpdate": true
@@ -130,7 +130,8 @@
       "projectChangelogs": false,
       "workspaceChangelog": {
         "file": false,
-        "createRelease": "github"
+        "createRelease": "github",
+        "renderer": "{workspaceRoot}/scripts/lib/release-changelog-renderer.ts"
       }
     }
   },
