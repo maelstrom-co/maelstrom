@@ -313,7 +313,7 @@ and GitHub release. CI does the publish.
 2. **Rehearse.** `--dry-run` makes no commits, tags, or publishes:
 
    ```bash
-   bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha --dry-run
+   bun run scripts/release.ts --preid alpha --dry-run
    ```
 
    To rehearse the CI half too, run the **Release** workflow via
@@ -324,7 +324,7 @@ and GitHub release. CI does the publish.
    tag hands off to CI:
 
    ```bash
-   bun run scripts/release.ts --version 0.1.0-alpha.0 --preid alpha --skip-publish
+   bun run scripts/release.ts --preid alpha --skip-publish
    ```
 
    For the very first release (no prior `v*` tag exists yet), add
@@ -364,8 +364,9 @@ re-run work.
   `0.1.0-alpha.0` publishes under `alpha`, while a stable version publishes
   under `latest`. Pass `--preid alpha` while calculating alpha releases so
   `npm install @maelstrom-co/<pkg>` does not resolve to a prerelease.
-- **`--version`** accepts an explicit version (`0.1.0-alpha.0`) or a bump
-  (`patch` | `minor` | `major` | `prerelease`).
+- **`--version`** overrides the bump inferred from Conventional Commits. It
+  accepts an explicit version (`0.1.0-alpha.0`) or a bump (`patch` | `minor` |
+  `major` | `prerelease`).
 - **`--skip-publish`** versions, tags, pushes, and creates the GitHub release
   without publishing from the local machine.
 - The publish step rewrites `workspace:*` and `catalog:` specs to concrete
