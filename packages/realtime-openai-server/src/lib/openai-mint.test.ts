@@ -155,6 +155,94 @@ it('falls back to the server-configured model when no override is provided', asy
   expect(result.value.model).toBe('gpt-realtime-1.5');
 });
 
+it('nests trusted voice under session.audio.output and ignores caller voice', async () => {
+  let sentBody = '';
+  const fakeFetch = async (_url: string, init: RequestInit) => {
+    sentBody = init.body as string;
+    return new Response(
+      JSON.stringify({
+        value: 'ek-xyz',
+        expires_at: 1712345678,
+        session: { id: 's' },
+      }),
+      { status: 200 },
+    );
+  };
+  const mint = createOpenAIMinter({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    voice: 'cedar',
+    fetch: fakeFetch,
+  });
+
+  const result = await mint({
+    provider: 'openai',
+    sessionId: 'sess-1',
+    voice: 'marin',
+  });
+
+  const body = JSON.parse(sentBody);
+  expect(body.session.audio.output.voice).toBe('cedar');
+  expect(body.session.model).toBe('gpt-realtime-1.5');
+  expect(JSON.stringify(body)).not.toContain('sk-secret');
+  expect(isOk(result)).toBe(true);
+});
+
+it('omits session.audio when no trusted voice is configured', async () => {
+  let sentBody = '';
+  const fakeFetch = async (_url: string, init: RequestInit) => {
+    sentBody = init.body as string;
+    return new Response(
+      JSON.stringify({
+        value: 'ek-xyz',
+        expires_at: 1712345678,
+        session: { id: 's' },
+      }),
+      { status: 200 },
+    );
+  };
+  const mint = createOpenAIMinter({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    fetch: fakeFetch,
+  });
+
+  await mint({ provider: 'openai', sessionId: 'sess-1' });
+
+  expect(JSON.parse(sentBody).session.audio).toBeUndefined();
+});
+
+it('coexists trusted voice with a model override', async () => {
+  let sentBody = '';
+  const fakeFetch = async (_url: string, init: RequestInit) => {
+    sentBody = init.body as string;
+    return new Response(
+      JSON.stringify({
+        value: 'ek-xyz',
+        expires_at: 1712345678,
+        session: { id: 's' },
+      }),
+      { status: 200 },
+    );
+  };
+  const mint = createOpenAIMinter({
+    apiKey: 'sk-secret',
+    model: 'gpt-realtime-1.5',
+    voice: 'cedar',
+    fetch: fakeFetch,
+  });
+
+  await mint({
+    provider: 'openai',
+    sessionId: 'sess-1',
+    model: 'gpt-realtime-override',
+  });
+
+  const body = JSON.parse(sentBody);
+  expect(body.session.model).toBe('gpt-realtime-override');
+  expect(body.session.audio.output.voice).toBe('cedar');
+});
+
 it('reports upstream-failure with no upstream status when the upstream fetch throws', async () => {
   const fakeFetch = async (): Promise<Response> => {
     throw new Error('network down');

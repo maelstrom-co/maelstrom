@@ -26,6 +26,10 @@ export type {
   ServerEnvelope,
 } from './lib/envelope.ts';
 export {
+  AcknowledgedAssistantMessage,
+  AcknowledgedAssistantMessageSchema,
+  AssistantMessageResultMessage,
+  AssistantMessageResultMessageSchema,
   ClientEnvelopeSchema,
   decodeClientEnvelope,
   decodeServerEnvelope,

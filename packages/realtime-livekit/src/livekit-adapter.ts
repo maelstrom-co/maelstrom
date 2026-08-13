@@ -1,11 +1,14 @@
 import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
 import { Logger } from '@maelstrom-co/client';
+import type { MessageId } from '@maelstrom-co/protocol';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
   AdapterTurnControl,
+  GreetingSpeechResult,
   RealtimeAdapterEvent,
+  RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   ToolResult,
 } from '@maelstrom-co/realtime';
@@ -17,6 +20,7 @@ import type {
 import {
   SPEAK_TOPIC,
   SPEAK_UTTERANCE_ID_ATTR,
+  TTS_READY_TOPIC,
   TTS_TOPIC,
   TURN_TOPIC,
 } from '@maelstrom-co/realtime-protocol/livekit';
@@ -184,15 +188,20 @@ function booleanAudioSetting(
  * // Automatic mode is ready; use `vad: false` when the UI needs hold-to-talk.
  * ```
  */
-export class LiveKitAdapter implements RealtimeProviderAdapter {
+export class LiveKitAdapter
+  implements RealtimeProviderAdapter, RealtimeGreetingAdapter
+{
   readonly #mintToken: LiveKitAdapterOptions['mintToken'];
   readonly #roomName: string;
   readonly #logger: Logger;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
   readonly #vadConfig: ReturnType<typeof resolveBrowserVadConfig> | undefined;
   readonly #vadConfigError: unknown;
+  readonly #greetingReadyWaitMs: number;
 
   #room: Room | undefined;
+  /** Room created during gesture activation and reserved for the next connect. */
+  #roomPreparedForAudio = false;
   #audioEl: HTMLAudioElement | undefined;
   // Client-side protection for the persistent remote TTS sink during a
   // barge-in. The worker cancellation is best-effort and may arrive after
@@ -257,12 +266,20 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
   #automaticModeDegradation:
     | { readonly generation: number; readonly result: Promise<void> }
     | undefined;
+  /** True once `activateAudio()` ran inside the initiating gesture. */
+  #greetGestureUnlocked = false;
+  /** Worker announced SPEAK_TOPIC + TTS-track readiness for this connection. */
+  #ttsReady = false;
+  /** Single outstanding waiter for `#ttsReady` (generations are serialized). */
+  #ttsReadyWaiter: ((ready: boolean) => void) | undefined;
+  #ttsReadyTimer: ReturnType<typeof setTimeout> | undefined;
 
   /**
    * Creates a disconnected adapter. VAD configuration is validated eagerly but
    * retained as a diagnostic setup failure rather than thrown; `connect()` can
-   * then establish safely paused manual mode. No room, microphone, VAD runtime,
-   * worklet, or network resource is created until `connect()`.
+   * then establish safely paused manual mode. `activateAudio()` may prepare a
+   * room for the initiating gesture, but no microphone, VAD runtime, worklet,
+   * or network resource is created until `connect()`.
    */
   constructor(options: LiveKitAdapterOptions) {
     this.#mintToken = options.mintToken;
@@ -270,6 +287,8 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#logger = new Logger(options.debug ?? false, 'LiveKitAdapter');
     this.#thinkingFallbackMs =
       options.thinkingFallbackMs ?? THINKING_FALLBACK_MS;
+    this.#greetingReadyWaitMs =
+      options.greetingReadyWaitMs ?? GREETING_READY_WAIT_MS;
     try {
       this.#vadConfig = resolveBrowserVadConfig(options.vad);
       this.#vadConfigError = undefined;
@@ -340,7 +359,7 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
    * them today.
    */
   async connect(_opts: AdapterConnectOptions): Promise<void> {
-    if (this.#room || this.#connecting) {
+    if (this.#connecting || (this.#room && !this.#roomPreparedForAudio)) {
       throw new RealtimeVoiceError(
         'ALREADY_CONNECTED',
         'LiveKit adapter is already connected',
@@ -352,9 +371,8 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     this.#emit({ type: 'state', state: 'connecting' });
 
     const attempt = this.#connectGuard.begin();
-    const room = new Room();
-    this.#room = room;
-    this.#wireRoomEvents(room);
+    const room = this.#room ?? this.#createRoom();
+    this.#roomPreparedForAudio = false;
 
     try {
       let token: string;
@@ -419,13 +437,17 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
         unpublishedMicTrack = undefined;
         try {
           micTrack?.stop();
-        } catch {}
+        } catch {
+          // Best-effort cleanup of an unpublished attempt-owned track.
+        }
         const clone = unpublishedClone;
         unpublishedClone = undefined;
         try {
           if (clone) clone.enabled = false;
           clone?.stop();
-        } catch {}
+        } catch {
+          // Best-effort cleanup of an unpublished attempt-owned clone.
+        }
         if (error instanceof RealtimeVoiceError) throw error;
         throw this.#micEnableError(error);
       }
@@ -636,6 +658,123 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     await this.#room?.startAudio();
   }
 
+  /**
+   * Prepare LiveKit playback inside the initiating gesture. RealtimeSession
+   * calls this before `connect()`, so a new room is created and retained for
+   * that connection. Calling `startAudio()` synchronously lets the SDK acquire
+   * its audio context while browser user activation is still available.
+   */
+  activateAudio(): void {
+    this.#greetGestureUnlocked = true;
+    let room = this.#room;
+    if (!room) {
+      room = this.#createRoom();
+      this.#roomPreparedForAudio = true;
+    }
+    void room.startAudio().catch(() => {});
+  }
+
+  /**
+   * Speak the exact configured greeting text once the coordinator hands off.
+   * Waits for the worker's `tts_ready` gate; reuses the existing SPEAK_TOPIC
+   * hand-off. Engine `id` is not wired — LiveKit has no provider conversation.
+   * Once `sendText()` starts, delivery is ambiguous and therefore terminal to
+   * preserve at-most-once speech across reconnects.
+   */
+  async speakAssistantText(args: {
+    readonly id: MessageId;
+    readonly text: string;
+    readonly signal: AbortSignal;
+  }): Promise<GreetingSpeechResult> {
+    void args.id;
+    if (!this.#room) return 'not_started';
+    if (!this.#greetGestureUnlocked) return 'not_started';
+    if (args.signal.aborted) return 'not_started';
+
+    const ready = await this.#waitForTtsReady(args.signal);
+    if (!ready || args.signal.aborted) return 'not_started';
+
+    const room = this.#room;
+    if (!room) return 'not_started';
+
+    // Best-effort autoplay re-assert once joined (activation ran pre-connect).
+    void room.startAudio().catch(() => {});
+
+    this.#utteranceSeq += 1;
+    const utteranceId = this.#utteranceSeq;
+    this.#currentUtteranceId = utteranceId;
+    this.#unmutePlaybackForNextTtsTurn();
+    this.#emit({ type: 'state', state: 'speaking' });
+    try {
+      await room.localParticipant.sendText(args.text, {
+        topic: SPEAK_TOPIC,
+        attributes: { [SPEAK_UTTERANCE_ID_ATTR]: String(utteranceId) },
+      });
+      return 'accepted';
+    } catch {
+      // Invocation may have delivered before rejecting. Collapse local state,
+      // but suppress retries so an ambiguous send cannot duplicate speech.
+      if (this.#currentUtteranceId === utteranceId) {
+        this.#currentUtteranceId = undefined;
+        this.#collapseSpeaking();
+      }
+      return 'accepted';
+    }
+  }
+
+  #handleTtsReady(): void {
+    this.#ttsReady = true;
+    if (this.#ttsReadyTimer !== undefined) {
+      clearTimeout(this.#ttsReadyTimer);
+      this.#ttsReadyTimer = undefined;
+    }
+    const waiter = this.#ttsReadyWaiter;
+    this.#ttsReadyWaiter = undefined;
+    waiter?.(true);
+  }
+
+  /**
+   * Resolves `true` when the worker has announced readiness. Resolves `false`
+   * on wait expiry or abort — no provider send began in those cases.
+   */
+  #waitForTtsReady(signal: AbortSignal): Promise<boolean> {
+    if (this.#ttsReady) return Promise.resolve(true);
+    if (signal.aborted) return Promise.resolve(false);
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', onAbort);
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          if (this.#ttsReadyTimer === timer) {
+            this.#ttsReadyTimer = undefined;
+          }
+        }
+        if (this.#ttsReadyWaiter === onReady) {
+          this.#ttsReadyWaiter = undefined;
+        }
+        resolve(value);
+      };
+      const onAbort = () => finish(false);
+      const onReady = (ready: boolean) => finish(ready);
+      this.#ttsReadyWaiter = onReady;
+      signal.addEventListener('abort', onAbort, { once: true });
+      timer = setTimeout(() => finish(false), this.#greetingReadyWaitMs);
+      this.#ttsReadyTimer = timer;
+    });
+  }
+
+  #createRoom(): Room {
+    const room = new Room();
+    this.#room = room;
+    this.#wireRoomEvents(room);
+    return room;
+  }
+
   #wireRoomEvents(room: Room): void {
     room.on(RoomEvent.Disconnected, () => {
       if (this.#room !== room) return;
@@ -669,6 +808,13 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
       this.#attachAudioTrack(track);
     });
     room.on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
+      // Drop events from a room this adapter no longer owns (stale after
+      // teardown / reconnect), matching the Disconnected handler's guard.
+      if (this.#room !== room) return;
+      if (topic === TTS_READY_TOPIC) {
+        this.#handleTtsReady();
+        return;
+      }
       if (topic !== TTS_TOPIC) return;
       this.#handleTtsSignal(payload);
     });
@@ -1676,9 +1822,19 @@ export class LiveKitAdapter implements RealtimeProviderAdapter {
     rawMicTrack?.stop();
     if (bridge) bridge.track.enabled = false;
     this.#room = undefined;
+    this.#roomPreparedForAudio = false;
     this.#connecting = false;
     this.#closing = false;
     this.#currentUtteranceId = undefined;
+    this.#ttsReady = false;
+    this.#greetGestureUnlocked = false;
+    if (this.#ttsReadyTimer !== undefined) {
+      clearTimeout(this.#ttsReadyTimer);
+      this.#ttsReadyTimer = undefined;
+    }
+    const ttsReadyWaiter = this.#ttsReadyWaiter;
+    this.#ttsReadyWaiter = undefined;
+    ttsReadyWaiter?.(false);
     this.#playbackStream = undefined;
     if (this.#audioEl) {
       // Reset before removal so a retained element reference cannot stay muted
@@ -1704,3 +1860,4 @@ function isSafelyPausedMisfireCancellation(error: unknown): boolean {
 }
 
 const THINKING_FALLBACK_MS = 10_000;
+const GREETING_READY_WAIT_MS = 10_000;

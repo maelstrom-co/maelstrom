@@ -1,10 +1,16 @@
 import type {
+  AssistantMessageOutcome,
   CapabilitySnapshot,
   UIStructuralSnapshot,
   Unsubscribe,
 } from '@maelstrom-co/client';
-import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
+import type {
+  MessageId,
+  SessionId,
+  SidechannelEvent,
+} from '@maelstrom-co/protocol';
 
+import type { GreetingCoordinator } from '../greeting-coordinator.js';
 import type { RealtimeProviderAdapter } from './provider-adapter.types.js';
 
 /**
@@ -44,6 +50,22 @@ export interface RealtimeInstance {
   getStructuralSnapshot(): UIStructuralSnapshot;
   getCapabilitySnapshot(): CapabilitySnapshot;
   onSettled(cb: () => void): Unsubscribe;
+  /**
+   * Persist an assistant message with the engine's existing MessageId dedup.
+   * `'inserted'` is positive evidence this runtime owns first insertion;
+   * `'deduped'` means an earlier attempt already landed.
+   */
+  addAssistantMessageAcknowledged(args: {
+    readonly id: MessageId;
+    readonly message: string;
+  }): Promise<AssistantMessageOutcome>;
+  /**
+   * Observe engine connection readiness. Subscribe first, then the current
+   * status is delivered synchronously (subscribe-then-snapshot), so an
+   * already-connected engine resolves immediately and a not-connected engine
+   * delivers `false` now and `true` on the next transition.
+   */
+  observeEngineConnection(cb: (connected: boolean) => void): Unsubscribe;
 }
 
 /**
@@ -77,4 +99,13 @@ export interface RealtimeSessionOptions {
   readonly onEvent?: (event: SidechannelEvent) => void;
   /** Enable verbose debug tracing (default false). */
   readonly debug?: boolean;
+  /**
+   * Optional one-shot spoken greeting. The coordinator is owned by the
+   * maelstrom-realtime layer (one per Orchestrator) so session recreation
+   * reuses retained proofs. Never constructed inside {@link RealtimeSession}.
+   */
+  readonly greeting?: {
+    readonly text: string;
+    readonly coordinator: GreetingCoordinator;
+  };
 }

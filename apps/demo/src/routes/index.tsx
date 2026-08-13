@@ -420,6 +420,12 @@ function IntentInput({
       >
         <m.VoiceOrb size={56} className="voice-orb" />
       </div>
+      <p
+        className="text-center text-xs mb-3 opacity-70"
+        data-testid="ai-voice-disclosure"
+      >
+        AI-generated voice
+      </p>
       <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
         <div className="flex gap-2">
           <input

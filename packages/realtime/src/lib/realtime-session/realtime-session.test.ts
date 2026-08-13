@@ -5,7 +5,7 @@ import type {
   VoiceSession,
 } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
-import type { SidechannelEvent } from '@maelstrom-co/protocol';
+import type { MessageId, SidechannelEvent } from '@maelstrom-co/protocol';
 import {
   ActionName,
   InstanceId,
@@ -15,11 +15,14 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+import { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {
   AdapterAudioStreams,
   AdapterTurnControl,
+  GreetingSpeechResult,
   RealtimeAdapterEvent,
+  RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
   TurnModeEvent,
@@ -166,6 +169,7 @@ const emptyCapabilitySnapshot: CapabilitySnapshot = { vessels: [] };
 
 interface MockInstance extends RealtimeInstance {
   readonly submitted: string[];
+  readonly acknowledged: Array<{ id: MessageId; message: string }>;
   /** Resolves pending waitForIdle() calls and clears the in-flight submitIntent gate — a full render settle. */
   settle(): void;
   /**
@@ -177,6 +181,20 @@ interface MockInstance extends RealtimeInstance {
   resolveIdle(): void;
   /** Number of onSettled subscribers currently registered — a leaked subscription shows up here. */
   readonly settledSubscriberCount: number;
+  /** Number of engine-connection observers currently registered. */
+  readonly engineConnectionSubscriberCount: number;
+  /** Emit a connected/disconnected transition to engine observers. */
+  emitEngineConnected(connected?: boolean): void;
+  /** Override the next ack outcome (or throw). */
+  setAckResult(
+    result:
+      | 'inserted'
+      | 'deduped'
+      | Error
+      | (() => Promise<'inserted' | 'deduped'>),
+  ): void;
+  /** Hold the next ack until the returned release function is called. */
+  gateAck(): () => void;
 }
 
 function makeMockInstance(
@@ -185,14 +203,27 @@ function makeMockInstance(
   submitResult: SubmitIntentResult = {},
 ): MockInstance {
   const submitted: string[] = [];
+  const acknowledged: Array<{ id: MessageId; message: string }> = [];
   const settledHandlers = new Set<() => void>();
+  const engineHandlers = new Set<(connected: boolean) => void>();
   let pendingResolvers: Array<() => void> = [];
   let inFlight = false;
+  let engineConnected = true;
+  let ackResult:
+    | 'inserted'
+    | 'deduped'
+    | Error
+    | (() => Promise<'inserted' | 'deduped'>) = 'inserted';
+  let ackGate: Promise<void> | undefined;
 
   return {
     submitted,
+    acknowledged,
     get settledSubscriberCount() {
       return settledHandlers.size;
+    },
+    get engineConnectionSubscriberCount() {
+      return engineHandlers.size;
     },
     submitIntent: async (intent: string) => {
       if (inFlight) {
@@ -214,6 +245,23 @@ function makeMockInstance(
         settledHandlers.delete(cb);
       };
     },
+    addAssistantMessageAcknowledged: async (args) => {
+      acknowledged.push(args);
+      if (ackGate) {
+        await ackGate;
+        ackGate = undefined;
+      }
+      if (typeof ackResult === 'function') return ackResult();
+      if (ackResult instanceof Error) throw ackResult;
+      return ackResult;
+    },
+    observeEngineConnection: (cb) => {
+      engineHandlers.add(cb);
+      cb(engineConnected);
+      return () => {
+        engineHandlers.delete(cb);
+      };
+    },
     settle() {
       inFlight = false;
       const resolvers = pendingResolvers;
@@ -226,7 +274,75 @@ function makeMockInstance(
       pendingResolvers = [];
       for (const resolve of resolvers) resolve();
     },
+    emitEngineConnected(connected = true) {
+      engineConnected = connected;
+      for (const cb of engineHandlers) cb(connected);
+    },
+    setAckResult(result) {
+      ackResult = result;
+    },
+    gateAck() {
+      let release!: () => void;
+      ackGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
+    },
   };
+}
+
+const inertInstanceMembers = {
+  addAssistantMessageAcknowledged: async () => 'inserted' as const,
+  observeEngineConnection: () => () => {},
+};
+
+interface MockGreetingAdapter extends MockAdapter, RealtimeGreetingAdapter {
+  readonly activateAudioCalls: number;
+  readonly speakCalls: Array<{
+    id: MessageId;
+    text: string;
+    signal: AbortSignal;
+  }>;
+  setSpeakResult(
+    result: GreetingSpeechResult | (() => Promise<GreetingSpeechResult>),
+  ): void;
+}
+
+function makeGreetingAdapter(): MockGreetingAdapter {
+  // Do not object-spread the mock: getters like connectCalls would collapse
+  // to a stale data property. Attach greeting fields onto the live mock.
+  const base = makeMockAdapter();
+  const speakCalls: Array<{
+    id: MessageId;
+    text: string;
+    signal: AbortSignal;
+  }> = [];
+  let activateAudioCalls = 0;
+  let speakResult:
+    | GreetingSpeechResult
+    | (() => Promise<GreetingSpeechResult>) = 'accepted';
+
+  const greeting = base as MockGreetingAdapter;
+  Object.defineProperty(greeting, 'activateAudioCalls', {
+    get: () => activateAudioCalls,
+    enumerable: true,
+  });
+  Object.defineProperty(greeting, 'speakCalls', {
+    get: () => speakCalls,
+    enumerable: true,
+  });
+  greeting.activateAudio = () => {
+    activateAudioCalls += 1;
+  };
+  greeting.speakAssistantText = async (args) => {
+    speakCalls.push(args);
+    if (typeof speakResult === 'function') return speakResult();
+    return speakResult;
+  };
+  greeting.setSpeakResult = (result) => {
+    speakResult = result;
+  };
+  return greeting;
 }
 
 const testSessionId = SessionId('sess-test-1');
@@ -825,6 +941,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
       getStructuralSnapshot: () => emptySnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -891,6 +1008,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
       getStructuralSnapshot: () => populatedSnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -943,6 +1061,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
       getStructuralSnapshot: () => emptySnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -993,6 +1112,7 @@ describe('RealtimeSession — defensive outcome normalization', () => {
       getStructuralSnapshot: () => populatedSnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -1036,6 +1156,7 @@ describe('RealtimeSession — defensive outcome normalization', () => {
       getStructuralSnapshot: () => populatedSnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -1840,5 +1961,254 @@ describe('VoiceSession — realtime boundary', () => {
     void clientSession?.on('turn_mode', () => {});
 
     expect(true).toBe(true);
+  });
+});
+
+// ============================================================================
+// Greeting coordination (Phase 2)
+// ============================================================================
+
+describe('RealtimeSession — greeting activation and validation', () => {
+  it('activates audio before adapter.connect and greets once after connected', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const events: SidechannelEvent[] = [];
+    const transcripts: Array<{ role: string; text: string; final: boolean }> =
+      [];
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      onEvent: (e) => events.push(e),
+      greeting: { text: 'Welcome back.', coordinator },
+    });
+    session.on('transcript', (t) => transcripts.push(t));
+
+    // activateAudio must land inside the initiating gesture — before the
+    // awaited adapter handshake.
+    const release = adapter.gateConnect();
+    const connecting = session.connect();
+    await flushMicrotasks();
+    expect(adapter.activateAudioCalls).toBe(1);
+    expect(adapter.connectCalls).toBe(1);
+    expect(instance.acknowledged).toEqual([]);
+    expect(adapter.speakCalls).toEqual([]);
+
+    release();
+    await connecting;
+    await flushMicrotasks();
+
+    expect(instance.acknowledged).toEqual([
+      {
+        id: coordinator.greetingIdFor(testSessionId),
+        message: 'Welcome back.',
+      },
+    ]);
+    expect(transcripts).toEqual([
+      { role: 'assistant', text: 'Welcome back.', final: true },
+    ]);
+    expect(
+      events.some(
+        (e) =>
+          e.type === 'transcript' &&
+          e.role === 'assistant' &&
+          e.text === 'Welcome back.' &&
+          e.final === true,
+      ),
+    ).toBe(true);
+    expect(adapter.speakCalls).toHaveLength(1);
+    expect(adapter.speakCalls[0]?.text).toBe('Welcome back.');
+    expect(adapter.speakCalls[0]?.id).toBe(
+      coordinator.greetingIdFor(testSessionId),
+    );
+  });
+
+  it('rejects greeting config against a plain adapter before any provider connect', async () => {
+    const adapter = makeMockAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: {
+        text: 'hi',
+        coordinator: new GreetingCoordinator(),
+      },
+    });
+
+    await expect(session.connect()).rejects.toMatchObject({
+      name: 'RealtimeVoiceError',
+      code: 'GREETING_ADAPTER_UNSUPPORTED',
+    });
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBeInstanceOf(RealtimeVoiceError);
+    expect(adapter.connectCalls).toBe(0);
+    expect(instance.acknowledged).toEqual([]);
+  });
+
+  it('leaves connect behavior unchanged when greeting is not configured', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+
+    expect(adapter.activateAudioCalls).toBe(0);
+    expect(instance.acknowledged).toEqual([]);
+    expect(adapter.speakCalls).toEqual([]);
+  });
+});
+
+describe('RealtimeSession — greeting lifecycle', () => {
+  it('aborts an in-flight generation on disconnect', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const coordinator = new GreetingCoordinator();
+    let speakSignal: AbortSignal | undefined;
+    let resolveSpeak!: (value: GreetingSpeechResult) => void;
+    adapter.setSpeakResult(
+      () =>
+        new Promise<GreetingSpeechResult>((resolve) => {
+          resolveSpeak = resolve;
+        }),
+    );
+    const originalSpeak = adapter.speakAssistantText.bind(adapter);
+    adapter.speakAssistantText = async (args) => {
+      speakSignal = args.signal;
+      return originalSpeak(args);
+    };
+
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello there.', coordinator },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+    expect(adapter.speakCalls).toHaveLength(1);
+    expect(speakSignal?.aborted).toBe(false);
+
+    await session.disconnect();
+    expect(speakSignal?.aborted).toBe(true);
+    resolveSpeak('accepted');
+    await flushMicrotasks();
+  });
+
+  it('does not re-greet the same session after a completed greeting + reconnect', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello there.', coordinator },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+    expect(instance.acknowledged).toHaveLength(1);
+    expect(adapter.speakCalls).toHaveLength(1);
+
+    await session.disconnect();
+
+    const ackCountAfterFirst = instance.acknowledged.length;
+    const speakCountAfterFirst = adapter.speakCalls.length;
+    await session.connect();
+    await flushMicrotasks();
+    expect(instance.acknowledged.length).toBe(ackCountAfterFirst);
+    expect(adapter.speakCalls.length).toBe(speakCountAfterFirst);
+  });
+
+  it('greets again when a new session reuses the same coordinator', async () => {
+    const coordinator = new GreetingCoordinator();
+    const sessionAId = SessionId('sess-a');
+    const sessionBId = SessionId('sess-b');
+
+    const adapterA = makeGreetingAdapter();
+    const instanceA = makeMockInstance(emptySnapshot);
+    const sessionA = new RealtimeSession({
+      adapter: adapterA,
+      instance: instanceA,
+      sessionId: sessionAId,
+      greeting: { text: 'Welcome.', coordinator },
+    });
+    await sessionA.connect();
+    await flushMicrotasks();
+    expect(instanceA.acknowledged).toHaveLength(1);
+    expect(adapterA.speakCalls).toHaveLength(1);
+    await sessionA.disconnect();
+
+    const adapterB = makeGreetingAdapter();
+    const instanceB = makeMockInstance(emptySnapshot);
+    const sessionB = new RealtimeSession({
+      adapter: adapterB,
+      instance: instanceB,
+      sessionId: sessionBId,
+      greeting: { text: 'Welcome.', coordinator },
+    });
+    await sessionB.connect();
+    await flushMicrotasks();
+    expect(instanceB.acknowledged).toEqual([
+      {
+        id: coordinator.greetingIdFor(sessionBId),
+        message: 'Welcome.',
+      },
+    ]);
+    expect(adapterB.speakCalls).toHaveLength(1);
+  });
+
+  it('does not speak when acknowledgement fails', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    instance.setAckResult(new Error('history unavailable'));
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello there.', coordinator },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+
+    expect(instance.acknowledged).toHaveLength(1);
+    expect(adapter.speakCalls).toEqual([]);
+  });
+
+  it('retries not_started speech on the next connection generation', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    adapter.setSpeakResult('not_started');
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello there.', coordinator },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+    expect(adapter.speakCalls).toHaveLength(1);
+    expect(instance.acknowledged).toHaveLength(1);
+
+    await session.disconnect();
+    adapter.setSpeakResult('accepted');
+    await session.connect();
+    await flushMicrotasks();
+
+    // The retry re-acknowledges the retained inserted history before speaking.
+    expect(adapter.speakCalls).toHaveLength(2);
+    expect(instance.acknowledged).toHaveLength(2);
   });
 });

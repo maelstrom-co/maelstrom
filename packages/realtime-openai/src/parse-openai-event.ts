@@ -1,4 +1,5 @@
 import { ToolCallId } from '@maelstrom-co/protocol';
+
 import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -21,6 +22,10 @@ export function asString(value: unknown): string | undefined {
  * `gpt-realtime-2` at this point, so these are the maintainer's best-known
  * shapes from prior Realtime API versions, isolated here so they're cheap to
  * correct once real traffic is observed.
+ *
+ * `conversation.item.created` is intentionally unmapped: greeting playback no
+ * longer waits on provider item-acks, and the event remains a known benign
+ * type in the unexpected-event tracker.
  */
 export function parseOpenAIServerEvent(
   raw: unknown,

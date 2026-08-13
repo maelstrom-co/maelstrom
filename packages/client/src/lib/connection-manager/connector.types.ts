@@ -400,6 +400,11 @@ export interface EngineConnector {
   /**
    * Add an assistant message to conversation history without LLM processing.
    * Used for programmatic messages (greetings, notifications).
+   *
+   * This legacy capability is fire-and-forget: it resolves after the transport
+   * accepts the send and does not confirm insertion. Use
+   * {@link AcknowledgedAssistantConnector.addAssistantMessageAcknowledged} when
+   * dependent side effects require a correlated engine outcome.
    */
   addAssistantMessage(message: AssistantMessage): Promise<void>;
 
@@ -488,4 +493,54 @@ export interface AssistantMessage {
   readonly id: MessageId;
   /** Message content */
   readonly message: string;
+}
+
+/**
+ * Result of an acknowledged assistant-message insertion.
+ *
+ * - `inserted`: the engine appended the message to session history.
+ * - `deduped`: the engine already held a message with the same id, so it
+ *   appended nothing.
+ *
+ * Callers use this to decide whether side effects tied to the message (for
+ * example a caption or speech playback) already ran in a previous attempt.
+ * Greeting flows treat `deduped` without a retained `inserted` as “already
+ * handled” and suppress caption and speech for that greeting forever.
+ */
+export type AssistantMessageOutcome = 'inserted' | 'deduped';
+
+/**
+ * Connector that reports whether an assistant message was inserted or deduped.
+ *
+ * Optional capability: {@link EngineConnector.addAssistantMessage} stays
+ * fire-and-forget. Detect support with
+ * {@link isAcknowledgedAssistantConnector}.
+ */
+export interface AcknowledgedAssistantConnector extends EngineConnector {
+  /**
+   * Insert an assistant message and wait for the engine outcome.
+   *
+   * Unlike legacy {@link EngineConnector.addAssistantMessage}, this does not
+   * resolve merely because the transport accepted the send. It rejects when
+   * request construction or sending fails, the transport is not connected,
+   * the engine reports an error, the connection closes, or the bounded
+   * acknowledgement wait expires. A silent legacy server therefore times out
+   * rather than producing a false insertion result.
+   */
+  addAssistantMessageAcknowledged(
+    message: AssistantMessage,
+  ): Promise<AssistantMessageOutcome>;
+}
+
+/**
+ * Narrow an {@link EngineConnector} to one that supports acknowledged
+ * assistant-message insertion.
+ */
+export function isAcknowledgedAssistantConnector(
+  connector: EngineConnector,
+): connector is AcknowledgedAssistantConnector {
+  return (
+    'addAssistantMessageAcknowledged' in connector &&
+    typeof connector.addAssistantMessageAcknowledged === 'function'
+  );
 }

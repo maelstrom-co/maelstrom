@@ -1,17 +1,25 @@
 import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
 import { Logger } from '@maelstrom-co/client';
-import type { ToolCallId } from '@maelstrom-co/protocol';
+import type { MessageId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  GreetingSpeechResult,
   RealtimeAdapterEvent,
+  RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
   ToolResult,
 } from '@maelstrom-co/realtime';
 import { ConnectRaceGuard, RealtimeVoiceError } from '@maelstrom-co/realtime';
-import type { OpenAITokenGrant } from '@maelstrom-co/realtime-protocol/openai';
-import type { OpenAIAdapterOptions } from './openai-adapter.types.js';
+import type {
+  OpenAIBuiltInVoice,
+  OpenAITokenGrant,
+} from '@maelstrom-co/realtime-protocol/openai';
+import type {
+  OpenAIAdapterOptions,
+  SynthesizeGreeting,
+} from './openai-adapter.types.js';
 import {
   asString,
   isRecord,
@@ -29,6 +37,10 @@ import {
   type UnexpectedEventTracker,
 } from './unexpected-event-tracker.js';
 import { deriveVoiceActivity } from './voice-activity.js';
+import {
+  raceAbortSignal,
+  WebAudioGreetingPlayer,
+} from './web-audio-greeting-player.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 
@@ -103,6 +115,8 @@ function audioProcessingSettings(track: MediaStreamTrack | undefined) {
   } as const;
 }
 
+const DEFAULT_OUTPUT_VOICE: OpenAIBuiltInVoice = 'marin';
+
 function toOpenAITool(spec: RealtimeToolSpec): unknown {
   return {
     type: 'function',
@@ -132,10 +146,15 @@ function toOpenAITool(spec: RealtimeToolSpec): unknown {
  * await session.connect();
  * ```
  */
-export class OpenAIAdapter implements RealtimeProviderAdapter {
+export class OpenAIAdapter
+  implements RealtimeProviderAdapter, RealtimeGreetingAdapter
+{
   readonly #mintToken: () => Promise<OpenAITokenGrant>;
   readonly #logger: Logger;
   readonly #transcription: false | { readonly model?: string } | undefined;
+  readonly #voice: OpenAIBuiltInVoice;
+  readonly #synthesizeGreeting: SynthesizeGreeting | undefined;
+  readonly #greetingPlayer = new WebAudioGreetingPlayer();
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
 
   #pc: RTCPeerConnection | undefined;
@@ -157,10 +176,14 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
   #responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
   #voiceActivity: VoiceSessionState = 'connected';
   #unexpectedEvents: UnexpectedEventTracker = createUnexpectedEventTracker();
+  /** Operation-scoped controller for in-flight greeting synthesis/playback. */
+  #greetingOp: AbortController | undefined;
 
   constructor(options: OpenAIAdapterOptions) {
     this.#mintToken = options.mintToken;
     this.#transcription = options.transcription;
+    this.#voice = options.voice ?? DEFAULT_OUTPUT_VOICE;
+    this.#synthesizeGreeting = options.synthesizeGreeting;
     this.#logger = new Logger(options.debug ?? false, 'OpenAIAdapter');
   }
 
@@ -240,15 +263,36 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
       this.#micStream = micStream;
       this.#connecting = false;
       this.#wireConnectionEvents(connection);
-      this.#openDataChannel(connection, opts, connectStart);
+      const dataChannelReady = this.#openDataChannel(
+        connection,
+        opts,
+        connectStart,
+      );
 
-      await this.#exchangeSdp(connection, token, connectStart);
+      const [, channel] = await Promise.all([
+        this.#exchangeSdp(connection, token, connectStart),
+        dataChannelReady,
+      ]);
       attempt.assertCurrent();
+      if (
+        channel !== this.#dc ||
+        connection !== this.#pc ||
+        channel.readyState !== 'open'
+      ) {
+        throw new RealtimeVoiceError(
+          'DATA_CHANNEL_ERROR',
+          'OpenAI realtime data channel closed during connection setup',
+        );
+      }
     } catch (error) {
       // Always close this attempt's own connection + mic. They may never have
       // reached the shared fields (e.g. a failure before the post-getUserMedia
       // publish), in which case teardown() alone wouldn't clean them up.
       this.#closeAbandonedAttempt(connection, micStream);
+      // Teardown may close a still-opening data channel, whose local readiness
+      // promise rejects with DATA_CHANNEL_ERROR. Preserve the adapter-wide
+      // contract that an overtaken connect always rejects CONNECT_SUPERSEDED.
+      if (!attempt.isCurrent) attempt.assertCurrent();
       if (attempt.isCurrent) {
         // Still the current attempt — a genuine handshake failure. Reset the
         // rest of the shared session state (data channel, audio element,
@@ -361,6 +405,106 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     };
   }
 
+  /**
+   * Unlock greeting audio synchronously within the initiating user gesture.
+   * Must never throw. Failures surface later as `not_started` from
+   * {@link speakAssistantText}. Only activates when a synthesizer is configured.
+   */
+  activateAudio(): void {
+    try {
+      if (this.#synthesizeGreeting === undefined) return;
+      this.#greetingPlayer.activate();
+    } catch {
+      // Never throw from the gesture path; readiness fails later.
+    }
+  }
+
+  /**
+   * Speak the exact configured greeting text once the coordinator hands off.
+   * Sends provider history first, then synthesizes and plays WAV bytes without
+   * waiting for any provider acknowledgement. Never issues `response.create`.
+   *
+   * Pre-send failures return `not_started`. Once the send call returns,
+   * every later outcome settles as `accepted`.
+   */
+  async speakAssistantText(args: {
+    readonly id: MessageId;
+    readonly text: string;
+    readonly signal: AbortSignal;
+  }): Promise<GreetingSpeechResult> {
+    if (!this.#dc || this.#dc.readyState !== 'open') return 'not_started';
+    if (this.#synthesizeGreeting === undefined) return 'not_started';
+    if (args.signal.aborted) return 'not_started';
+
+    const readiness = await this.#greetingPlayer.ensureReady(args.signal);
+    if (!readiness.ok) return 'not_started';
+    // Re-check channel after the readiness await — disconnect may have raced.
+    if (!this.#dc || this.#dc.readyState !== 'open') return 'not_started';
+    if (args.signal.aborted) return 'not_started';
+
+    const { text } = args;
+    const synthesize = this.#synthesizeGreeting;
+
+    try {
+      this.#dc.send(
+        JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            // Engine message IDs can exceed OpenAI's 32-character item-ID limit.
+            type: 'message',
+            role: 'assistant',
+            status: 'completed',
+            content: [{ type: 'output_text', text }],
+          },
+        }),
+      );
+    } catch {
+      // No delivery began — the only retriable outcome after readiness.
+      return 'not_started';
+    }
+
+    // Send succeeded: every later outcome is terminal `accepted`.
+    const op = new AbortController();
+    this.#greetingOp = op;
+    const onCallerAbort = (): void => {
+      op.abort();
+    };
+    if (args.signal.aborted) {
+      op.abort();
+    } else {
+      args.signal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+
+    try {
+      // Race the synthesizer against abort so an uncooperative pending fetch
+      // cannot hang the adapter (or the coordinator's speech-in-flight) after
+      // disconnect/abort. Late synth settlement is observed inside the race.
+      const synthRace = await raceAbortSignal(
+        synthesize({
+          text,
+          voice: this.#voice,
+          signal: op.signal,
+        }),
+        op.signal,
+      );
+      if (synthRace.status === 'aborted') return 'accepted';
+      if (op.signal.aborted) return 'accepted';
+      await this.#greetingPlayer.play(synthRace.value, op.signal);
+    } catch (error) {
+      // Synthesis/decode/playback failure after send — still accepted.
+      this.#logger.debug('greeting synthesis or playback failed', error);
+    } finally {
+      args.signal.removeEventListener('abort', onCallerAbort);
+      // Only the owning/current operation may clear the op pointer and stop
+      // the shared player. A stale session-A finally must not stop session B.
+      if (this.#greetingOp === op) {
+        this.#greetingOp = undefined;
+        this.#greetingPlayer.stop();
+      }
+    }
+    return 'accepted';
+  }
+
   #wireConnectionEvents(connection: RTCPeerConnection): void {
     const audio = new Audio();
     audio.autoplay = true;
@@ -452,38 +596,83 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     connection: RTCPeerConnection,
     opts: AdapterConnectOptions,
     connectStart: number,
-  ): void {
+  ): Promise<RTCDataChannel> {
     const channel = connection.createDataChannel('oai-events');
     this.#dc = channel;
-    channel.onopen = () => {
-      this.#logger.debug('connect timing', {
-        step: 'dataChannelOpen',
-        ms: Date.now() - connectStart,
-      });
-      const sessionUpdate = {
-        type: 'session.update',
-        session: {
-          type: 'realtime',
-          tools: opts.tools.map(toOpenAITool),
-          instructions: opts.instructions,
-          ...this.#transcriptionConfig(),
-        },
-      };
-      this.#logger.debug('→ session.update', sessionUpdate);
-      channel.send(JSON.stringify(sessionUpdate));
-    };
     channel.onmessage = (event: MessageEvent) => {
+      if (channel !== this.#dc) return;
       this.#handleDataChannelMessage(event.data as unknown);
     };
-    channel.onerror = () => {
-      this.#emit({
-        type: 'error',
-        error: new RealtimeVoiceError(
+    return new Promise<RTCDataChannel>((resolve, reject) => {
+      let settled = false;
+      let opened = false;
+      channel.onopen = () => {
+        if (settled) return;
+        if (channel !== this.#dc || connection !== this.#pc) {
+          settled = true;
+          reject(
+            new RealtimeVoiceError(
+              'CONNECT_SUPERSEDED',
+              'connect() was superseded before the data channel opened',
+            ),
+          );
+          return;
+        }
+        this.#logger.debug('connect timing', {
+          step: 'dataChannelOpen',
+          ms: Date.now() - connectStart,
+        });
+        const sessionUpdate = {
+          type: 'session.update',
+          session: {
+            type: 'realtime',
+            tools: opts.tools.map(toOpenAITool),
+            instructions: opts.instructions,
+            ...this.#audioConfig(),
+          },
+        };
+        this.#logger.debug('→ session.update', sessionUpdate);
+        try {
+          channel.send(JSON.stringify(sessionUpdate));
+          opened = true;
+          settled = true;
+          resolve(channel);
+        } catch (cause) {
+          settled = true;
+          reject(
+            new RealtimeVoiceError(
+              'DATA_CHANNEL_ERROR',
+              'Failed to configure the OpenAI realtime data channel',
+              cause,
+            ),
+          );
+        }
+      };
+      channel.onerror = () => {
+        const error = new RealtimeVoiceError(
           'DATA_CHANNEL_ERROR',
           'OpenAI realtime data channel error',
-        ),
-      });
-    };
+        );
+        if (!settled) {
+          settled = true;
+          reject(error);
+          return;
+        }
+        if (!opened) return;
+        if (channel !== this.#dc) return;
+        this.#emit({ type: 'error', error });
+      };
+      channel.onclose = () => {
+        if (settled) return;
+        settled = true;
+        reject(
+          new RealtimeVoiceError(
+            'DATA_CHANNEL_ERROR',
+            'OpenAI realtime data channel closed before opening',
+          ),
+        );
+      };
+    });
   }
 
   async #exchangeSdp(
@@ -565,13 +754,20 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     });
   }
 
-  // The `audio.input.transcription` slice of session.update, or nothing when
-  // transcription is disabled. GA `type: 'realtime'` nests transcription under
-  // `audio.input`, not the legacy top-level `input_audio_transcription`.
-  #transcriptionConfig(): Record<string, unknown> {
-    if (this.#transcription === false) return {};
+  // Audio slice of session.update: always sets output.voice; nests input
+  // transcription under `audio.input` when enabled (GA `type: 'realtime'`).
+  #audioConfig(): Record<string, unknown> {
+    const output = { voice: this.#voice };
+    if (this.#transcription === false) {
+      return { audio: { output } };
+    }
     const model = this.#transcription?.model ?? DEFAULT_TRANSCRIPTION_MODEL;
-    return { audio: { input: { transcription: { model } } } };
+    return {
+      audio: {
+        input: { transcription: { model } },
+        output,
+      },
+    };
   }
 
   #sendResponseCreate(): void {
@@ -582,11 +778,25 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
     for (const handler of this.#handlers) handler(event);
   }
 
+  /**
+   * Abort in-flight greeting synthesis/playback without closing the session.
+   * Player AudioContext is retained across reconnects; only the current op stops.
+   */
+  #abortGreetingPlayback(): void {
+    const greetingOp = this.#greetingOp;
+    this.#greetingOp = undefined;
+    greetingOp?.abort();
+    this.#greetingPlayer.stop();
+  }
+
   #teardown(): void {
     // Invalidate any connect() still mid-handshake so it abandons its own
     // attempt instead of clobbering shared state when its awaits resume.
     this.#connectGuard.supersede();
     this.#clearIceGraceTimer();
+    // Abort in-flight greeting synthesis/playback so disconnect cannot hang.
+    // Fresh lifecycle state for a later reconnect; player context is retained.
+    this.#abortGreetingPlayback();
     this.#audioEl?.pause();
     if (this.#audioEl) this.#audioEl.srcObject = null;
     this.#audioEl = undefined;
@@ -648,6 +858,13 @@ export class OpenAIAdapter implements RealtimeProviderAdapter {
         this.#voiceActivity = nextActivity;
         this.#emit({ type: 'state', state: nextActivity });
       }
+    }
+
+    // Barge-in: stop adapter-owned greeting Web Audio only. Do not tear down
+    // the realtime session. Post-send speakAssistantText still settles
+    // `accepted`, so a later reconnect will not replay the greeting.
+    if (type === 'input_audio_buffer.speech_started') {
+      this.#abortGreetingPlayback();
     }
 
     const event = parseOpenAIServerEvent(parsed);

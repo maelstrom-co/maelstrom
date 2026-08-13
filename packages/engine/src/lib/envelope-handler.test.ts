@@ -7,6 +7,7 @@ import type {
   Result,
 } from '@maelstrom-co/protocol';
 import {
+  AcknowledgedAssistantMessage,
   ChartRequestMessage,
   encodeEnvelope,
   err,
@@ -211,34 +212,24 @@ describe('handleEnvelope — chart_request', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleEnvelope — assistant_message', () => {
-  test('returns null on Ok (fire-and-forget)', async () => {
-    const sessionId = SessionId('sess-1');
-    const engine = stubEngine({
-      handle: async () =>
-        okOutput({
-          type: 'assistant_message_result',
-          sessionId,
-          id: MessageId('inj-1'),
-          outcome: 'inserted',
-        }),
-    });
-
-    const reply = await handleEnvelope(engine, {
-      type: 'assistant_message',
-      sessionId,
-      id: MessageId('inj-1'),
-      timestamp: 1,
-      content: 'seeded note',
-    });
-    expect(reply).toBeNull();
-  });
-
-  test('surfaces an engine Err as engine.error correlated to the message id', async () => {
+  test.each([
+    'inserted',
+    'deduped',
+  ] as const)('invokes Engine for a legacy %s result and returns no frame', async (outcome) => {
     const sessionId = SessionId('sess-1');
     const messageId = MessageId('inj-1');
+    let handled = false;
     const engine = stubEngine({
-      handle: async () =>
-        errOutput(validationError('history not configured', 'history')),
+      handle: async (message) => {
+        handled = true;
+        expect(message.type).toBe('assistant_message');
+        return okOutput({
+          type: 'assistant_message_result',
+          sessionId,
+          id: messageId,
+          outcome,
+        });
+      },
     });
 
     const reply = await handleEnvelope(engine, {
@@ -249,12 +240,156 @@ describe('handleEnvelope — assistant_message', () => {
       content: 'seeded note',
     });
 
+    expect(handled).toBe(true);
+    expect(reply).toBeNull();
+  });
+
+  test.each([
+    {
+      name: 'returns an Engine history failure',
+      handle: async () =>
+        errOutput(validationError('history not configured', 'history')),
+    },
+    {
+      name: 'throws during history insertion',
+      handle: async () => {
+        throw new Error('history store unavailable');
+      },
+    },
+  ])('$name without emitting a legacy frame', async ({ handle }) => {
+    const sessionId = SessionId('sess-1');
+    const messageId = MessageId('inj-1');
+    const engine = stubEngine({ handle });
+
+    const reply = await handleEnvelope(engine, {
+      type: 'assistant_message',
+      sessionId,
+      id: messageId,
+      timestamp: 1,
+      content: 'seeded note',
+    });
+
+    expect(reply).toBeNull();
+  });
+});
+
+describe('handleEnvelope — client.assistant_message.acknowledged', () => {
+  test.each([
+    'inserted',
+    'deduped',
+  ] as const)('maps an Ok %s result to a correlated assistant result frame', async (outcome) => {
+    const sessionId = SessionId('sess-1');
+    const messageId = MessageId('inj-1');
+    const engine = stubEngine({
+      handle: async (message) => {
+        expect(message.type).toBe('assistant_message');
+        return okOutput({
+          type: 'assistant_message_result',
+          sessionId,
+          id: messageId,
+          outcome,
+        });
+      },
+    });
+
+    const reply = await handleEnvelope(
+      engine,
+      AcknowledgedAssistantMessage({
+        sessionId,
+        id: messageId,
+        timestamp: 1,
+        content: 'seeded note',
+      }),
+    );
+    expect(reply).toEqual({
+      type: 'engine.assistant_message.result',
+      requestId: messageId,
+      sessionId,
+      outcome,
+    });
+  });
+
+  test('maps an unexpected Ok output type to engine.error UnexpectedOutput', async () => {
+    const sessionId = SessionId('sess-1');
+    const messageId = MessageId('inj-1');
+    const engine = stubEngine({
+      handle: async () =>
+        okOutput({
+          type: 'chart_response',
+          sessionId,
+          id: MessageId('other-id'),
+          response: maelstromResponse(MessageId('other-id')),
+        }),
+    });
+
+    const reply = await handleEnvelope(
+      engine,
+      AcknowledgedAssistantMessage({
+        sessionId,
+        id: messageId,
+        timestamp: 1,
+        content: 'seeded note',
+      }),
+    );
+
+    expect(reply?.type).toBe('engine.error');
+    if (reply?.type !== 'engine.error') return;
+    expect(reply.code).toBe('UnexpectedOutput');
+    expect(reply.requestId).toBe(messageId);
+    expect(reply.sessionId).toBe(sessionId);
+  });
+
+  test('surfaces an engine Err as engine.error correlated to the message id', async () => {
+    const sessionId = SessionId('sess-1');
+    const messageId = MessageId('inj-1');
+    const engine = stubEngine({
+      handle: async () =>
+        errOutput(validationError('history not configured', 'history')),
+    });
+
+    const reply = await handleEnvelope(
+      engine,
+      AcknowledgedAssistantMessage({
+        sessionId,
+        id: messageId,
+        timestamp: 1,
+        content: 'seeded note',
+      }),
+    );
+
     expect(reply?.type).toBe('engine.error');
     if (reply?.type !== 'engine.error') return;
     expect(reply.requestId).toBe(messageId);
     expect(reply.sessionId).toBe(sessionId);
     expect(reply.error).toBe('history not configured');
     expect(reply.code).toBe('ValidationError');
+  });
+
+  test('maps a thrown insertion failure to a correlated engine.error', async () => {
+    const sessionId = SessionId('sess-1');
+    const messageId = MessageId('inj-throw');
+    const engine = stubEngine({
+      handle: async () => {
+        throw new Error('history store unavailable');
+      },
+    });
+
+    const reply = await handleEnvelope(
+      engine,
+      AcknowledgedAssistantMessage({
+        sessionId,
+        id: messageId,
+        timestamp: 1,
+        content: 'seeded note',
+      }),
+    );
+
+    expect(reply?.type).toBe('engine.error');
+    if (reply?.type !== 'engine.error') return;
+    expect(reply.requestId).toBe(messageId);
+    expect(reply.sessionId).toBe(sessionId);
+    expect(reply.error).toBe('history store unavailable');
+    expect(reply.code).toBeUndefined();
   });
 });
 

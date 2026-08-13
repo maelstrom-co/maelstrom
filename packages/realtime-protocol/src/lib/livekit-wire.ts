@@ -53,6 +53,14 @@ export interface TtsCancelMessage {
   type: 'tts_cancel';
 }
 
+/** Data topic the worker uses to announce SPEAK_TOPIC and TTS-track readiness. */
+export const TTS_READY_TOPIC = 'tts-ready';
+
+/** Payload of the single per-job readiness packet. */
+export interface TtsReadyMessage {
+  readonly type: 'tts_ready';
+}
+
 /** Sent worker → browser adapter on the `TTS_TOPIC` when TTS synthesis fails. */
 export interface TtsErrorMessage {
   type: 'tts_error';

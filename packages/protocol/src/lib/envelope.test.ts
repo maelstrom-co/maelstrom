@@ -6,6 +6,8 @@ import {
   ChartRequestMessage,
 } from './engine-message.js';
 import {
+  AcknowledgedAssistantMessage,
+  AssistantMessageResultMessage,
   ClientEnvelopeSchema,
   decodeClientEnvelope,
   decodeServerEnvelope,
@@ -116,6 +118,34 @@ describe('ClientEnvelope round-trip', () => {
     }
   });
 
+  test('client.assistant_message.acknowledged', () => {
+    const msg = AcknowledgedAssistantMessage({
+      sessionId: SessionId('s-1'),
+      content: 'hello world',
+      id: MessageId('m-am-ack'),
+      timestamp: 1_700_000_000_000,
+    });
+    const decoded = decodeClientEnvelope(encodeEnvelope(msg));
+    expect(decoded.ok).toBe(true);
+    if (
+      decoded.ok &&
+      decoded.value.type === 'client.assistant_message.acknowledged'
+    ) {
+      expect(decoded.value).toEqual(msg);
+    } else {
+      throw new Error('expected client.assistant_message.acknowledged');
+    }
+  });
+
+  test('acknowledged assistant constructor rejects an empty payload', () => {
+    expect(() =>
+      AcknowledgedAssistantMessage({
+        sessionId: SessionId('s-1'),
+        content: '',
+      }),
+    ).toThrow();
+  });
+
   test('client.history.get', () => {
     const msg = HistoryGetMessage({
       sessionId: SessionId('s-1'),
@@ -137,6 +167,27 @@ describe('ClientEnvelope round-trip', () => {
 // ---------------------------------------------------------------------------
 
 describe('ServerEnvelope round-trip', () => {
+  test.each([
+    'inserted',
+    'deduped',
+  ] as const)('engine.assistant_message.result (%s)', (outcome) => {
+    const msg = AssistantMessageResultMessage({
+      requestId: MessageId('req-X'),
+      sessionId: SessionId('s-1'),
+      outcome,
+    });
+    const decoded = decodeServerEnvelope(encodeEnvelope(msg));
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) throw new Error('expected a decodable server envelope');
+    expect(decoded.value.type).toBe('engine.assistant_message.result');
+    if (decoded.value.type !== 'engine.assistant_message.result') {
+      throw new Error('expected engine.assistant_message.result');
+    }
+    expect(decoded.value.requestId).toBe(MessageId('req-X'));
+    expect(decoded.value.sessionId).toBe(SessionId('s-1'));
+    expect(decoded.value.outcome).toBe(outcome);
+  });
+
   test('engine.maelstrom.response', () => {
     const msg = MaelstromResponseMessage({
       requestId: MessageId('req-1'),
@@ -286,6 +337,26 @@ describe('decode failures', () => {
     }
   });
 
+  test.each([
+    ['empty content', { content: '' }],
+    ['empty id', { id: '' }],
+    ['empty sessionId', { sessionId: '' }],
+    ['non-finite timestamp', { timestamp: Number.POSITIVE_INFINITY }],
+  ])('malformed acknowledged assistant message (%s) → invalid_envelope', (_case, override) => {
+    const decoded = decodeClientEnvelope({
+      type: 'client.assistant_message.acknowledged',
+      sessionId: 's-1',
+      id: 'm-am-ack',
+      timestamp: 1_700_000_000_000,
+      content: 'hello world',
+      ...override,
+    });
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.kind).toBe('invalid_envelope');
+    }
+  });
+
   test('empty-string requestId → invalid_envelope', () => {
     const decoded = decodeServerEnvelope({
       type: 'engine.error',
@@ -368,7 +439,7 @@ describe('EngineMessage ↔ ClientEnvelope', () => {
   test('the direction schemas are the same discriminated-union contract', () => {
     // Guards against a member silently dropping out of a union: the schema a
     // host would safeParse against must accept exactly what the codec accepts.
-    expect(ClientEnvelopeSchema.options).toHaveLength(3);
-    expect(ServerEnvelopeSchema.options).toHaveLength(3);
+    expect(ClientEnvelopeSchema.options).toHaveLength(4);
+    expect(ServerEnvelopeSchema.options).toHaveLength(4);
   });
 });

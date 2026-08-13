@@ -70,6 +70,7 @@ class FakeRealtimeSession {
 
 mock.module('@maelstrom-co/realtime', () => ({
   RealtimeSession: FakeRealtimeSession,
+  GreetingCoordinator: class FakeGreetingCoordinator {},
 }));
 
 const { maelstromRealtime } = await import('./maelstrom-realtime.js');

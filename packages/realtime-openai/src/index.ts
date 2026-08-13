@@ -13,4 +13,8 @@
  */
 export * from '@maelstrom-co/realtime-protocol/openai';
 export { OpenAIAdapter } from './openai-adapter.js';
-export type { OpenAIAdapterOptions } from './openai-adapter.types.js';
+export type {
+  OpenAIAdapterOptions,
+  SynthesizeGreeting,
+  SynthesizeGreetingArgs,
+} from './openai-adapter.types.js';

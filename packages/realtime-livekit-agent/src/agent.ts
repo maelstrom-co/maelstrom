@@ -36,9 +36,11 @@ import {
 import {
   SPEAK_TOPIC,
   SPEAK_UTTERANCE_ID_ATTR,
+  TTS_READY_TOPIC,
   TTS_TOPIC,
   type TtsDoneMessage,
   type TtsErrorMessage,
+  type TtsReadyMessage,
   TURN_TOPIC,
   USER_PARTICIPANT_IDENTITY,
 } from '@maelstrom-co/realtime-protocol/livekit-wire';
@@ -69,6 +71,7 @@ const WORKER_DIAGNOSTIC_REASONS = [
   'tts-synthesis-failed',
   'tts-cancellation-failed',
   'tts-status-publication-failed',
+  'tts-ready-publication-failed',
   'transcript-publication-failed',
   'overlapping-microphone-track',
   'audio-track-processing-failed',
@@ -229,7 +232,12 @@ export function logWorkerDiagnostic(
 // releases the worker slot — LiveKit's waitForParticipant has no timeout of its
 // own and would otherwise block the job forever.
 const PARTICIPANT_JOIN_TIMEOUT_MS = 60_000;
-const entry = async (ctx: JobContext) => {
+
+/**
+ * LiveKit job entry for the Maelstrom voice worker. Exported so tests can run
+ * the real job against a mocked {@link JobContext}.
+ */
+export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
   // Connect the agent to the room first — waitForParticipant requires a
   // connected room, and the agent must be joined to publish transcriptions.
   await ctx.connect();
@@ -381,6 +389,27 @@ const entry = async (ctx: JobContext) => {
     }),
   );
 
+  // Greeting gate: LiveKit drops a SPEAK_TOPIC text stream sent before this
+  // handler (and the TTS track above) exist. Announce readiness after both and
+  // replay it when the bound user rejoins an existing worker room.
+  const ready: TtsReadyMessage = { type: 'tts_ready' };
+  const readyPayload = new TextEncoder().encode(JSON.stringify(ready));
+  const publishTtsReady = async (): Promise<void> => {
+    try {
+      await localParticipant.publishData(readyPayload, {
+        reliable: true,
+        topic: TTS_READY_TOPIC,
+      });
+    } catch (error) {
+      logWorkerDiagnostic('warn', 'tts-ready-publication-failed', error);
+    }
+  };
+  room.on(RoomEvent.ParticipantConnected, (participant) => {
+    if (participant.identity !== user.identity) return;
+    void publishTtsReady();
+  });
+  await publishTtsReady();
+
   /** Processes one accepted microphone track without changing its STT lifecycle. */
   async function processAudioTrack(track: RemoteTrack) {
     const audioStream = new AudioStream(track);
@@ -465,7 +494,7 @@ const entry = async (ctx: JobContext) => {
   room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
     handleMicrophoneTrack(track as RemoteTrack, participant);
   });
-};
+}
 
 /**
  * Builds the Maelstrom voice agent definition (the LiveKit `defineAgent` job).
@@ -473,7 +502,7 @@ const entry = async (ctx: JobContext) => {
  * without changing the module's default export.
  */
 export function defineMaelstromVoiceAgent() {
-  return defineAgent({ entry });
+  return defineAgent({ entry: maelstromVoiceJob });
 }
 
 /**

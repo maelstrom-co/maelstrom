@@ -9,8 +9,9 @@
     "directory": "./dist/client",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Only /ws needs the Worker in front of it -- voice token minting is
-    // browser-direct OpenAI (see worker/index.ts), so there is no /api/mint route.
+    // Only /ws needs the Worker in front of it -- hosted token minting and
+    // greeting TTS are browser-direct OpenAI (see worker/index.ts), so there
+    // is no /api/mint or demo greeting TTS route on this Worker.
     "run_worker_first": ["/ws"]
   },
   "durable_objects": {

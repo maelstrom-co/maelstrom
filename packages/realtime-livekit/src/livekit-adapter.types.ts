@@ -48,4 +48,9 @@ export interface LiveKitAdapterOptions {
    * `0` to disable it.
    */
   readonly thinkingFallbackMs?: number;
+  /**
+   * How long `speakAssistantText` waits for the worker's `tts_ready` packet
+   * before suppressing the greeting (default 10000ms). Test-only tightening.
+   */
+  readonly greetingReadyWaitMs?: number;
 }

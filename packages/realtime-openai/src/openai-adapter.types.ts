@@ -1,4 +1,25 @@
-import type { OpenAITokenGrant } from '@maelstrom-co/realtime-protocol/openai';
+import type {
+  OpenAIBuiltInVoice,
+  OpenAITokenGrant,
+} from '@maelstrom-co/realtime-protocol/openai';
+
+/** Arguments passed to an injected greeting synthesizer. */
+export interface SynthesizeGreetingArgs {
+  /** Exact greeting text — must not be altered by the synthesizer. */
+  readonly text: string;
+  /** Configured built-in voice (same value as Realtime session output). */
+  readonly voice: OpenAIBuiltInVoice;
+  /** Signals that pending synthesis must stop promptly when the greeting or voice session stops. */
+  readonly signal: AbortSignal;
+}
+
+/**
+ * Transport-only greeting synthesizer. Returns WAV bytes; must not play audio
+ * or rewrite text. Playback is owned by the adapter's internal Web Audio player.
+ */
+export type SynthesizeGreeting = (
+  args: SynthesizeGreetingArgs,
+) => Promise<ArrayBuffer>;
 
 /** Options for constructing an {@link OpenAIAdapter}. */
 export interface OpenAIAdapterOptions {
@@ -19,4 +40,16 @@ export interface OpenAIAdapterOptions {
    * transcription config is sent in `session.update`.
    */
   readonly transcription?: false | { readonly model?: string };
+  /**
+   * Built-in Realtime/TTS output voice. Defaults to `marin`. Applied to the
+   * initial `session.update` audio.output and passed to
+   * {@link synthesizeGreeting}.
+   */
+  readonly voice?: OpenAIBuiltInVoice;
+  /**
+   * Fetches WAV bytes for the exact greeting text. Optional — without it the
+   * adapter cannot start greeting speech and returns `not_started` (no browser
+   * TTS fallback). Transport only; does not play audio.
+   */
+  readonly synthesizeGreeting?: SynthesizeGreeting;
 }

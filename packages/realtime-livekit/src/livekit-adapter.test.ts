@@ -142,10 +142,18 @@ function makeMockRoom() {
 }
 
 let currentRoom = makeMockRoom();
+/** Counts `new Room()` constructions across the livekit-client mock. */
+let roomConstructCount = 0;
+/** Ordered lifecycle probes for gesture-unlock / connect sequencing tests. */
+const lifecycleOrder: string[] = [];
 
 mock.module('livekit-client', () => ({
   createLocalAudioTrack: mockCreateLocalAudioTrack,
   Room: class {
+    constructor() {
+      roomConstructCount += 1;
+      lifecycleOrder.push('Room');
+    }
     on = currentRoom.on;
     off = currentRoom.off;
     connect = currentRoom.connect;
@@ -172,8 +180,14 @@ mock.module('@ricky0123/vad-web', () => ({
 }));
 
 const { LiveKitAdapter } = await import('./livekit-adapter');
-const { SPEAK_TOPIC, SPEAK_UTTERANCE_ID_ATTR, TURN_TOPIC, TTS_TOPIC } =
-  await import('@maelstrom-co/realtime-protocol/livekit');
+const {
+  SPEAK_TOPIC,
+  SPEAK_UTTERANCE_ID_ATTR,
+  TURN_TOPIC,
+  TTS_TOPIC,
+  TTS_READY_TOPIC,
+} = await import('@maelstrom-co/realtime-protocol/livekit');
+const { MessageId } = await import('@maelstrom-co/protocol');
 
 // The utterance id the client stamped on the most recent speak text stream — the
 // worker echoes this on its TTS status packets, so tests read it back to forge a
@@ -215,7 +229,7 @@ function makeAdapter(
     DEFAULT_GRANT,
   options: Pick<
     LiveKitAdapterOptions,
-    'debug' | 'thinkingFallbackMs' | 'vad'
+    'debug' | 'thinkingFallbackMs' | 'vad' | 'greetingReadyWaitMs'
   > = {},
 ) {
   const events: RealtimeAdapterEvent[] = [];
@@ -4289,5 +4303,336 @@ describe('LiveKitAdapter misc surface', () => {
 
     await adapter.connect({ tools: [], instructions: '' });
     expect(received.length).toBe(0);
+  });
+});
+
+describe('LiveKitAdapter greeting capability', () => {
+  const greetingId = MessageId('greeting:s1');
+  const greetingText = 'Welcome aboard.';
+
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    roomConstructCount = 0;
+    lifecycleOrder.length = 0;
+    mockRoomConnect.mockReset();
+    mockRoomConnect.mockImplementation(async () => {
+      lifecycleOrder.push('room.connect');
+    });
+    mockRoomDisconnect.mockReset();
+    mockRoomDisconnect.mockImplementation(async () => {});
+    mockSendText.mockReset();
+    mockSendText.mockImplementation(async () => ({}));
+    mockStartAudio.mockReset();
+    mockStartAudio.mockImplementation(async () => {
+      lifecycleOrder.push('startAudio');
+    });
+    mockCreateLocalAudioTrack.mockReset();
+    mockCreateLocalAudioTrack.mockImplementation(
+      async () => mockMicPublication.track,
+    );
+    mockPublishTrack.mockReset();
+    mockPublishTrack.mockImplementation(async () => mockMicPublication);
+    mockGetTrackPublication.mockReset();
+    mockGetTrackPublication.mockImplementation(() => mockMicPublication);
+    mockPauseUpstream.mockReset();
+    mockPauseUpstream.mockImplementation(async () => {});
+    mockPublishedMicTrack.enabled = false;
+    mockMicCloneTrack.enabled = false;
+    mockCreateLocalAudioPreRoll.mockReset();
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => {
+      throw new Error('AudioWorklet unavailable');
+    });
+  });
+
+  test('without activateAudio, speakAssistantText is not_started and never sends', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 20 });
+    await adapter.connect({ tools: [], instructions: '' });
+    // Ready packet would otherwise allow send — unlock gate is independent.
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('suppresses when tts_ready never arrives within greetingReadyWaitMs', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 30 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('ready packet unlocks SPEAK_TOPIC send of exact text and returns accepted', async () => {
+    const { adapter, events } = makeAdapter(undefined, {
+      greetingReadyWaitMs: 5000,
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+    // Yield so the waiter is registered, then announce ready.
+    await Promise.resolve();
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+    await expect(speak).resolves.toBe('accepted');
+    expectSpoke(greetingText);
+    expect(states(events).at(-1)).toBe('speaking');
+  });
+
+  test('abort while waiting for ready returns not_started without send', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 5000 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    const controller = new AbortController();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: controller.signal,
+    });
+    await Promise.resolve();
+    controller.abort();
+    await expect(speak).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('ambiguous send rejection returns terminal accepted and collapses local speaking state', async () => {
+    const { adapter, events } = makeAdapter(undefined, {
+      greetingReadyWaitMs: 5000,
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+
+    mockSendText.mockImplementationOnce(async () => {
+      throw new Error('send failed');
+    });
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('accepted');
+    // The adapter cannot prove non-delivery after sendText starts. It collapses
+    // local state but returns a terminal result so the coordinator cannot retry.
+    expect(states(events)).toContain('speaking');
+    expect(states(events).at(-1)).toBe('connected');
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  test('teardown resets ttsReady; a reconnect requires a fresh tts_ready', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 40 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+
+    await adapter.disconnect();
+
+    // Fresh room after reconnect — readiness must be re-announced.
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('a genuinely late tts_ready after teardown is a no-op under the room-currency guard', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 40 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    // Retain the old room's emitter, then tear the adapter down so `#room` no
+    // longer matches. A late ready packet on the abandoned room must not arm
+    // readiness for the next connection.
+    const oldRoom = currentRoom;
+    await adapter.disconnect();
+    oldRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('an earlier wait finish cannot clear a newer waiter deadline', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 60 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    const firstAbort = new AbortController();
+    const firstSpeak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: firstAbort.signal,
+    });
+    await Promise.resolve();
+
+    const secondSpeak = adapter.speakAssistantText({
+      id: greetingId,
+      text: 'Later greeting',
+      signal: new AbortController().signal,
+    });
+    await Promise.resolve();
+
+    // Settling the replaced wait must not strip the active wait's timeout.
+    firstAbort.abort();
+    await expect(firstSpeak).resolves.toBe('not_started');
+
+    const secondOutcome = await Promise.race([
+      secondSpeak,
+      new Promise<'hung'>((resolve) => {
+        setTimeout(() => resolve('hung'), 200);
+      }),
+    ]);
+    expect(secondOutcome).toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('activateAudio constructs Room and invokes startAudio before token mint/connect', async () => {
+    const { adapter } = makeAdapter(async () => {
+      lifecycleOrder.push('mintToken');
+      return DEFAULT_GRANT;
+    });
+
+    adapter.activateAudio();
+    expect(lifecycleOrder).toEqual(['Room', 'startAudio']);
+    expect(roomConstructCount).toBe(1);
+    expect(mockStartAudio).toHaveBeenCalledTimes(1);
+
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(lifecycleOrder).toEqual([
+      'Room',
+      'startAudio',
+      'mintToken',
+      'room.connect',
+    ]);
+    // Prepared room is reused — connect must not construct a second Room.
+    expect(roomConstructCount).toBe(1);
+  });
+
+  test('activateAudio startAudio rejection is non-fatal and raises no unhandled rejection', async () => {
+    mockStartAudio.mockImplementation(async () => {
+      lifecycleOrder.push('startAudio');
+      throw new Error('autoplay blocked');
+    });
+
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const { adapter } = makeAdapter();
+      expect(() => adapter.activateAudio()).not.toThrow();
+      expect(mockStartAudio).toHaveBeenCalledTimes(1);
+      expect(lifecycleOrder).toEqual(['Room', 'startAudio']);
+      await Promise.resolve();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toEqual([]);
+
+      await expect(
+        adapter.connect({ tools: [], instructions: '' }),
+      ).resolves.toBeUndefined();
+      expect(roomConstructCount).toBe(1);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  test('reconnect after disconnect prepares a fresh room rather than reusing the old one', async () => {
+    const { adapter } = makeAdapter();
+    adapter.activateAudio();
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(roomConstructCount).toBe(1);
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    lifecycleOrder.length = 0;
+
+    adapter.activateAudio();
+    expect(roomConstructCount).toBe(2);
+    expect(lifecycleOrder).toEqual(['Room', 'startAudio']);
+
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(roomConstructCount).toBe(2);
+  });
+
+  test('a second connect while joined still throws ALREADY_CONNECTED after activateAudio prepare', async () => {
+    const { adapter } = makeAdapter();
+    adapter.activateAudio();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    let error: unknown;
+    try {
+      await adapter.connect({ tools: [], instructions: '' });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('ALREADY_CONNECTED');
+    expect(roomConstructCount).toBe(1);
   });
 });
