@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-vad",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.1",
   "description": "Provider-neutral browser voice-activity detection for Maelstrom realtime voice: a MediaStream in, speech boundaries out.",
   "keywords": [
     "maelstrom",
