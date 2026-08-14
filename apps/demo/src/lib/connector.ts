@@ -15,9 +15,7 @@ export interface CreateDemoConnectorOptions {
   /**
    * Source of truth for the visitor's key. Defaults to reading
    * `playgroundKeyStore` — the same store the key drawer and custody UI
-   * read/write — so every caller shares one key-custody source instead of
-   * risking a getter that reads localStorage directly and misses a
-   * session-only (`remember: false`) key that never touched storage.
+   * read/write — so every caller shares one in-memory key-custody source.
    */
   readonly getApiKey?: () => string | null;
   /**

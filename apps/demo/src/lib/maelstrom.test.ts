@@ -240,7 +240,7 @@ describe('demo voice provider wiring', () => {
     ).rejects.toThrow(/key/i);
     expect(urls).toHaveLength(0);
 
-    setPlaygroundKey('sk-first-key-1234567890', true);
+    setPlaygroundKey('sk-first-key-1234567890');
     await options.synthesizeGreeting!({
       text: DEMO_GREETING,
       voice: DEMO_OPENAI_VOICE,
@@ -250,7 +250,7 @@ describe('demo voice provider wiring', () => {
     expect(auths).toEqual(['Bearer sk-first-key-1234567890']);
 
     // Lazy re-read on the next attempt after a key change.
-    setPlaygroundKey('sk-second-key-0987654321', true);
+    setPlaygroundKey('sk-second-key-0987654321');
     await options.synthesizeGreeting!({
       text: DEMO_GREETING,
       voice: DEMO_OPENAI_VOICE,

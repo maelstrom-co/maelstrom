@@ -136,13 +136,13 @@ export function HomePage() {
             setKeyErrorMessage(null);
             setBlockedSubmit(false);
           }}
-          onSave={(key, remember) => {
+          onSave={(key) => {
             // Re-entering (or merely viewing) the same key from the header
             // pill must not remount <m.Provider> mid-session — that would
             // mint a fresh sessionId and drop everything the LLM has
             // arranged so far. Only a genuine key change earns the reset.
             const keyChanged = key !== playgroundKeyStore.state.apiKey;
-            setPlaygroundKey(key, remember);
+            setPlaygroundKey(key);
             setDrawerOpen(false);
             setKeyErrorMessage(null);
             if (!keyChanged) {
