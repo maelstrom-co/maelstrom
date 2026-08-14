@@ -111,6 +111,8 @@
         "@astrojs/sitemap": "catalog:",
         "@astrojs/starlight": "^0.41.5",
         "@astrojs/starlight-tailwind": "^5.0.0",
+        "@fontsource/inter": "^5.2.8",
+        "@fontsource/jetbrains-mono": "^5.2.8",
         "astro": "catalog:",
         "react": "catalog:",
         "react-dom": "catalog:",

@@ -444,18 +444,108 @@ export default defineConfig({
   outDir: './dist',
   fonts: [
     {
-      provider: fontProviders.google(),
+      provider: fontProviders.local(),
       name: 'Inter',
       cssVariable: '--font-heading',
-      weights: [400, 500, 600, 700],
       fallbacks: ['system-ui', 'sans-serif'],
+      options: {
+        variants: [
+          {
+            weight: 400,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
+            ],
+          },
+          {
+            weight: 400,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-400-italic.woff2',
+            ],
+          },
+          {
+            weight: 500,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-500-normal.woff2',
+            ],
+          },
+          {
+            weight: 500,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-500-italic.woff2',
+            ],
+          },
+          {
+            weight: 600,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2',
+            ],
+          },
+          {
+            weight: 600,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-600-italic.woff2',
+            ],
+          },
+          {
+            weight: 700,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
+            ],
+          },
+          {
+            weight: 700,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-700-italic.woff2',
+            ],
+          },
+        ],
+      },
     },
     {
-      provider: fontProviders.google(),
+      provider: fontProviders.local(),
       name: 'JetBrains Mono',
       cssVariable: '--font-code',
-      weights: [400, 500],
       fallbacks: ['monospace'],
+      options: {
+        variants: [
+          {
+            weight: 400,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2',
+            ],
+          },
+          {
+            weight: 400,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-italic.woff2',
+            ],
+          },
+          {
+            weight: 500,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2',
+            ],
+          },
+          {
+            weight: 500,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-italic.woff2',
+            ],
+          },
+        ],
+      },
     },
   ],
 });
