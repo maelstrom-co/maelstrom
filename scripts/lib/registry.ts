@@ -21,9 +21,14 @@ export function shouldTreatNotFoundAsUnpublished(
   const notFound = /E404|404 Not Found|code E404/.test(stderr);
   if (registryHost(registry) !== 'npm.pkg.github.com') return notFound;
 
-  // GitHub masks package authorization failures as generic 404s. It only
-  // proves absence when it says the package resolved but the version did not.
-  return notFound && /404 No match found for version\s/.test(stderr);
+  // GitHub masks package authorization failures as generic 404s. Treat only
+  // explicit absence messages as unpublished: either the package exists but
+  // the exact version does not, or GitHub says the package does not exist for
+  // the authenticated owner. A generic 404 remains indeterminate.
+  const explicitlyAbsent =
+    /404 No match found for version\s/.test(stderr) ||
+    /npm package "[^"]+" does not exist under owner "[^"]+"/.test(stderr);
+  return notFound && explicitlyAbsent;
 }
 
 export function authenticationFailureHint(registry: string): string {

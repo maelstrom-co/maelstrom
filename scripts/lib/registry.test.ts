@@ -32,7 +32,15 @@ describe('isAlreadyPublished', () => {
       expected: false,
     },
     {
-      name: 'keeps GitHub Packages E404 indeterminate',
+      name: 'treats an explicit missing GitHub package as unpublished',
+      registry: 'https://npm.pkg.github.com',
+      stderr:
+        'npm error code E404\nnpm error 404 Not Found - GET https://npm.pkg.github.com/@maelstrom-co%2frealtime-openai-server - npm package "realtime-openai-server" does not exist under owner "maelstrom-co"',
+      exit: '1',
+      expected: false,
+    },
+    {
+      name: 'keeps generic GitHub Packages E404 indeterminate',
       registry: 'https://npm.pkg.github.com',
       stderr: 'npm error code E404\nnpm error 404 Not Found',
       exit: '1',
@@ -105,6 +113,15 @@ describe('shouldTreatNotFoundAsUnpublished', () => {
     expect(
       shouldTreatNotFoundAsUnpublished(
         `${notFound}\nnpm error 404 No match found for version 0.1.0-alpha.0`,
+        'https://npm.pkg.github.com',
+      ),
+    ).toBe(true);
+  });
+
+  test('accepts GitHub Packages response that explicitly names a missing package', () => {
+    expect(
+      shouldTreatNotFoundAsUnpublished(
+        `${notFound}\nnpm error 404 Not Found - GET https://npm.pkg.github.com/@maelstrom-co%2frealtime-openai-server - npm package "realtime-openai-server" does not exist under owner "maelstrom-co"`,
         'https://npm.pkg.github.com',
       ),
     ).toBe(true);
