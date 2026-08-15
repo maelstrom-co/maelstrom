@@ -80,8 +80,14 @@ function must<T>(value: T | null | undefined): T {
   return value;
 }
 
+function closeInitialKeyPrompt(): void {
+  fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+  expect(screen.queryByLabelText(/api key/i)).toBeNull();
+}
+
 beforeEach(() => {
   vi.stubEnv('VITE_HOSTED', '1');
+  vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
   FakeRealtimeSession.instances = [];
   localStorage.clear();
   clearPlaygroundKey();
@@ -97,18 +103,28 @@ afterEach(() => {
 });
 
 describe('key drawer gating (hosted, no key)', () => {
-  it('does not render the drawer on initial render', async () => {
+  it('prompts for the memory-only key on every hosted page load', async () => {
     const { HomePage } = await import('./index');
     render(<HomePage />);
 
-    expect(screen.queryByLabelText(/api key/i)).toBeNull();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getByLabelText(/api key/i)).toBeTruthy();
   });
 
-  it('opens the drawer once Send is pressed with no key set', async () => {
+  it('also prompts on localhost when the server has no OpenAI key', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
     const { HomePage } = await import('./index');
     render(<HomePage />);
 
-    expect(screen.queryByLabelText(/api key/i)).toBeNull();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getByLabelText(/api key/i)).toBeTruthy();
+  });
+
+  it('reopens the drawer when Send is pressed after dismissing the prompt', async () => {
+    const { HomePage } = await import('./index');
+    render(<HomePage />);
+    closeInitialKeyPrompt();
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'plan my day' },
@@ -160,6 +176,7 @@ describe('typed assistant feedback', () => {
 
 describe('voice mint failures (hosted)', () => {
   it('reopens the drawer with an actionable message on a token-mint failure', async () => {
+    setPlaygroundKey('sk-rejected');
     const { HomePage } = await import('./index');
     const { RealtimeVoiceError } = await import('@maelstrom-co/realtime');
     render(<HomePage />);
@@ -183,6 +200,7 @@ describe('voice mint failures (hosted)', () => {
   });
 
   it('does not reopen the drawer for a non-mint voice error', async () => {
+    setPlaygroundKey('sk-present');
     const { HomePage } = await import('./index');
     const { RealtimeVoiceError } = await import('@maelstrom-co/realtime');
     render(<HomePage />);
@@ -300,6 +318,7 @@ describe('resumed auto-submit rejected by an invalid key', () => {
 
     const { HomePage } = await import('./index');
     render(<HomePage />);
+    closeInitialKeyPrompt();
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'show me the weather in Lisbon' },
@@ -364,8 +383,7 @@ describe('mic-path key gating (hosted, no key)', () => {
   it('opens the drawer instead of starting a voice session when the orb is clicked with no key set', async () => {
     const { HomePage } = await import('./index');
     render(<HomePage />);
-
-    expect(screen.queryByLabelText(/api key/i)).toBeNull();
+    closeInitialKeyPrompt();
 
     fireEvent.click(screen.getByRole('button', { name: /voice/i }));
 
@@ -444,6 +462,7 @@ describe('voice greeting (hosted, with a key)', () => {
 
     // Local mode: no visitor key, disclosure must be visible before interaction.
     vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
     clearPlaygroundKey();
     const local = render(<HomePage />);
     expectVisibleDisclosure();
@@ -534,8 +553,9 @@ describe('voice greeting (hosted, with a key)', () => {
 });
 
 describe('header "API key" affordance', () => {
-  it('is hidden when not hosted', async () => {
+  it('is hidden when local mode has a server-owned key', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
     const { HomePage } = await import('./index');
     render(<HomePage />);
 
@@ -552,8 +572,7 @@ describe('header "API key" affordance', () => {
   it('opens the drawer when clicked, with no key set', async () => {
     const { HomePage } = await import('./index');
     render(<HomePage />);
-
-    expect(screen.queryByLabelText(/api key/i)).toBeNull();
+    closeInitialKeyPrompt();
 
     fireEvent.click(screen.getByRole('button', { name: /api key/i }));
 
@@ -566,6 +585,7 @@ describe('header "API key" affordance', () => {
     // the header (not a blocked Send) still auto-submitted it on save.
     const { HomePage } = await import('./index');
     render(<HomePage />);
+    closeInitialKeyPrompt();
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'plan my day' },
@@ -595,6 +615,7 @@ describe('resumeIntent auto-submit', () => {
   it('sends the intent typed before the drawer interrupted, once the post-save reconnect lands', async () => {
     const { HomePage } = await import('./index');
     render(<HomePage />);
+    closeInitialKeyPrompt();
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'plan my day' },
@@ -657,6 +678,7 @@ describe('captions placement (footer chrome)', () => {
     // Captions over main covered vessel flash borders. This asserts the mount
     // site, not class names — CSS or a moved parent would still fail here.
     vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
     const { HomePage } = await import('./index');
     const { container } = render(<HomePage />);
 

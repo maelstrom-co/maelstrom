@@ -15,6 +15,18 @@ import {
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(rootDir, '../..');
 
+/**
+ * Browser key custody is mandatory for hosted builds and is the local fallback
+ * when the demo server has no OpenAI key of its own.
+ *
+ * @param {boolean} hosted
+ * @param {string | undefined} apiKey
+ * @returns {'0' | '1'}
+ */
+export function resolveBrowserKeyMode(hosted, apiKey) {
+  return hosted || !apiKey?.trim() ? '1' : '0';
+}
+
 export default defineConfig(({ command, mode }) => {
   // Server routes (e.g. api/realtime-token.ts) read process.env.* directly.
   // Vite's own env loading only exposes VITE_-prefixed vars to
@@ -33,6 +45,14 @@ export default defineConfig(({ command, mode }) => {
   // behind it; the self-host path (`nx dev demo`, `bun run build && bun run
   // start`) needs the opposite — real SSR — so this can't be unconditional.
   const hosted = process.env.VITE_HOSTED === '1';
+  // Expose only the custody mode, never the key. Client code uses this to
+  // switch localhost to the same browser-key paths as hosted mode when the
+  // server cannot satisfy text or voice requests itself.
+  process.env.VITE_BROWSER_KEY_MODE = resolveBrowserKeyMode(
+    hosted,
+    process.env.OPENAI_API_KEY,
+  );
+
   // A local LiveKit production build needs the generated `public/vad-web`
   // assets, so it uses Vite's native complete public-directory copy. Other
   // production builds disable that native copy and let the allowlisting plugin

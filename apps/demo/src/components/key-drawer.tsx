@@ -17,11 +17,23 @@ export interface KeyDrawerProps {
 // and the client can no longer decode any reply.
 const MIN_API_KEY_LENGTH = 20;
 
+function RunLocallyLink() {
+  return (
+    <a
+      href="https://github.com/maelstrom-co/maelstrom/blob/main/README.md"
+      target="_blank"
+      rel="noreferrer noopener"
+      className="text-sm text-ink-3 underline"
+    >
+      run it locally instead
+    </a>
+  );
+}
+
 /**
- * BYOK key entry drawer, shown before the first Send/mic press in hosted
- * mode when no visitor key is on hand, or on demand via the header "API
- * key" affordance. The key stays in browser memory for this page session and
- * is never rendered back into the input after use.
+ * BYOK key entry drawer for hosted deployments and localhost without a
+ * server-side OpenAI key. The key stays in browser memory for this page
+ * session and is never rendered back into the input after use.
  */
 export function KeyDrawer({
   isOpen,
@@ -141,14 +153,7 @@ export function KeyDrawer({
         )}
 
         <div className="mt-5 flex items-center justify-between">
-          <a
-            href="https://github.com/maelstrom-co/maelstrom/blob/main/README.md"
-            target="_blank"
-            rel="noreferrer noopener"
-            className="text-sm text-ink-3 underline"
-          >
-            run it locally instead
-          </a>
+          <RunLocallyLink />
           <div className="flex gap-2">
             {storedKey && (
               <button

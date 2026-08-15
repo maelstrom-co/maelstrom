@@ -31,11 +31,9 @@ import {
 
 /**
  * Minimal stand-in for Bun.ServerWebSocket<SocketData> — only what the
- * handlers touch. `helloReceived` defaults to `true`: that is the only
- * state `Bun.serve`'s upgrade handler ever actually produces (it hardcodes
- * `data: { helloReceived: true }`), so a test exercising real local-mode
- * traffic must start from it rather than from a state the handler can
- * never observe in production.
+ * handlers touch. `helloReceived` defaults to `true`, matching localhost
+ * with a server-owned key. Browser-key fallback starts it false until the
+ * playground.hello frame arrives.
  */
 function makeFakeWs(helloReceived = true) {
   const sent: string[] = [];
@@ -140,6 +138,30 @@ describe('truncateCloseReason (Finding #1)', () => {
 });
 
 describe('createWebSocketHandlers pre-hello frame handling', () => {
+  it('builds a connection engine from a browser key before dispatching local requests', async () => {
+    createEngineMock.mockReturnValue(stubEngine());
+    const handlers = createWebSocketHandlers({
+      sharedEngine: null,
+      sharedEngineInitError: null,
+    });
+    const ws = makeFakeWs(false);
+    const socket = ws as unknown as Parameters<typeof handlers.message>[0];
+
+    await handlers.message(
+      socket,
+      JSON.stringify({
+        type: 'playground.hello',
+        sessionId: 's-1',
+        apiKey: 'sk-visitor-key-1234567',
+      }),
+    );
+    await handlers.message(socket, chartRequest);
+
+    expect(ws.data.helloReceived).toBe(true);
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).toContain('maelstrom_response');
+  });
+
   // 1008 is the client's "never retry this" signal, so it has to stay
   // reserved for closes a reconnect genuinely cannot fix. A garbled first
   // frame is not one of those: the reconnecting socket sends its handshake
@@ -151,11 +173,8 @@ describe('createWebSocketHandlers pre-hello frame handling', () => {
       sharedEngineInitError: null,
     });
 
-    // helloReceived: false is core-level state only — Bun's upgrade handler
-    // hardcodes `data: { helloReceived: true }`, so local mode itself can
-    // never reach this branch. It stays covered here because dispatchFrame
-    // (the shared core) still models it for the DO transport, which does
-    // have a real pre-hello window.
+    // Browser-key localhost and the hosted Durable Object both have a real
+    // pre-hello window. Undecodable traffic must remain retryable in either.
     const ws = makeFakeWs(false);
     await handlers.message(
       ws as unknown as Parameters<typeof handlers.message>[0],
@@ -168,9 +187,8 @@ describe('createWebSocketHandlers pre-hello frame handling', () => {
 });
 
 describe('createWebSocketHandlers send paths (local mode)', () => {
-  // makeFakeWs() defaults to helloReceived: true — the only state
-  // Bun.serve's upgrade path produces — so these exercise the handler the
-  // way `bun run dev` actually drives it, not a state it can't reach.
+  // makeFakeWs() defaults to the server-owned key path, which dispatches
+  // without waiting for a browser handshake.
   it('sends a maelstrom_response for a chart_request', async () => {
     const handlers = createWebSocketHandlers({
       sharedEngine: stubEngine(),

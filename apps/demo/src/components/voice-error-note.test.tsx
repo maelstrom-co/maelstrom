@@ -41,10 +41,15 @@ function must<T>(value: T | null | undefined): T {
 }
 
 beforeEach(() => {
+  vi.stubEnv('VITE_HOSTED', '0');
+  vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
   FakeRealtimeSession.instances = [];
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllEnvs();
+});
 
 function renderNote() {
   const connector = createMockConnector();
@@ -142,7 +147,21 @@ describe('VoiceErrorNote', () => {
     }
   });
 
-  it('still explains a TOKEN_MINT_FAILED in local mode, where nothing else does', async () => {
+  it('also leaves localhost browser-key mint failures to the drawer', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    const { container, session } = renderNote();
+    session.lastError = new RealtimeVoiceError('TOKEN_MINT_FAILED', 'boom');
+    await act(async () => {
+      session.emitState('error');
+    });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('still explains a TOKEN_MINT_FAILED when localhost has a server key', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
     const { container, session } = renderNote();
     session.lastError = new RealtimeVoiceError('TOKEN_MINT_FAILED', 'boom');
     await act(async () => {

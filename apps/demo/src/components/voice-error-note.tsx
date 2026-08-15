@@ -2,7 +2,7 @@ import {
   RealtimeVoiceError,
   type RealtimeVoiceErrorCode,
 } from '@maelstrom-co/realtime';
-import { isHosted } from '../lib/hosted-mode';
+import { usesBrowserKey } from '../lib/hosted-mode';
 import { m } from '../lib/maelstrom';
 
 const CONNECTION_DROPPED_MESSAGE =
@@ -35,11 +35,10 @@ export function VoiceErrorNote() {
 
   const code = error instanceof RealtimeVoiceError ? error.code : null;
 
-  // A hosted mint failure reopens the key drawer carrying the provider's own
-  // reason. Rendering a toast as well would tell the visitor to check a
-  // drawer that is already open in front of them, so the drawer owns this
-  // one alone.
-  if (code === 'TOKEN_MINT_FAILED' && isHosted()) return null;
+  // A browser-key mint failure reopens the key drawer carrying the provider's
+  // own reason. Rendering a toast as well would duplicate that guidance, so
+  // the drawer owns this one alone.
+  if (code === 'TOKEN_MINT_FAILED' && usesBrowserKey()) return null;
 
   const message = (code && MESSAGE_BY_CODE[code]) ?? FALLBACK_MESSAGE;
 
