@@ -15,7 +15,11 @@ import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { DEFAULT_LAYOUT } from '../lib/default-layout';
 import { STATUS_COLORS } from '../lib/design-tokens';
-import { usesBrowserKey } from '../lib/hosted-mode';
+import {
+  isHosted,
+  usesBrowserKey,
+  usesBrowserOpenAIVoice,
+} from '../lib/hosted-mode';
 import { m } from '../lib/maelstrom';
 import {
   clearPlaygroundKey,
@@ -48,6 +52,7 @@ export const Route = createFileRoute('/')({
 // test). This is the only route in the app, so opting it out of TanStack
 // Router's per-route code-splitting costs nothing here.
 export function HomePage() {
+  const hosted = isHosted();
   const browserKeyMode = usesBrowserKey();
   // Bumping this forces a fresh <m.Provider key={keyEpoch}>, which remounts
   // the connector/session cleanly. useMaelstrom() exposes no public
@@ -58,14 +63,14 @@ export function HomePage() {
   // when it's cleared.
   const [keyEpoch, setKeyEpoch] = useState(0);
   // Start closed on both server and client to keep hydration deterministic.
-  // Browser-owned keys are memory-only, so the post-hydration effect below
-  // prompts on every keyless page load before work that must otherwise fail.
+  // A browser-owned localhost key is memory-only, so prompt after hydration
+  // whenever the local server starts without its own OpenAI key.
   const [drawerOpen, setDrawerOpen] = useState(false);
   useEffect(() => {
-    if (browserKeyMode && playgroundKeyStore.state.apiKey === null) {
+    if (!hosted && browserKeyMode && playgroundKeyStore.state.apiKey === null) {
       setDrawerOpen(true);
     }
-  }, [browserKeyMode]);
+  }, [hosted, browserKeyMode]);
 
   // Lifted above <m.Provider key={keyEpoch}> so a key-save remount doesn't
   // wipe whatever the visitor already typed while the drawer was blocking
@@ -195,14 +200,14 @@ function DemoApp({
   const { state: voiceState, error: voiceError } = m.useVoice();
   const thinking = isProcessing || voiceState === 'thinking';
   const browserKeyMode = usesBrowserKey();
+  const browserOpenAIVoice = usesBrowserOpenAIVoice();
 
-  // In browser-key mode a mint failure means the visitor's key is missing or
-  // rejected, not a server misconfiguration — reopen the drawer with the
-  // mint layer's own safe error text (never the key, never raw upstream
-  // text) instead of leaving VoiceErrorNote's server-env copy as the only
-  // signal, since that copy doesn't apply once there's no server-side key.
+  // For browser-key OpenAI voice, a mint failure means the visitor's key is
+  // missing or rejected, not a server misconfiguration. Reopen the drawer
+  // with the mint layer's safe error text instead of VoiceErrorNote's
+  // server-env copy, which does not apply without a server-side key.
   useEffect(() => {
-    if (!browserKeyMode || voiceState !== 'error') return;
+    if (!browserOpenAIVoice || voiceState !== 'error') return;
     if (
       !(voiceError instanceof RealtimeVoiceError) ||
       voiceError.code !== 'TOKEN_MINT_FAILED'
@@ -215,7 +220,7 @@ function DemoApp({
         ? cause.message
         : "Voice couldn't start with that key. Check it and try again.",
     );
-  }, [browserKeyMode, voiceState, voiceError, onMintError]);
+  }, [browserOpenAIVoice, voiceState, voiceError, onMintError]);
 
   return (
     <div className="h-screen flex flex-col relative z-[2]">

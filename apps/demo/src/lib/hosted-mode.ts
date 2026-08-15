@@ -13,3 +13,8 @@ export function isHosted(): boolean {
 export function usesBrowserKey(): boolean {
   return isHosted() || import.meta.env.VITE_BROWSER_KEY_MODE === '1';
 }
+
+/** Whether OpenAI voice, rather than LiveKit, uses the browser-owned key. */
+export function usesBrowserOpenAIVoice(): boolean {
+  return usesBrowserKey() && import.meta.env.VITE_VOICE_PROVIDER !== 'livekit';
+}

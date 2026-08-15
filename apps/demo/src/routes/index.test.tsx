@@ -103,12 +103,12 @@ afterEach(() => {
 });
 
 describe('key drawer gating (hosted, no key)', () => {
-  it('prompts for the memory-only key on every hosted page load', async () => {
+  it('keeps hosted prompting interaction-driven on initial load', async () => {
     const { HomePage } = await import('./index');
     render(<HomePage />);
 
-    expect(screen.getByRole('dialog')).toBeTruthy();
-    expect(screen.getByLabelText(/api key/i)).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByLabelText(/api key/i)).toBeNull();
   });
 
   it('also prompts on localhost when the server has no OpenAI key', async () => {
@@ -121,7 +121,9 @@ describe('key drawer gating (hosted, no key)', () => {
     expect(screen.getByLabelText(/api key/i)).toBeTruthy();
   });
 
-  it('reopens the drawer when Send is pressed after dismissing the prompt', async () => {
+  it('reopens the drawer when keyless localhost Send follows a dismissal', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
     const { HomePage } = await import('./index');
     render(<HomePage />);
     closeInitialKeyPrompt();
@@ -197,6 +199,27 @@ describe('voice mint failures (hosted)', () => {
       expect(screen.getByLabelText(/api key/i)).toBeTruthy();
     });
     expect(screen.getByText('Invalid API key.')).toBeTruthy();
+  });
+
+  it('does not open the OpenAI drawer for a LiveKit token-mint failure', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    vi.stubEnv('VITE_VOICE_PROVIDER', 'livekit');
+    setPlaygroundKey('sk-openai-text-key');
+    const { HomePage } = await import('./index');
+    const { RealtimeVoiceError } = await import('@maelstrom-co/realtime');
+    render(<HomePage />);
+
+    const session = must(FakeRealtimeSession.instances[0]);
+    session.lastError = new RealtimeVoiceError(
+      'TOKEN_MINT_FAILED',
+      'Failed to mint a LiveKit token',
+    );
+    await act(async () => {
+      session.emitState('error');
+    });
+
+    expect(screen.queryByLabelText(/api key/i)).toBeNull();
   });
 
   it('does not reopen the drawer for a non-mint voice error', async () => {
@@ -318,7 +341,6 @@ describe('resumed auto-submit rejected by an invalid key', () => {
 
     const { HomePage } = await import('./index');
     render(<HomePage />);
-    closeInitialKeyPrompt();
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'show me the weather in Lisbon' },
@@ -379,8 +401,10 @@ describe('saving an unchanged key mid-session', () => {
   });
 });
 
-describe('mic-path key gating (hosted, no key)', () => {
-  it('opens the drawer instead of starting a voice session when the orb is clicked with no key set', async () => {
+describe('mic-path key gating (browser-owned key)', () => {
+  it('reopens the localhost drawer instead of starting voice after dismissal', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
     const { HomePage } = await import('./index');
     render(<HomePage />);
     closeInitialKeyPrompt();
@@ -572,7 +596,6 @@ describe('header "API key" affordance', () => {
   it('opens the drawer when clicked, with no key set', async () => {
     const { HomePage } = await import('./index');
     render(<HomePage />);
-    closeInitialKeyPrompt();
 
     fireEvent.click(screen.getByRole('button', { name: /api key/i }));
 
@@ -585,7 +608,6 @@ describe('header "API key" affordance', () => {
     // the header (not a blocked Send) still auto-submitted it on save.
     const { HomePage } = await import('./index');
     render(<HomePage />);
-    closeInitialKeyPrompt();
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'plan my day' },
@@ -615,7 +637,6 @@ describe('resumeIntent auto-submit', () => {
   it('sends the intent typed before the drawer interrupted, once the post-save reconnect lands', async () => {
     const { HomePage } = await import('./index');
     render(<HomePage />);
-    closeInitialKeyPrompt();
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'plan my day' },

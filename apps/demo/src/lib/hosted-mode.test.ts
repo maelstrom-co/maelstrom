@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isHosted, usesBrowserKey } from './hosted-mode';
+import {
+  isHosted,
+  usesBrowserKey,
+  usesBrowserOpenAIVoice,
+} from './hosted-mode';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -39,5 +43,19 @@ describe('usesBrowserKey', () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
     expect(usesBrowserKey()).toBe(false);
+  });
+});
+
+describe('usesBrowserOpenAIVoice', () => {
+  it('is true for OpenAI voice in browser-key mode', () => {
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    vi.stubEnv('VITE_VOICE_PROVIDER', 'openai');
+    expect(usesBrowserOpenAIVoice()).toBe(true);
+  });
+
+  it('is false for LiveKit even when text uses a browser key', () => {
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    vi.stubEnv('VITE_VOICE_PROVIDER', 'livekit');
+    expect(usesBrowserOpenAIVoice()).toBe(false);
   });
 });

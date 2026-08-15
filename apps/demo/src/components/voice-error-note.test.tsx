@@ -147,9 +147,10 @@ describe('VoiceErrorNote', () => {
     }
   });
 
-  it('also leaves localhost browser-key mint failures to the drawer', async () => {
+  it('also leaves localhost OpenAI browser-key mint failures to the drawer', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    vi.stubEnv('VITE_VOICE_PROVIDER', 'openai');
     const { container, session } = renderNote();
     session.lastError = new RealtimeVoiceError('TOKEN_MINT_FAILED', 'boom');
     await act(async () => {
@@ -157,6 +158,21 @@ describe('VoiceErrorNote', () => {
     });
 
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('keeps server guidance for LiveKit mint failures in browser-key mode', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    vi.stubEnv('VITE_VOICE_PROVIDER', 'livekit');
+    const { container, session } = renderNote();
+    session.lastError = new RealtimeVoiceError('TOKEN_MINT_FAILED', 'boom');
+    await act(async () => {
+      session.emitState('error');
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toMatch(
+      /server couldn't mint a session token/,
+    );
   });
 
   it('still explains a TOKEN_MINT_FAILED when localhost has a server key', async () => {
