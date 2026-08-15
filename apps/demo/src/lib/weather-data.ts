@@ -12,21 +12,34 @@ import { withFetchTimeout } from './fetch-timeout';
 
 export interface LiveWeather {
   readonly current: {
-    temperatureF: number;
+    temperature: number;
     weatherCode: number;
-    windMph: number;
+    windSpeed: number;
   };
   readonly hourly: ReadonlyArray<{
     hour: string;
-    temperatureF: number;
+    temperature: number;
     weatherCode: number;
   }>;
   readonly daily: ReadonlyArray<{
     day: string;
-    highF: number;
-    lowF: number;
+    high: number;
+    low: number;
     weatherCode: number;
   }>;
+}
+
+export interface WeatherUnits {
+  readonly temperature: 'fahrenheit' | 'celsius';
+  readonly windSpeed: 'mph' | 'kmh';
+}
+
+export interface WeatherLocation {
+  readonly name: string;
+  readonly country?: string;
+  readonly countryCode?: string;
+  readonly latitude: number;
+  readonly longitude: number;
 }
 
 interface OpenMeteoResponse {
@@ -187,23 +200,104 @@ function mapResponse(data: OpenMeteoResponse): LiveWeather {
 
   return {
     current: {
-      temperatureF: Math.round(data.current.temperature_2m),
+      temperature: Math.round(data.current.temperature_2m),
       weatherCode: data.current.weather_code,
-      windMph: Math.round(data.current.wind_speed_10m),
+      windSpeed: Math.round(data.current.wind_speed_10m),
     },
     hourly: data.hourly.time
       .slice(hourlyStart, hourlyStart + 12)
       .map((time, i) => ({
         hour: formatHour(time),
-        temperatureF: Math.round(data.hourly.temperature_2m[hourlyStart + i]),
+        temperature: Math.round(data.hourly.temperature_2m[hourlyStart + i]),
         weatherCode: data.hourly.weather_code[hourlyStart + i],
       })),
     daily: data.daily.time.slice(0, 7).map((date, i) => ({
       day: formatDay(date),
-      highF: Math.round(data.daily.temperature_2m_max[i]),
-      lowF: Math.round(data.daily.temperature_2m_min[i]),
+      high: Math.round(data.daily.temperature_2m_max[i]),
+      low: Math.round(data.daily.temperature_2m_min[i]),
       weatherCode: data.daily.weather_code[i],
     })),
+  };
+}
+
+export function unitsForCountry(countryCode?: string): WeatherUnits {
+  return countryCode === 'US'
+    ? { temperature: 'fahrenheit', windSpeed: 'mph' }
+    : { temperature: 'celsius', windSpeed: 'kmh' };
+}
+
+function assertValidGeocodingResponse(data: unknown): asserts data is {
+  results?: Array<{
+    name: string;
+    country?: string;
+    country_code?: string;
+    latitude: number;
+    longitude: number;
+  }>;
+} {
+  if (typeof data !== 'object' || data === null) {
+    throw new Error('Open-Meteo geocoding response is not an object');
+  }
+  const { results } = data as Record<string, unknown>;
+  if (results === undefined) return;
+  if (!Array.isArray(results)) {
+    throw new Error('Open-Meteo geocoding response has invalid "results"');
+  }
+  for (const result of results) {
+    if (typeof result !== 'object' || result === null) {
+      throw new Error('Open-Meteo geocoding result is not an object');
+    }
+    const value = result as Record<string, unknown>;
+    if (
+      typeof value.name !== 'string' ||
+      (value.country !== undefined && typeof value.country !== 'string') ||
+      (value.country_code !== undefined &&
+        typeof value.country_code !== 'string') ||
+      !isFiniteNumber(value.latitude) ||
+      value.latitude < -90 ||
+      value.latitude > 90 ||
+      !isFiniteNumber(value.longitude) ||
+      value.longitude < -180 ||
+      value.longitude > 180
+    ) {
+      throw new Error('Open-Meteo geocoding result is malformed');
+    }
+  }
+}
+
+export async function fetchGeocodedLocation(
+  input: string,
+  fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<WeatherLocation> {
+  const query = input.trim();
+  if (query.length < 2) {
+    throw new Error('Location must contain at least 2 characters');
+  }
+  const params = new URLSearchParams({
+    name: query,
+    count: '1',
+    language: 'en',
+  });
+  const response = await fetchImpl(
+    `https://geocoding-api.open-meteo.com/v1/search?${params}`,
+    { signal: withFetchTimeout(signal) },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Open-Meteo geocoding request failed with status ${response.status}`,
+    );
+  }
+  const data: unknown = await response.json();
+  assertValidGeocodingResponse(data);
+  const result = data.results?.[0];
+  if (!result) throw new Error(`No location found for "${query}"`);
+  return {
+    name: result.name,
+    country: result.country,
+    countryCode: result.country_code,
+    latitude: result.latitude,
+    longitude: result.longitude,
   };
 }
 
@@ -211,13 +305,12 @@ function mapResponse(data: OpenMeteoResponse): LiveWeather {
  * Fetches live weather for the given coordinates from Open-Meteo (no API
  * key required) and maps it to the {@link LiveWeather} shape the weather
  * vessel renders. Rejects on any network failure, non-200 response,
- * malformed payload, or a stalled connection past the timeout — callers
- * should catch and keep using {@link FALLBACK_WEATHER} rather than
- * surfacing an error state.
+ * malformed payload, or a stalled connection past the timeout.
  */
 export async function fetchLiveWeather(
   lat: number,
   lng: number,
+  units: WeatherUnits,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
 ): Promise<LiveWeather> {
@@ -226,7 +319,8 @@ export async function fetchLiveWeather(
     '&current=temperature_2m,weather_code,wind_speed_10m' +
     '&hourly=temperature_2m,weather_code' +
     '&daily=temperature_2m_max,temperature_2m_min,weather_code' +
-    '&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_days=7&timezone=auto';
+    `&temperature_unit=${units.temperature}&wind_speed_unit=${units.windSpeed}` +
+    '&forecast_days=7&timezone=auto';
 
   const response = await fetchImpl(url, { signal: withFetchTimeout(signal) });
   if (!response.ok) {
@@ -347,28 +441,28 @@ export function weatherCodeToSkyClass(code: number): SkyClass {
  * shape, so the demo looks the same offline as it does with a live fetch.
  */
 export const FALLBACK_WEATHER: LiveWeather = {
-  current: { temperatureF: 72, weatherCode: 0, windMph: 8 },
+  current: { temperature: 72, weatherCode: 0, windSpeed: 8 },
   hourly: [
-    { hour: '9AM', temperatureF: 68, weatherCode: 1 },
-    { hour: '10AM', temperatureF: 70, weatherCode: 1 },
-    { hour: '11AM', temperatureF: 71, weatherCode: 1 },
-    { hour: '12PM', temperatureF: 72, weatherCode: 0 },
-    { hour: '1PM', temperatureF: 74, weatherCode: 0 },
-    { hour: '2PM', temperatureF: 75, weatherCode: 0 },
-    { hour: '3PM', temperatureF: 75, weatherCode: 0 },
-    { hour: '4PM', temperatureF: 74, weatherCode: 1 },
-    { hour: '5PM', temperatureF: 73, weatherCode: 1 },
-    { hour: '6PM', temperatureF: 70, weatherCode: 1 },
-    { hour: '7PM', temperatureF: 68, weatherCode: 1 },
-    { hour: '8PM', temperatureF: 65, weatherCode: 1 },
+    { hour: '9AM', temperature: 68, weatherCode: 1 },
+    { hour: '10AM', temperature: 70, weatherCode: 1 },
+    { hour: '11AM', temperature: 71, weatherCode: 1 },
+    { hour: '12PM', temperature: 72, weatherCode: 0 },
+    { hour: '1PM', temperature: 74, weatherCode: 0 },
+    { hour: '2PM', temperature: 75, weatherCode: 0 },
+    { hour: '3PM', temperature: 75, weatherCode: 0 },
+    { hour: '4PM', temperature: 74, weatherCode: 1 },
+    { hour: '5PM', temperature: 73, weatherCode: 1 },
+    { hour: '6PM', temperature: 70, weatherCode: 1 },
+    { hour: '7PM', temperature: 68, weatherCode: 1 },
+    { hour: '8PM', temperature: 65, weatherCode: 1 },
   ],
   daily: [
-    { day: 'Mon', highF: 75, lowF: 58, weatherCode: 0 },
-    { day: 'Tue', highF: 72, lowF: 55, weatherCode: 1 },
-    { day: 'Wed', highF: 68, lowF: 52, weatherCode: 61 },
-    { day: 'Thu', highF: 70, lowF: 54, weatherCode: 3 },
-    { day: 'Fri', highF: 73, lowF: 56, weatherCode: 0 },
-    { day: 'Sat', highF: 76, lowF: 59, weatherCode: 0 },
-    { day: 'Sun', highF: 74, lowF: 57, weatherCode: 1 },
+    { day: 'Mon', high: 75, low: 58, weatherCode: 0 },
+    { day: 'Tue', high: 72, low: 55, weatherCode: 1 },
+    { day: 'Wed', high: 68, low: 52, weatherCode: 61 },
+    { day: 'Thu', high: 70, low: 54, weatherCode: 3 },
+    { day: 'Fri', high: 73, low: 56, weatherCode: 0 },
+    { day: 'Sat', high: 76, low: 59, weatherCode: 0 },
+    { day: 'Sun', high: 74, low: 57, weatherCode: 1 },
   ],
 };

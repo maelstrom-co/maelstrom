@@ -1,50 +1,67 @@
+import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { Wind } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { VesselCard } from '../components/vessel-card';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
-import { HOME } from '../lib/locations';
+import { m } from '../lib/maelstrom';
 import {
-  FALLBACK_WEATHER,
-  fetchLiveWeather,
-  type LiveWeather,
   weatherCodeToIcon,
   weatherCodeToLabel,
   weatherCodeToSkyClass,
 } from '../lib/weather-data';
+import { useWeatherStore, weatherStore } from './weather.store';
 import type { weatherVessel } from './weather.vessel';
 
-function useLiveWeather(): LiveWeather {
-  const [weather, setWeather] = useState<LiveWeather>(FALLBACK_WEATHER);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchLiveWeather(HOME.lat, HOME.lng, fetch, controller.signal)
-      .then((live) => {
-        setWeather(live);
-      })
-      .catch(() => {
-        // Offline demo must still look perfect — stay on FALLBACK_WEATHER.
-        // This also swallows the AbortError from unmount/timeout, which is
-        // expected and not an error worth surfacing.
-      });
-    return () => {
-      controller.abort();
-    };
-  }, []);
-
-  return weather;
-}
+export const weatherActionRunner = {
+  setLocation: async ({ location }: { location: string }) => {
+    try {
+      await weatherStore.setLocation(location);
+      return ok(undefined);
+    } catch {
+      return err(
+        new Error(`Could not set weather location to "${location.trim()}".`),
+      );
+    }
+  },
+};
 
 export default function WeatherComponent({
+  instanceId,
   variantProps,
 }: TypedVesselProps<typeof weatherVessel>) {
   const variant = variantProps.variant;
-  const weather = useLiveWeather();
+  const state = useWeatherStore();
+  const weather = state.forecast;
   const skyClass = weatherCodeToSkyClass(weather.current.weatherCode);
+  const temperatureUnit = state.units.temperature === 'fahrenheit' ? 'F' : 'C';
+  const windUnit = state.units.windSpeed === 'mph' ? 'mph' : 'km/h';
+  const locationLabel = state.location.country
+    ? `${state.location.name}, ${state.location.country}`
+    : state.location.name;
+
+  m.useActions('weather', instanceId, weatherActionRunner);
+
+  useEffect(() => {
+    weatherStore.refreshDefault().catch(() => {
+      // The store retains the fallback and exposes the failure in the vessel.
+    });
+  }, []);
+
+  const notices = (state.loadingLocation || state.error) && (
+    <div
+      className="relative text-xs text-ink-2 space-y-1 mb-2"
+      aria-live="polite"
+    >
+      {state.loadingLocation && (
+        <div>Loading weather for {state.loadingLocation}...</div>
+      )}
+      {state.error && <div role="alert">{state.error}</div>}
+    </div>
+  );
 
   if (variant === 'hourly') {
-    const hourlyTemps = weather.hourly.map((h) => h.temperatureF);
+    const hourlyTemps = weather.hourly.map((h) => h.temperature);
     const hourlyMinTemp = Math.min(...hourlyTemps);
     const hourlyMaxTemp = Math.max(...hourlyTemps);
     const hourlyTempRange = Math.max(1, hourlyMaxTemp - hourlyMinTemp);
@@ -53,23 +70,24 @@ export default function WeatherComponent({
       <VesselCard
         accent={VESSEL_ACCENTS.weather}
         label="Hourly Forecast"
-        meta="San Francisco"
+        meta={locationLabel}
       >
         <div className={`sky-wash sky-wash--${skyClass}`} />
+        {notices}
         <div className="relative flex items-baseline gap-1 mb-4">
           <span className="temp-numeral text-5xl font-bold tracking-tight">
-            {weather.current.temperatureF}°
+            {weather.current.temperature}°
           </span>
-          <span className="text-sm text-ink-3">F</span>
+          <span className="text-sm text-ink-3">{temperatureUnit}</span>
         </div>
         <div className="relative flex-1 flex items-end gap-3">
           {weather.hourly.map((h) => {
             // Floor keeps bars visible on a flat curve (all pct would be 0).
             const pct = Math.max(
-              ((h.temperatureF - hourlyMinTemp) / hourlyTempRange) * 100,
+              ((h.temperature - hourlyMinTemp) / hourlyTempRange) * 100,
               8,
             );
-            const isMax = h.temperatureF === hourlyMaxTemp;
+            const isMax = h.temperature === hourlyMaxTemp;
             const HourIcon = weatherCodeToIcon(h.weatherCode);
             return (
               <div
@@ -86,7 +104,7 @@ export default function WeatherComponent({
                   {weatherCodeToLabel(h.weatherCode)}
                 </span>
                 <span className="text-xs text-ink-2 font-mono">
-                  {h.temperatureF}°
+                  {h.temperature}°
                 </span>
                 <div
                   className="w-full rounded-sm border border-white/10"
@@ -111,9 +129,10 @@ export default function WeatherComponent({
       <VesselCard
         accent={VESSEL_ACCENTS.weather}
         label="Weekly Forecast"
-        meta="San Francisco"
+        meta={locationLabel}
       >
         <div className={`sky-wash sky-wash--${skyClass}`} />
+        {notices}
         <div className="relative flex-1 grid grid-cols-7 gap-2">
           {weather.daily.map((d) => {
             const DayIcon = weatherCodeToIcon(d.weatherCode);
@@ -133,8 +152,11 @@ export default function WeatherComponent({
                   {weatherCodeToLabel(d.weatherCode)}
                 </span>
                 <div className="text-sm">
-                  <span className="text-ink font-medium">{d.highF}°</span>
-                  <span className="text-ink-3"> / {d.lowF}°</span>
+                  <span className="text-ink font-medium">{d.high}°</span>
+                  <span className="text-ink-3">
+                    {' '}
+                    / {d.low}° {temperatureUnit}
+                  </span>
                 </div>
               </div>
             );
@@ -151,9 +173,10 @@ export default function WeatherComponent({
     <VesselCard
       accent={VESSEL_ACCENTS.weather}
       label="Weather"
-      meta="San Francisco"
+      meta={locationLabel}
     >
       <div className={`sky-wash sky-wash--${skyClass}`} />
+      {notices}
       <div className="relative flex-1 flex flex-col items-center justify-center">
         <CurrentIcon
           aria-hidden="true"
@@ -166,18 +189,18 @@ export default function WeatherComponent({
         </span>
         <div className="flex items-baseline gap-1">
           <span className="temp-numeral text-6xl font-bold tracking-tight">
-            {weather.current.temperatureF}°
+            {weather.current.temperature}°
           </span>
-          <span className="text-sm text-ink-3">F</span>
+          <span className="text-sm text-ink-3">{temperatureUnit}</span>
         </div>
         {today && (
           <div className="text-xs text-ink-3 mt-1">
-            H: {today.highF}° L: {today.lowF}°
+            H: {today.high}° L: {today.low}°
           </div>
         )}
         <div className="mt-4 flex items-center gap-1.5 text-sm text-ink-2">
           <Wind size={14} strokeWidth={1.75} />
-          {weather.current.windMph} mph
+          {weather.current.windSpeed} {windUnit}
         </div>
       </div>
     </VesselCard>

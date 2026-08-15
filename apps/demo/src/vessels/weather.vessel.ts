@@ -2,6 +2,18 @@ import { defineVessel } from '@maelstrom-co/protocol';
 import { vessel } from '@maelstrom-co/react';
 import { WeatherSkeleton } from './weather.skeleton';
 
+const setLocationAction = {
+  name: 'setLocation',
+  description: 'Show weather for a city or place',
+  parameters: [
+    {
+      name: 'location',
+      type: 'string',
+      description: 'City or place to show weather for',
+    },
+  ],
+} as const;
+
 export const weatherVessel = defineVessel({
   id: 'weather',
   name: 'Weather',
@@ -13,6 +25,7 @@ export const weatherVessel = defineVessel({
       props: {},
       minSize: { width: 6, height: 4 },
       actions: [
+        setLocationAction,
         {
           name: 'showHourly',
           description: 'Show hourly forecast for today',
@@ -32,6 +45,7 @@ export const weatherVessel = defineVessel({
       // padding/gaps, so labels overflow and collide at that minimum.
       minSize: { width: 9, height: 4 },
       actions: [
+        setLocationAction,
         {
           name: 'showCurrent',
           description: 'Show current conditions',
@@ -48,6 +62,7 @@ export const weatherVessel = defineVessel({
       props: {},
       minSize: { width: 8, height: 3 },
       actions: [
+        setLocationAction,
         {
           name: 'showCurrent',
           description: 'Show current conditions',
