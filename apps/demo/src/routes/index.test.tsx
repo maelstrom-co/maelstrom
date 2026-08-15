@@ -17,7 +17,6 @@ import { createMockConnector } from '../lib/__tests__/mock-connector';
 import { DEMO_GREETING, m } from '../lib/maelstrom';
 import {
   clearPlaygroundKey,
-  STORAGE_KEY,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
 
@@ -124,7 +123,7 @@ describe('key drawer gating (hosted, no key)', () => {
 
 describe('typed assistant feedback', () => {
   it('shows feedback for an unchanged chart and hides it when voice connects', async () => {
-    setPlaygroundKey('sk-test', true);
+    setPlaygroundKey('sk-test');
     connectorOverride.process = async (message) => ({
       type: 'maelstrom_response',
       requestId: (message as { id: string }).id,
@@ -200,7 +199,7 @@ describe('voice mint failures (hosted)', () => {
 
 describe('text-path key failures (hosted)', () => {
   it('reopens the drawer with an actionable message on a chart_request 401', async () => {
-    setPlaygroundKey('sk-rejected', true);
+    setPlaygroundKey('sk-rejected');
     connectorOverride.process = async () => {
       throw new WireEngineError(
         '401 Incorrect API key provided: [redacted]',
@@ -233,7 +232,7 @@ describe('text-path key failures (hosted)', () => {
     // lastError), so an unconditional clear after the await wipes the draft
     // even though the request failed — the visitor's typed intent is lost
     // right when the drawer reopens to ask for a corrected key.
-    setPlaygroundKey('sk-rejected', true);
+    setPlaygroundKey('sk-rejected');
     connectorOverride.process = async () => {
       throw new WireEngineError(
         '401 Incorrect API key provided: [redacted]',
@@ -261,7 +260,7 @@ describe('text-path key failures (hosted)', () => {
   });
 
   it('does not reopen the drawer for a non-key provider failure', async () => {
-    setPlaygroundKey('sk-fine', true);
+    setPlaygroundKey('sk-fine');
     connectorOverride.process = async () => {
       throw new WireEngineError('rate limit exceeded', 'ProviderError');
     };
@@ -337,7 +336,7 @@ describe('saving an unchanged key mid-session', () => {
     // or re-entered the exact key already in use. A remount here is
     // observable as a brand-new RealtimeSession instance, since the voice
     // hook constructs one per Provider mount.
-    setPlaygroundKey('sk-existing-1234567890', true);
+    setPlaygroundKey('sk-existing-1234567890');
 
     const { HomePage } = await import('./index');
     render(<HomePage />);
@@ -452,13 +451,13 @@ describe('voice greeting (hosted, with a key)', () => {
 
     // Hosted mode: same unconditional visible copy before any orb click.
     vi.stubEnv('VITE_HOSTED', '1');
-    setPlaygroundKey('sk-greeting-1234567890', true);
+    setPlaygroundKey('sk-greeting-1234567890');
     render(<HomePage />);
     expectVisibleDisclosure();
   });
 
   it('greets through the voice orb once, exactly, per session', async () => {
-    setPlaygroundKey('sk-greeting-1234567890', true);
+    setPlaygroundKey('sk-greeting-1234567890');
     const { HomePage } = await import('./index');
     render(<HomePage />);
 
@@ -484,7 +483,7 @@ describe('voice greeting (hosted, with a key)', () => {
   });
 
   it('greets again on a new session (new keyEpoch)', async () => {
-    setPlaygroundKey('sk-first-key-1234567890', true);
+    setPlaygroundKey('sk-first-key-1234567890');
     const { HomePage } = await import('./index');
     render(<HomePage />);
 
@@ -627,10 +626,9 @@ describe('resumeIntent auto-submit', () => {
   });
 });
 
-describe('removing a stored key', () => {
-  it('clears localStorage and the store, closes the drawer, and re-prompts on the next Send', async () => {
-    setPlaygroundKey('sk-stored', true);
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('sk-stored');
+describe('removing a session key', () => {
+  it('clears the in-memory key, closes the drawer, and re-prompts on the next Send', async () => {
+    setPlaygroundKey('sk-session-key');
 
     const { HomePage } = await import('./index');
     render(<HomePage />);
@@ -640,10 +638,7 @@ describe('removing a stored key', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /remove key/i }));
 
-    // Drawer closes.
     expect(screen.queryByLabelText(/api key/i)).toBeNull();
-    // Custody state is fully cleared.
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
 
     // The app is back in the keyless state — the next Send re-prompts.
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
