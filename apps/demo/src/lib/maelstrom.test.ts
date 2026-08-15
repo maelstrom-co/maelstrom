@@ -170,8 +170,9 @@ describe('demo voice provider wiring', () => {
     expect(state.liveKitAdapterOptions).toHaveLength(1);
   });
 
-  it('wires cedar and the local same-origin synthesizer in non-hosted mode', async () => {
-    vi.stubEnv('VITE_HOSTED', undefined);
+  it('wires cedar and the local same-origin synthesizer when the server owns the key', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
     createAdapter('openai');
     const options = state.openAIAdapterOptions[0] as OpenAIOptions;
     expect(options.voice).toBe(DEMO_OPENAI_VOICE);
@@ -205,6 +206,42 @@ describe('demo voice provider wiring', () => {
     const auth = (capturedInit?.headers as Record<string, string> | undefined)
       ?.Authorization;
     expect(auth).toBeUndefined();
+  });
+
+  it('uses browser-direct OpenAI paths on localhost when the server key is missing', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    setPlaygroundKey('sk-local-browser-key-1234567890');
+    createAdapter('openai');
+    const options = state.openAIAdapterOptions[0] as OpenAIOptions;
+
+    let capturedUrl: string | undefined;
+    let capturedAuth: string | undefined;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      capturedUrl = String(url);
+      capturedAuth = (init?.headers as Record<string, string> | undefined)
+        ?.Authorization;
+      const body = makeValidWavBytes();
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'audio/wav',
+          'Content-Length': String(body.byteLength),
+        },
+      });
+    }) as unknown as typeof fetch;
+
+    await options.synthesizeGreeting!({
+      text: DEMO_GREETING,
+      voice: DEMO_OPENAI_VOICE,
+      signal: new AbortController().signal,
+    });
+
+    expect(capturedUrl).toBe(DEMO_GREETING_TTS_URL);
+    expect(capturedAuth).toBe('Bearer sk-local-browser-key-1234567890');
+    await expect(options.mintToken?.()).rejects.toThrow(
+      /createBrowserMintToken should not be called in tests/,
+    );
   });
 
   it('wires cedar and the browser-direct synthesizer with lazy key reads in hosted mode', async () => {

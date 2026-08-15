@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isHosted } from './hosted-mode';
+import {
+  isHosted,
+  usesBrowserKey,
+  usesBrowserOpenAIVoice,
+} from './hosted-mode';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -19,5 +23,39 @@ describe('isHosted', () => {
   it('is false for any other value', () => {
     vi.stubEnv('VITE_HOSTED', 'true');
     expect(isHosted()).toBe(false);
+  });
+});
+
+describe('usesBrowserKey', () => {
+  it('is true for hosted deployments', () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+    expect(usesBrowserKey()).toBe(true);
+  });
+
+  it('is true on localhost when the server has no OpenAI key', () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    expect(usesBrowserKey()).toBe(true);
+  });
+
+  it('is false on localhost when the server owns an OpenAI key', () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+    expect(usesBrowserKey()).toBe(false);
+  });
+});
+
+describe('usesBrowserOpenAIVoice', () => {
+  it('is true for OpenAI voice in browser-key mode', () => {
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    vi.stubEnv('VITE_VOICE_PROVIDER', 'openai');
+    expect(usesBrowserOpenAIVoice()).toBe(true);
+  });
+
+  it('is false for LiveKit even when text uses a browser key', () => {
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    vi.stubEnv('VITE_VOICE_PROVIDER', 'livekit');
+    expect(usesBrowserOpenAIVoice()).toBe(false);
   });
 });

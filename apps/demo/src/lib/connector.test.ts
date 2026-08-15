@@ -167,12 +167,12 @@ describe('buildPlaygroundHello', () => {
 });
 
 describe('createDemoConnector', () => {
-  // Local dev's ws-server has no hello gate, so a stray handshake frame
-  // would reach handleEnvelope and be answered as a malformed request. The
-  // key must not leave the browser here either — local mode mints from the
-  // server's own env. import.meta.env.VITE_HOSTED is unset by default in
-  // the test environment, so this exercises the local-dev branch.
-  it('does not send a handshake frame in local (non-hosted) mode', async () => {
+  // Localhost with a server-owned key has no hello gate. A stray handshake
+  // would reach handleEnvelope as malformed traffic and would also send a
+  // browser key that this custody mode must never read.
+  it('does not send a handshake frame when localhost has a server-owned key', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
     const restore = installFakeWebSocket();
     try {
       const connector = createDemoConnector({
@@ -188,6 +188,35 @@ describe('createDemoConnector', () => {
       expect(socket.sent).toHaveLength(0);
     } finally {
       restore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('sends the browser key to the local server when its env key is missing', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    const restore = installFakeWebSocket();
+    try {
+      const connector = createDemoConnector({
+        getApiKey: () => 'sk-visitor-key-1234567',
+      });
+      const connectPromise = connector.connect(SessionId('session-1'));
+      const socket = FakeWebSocket.instances[0];
+      if (!socket)
+        throw new Error('expected a WebSocket to have been constructed');
+      socket.emitOpen();
+      await connectPromise;
+
+      expect(socket.url).toBe('ws://localhost:3001/ws');
+      expect(socket.sent).toHaveLength(1);
+      expect(JSON.parse(socket.sent[0] ?? '{}')).toMatchObject({
+        type: 'playground.hello',
+        sessionId: 'session-1',
+        apiKey: 'sk-visitor-key-1234567',
+      });
+    } finally {
+      restore();
+      vi.unstubAllEnvs();
     }
   });
 

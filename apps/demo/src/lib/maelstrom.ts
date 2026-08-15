@@ -18,7 +18,7 @@ import {
   DEMO_GREETING,
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
-import { isHosted } from './hosted-mode';
+import { isHosted, usesBrowserKey } from './hosted-mode';
 import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 import { orchestrationLegibility } from './orchestration-legibility';
 import { playgroundKeyStore } from './playground-key-store';
@@ -73,6 +73,7 @@ function createAdapter({
   sessionId,
 }: CreateAdapterContext): RealtimeProviderAdapter {
   const hosted = isHosted();
+  const browserKeyMode = usesBrowserKey();
   if (!hosted && import.meta.env.VITE_VOICE_PROVIDER === 'livekit') {
     return new LiveKitAdapter({
       mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
@@ -92,9 +93,11 @@ function createAdapter({
     });
   }
   return new OpenAIAdapter({
-    mintToken: hosted ? hostedMintToken : () => mintOpenAIToken(sessionId),
+    mintToken: browserKeyMode
+      ? hostedMintToken
+      : () => mintOpenAIToken(sessionId),
     voice: DEMO_OPENAI_VOICE,
-    synthesizeGreeting: hosted
+    synthesizeGreeting: browserKeyMode
       ? hostedSynthesizeGreeting
       : localSynthesizeGreeting,
     debug: isDebugRequested(),
