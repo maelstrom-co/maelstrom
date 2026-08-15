@@ -14,14 +14,27 @@ import { useWeatherStore, weatherStore } from './weather.store';
 import type { weatherVessel } from './weather.vessel';
 
 export const weatherActionRunner = {
-  setLocation: async ({ location }: { location: string }) => {
+  setLocation: async ({ location }: { location?: unknown }) => {
+    if (typeof location !== 'string') {
+      return err(new Error('Weather location must be a string.'));
+    }
+    const requestedLocation = location.trim();
+    if (
+      requestedLocation.length < 2 ||
+      requestedLocation.length > 160 ||
+      /\p{Cc}|(?!\p{Join_Control})\p{Cf}/u.test(requestedLocation)
+    ) {
+      return err(
+        new Error(
+          'Weather location must contain 2 to 160 characters without unsupported controls.',
+        ),
+      );
+    }
     try {
-      await weatherStore.setLocation(location);
+      await weatherStore.setLocation(requestedLocation);
       return ok(undefined);
     } catch {
-      return err(
-        new Error(`Could not set weather location to "${location.trim()}".`),
-      );
+      return err(new Error('Could not load weather for that location.'));
     }
   },
 };
@@ -48,15 +61,17 @@ export default function WeatherComponent({
     });
   }, []);
 
-  const notices = (state.loadingLocation || state.error) && (
-    <div
-      className="relative text-xs text-ink-2 space-y-1 mb-2"
-      aria-live="polite"
-    >
-      {state.loadingLocation && (
-        <div>Loading weather for {state.loadingLocation}...</div>
+  const notices = (
+    <div className="relative text-xs text-ink-2 space-y-1">
+      <div role="status" className={state.loadingLocation ? 'mb-2' : undefined}>
+        {state.loadingLocation &&
+          `Loading weather for ${state.loadingLocation}...`}
+      </div>
+      {state.error && (
+        <div role="alert" className="mb-2">
+          {state.error}
+        </div>
       )}
-      {state.error && <div role="alert">{state.error}</div>}
     </div>
   );
 

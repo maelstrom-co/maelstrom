@@ -4,12 +4,13 @@ import { WeatherSkeleton } from './weather.skeleton';
 
 const setLocationAction = {
   name: 'setLocation',
-  description: 'Show weather for a city or place',
+  description:
+    'Try to load weather for a city or place without assuming the request succeeds',
   parameters: [
     {
       name: 'location',
       type: 'string',
-      description: 'City or place to show weather for',
+      description: 'City or place to request weather for',
     },
   ],
 } as const;

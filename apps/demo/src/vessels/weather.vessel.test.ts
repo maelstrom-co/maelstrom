@@ -23,6 +23,7 @@ describe('weatherVessel location action', () => {
     );
     expect(action).toMatchObject({
       name: 'setLocation',
+      description: expect.stringMatching(/^Try to load/),
       parameters: [{ name: 'location', type: 'string' }],
     });
     expect(action).not.toHaveProperty('transitionsTo');

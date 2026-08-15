@@ -34,8 +34,7 @@ export const FALLBACK_LOCATION: WeatherLocation = {
 };
 
 function requestError(location: string, cause: unknown): Error {
-  const detail = cause instanceof Error ? ` ${cause.message}` : '';
-  return new Error(`Could not load weather for "${location}".${detail}`);
+  return new Error(`Could not load weather for "${location}".`, { cause });
 }
 
 export function createWeatherStore(
@@ -52,6 +51,9 @@ export function createWeatherStore(
   let controller: AbortController | undefined;
   let initialRefresh: Promise<void> | undefined;
   let explicitLocationRequested = false;
+  let locationRequest:
+    | { readonly key: string; readonly promise: Promise<void> }
+    | undefined;
   const listeners = new Set<() => void>();
 
   function setState(next: WeatherState): void {
@@ -120,9 +122,18 @@ export function createWeatherStore(
     setLocation(location) {
       explicitLocationRequested = true;
       const requestedLocation = location.trim();
-      return load(requestedLocation, (signal) =>
+      const key = requestedLocation.toLowerCase();
+      if (locationRequest?.key === key) return locationRequest.promise;
+
+      const promise = load(requestedLocation, (signal) =>
         fetchGeocodedLocation(location, fetchImpl, signal),
       );
+      locationRequest = { key, promise };
+      const clearRequest = () => {
+        if (locationRequest?.promise === promise) locationRequest = undefined;
+      };
+      void promise.then(clearRequest, clearRequest);
+      return promise;
     },
   };
 }

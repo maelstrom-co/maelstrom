@@ -88,17 +88,53 @@ describe('weather external store', () => {
     expect(fetchImpl.mock.calls[1]?.[0]).toContain('temperature_unit=celsius');
   });
 
+  it('shares an in-flight request for the same normalized location', async () => {
+    let resolveGeocoding!: (value: Response) => void;
+    const geocodingResponse = new Promise<Response>((resolve) => {
+      resolveGeocoding = resolve;
+    });
+    const fetchImpl = vi.fn((url: string) =>
+      url.includes('geocoding-api')
+        ? geocodingResponse
+        : Promise.resolve(response(weatherPayload(24))),
+    );
+    const store = createWeatherStore(fetchImpl as unknown as typeof fetch);
+
+    const first = store.setLocation(' Paris ');
+    const second = store.setLocation('paris');
+    expect(second).toBe(first);
+
+    resolveGeocoding(
+      response({
+        results: [
+          {
+            name: 'Paris',
+            country: 'France',
+            country_code: 'FR',
+            latitude: 48.8534,
+            longitude: 2.3488,
+          },
+        ],
+      }),
+    );
+    await Promise.all([first, second]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps valid data and exposes an error when a location request fails', async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error('offline'));
     const store = createWeatherStore(fetchImpl as unknown as typeof fetch);
 
-    await expect(store.setLocation('Paris')).rejects.toThrow('offline');
+    await expect(store.setLocation('Paris')).rejects.toThrow(
+      'Could not load weather for "Paris".',
+    );
     expect(store.getSnapshot()).toMatchObject({
       location: { name: 'San Francisco' },
       forecast: FALLBACK_WEATHER,
       loadingLocation: null,
     });
     expect(store.getSnapshot().error).toContain('Paris');
+    expect(store.getSnapshot().error).not.toContain('offline');
   });
 
   it('allows only the newest overlapping request to commit success or failure', async () => {
@@ -240,8 +276,11 @@ describe('weather external store', () => {
         .fn()
         .mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
     );
-    await expect(store.refreshDefault()).rejects.toThrow('offline');
+    await expect(store.refreshDefault()).rejects.toThrow(
+      'Could not load weather for "San Francisco".',
+    );
     expect(store.getSnapshot().forecast).toBe(FALLBACK_WEATHER);
     expect(store.getSnapshot().error).toContain('San Francisco');
+    expect(store.getSnapshot().error).not.toContain('offline');
   });
 });

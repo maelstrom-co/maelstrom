@@ -149,6 +149,15 @@ describe('weather variants', () => {
     expect(container.textContent).toContain(
       variant === 'weekly' ? '20°' : '18°',
     );
+    const status = container.querySelector('[role="status"]');
+    const alert = container.querySelector('[role="alert"]');
+    expect(status?.textContent).toContain('Loading weather for Tokyo');
+    expect(status?.contains(alert)).toBe(false);
+  });
+
+  it('keeps an empty status region mounted before loading starts', () => {
+    const { getByRole } = render(<WeatherComponent {...props('current')} />);
+    expect(getByRole('status').textContent).toBe('');
   });
 
   it('starts the default refresh once per mount while the singleton deduplicates it', () => {
@@ -195,8 +204,34 @@ describe('weatherActionRunner', () => {
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
       expect(result.error.message).toBe(
-        'Could not set weather location to "Paris".',
+        'Could not load weather for that location.',
       );
     }
+  });
+
+  it.each([
+    {},
+    { location: null },
+    { location: 'a' },
+    { location: 'a'.repeat(161) },
+    { location: 'New\nYork' },
+    { location: 'New\u0085York' },
+    { location: 'New\u202eYork' },
+  ])('returns a validation error for invalid parameters %#', async (params) => {
+    const result = await weatherActionRunner.setLocation(params);
+    expect(isErr(result)).toBe(true);
+    expect(setLocation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'A\u200cB',
+    'A\u200dB',
+  ])('allows Unicode join controls in location names: %s', async (location) => {
+    setLocation.mockResolvedValue(undefined);
+
+    const result = await weatherActionRunner.setLocation({ location });
+
+    expect(isOk(result)).toBe(true);
+    expect(setLocation).toHaveBeenCalledWith(location);
   });
 });
