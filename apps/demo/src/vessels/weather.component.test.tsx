@@ -1,53 +1,112 @@
 // @vitest-environment happy-dom
 
+import { isErr, isOk } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { cleanup, render, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchLiveWeather, type LiveWeather } from '../lib/weather-data';
-import WeatherComponent from './weather.component';
+import { cleanup, render } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LiveWeather } from '../lib/weather-data';
+import type { WeatherState } from './weather.store';
 import type { weatherVessel } from './weather.vessel';
 
-const FLAT_WEATHER: LiveWeather = vi.hoisted(() => ({
-  current: { temperatureF: 55, weatherCode: 45, windMph: 10 },
+const FLAT_WEATHER: LiveWeather = {
+  current: { temperature: 18, weatherCode: 45, windSpeed: 16 },
   hourly: Array.from({ length: 12 }, (_, i) => ({
     hour: `${i + 1}AM`,
-    temperatureF: 55,
+    temperature: 18,
     weatherCode: 45,
   })),
   daily: Array.from({ length: 7 }, (_, i) => ({
     day: `D${i}`,
-    highF: 55,
-    lowF: 55,
+    high: 20,
+    low: 12,
     weatherCode: 45,
   })),
-}));
+};
 
-vi.mock('../lib/weather-data', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../lib/weather-data')>();
+let storeState: WeatherState;
+const setLocation = vi.fn();
+const refreshDefault = vi.fn().mockResolvedValue(undefined);
+const useActions = vi.fn();
+
+vi.mock('../lib/maelstrom', () => ({ m: { useActions } }));
+vi.mock('./weather.store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./weather.store')>();
   return {
     ...actual,
-    fetchLiveWeather: vi.fn().mockResolvedValue(FLAT_WEATHER),
+    weatherStore: { setLocation, refreshDefault },
+    useWeatherStore: () => storeState,
   };
 });
 
-afterEach(cleanup);
+const { default: WeatherComponent, weatherActionRunner } = await import(
+  './weather.component'
+);
 
-function hourlyProps(): TypedVesselProps<typeof weatherVessel> {
+function props(
+  variant: 'current' | 'hourly' | 'weekly',
+): TypedVesselProps<typeof weatherVessel> {
   return {
-    instanceId: 'weather-test',
-    variantProps: { variant: 'hourly' },
+    instanceId: `weather-test-${variant}`,
+    variantProps: { variant },
     executeAction: vi.fn(),
   } as unknown as TypedVesselProps<typeof weatherVessel>;
 }
 
-describe('hourly variant with a flat temperature curve', () => {
-  it('renders every bar with a visible nonzero height', async () => {
-    const { container, findAllByText } = render(
-      <WeatherComponent {...hourlyProps()} />,
-    );
-    // 12 identical hourly temps only appear once the mocked live data lands.
-    expect(await findAllByText('55°')).toHaveLength(13);
+beforeEach(() => {
+  storeState = {
+    location: {
+      name: 'Paris',
+      country: 'France',
+      countryCode: 'FR',
+      latitude: 48.8534,
+      longitude: 2.3488,
+    },
+    units: { temperature: 'celsius', windSpeed: 'kmh' },
+    forecast: FLAT_WEATHER,
+    loadingLocation: null,
+    error: null,
+  };
+  setLocation.mockReset();
+  refreshDefault.mockClear();
+  useActions.mockClear();
+});
 
+afterEach(cleanup);
+
+describe('weather variants', () => {
+  it.each([
+    'current',
+    'hourly',
+    'weekly',
+  ] as const)('renders the dynamic city, country, and metric units in %s', (variant) => {
+    const { container } = render(<WeatherComponent {...props(variant)} />);
+    expect(container.textContent).toContain('Paris, France');
+    expect(container.textContent).toContain('C');
+    if (variant === 'current') expect(container.textContent).toContain('km/h');
+  });
+
+  it('renders Fahrenheit and mph for a US location', () => {
+    storeState = {
+      ...storeState,
+      location: {
+        ...storeState.location,
+        name: 'New York',
+        country: 'United States',
+        countryCode: 'US',
+      },
+      units: { temperature: 'fahrenheit', windSpeed: 'mph' },
+    };
+    const { container } = render(<WeatherComponent {...props('current')} />);
+    expect(container.textContent).toContain('New York, United States');
+    expect(container.textContent).toContain('F');
+    expect(container.textContent).toContain('mph');
+  });
+
+  it('keeps every hourly bar visible for a flat temperature curve', () => {
+    const { container, getAllByText } = render(
+      <WeatherComponent {...props('hourly')} />,
+    );
+    expect(getAllByText('18°')).toHaveLength(13);
     const bars = Array.from(container.querySelectorAll('div')).filter((div) =>
       div.style.height.endsWith('%'),
     );
@@ -57,61 +116,122 @@ describe('hourly variant with a flat temperature curve', () => {
     }
   });
 
-  it('gives each hourly icon an accessible condition label since the icon alone is not', async () => {
-    const { findAllByText } = render(<WeatherComponent {...hourlyProps()} />);
-    // FLAT_WEATHER uses weatherCode 45 (fog) for every hourly entry.
-    expect(await findAllByText('Fog')).toHaveLength(12);
+  it('renders condition labels for icon-only hourly, weekly, and current views', () => {
+    expect(
+      render(<WeatherComponent {...props('hourly')} />).getAllByText('Fog'),
+    ).toHaveLength(12);
+    cleanup();
+    expect(
+      render(<WeatherComponent {...props('weekly')} />).getAllByText('Fog'),
+    ).toHaveLength(7);
+    cleanup();
+    expect(
+      render(<WeatherComponent {...props('current')} />).getByText('Fog'),
+    ).toBeTruthy();
+  });
+
+  it.each([
+    'current',
+    'hourly',
+    'weekly',
+  ] as const)('shows loading and error notices without replacing the prior %s view', (variant) => {
+    storeState = {
+      ...storeState,
+      loadingLocation: 'Tokyo',
+      error: 'Could not load weather for "Tokyo".',
+    };
+    const { container } = render(<WeatherComponent {...props(variant)} />);
+    expect(container.textContent).toContain('Loading weather for Tokyo');
+    expect(container.textContent).toContain(
+      'Could not load weather for "Tokyo".',
+    );
+    expect(container.textContent).toContain('Paris, France');
+    expect(container.textContent).toContain(
+      variant === 'weekly' ? '20°' : '18°',
+    );
+    const status = container.querySelector('[role="status"]');
+    const alert = container.querySelector('[role="alert"]');
+    expect(status?.textContent).toContain('Loading weather for Tokyo');
+    expect(status?.contains(alert)).toBe(false);
+  });
+
+  it('keeps an empty status region mounted before loading starts', () => {
+    const { getByRole } = render(<WeatherComponent {...props('current')} />);
+    expect(getByRole('status').textContent).toBe('');
+  });
+
+  it('starts the default refresh once per mount while the singleton deduplicates it', () => {
+    const first = render(<WeatherComponent {...props('current')} />);
+    first.unmount();
+    render(<WeatherComponent {...props('current')} />);
+    expect(refreshDefault).toHaveBeenCalledTimes(2);
+  });
+
+  it('registers weather actions for the instance', () => {
+    render(<WeatherComponent {...props('weekly')} />);
+    expect(useActions).toHaveBeenCalledWith(
+      'weather',
+      'weather-test-weekly',
+      weatherActionRunner,
+    );
   });
 });
 
-function weeklyProps(): TypedVesselProps<typeof weatherVessel> {
-  return {
-    instanceId: 'weather-test-weekly',
-    variantProps: { variant: 'weekly' },
-    executeAction: vi.fn(),
-  } as unknown as TypedVesselProps<typeof weatherVessel>;
-}
-
-describe('weekly variant', () => {
-  it('gives each daily icon an accessible condition label', async () => {
-    const { findAllByText } = render(<WeatherComponent {...weeklyProps()} />);
-    expect(await findAllByText('Fog')).toHaveLength(7);
+describe('weatherActionRunner', () => {
+  it('returns ok only after the location and forecast load succeeds', async () => {
+    let finish: (() => void) | undefined;
+    setLocation.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    let settled = false;
+    const resultPromise = weatherActionRunner
+      .setLocation({ location: 'Paris' })
+      .then((result) => {
+        settled = true;
+        return result;
+      });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    finish?.();
+    expect(isOk(await resultPromise)).toBe(true);
   });
-});
 
-function currentProps(): TypedVesselProps<typeof weatherVessel> {
-  return {
-    instanceId: 'weather-test-current',
-    variantProps: { variant: 'current' },
-    executeAction: vi.fn(),
-  } as unknown as TypedVesselProps<typeof weatherVessel>;
-}
-
-describe('current variant', () => {
-  it('gives the current condition icon an accessible label', async () => {
-    const { findByText } = render(<WeatherComponent {...currentProps()} />);
-    expect(await findByText('Fog')).toBeTruthy();
+  it('returns an intent-focused error when location loading fails', async () => {
+    setLocation.mockRejectedValue(new Error('offline'));
+    const result = await weatherActionRunner.setLocation({ location: 'Paris' });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.message).toBe(
+        'Could not load weather for that location.',
+      );
+    }
   });
-});
 
-describe('useLiveWeather cancellation', () => {
-  it('aborts the in-flight fetch on unmount instead of merely ignoring it', async () => {
-    const mockFetch = vi.mocked(fetchLiveWeather);
-    mockFetch.mockClear();
+  it.each([
+    {},
+    { location: null },
+    { location: 'a' },
+    { location: 'a'.repeat(161) },
+    { location: 'New\nYork' },
+    { location: 'New\u0085York' },
+    { location: 'New\u202eYork' },
+  ])('returns a validation error for invalid parameters %#', async (params) => {
+    const result = await weatherActionRunner.setLocation(params);
+    expect(isErr(result)).toBe(true);
+    expect(setLocation).not.toHaveBeenCalled();
+  });
 
-    const { unmount } = render(<WeatherComponent {...currentProps()} />);
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+  it.each([
+    'A\u200cB',
+    'A\u200dB',
+  ])('allows Unicode join controls in location names: %s', async (location) => {
+    setLocation.mockResolvedValue(undefined);
 
-    const [, , , signal] = mockFetch.mock.calls[0] as [
-      number,
-      number,
-      typeof fetch,
-      AbortSignal,
-    ];
-    expect(signal).toBeInstanceOf(AbortSignal);
-    expect(signal.aborted).toBe(false);
+    const result = await weatherActionRunner.setLocation({ location });
 
-    unmount();
-    expect(signal.aborted).toBe(true);
+    expect(isOk(result)).toBe(true);
+    expect(setLocation).toHaveBeenCalledWith(location);
   });
 });
