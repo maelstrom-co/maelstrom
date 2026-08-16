@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
 import { InstanceId } from './instance.js';
-import { isInstanceIdNode, isTilingSplit } from './response.js';
+import {
+  type GridLayout,
+  getVisibleInstanceIds,
+  isInstanceIdNode,
+  isTilingSplit,
+  type TilingLayout,
+} from './response.js';
+import { VariantName } from './variant-name.js';
+import { VesselId } from './vessel-id.js';
 
 describe('isInstanceIdNode', () => {
   test('true for a branded instance id', () => {
@@ -39,6 +47,98 @@ describe('isTilingSplit', () => {
 
   test('false for null', () => {
     expect(isTilingSplit(null)).toBe(false);
+  });
+});
+
+describe('getVisibleInstanceIds', () => {
+  const weatherId = InstanceId('weather-1');
+  const calendarId = InstanceId('calendar-1');
+  const tasksId = InstanceId('tasks-1');
+
+  test('returns only tiling tree leaves', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: ['H', weatherId, 'V', null, calendarId],
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId, calendarId]);
+  });
+
+  test('deduplicates repeated tiling leaves', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: ['H', weatherId, weatherId],
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId]);
+  });
+
+  test('returns grid position instance IDs', () => {
+    const layout: GridLayout = {
+      type: 'grid',
+      positions: [
+        {
+          instanceId: weatherId,
+          position: { row: 0, column: 0 },
+          size: { width: 1, height: 1 },
+        },
+        {
+          instanceId: calendarId,
+          position: { row: 0, column: 1 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId, calendarId]);
+  });
+
+  test('deduplicates repeated grid positions', () => {
+    const layout: GridLayout = {
+      type: 'grid',
+      positions: [
+        {
+          instanceId: tasksId,
+          position: { row: 0, column: 0 },
+          size: { width: 1, height: 1 },
+        },
+        {
+          instanceId: tasksId,
+          position: { row: 1, column: 0 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([tasksId]);
+  });
+
+  test('returns no visible Instances for a null layout', () => {
+    expect([...getVisibleInstanceIds(null)]).toEqual([]);
+  });
+
+  test('does not treat tiling declarations omitted from the tree as visible', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: [weatherId],
+      instances: [
+        {
+          instanceId: weatherId,
+          vesselId: VesselId('weather'),
+          variant: VariantName('default'),
+        },
+        {
+          instanceId: calendarId,
+          vesselId: VesselId('calendar'),
+          variant: VariantName('default'),
+        },
+      ],
+    };
+
+    expect(getVisibleInstanceIds(layout).has(weatherId)).toBe(true);
+    expect(getVisibleInstanceIds(layout).has(calendarId)).toBe(false);
   });
 });
 

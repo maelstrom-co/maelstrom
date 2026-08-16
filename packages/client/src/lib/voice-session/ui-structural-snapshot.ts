@@ -1,9 +1,10 @@
-import type {
-  ChartDimensions,
-  GridLayout,
-  LayoutMode,
-  TilingLayout,
-  VesselInstanceSnapshot,
+import {
+  type ChartDimensions,
+  type GridLayout,
+  getVisibleInstanceIds,
+  type LayoutMode,
+  type TilingLayout,
+  type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 
 import type { Orchestrator } from '../orchestrator/orchestrator.js';
@@ -26,16 +27,27 @@ export function readStructuralSnapshot(
   orchestrator: Orchestrator,
 ): UIStructuralSnapshot {
   const { instances, layout } = orchestrator.commandProcessor.store.state;
+  const visibleInstanceIds = getVisibleInstanceIds(layout);
+  const visibleLayout =
+    layout?.type === 'tiling'
+      ? {
+          ...layout,
+          instances: layout.instances.filter(({ instanceId }) =>
+            visibleInstanceIds.has(instanceId),
+          ),
+        }
+      : layout;
+
   return {
     // Branded ids flow through unchanged — no casts.
-    instances: [...instances.values()].map(
-      ({ instanceId, vesselId, variant }) => ({
+    instances: [...instances.values()]
+      .filter(({ instanceId }) => visibleInstanceIds.has(instanceId))
+      .map(({ instanceId, vesselId, variant }) => ({
         instanceId,
         vesselId,
         variant,
-      }),
-    ),
-    layout,
+      })),
+    layout: visibleLayout,
     layoutMode: orchestrator.getConfig().layoutMode,
     chartDimensions: orchestrator.chartManager.getDimensions(),
   };

@@ -64,6 +64,21 @@ export interface TilingLayout {
   readonly instances: readonly TilingInstance[];
 }
 
+/**
+ * Projects the Instances rendered by a layout, rather than retained or merely
+ * declared Instances. A tiling tree leaf and a grid position each make an
+ * Instance visible.
+ */
+export function getVisibleInstanceIds(
+  layout: GridLayout | TilingLayout | null,
+): ReadonlySet<InstanceId> {
+  if (layout === null) return new Set();
+
+  return layout.type === 'grid'
+    ? new Set(layout.positions.map(({ instanceId }) => instanceId))
+    : new Set(layout.tree.filter(isInstanceIdNode));
+}
+
 // ---------------------------------------------------------------------------
 // MaelstromResponse — the engine's output contract
 // ---------------------------------------------------------------------------
