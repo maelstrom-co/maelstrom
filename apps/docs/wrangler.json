@@ -2,8 +2,16 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "docs",
   "compatibility_date": "2026-03-30",
+  "routes": [{ "pattern": "docs.maelstrom-ai.co", "custom_domain": true }],
   "assets": {
     "directory": "./dist"
+  },
+  "env": {
+    "preview": {
+      "name": "maelstrom-docs-preview",
+      "workers_dev": true,
+      "routes": []
+    }
   },
   "observability": {
     "enabled": true,

@@ -15,7 +15,7 @@
     "build-livekit": "bunx nx run @maelstrom-co/demo:build-livekit",
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
-    "deploy": "VITE_HOSTED=1 bunx nx build @maelstrom-co/demo && wrangler deploy",
+    "deploy": "bunx nx run @maelstrom-co/demo:deploy",
     "verify:hibernation": "bun run scripts/verify-hibernation.ts"
   },
   "nx": {
@@ -37,6 +37,42 @@
         "options": {
           "cwd": "apps/demo",
           "command": "vite build --mode livekit"
+        }
+      },
+      "build-hosted": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "^build"
+        ],
+        "cache": true,
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/bun.lock",
+          {
+            "externalDependencies": [
+              "vite"
+            ]
+          }
+        ],
+        "outputs": [
+          "{projectRoot}/dist"
+        ],
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "VITE_HOSTED=1 vite build"
+        }
+      },
+      "deploy": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build-hosted"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "wrangler deploy --env=\"\""
         }
       },
       "prepare-voice-assets": {

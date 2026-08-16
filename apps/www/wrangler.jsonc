@@ -1,5 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "www",
   // Matches the newest date the pinned workerd supports (wrangler 4.115.0 ships
   // workerd 1.20260722.1); a later date would outrun the installed runtime.
   "compatibility_date": "2026-07-22",
@@ -7,8 +8,23 @@
   // `node:module`. workerd rejects that module outright without this flag, so
   // the build dies in the prerender pass before a single route is emitted.
   "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true,
+  "secrets": {
+    "required": ["RESEND_API_KEY"]
+  },
+  "routes": [
+    { "pattern": "maelstrom-ai.co", "custom_domain": true },
+    { "pattern": "www.maelstrom-ai.co", "custom_domain": true }
+  ],
   "vars": {
     "RESEND_SEGMENT_ID": "5b0cbb3a-8c80-4a78-b5ff-3fad686af8bb"
+  },
+  "env": {
+    "preview": {
+      "name": "maelstrom-www-preview",
+      "workers_dev": true,
+      "routes": []
+    }
   },
   "observability": {
     "enabled": true,

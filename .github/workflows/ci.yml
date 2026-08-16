@@ -9,7 +9,6 @@ on:
 permissions:
   actions: read
   contents: read
-  id-token: write
 
 env:
   NX_NO_CLOUD: ${{ vars.NX_NO_CLOUD }}
