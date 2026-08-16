@@ -66,8 +66,12 @@ export interface TilingLayout {
 
 /**
  * Projects the Instances rendered by a layout, rather than retained or merely
- * declared Instances. A tiling tree leaf and a grid position each make an
- * Instance visible.
+ * declared Instances.
+ *
+ * Grid visibility is every position. Tiling visibility is every instance leaf
+ * in the first complete preorder tree — the same tokens the Chart consumes.
+ * Trailing tokens after that tree are not visible. A null layout has no
+ * visible Instances.
  */
 export function getVisibleInstanceIds(
   layout: GridLayout | TilingLayout | null,
@@ -76,7 +80,32 @@ export function getVisibleInstanceIds(
 
   return layout.type === 'grid'
     ? new Set(layout.positions.map(({ instanceId }) => instanceId))
-    : new Set(layout.tree.filter(isInstanceIdNode));
+    : collectVisibleTilingLeaves(layout.tree);
+}
+
+// Walks one preorder tree the way Chart `parseTilingTree` does: consume a
+// split's two children, treat a null as an empty leaf, and stop after the
+// first complete root so trailing tokens cannot become visible.
+function collectVisibleTilingLeaves(
+  tree: readonly TilingNode[],
+): ReadonlySet<InstanceId> {
+  const visible = new Set<InstanceId>();
+  let index = 0;
+
+  const consumeNode = (): void => {
+    if (index >= tree.length) return;
+    const node = tree[index];
+    index += 1;
+    if (isTilingSplit(node)) {
+      consumeNode();
+      consumeNode();
+      return;
+    }
+    if (isInstanceIdNode(node)) visible.add(node);
+  };
+
+  consumeNode();
+  return visible;
 }
 
 // ---------------------------------------------------------------------------

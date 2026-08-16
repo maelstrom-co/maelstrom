@@ -137,6 +137,24 @@ describe('readStructuralSnapshot', () => {
     }
   });
 
+  it('ignores trailing tiling tokens that the Chart does not render', () => {
+    const { orchestrator } = createTestOrchestrator();
+    seedState(orchestrator, createTilingLayout([weatherId, calendarId]));
+
+    try {
+      const snapshot = readStructuralSnapshot(orchestrator);
+
+      expect(snapshot.instances).toEqual([tilingDeclarations[0]]);
+      if (snapshot.layout?.type !== 'tiling') {
+        throw new Error('expected tiling layout');
+      }
+      expect(snapshot.layout.instances).toEqual([tilingDeclarations[0]]);
+      expect(snapshot.layout.tree).toEqual([weatherId, calendarId]);
+    } finally {
+      orchestrator.dispose();
+    }
+  });
+
   it('reports only tiling tree leaves and projects tiling declarations', () => {
     const { orchestrator } = createTestOrchestrator();
     const layout = createTilingLayout([weatherId]);

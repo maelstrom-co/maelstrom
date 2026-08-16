@@ -13,16 +13,26 @@ import type { Orchestrator } from '../orchestrator/orchestrator.js';
  * Terse, structural-only view of what is on screen. Deliberately excludes
  * vessel domain data: the engine plans structurally and the model grounds on
  * shape, never contents.
+ *
+ * `instances` lists only rendered Instances. Hidden retained Instances stay
+ * in the command-processor store for Engine requests and remount. Tiling
+ * `layout.instances` is projected to those same visible IDs; the tree is
+ * unchanged. Grid `positions` are unchanged. `layout` is null before the
+ * first layout applies, and then `instances` is empty.
  */
 export interface UIStructuralSnapshot {
   readonly instances: readonly VesselInstanceSnapshot[];
-  /** Current positions; null before the first layout applies. */
   readonly layout: GridLayout | TilingLayout | null;
   readonly layoutMode: LayoutMode;
   readonly chartDimensions: ChartDimensions;
 }
 
-/** Pure read of the Orchestrator's microkernel stores into a snapshot. */
+/**
+ * Visible-only structural snapshot of the Chart.
+ *
+ * Reads Orchestrator stores without mutating them. Top-level `instances` and
+ * tiling `layout.instances` include only IDs from {@link getVisibleInstanceIds}.
+ */
 export function readStructuralSnapshot(
   orchestrator: Orchestrator,
 ): UIStructuralSnapshot {

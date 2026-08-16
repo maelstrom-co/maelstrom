@@ -119,6 +119,16 @@ describe('getVisibleInstanceIds', () => {
     expect([...getVisibleInstanceIds(null)]).toEqual([]);
   });
 
+  test('ignores trailing tiling tokens after the first complete tree', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: [weatherId, calendarId],
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId]);
+  });
+
   test('does not treat tiling declarations omitted from the tree as visible', () => {
     const layout: TilingLayout = {
       type: 'tiling',
