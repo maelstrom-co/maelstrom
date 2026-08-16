@@ -89,6 +89,9 @@ function createAdapter(provider: 'livekit' | 'openai') {
 }
 
 type OpenAIOptions = {
+  serverVad?: {
+    threshold?: number;
+  };
   voice?: string;
   synthesizeGreeting?: (args: {
     text: string;
@@ -152,12 +155,26 @@ describe('demo voice provider wiring', () => {
     });
   });
 
-  it('does not pass browser VAD configuration to OpenAI', () => {
+  it('leaves local OpenAI server VAD at adapter defaults', () => {
+    vi.stubEnv('VITE_HOSTED', '0');
     createAdapter('openai');
 
     expect(state.openAIAdapterOptions).toHaveLength(1);
     expect(state.openAIAdapterOptions[0]).toMatchObject({ debug: true });
     expect(state.openAIAdapterOptions[0]).not.toHaveProperty('vad');
+    expect(state.openAIAdapterOptions[0]).not.toHaveProperty('serverVad');
+    expect(state.liveKitAdapterOptions).toHaveLength(0);
+  });
+
+  it('keeps hosted OpenAI barge-in immediate while tuning the server VAD threshold', () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    createAdapter('openai');
+
+    const options = state.openAIAdapterOptions[0] as OpenAIOptions;
+    expect(options.serverVad).toEqual({
+      threshold: 0.8,
+    });
+    expect(options).not.toHaveProperty('vad');
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 

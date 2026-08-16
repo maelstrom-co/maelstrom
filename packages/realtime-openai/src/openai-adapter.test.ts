@@ -29,8 +29,29 @@ function flushMicrotasks(): Promise<void> {
 
 class FakeTrack {
   stopped = false;
+  stopCalls = 0;
+  readonly enabledMutations: boolean[] = [];
+  readonly lifecycle: string[] = [];
   getSettingsCalls = 0;
   getSettingsImpl: (() => MediaTrackSettings) | undefined;
+  #enabled: boolean;
+
+  constructor(
+    readonly kind = 'audio',
+    enabled = true,
+  ) {
+    this.#enabled = enabled;
+  }
+
+  get enabled(): boolean {
+    return this.#enabled;
+  }
+
+  set enabled(value: boolean) {
+    this.#enabled = value;
+    this.enabledMutations.push(value);
+    this.lifecycle.push(`enabled:${value}`);
+  }
 
   getSettings(): MediaTrackSettings {
     this.getSettingsCalls += 1;
@@ -39,6 +60,8 @@ class FakeTrack {
 
   stop(): void {
     this.stopped = true;
+    this.stopCalls += 1;
+    this.lifecycle.push('stop');
   }
 }
 
@@ -46,8 +69,11 @@ class FakeMediaStream {
   static instances: FakeMediaStream[] = [];
   readonly tracks: FakeTrack[];
 
-  constructor(trackCount = 1) {
-    this.tracks = Array.from({ length: trackCount }, () => new FakeTrack());
+  constructor(trackCountOrTracks: number | readonly FakeTrack[] = 1) {
+    this.tracks =
+      typeof trackCountOrTracks === 'number'
+        ? Array.from({ length: trackCountOrTracks }, () => new FakeTrack())
+        : [...trackCountOrTracks];
     FakeMediaStream.instances.push(this);
   }
 
@@ -56,7 +82,7 @@ class FakeMediaStream {
   }
 
   getAudioTracks(): FakeTrack[] {
-    return this.tracks;
+    return this.tracks.filter((track) => track.kind === 'audio');
   }
 }
 
@@ -99,6 +125,8 @@ class FakeDataChannel {
 
 interface FakeSender {
   track: FakeTrack | null;
+  replaceTrackCalls: number;
+  replaceTrack(track: MediaStreamTrack | null): Promise<void>;
 }
 
 class FakeRTCPeerConnection {
@@ -110,6 +138,8 @@ class FakeRTCPeerConnection {
   iceConnectionState = 'new';
   localDescription: { type: string; sdp: string } | undefined;
   dataChannel: FakeDataChannel | undefined;
+  addTrackCalls = 0;
+  removeTrackCalls = 0;
   private readonly senders: FakeSender[] = [];
 
   constructor() {
@@ -122,9 +152,22 @@ class FakeRTCPeerConnection {
   }
 
   addTrack(track: FakeTrack): FakeSender {
-    const sender: FakeSender = { track };
+    this.addTrackCalls += 1;
+    const sender: FakeSender = {
+      track,
+      replaceTrackCalls: 0,
+      replaceTrack: async () => {
+        sender.replaceTrackCalls += 1;
+        throw new Error('replaceTrack must not be used by greeting gating');
+      },
+    };
     this.senders.push(sender);
     return sender;
+  }
+
+  removeTrack(_sender: FakeSender): void {
+    this.removeTrackCalls += 1;
+    throw new Error('removeTrack must not be used by greeting gating');
   }
 
   getSenders(): FakeSender[] {
@@ -310,6 +353,12 @@ async function connectAndOpen(
   channel.triggerOpen();
   await connecting;
   return channel;
+}
+
+function sentFrames(channel: FakeDataChannel): Array<Record<string, unknown>> {
+  return channel.sent.map(
+    (frame) => JSON.parse(frame) as Record<string, unknown>,
+  );
 }
 
 afterEach(() => {
@@ -1115,6 +1164,521 @@ describe('OpenAIAdapter — voice activity state', () => {
   });
 });
 
+describe('OpenAIAdapter — transcript-confirmed interruption', () => {
+  async function connectTranscriptConfirmed(): Promise<{
+    adapter: OpenAIAdapter;
+    channel: FakeDataChannel;
+  }> {
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      serverVad: { bargeInMode: 'transcript-confirmed' },
+    });
+    const channel = await connectAndOpen(adapter);
+    channel.sent.length = 0;
+    return { adapter, channel };
+  }
+
+  const usefulDelta = {
+    type: 'conversation.item.input_audio_transcription.delta',
+    item_id: 'user-item-1',
+    delta: 'hello',
+  } as const;
+
+  const committed = (itemId: string) => ({
+    type: 'input_audio_buffer.committed',
+    item_id: itemId,
+  });
+
+  const completed = (itemId: string, transcript = 'useful transcript') => ({
+    type: 'conversation.item.input_audio_transcription.completed',
+    item_id: itemId,
+    transcript,
+  });
+
+  const responseCreates = (channel: FakeDataChannel) =>
+    sentFrames(channel).filter((frame) => frame.type === 'response.create');
+
+  it.each([
+    ['commit then completion', ['commit', 'completed']],
+    ['completion then commit', ['completed', 'commit']],
+    ['delta then completion then commit', ['delta', 'completed', 'commit']],
+    [
+      'duplicate commit and completion',
+      ['commit', 'commit', 'completed', 'completed'],
+    ],
+  ] as const)('creates one response for a committed useful transcript: %s', async (_name, order) => {
+    const { channel } = await connectTranscriptConfirmed();
+    const itemId = 'validated-item';
+
+    for (const event of order) {
+      if (event === 'commit') channel.receive(committed(itemId));
+      if (event === 'completed') channel.receive(completed(itemId));
+      if (event === 'delta') {
+        channel.receive({ ...usefulDelta, item_id: itemId });
+      }
+    }
+
+    expect(responseCreates(channel)).toEqual([{ type: 'response.create' }]);
+    expect(sentFrames(channel)).not.toContainEqual({
+      type: 'input_audio_buffer.commit',
+    });
+  });
+
+  it.each([
+    ['useful delta only', [usefulDelta]],
+    ['commit only', [committed('item-1')]],
+    ['completion only', [completed('item-1')]],
+    [
+      'empty completed transcript',
+      [committed('item-1'), completed('item-1', ' \n\t ')],
+    ],
+    [
+      'uncorrelated events',
+      [
+        { ...committed('item-1'), item_id: '' },
+        { ...completed('item-1'), item_id: '' },
+      ],
+    ],
+    [
+      'speech stop and commit',
+      [{ type: 'input_audio_buffer.speech_stopped' }, committed('item-1')],
+    ],
+  ] as const)('does not create a response from %s', async (_name, events) => {
+    const { channel } = await connectTranscriptConfirmed();
+
+    for (const event of events) channel.receive(event);
+
+    expect(responseCreates(channel)).toEqual([]);
+  });
+
+  it('queues distinct validated turns FIFO without collapsing them', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+
+    channel.receive(committed('turn-1'));
+    channel.receive(completed('turn-1'));
+    channel.receive(completed('turn-2'));
+    channel.receive(committed('turn-2'));
+    expect(responseCreates(channel)).toHaveLength(1);
+
+    channel.receive({ type: 'response.created', response: { id: 'turn-r1' } });
+    channel.receive({ type: 'response.done', response: { id: 'turn-r1' } });
+    expect(responseCreates(channel)).toHaveLength(2);
+
+    channel.receive({ type: 'response.created', response: { id: 'turn-r2' } });
+    channel.receive({ type: 'response.done', response: { id: 'turn-r2' } });
+    channel.receive({ type: 'response.done', response: { id: 'turn-r2' } });
+    expect(responseCreates(channel)).toHaveLength(2);
+  });
+
+  it.each([
+    ['tools before turns', ['tool', 'tool', 'turn-1', 'turn-2']],
+    ['turns before tools', ['turn-1', 'turn-2', 'tool', 'tool']],
+  ] as const)('prioritizes one coalesced tool follow-up before FIFO turns: %s', async (_name, order) => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    channel.receive({ type: 'response.created', response: { id: 'active-a' } });
+
+    let toolNumber = 0;
+    for (const source of order) {
+      if (source === 'tool') {
+        toolNumber += 1;
+        await adapter.sendToolResult(ToolCallId(`call-${toolNumber}`), {
+          ok: true,
+          summary: 'done',
+        });
+      } else {
+        channel.receive(committed(source));
+        channel.receive(completed(source));
+      }
+    }
+    expect(responseCreates(channel)).toHaveLength(0);
+
+    channel.receive({ type: 'response.done', response: { id: 'active-a' } });
+    expect(responseCreates(channel)).toHaveLength(1);
+    channel.receive({ type: 'response.created', response: { id: 'tool-r' } });
+    channel.receive({ type: 'response.done', response: { id: 'tool-r' } });
+    expect(responseCreates(channel)).toHaveLength(2);
+    channel.receive({ type: 'response.created', response: { id: 'turn-r1' } });
+    channel.receive({ type: 'response.done', response: { id: 'turn-r1' } });
+    expect(responseCreates(channel)).toHaveLength(3);
+    channel.receive({ type: 'response.created', response: { id: 'turn-r2' } });
+    channel.receive({ type: 'response.done', response: { id: 'turn-r2' } });
+    expect(responseCreates(channel)).toHaveLength(3);
+  });
+
+  it('gives a pending tool follow-up priority after an idle validated turn', async () => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    channel.receive(committed('turn-1'));
+    channel.receive(completed('turn-1'));
+    await adapter.sendToolResult(ToolCallId('call-1'), {
+      ok: true,
+      summary: 'done',
+    });
+    channel.receive(committed('turn-2'));
+    channel.receive(completed('turn-2'));
+
+    channel.receive({ type: 'response.created', response: { id: 'turn-r1' } });
+    channel.receive({ type: 'response.done', response: { id: 'turn-r1' } });
+    expect(responseCreates(channel)).toHaveLength(2);
+    channel.receive({ type: 'response.created', response: { id: 'tool-r' } });
+    channel.receive({ type: 'response.done', response: { id: 'tool-r' } });
+    expect(responseCreates(channel)).toHaveLength(3);
+  });
+
+  it('handles done-before-created once and ignores duplicate, stale, and conflicting lifecycle events', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive(committed('turn-1'));
+    channel.receive(completed('turn-1'));
+    channel.receive(committed('turn-2'));
+    channel.receive(completed('turn-2'));
+
+    channel.receive({ type: 'response.done', response: { id: 'done-first' } });
+    expect(responseCreates(channel)).toHaveLength(2);
+    channel.receive(committed('turn-3'));
+    channel.receive(completed('turn-3'));
+    channel.receive({ type: 'response.done', response: { id: 'done-first' } });
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'done-first' },
+    });
+    expect(responseCreates(channel)).toHaveLength(2);
+
+    channel.receive({ type: 'response.created', response: { id: 'turn-r2' } });
+    channel.receive({ type: 'response.created', response: { id: 'conflict' } });
+    channel.receive({ type: 'response.done', response: { id: 'unmatched' } });
+    channel.receive({ type: 'response.done', response: { id: 'conflict' } });
+    expect(responseCreates(channel)).toHaveLength(2);
+    channel.receive({ type: 'response.done', response: { id: 'turn-r2' } });
+    expect(responseCreates(channel)).toHaveLength(3);
+  });
+
+  it('does not retry a failed response.create attempt from duplicate item events', async () => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    const errors: unknown[] = [];
+    adapter.on((event) => {
+      if (event.type === 'error') errors.push(event.error);
+    });
+    const originalSend = channel.send.bind(channel);
+    let createAttempts = 0;
+    channel.send = (frame) => {
+      if ((JSON.parse(frame) as { type?: string }).type === 'response.create') {
+        createAttempts += 1;
+        throw new Error('create failed');
+      }
+      originalSend(frame);
+    };
+
+    channel.receive(committed('turn-1'));
+    channel.receive(completed('turn-1'));
+    channel.receive(committed('turn-1'));
+    channel.receive(completed('turn-1'));
+
+    expect(createAttempts).toBe(1);
+    expect(errors).toHaveLength(1);
+  });
+
+  it('does not interrupt provider output on raw speech_started', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.sent.length = 0;
+
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+
+    expect(sentFrames(channel)).toEqual([]);
+  });
+
+  it('cancels the active response by id then clears active output exactly once', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.sent.length = 0;
+
+    channel.receive(usefulDelta);
+    channel.receive(usefulDelta);
+    channel.receive({ type: 'output_audio_buffer.started' });
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
+  it('does not let duplicate response.created reset active output attribution', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    const created = {
+      type: 'response.created',
+      response: { id: 'response-1' },
+    } as const;
+    channel.receive(created);
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.receive(created);
+    channel.sent.length = 0;
+
+    channel.receive(usefulDelta);
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
+  it('retains a pending clear through re-entrant response.done until late output starts', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.sent.length = 0;
+    const originalSend = channel.send.bind(channel);
+    channel.send = (frame) => {
+      originalSend(frame);
+      const payload = JSON.parse(frame) as { type?: string };
+      if (payload.type === 'response.cancel') {
+        channel.receive({
+          type: 'response.done',
+          response: { id: 'response-1', status: 'cancelled' },
+        });
+      }
+    };
+
+    channel.receive(usefulDelta);
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+    ]);
+
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
+  it('preserves cancel-before-clear order when response.done is re-entrant with active output', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.sent.length = 0;
+    const originalSend = channel.send.bind(channel);
+    channel.send = (frame) => {
+      originalSend(frame);
+      if ((JSON.parse(frame) as { type?: string }).type === 'response.cancel') {
+        channel.receive({
+          type: 'response.done',
+          response: { id: 'response-1', status: 'cancelled' },
+        });
+      }
+    };
+
+    channel.receive(usefulDelta);
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
+  it('clears active output before draining a pending tool follow-up after re-entrant response.done', async () => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    await adapter.sendToolResult(ToolCallId('call-1'), {
+      ok: true,
+      summary: 'done',
+    });
+    channel.sent.length = 0;
+    const originalSend = channel.send.bind(channel);
+    channel.send = (frame) => {
+      originalSend(frame);
+      if ((JSON.parse(frame) as { type?: string }).type === 'response.cancel') {
+        channel.receive({
+          type: 'response.done',
+          response: { id: 'response-1', status: 'cancelled' },
+        });
+      }
+    };
+
+    channel.receive(usefulDelta);
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+      { type: 'response.create' },
+    ]);
+    expect(responseCreates(channel)).toHaveLength(1);
+  });
+
+  it('clears active output before draining an already validated turn after re-entrant response.done', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.receive(committed('user-item-1'));
+    channel.receive(completed('user-item-1'));
+    channel.sent.length = 0;
+    const originalSend = channel.send.bind(channel);
+    channel.send = (frame) => {
+      originalSend(frame);
+      if ((JSON.parse(frame) as { type?: string }).type === 'response.cancel') {
+        channel.receive({
+          type: 'response.done',
+          response: { id: 'response-1', status: 'cancelled' },
+        });
+      }
+    };
+
+    channel.receive(usefulDelta);
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+      { type: 'response.create' },
+    ]);
+    expect(responseCreates(channel)).toHaveLength(1);
+  });
+
+  it('fulfills a pending clear as already empty when output stops before starting', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.sent.length = 0;
+
+    channel.receive(usefulDelta);
+    channel.receive({ type: 'output_audio_buffer.stopped' });
+    channel.receive({ type: 'output_audio_buffer.started' });
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+    ]);
+  });
+
+  it('surfaces cancel failure and still attempts one standalone safety clear for active output', async () => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    const errors: unknown[] = [];
+    adapter.on((event) => {
+      if (event.type === 'error') errors.push(event.error);
+    });
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.sent.length = 0;
+    const originalSend = channel.send.bind(channel);
+    const cancelError = new Error('cancel failed');
+    channel.send = (frame) => {
+      if ((JSON.parse(frame) as { type?: string }).type === 'response.cancel') {
+        throw cancelError;
+      }
+      originalSend(frame);
+    };
+
+    channel.receive(usefulDelta);
+    channel.receive(usefulDelta);
+
+    expect(errors).toEqual([cancelError]);
+    expect(sentFrames(channel)).toEqual([
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
+  it('clears buffered output without a speculative cancel', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.sent.length = 0;
+
+    channel.receive(usefulDelta);
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
+  it('sends nothing for whitespace, missing correlation, no target, or already-empty output', async () => {
+    for (const event of [
+      { ...usefulDelta, delta: '  \n ' },
+      { ...usefulDelta, item_id: '' },
+      usefulDelta,
+    ]) {
+      const { channel } = await connectTranscriptConfirmed();
+      channel.receive(event);
+      expect(sentFrames(channel)).toEqual([]);
+    }
+
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.receive({ type: 'output_audio_buffer.stopped' });
+    channel.sent.length = 0;
+    channel.receive(usefulDelta);
+    expect(sentFrames(channel)).toEqual([]);
+  });
+
+  it('ignores events from a stale data channel after reconnect', async () => {
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      serverVad: { bargeInMode: 'transcript-confirmed' },
+    });
+    const staleChannel = await connectAndOpen(adapter);
+    await adapter.disconnect();
+    const currentChannel = await connectAndOpen(adapter);
+    currentChannel.receive({
+      type: 'response.created',
+      response: { id: 'response-current' },
+    });
+    currentChannel.receive({ type: 'output_audio_buffer.started' });
+    currentChannel.sent.length = 0;
+
+    staleChannel.receive(usefulDelta);
+
+    expect(sentFrames(currentChannel)).toEqual([]);
+  });
+
+  it('resets response attribution and validated-turn queues across reconnect', async () => {
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      serverVad: { bargeInMode: 'transcript-confirmed' },
+    });
+    const staleChannel = await connectAndOpen(adapter);
+    staleChannel.sent.length = 0;
+    staleChannel.receive(committed('stale-turn-1'));
+    staleChannel.receive(completed('stale-turn-1'));
+    staleChannel.receive(committed('stale-turn-2'));
+    staleChannel.receive(completed('stale-turn-2'));
+    expect(responseCreates(staleChannel)).toHaveLength(1);
+
+    await adapter.disconnect();
+    const currentChannel = await connectAndOpen(adapter);
+    currentChannel.sent.length = 0;
+    staleChannel.receive({
+      type: 'response.done',
+      response: { id: 'stale-response' },
+    });
+    staleChannel.receive(committed('stale-turn-3'));
+    staleChannel.receive(completed('stale-turn-3'));
+    expect(responseCreates(currentChannel)).toHaveLength(0);
+
+    currentChannel.receive(committed('current-turn'));
+    currentChannel.receive(completed('current-turn'));
+    expect(responseCreates(currentChannel)).toHaveLength(1);
+  });
+});
+
 // ============================================================================
 // Privacy-safe lifecycle diagnostics
 // ============================================================================
@@ -1157,7 +1721,69 @@ describe('OpenAIAdapter — lifecycle diagnostics', () => {
       );
     }
     expect(debugCalls.flat()).not.toContain(rawEvent);
+
+    const forbiddenKeys = new Set([
+      'id',
+      'item_id',
+      'event_id',
+      'response_id',
+      'session_id',
+      'request_id',
+    ]);
+    const inspect = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        value.forEach(inspect);
+        return;
+      }
+      if (value === null || typeof value !== 'object') return;
+      for (const [key, child] of Object.entries(value)) {
+        expect(forbiddenKeys).not.toContain(key);
+        inspect(child);
+      }
+    };
+    debugCalls.forEach(inspect);
   }
+
+  it('classifies input transcript deltas without logging identifiers or text and preserves delivery', async () => {
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      const adapter = new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        debug: true,
+        serverVad: { bargeInMode: 'transcript-confirmed' },
+      });
+      const channel = await connectAndOpen(adapter);
+      const transcripts: Array<{ text: string; final: boolean }> = [];
+      adapter.on((event) => {
+        if (event.type === 'transcript') {
+          transcripts.push({ text: event.text, final: event.final });
+        }
+      });
+      debugCalls.length = 0;
+      const rawEvent = {
+        type: 'conversation.item.input_audio_transcription.delta',
+        ...sensitiveFields,
+        delta: sensitiveFields.transcript,
+        response: { id: 'RESPONSE_ID_SENTINEL' },
+      };
+
+      channel.receiveRaw(rawEvent);
+
+      expect(transcripts).toEqual([
+        { text: sensitiveFields.transcript, final: false },
+      ]);
+      expect(debugCalls).toContainEqual([
+        '[OpenAIAdapter]',
+        'input interruption',
+        expect.objectContaining({ useful: true }),
+      ]);
+      expectOnlySanitizedDebugArguments(debugCalls, rawEvent);
+    } finally {
+      console.debug = originalDebug;
+    }
+  });
 
   it('distinguishes lifecycle categories with fixed sanitized projections', async () => {
     const cases: Array<{
@@ -1328,9 +1954,11 @@ describe('OpenAIAdapter — lifecycle diagnostics', () => {
     console.debug = (...args: unknown[]) => debugCalls.push(args);
     try {
       const { adapter, channel } = await connectDebugAdapter();
-      const transcripts: string[] = [];
+      const transcripts: Array<{ text: string; final: boolean }> = [];
       adapter.on((event) => {
-        if (event.type === 'transcript') transcripts.push(event.text);
+        if (event.type === 'transcript') {
+          transcripts.push({ text: event.text, final: event.final });
+        }
       });
       debugCalls.length = 0;
 
@@ -1340,7 +1968,9 @@ describe('OpenAIAdapter — lifecycle diagnostics', () => {
       };
       channel.receiveRaw(rawEvent);
 
-      expect(transcripts).toEqual([sensitiveFields.transcript]);
+      expect(transcripts).toEqual([
+        { text: sensitiveFields.transcript, final: true },
+      ]);
       expectOnlySanitizedDebugArguments(debugCalls, rawEvent);
     } finally {
       console.debug = originalDebug;
@@ -1723,6 +2353,72 @@ describe('OpenAIAdapter — transcription config', () => {
     expectNoLegacyInputAudioFields(update);
   });
 
+  it('configures transcript-confirmed barge-in without changing transcription or output voice', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        transcription: { model: 'whisper-1' },
+        voice: 'cedar',
+        serverVad: {
+          threshold: 0.6,
+          bargeInMode: 'transcript-confirmed',
+        },
+      }),
+    );
+
+    expect(update.session.audio.input).toEqual({
+      noise_reduction: { type: 'near_field' },
+      turn_detection: {
+        type: 'server_vad',
+        threshold: 0.6,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 500,
+        create_response: false,
+        interrupt_response: false,
+      },
+      transcription: { model: 'whisper-1' },
+    });
+    expect(update.session.audio.output.voice).toBe('cedar');
+    expectNoLegacyInputAudioFields(update);
+  });
+
+  it('keeps immediate barge-in flags when only the server VAD threshold is configured', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        serverVad: { threshold: 0.75 },
+      }),
+    );
+
+    expect(update.session.audio.input).toEqual({
+      ...expectedInputControls,
+      turn_detection: {
+        ...expectedInputControls.turn_detection,
+        threshold: 0.75,
+      },
+      transcription: { model: 'gpt-4o-mini-transcribe' },
+    });
+  });
+
+  it('uses the default threshold with transcript-confirmed barge-in', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        serverVad: { bargeInMode: 'transcript-confirmed' },
+      }),
+    );
+
+    expect(update.session.audio.input).toEqual({
+      ...expectedInputControls,
+      turn_detection: {
+        ...expectedInputControls.turn_detection,
+        create_response: false,
+        interrupt_response: false,
+      },
+      transcription: { model: 'gpt-4o-mini-transcribe' },
+    });
+  });
+
   it('falls back to the default model when the transcription object omits model', async () => {
     const update = await connectAndReadSessionUpdate(
       new OpenAIAdapter({
@@ -1749,6 +2445,77 @@ describe('OpenAIAdapter — transcription config', () => {
     expect(update.session.audio.output.voice).toBe('marin');
     expectNoLegacyInputAudioFields(update);
   });
+
+  it('keeps immediate mode compatible with disabled transcription', async () => {
+    const update = await connectAndReadSessionUpdate(
+      new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        transcription: false,
+        serverVad: { bargeInMode: 'immediate' },
+      }),
+    );
+
+    expect(update.session.audio.input).toEqual(expectedInputControls);
+  });
+
+  it('rejects non-finite and out-of-range server VAD thresholds synchronously', () => {
+    for (const threshold of [-0.01, 1.01, Number.NaN, Infinity, -Infinity]) {
+      expect(
+        () =>
+          new OpenAIAdapter({
+            mintToken: async () => fakeToken,
+            serverVad: { threshold },
+          }),
+      ).toThrow(TypeError);
+    }
+  });
+
+  it('accepts both inclusive server VAD threshold boundaries', async () => {
+    for (const threshold of [0, 1]) {
+      const update = await connectAndReadSessionUpdate(
+        new OpenAIAdapter({
+          mintToken: async () => fakeToken,
+          serverVad: { threshold },
+        }),
+      );
+
+      expect(
+        (
+          update.session.audio.input as {
+            turn_detection: { threshold: number };
+          }
+        ).turn_detection.threshold,
+      ).toBe(threshold);
+    }
+  });
+
+  it('rejects transcript-confirmed mode without transcription before external effects', () => {
+    let mintCalls = 0;
+    let microphoneCalls = 0;
+    getUserMediaImpl = async () => {
+      microphoneCalls += 1;
+      return new FakeMediaStream(1);
+    };
+
+    expect(
+      () =>
+        new OpenAIAdapter({
+          mintToken: async () => {
+            mintCalls += 1;
+            return fakeToken;
+          },
+          transcription: false,
+          serverVad: { bargeInMode: 'transcript-confirmed' },
+        }),
+    ).toThrow(
+      new TypeError(
+        'OpenAIAdapter transcript-confirmed barge-in requires input transcription',
+      ),
+    );
+    expect(mintCalls).toBe(0);
+    expect(microphoneCalls).toBe(0);
+    expect(FakeRTCPeerConnection.instances).toHaveLength(0);
+  });
 });
 
 // ============================================================================
@@ -1770,6 +2537,7 @@ class GreetingFakeBufferSource {
   started = false;
   stopped = false;
   disconnected = false;
+  startImpl: (() => void) | undefined;
 
   connect(destination: unknown): void {
     this.connectedTo = destination;
@@ -1780,6 +2548,7 @@ class GreetingFakeBufferSource {
   }
 
   start(): void {
+    this.startImpl?.();
     this.started = true;
   }
 
@@ -1798,6 +2567,8 @@ class GreetingFakeAudioContext {
   readonly sampleRate = 44100;
   state: AudioContextState = 'running';
   sources: GreetingFakeBufferSource[] = [];
+  decodeAudioDataImpl: (() => Promise<GreetingFakeAudioBuffer>) | undefined;
+  onSourceStart: ((source: GreetingFakeBufferSource) => void) | undefined;
 
   constructor() {
     GreetingFakeAudioContext.instances.push(this);
@@ -1818,12 +2589,16 @@ class GreetingFakeAudioContext {
 
   createBufferSource(): GreetingFakeBufferSource {
     const source = new GreetingFakeBufferSource();
+    source.startImpl = () => this.onSourceStart?.(source);
     this.sources.push(source);
     return source;
   }
 
   async decodeAudioData(_data: ArrayBuffer): Promise<GreetingFakeAudioBuffer> {
-    return new GreetingFakeAudioBuffer(1, 8, this.sampleRate);
+    return (
+      this.decodeAudioDataImpl?.() ??
+      new GreetingFakeAudioBuffer(1, 8, this.sampleRate)
+    );
   }
 }
 
@@ -1886,6 +2661,41 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
         return new ArrayBuffer(8);
       });
     return { synthesizeGreeting, calls };
+  }
+
+  function deferred<T>(): {
+    promise: Promise<T>;
+    resolve(value: T): void;
+  } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  async function waitForGreetingCondition(
+    condition: () => boolean,
+    message: string,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      if (condition()) return;
+      await Promise.resolve();
+    }
+    throw new Error(message);
+  }
+
+  function useMicTracks(tracks: readonly FakeTrack[]): {
+    stream: FakeMediaStream;
+    getUserMediaCalls(): number;
+  } {
+    const stream = new FakeMediaStream(tracks);
+    let calls = 0;
+    getUserMediaImpl = async () => {
+      calls += 1;
+      return stream;
+    };
+    return { stream, getUserMediaCalls: () => calls };
   }
 
   it('sends the exact assistant item before TTS without forwarding an engine ID that OpenAI may reject', async () => {
@@ -2062,6 +2872,8 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
   });
 
   it('returns accepted when synthesis fails after send', async () => {
+    const mic = new FakeTrack('audio', true);
+    useMicTracks([mic]);
     const adapter = new OpenAIAdapter({
       mintToken: async () => fakeToken,
       synthesizeGreeting: async () => {
@@ -2081,6 +2893,346 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     expect(
       channel.sent.some((s) => s.includes('conversation.item.create')),
     ).toBe(true);
+    expect(mic.enabled).toBe(true);
+    expect(mic.enabledMutations).toEqual([]);
+  });
+
+  it('keeps microphone tracks at their prior values while synthesis is pending and when it is aborted', async () => {
+    const enabled = new FakeTrack('audio', true);
+    const disabled = new FakeTrack('audio', false);
+    useMicTracks([enabled, disabled]);
+    const synthesis = deferred<ArrayBuffer>();
+    let synthesisSignal: AbortSignal | undefined;
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: ({ signal }) => {
+        synthesisSignal = signal;
+        return synthesis.promise;
+      },
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const caller = new AbortController();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: caller.signal,
+    });
+    await waitForGreetingCondition(
+      () => synthesisSignal !== undefined,
+      'greeting synthesis did not start',
+    );
+
+    expect([enabled.enabled, disabled.enabled]).toEqual([true, false]);
+    expect(enabled.enabledMutations).toEqual([]);
+    expect(disabled.enabledMutations).toEqual([]);
+
+    caller.abort();
+    await expect(speak).resolves.toBe('accepted');
+    expect(synthesisSignal?.aborted).toBe(true);
+    expect(enabled.enabledMutations).toEqual([]);
+    expect(disabled.enabledMutations).toEqual([]);
+  });
+
+  it('gates every unique audio track across decode and playback, then restores exact prior values without replacing capture', async () => {
+    const enabled = new FakeTrack('audio', true);
+    const disabled = new FakeTrack('audio', false);
+    const video = new FakeTrack('video', true);
+    const mic = useMicTracks([enabled, enabled, disabled, video]);
+    const synthesis = deferred<ArrayBuffer>();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: () => synthesis.promise,
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const context = GreetingFakeAudioContext.instances.at(-1)!;
+    const decode = deferred<GreetingFakeAudioBuffer>();
+    let decodeStarted = false;
+    context.decodeAudioDataImpl = () => {
+      decodeStarted = true;
+      return decode.promise;
+    };
+    let valuesAtSourceStart: boolean[] | undefined;
+    context.onSourceStart = () => {
+      valuesAtSourceStart = [enabled.enabled, disabled.enabled, video.enabled];
+    };
+
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+    await flushMicrotasks();
+    const valuesDuringSynthesis = [
+      enabled.enabled,
+      disabled.enabled,
+      video.enabled,
+    ];
+    synthesis.resolve(new ArrayBuffer(8));
+    await waitForGreetingCondition(
+      () => decodeStarted,
+      'greeting decode did not start',
+    );
+    const valuesDuringDecode = [
+      enabled.enabled,
+      disabled.enabled,
+      video.enabled,
+    ];
+    decode.resolve(new GreetingFakeAudioBuffer(1, 8, context.sampleRate));
+    await waitForGreetingCondition(
+      () =>
+        context.sources.length >= 2 && context.sources.at(-1)?.started === true,
+      'greeting playback did not start',
+    );
+    const valuesDuringPlayback = [
+      enabled.enabled,
+      disabled.enabled,
+      video.enabled,
+    ];
+    context.sources.at(-1)?.end();
+    await expect(speak).resolves.toBe('accepted');
+
+    expect(valuesDuringSynthesis).toEqual([true, false, true]);
+    expect(valuesDuringDecode).toEqual([false, false, true]);
+    expect(valuesAtSourceStart).toEqual([false, false, true]);
+    expect(valuesDuringPlayback).toEqual([false, false, true]);
+    expect([enabled.enabled, disabled.enabled, video.enabled]).toEqual([
+      true,
+      false,
+      true,
+    ]);
+    expect(enabled.enabledMutations).toEqual([false, true]);
+    expect(disabled.enabledMutations).toEqual([false, false]);
+    expect(video.enabledMutations).toEqual([]);
+    expect(adapter.getAudioStreams().mic).toBe(
+      mic.stream as unknown as MediaStream,
+    );
+    expect(mic.getUserMediaCalls()).toBe(1);
+    expect(enabled.stopCalls).toBe(0);
+    expect(disabled.stopCalls).toBe(0);
+    const connection = FakeRTCPeerConnection.instances.at(-1)!;
+    expect(connection.addTrackCalls).toBe(4);
+    expect(connection.removeTrackCalls).toBe(0);
+    expect(
+      connection.getSenders().map((sender) => sender.replaceTrackCalls),
+    ).toEqual([0, 0, 0, 0]);
+  });
+
+  it.each([
+    'decode',
+    'source-start',
+  ] as const)('restores the microphone when greeting %s fails', async (failurePoint) => {
+    const mic = new FakeTrack('audio', true);
+    useMicTracks([mic]);
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async () => new ArrayBuffer(8),
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const context = GreetingFakeAudioContext.instances.at(-1)!;
+    if (failurePoint === 'decode') {
+      context.decodeAudioDataImpl = async () => {
+        throw new Error('decode failed');
+      };
+    } else {
+      context.onSourceStart = () => {
+        throw new Error('source start failed');
+      };
+    }
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('accepted');
+    expect(mic.enabled).toBe(true);
+    expect(mic.enabledMutations).toEqual([false, true]);
+    expect(mic.stopCalls).toBe(0);
+  });
+
+  it('restores through caller abort during decode and ignores the late decode completion', async () => {
+    const mic = new FakeTrack('audio', true);
+    useMicTracks([mic]);
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async () => new ArrayBuffer(8),
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const context = GreetingFakeAudioContext.instances.at(-1)!;
+    const decode = deferred<GreetingFakeAudioBuffer>();
+    let decodeStarted = false;
+    context.decodeAudioDataImpl = () => {
+      decodeStarted = true;
+      return decode.promise;
+    };
+    const caller = new AbortController();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: caller.signal,
+    });
+    await waitForGreetingCondition(() => decodeStarted, 'decode did not start');
+    const valueDuringDecode = mic.enabled;
+
+    caller.abort();
+    await expect(speak).resolves.toBe('accepted');
+    const mutationsAfterAbort = [...mic.enabledMutations];
+    decode.resolve(new GreetingFakeAudioBuffer(1, 8, context.sampleRate));
+    await flushMicrotasks();
+
+    expect(valueDuringDecode).toBe(false);
+    expect(mic.enabled).toBe(true);
+    expect(mic.enabledMutations).toEqual([false, true]);
+    expect(mic.enabledMutations).toEqual(mutationsAfterAbort);
+  });
+
+  it('restores through adapter teardown during decode before stopping the track', async () => {
+    const mic = new FakeTrack('audio', true);
+    useMicTracks([mic]);
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async () => new ArrayBuffer(8),
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const context = GreetingFakeAudioContext.instances.at(-1)!;
+    const decode = deferred<GreetingFakeAudioBuffer>();
+    let decodeStarted = false;
+    context.decodeAudioDataImpl = () => {
+      decodeStarted = true;
+      return decode.promise;
+    };
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+    await waitForGreetingCondition(() => decodeStarted, 'decode did not start');
+
+    await adapter.disconnect();
+    await expect(speak).resolves.toBe('accepted');
+    const lifecycleAfterTeardown = [...mic.lifecycle];
+    decode.resolve(new GreetingFakeAudioBuffer(1, 8, context.sampleRate));
+    await flushMicrotasks();
+
+    expect(lifecycleAfterTeardown.slice(0, 3)).toEqual([
+      'enabled:false',
+      'enabled:true',
+      'stop',
+    ]);
+    expect(mic.lifecycle).toEqual(lifecycleAfterTeardown);
+  });
+
+  it('restores before teardown stops tracks and stale playback completion cannot affect a reconnected mic', async () => {
+    const oldMic = new FakeTrack('audio', true);
+    const newMic = new FakeTrack('audio', true);
+    const streams = [
+      new FakeMediaStream([oldMic]),
+      new FakeMediaStream([newMic]),
+    ];
+    let mediaCall = 0;
+    getUserMediaImpl = async () => streams[mediaCall++]!;
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async () => new ArrayBuffer(8),
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+    const firstContext = GreetingFakeAudioContext.instances.at(-1)!;
+    await waitForGreetingCondition(
+      () =>
+        firstContext.sources.length >= 2 &&
+        firstContext.sources.at(-1)?.started === true,
+      'first greeting playback did not start',
+    );
+    const staleSource = firstContext.sources.at(-1)!;
+
+    await adapter.disconnect();
+    await expect(speak).resolves.toBe('accepted');
+    await connectAndOpen(adapter);
+    const newMicMutationsBeforeStaleEnd = [...newMic.enabledMutations];
+    staleSource.end();
+    await flushMicrotasks();
+
+    expect(oldMic.lifecycle.slice(0, 3)).toEqual([
+      'enabled:false',
+      'enabled:true',
+      'stop',
+    ]);
+    expect(oldMic.stopped).toBe(true);
+    expect(newMic.enabled).toBe(true);
+    expect(newMic.enabledMutations).toEqual(newMicMutationsBeforeStaleEnd);
+    expect(adapter.getAudioStreams().mic).toBe(
+      streams[1] as unknown as MediaStream,
+    );
+  });
+
+  it('releases an active gate before replacement synthesis and stale completion cannot restore over the replacement gate', async () => {
+    const mic = new FakeTrack('audio', true);
+    useMicTracks([mic]);
+    const replacementSynthesis = deferred<ArrayBuffer>();
+    let micValueWhenReplacementSynthesisStarted: boolean | undefined;
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async ({ text }) => {
+        if (text === 'Greeting B') {
+          micValueWhenReplacementSynthesisStarted = mic.enabled;
+          return replacementSynthesis.promise;
+        }
+        return new ArrayBuffer(8);
+      },
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const speakA = adapter.speakAssistantText({
+      id: MessageId('greeting:a'),
+      text: 'Greeting A',
+      signal: new AbortController().signal,
+    });
+    const context = GreetingFakeAudioContext.instances.at(-1)!;
+    await waitForGreetingCondition(
+      () =>
+        context.sources.length >= 2 && context.sources.at(-1)?.started === true,
+      'first greeting did not start',
+    );
+    const staleSource = context.sources.at(-1)!;
+    const speakB = adapter.speakAssistantText({
+      id: MessageId('greeting:b'),
+      text: 'Greeting B',
+      signal: new AbortController().signal,
+    });
+    await waitForGreetingCondition(
+      () => micValueWhenReplacementSynthesisStarted !== undefined,
+      'replacement synthesis did not start',
+    );
+    replacementSynthesis.resolve(new ArrayBuffer(8));
+    await waitForGreetingCondition(
+      () => context.sources.at(-1) !== staleSource,
+      'replacement playback did not start',
+    );
+    const replacementSource = context.sources.at(-1)!;
+    const mutationsBeforeStaleEnd = [...mic.enabledMutations];
+    staleSource.end();
+    await expect(speakA).resolves.toBe('accepted');
+    await flushMicrotasks();
+
+    expect(micValueWhenReplacementSynthesisStarted).toBe(true);
+    expect(mic.enabled).toBe(false);
+    expect(mic.enabledMutations).toEqual(mutationsBeforeStaleEnd);
+    replacementSource.end();
+    await expect(speakB).resolves.toBe('accepted');
+    expect(mic.enabled).toBe(true);
+    expect(mic.enabledMutations).toEqual([false, true, false, true]);
   });
 
   it('returns accepted when decode/playback fails after send', async () => {
@@ -2302,7 +3454,9 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     expect(calls[0]?.voice).toBe('cedar');
   });
 
-  it('stops active greeting playback on speech_started without tearing down the session', async () => {
+  it('propagates speech_started state and event without aborting local playback while the microphone gate is active', async () => {
+    const mic = new FakeTrack('audio', true);
+    useMicTracks([mic]);
     const { synthesizeGreeting } = makeSynthesizer();
     const adapter = new OpenAIAdapter({
       mintToken: async () => fakeToken,
@@ -2310,6 +3464,10 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     });
     const channel = await connectAndOpen(adapter);
     adapter.activateAudio();
+    const events: string[] = [];
+    adapter.on((event) => {
+      events.push(event.type === 'state' ? `state:${event.state}` : event.type);
+    });
 
     const speak = adapter.speakAssistantText({
       id: greetingId,
@@ -2338,9 +3496,13 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     channel.receive({ type: 'input_audio_buffer.speech_started' });
     await flushMicrotasks();
 
-    // Adapter-owned Web Audio greeting stops; speak settles accepted (post-send).
-    expect(playback!.stopped).toBe(true);
+    expect(events).toContain('state:listening');
+    expect(events).toContain('speech_started');
+    expect(playback!.stopped).toBe(false);
+    expect(mic.enabled).toBe(false);
+    playback!.end();
     await expect(speak).resolves.toBe('accepted');
+    expect(mic.enabled).toBe(true);
 
     // Session stays connected and usable; history is not resent/duplicated.
     expect(channel.readyState).toBe('open');
@@ -2360,6 +3522,152 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
         }
       }),
     ).toHaveLength(1);
+  });
+
+  it('retains immediate local speech_started abort before the playback gate begins', async () => {
+    const mic = new FakeTrack('audio', true);
+    useMicTracks([mic]);
+    let synthesisSignal: AbortSignal | undefined;
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async ({ signal }) => {
+        synthesisSignal = signal;
+        return new Promise<ArrayBuffer>(() => {});
+      },
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const events: string[] = [];
+    adapter.on((event) => events.push(event.type));
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+    await waitForGreetingCondition(
+      () => synthesisSignal !== undefined,
+      'synthesis did not start',
+    );
+
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+
+    expect(synthesisSignal?.aborted).toBe(true);
+    await expect(speak).resolves.toBe('accepted');
+    expect(events).toContain('speech_started');
+    expect(mic.enabled).toBe(true);
+    expect(mic.enabledMutations).toEqual([]);
+  });
+
+  it('waits for a useful correlated delta before aborting transcript-confirmed greeting synthesis', async () => {
+    let synthesisSignal: AbortSignal | undefined;
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      serverVad: { bargeInMode: 'transcript-confirmed' },
+      synthesizeGreeting: async ({ signal }) => {
+        synthesisSignal = signal;
+        return new Promise<ArrayBuffer>(() => {});
+      },
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+    await flushMicrotasks();
+    expect(synthesisSignal?.aborted).toBe(false);
+
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    expect(synthesisSignal?.aborted).toBe(false);
+    channel.receive({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'greeting-interruption-item',
+      delta: 'hello',
+    });
+
+    expect(synthesisSignal?.aborted).toBe(true);
+    await expect(speak).resolves.toBe('accepted');
+  });
+
+  it('interrupts active greeting and provider output together only once', async () => {
+    const { synthesizeGreeting } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      serverVad: { bargeInMode: 'transcript-confirmed' },
+      synthesizeGreeting,
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+    await flushMicrotasks();
+    const playback = GreetingFakeAudioContext.instances.at(-1)?.sources.at(-1);
+    expect(playback?.started).toBe(true);
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.sent.length = 0;
+    const delta = {
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'user-item-1',
+      delta: 'hello',
+    };
+
+    channel.receive(delta);
+    channel.receive(delta);
+
+    expect(playback?.stopped).toBe(true);
+    await expect(speak).resolves.toBe('accepted');
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
+  it('aborts the prior greeting on replacement, then interrupts only the current operation', async () => {
+    const signals = new Map<string, AbortSignal>();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      serverVad: { bargeInMode: 'transcript-confirmed' },
+      synthesizeGreeting: async ({ text, signal }) => {
+        signals.set(text, signal);
+        return new Promise<ArrayBuffer>(() => {});
+      },
+    });
+    const channel = await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const callerA = new AbortController();
+    const speakA = adapter.speakAssistantText({
+      id: MessageId('greeting:a'),
+      text: 'Greeting A',
+      signal: callerA.signal,
+    });
+    await flushMicrotasks();
+    const speakB = adapter.speakAssistantText({
+      id: MessageId('greeting:b'),
+      text: 'Greeting B',
+      signal: new AbortController().signal,
+    });
+    await flushMicrotasks();
+
+    expect(signals.get('Greeting A')?.aborted).toBe(true);
+    expect(signals.get('Greeting B')?.aborted).toBe(false);
+
+    channel.receive({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'replacement-interruption-item',
+      delta: 'hello',
+    });
+
+    expect(signals.get('Greeting B')?.aborted).toBe(true);
+    await expect(speakB).resolves.toBe('accepted');
+    await expect(speakA).resolves.toBe('accepted');
   });
 });
 

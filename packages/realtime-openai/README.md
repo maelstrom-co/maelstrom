@@ -52,6 +52,26 @@ new OpenAIAdapter({
 });
 ```
 
+## Server VAD and interruption
+
+Tune OpenAI's server VAD and interruption policy through `serverVad`:
+
+```ts
+new OpenAIAdapter({
+  mintToken: () => mintOpenAIToken(sessionId),
+  serverVad: {
+    threshold: 0.65,
+    bargeInMode: 'transcript-confirmed',
+  },
+});
+```
+
+`threshold` defaults to `0.5`, and `bargeInMode` defaults to `immediate`.
+`transcript-confirmed` requires input transcription; combining it with
+`transcription: false` throws synchronously before connection work begins. See
+the [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/#configure-server-vad)
+for interruption mechanics, audio-processing limitations, and tuning guidance.
+
 ## Connection lifecycle
 
 `connect()` is guarded against re-entrancy while a mint round-trip is in

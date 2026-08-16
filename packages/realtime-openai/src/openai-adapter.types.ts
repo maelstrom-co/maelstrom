@@ -41,6 +41,36 @@ export interface OpenAIAdapterOptions {
    */
   readonly transcription?: false | { readonly model?: string };
   /**
+   * OpenAI server-VAD tuning and barge-in policy.
+   *
+   * The threshold defaults to `0.5` and must be a finite number in `[0, 1]`.
+   * Barge-in defaults to `immediate`, which preserves OpenAI-managed response
+   * creation and interruption. `transcript-confirmed` disables both provider
+   * flags so the adapter can interrupt on the first non-whitespace provisional
+   * transcription delta and create a response only after the same committed
+   * item has a non-whitespace completed transcript. Delta arrival latency is
+   * nondeterministic, and non-whitespace transcription does not prove that the
+   * sound came from a human speaker.
+   *
+   * This configures OpenAI's provider-side VAD only. LiveKit owns browser VAD,
+   * microphone gating, and turn boundaries through `LiveKitAdapter`'s separate
+   * `vad` option.
+   *
+   * `transcript-confirmed` requires input transcription. Combining it with
+   * `transcription: false` throws a synchronous `TypeError` from the constructor
+   * before token minting, microphone capture, peer creation, or connection.
+   */
+  readonly serverVad?: {
+    /** Finite OpenAI server-VAD activation threshold in `[0, 1]` (default `0.5`). */
+    readonly threshold?: number;
+    /**
+     * `immediate` (default) derives `create_response: true` and
+     * `interrupt_response: true`. `transcript-confirmed` derives both as false
+     * and requires input transcription.
+     */
+    readonly bargeInMode?: 'immediate' | 'transcript-confirmed';
+  };
+  /**
    * Built-in Realtime/TTS output voice. Defaults to `marin`. Applied to the
    * initial `session.update` audio.output and passed to
    * {@link synthesizeGreeting}.

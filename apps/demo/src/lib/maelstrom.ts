@@ -96,6 +96,13 @@ function createAdapter({
     mintToken: browserKeyMode
       ? hostedMintToken
       : () => mintOpenAIToken(sessionId),
+    ...(hosted
+      ? {
+          serverVad: {
+            threshold: 0.8,
+          },
+        }
+      : {}),
     voice: DEMO_OPENAI_VOICE,
     synthesizeGreeting: browserKeyMode
       ? hostedSynthesizeGreeting
