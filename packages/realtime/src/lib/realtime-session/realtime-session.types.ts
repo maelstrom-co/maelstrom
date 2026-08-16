@@ -74,12 +74,13 @@ export interface RealtimeInstance {
  * sequencing logic; the default is deterministic and O(1) — grounding must
  * never involve a model call.
  *
- * Backs two paths: every latest-wins grounding push, and the fallback for an
- * `update_ui` / `get_ui_state` tool result. It is only a *fallback* for
- * `update_ui`: when the settled {@link SubmitIntentResult} carries a non-empty
- * `userMessage`, that engine reply is spoken instead — the product voice wins
- * over a structural description, and it also avoids misreporting instances the
- * engine keeps alive but hidden (which this summarizer would otherwise count).
+ * Backs two paths: every latest-wins grounding push and the structural
+ * fallback summary for an `update_ui` tool result. It does not summarize the
+ * direct `get_ui_state` pull, which returns its {@link UIStructuralSnapshot}
+ * directly. That snapshot already contains visible-only Instances. When the
+ * settled {@link SubmitIntentResult} carries a non-empty `userMessage`, that
+ * engine reply remains the preferred product voice over the structural
+ * fallback.
  */
 export type SummarizeFn = (snapshot: UIStructuralSnapshot) => string;
 
