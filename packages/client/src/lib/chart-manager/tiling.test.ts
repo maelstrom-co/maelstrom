@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { InstanceId } from '@maelstrom-co/protocol';
+import {
+  getVisibleInstanceIds,
+  InstanceId,
+  type TilingLayout,
+  type TilingNode,
+} from '@maelstrom-co/protocol';
 import { computeTilingLayout, parseTilingTree, type Rect } from './tiling.js';
 
 let warnSpy: ReturnType<typeof spyOn>;
@@ -90,6 +95,30 @@ describe('parseTilingTree', () => {
 
 describe('computeTilingLayout', () => {
   const containerRect: Rect = { x: 0, y: 0, width: 800, height: 600 };
+  const weatherId = InstanceId('weather-1');
+  const calendarId = InstanceId('calendar-1');
+
+  const visibilityCases: readonly {
+    readonly name: string;
+    readonly tree: readonly TilingNode[];
+  }[] = [
+    { name: 'trailing tokens', tree: [weatherId, calendarId] },
+    { name: 'incomplete split', tree: ['H', weatherId] },
+    { name: 'duplicate leaves', tree: ['H', weatherId, weatherId] },
+    { name: 'null leaf', tree: [null] },
+  ];
+
+  for (const { name, tree } of visibilityCases) {
+    it(`matches protocol visibility for ${name}`, () => {
+      const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
+      const parsedTree = parseTilingTree(layout.tree);
+      const computedTiles = computeTilingLayout(parsedTree, containerRect, 0);
+
+      expect(
+        new Set(computedTiles.map(({ instanceId }) => instanceId)),
+      ).toEqual(new Set(getVisibleInstanceIds(layout)));
+    });
+  }
 
   it('returns empty array for null tree', () => {
     expect(computeTilingLayout(null, containerRect, 0)).toEqual([]);
