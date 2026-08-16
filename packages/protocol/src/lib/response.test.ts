@@ -7,6 +7,7 @@ import {
   isInstanceIdNode,
   isTilingSplit,
   type TilingLayout,
+  type TilingNode,
 } from './response.js';
 import { VariantName } from './variant-name.js';
 import { VesselId } from './vessel-id.js';
@@ -63,6 +64,58 @@ describe('getVisibleInstanceIds', () => {
     };
 
     expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId, calendarId]);
+  });
+
+  test('handles a depth-5000 right spine without overflowing the call stack', () => {
+    const depth = 5000;
+    const tree: TilingNode[] = [];
+    const expected: InstanceId[] = [];
+
+    for (let index = 0; index < depth; index += 1) {
+      const instanceId = InstanceId(`instance-${index}`);
+      tree.push('H', instanceId);
+      expected.push(instanceId);
+    }
+
+    const finalInstanceId = InstanceId(`instance-${depth}`);
+    tree.push(finalInstanceId);
+    expected.push(finalInstanceId);
+
+    const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual(expected);
+  });
+
+  test('handles a 10k all-splits malformed tree without visible leaves', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: new Array<TilingNode>(10_000).fill('H'),
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([]);
+  });
+
+  test.each([
+    {
+      name: 'a split with both children missing',
+      tree: ['H'] satisfies readonly TilingNode[],
+      expected: [],
+    },
+    {
+      name: 'a split with its right child missing',
+      tree: ['H', weatherId] satisfies readonly TilingNode[],
+      expected: [weatherId],
+    },
+    {
+      name: 'a nested split with its final child missing',
+      tree: ['H', weatherId, 'V', calendarId] satisfies readonly TilingNode[],
+      expected: [weatherId, calendarId],
+    },
+  ])('collects encountered leaves from $name', ({ tree, expected }) => {
+    const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([...expected]);
   });
 
   test('deduplicates repeated tiling leaves', () => {

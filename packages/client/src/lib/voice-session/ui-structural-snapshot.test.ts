@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   type GridLayout,
+  getVisibleInstanceIds,
   InstanceId,
   type TilingLayout,
   VariantName,
@@ -9,11 +10,15 @@ import {
 
 import { createTestOrchestrator } from '../../../test-utils/connector-mocks.js';
 import type { Orchestrator } from '../orchestrator/orchestrator.js';
-import { readStructuralSnapshot } from './ui-structural-snapshot.js';
+import {
+  readStructuralSnapshot,
+  type UIStructuralSnapshot,
+} from './ui-structural-snapshot.js';
 
 const weatherId = InstanceId('weather-1');
 const calendarId = InstanceId('calendar-1');
 const tasksId = InstanceId('tasks-1');
+const ghostId = InstanceId('ghost');
 
 const tilingDeclarations: TilingLayout['instances'] = [
   {
@@ -85,6 +90,36 @@ function seedState(
   return instances;
 }
 
+/**
+ * Asserts that every emitted layout reference resolves to one top-level
+ * snapshot Instance. Split and null tiling tokens are structural, not Instance
+ * references; malformed partial roots and trailing tokens are checked without
+ * interpreting or truncating the copied tree.
+ */
+function expectEmittedLayoutToBeCoherent(snapshot: UIStructuralSnapshot) {
+  const snapshotIds = new Set(
+    snapshot.instances.map(({ instanceId }) => instanceId),
+  );
+
+  if (snapshot.layout?.type === 'grid') {
+    for (const { instanceId } of snapshot.layout.positions) {
+      expect(snapshotIds.has(instanceId)).toBe(true);
+    }
+    return;
+  }
+
+  if (snapshot.layout?.type === 'tiling') {
+    for (const token of snapshot.layout.tree) {
+      if (token !== null && token !== 'H' && token !== 'V') {
+        expect(snapshotIds.has(token)).toBe(true);
+      }
+    }
+    for (const { instanceId } of snapshot.layout.instances) {
+      expect(snapshotIds.has(instanceId)).toBe(true);
+    }
+  }
+}
+
 describe('readStructuralSnapshot', () => {
   it('returns structural fields only (no vessel domain data)', () => {
     const { orchestrator } = createTestOrchestrator();
@@ -139,7 +174,11 @@ describe('readStructuralSnapshot', () => {
 
   it('ignores trailing tiling tokens that the Chart does not render', () => {
     const { orchestrator } = createTestOrchestrator();
-    seedState(orchestrator, createTilingLayout([weatherId, calendarId]));
+    const layout = createTilingLayout([weatherId, calendarId]);
+    const sourceTree = [...layout.tree];
+    const sourceDeclarations = [...layout.instances];
+    const retainedInstances = seedState(orchestrator, layout);
+    const retainedEntries = [...retainedInstances];
 
     try {
       const snapshot = readStructuralSnapshot(orchestrator);
@@ -149,7 +188,21 @@ describe('readStructuralSnapshot', () => {
         throw new Error('expected tiling layout');
       }
       expect(snapshot.layout.instances).toEqual([tilingDeclarations[0]]);
-      expect(snapshot.layout.tree).toEqual([weatherId, calendarId]);
+      expect(snapshot.layout.tree).toEqual([weatherId, null]);
+      expect(getVisibleInstanceIds(snapshot.layout)).toEqual(
+        new Set([weatherId]),
+      );
+      expectEmittedLayoutToBeCoherent(snapshot);
+      expect(snapshot.layout).not.toBe(layout);
+      expect(snapshot.layout.tree).not.toBe(layout.tree);
+      expect(snapshot.layout.instances).not.toBe(layout.instances);
+      expect(layout.tree).toEqual(sourceTree);
+      expect(layout.instances).toEqual(sourceDeclarations);
+      expect(orchestrator.commandProcessor.store.state.layout).toBe(layout);
+      expect(orchestrator.commandProcessor.store.state.instances).toBe(
+        retainedInstances,
+      );
+      expect([...retainedInstances]).toEqual(retainedEntries);
     } finally {
       orchestrator.dispose();
     }
@@ -205,13 +258,145 @@ describe('readStructuralSnapshot', () => {
       const snapshot = readStructuralSnapshot(orchestrator);
 
       expect(snapshot.instances).toEqual([tilingDeclarations[0]]);
-      expect(snapshot.layout).toBe(layout);
+      expect(snapshot.layout).not.toBe(layout);
       expect(snapshot.layout?.type).toBe('grid');
       expect(
         snapshot.layout?.type === 'grid' && snapshot.layout.positions,
       ).toEqual(layout.positions);
+      expect(
+        snapshot.layout?.type === 'grid' && snapshot.layout.positions,
+      ).not.toBe(layout.positions);
       expect(retainedInstances.size).toBe(3);
       expect(orchestrator.commandProcessor.store.state.instances.size).toBe(3);
+    } finally {
+      orchestrator.dispose();
+    }
+  });
+
+  it('filters unknown grid positions without changing source state', () => {
+    const { orchestrator } = createTestOrchestrator();
+    const layout: GridLayout = {
+      type: 'grid',
+      positions: [
+        {
+          instanceId: weatherId,
+          position: { column: 0, row: 0 },
+          size: { width: 1, height: 1 },
+        },
+        {
+          instanceId: ghostId,
+          position: { column: 1, row: 0 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+    };
+    const sourcePositions = [...layout.positions];
+    const retainedInstances = seedState(orchestrator, layout);
+    const retainedEntries = [...retainedInstances];
+
+    try {
+      const snapshot = readStructuralSnapshot(orchestrator);
+
+      expect(snapshot.instances).toEqual([tilingDeclarations[0]]);
+      if (snapshot.layout?.type !== 'grid') {
+        throw new Error('expected grid layout');
+      }
+      expect(snapshot.layout.positions).toEqual([layout.positions[0]]);
+      expectEmittedLayoutToBeCoherent(snapshot);
+      expect(snapshot.layout).not.toBe(layout);
+      expect(snapshot.layout.positions).not.toBe(layout.positions);
+      expect(layout.positions).toEqual(sourcePositions);
+      expect(orchestrator.commandProcessor.store.state.layout).toBe(layout);
+      expect(orchestrator.commandProcessor.store.state.instances).toBe(
+        retainedInstances,
+      );
+      expect([...retainedInstances]).toEqual(retainedEntries);
+    } finally {
+      orchestrator.dispose();
+    }
+  });
+
+  it('nulls an unknown consumed tiling leaf without changing source state', () => {
+    const { orchestrator } = createTestOrchestrator();
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: ['H', weatherId, ghostId],
+      instances: [
+        tilingDeclarations[0],
+        {
+          instanceId: ghostId,
+          vesselId: VesselId('ghost'),
+          variant: VariantName('default'),
+        },
+      ],
+    };
+    const sourceTree = [...layout.tree];
+    const sourceDeclarations = [...layout.instances];
+    const retainedInstances = seedState(orchestrator, layout);
+    const retainedEntries = [...retainedInstances];
+
+    try {
+      const snapshot = readStructuralSnapshot(orchestrator);
+
+      expect(snapshot.instances).toEqual([tilingDeclarations[0]]);
+      if (snapshot.layout?.type !== 'tiling') {
+        throw new Error('expected tiling layout');
+      }
+      expect(snapshot.layout.tree).toEqual(['H', weatherId, null]);
+      expect(snapshot.layout.instances).toEqual([tilingDeclarations[0]]);
+      expect(getVisibleInstanceIds(snapshot.layout)).toEqual(
+        new Set([weatherId]),
+      );
+      expectEmittedLayoutToBeCoherent(snapshot);
+      expect(snapshot.layout.tree).not.toBe(layout.tree);
+      expect(snapshot.layout.instances).not.toBe(layout.instances);
+      expect(layout.tree).toEqual(sourceTree);
+      expect(layout.instances).toEqual(sourceDeclarations);
+      expect(orchestrator.commandProcessor.store.state.layout).toBe(layout);
+      expect(orchestrator.commandProcessor.store.state.instances).toBe(
+        retainedInstances,
+      );
+      expect([...retainedInstances]).toEqual(retainedEntries);
+    } finally {
+      orchestrator.dispose();
+    }
+  });
+
+  it('preserves malformed partial tiling geometry while nulling drift', () => {
+    const { orchestrator } = createTestOrchestrator();
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: ['H', weatherId, 'V', ghostId],
+      instances: [
+        tilingDeclarations[0],
+        {
+          instanceId: ghostId,
+          vesselId: VesselId('ghost'),
+          variant: VariantName('default'),
+        },
+      ],
+    };
+    const sourceTree = [...layout.tree];
+    const retainedInstances = seedState(orchestrator, layout);
+
+    try {
+      const snapshot = readStructuralSnapshot(orchestrator);
+
+      if (snapshot.layout?.type !== 'tiling') {
+        throw new Error('expected tiling layout');
+      }
+      expect(snapshot.layout.tree).toEqual(['H', weatherId, 'V', null]);
+      expect(snapshot.layout.instances).toEqual([tilingDeclarations[0]]);
+      expect(snapshot.instances).toEqual([tilingDeclarations[0]]);
+      expect(getVisibleInstanceIds(snapshot.layout)).toEqual(
+        new Set([weatherId]),
+      );
+      expectEmittedLayoutToBeCoherent(snapshot);
+      expect(layout.tree).toEqual(sourceTree);
+      expect(orchestrator.commandProcessor.store.state.layout).toBe(layout);
+      expect(orchestrator.commandProcessor.store.state.instances).toBe(
+        retainedInstances,
+      );
     } finally {
       orchestrator.dispose();
     }
