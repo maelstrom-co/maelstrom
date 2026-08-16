@@ -53,6 +53,8 @@ interface MockAdapter extends RealtimeProviderAdapter {
   readonly listenerCount: number;
   /** Makes the next `connect()` call reject instead of resolving. */
   failNextConnect(): void;
+  /** Makes the next `disconnect()` call invoke a hook, then reject with the supplied value. */
+  failNextDisconnect(error: unknown, beforeReject?: () => void): void;
   /** Makes `connect()` block until the returned function is called. */
   gateConnect(): () => void;
   emitToolCall(call: {
@@ -80,6 +82,9 @@ function makeMockAdapter(): MockAdapter {
   let disconnectCalls = 0;
   let lastConnectTools: readonly RealtimeToolSpec[] | undefined;
   let shouldFailNextConnect = false;
+  let nextDisconnectFailure:
+    | { error: unknown; beforeReject?: () => void }
+    | undefined;
   let gate: Promise<void> | undefined;
   let turnControl: AdapterTurnControl | undefined;
   const lastAudioStreams: AdapterAudioStreams = {};
@@ -107,6 +112,9 @@ function makeMockAdapter(): MockAdapter {
     failNextConnect() {
       shouldFailNextConnect = true;
     },
+    failNextDisconnect(error, beforeReject) {
+      nextDisconnectFailure = { error, beforeReject };
+    },
     gateConnect() {
       let release!: () => void;
       gate = new Promise<void>((resolve) => {
@@ -128,6 +136,12 @@ function makeMockAdapter(): MockAdapter {
     },
     disconnect: async () => {
       disconnectCalls += 1;
+      if (nextDisconnectFailure) {
+        const failure = nextDisconnectFailure;
+        nextDisconnectFailure = undefined;
+        failure.beforeReject?.();
+        throw failure.error;
+      }
     },
     sendToolResult: async (callId, output) => {
       toolResults.push({ callId, output });
@@ -1599,6 +1613,47 @@ describe('RealtimeSession — connection lifecycle', () => {
     expect(adapter.disconnectCalls).toBe(2);
     expect(instance.settledSubscriberCount).toBe(0);
   });
+
+  it('preserves local teardown and rethrows the identical provider disconnect rejection', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    instance.emitEngineConnected(false);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    const rejection = new Error('provider disconnect failed');
+    let localCleanupObserved = false;
+
+    await session.connect();
+    expect(session.greetingState).toBe('preparing');
+    adapter.failNextDisconnect(rejection, () => {
+      localCleanupObserved =
+        adapter.listenerCount === 0 && instance.settledSubscriberCount === 0;
+    });
+
+    let thrown: unknown;
+    try {
+      await session.disconnect();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(rejection);
+    expect(localCleanupObserved).toBe(true);
+    expect(session.state).toBe('idle');
+    expect(session.greetingState).toBe('pending');
+    expect(session.lastError).toBeUndefined();
+    expect(adapter.listenerCount).toBe(0);
+    expect(instance.settledSubscriberCount).toBe(0);
+
+    instance.emitEngineConnected(true);
+    await flushMicrotasks();
+    expect(session.greetingState).toBe('pending');
+    expect(instance.acknowledged).toEqual([]);
+  });
 });
 
 // ============================================================================
@@ -1611,13 +1666,15 @@ describe('RealtimeSession — error surfacing', () => {
     await session.connect();
 
     const fatal = new RealtimeVoiceError(
-      'CONNECTION_FAILED',
-      'ICE connection failed',
+      'DATA_CHANNEL_ERROR',
+      'response.create send failed',
     );
     adapter.emitError(fatal);
 
     expect(session.state).toBe('error');
     expect(session.lastError).toBe(fatal);
+    expect(adapter.listenerCount).toBe(0);
+    expect(adapter.disconnectCalls).toBe(1);
   });
 
   it('stays connected on a non-fatal adapter error', async () => {
@@ -1639,7 +1696,7 @@ describe('RealtimeSession — error surfacing', () => {
     expect(session.lastError).toBeDefined();
   });
 
-  it('disconnect clears lastError, keeping "populated when state is error" truthful', async () => {
+  it('rejecting disconnect preserves lastError while moving the public state to idle', async () => {
     const { session, adapter } = makeHarness();
     await session.connect();
 
@@ -1650,11 +1707,14 @@ describe('RealtimeSession — error surfacing', () => {
     adapter.emitError(fatal);
     expect(session.state).toBe('error');
     expect(session.lastError).toBe(fatal);
+    adapter.failNextDisconnect(new Error('provider disconnect failed'));
 
-    await session.disconnect();
+    await expect(session.disconnect()).rejects.toThrow(
+      'provider disconnect failed',
+    );
 
     expect(session.state).toBe('idle');
-    expect(session.lastError).toBeUndefined();
+    expect(session.lastError).toBe(fatal);
   });
 
   it('a fatal error during a gated handshake lands in error and never transitions to connected', async () => {
@@ -2066,6 +2126,149 @@ describe('RealtimeSession — greeting activation and validation', () => {
 });
 
 describe('RealtimeSession — greeting lifecycle', () => {
+  it('stops before activation or provider setup when preparing synchronously disconnects', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    let disconnectPromise: Promise<void> | undefined;
+    session.on('greeting_state', (state) => {
+      if (state === 'preparing') disconnectPromise = session.disconnect();
+    });
+
+    await session.connect();
+    await disconnectPromise;
+
+    expect(session.state).toBe('idle');
+    expect(session.greetingState).toBe('pending');
+    expect(adapter.activateAudioCalls).toBe(0);
+    expect(adapter.connectCalls).toBe(0);
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(adapter.listenerCount).toBe(0);
+    expect(instance.settledSubscriberCount).toBe(0);
+  });
+
+  it('stops before activation or provider setup when connecting synchronously disconnects', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    let disconnectPromise: Promise<void> | undefined;
+    session.on('state', (state) => {
+      if (state === 'connecting') disconnectPromise = session.disconnect();
+    });
+
+    await session.connect();
+    await disconnectPromise;
+
+    expect(session.state).toBe('idle');
+    expect(session.greetingState).toBe('pending');
+    expect(adapter.activateAudioCalls).toBe(0);
+    expect(adapter.connectCalls).toBe(0);
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(adapter.listenerCount).toBe(0);
+    expect(instance.settledSubscriberCount).toBe(0);
+  });
+
+  it('retains preparing indefinitely while the provider is connected but Engine readiness is pending', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    instance.emitEngineConnected(false);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    const states: string[] = [];
+    session.on('greeting_state', (state) => states.push(state));
+
+    const connecting = session.connect();
+    expect(session.greetingState).toBe('preparing');
+    await connecting;
+    adapter.emitTurnMode('manual', new Error('VAD unavailable'));
+    await flushMicrotasks();
+
+    expect(session.state).toBe('connected');
+    expect(session.greetingState).toBe('preparing');
+    expect(states).toEqual(['preparing']);
+    expect(instance.acknowledged).toEqual([]);
+  });
+
+  it('disconnect makes a pending Engine wait retryable and late readiness cannot settle the stale generation', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    instance.emitEngineConnected(false);
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator },
+    });
+    await session.connect();
+    expect(session.greetingState).toBe('preparing');
+
+    await session.disconnect();
+    expect(session.greetingState).toBe('pending');
+    instance.emitEngineConnected(true);
+    await flushMicrotasks();
+    expect(session.greetingState).toBe('pending');
+    expect(instance.acknowledged).toEqual([]);
+
+    await session.connect();
+    expect(session.greetingState).toBe('preparing');
+  });
+
+  it('settles accepted greetings and initializes a recreated session synchronously from terminal proof', async () => {
+    const coordinator = new GreetingCoordinator();
+    const first = new RealtimeSession({
+      adapter: makeGreetingAdapter(),
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator },
+    });
+    await first.connect();
+    await flushMicrotasks();
+    expect(first.greetingState).toBe('settled');
+
+    const recreated = new RealtimeSession({
+      adapter: makeGreetingAdapter(),
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator },
+    });
+    expect(recreated.greetingState).toBe('settled');
+  });
+
+  it('settles a not_started attempt but returns to preparing only on a later reconnect', async () => {
+    const adapter = makeGreetingAdapter();
+    adapter.setSpeakResult('not_started');
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    await session.connect();
+    await flushMicrotasks();
+    expect(session.greetingState).toBe('settled');
+
+    await session.disconnect();
+    adapter.setSpeakResult('accepted');
+    const reconnect = session.connect();
+    expect(session.greetingState).toBe('preparing');
+    await reconnect;
+  });
+
   it('aborts an in-flight generation on disconnect', async () => {
     const adapter = makeGreetingAdapter();
     const instance = makeMockInstance(emptySnapshot);

@@ -896,4 +896,130 @@ describe('GreetingCoordinator', () => {
     // Caption remains once for B.
     expect(captions.filter((c) => c === 'Hi B')).toHaveLength(1);
   });
+
+  describe('lifecycle dispositions and snapshots', () => {
+    function lifecycle(coordinator: GreetingCoordinator, id: SessionId) {
+      return coordinator.getSnapshot(id);
+    }
+
+    it('returns accepted, then already_terminal, and exposes terminal proof synchronously', async () => {
+      const coordinator = new GreetingCoordinator();
+      const fake = makeFakeInstance();
+      const adapter = makeFakeAdapter();
+      const sessionId = session('terminal');
+      const context = {
+        sessionId,
+        text: 'Hello',
+        instance: fake.instance,
+        adapter: adapter.adapter,
+        signal: new AbortController().signal,
+        emitTranscript: () => {},
+      };
+
+      expect(lifecycle(coordinator, sessionId)).toEqual({
+        lifecycle: 'pending',
+      });
+      expect(await coordinator.run(context)).toBe('accepted');
+      expect(lifecycle(coordinator, sessionId)).toEqual({
+        lifecycle: 'terminal',
+      });
+      expect(await coordinator.run(context)).toBe('already_terminal');
+    });
+
+    it('classifies suppressed, not_started, failed, and current abort without inventing terminal proof', async () => {
+      const cases = [
+        {
+          name: 'suppressed',
+          configure: (fake: FakeInstance, _adapter: FakeAdapter) =>
+            fake.setAck('deduped'),
+          expected: 'suppressed',
+          lifecycle: 'terminal',
+        },
+        {
+          name: 'not-started',
+          configure: (_fake: FakeInstance, adapter: FakeAdapter) =>
+            adapter.setSpeak('not_started'),
+          expected: 'not_started',
+          lifecycle: 'pending',
+        },
+        {
+          name: 'failed',
+          configure: (fake: FakeInstance, _adapter: FakeAdapter) =>
+            fake.setAck(new Error('engine failed')),
+          expected: 'failed',
+          lifecycle: 'pending',
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const coordinator = new GreetingCoordinator();
+        const fake = makeFakeInstance();
+        const adapter = makeFakeAdapter();
+        const sessionId = session(testCase.name);
+        testCase.configure(fake, adapter);
+        const result = await coordinator.run({
+          sessionId,
+          text: 'Hello',
+          instance: fake.instance,
+          adapter: adapter.adapter,
+          signal: new AbortController().signal,
+          emitTranscript: () => {},
+        });
+        expect(result).toBe(testCase.expected);
+        expect(lifecycle(coordinator, sessionId)).toEqual({
+          lifecycle: testCase.lifecycle,
+        });
+      }
+
+      const coordinator = new GreetingCoordinator();
+      const fake = makeFakeInstance(false);
+      const adapter = makeFakeAdapter();
+      const controller = new AbortController();
+      const sessionId = session('aborted');
+      const run = coordinator.run({
+        sessionId,
+        text: 'Hello',
+        instance: fake.instance,
+        adapter: adapter.adapter,
+        signal: controller.signal,
+        emitTranscript: () => {},
+      });
+      controller.abort();
+      expect(await run).toBe('aborted');
+      expect(lifecycle(coordinator, sessionId)).toEqual({
+        lifecycle: 'pending',
+      });
+    });
+
+    it('returns stale when a superseded continuation resumes without changing the adopted snapshot', async () => {
+      const coordinator = new GreetingCoordinator();
+      const fake = makeFakeInstance();
+      const adapter = makeFakeAdapter();
+      const release = fake.gateAck();
+      const runA = coordinator.run({
+        sessionId: session('stale-a'),
+        text: 'A',
+        instance: fake.instance,
+        adapter: adapter.adapter,
+        signal: new AbortController().signal,
+        emitTranscript: () => {},
+      });
+      await flushTasks();
+      const runB = coordinator.run({
+        sessionId: session('stale-b'),
+        text: 'B',
+        instance: fake.instance,
+        adapter: adapter.adapter,
+        signal: new AbortController().signal,
+        emitTranscript: () => {},
+      });
+      release();
+
+      expect(await runA).toBe('stale');
+      expect(await runB).toBe('accepted');
+      expect(lifecycle(coordinator, session('stale-b'))).toEqual({
+        lifecycle: 'terminal',
+      });
+    });
+  });
 });

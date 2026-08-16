@@ -1376,6 +1376,86 @@ describe('OpenAIAdapter — transcript-confirmed interruption', () => {
     expect(errors).toHaveLength(1);
   });
 
+  it('retires a failed validated-turn response.create and fatally closes the scheduler before error notification', async () => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    const errors: unknown[] = [];
+    const createError = new Error('create failed');
+    const originalSend = channel.send.bind(channel);
+    let createAttempts = 0;
+    channel.send = (frame) => {
+      if ((JSON.parse(frame) as { type?: string }).type === 'response.create') {
+        createAttempts += 1;
+        throw createError;
+      }
+      originalSend(frame);
+    };
+    adapter.on((event) => {
+      if (event.type !== 'error') return;
+      errors.push(event.error);
+      channel.receive(committed('reentrant-turn'));
+      channel.receive(completed('reentrant-turn'));
+      void adapter.sendToolResult(ToolCallId('reentrant-tool'), {
+        ok: true,
+        summary: 'done',
+      });
+    });
+
+    channel.receive(committed('failed-turn'));
+    channel.receive(completed('failed-turn'));
+    channel.receive(committed('later-turn'));
+    channel.receive(completed('later-turn'));
+    await adapter.sendToolResult(ToolCallId('later-tool'), {
+      ok: true,
+      summary: 'done',
+    });
+    channel.receive({ type: 'response.done', response: { id: 'late-done' } });
+
+    expect(createAttempts).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(RealtimeVoiceError);
+    expect((errors[0] as RealtimeVoiceError).code).toBe('DATA_CHANNEL_ERROR');
+    expect((errors[0] as RealtimeVoiceError).cause).toBe(createError);
+  });
+
+  it('retires a failed tool follow-up response.create and never drains later work', async () => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    const errors: unknown[] = [];
+    const createError = new Error('tool follow-up create failed');
+    const originalSend = channel.send.bind(channel);
+    let createAttempts = 0;
+    channel.send = (frame) => {
+      if ((JSON.parse(frame) as { type?: string }).type === 'response.create') {
+        createAttempts += 1;
+        throw createError;
+      }
+      originalSend(frame);
+    };
+    adapter.on((event) => {
+      if (event.type !== 'error') return;
+      errors.push(event.error);
+      channel.receive(committed('reentrant-turn'));
+      channel.receive(completed('reentrant-turn'));
+    });
+
+    await adapter.sendToolResult(ToolCallId('failed-tool'), {
+      ok: true,
+      summary: 'done',
+    });
+    channel.receive(committed('later-turn'));
+    channel.receive(completed('later-turn'));
+    await adapter.sendToolResult(ToolCallId('later-tool'), {
+      ok: true,
+      summary: 'done',
+    });
+    channel.receive({ type: 'response.done', response: { id: 'late-done' } });
+
+    expect(createAttempts).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(RealtimeVoiceError);
+    expect((errors[0] as RealtimeVoiceError).code).toBe('DATA_CHANNEL_ERROR');
+    expect((errors[0] as RealtimeVoiceError).cause).toBe(createError);
+  });
+
   it('does not interrupt provider output on raw speech_started', async () => {
     const { channel } = await connectTranscriptConfirmed();
     channel.receive({
@@ -1457,6 +1537,107 @@ describe('OpenAIAdapter — transcript-confirmed interruption', () => {
     expect(sentFrames(channel)).toEqual([
       { type: 'response.cancel', response_id: 'response-1' },
       { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
+  it('releases a cancelled response clear obligation only from explicit empty output and preserves arbiter priority', async () => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive(usefulDelta);
+    await adapter.sendToolResult(ToolCallId('call-1'), {
+      ok: true,
+      summary: 'done',
+    });
+    channel.receive(committed('turn-2'));
+    channel.receive(completed('turn-2'));
+    channel.sent.length = 0;
+
+    channel.receive({
+      type: 'response.done',
+      response: { id: 'response-1', status: 'cancelled', output: [] },
+    });
+    expect(sentFrames(channel)).toEqual([{ type: 'response.create' }]);
+
+    channel.receive({ type: 'response.created', response: { id: 'tool-r' } });
+    channel.receive({ type: 'response.done', response: { id: 'tool-r' } });
+    expect(responseCreates(channel)).toHaveLength(2);
+  });
+
+  it.each([
+    ['omitted output', { id: 'response-1', status: 'cancelled' }],
+    [
+      'malformed output',
+      { id: 'response-1', status: 'cancelled', output: { length: 0 } },
+    ],
+    [
+      'nonempty output',
+      { id: 'response-1', status: 'cancelled', output: [{ id: 'item-1' }] },
+    ],
+  ] as const)('keeps the clear obligation for cancelled response.done with %s', async (_name, response) => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive(usefulDelta);
+    await adapter.sendToolResult(ToolCallId('call-1'), {
+      ok: true,
+      summary: 'done',
+    });
+    channel.sent.length = 0;
+
+    channel.receive({ type: 'response.done', response });
+    expect(sentFrames(channel)).toEqual([]);
+
+    channel.receive({ type: 'output_audio_buffer.started' });
+    expect(sentFrames(channel)).toEqual([
+      { type: 'output_audio_buffer.clear' },
+      { type: 'response.create' },
+    ]);
+  });
+
+  it('does not release a cancelled response clear obligation from wrong, duplicate, or newer response events', async () => {
+    const { adapter, channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive(usefulDelta);
+    await adapter.sendToolResult(ToolCallId('call-1'), {
+      ok: true,
+      summary: 'done',
+    });
+    channel.sent.length = 0;
+
+    channel.receive({
+      type: 'response.done',
+      response: { id: 'wrong', status: 'cancelled', output: [] },
+    });
+    channel.receive({
+      type: 'response.done',
+      response: { id: 'response-1', status: 'cancelled' },
+    });
+    channel.receive({
+      type: 'response.done',
+      response: { id: 'response-1', status: 'cancelled', output: [] },
+    });
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-2' },
+    });
+    channel.receive({
+      type: 'response.done',
+      response: { id: 'response-2', status: 'cancelled', output: [] },
+    });
+    expect(sentFrames(channel)).toEqual([]);
+
+    channel.receive({ type: 'output_audio_buffer.started' });
+    expect(sentFrames(channel)).toEqual([
+      { type: 'output_audio_buffer.clear' },
+      { type: 'response.create' },
     ]);
   });
 

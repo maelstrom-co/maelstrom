@@ -10,6 +10,7 @@ import type {
 } from '@maelstrom-co/react';
 import type {
   AdapterTurnControl,
+  GreetingState,
   RealtimeInstance,
   RealtimeProviderAdapter,
   SummarizeFn,
@@ -67,6 +68,19 @@ export interface MaelstromRealtimeOptions {
 export interface UseVoiceResult {
   /** Lifecycle state of the shared session, updated for every consumer. */
   readonly state: VoiceSessionState;
+  /**
+   * Retained fixed-greeting presentation lifecycle from the shared
+   * {@link RealtimeSession}, initialized synchronously from coordinator proof
+   * and updated for every `useVoice()` consumer. It is not a hook-local timer,
+   * caption, error, `VoiceSessionState`, or turn-mode derivation.
+   *
+   * `pending` is retryable; `preparing` starts before the provider handshake and
+   * can wait indefinitely for Engine readiness; `settled` ends presentation
+   * without implying provider activity or speech success; and `not_configured`
+   * means that no greeting exists. Retained terminal proof survives shared
+   * session recreation, and stale connection generations cannot update it.
+   */
+  readonly greetingState: GreetingState;
   /** Failure behind the current `error` state, if any. */
   readonly error: unknown;
   /** Latest accumulated or final user transcript. */
@@ -209,6 +223,9 @@ export function maelstromRealtime(
       const entry = getOrCreateSession(orchestrator);
       const { session } = entry;
       const [state, setState] = useState<VoiceSessionState>(session.state);
+      const [greetingState, setGreetingState] = useState<GreetingState>(
+        session.greetingState,
+      );
       const [error, setError] = useState<unknown>(session.lastError);
       const [userTranscript, setUserTranscript] = useState<TranscriptEntry>();
       const [assistantTranscript, setAssistantTranscript] =
@@ -225,6 +242,12 @@ export function maelstromRealtime(
         });
         setState(session.state);
         setError(session.lastError);
+        return unsubscribe;
+      }, [session]);
+
+      useEffect(() => {
+        const unsubscribe = session.on('greeting_state', setGreetingState);
+        setGreetingState(session.greetingState);
         return unsubscribe;
       }, [session]);
 
@@ -259,6 +282,7 @@ export function maelstromRealtime(
 
       return {
         state,
+        greetingState,
         error,
         userTranscript,
         assistantTranscript,

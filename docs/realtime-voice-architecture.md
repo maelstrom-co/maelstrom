@@ -232,6 +232,17 @@ calls `adapter.activateAudio()` synchronously within the click so Web Audio unlo
 work begins before any async handshake. Failures after a successful provider-item
 send settle as `accepted` (terminal); only pre-send failures return `not_started`.
 
+The UI observes a retained, provider-neutral greeting presentation lifecycle
+rather than inferring progress from transport state. `preparing` starts before
+the provider handshake and includes the wait for Engine readiness, which has no
+timeout; `settled` says only that presentation for the current generation ended,
+not that provider speech succeeded or remains active. Retryable disconnects
+return to `pending`, while terminal coordinator proof survives provider-session
+recreation. Connection generations fence updates so abandoned work cannot change
+the replacement session's UI. This shared lifecycle lets custom controls and the
+demo show one compact indeterminate “Preparing voice…” treatment, then
+“Listening”, without creating a second timer or provider-specific state machine.
+
 ### OpenAI greeting TTS (demo)
 
 OpenAI retains the exact assistant item in provider conversation
@@ -305,17 +316,27 @@ Verify before you trust. Run these steps in order.
    needs the agent worker running (`bun --cwd apps/demo run dev-livekit` runs
    both; `voice-worker.ts` sits on top of `ws-server`).
 2. **OpenAI** (`bun --cwd apps/demo run dev`). Confirm the AI-voice disclosure is
-   visible before clicking. One click on the orb grants the mic, unlocks Web Audio,
-   and produces exactly one assistant caption matching the greeting text and one
+   visible before clicking. Delay Engine readiness, click the orb, and confirm
+   that the compact “Preparing voice…” treatment remains visible for the whole
+   wait with no invented timeout; Stop voice must remain usable. Restore Engine
+   readiness and confirm that the label becomes “Listening” only after greeting
+   presentation settles. One click grants the mic, unlocks Web Audio, and
+   produces exactly one assistant caption matching the greeting text and one
    audible TTS playback. Network shows bodyless same-origin
    `POST /api/demo-greeting-tts` with `Sec-Fetch-Site: same-origin`. In DevTools,
    expect a `conversation.item.create` (assistant, `completed`) on the data channel
    **before** the TTS request and **no** greeting `response.create`. Confirm the
-   engine history contains the greeting before the caption. Force a WS disconnect
-   and reconnect → no second caption, TTS request, or playback. A fresh session →
-   greets once again; local route cache means no second upstream OpenAI synthesis.
+   engine history contains the greeting before the caption. Disconnect during
+   the Engine wait and confirm that a late continuation does not change the
+   replacement UI. Reconnect and let the greeting complete once, then reconnect
+   again → no second caption, TTS request, or playback after terminal proof
+   exists. A fresh session → greets once again; local route cache means no second
+   upstream OpenAI synthesis. These checks establish lifecycle ordering, not
+   mobile behavior or acoustic effectiveness.
 3. **LiveKit** (`bun --cwd apps/demo run dev-livekit`). The greeting is spoken
-   only after `tts_ready` (worker log order shows track publish → `SPEAK_TOPIC`
+   only after `tts_ready`; “Preparing voice…” remains visible until greeting
+   presentation settles, then changes to “Listening” (worker log order shows
+   track publish → `SPEAK_TOPIC`
    registration → `tts_ready`). If readiness is absent or times out, confirm that
    no `SPEAK_TOPIC` send occurs; reconnecting may retry on the later connection
    generation. After a `SPEAK_TOPIC` send begins, reconnecting must not repeat the

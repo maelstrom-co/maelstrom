@@ -136,6 +136,8 @@ interface InterruptionLedgerEntry {
   responseCreateSent: boolean;
   responseCancelAttempted: boolean;
   outputClearPending: boolean;
+  /** Response whose successful cancellation created this clear obligation. */
+  outputClearResponseId?: string;
   standaloneOutputClearAttempted: boolean;
 }
 
@@ -212,6 +214,9 @@ export class OpenAIAdapter
   #iceGraceTimer: ReturnType<typeof setTimeout> | undefined;
   #responseInFlight: ResponseInFlight | undefined;
   #toolFollowUpPending = false;
+  // A failed response.create send is fatal for this connection generation.
+  // It is reset only when teardown or connect starts a fresh generation.
+  #responseSchedulerFatal = false;
   // Re-entrant provider events cannot drain a newly eligible response while a
   // cancel-derived output clear is still being sent or awaited.
   #responseCreateDrainBlockDepth = 0;
@@ -927,11 +932,17 @@ export class OpenAIAdapter
     this.#settleGreetingOperation(greetingOp, gate);
   }
 
+  /**
+   * Starts an isolated response-arbiter generation. Teardown and reconnect use
+   * this boundary to discard queued work, clear fatal send state, and prevent
+   * stale provider events from affecting the replacement session.
+   */
   #startConnectionGeneration(): void {
     this.#connectionGeneration += 1;
     this.#interruptionLedger.clear();
     this.#responseInFlight = undefined;
     this.#toolFollowUpPending = false;
+    this.#responseSchedulerFatal = false;
     this.#responseCreateDrainBlockDepth = 0;
     this.#responseCreateDrainDeferred = false;
     this.#validatedTurnQueue.length = 0;
@@ -1114,7 +1125,13 @@ export class OpenAIAdapter
     return id !== undefined && id.length > 0 ? id : undefined;
   }
 
+  /**
+   * Coalesces tool follow-ups behind the active response, ahead of validated
+   * turns. A generation whose `response.create` send failed is permanently
+   * closed and ignores newly requested follow-ups until teardown or reconnect.
+   */
   #requestToolFollowUp(): void {
+    if (this.#responseSchedulerFatal) return;
     if (
       this.#responseInFlight !== undefined ||
       this.#responseCreateDrainBlocked()
@@ -1128,7 +1145,13 @@ export class OpenAIAdapter
     this.#attemptResponseCreate();
   }
 
+  /**
+   * Queues each validated item at most once without overtaking a tool follow-up.
+   * Fatal scheduler generations reject new queue entries rather than retaining
+   * work that could be retried after an unsent `response.create`.
+   */
   #requestValidatedTurn(itemId: string, entry: InterruptionLedgerEntry): void {
+    if (this.#responseSchedulerFatal) return;
     if (entry.responseCreateQueued) return;
     entry.responseCreateQueued = true;
     if (
@@ -1146,15 +1169,31 @@ export class OpenAIAdapter
     }
   }
 
+  /**
+   * Optimistically reserves the single in-flight response before sending. A
+   * synchronous send failure retires that placeholder, closes this generation's
+   * scheduler before notifying listeners, and emits one typed fatal error. The
+   * failed source and any re-entrant work are never retried locally.
+   */
   #attemptResponseCreate(): void {
+    if (this.#responseSchedulerFatal) return;
     this.#responseInFlight = {};
     try {
       if (!this.#dc || this.#dc.readyState !== 'open') {
         throw new Error('response.create: data channel not open');
       }
       this.#dc.send(JSON.stringify({ type: 'response.create' }));
-    } catch (error) {
-      this.#emit({ type: 'error', error });
+    } catch (cause) {
+      this.#responseInFlight = undefined;
+      this.#responseSchedulerFatal = true;
+      this.#emit({
+        type: 'error',
+        error: new RealtimeVoiceError(
+          'DATA_CHANNEL_ERROR',
+          'Failed to send OpenAI realtime response.create',
+          cause,
+        ),
+      });
     }
   }
 
@@ -1181,6 +1220,12 @@ export class OpenAIAdapter
     this.#outputActivity = 'not-started';
   }
 
+  /**
+   * Settles only the attributable in-flight response. A cancellation proves no
+   * output, and releases its interruption clear obligation, only when the same
+   * response carries exact `cancelled` status and an explicitly empty output
+   * array. Ambiguous shapes remain pending for a late output lifecycle event.
+   */
   #handleResponseDone(event: unknown): void {
     const responseId = this.#responseId(event);
     const current = this.#responseInFlight;
@@ -1196,6 +1241,7 @@ export class OpenAIAdapter
 
     this.#settledResponseIds.add(responseId);
     this.#responseInFlight = undefined;
+    this.#releaseClearObligationForProvenNoOutput(event, responseId);
     if (
       this.#activeResponseId === responseId ||
       current.responseId === undefined
@@ -1205,7 +1251,9 @@ export class OpenAIAdapter
     this.#drainResponseCreate();
   }
 
+  /** Drains one eligible source unless the current generation is fatally closed. */
   #drainResponseCreate(): void {
+    if (this.#responseSchedulerFatal) return;
     if (this.#responseInFlight !== undefined) return;
     if (this.#responseCreateDrainBlocked()) {
       this.#responseCreateDrainDeferred = true;
@@ -1231,6 +1279,29 @@ export class OpenAIAdapter
       if (entry.outputClearPending) return true;
     }
     return false;
+  }
+
+  /**
+   * Releases only obligations created by cancellation of this exact response.
+   * Missing, malformed, or non-empty output cannot prove that late audio will
+   * not start, so those obligations remain guarded by output lifecycle events.
+   */
+  #releaseClearObligationForProvenNoOutput(
+    event: unknown,
+    responseId: string,
+  ): void {
+    if (!isRecord(event) || !isRecord(event.response)) return;
+    if (asString(event.response.status) !== 'cancelled') return;
+    if (
+      !Array.isArray(event.response.output) ||
+      event.response.output.length > 0
+    )
+      return;
+    for (const entry of this.#interruptionLedger.values()) {
+      if (entry.outputClearResponseId !== responseId) continue;
+      entry.outputClearPending = false;
+      entry.outputClearResponseId = undefined;
+    }
   }
 
   #resumeResponseCreateDrain(): void {
@@ -1343,6 +1414,11 @@ export class OpenAIAdapter
     }
   }
 
+  /**
+   * Sends one attributable cancellation and opens its clear obligation before
+   * the send so re-entrant completion can settle it. A failed cancel retracts
+   * the obligation. No completion can drain work until this decision finishes.
+   */
   #cancelActiveResponse(
     entry: InterruptionLedgerEntry,
     responseId: string,
@@ -1354,13 +1430,16 @@ export class OpenAIAdapter
       useful: true,
     });
     this.#responseCreateDrainBlockDepth += 1;
+    entry.outputClearPending = true;
+    entry.outputClearResponseId = responseId;
     try {
       this.#dc?.send(
         JSON.stringify({ type: 'response.cancel', response_id: responseId }),
       );
-      entry.outputClearPending = true;
       this.#fulfillClearObligations();
     } catch (error) {
+      entry.outputClearPending = false;
+      entry.outputClearResponseId = undefined;
       this.#emit({ type: 'error', error });
       if (this.#outputActivity === 'active') {
         this.#sendStandaloneOutputClear(entry);
@@ -1385,6 +1464,11 @@ export class OpenAIAdapter
     }
   }
 
+  /**
+   * Settles pending interruption clears from provider output lifecycle. Stopped
+   * or cleared output proves the buffer empty; active output requires exactly
+   * one explicit clear. Not-started output remains ambiguous for a late start.
+   */
   #fulfillClearObligations(): void {
     this.#responseCreateDrainBlockDepth += 1;
     try {
@@ -1395,10 +1479,12 @@ export class OpenAIAdapter
           this.#outputActivity === 'cleared'
         ) {
           entry.outputClearPending = false;
+          entry.outputClearResponseId = undefined;
           continue;
         }
         if (this.#outputActivity !== 'active') continue;
         entry.outputClearPending = false;
+        entry.outputClearResponseId = undefined;
         this.#logger.debug('input interruption', {
           category: 'interruption-clear',
           useful: true,

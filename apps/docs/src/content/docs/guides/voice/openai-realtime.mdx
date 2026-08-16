@@ -204,6 +204,7 @@ Use the extension's hook for lifecycle state, connection controls, and the lates
 export function VoiceControl() {
   const {
     state,
+    greetingState,
     error,
     userTranscript,
     assistantTranscript,
@@ -213,13 +214,19 @@ export function VoiceControl() {
   const [operationFailed, setOperationFailed] = useState(false);
   const canStart = state === 'idle' || state === 'error';
   const hasFailure = operationFailed || error !== undefined;
+  const isPreparingGreeting = greetingState === 'preparing';
+  const voiceLabel = isPreparingGreeting
+    ? 'Preparing voice…'
+    : state === 'connected'
+      ? 'Listening'
+      : `Voice: ${state}`;
 
   return (
     <section aria-label="Voice controls">
       <button
         type="button"
-        disabled={state === 'connecting'}
         aria-describedby={hasFailure ? 'voice-error' : undefined}
+        aria-busy={isPreparingGreeting}
         onClick={() => {
           setOperationFailed(false);
           // connect() and disconnect() both reject on failure. A rejected
@@ -231,7 +238,8 @@ export function VoiceControl() {
       >
         {canStart ? 'Start voice' : 'Stop voice'}
       </button>
-      <p>Voice: {state}</p>
+      <p>{voiceLabel}</p>
+      {isPreparingGreeting && <progress aria-label="Preparing voice" />}
       {userTranscript && <p>You: {userTranscript.text}</p>}
       {assistantTranscript && <p>Assistant: {assistantTranscript.text}</p>}
       {hasFailure && (
@@ -247,7 +255,9 @@ export function VoiceControl() {
 }
 ```
 
-The session accumulates non-final transcript fragments and replaces them with the final entry. The control starts from `idle` or `error` and disables itself while a connection is being established.
+The session accumulates non-final transcript fragments and replaces them with the final entry. The control starts from `idle` or `error`; at every other point it remains a Stop voice control, including while a greeting is preparing, so the user can cancel a connection or an indefinite wait for Engine readiness.
+
+`greetingState` belongs to the shared session rather than this component. When a fixed greeting is configured, `preparing` begins before the provider handshake and covers the Engine wait, caption, and speech attempt. The compact `<progress>` is indeterminate because the Engine wait has no deadline or meaningful percentage. `settled` changes the label to `Listening`, but it means only that greeting presentation has ended—not that speech succeeded or that the provider is currently producing audio. A retryable disconnect can return the lifecycle to `pending`; terminal proof remains `settled` if the shared provider session is recreated. A stale connection attempt cannot update the replacement session's lifecycle.
 
 Two failure channels reach this component. A failed `connect()` rejects *and* moves the session to `error`, so the same failure can arrive twice — deduplicate before reporting. A rejected `disconnect()` only rejects; it never becomes a session error, which is why `operationFailed` exists rather than an empty catch that would hide a failed cleanup.
 

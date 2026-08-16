@@ -2,7 +2,7 @@
 
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
-import type { AdapterTurnControl } from '@maelstrom-co/realtime';
+import type { AdapterTurnControl, GreetingState } from '@maelstrom-co/realtime';
 import {
   act,
   cleanup,
@@ -49,6 +49,7 @@ function makeVoiceResult(
   turnControl: AdapterTurnControl | undefined,
   turnMode: 'automatic' | 'manual' = 'manual',
   turnModeError: unknown = undefined,
+  greetingState: GreetingState = 'not_configured',
 ): UseVoiceResult {
   return {
     state,
@@ -59,9 +60,10 @@ function makeVoiceResult(
     turnControl,
     turnMode,
     turnModeError,
+    greetingState,
     connect: async () => {},
     disconnect: async () => {},
-  };
+  } as UseVoiceResult;
 }
 
 function must<T>(value: T | null | undefined): T {
@@ -81,6 +83,89 @@ afterEach(() => {
 });
 
 describe('VoiceControl hold-to-talk button', () => {
+  it.each([
+    'connected',
+    'listening',
+    'thinking',
+    'speaking',
+  ] as const)('shows preparing over incidental %s activity with one live status and an indeterminate bar', (state) => {
+    voiceResult = makeVoiceResult(
+      state,
+      undefined,
+      'automatic',
+      undefined,
+      'preparing',
+    );
+    const { getAllByRole, getByRole } = render(<VoiceControl />);
+
+    expect(getAllByRole('status')).toHaveLength(1);
+    expect(getByRole('status').textContent).toContain('Preparing voice…');
+    const progress = getByRole('progressbar');
+    expect(progress.getAttribute('aria-label')).toBeTruthy();
+    expect(progress.hasAttribute('aria-valuenow')).toBe(false);
+    expect(progress.hasAttribute('aria-valuemin')).toBe(false);
+    expect(progress.hasAttribute('aria-valuemax')).toBe(false);
+  });
+
+  it('keeps fatal and disconnected presentation ahead of greeting preparation', () => {
+    for (const state of ['error', 'idle'] as const) {
+      voiceResult = makeVoiceResult(
+        state,
+        undefined,
+        'automatic',
+        undefined,
+        'preparing',
+      );
+      const { container, unmount } = render(<VoiceControl />);
+      expect(container.textContent).toContain(
+        state === 'error' ? 'Voice error' : 'Voice off',
+      );
+      expect(container.textContent).not.toContain('Preparing voice…');
+      unmount();
+    }
+  });
+
+  it('uses greeting settlement without replacing real thinking and speaking labels', () => {
+    const cases = [
+      ['connected', 'Listening'],
+      ['thinking', 'Thinking…'],
+      ['speaking', 'Speaking…'],
+    ] as const;
+    for (const [state, label] of cases) {
+      voiceResult = makeVoiceResult(
+        state,
+        undefined,
+        'automatic',
+        undefined,
+        'settled',
+      );
+      const { container, unmount } = render(<VoiceControl />);
+      expect(container.textContent).toContain(label);
+      unmount();
+    }
+  });
+
+  it('keeps LiveKit manual degradation controls visible and non-live during preparation', () => {
+    const turnControl = makeTurnControl();
+    voiceResult = makeVoiceResult(
+      'connected',
+      turnControl,
+      'manual',
+      new Error('VAD unavailable'),
+      'preparing',
+    );
+    const { getAllByRole, getByRole, container } = render(<VoiceControl />);
+
+    expect(getAllByRole('status')).toHaveLength(1);
+    expect(getByRole('status').textContent).toContain('Preparing voice…');
+    expect(getByRole('progressbar')).toBeDefined();
+    expect(getHoldButton(container)).toBeDefined();
+    expect(container.textContent).toContain(
+      'Automatic voice detection unavailable; hold to talk.',
+    );
+    expect(container.firstElementChild?.className).toContain('min-w-0');
+  });
+
   it('renders the inline orb by default', () => {
     voiceResult = makeVoiceResult('connected', undefined, 'automatic');
 

@@ -4,6 +4,7 @@ import { defineVessel, SessionId } from '@maelstrom-co/protocol';
 import { createMaelstrom, vessel } from '@maelstrom-co/react';
 import type {
   AdapterTurnControl,
+  GreetingState,
   RealtimeProviderAdapter,
   TurnModeEvent,
 } from '@maelstrom-co/realtime';
@@ -21,7 +22,19 @@ let sessionConnectGate: Promise<void> | undefined;
 let sessionDisconnectGate: Promise<void> | undefined;
 const nativeQueueMicrotask = globalThis.queueMicrotask;
 
-class FakeGreetingCoordinator {}
+class FakeGreetingCoordinator {
+  #terminal = false;
+
+  getSnapshot() {
+    return {
+      lifecycle: this.#terminal ? ('terminal' as const) : ('pending' as const),
+    };
+  }
+
+  markTerminal(): void {
+    this.#terminal = true;
+  }
+}
 
 class FakeRealtimeSession {
   static instances: FakeRealtimeSession[] = [];
@@ -31,6 +44,7 @@ class FakeRealtimeSession {
   turnMode: 'automatic' | 'manual' = 'automatic';
   turnModeError: unknown;
   turnControl: AdapterTurnControl | undefined;
+  greetingState: GreetingState;
   connectCalls = 0;
   disconnectCalls = 0;
   readonly options: {
@@ -39,9 +53,20 @@ class FakeRealtimeSession {
   readonly #stateHandlers = new Set<(state: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(entry: TranscriptEntry) => void>();
   readonly #turnModeHandlers = new Set<(event: TurnModeEvent) => void>();
+  readonly #greetingStateHandlers = new Set<
+    (state: FakeRealtimeSession['greetingState']) => void
+  >();
 
   constructor(options: { greeting?: { text: string; coordinator: unknown } }) {
     this.options = options;
+    const coordinator = options.greeting?.coordinator as
+      | FakeGreetingCoordinator
+      | undefined;
+    this.greetingState = options.greeting
+      ? coordinator?.getSnapshot().lifecycle === 'terminal'
+        ? 'settled'
+        : 'pending'
+      : 'not_configured';
     FakeRealtimeSession.instances.push(this);
   }
 
@@ -59,7 +84,7 @@ class FakeRealtimeSession {
   }
 
   on(
-    event: 'state' | 'transcript' | 'turn_mode',
+    event: 'state' | 'transcript' | 'turn_mode' | 'greeting_state',
     handler: ((state: VoiceSessionState) => void) &
       ((entry: TranscriptEntry) => void) &
       ((event: TurnModeEvent) => void),
@@ -69,9 +94,11 @@ class FakeRealtimeSession {
         ? this.#stateHandlers
         : event === 'transcript'
           ? this.#transcriptHandlers
-          : this.#turnModeHandlers;
-    handlers.add(handler);
-    return () => handlers.delete(handler);
+          : event === 'turn_mode'
+            ? this.#turnModeHandlers
+            : this.#greetingStateHandlers;
+    handlers.add(handler as never);
+    return () => handlers.delete(handler as never);
   }
 
   getAudioStreams() {
@@ -105,6 +132,18 @@ class FakeRealtimeSession {
         ? { type: 'turn_mode', mode }
         : { type: 'turn_mode', mode, error: options.error };
     for (const handler of this.#turnModeHandlers) handler(event);
+  }
+
+  emitGreetingState(state: FakeRealtimeSession['greetingState']): void {
+    this.greetingState = state;
+    if (state === 'settled') {
+      (
+        this.options.greeting?.coordinator as
+          | FakeGreetingCoordinator
+          | undefined
+      )?.markTerminal();
+    }
+    for (const handler of this.#greetingStateHandlers) handler(state);
   }
 }
 
@@ -957,6 +996,62 @@ describe('session-owned turn mode', () => {
 });
 
 describe('maelstromRealtime() greeting option', () => {
+  it('propagates one retained greeting lifecycle to simultaneous and late consumers', async () => {
+    const { m, connector } = setup({ greeting: { text: 'Welcome.' } });
+    const observed: UseVoiceResult[] = [];
+    function Consumer() {
+      observed.push(m.useVoice());
+      return null;
+    }
+    const { rerender } = render(
+      <m.Provider connector={connector}>
+        <Consumer />
+        <Consumer />
+      </m.Provider>,
+    );
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => session.emitGreetingState('preparing'));
+    rerender(
+      <m.Provider connector={connector}>
+        <Consumer />
+        <Consumer />
+        <Consumer />
+      </m.Provider>,
+    );
+
+    expect(observed.slice(-3).map((voice) => voice.greetingState)).toEqual([
+      'preparing',
+      'preparing',
+      'preparing',
+    ]);
+  });
+
+  it('preserves synchronous terminal state across zero-consumer retirement and recreation', async () => {
+    const { m, connector } = setup({ greeting: { text: 'Welcome.' } });
+    let voice: UseVoiceResult | undefined;
+    function Consumer() {
+      voice = m.useVoice();
+      return null;
+    }
+    const { rerender } = render(
+      <m.Provider connector={connector}>
+        <Consumer />
+      </m.Provider>,
+    );
+    await act(async () => {
+      must(FakeRealtimeSession.instances[0]).emitGreetingState('settled');
+    });
+    rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+    await act(async () => Promise.resolve());
+    rerender(
+      <m.Provider connector={connector}>
+        <Consumer />
+      </m.Provider>,
+    );
+
+    expect(must(voice).greetingState).toBe('settled');
+  });
+
   it('passes greeting text and a coordinator into RealtimeSession options', async () => {
     const { m, connector } = setup({ greeting: { text: 'Welcome aboard.' } });
     function Consumer() {

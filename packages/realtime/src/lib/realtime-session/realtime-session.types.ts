@@ -83,6 +83,31 @@ export interface RealtimeInstance {
  */
 export type SummarizeFn = (snapshot: UIStructuralSnapshot) => string;
 
+/**
+ * Retained presentation lifecycle of the shared session's fixed greeting.
+ *
+ * `preparing` begins synchronously before the provider handshake and spans all
+ * greeting work, including a wait for Engine readiness that has no timeout.
+ * `settled` means that the current generation's greeting presentation has
+ * finished; it does not report provider activity or prove that speech
+ * succeeded. A retryable disconnect or abort returns a configured greeting to
+ * `pending`, while retained terminal proof keeps it `settled` across session
+ * recreation. Work from a stale connection generation cannot change the
+ * retained state.
+ *
+ * This lifecycle is independent of `VoiceSessionState`, errors, transcripts,
+ * and turn mode.
+ */
+export type GreetingState =
+  /** No fixed greeting was supplied; connection activity cannot change this. */
+  | 'not_configured'
+  /** A configured greeting is dormant and may run on a later connection. */
+  | 'pending'
+  /** Provider connection or greeting work is active, possibly waiting indefinitely for the Engine. */
+  | 'preparing'
+  /** Presentation ended for the current generation; this does not imply speech success. */
+  | 'settled';
+
 /** Options for constructing a {@link RealtimeSession}. */
 export interface RealtimeSessionOptions {
   readonly adapter: RealtimeProviderAdapter;

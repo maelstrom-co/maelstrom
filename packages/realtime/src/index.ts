@@ -14,7 +14,11 @@
 
 export type { ConnectAttempt } from './lib/connect-race-guard.js';
 export { ConnectRaceGuard } from './lib/connect-race-guard.js';
-export type { GreetingRunContext } from './lib/greeting-coordinator.js';
+export type {
+  GreetingCoordinatorLifecycle,
+  GreetingCoordinatorSnapshot,
+  GreetingRunContext,
+} from './lib/greeting-coordinator.js';
 export { GreetingCoordinator } from './lib/greeting-coordinator.js';
 export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
 export type {
@@ -34,6 +38,7 @@ export type {
 export { isRealtimeGreetingAdapter } from './lib/realtime-session/provider-adapter.types.js';
 export { RealtimeSession } from './lib/realtime-session/realtime-session.js';
 export type {
+  GreetingState,
   RealtimeInstance,
   RealtimeSessionOptions,
   SubmitIntentResult,
