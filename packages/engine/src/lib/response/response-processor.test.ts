@@ -1907,8 +1907,12 @@ describe('processResponse', () => {
         executionPlan: [
           // Invalid paramsJson → action is dropped; runtime stays in 'compact'
           { instanceId: 'pw-1', action: 'expand', paramsJson: '{bad json' },
-          // Same action again without params → still valid in 'compact'
-          { instanceId: 'pw-1', action: 'expand' },
+          // Same action again with valid params → still valid in 'compact'
+          {
+            instanceId: 'pw-1',
+            action: 'expand',
+            paramsJson: '{"mode":"full"}',
+          },
         ],
         layout: { positions: [] },
       };
@@ -1927,6 +1931,7 @@ describe('processResponse', () => {
       expect(result.value.executionPlan[0]).toEqual({
         instanceId: InstanceId('pw-1'),
         action: ActionName('expand'),
+        params: { mode: 'full' },
       });
     });
   });
@@ -2151,9 +2156,9 @@ describe('processResponse', () => {
           reason: 'params_parse_failed',
           instanceId: 'calendar-main',
           action: 'showWeek',
-          paramsJson: '{not json',
         }),
       );
+      expect(JSON.stringify(skipped)).not.toContain('{not json');
     });
 
     test('preserves order matching the LLM execution plan', () => {

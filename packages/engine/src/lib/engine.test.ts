@@ -587,7 +587,17 @@ describe('engine.handle — chart_request', () => {
                   props: {},
                   minSize: { width: 4, height: 4 },
                   actions: [
-                    { name: 'showWeek', description: 'Show week view' },
+                    {
+                      name: 'showWeek',
+                      description: 'Show week view',
+                      parameters: [
+                        {
+                          name: 'weekStart',
+                          type: 'string',
+                          description: 'First day of the week',
+                        },
+                      ],
+                    },
                   ],
                 },
               },

@@ -34,7 +34,14 @@ const skip = (reason: SkippedAction['reason']): SkippedAction => {
         validActions: [],
       };
     case 'params_parse_failed':
-      return { reason, instanceId, action, paramsJson: '{x' };
+      return { reason, instanceId, action };
+    case 'params_validation_failed':
+      return {
+        reason,
+        instanceId,
+        action,
+        issues: [{ kind: 'missing_parameter', parameter: 'label' }],
+      };
     case 'state_drift':
       return { reason, instanceId, action, vesselId, targetVariant: variant };
     case 'self_transition_noop':
@@ -57,6 +64,7 @@ describe('deriveRetryHint', () => {
       ['variant_not_on_vessel' as const, true],
       ['action_not_valid' as const, true],
       ['params_parse_failed' as const, true],
+      ['params_validation_failed' as const, true],
       ['state_drift' as const, false],
       ['self_transition_noop' as const, false],
     ])('skip reason %p → recommend = %p', (reason, expectedRecommend) => {

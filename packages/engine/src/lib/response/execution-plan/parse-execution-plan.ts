@@ -21,6 +21,7 @@ import type {
 } from './state.js';
 import { createSimulationState } from './state.js';
 import type { RawActionExecution, SkippedAction } from './types.js';
+import { validateParams } from './validate-params.js';
 
 function parseSingleAction(
   item: RawActionExecution,
@@ -38,7 +39,36 @@ function parseSingleAction(
   }
   const resolved = resolution.value;
 
-  if (!item.paramsJson) {
+  let params: Record<string, unknown> | undefined;
+  if (item.paramsJson !== undefined) {
+    params = parseParams(item.paramsJson, item.action, item.instanceId, logger);
+
+    if (params === undefined) {
+      skippedActions.push({
+        reason: 'params_parse_failed',
+        instanceId: item.instanceId,
+        action: item.action,
+      });
+      return [];
+    }
+  }
+
+  const issues = validateParams(resolved.actionDef, params);
+  if (issues.length > 0) {
+    logger.warn(
+      `Invalid params for action "${item.action}" on "${item.instanceId}", skipping action`,
+      { issues },
+    );
+    skippedActions.push({
+      reason: 'params_validation_failed',
+      instanceId: item.instanceId,
+      action: item.action,
+      issues,
+    });
+    return [];
+  }
+
+  if (params === undefined) {
     const outcome = updateSimulatedVariant(item, resolved, logger, simWriter);
     if (outcome.kind === 'drift') {
       skippedActions.push(
@@ -47,23 +77,6 @@ function parseSingleAction(
       return [];
     }
     return [{ instanceId: item.instanceId, action: item.action }];
-  }
-
-  const params = parseParams(
-    item.paramsJson,
-    item.action,
-    item.instanceId,
-    logger,
-  );
-
-  if (params === undefined) {
-    skippedActions.push({
-      reason: 'params_parse_failed',
-      instanceId: item.instanceId,
-      action: item.action,
-      paramsJson: item.paramsJson,
-    });
-    return [];
   }
 
   const outcome = updateSimulatedVariant(item, resolved, logger, simWriter);

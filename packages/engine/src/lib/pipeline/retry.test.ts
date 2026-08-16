@@ -83,15 +83,10 @@ const overflowDrop = (id: string): DroppedLayoutEntry => ({
   chartRows: 8,
 });
 
-const paramsParseFailed = (
-  id: string,
-  action: string,
-  paramsJson: string,
-): SkippedAction => ({
+const paramsParseFailed = (id: string, action: string): SkippedAction => ({
   reason: 'params_parse_failed',
   instanceId: InstanceId(id),
   action: ActionName(action),
-  paramsJson,
 });
 
 const stateDrift = (id: string, action: string): SkippedAction => ({
@@ -278,7 +273,7 @@ describe('callWithRetry', () => {
     test('retry prompt suppresses state_drift skipped actions', async () => {
       const failed = recommendingResponse({
         skippedActions: [
-          paramsParseFailed('a', 'go', '{bad'),
+          paramsParseFailed('a', 'go'),
           stateDrift('b', 'wander'),
         ],
         severity: 'medium',
@@ -375,7 +370,7 @@ describe('callWithRetry', () => {
         droppedLayoutEntries: [overflowDrop('a')],
       });
       const r2 = recommendingResponse({
-        skippedActions: [paramsParseFailed('b', 'go', '{x')],
+        skippedActions: [paramsParseFailed('b', 'go')],
         severity: 'medium',
       });
       const { runOnce, prompts, calls } = recordingRunOnce([
@@ -572,7 +567,7 @@ describe('callWithRetry', () => {
       // others → info. Exhaustion ctx pins every key so a future log-shape
       // regression (extra fields, missing fields) fails the assertion.
       const failed = recommendingResponse({
-        skippedActions: [paramsParseFailed('a', 'go', '{bad')],
+        skippedActions: [paramsParseFailed('a', 'go')],
         severity: 'medium',
       });
       const { logger, entries } = spyLogger();
@@ -766,7 +761,7 @@ describe('buildRetryPrompt', () => {
 
   test('layout drops and skipped actions appear in their own sections', () => {
     const out = buildRetryPrompt('orig', {
-      skippedActions: [paramsParseFailed('b', 'doIt', '{x')],
+      skippedActions: [paramsParseFailed('b', 'doIt')],
       droppedLayoutEntries: [overflowDrop('a')],
       warnings: [],
       retryHint: recommendMedium,
@@ -778,8 +773,9 @@ describe('buildRetryPrompt', () => {
       'instance "a" at (10,5) size 4x3 exceeds chart bounds (12x8)',
     );
     expect(out).toContain(
-      'Action "doIt" on instance "b" had unparseable params: {x',
+      'Action "doIt" on instance "b" had unparseable params',
     );
+    expect(out).not.toContain('{x');
     expect(out).toContain('orig');
   });
 
@@ -853,8 +849,8 @@ describe('buildRetryPrompt', () => {
   // Pin every non-state_drift SkippedAction formatter.
   test.each([
     [
-      paramsParseFailed('a', 'go', '{bad'),
-      'Action "go" on instance "a" had unparseable params: {bad',
+      paramsParseFailed('a', 'go'),
+      'Action "go" on instance "a" had unparseable params',
     ],
     [
       {

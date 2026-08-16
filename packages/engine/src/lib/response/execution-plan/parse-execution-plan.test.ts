@@ -372,3 +372,254 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
     });
   });
 });
+
+describe('parseExecutionPlan — action parameter validation', () => {
+  const vesselId = VesselId('parameterized');
+  const initial = VariantName('initial');
+  const transitioned = VariantName('transitioned');
+  const configure = ActionName('configure');
+  const afterTransition = ActionName('afterTransition');
+  const noParams = ActionName('noParams');
+  const optionalOnly = ActionName('optionalOnly');
+  const objectEnum = ActionName('objectEnum');
+  const instanceId = InstanceId('parameterized-1');
+
+  const vessel = makeVessel({
+    id: vesselId,
+    name: 'Parameterized vessel',
+    description: 'Exercises action parameter validation',
+    defaultVariant: initial,
+    variants: {
+      [initial]: {
+        props: {},
+        minSize: { width: 1, height: 1 },
+        actions: [
+          {
+            name: configure,
+            description: 'Configure and transition',
+            transitionsTo: transitioned,
+            parameters: [
+              { name: 'label', type: 'string', description: 'Label' },
+              { name: 'count', type: 'number', description: 'Count' },
+              { name: 'enabled', type: 'boolean', description: 'Enabled' },
+              { name: 'metadata', type: 'object', description: 'Metadata' },
+              {
+                name: 'mode',
+                type: 'string',
+                description: 'Mode',
+                enum: ['safe', 'fast'],
+              },
+            ],
+          },
+          { name: noParams, description: 'Takes no parameters' },
+          {
+            name: optionalOnly,
+            description: 'All parameters are optional',
+            parameters: [
+              {
+                name: 'note',
+                type: 'string',
+                description: 'Optional note',
+                required: false,
+              },
+            ],
+          },
+          {
+            name: objectEnum,
+            description: 'Uses a non-JSON object enum value',
+            parameters: [
+              {
+                name: 'value',
+                type: 'object',
+                description: 'Object value',
+                enum: [new Date(0)],
+              },
+            ],
+          },
+        ],
+      },
+      [transitioned]: {
+        props: {},
+        minSize: { width: 1, height: 1 },
+        actions: [
+          { name: afterTransition, description: 'Only valid after transition' },
+        ],
+      },
+    },
+  });
+
+  const instance: VesselInstanceSnapshot = {
+    instanceId,
+    vesselId,
+    variant: initial,
+  };
+
+  const parse = (...items: RawActionExecution[]) =>
+    parseExecutionPlan(items, [instance], [vessel], silentLogger);
+
+  test('accepts params matching every supported type and enum', () => {
+    const params = {
+      label: 'Example',
+      count: 2,
+      enabled: true,
+      metadata: { nested: ['JSON', 1] },
+      mode: 'safe',
+    };
+
+    expect(
+      parse({
+        instanceId,
+        action: configure,
+        paramsJson: JSON.stringify(params),
+      }),
+    ).toEqual({
+      plan: [{ instanceId, action: configure, params }],
+      skippedActions: [],
+    });
+  });
+
+  test('rejects unknown parameter keys without exposing their values', () => {
+    const result = parse({
+      instanceId,
+      action: configure,
+      paramsJson: JSON.stringify({
+        label: 'Example',
+        count: 2,
+        enabled: true,
+        metadata: {},
+        mode: 'safe',
+        secret: 'do-not-record',
+      }),
+    });
+
+    expect(result.plan).toEqual([]);
+    expect(result.skippedActions).toEqual([
+      {
+        reason: 'params_validation_failed',
+        instanceId,
+        action: configure,
+        issues: [{ kind: 'unknown_parameter', parameter: 'secret' }],
+      },
+    ]);
+    expect(JSON.stringify(result.skippedActions)).not.toContain(
+      'do-not-record',
+    );
+  });
+
+  test('treats required as true when omitted and reports every missing parameter', () => {
+    const result = parse({ instanceId, action: configure });
+
+    expect(result.plan).toEqual([]);
+    expect(result.skippedActions[0]).toEqual({
+      reason: 'params_validation_failed',
+      instanceId,
+      action: configure,
+      issues: ['label', 'count', 'enabled', 'metadata', 'mode'].map(
+        (parameter) => ({ kind: 'missing_parameter', parameter }),
+      ),
+    });
+  });
+
+  test.each([
+    ['label', 1, 'string', 'number'],
+    ['count', '2', 'number', 'string'],
+    ['enabled', 1, 'boolean', 'number'],
+    ['metadata', null, 'object', 'null'],
+    ['metadata', [], 'object', 'array'],
+  ] as const)('rejects an invalid value for %s', (parameter, value, expected, actual) => {
+    const params: Record<string, unknown> = {
+      label: 'Example',
+      count: 2,
+      enabled: true,
+      metadata: {},
+      mode: 'safe',
+      [parameter]: value,
+    };
+    const result = parse({
+      instanceId,
+      action: configure,
+      paramsJson: JSON.stringify(params),
+    });
+
+    expect(result.plan).toEqual([]);
+    expect(result.skippedActions[0]).toMatchObject({
+      reason: 'params_validation_failed',
+      issues: [{ kind: 'type_mismatch', parameter, expected, actual }],
+    });
+  });
+
+  test('rejects values outside the declared enum', () => {
+    const result = parse({
+      instanceId,
+      action: configure,
+      paramsJson: JSON.stringify({
+        label: 'Example',
+        count: 2,
+        enabled: true,
+        metadata: {},
+        mode: 'unsupported',
+      }),
+    });
+
+    expect(result.plan).toEqual([]);
+    expect(result.skippedActions[0]).toMatchObject({
+      reason: 'params_validation_failed',
+      issues: [{ kind: 'enum_violation', parameter: 'mode' }],
+    });
+  });
+
+  test('does not treat non-JSON objects with no keys as an empty object enum match', () => {
+    const result = parse({
+      instanceId,
+      action: objectEnum,
+      paramsJson: '{"value":{}}',
+    });
+
+    expect(result.plan).toEqual([]);
+    expect(result.skippedActions[0]).toMatchObject({
+      reason: 'params_validation_failed',
+      issues: [{ kind: 'enum_violation', parameter: 'value' }],
+    });
+  });
+
+  test('accepts an empty object for an action without parameters', () => {
+    expect(parse({ instanceId, action: noParams, paramsJson: '{}' })).toEqual({
+      plan: [{ instanceId, action: noParams, params: {} }],
+      skippedActions: [],
+    });
+  });
+
+  test('rejects non-empty params for an action without parameters', () => {
+    const result = parse({
+      instanceId,
+      action: noParams,
+      paramsJson: '{"unexpected":true}',
+    });
+
+    expect(result.plan).toEqual([]);
+    expect(result.skippedActions[0]).toMatchObject({
+      reason: 'params_validation_failed',
+      issues: [{ kind: 'params_not_allowed' }],
+    });
+  });
+
+  test('accepts omitted params when every declared parameter is optional', () => {
+    expect(parse({ instanceId, action: optionalOnly })).toEqual({
+      plan: [{ instanceId, action: optionalOnly }],
+      skippedActions: [],
+    });
+  });
+
+  test('an invalid parameterized transition does not advance simulated state', () => {
+    const result = parse(
+      { instanceId, action: configure, paramsJson: '{}' },
+      { instanceId, action: afterTransition },
+    );
+
+    expect(result.plan).toEqual([]);
+    expect(result.skippedActions.map((skipped) => skipped.reason)).toEqual([
+      'params_validation_failed',
+      'action_not_valid',
+    ]);
+  });
+});

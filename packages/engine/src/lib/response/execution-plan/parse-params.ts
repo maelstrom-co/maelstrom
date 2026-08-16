@@ -11,11 +11,9 @@ export function parseParams(
   let parsed: unknown;
   try {
     parsed = JSON.parse(paramsJson);
-  } catch (parseErr) {
+  } catch {
     logger.error(
       `Failed to parse paramsJson for action "${action}" on "${instanceId}", skipping action`,
-      parseErr,
-      { paramsJson },
     );
     return undefined;
   }
@@ -29,7 +27,7 @@ export function parseParams(
     logger.error(
       `paramsJson for action "${action}" on "${instanceId}" is not a JSON object, skipping action`,
       undefined,
-      { paramsJson, parsedType },
+      { parsedType },
     );
     return undefined;
   }

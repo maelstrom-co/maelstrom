@@ -36,6 +36,7 @@ export function isFixableSkip(reason: SkippedAction['reason']): boolean {
     case 'variant_not_on_vessel':
     case 'action_not_valid':
     case 'params_parse_failed':
+    case 'params_validation_failed':
       return true;
     default:
       return assertNever(reason, 'isFixableSkip');

@@ -94,7 +94,32 @@ function describeSkippedActions(skipped: readonly SkippedAction[]): string[] {
         break;
       case 'params_parse_failed':
         lines.push(
-          `Action "${s.action}" on instance "${s.instanceId}" had unparseable params: ${s.paramsJson}`,
+          `Action "${s.action}" on instance "${s.instanceId}" had unparseable params`,
+        );
+        break;
+      case 'params_validation_failed':
+        lines.push(
+          `Action "${s.action}" on instance "${s.instanceId}" had invalid params: ${s.issues
+            .map((issue) => {
+              switch (issue.kind) {
+                case 'params_not_allowed':
+                  return 'params are not allowed';
+                case 'unknown_parameter':
+                  return `unknown parameter "${issue.parameter}"`;
+                case 'missing_parameter':
+                  return `missing parameter "${issue.parameter}"`;
+                case 'type_mismatch':
+                  return `parameter "${issue.parameter}" must be ${issue.expected}, not ${issue.actual}`;
+                case 'enum_violation':
+                  return `parameter "${issue.parameter}" is outside its allowed values`;
+                default:
+                  return assertNever(
+                    issue,
+                    'describe parameter validation issue',
+                  );
+              }
+            })
+            .join('; ')}`,
         );
         break;
       case 'unknown_instance':
