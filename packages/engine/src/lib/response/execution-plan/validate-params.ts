@@ -1,5 +1,6 @@
 import type { VesselAction } from '@maelstrom-co/protocol';
 
+import { normalizeActionParameterEnumValue } from '../../action-parameter-enum.js';
 import type { ParamValidationIssue } from './types.js';
 
 export function validateParams(
@@ -49,9 +50,12 @@ export function validateParams(
       continue;
     }
 
+    const normalizedEnum = parameter.enum
+      ?.map(normalizeActionParameterEnumValue)
+      .filter((allowed) => allowed !== undefined);
     if (
-      parameter.enum !== undefined &&
-      !parameter.enum.some((allowed) => jsonValuesEqual(value, allowed))
+      !enumMatched &&
+      !addIssue({ kind: 'enum_violation', parameter: parameter.name })
     ) {
       issues.push({ kind: 'enum_violation', parameter: parameter.name });
     }

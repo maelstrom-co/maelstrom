@@ -6,10 +6,8 @@ import type {
   VesselAction,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import {
-  getVisibleInstanceIds,
-  sanitizeControlChars,
-} from '@maelstrom-co/protocol';
+import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
+import { normalizeActionParameterEnumValue } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
@@ -84,29 +82,6 @@ function serializeVessel(vessel: Vessel, logger?: Logger): string {
   return lines.join('\n');
 }
 
-// Enum values are free-form, LLM- or voice-transcript-produced strings (task
-// and journal titles), so they can't be trusted to omit the '|' delimiter or
-// a line break. The system prompt asks the model to copy a chosen value
-// straight into a JSON `paramsJson` blob, so the displayed literal has to
-// already be valid JSON: a string renders quoted with proper escaping, and a
-// number or boolean renders bare, matching its declared `type` instead of
-// being silently coerced to a string. `sanitizeControlChars` strips
-// control characters after stringifying, otherwise a value could still
-// spill the "Actions:" line into what would read as a fresh top-level
-// prompt instruction. A value JSON.stringify cannot represent (a cyclic
-// object, a throwing `toJSON`, `undefined`) has no faithful literal at all,
-// so it yields `undefined` and is dropped by the caller: a placeholder like
-// "[object Object]" would read to the model as a genuine, copyable option.
-function serializeEnumValue(value: unknown): string | undefined {
-  let json: string | undefined;
-  try {
-    json = JSON.stringify(value);
-  } catch {
-    json = undefined;
-  }
-  return json === undefined ? undefined : sanitizeControlChars(json);
-}
-
 function serializeAction(action: VesselAction, logger?: Logger): string {
   let str: string = action.name;
 
@@ -140,7 +115,7 @@ function serializeParameter(
   if (values.length === 0) return `${parameter.name}: ${parameter.type}`;
 
   const serialized = values
-    .map(serializeEnumValue)
+    .map((value) => normalizeActionParameterEnumValue(value)?.serialized)
     .filter((value): value is string => value !== undefined);
 
   const dropped = values.length - serialized.length;

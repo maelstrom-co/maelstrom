@@ -382,6 +382,10 @@ describe('parseExecutionPlan — action parameter validation', () => {
   const noParams = ActionName('noParams');
   const optionalOnly = ActionName('optionalOnly');
   const objectEnum = ActionName('objectEnum');
+  const emptyEnum = ActionName('emptyEnum');
+  const normalizedEnum = ActionName('normalizedEnum');
+  const sanitizedEnum = ActionName('sanitizedEnum');
+  const unrenderableEnum = ActionName('unrenderableEnum');
   const instanceId = InstanceId('parameterized-1');
 
   const vessel = makeVessel({
@@ -433,6 +437,57 @@ describe('parseExecutionPlan — action parameter validation', () => {
                 type: 'object',
                 description: 'Object value',
                 enum: [new Date(0)],
+              },
+            ],
+          },
+          {
+            name: emptyEnum,
+            description: 'Uses an empty enum as an unconstrained string',
+            parameters: [
+              {
+                name: 'value',
+                type: 'string',
+                description: 'String value',
+                enum: [],
+              },
+            ],
+          },
+          {
+            name: normalizedEnum,
+            description: 'Uses object values normalized for the prompt',
+            parameters: [
+              {
+                name: 'value',
+                type: 'object',
+                description: 'Object value',
+                enum: [
+                  { id: 1, optional: undefined },
+                  { toJSON: () => ({ id: 2 }) },
+                ],
+              },
+            ],
+          },
+          {
+            name: unrenderableEnum,
+            description: 'Uses only enum values hidden from the prompt',
+            parameters: [
+              {
+                name: 'value',
+                type: 'string',
+                description: 'String value',
+                enum: [undefined, Symbol('hidden')],
+              },
+            ],
+          },
+          {
+            name: sanitizedEnum,
+            description: 'Uses the sanitized value displayed in the prompt',
+            parameters: [
+              {
+                name: 'value',
+                type: 'string',
+                description: 'String value',
+                enum: [`first${String.fromCharCode(0x2028)}second`],
               },
             ],
           },
@@ -579,6 +634,73 @@ describe('parseExecutionPlan — action parameter validation', () => {
     expect(result.skippedActions[0]).toMatchObject({
       reason: 'params_validation_failed',
       issues: [{ kind: 'enum_violation', parameter: 'value' }],
+    });
+  });
+
+  test('treats an empty enum as unconstrained', () => {
+    expect(
+      parse({
+        instanceId,
+        action: emptyEnum,
+        paramsJson: '{"value":"anything"}',
+      }),
+    ).toEqual({
+      plan: [{ instanceId, action: emptyEnum, params: { value: 'anything' } }],
+      skippedActions: [],
+    });
+  });
+
+  test.each([
+    { id: 1 },
+    { id: 2 },
+  ])('accepts a prompt-visible normalized object enum value: %p', (value) => {
+    expect(
+      parse({
+        instanceId,
+        action: normalizedEnum,
+        paramsJson: JSON.stringify({ value }),
+      }),
+    ).toEqual({
+      plan: [{ instanceId, action: normalizedEnum, params: { value } }],
+      skippedActions: [],
+    });
+  });
+
+  test('treats an enum with no prompt-renderable values as unconstrained', () => {
+    expect(
+      parse({
+        instanceId,
+        action: unrenderableEnum,
+        paramsJson: '{"value":"anything"}',
+      }),
+    ).toEqual({
+      plan: [
+        {
+          instanceId,
+          action: unrenderableEnum,
+          params: { value: 'anything' },
+        },
+      ],
+      skippedActions: [],
+    });
+  });
+
+  test('accepts the sanitized enum value displayed in the prompt', () => {
+    expect(
+      parse({
+        instanceId,
+        action: sanitizedEnum,
+        paramsJson: '{"value":"first second"}',
+      }),
+    ).toEqual({
+      plan: [
+        {
+          instanceId,
+          action: sanitizedEnum,
+          params: { value: 'first second' },
+        },
+      ],
+      skippedActions: [],
     });
   });
 
