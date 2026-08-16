@@ -282,7 +282,7 @@ describe('buildVesselsSection', () => {
     expect(output).toContain('checkTask(title: "say \\"hi\\"\\nbye")');
   });
 
-  test('renders a numeric enum with bare (unquoted) values matching the declared type', () => {
+  test('renders type-compatible numeric enum values as bare literals', () => {
     const request = makeGridRequest({
       vessels: [
         {
@@ -303,7 +303,7 @@ describe('buildVesselsSection', () => {
                       name: 'priority',
                       type: 'number',
                       description: 'Priority level',
-                      enum: [1, 2, 3],
+                      enum: [1, 2, 3, Number.NaN, Number.POSITIVE_INFINITY],
                     },
                   ],
                 },
@@ -316,6 +316,7 @@ describe('buildVesselsSection', () => {
     const output = buildVesselsSection(request.vessels);
     expect(output).toContain('setPriority(priority: 1|2|3)');
     expect(output).not.toContain('"1"|"2"|"3"');
+    expect(output).not.toContain('null');
   });
 
   test('renders a boolean enum with bare (unquoted) values matching the declared type', () => {
@@ -351,6 +352,43 @@ describe('buildVesselsSection', () => {
     });
     const output = buildVesselsSection(request.vessels);
     expect(output).toContain('setArchived(archived: true|false)');
+  });
+
+  test('hides enum values whose normalized JSON type conflicts with the declared type', () => {
+    const request = makeGridRequest({
+      vessels: [
+        {
+          id: 'events',
+          name: 'Events',
+          description: 'Events',
+          defaultVariant: 'list',
+          variants: {
+            list: {
+              props: {},
+              minSize: { width: 4, height: 4 },
+              actions: [
+                {
+                  name: 'selectEvent',
+                  description: 'Select an event',
+                  parameters: [
+                    {
+                      name: 'event',
+                      type: 'object',
+                      description: 'Event data',
+                      enum: [new Date(0)],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+
+    const output = buildVesselsSection(request.vessels);
+    expect(output).toContain('selectEvent(event: object)');
+    expect(output).not.toContain('1970-01-01T00:00:00.000Z');
   });
 
   test('strips a U+2028 line separator inside an enum value, which JSON.stringify does not escape', () => {
@@ -422,7 +460,9 @@ describe('buildVesselsSection', () => {
 
   test('falls back to the declared type when every enum value is unrenderable', () => {
     const request = makeGridRequest({
-      vessels: [makeEnumVessel([makeCyclicValue(), makeCyclicValue()])],
+      vessels: [
+        makeEnumVessel([makeCyclicValue(), makeCyclicValue()], 'object'),
+      ],
     });
     const output = buildVesselsSection(request.vessels);
     expect(output).toContain('checkTask(title: object)');
@@ -458,7 +498,10 @@ function makeCyclicValue(): unknown {
   return cyclic;
 }
 
-function makeEnumVessel(values: unknown[]): AuthorVessel {
+function makeEnumVessel(
+  values: unknown[],
+  type: 'string' | 'object' = 'string',
+) {
   return {
     id: 'tasks',
     name: 'Tasks',
@@ -475,7 +518,7 @@ function makeEnumVessel(values: unknown[]): AuthorVessel {
             parameters: [
               {
                 name: 'title',
-                type: 'object',
+                type,
                 description: 'Task title',
                 enum: values,
               },

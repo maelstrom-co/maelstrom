@@ -623,17 +623,16 @@ describe('parseExecutionPlan — action parameter validation', () => {
     });
   });
 
-  test('does not treat non-JSON objects with no keys as an empty object enum match', () => {
-    const result = parse({
-      instanceId,
-      action: objectEnum,
-      paramsJson: '{"value":{}}',
-    });
-
-    expect(result.plan).toEqual([]);
-    expect(result.skippedActions[0]).toMatchObject({
-      reason: 'params_validation_failed',
-      issues: [{ kind: 'enum_violation', parameter: 'value' }],
+  test('ignores enum values whose normalized JSON type conflicts with the declared type', () => {
+    expect(
+      parse({
+        instanceId,
+        action: objectEnum,
+        paramsJson: '{"value":{}}',
+      }),
+    ).toEqual({
+      plan: [{ instanceId, action: objectEnum, params: { value: {} } }],
+      skippedActions: [],
     });
   });
 

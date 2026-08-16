@@ -51,7 +51,9 @@ export function validateParams(
     }
 
     const normalizedEnum = parameter.enum
-      ?.map(normalizeActionParameterEnumValue)
+      ?.map((allowed) =>
+        normalizeActionParameterEnumValue(allowed, parameter.type),
+      )
       .filter((allowed) => allowed !== undefined);
     if (
       !enumMatched &&

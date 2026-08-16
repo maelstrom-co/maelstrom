@@ -115,13 +115,16 @@ function serializeParameter(
   if (values.length === 0) return `${parameter.name}: ${parameter.type}`;
 
   const serialized = values
-    .map((value) => normalizeActionParameterEnumValue(value)?.serialized)
+    .map(
+      (value) =>
+        normalizeActionParameterEnumValue(value, parameter.type)?.serialized,
+    )
     .filter((value): value is string => value !== undefined);
 
   const dropped = values.length - serialized.length;
   if (dropped > 0) {
     logger?.warn(
-      `Dropped ${dropped} enum value(s) that cannot be rendered as JSON for parameter "${parameter.name}" on action "${actionName}"`,
+      `Dropped ${dropped} enum value(s) that cannot be rendered as JSON matching the declared type for parameter "${parameter.name}" on action "${actionName}"`,
     );
   }
 
