@@ -542,11 +542,12 @@ describe('processResponse', () => {
     });
 
     test('skips action entirely when paramsJson is invalid JSON', () => {
-      const errors: string[] = [];
+      const errors: unknown[][] = [];
       const logger: Logger = {
         ...silentLogger,
-        error: (msg: string) => errors.push(msg),
+        error: (message, error, data) => errors.push([message, error, data]),
       };
+      const privateValue = 'do-not-log-this-value';
 
       const llmOutput: GridResponseAuthor = {
         userMessage: 'Trying action',
@@ -555,7 +556,7 @@ describe('processResponse', () => {
           {
             instanceId: 'a',
             action: 'doIt',
-            paramsJson: '{invalid json}',
+            paramsJson: `{"secret":"${privateValue}"`,
           },
         ],
         layout: { positions: [] },
@@ -572,7 +573,11 @@ describe('processResponse', () => {
 
       expect(result.value.executionPlan).toHaveLength(0);
       expect(errors).toHaveLength(1);
-      expect(errors[0]).toContain('Failed to parse paramsJson');
+      expect(errors[0]?.[0]).toContain('Failed to parse paramsJson');
+      expect(JSON.stringify(errors)).not.toContain(privateValue);
+      expect(JSON.stringify(result.value.diagnostics)).not.toContain(
+        privateValue,
+      );
     });
 
     test('handles multiple actions in execution plan', () => {

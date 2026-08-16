@@ -68,17 +68,6 @@ function parseSingleAction(
     return [];
   }
 
-  if (params === undefined) {
-    const outcome = updateSimulatedVariant(item, resolved, logger, simWriter);
-    if (outcome.kind === 'drift') {
-      skippedActions.push(
-        stateDriftSkipped(item, resolved, outcome.targetVariant),
-      );
-      return [];
-    }
-    return [{ instanceId: item.instanceId, action: item.action }];
-  }
-
   const outcome = updateSimulatedVariant(item, resolved, logger, simWriter);
   if (outcome.kind === 'drift') {
     skippedActions.push(
@@ -86,7 +75,13 @@ function parseSingleAction(
     );
     return [];
   }
-  return [{ instanceId: item.instanceId, action: item.action, params }];
+  return [
+    {
+      instanceId: item.instanceId,
+      action: item.action,
+      ...(params !== undefined ? { params } : {}),
+    },
+  ];
 }
 
 export interface ParsedExecutionPlan {

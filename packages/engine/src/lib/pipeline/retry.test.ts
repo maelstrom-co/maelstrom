@@ -760,8 +760,14 @@ describe('buildRetryPrompt', () => {
   });
 
   test('layout drops and skipped actions appear in their own sections', () => {
+    const malformedParams = '{"secret":"do-not-repeat"';
+    const skipped = {
+      ...paramsParseFailed('b', 'doIt'),
+      // Runtime diagnostics may outlive their originating Engine version.
+      paramsJson: malformedParams,
+    } as unknown as SkippedAction;
     const out = buildRetryPrompt('orig', {
-      skippedActions: [paramsParseFailed('b', 'doIt')],
+      skippedActions: [skipped],
       droppedLayoutEntries: [overflowDrop('a')],
       warnings: [],
       retryHint: recommendMedium,
@@ -775,7 +781,8 @@ describe('buildRetryPrompt', () => {
     expect(out).toContain(
       'Action "doIt" on instance "b" had unparseable params',
     );
-    expect(out).not.toContain('{x');
+    expect(out).not.toContain(malformedParams);
+    expect(out).not.toContain('do-not-repeat');
     expect(out).toContain('orig');
   });
 
