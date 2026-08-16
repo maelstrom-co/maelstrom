@@ -754,20 +754,31 @@ export class OpenAIAdapter
     });
   }
 
-  // Audio slice of session.update: always sets output.voice; nests input
-  // transcription under `audio.input` when enabled (GA `type: 'realtime'`).
+  /**
+   * Builds the GA Realtime API audio configuration. The output voice and
+   * provider-owned input controls are always present; disabling transcription
+   * removes only the optional transcription model.
+   */
   #audioConfig(): Record<string, unknown> {
-    const output = { voice: this.#voice };
-    if (this.#transcription === false) {
-      return { audio: { output } };
-    }
-    const model = this.#transcription?.model ?? DEFAULT_TRANSCRIPTION_MODEL;
-    return {
-      audio: {
-        input: { transcription: { model } },
-        output,
+    const input = {
+      noise_reduction: { type: 'near_field' },
+      turn_detection: {
+        type: 'server_vad',
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 500,
+        create_response: true,
+        interrupt_response: true,
       },
+      ...(this.#transcription === false
+        ? {}
+        : {
+            transcription: {
+              model: this.#transcription?.model ?? DEFAULT_TRANSCRIPTION_MODEL,
+            },
+          }),
     };
+    return { audio: { input, output: { voice: this.#voice } } };
   }
 
   #sendResponseCreate(): void {
@@ -831,11 +842,59 @@ export class OpenAIAdapter
       return;
     }
     const type = isRecord(parsed) ? asString(parsed.type) : undefined;
-    // Noisy transcript deltas flood the console — log only their type.
-    if (type === 'response.audio_transcript.delta') {
-      this.#logger.debug('←', type);
-    } else {
-      this.#logger.debug('←', type, parsed);
+    const previousActivity = this.#voiceActivity;
+    let lifecycleCategory:
+      | 'speech_started'
+      | 'speech_stopped'
+      | 'committed'
+      | 'transcript_completed'
+      | undefined;
+    switch (type) {
+      case 'input_audio_buffer.speech_started':
+        lifecycleCategory = 'speech_started';
+        break;
+      case 'input_audio_buffer.speech_stopped':
+        lifecycleCategory = 'speech_stopped';
+        break;
+      case 'input_audio_buffer.committed':
+        lifecycleCategory = 'committed';
+        break;
+      case 'conversation.item.input_audio_transcription.completed':
+        lifecycleCategory = 'transcript_completed';
+        break;
+    }
+
+    // Lifecycle diagnostics are fixed projections: content and provider
+    // metadata are inspected only long enough to classify the event and are
+    // never retained by the logger.
+    if (lifecycleCategory === 'transcript_completed') {
+      const transcript = isRecord(parsed)
+        ? asString(parsed.transcript)
+        : undefined;
+      this.#logger.debug('input lifecycle', {
+        category: lifecycleCategory,
+        role: 'user',
+        final: true,
+        useful: transcript !== undefined && transcript.trim().length > 0,
+      });
+    } else if (lifecycleCategory !== undefined) {
+      this.#logger.debug('input lifecycle', { category: lifecycleCategory });
+      if (
+        lifecycleCategory === 'speech_started' &&
+        previousActivity === 'speaking'
+      ) {
+        this.#logger.debug('input lifecycle', {
+          category: 'assistant_interruption',
+        });
+      }
+    }
+    if (lifecycleCategory === undefined) {
+      // Noisy transcript deltas flood the console — log only their type.
+      if (type === 'response.audio_transcript.delta') {
+        this.#logger.debug('←', type);
+      } else {
+        this.#logger.debug('←', type, parsed);
+      }
     }
 
     // Response-lifecycle bookkeeping is driven off the raw event type, not
@@ -869,10 +928,14 @@ export class OpenAIAdapter
 
     const event = parseOpenAIServerEvent(parsed);
     if (event) {
-      this.#logger.debug('parsed →', event.type, event);
+      if (lifecycleCategory === undefined) {
+        this.#logger.debug('parsed →', event.type, event);
+      }
       this.#emit(event);
     } else {
-      this.#logger.debug('unrecognized or unparsed event', type, parsed);
+      if (lifecycleCategory === undefined) {
+        this.#logger.debug('unrecognized or unparsed event', type, parsed);
+      }
       if (type !== undefined && this.#unexpectedEvents.track(type)) {
         this.#logger.warn('unexpected realtime event type', type);
       }

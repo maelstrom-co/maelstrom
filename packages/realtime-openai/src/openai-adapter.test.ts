@@ -91,6 +91,10 @@ class FakeDataChannel {
   receive(payload: unknown): void {
     this.onmessage?.({ data: JSON.stringify(payload) });
   }
+
+  receiveRaw(payload: unknown): void {
+    this.onmessage?.({ data: payload });
+  }
 }
 
 interface FakeSender {
@@ -1112,6 +1116,260 @@ describe('OpenAIAdapter — voice activity state', () => {
 });
 
 // ============================================================================
+// Privacy-safe lifecycle diagnostics
+// ============================================================================
+
+describe('OpenAIAdapter — lifecycle diagnostics', () => {
+  const sensitiveFields = {
+    transcript: 'TRANSCRIPT_SENTINEL',
+    audio: 'AUDIO_SENTINEL',
+    event_id: 'EVENT_ID_SENTINEL',
+    item_id: 'ITEM_ID_SENTINEL',
+    created_at: 'TIMESTAMP_SENTINEL',
+    session_id: 'SESSION_ID_SENTINEL',
+    request_id: 'REQUEST_ID_SENTINEL',
+    token: 'TOKEN_SENTINEL',
+    unknown_raw_field: 'UNKNOWN_FIELD_SENTINEL',
+  } as const;
+
+  async function connectDebugAdapter(): Promise<{
+    adapter: OpenAIAdapter;
+    channel: FakeDataChannel;
+  }> {
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      debug: true,
+    });
+    const channel = await connectAndOpen(adapter);
+    return { adapter, channel };
+  }
+
+  function expectOnlySanitizedDebugArguments(
+    debugCalls: readonly (readonly unknown[])[],
+    rawEvent: object,
+  ): void {
+    const serializedArguments = debugCalls.flatMap((call) =>
+      call.map((argument) => JSON.stringify(argument)),
+    );
+    for (const sentinel of Object.values(sensitiveFields)) {
+      expect(serializedArguments).not.toContainEqual(
+        expect.stringContaining(sentinel),
+      );
+    }
+    expect(debugCalls.flat()).not.toContain(rawEvent);
+  }
+
+  it('distinguishes lifecycle categories with fixed sanitized projections', async () => {
+    const cases: Array<{
+      name: string;
+      event: Record<string, unknown>;
+      prepare?: (channel: FakeDataChannel) => void;
+      expected: unknown[][];
+    }> = [
+      {
+        name: 'speech started',
+        event: {
+          type: 'input_audio_buffer.speech_started',
+          ...sensitiveFields,
+        },
+        expected: [
+          [
+            '[OpenAIAdapter]',
+            'input lifecycle',
+            { category: 'speech_started' },
+          ],
+        ],
+      },
+      {
+        name: 'speech stopped',
+        event: {
+          type: 'input_audio_buffer.speech_stopped',
+          ...sensitiveFields,
+        },
+        expected: [
+          [
+            '[OpenAIAdapter]',
+            'input lifecycle',
+            { category: 'speech_stopped' },
+          ],
+        ],
+      },
+      {
+        name: 'input committed',
+        event: {
+          type: 'input_audio_buffer.committed',
+          ...sensitiveFields,
+        },
+        expected: [
+          ['[OpenAIAdapter]', 'input lifecycle', { category: 'committed' }],
+        ],
+      },
+      {
+        name: 'useful completed user transcript',
+        event: {
+          type: 'conversation.item.input_audio_transcription.completed',
+          ...sensitiveFields,
+          transcript: `  ${sensitiveFields.transcript}  `,
+        },
+        expected: [
+          [
+            '[OpenAIAdapter]',
+            'input lifecycle',
+            {
+              category: 'transcript_completed',
+              role: 'user',
+              final: true,
+              useful: true,
+            },
+          ],
+        ],
+      },
+      {
+        name: 'non-useful completed user transcript',
+        event: {
+          type: 'conversation.item.input_audio_transcription.completed',
+          ...sensitiveFields,
+          transcript: ' \n\t ',
+        },
+        expected: [
+          [
+            '[OpenAIAdapter]',
+            'input lifecycle',
+            {
+              category: 'transcript_completed',
+              role: 'user',
+              final: true,
+              useful: false,
+            },
+          ],
+        ],
+      },
+      {
+        name: 'assistant interruption',
+        prepare: (channel) => {
+          channel.receive({ type: 'output_audio_buffer.started' });
+        },
+        event: {
+          type: 'input_audio_buffer.speech_started',
+          ...sensitiveFields,
+        },
+        expected: [
+          [
+            '[OpenAIAdapter]',
+            'input lifecycle',
+            { category: 'speech_started' },
+          ],
+          [
+            '[OpenAIAdapter]',
+            'input lifecycle',
+            { category: 'assistant_interruption' },
+          ],
+        ],
+      },
+    ];
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      for (const testCase of cases) {
+        const { adapter, channel } = await connectDebugAdapter();
+        testCase.prepare?.(channel);
+        debugCalls.length = 0;
+
+        channel.receiveRaw(testCase.event);
+
+        expect(debugCalls, testCase.name).toEqual(testCase.expected);
+        expectOnlySanitizedDebugArguments(debugCalls, testCase.event);
+        await adapter.disconnect();
+      }
+    } finally {
+      console.debug = originalDebug;
+    }
+  });
+
+  it('treats missing and non-string completed transcripts as non-useful', async () => {
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      for (const transcript of [undefined, 42]) {
+        const { adapter, channel } = await connectDebugAdapter();
+        debugCalls.length = 0;
+        const rawEvent = {
+          type: 'conversation.item.input_audio_transcription.completed',
+          ...sensitiveFields,
+          transcript,
+        };
+        channel.receiveRaw(rawEvent);
+
+        expect(debugCalls).toEqual([
+          [
+            '[OpenAIAdapter]',
+            'input lifecycle',
+            {
+              category: 'transcript_completed',
+              role: 'user',
+              final: true,
+              useful: false,
+            },
+          ],
+        ]);
+        expectOnlySanitizedDebugArguments(debugCalls, rawEvent);
+        await adapter.disconnect();
+      }
+    } finally {
+      console.debug = originalDebug;
+    }
+  });
+
+  it('keeps completed transcript delivery unchanged without logging its text', async () => {
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      const { adapter, channel } = await connectDebugAdapter();
+      const transcripts: string[] = [];
+      adapter.on((event) => {
+        if (event.type === 'transcript') transcripts.push(event.text);
+      });
+      debugCalls.length = 0;
+
+      const rawEvent = {
+        type: 'conversation.item.input_audio_transcription.completed',
+        ...sensitiveFields,
+      };
+      channel.receiveRaw(rawEvent);
+
+      expect(transcripts).toEqual([sensitiveFields.transcript]);
+      expectOnlySanitizedDebugArguments(debugCalls, rawEvent);
+    } finally {
+      console.debug = originalDebug;
+    }
+  });
+
+  it('emits no lifecycle diagnostics when debug logging is disabled', async () => {
+    const { channel } = await connectWithChannel();
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      channel.receive({
+        type: 'input_audio_buffer.speech_started',
+        ...sensitiveFields,
+      });
+      channel.receive({
+        type: 'conversation.item.input_audio_transcription.completed',
+        ...sensitiveFields,
+      });
+
+      expect(debugCalls).toEqual([]);
+    } finally {
+      console.debug = originalDebug;
+    }
+  });
+});
+
+// ============================================================================
 // Audio streams
 // ============================================================================
 
@@ -1393,19 +1651,60 @@ describe('OpenAIAdapter — ICE disconnected grace window', () => {
 // ============================================================================
 
 describe('OpenAIAdapter — transcription config', () => {
-  async function connectAndReadSessionUpdate(adapter: OpenAIAdapter) {
+  const expectedInputControls = {
+    noise_reduction: { type: 'near_field' },
+    turn_detection: {
+      type: 'server_vad',
+      threshold: 0.5,
+      prefix_padding_ms: 300,
+      silence_duration_ms: 500,
+      create_response: true,
+      interrupt_response: true,
+    },
+  };
+
+  interface SessionUpdate {
+    input_audio_noise_reduction?: unknown;
+    input_audio_turn_detection?: unknown;
+    noise_reduction?: unknown;
+    turn_detection?: unknown;
+    session: {
+      input_audio_noise_reduction?: unknown;
+      input_audio_turn_detection?: unknown;
+      noise_reduction?: unknown;
+      turn_detection?: unknown;
+      audio: { input: unknown; output: { voice: string } };
+    };
+  }
+
+  async function connectAndReadSessionUpdate(
+    adapter: OpenAIAdapter,
+  ): Promise<SessionUpdate> {
     const dc = await connectAndOpen(adapter);
-    return JSON.parse(dc?.sent[0] ?? '{}');
+    return JSON.parse(dc?.sent[0] ?? '{}') as SessionUpdate;
+  }
+
+  function expectNoLegacyInputAudioFields(update: SessionUpdate): void {
+    expect(update.input_audio_noise_reduction).toBeUndefined();
+    expect(update.input_audio_turn_detection).toBeUndefined();
+    expect(update.noise_reduction).toBeUndefined();
+    expect(update.turn_detection).toBeUndefined();
+    expect(update.session.input_audio_noise_reduction).toBeUndefined();
+    expect(update.session.input_audio_turn_detection).toBeUndefined();
+    expect(update.session.noise_reduction).toBeUndefined();
+    expect(update.session.turn_detection).toBeUndefined();
   }
 
   it('enables input-audio transcription with the default model and marin output voice by default', async () => {
     const update = await connectAndReadSessionUpdate(
       new OpenAIAdapter({ mintToken: async () => fakeToken }),
     );
-    expect(update.session.audio.input.transcription).toEqual({
-      model: 'gpt-4o-mini-transcribe',
+    expect(update.session.audio.input).toEqual({
+      ...expectedInputControls,
+      transcription: { model: 'gpt-4o-mini-transcribe' },
     });
     expect(update.session.audio.output.voice).toBe('marin');
+    expectNoLegacyInputAudioFields(update);
   });
 
   it('uses a caller-supplied transcription model alongside output voice', async () => {
@@ -1416,10 +1715,12 @@ describe('OpenAIAdapter — transcription config', () => {
         voice: 'cedar',
       }),
     );
-    expect(update.session.audio.input.transcription).toEqual({
-      model: 'whisper-1',
+    expect(update.session.audio.input).toEqual({
+      ...expectedInputControls,
+      transcription: { model: 'whisper-1' },
     });
     expect(update.session.audio.output.voice).toBe('cedar');
+    expectNoLegacyInputAudioFields(update);
   });
 
   it('falls back to the default model when the transcription object omits model', async () => {
@@ -1429,10 +1730,12 @@ describe('OpenAIAdapter — transcription config', () => {
         transcription: {},
       }),
     );
-    expect(update.session.audio.input.transcription).toEqual({
-      model: 'gpt-4o-mini-transcribe',
+    expect(update.session.audio.input).toEqual({
+      ...expectedInputControls,
+      transcription: { model: 'gpt-4o-mini-transcribe' },
     });
     expect(update.session.audio.output.voice).toBe('marin');
+    expectNoLegacyInputAudioFields(update);
   });
 
   it('omits input transcription when disabled but retains output voice', async () => {
@@ -1442,8 +1745,9 @@ describe('OpenAIAdapter — transcription config', () => {
         transcription: false,
       }),
     );
-    expect(update.session.audio.input).toBeUndefined();
+    expect(update.session.audio.input).toEqual(expectedInputControls);
     expect(update.session.audio.output.voice).toBe('marin');
+    expectNoLegacyInputAudioFields(update);
   });
 });
 
