@@ -158,6 +158,77 @@ describe('execution plan', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  test.each([
+    {
+      name: 'GridResponseSchema',
+      schema: GridResponseSchema,
+      payload: gridPayload({ positions: [] }),
+    },
+    {
+      name: 'TilingResponseSchema',
+      schema: TilingResponseSchema,
+      payload: tilingPayload({ tree: [], instances: [] }),
+    },
+  ])('rejects paramsJson above 16384 UTF-8 bytes ($name)', ({
+    schema,
+    payload,
+  }) => {
+    const atLimit = `{"value":"${'é'.repeat(8186)}"}`;
+    const overLimit = `{"value":"${'é'.repeat(8186)}a"}`;
+    const encoder = new TextEncoder();
+
+    expect(encoder.encode(atLimit).byteLength).toBe(16_384);
+    expect(encoder.encode(overLimit).byteLength).toBe(16_385);
+
+    expect(
+      schema.safeParse({
+        ...payload,
+        executionPlan: [
+          { instanceId: 'x', action: 'select', paramsJson: atLimit },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({
+        ...payload,
+        executionPlan: [
+          { instanceId: 'x', action: 'select', paramsJson: overLimit },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  test.each([
+    {
+      name: 'GridResponseSchema',
+      schema: GridResponseSchema,
+      payload: gridPayload({ positions: [] }),
+    },
+    {
+      name: 'TilingResponseSchema',
+      schema: TilingResponseSchema,
+      payload: tilingPayload({ tree: [], instances: [] }),
+    },
+  ])('rejects executionPlan above 64 entries ($name)', ({
+    schema,
+    payload,
+  }) => {
+    const action = { instanceId: 'x', action: 'select' };
+
+    expect(
+      schema.safeParse({
+        ...payload,
+        executionPlan: Array.from({ length: 64 }, () => action),
+      }).success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({
+        ...payload,
+        executionPlan: Array.from({ length: 65 }, () => action),
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe('UserIntentReasonSchema', () => {

@@ -26,6 +26,15 @@ export type ParamValidationIssue =
     }
   | { readonly kind: 'enum_violation'; readonly parameter: string };
 
+/** Fixed, name- and value-free reason that parameter work stopped. */
+export type ParamsLimitKind =
+  | 'params_json_bytes'
+  | 'top_level_keys'
+  | 'depth'
+  | 'traversal_work'
+  | 'comparison_work'
+  | 'validation_issues';
+
 /**
  * Discriminated record of an action the engine refused to plan. Keep the
  * union closed and the per-arm field set stable — callers exhaust it via
@@ -73,6 +82,13 @@ export type SkippedAction =
       readonly instanceId: InstanceId;
       readonly action: ActionName;
       readonly issues: readonly ParamValidationIssue[];
+    }
+  | {
+      readonly reason: 'params_limits_exceeded';
+      readonly limit: ParamsLimitKind;
+    }
+  | {
+      readonly reason: 'invalid_action_definition';
     }
   | {
       readonly reason: 'state_drift';

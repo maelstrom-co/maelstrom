@@ -6,6 +6,7 @@ import {
   makeGridRequest,
   makeTilingRequest,
 } from '../__test-helpers__/fixtures.js';
+import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import {
   buildDefaultUserSections,
@@ -489,6 +490,37 @@ describe('buildVesselsSection', () => {
     buildVesselsSection(request.vessels, logger);
     expect(warns).toHaveLength(0);
   });
+
+  test('freezes nested normalized enum snapshot values', () => {
+    const declaredValue = { nested: { id: 1 } };
+    const vessel = makeEnumVessel([declaredValue], 'object');
+    const request = makeGridRequest({
+      vessels: [vessel],
+    });
+    const parameter = vessel.variants.list.actions[0]?.parameters?.[0];
+    expect(parameter).toBeDefined();
+    if (parameter === undefined) return;
+
+    const snapshot = buildActionParameterEnumSnapshot(request.vessels);
+    const normalized = snapshot.get(parameter)[0];
+    expect(normalized?.value).toEqual({ nested: { id: 1 } });
+    expect(Object.isFrozen(normalized)).toBe(true);
+    expect(Object.isFrozen(normalized?.value)).toBe(true);
+    expect(
+      Object.isFrozen((normalized?.value as { nested: object }).nested),
+    ).toBe(true);
+
+    declaredValue.nested.id = 2;
+    expect(normalized?.value).toEqual({ nested: { id: 1 } });
+    expect(
+      Reflect.set(
+        (normalized?.value as { nested: { id: number } }).nested,
+        'id',
+        3,
+      ),
+    ).toBe(false);
+    expect(normalized?.value).toEqual({ nested: { id: 1 } });
+  });
 });
 
 function makeCyclicValue(): unknown {
@@ -527,7 +559,7 @@ function makeEnumVessel(
         ],
       },
     },
-  };
+  } satisfies AuthorVessel;
 }
 
 // ---------------------------------------------------------------------------

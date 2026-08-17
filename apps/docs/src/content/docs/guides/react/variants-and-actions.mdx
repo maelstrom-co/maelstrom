@@ -136,10 +136,12 @@ Each entry in `parameters` is an `ActionParameter`:
 | `type` | `'string' \| 'number' \| 'boolean' \| 'object'` | The value type. Drives the TypeScript type your handler receives. |
 | `description` | `string` | What the parameter means; the LLM uses this to fill the value. |
 | `required` | `boolean` *(optional)* | When `false`, the param is optional on the typed params object. Defaults to required. |
-| `defaultValue` | `unknown` *(optional)* | Value the engine may use when none is supplied. |
-| `enum` | `unknown[]` *(optional)* | Constrains the value to a fixed set of allowed options. |
+| `defaultValue` | `unknown` *(optional)* | Fallback metadata for your Action runner. The Engine never applies it; to allow omission, also set `required: false` and have the runner substitute the fallback. |
+| `enum` | `unknown[]` *(optional)* | Constrains Engine-planned Actions only when it contains at least one JSON-normalized value compatible with the declared `type`; otherwise only `type` applies. |
 
 The `type` union maps to TypeScript as you'd expect: `'string'` → `string`, `'number'` → `number`, `'boolean'` → `boolean`, `'object'` → `Record<string, unknown>`. A variant whose `actions` array is empty produces no callable actions for that state.
+
+These Engine checks do not validate Actions invoked locally through `executeAction`; validating those values and applying any `defaultValue` remain the app's responsibility in its [Action runner](#the-app-handles-actions). See [Three rules](#three-rules) for the full `enum` behavior.
 
 ## transitionsTo wiring
 

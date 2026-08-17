@@ -1,5 +1,8 @@
-import type { ActionParameter } from '@maelstrom-co/protocol';
-import { sanitizeControlChars } from '@maelstrom-co/protocol';
+import type { ActionParameter, Vessel } from '@maelstrom-co/protocol';
+import {
+  MAX_ACTION_PARAMETER_ENUM_CANDIDATES,
+  sanitizeControlChars,
+} from '@maelstrom-co/protocol';
 
 export interface NormalizedActionParameterEnumValue {
   /** Sanitized JSON literal displayed verbatim in the Engine prompt. */

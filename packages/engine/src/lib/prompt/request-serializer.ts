@@ -7,7 +7,8 @@ import type {
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
-import { normalizeActionParameterEnumValue } from '../action-parameter-enum.js';
+import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
+import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
@@ -19,14 +20,27 @@ export function buildDefaultUserSections(
   request: ChartRequest,
   logger?: Logger,
 ): readonly PromptSection[] {
+  return buildDefaultUserSectionsWithSnapshot(
+    request,
+    buildActionParameterEnumSnapshot(request.vessels),
+    logger,
+  );
+}
+
+/** @internal Serializes with the exact enum snapshot used for validation. */
+export function buildDefaultUserSectionsWithSnapshot(
+  request: ChartRequest,
+  enumSnapshot: ActionParameterEnumSnapshot,
+  logger?: Logger,
+): readonly PromptSection[] {
   const mode = request.context.layoutMode;
 
   const chartStateContent = (() => {
     switch (mode) {
       case 'grid':
-        return buildGridChartState(request, logger);
+        return buildGridChartStateWithSnapshot(request, enumSnapshot, logger);
       case 'tiling':
-        return buildTilingChartState(request, logger);
+        return buildTilingChartStateWithSnapshot(request, enumSnapshot, logger);
       default: {
         const _exhaustive: never = mode;
         throw new Error(`Unhandled layout mode: ${String(_exhaustive)}`);
@@ -37,7 +51,11 @@ export function buildDefaultUserSections(
   return [
     {
       key: UserSection.VESSELS,
-      content: buildVesselsSection(request.vessels, logger),
+      content: buildVesselsSectionWithSnapshot(
+        request.vessels,
+        enumSnapshot,
+        logger,
+      ),
     },
     { key: UserSection.CHART_STATE, content: chartStateContent },
     {
@@ -51,16 +69,32 @@ export function buildVesselsSection(
   vessels: readonly Vessel[],
   logger?: Logger,
 ): string {
+  return buildVesselsSectionWithSnapshot(
+    vessels,
+    buildActionParameterEnumSnapshot(vessels),
+    logger,
+  );
+}
+
+function buildVesselsSectionWithSnapshot(
+  vessels: readonly Vessel[],
+  enumSnapshot: ActionParameterEnumSnapshot,
+  logger?: Logger,
+): string {
   const lines: string[] = ['## Registered Vessels', ''];
 
   for (const vessel of vessels) {
-    lines.push(serializeVessel(vessel, logger));
+    lines.push(serializeVessel(vessel, enumSnapshot, logger));
   }
 
   return lines.join('\n');
 }
 
-function serializeVessel(vessel: Vessel, logger?: Logger): string {
+function serializeVessel(
+  vessel: Vessel,
+  enumSnapshot: ActionParameterEnumSnapshot,
+  logger?: Logger,
+): string {
   const lines: string[] = [];
   lines.push(`### ${vessel.id} - ${vessel.name}`);
   lines.push(vessel.description);
@@ -74,7 +108,9 @@ function serializeVessel(vessel: Vessel, logger?: Logger): string {
     lines.push(`- ${variantName}${defaultMarker}${variantDesc}`);
 
     if (variant.actions.length > 0) {
-      lines.push(`  Actions: ${formatActions(variant.actions, logger)}`);
+      lines.push(
+        `  Actions: ${formatActions(variant.actions, enumSnapshot, logger)}`,
+      );
     }
   }
 
@@ -82,12 +118,18 @@ function serializeVessel(vessel: Vessel, logger?: Logger): string {
   return lines.join('\n');
 }
 
-function serializeAction(action: VesselAction, logger?: Logger): string {
+function serializeAction(
+  action: VesselAction,
+  enumSnapshot: ActionParameterEnumSnapshot,
+  logger?: Logger,
+): string {
   let str: string = action.name;
 
   if (action.parameters && action.parameters.length > 0) {
     const params = action.parameters
-      .map((p: ActionParameter) => serializeParameter(p, action.name, logger))
+      .map((p: ActionParameter) =>
+        serializeParameter(p, action.name, enumSnapshot, logger),
+      )
       .join(', ');
     str += `(${params})`;
   }
@@ -109,17 +151,15 @@ function serializeAction(action: VesselAction, logger?: Logger): string {
 function serializeParameter(
   parameter: ActionParameter,
   actionName: string,
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const values = parameter.enum ?? [];
   if (values.length === 0) return `${parameter.name}: ${parameter.type}`;
 
-  const serialized = values
-    .map(
-      (value) =>
-        normalizeActionParameterEnumValue(value, parameter.type)?.serialized,
-    )
-    .filter((value): value is string => value !== undefined);
+  const serialized = enumSnapshot
+    .get(parameter)
+    .map((value) => value.serialized);
 
   const dropped = values.length - serialized.length;
   if (dropped > 0) {
@@ -134,9 +174,12 @@ function serializeParameter(
 
 function formatActions(
   actions: readonly VesselAction[],
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
-  return actions.map((action) => serializeAction(action, logger)).join(', ');
+  return actions
+    .map((action) => serializeAction(action, enumSnapshot, logger))
+    .join(', ');
 }
 
 function lookupVesselForInstance(
@@ -155,6 +198,18 @@ function lookupVesselForInstance(
 
 export function buildGridChartState(
   request: ChartRequest,
+  logger?: Logger,
+): string {
+  return buildGridChartStateWithSnapshot(
+    request,
+    buildActionParameterEnumSnapshot(request.vessels),
+    logger,
+  );
+}
+
+function buildGridChartStateWithSnapshot(
+  request: ChartRequest,
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const lines: string[] = [...CHART_STATE_HEADING];
@@ -180,6 +235,7 @@ export function buildGridChartState(
         const actions = serializeInstanceActions(
           instance,
           request.vessels,
+          enumSnapshot,
           logger,
         );
         if (actions) {
@@ -208,6 +264,7 @@ export function buildGridChartState(
 function serializeInstanceActions(
   instance: VesselInstanceSnapshot,
   vessels: readonly Vessel[],
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const vessel = lookupVesselForInstance(instance, vessels, logger);
@@ -221,7 +278,7 @@ function serializeInstanceActions(
     return '';
   }
   if (variant.actions.length > 0) {
-    return `  Actions: ${formatActions(variant.actions, logger)}`;
+    return `  Actions: ${formatActions(variant.actions, enumSnapshot, logger)}`;
   }
   return '';
 }
@@ -235,6 +292,18 @@ function serializeInstanceActions(
  */
 export function buildTilingChartState(
   request: ChartRequest,
+  logger?: Logger,
+): string {
+  return buildTilingChartStateWithSnapshot(
+    request,
+    buildActionParameterEnumSnapshot(request.vessels),
+    logger,
+  );
+}
+
+function buildTilingChartStateWithSnapshot(
+  request: ChartRequest,
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const lines: string[] = [...CHART_STATE_HEADING];
@@ -256,7 +325,14 @@ export function buildTilingChartState(
   if (visible.length > 0) {
     lines.push('Currently Visible:');
     for (const instance of visible) {
-      lines.push(serializeInstanceForTiling(instance, request.vessels, logger));
+      lines.push(
+        serializeInstanceForTiling(
+          instance,
+          request.vessels,
+          enumSnapshot,
+          logger,
+        ),
+      );
     }
   } else {
     lines.push('No vessels currently visible.');
@@ -266,7 +342,14 @@ export function buildTilingChartState(
     lines.push('');
     lines.push('Available (hidden):');
     for (const instance of hidden) {
-      lines.push(serializeInstanceForTiling(instance, request.vessels, logger));
+      lines.push(
+        serializeInstanceForTiling(
+          instance,
+          request.vessels,
+          enumSnapshot,
+          logger,
+        ),
+      );
     }
   }
 
@@ -283,6 +366,7 @@ export function buildTilingChartState(
 function serializeInstanceForTiling(
   instance: VesselInstanceSnapshot,
   vessels: readonly Vessel[],
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const vessel = lookupVesselForInstance(instance, vessels, logger);
@@ -296,7 +380,7 @@ function serializeInstanceForTiling(
   let line = `- ${instance.instanceId} (${instance.vesselId}), variant: ${instance.variant}`;
 
   if (variant && variant.actions.length > 0) {
-    line += `\n  Available: ${formatActions(variant.actions, logger)}`;
+    line += `\n  Available: ${formatActions(variant.actions, enumSnapshot, logger)}`;
   }
 
   return line;

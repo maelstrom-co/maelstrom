@@ -49,6 +49,11 @@ export { MaelstromError } from './lib/errors/index.ts';
 export { InstanceId } from './lib/instance.ts';
 export type { LayoutMode } from './lib/layout.ts';
 export { MessageId, MessageIdSchema } from './lib/message.ts';
+export {
+  MAX_ACTION_PARAMETER_ENUM_CANDIDATES,
+  MAX_ACTION_PARAMS_JSON_UTF8_BYTES,
+  MAX_EXECUTION_PLAN_ENTRIES,
+} from './lib/model-output-limits.ts';
 export type {
   ChartRequest,
   ChartResizeReason,

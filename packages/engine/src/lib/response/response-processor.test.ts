@@ -19,6 +19,7 @@ import {
   silentLogger,
   type TilingResponseAuthor,
 } from '../__test-helpers__/fixtures.js';
+import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import { processResponse as processResponseBranded } from './response-processor.js';
 
@@ -40,6 +41,7 @@ const processResponse = (input: {
 }): ReturnType<typeof processResponseBranded> =>
   processResponseBranded({
     request: input.request,
+    enumSnapshot: buildActionParameterEnumSnapshot(input.request.vessels),
     messageId: input.messageId,
     logger: input.logger,
     llmOutput: isGridResponseAuthor(input.llmOutput)

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { ActionName } from './action-name.ts';
+import { MAX_ACTION_PARAMETER_ENUM_CANDIDATES } from './model-output-limits.ts';
 import { ChartSizeSchema } from './schemas.ts';
 import { VariantName } from './variant-name.ts';
 import { VesselId } from './vessel-id.ts';
@@ -15,7 +16,10 @@ export const ActionParameterSchema = z.object({
   description: z.string().min(1, 'Parameter description is required'),
   required: z.boolean().optional(),
   defaultValue: z.unknown().optional(),
-  enum: z.array(z.unknown()).optional(),
+  enum: z
+    .array(z.unknown())
+    .max(MAX_ACTION_PARAMETER_ENUM_CANDIDATES)
+    .optional(),
 });
 
 export const VesselActionSchema = z.object({
@@ -89,6 +93,31 @@ export const VesselSchema = z
           });
         } else {
           seenActionNames.add(action.name);
+        }
+
+        const parameters = action.parameters ?? [];
+        const seenParameterNames = new Set<string>();
+        for (let j = 0; j < parameters.length; j++) {
+          const parameter = parameters[j];
+          if (!parameter) continue;
+
+          if (seenParameterNames.has(parameter.name)) {
+            ctx.addIssue({
+              code: 'custom',
+              message: `Duplicate parameter name "${parameter.name}" in action "${action.name}"`,
+              path: [
+                'variants',
+                variantName,
+                'actions',
+                i,
+                'parameters',
+                j,
+                'name',
+              ],
+            });
+          } else {
+            seenParameterNames.add(parameter.name);
+          }
         }
 
         if (

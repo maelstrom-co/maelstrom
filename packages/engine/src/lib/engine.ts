@@ -16,7 +16,8 @@ import {
   ok,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
-
+import type { ActionParameterEnumSnapshot } from './action-parameter-enum.js';
+import { buildActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import { assertNever } from './assert-never.js';
 import { createChartRequestDedup } from './chart-request-dedup.js';
 import type { EngineConfig } from './config.js';
@@ -31,7 +32,10 @@ import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
 import { callLLM } from './pipeline/call-llm.js';
 import { callWithRetry } from './pipeline/retry.js';
-import { buildSystemPrompt, buildUserPrompt } from './prompt/prompt-builder.js';
+import {
+  buildSystemPrompt,
+  buildUserPromptWithSnapshot,
+} from './prompt/prompt-builder.js';
 import { processResponse } from './response/response-processor.js';
 import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
@@ -204,13 +208,21 @@ export function createEngine(config: EngineConfig): Engine {
 
     const systemPrompt = systemPrompts[mode];
 
-    // buildUserPrompt can throw when a consumer-supplied user-section
-    // customizer is misconfigured (function on unknown key) or itself
-    // throws. Surface that as an Err instead of breaking the
+    // Snapshot construction rejects ambiguous or over-limit Action parameter
+    // definitions. Prompt construction can also throw when a consumer-supplied
+    // user-section customizer is misconfigured or itself throws. Surface both
+    // as an Err before adapter invocation instead of breaking the
     // Promise<Result> contract.
     let userPrompt: string;
+    let enumSnapshot: ActionParameterEnumSnapshot;
     try {
-      userPrompt = buildUserPrompt(request, promptOptions, logger);
+      enumSnapshot = buildActionParameterEnumSnapshot(request.vessels);
+      userPrompt = buildUserPromptWithSnapshot(
+        request,
+        enumSnapshot,
+        promptOptions,
+        logger,
+      );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -270,6 +282,7 @@ export function createEngine(config: EngineConfig): Engine {
         const processed = processResponse({
           llmOutput: llmResult.value,
           request,
+          enumSnapshot,
           messageId: message.id,
           logger,
         });

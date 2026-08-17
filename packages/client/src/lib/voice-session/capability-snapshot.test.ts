@@ -1144,10 +1144,7 @@ describe('readCapabilitySnapshot', () => {
   });
 
   it('warns once through the orchestrator logger about omitted options, then debugs', () => {
-    const values = Array.from(
-      { length: MAX_CAPABILITY_OPTION_COUNT + 1 },
-      (_, i) => `option-${i}`,
-    );
+    const values = ['x'.repeat(MAX_CAPABILITY_OPTIONS_TOTAL_CHARS + 1)];
     const { orchestrator } = createTestOrchestrator(undefined, { debug: true });
     orchestrator.vesselManager.registerVessel(vesselWithEnum(values));
 
