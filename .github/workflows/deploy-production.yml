@@ -110,8 +110,20 @@ jobs:
 
       - name: Smoke test primary domain
         if: steps.revision.outputs.current == 'true'
-        run: curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 --max-time 20 ${{ matrix.url }} > /dev/null
+        run: >-
+          curl --fail --silent --show-error
+          --header "x-maelstrom-health-check: $SMOKE_TEST_BYPASS_TOKEN"
+          --retry 12 --retry-all-errors --retry-delay 5 --max-time 20
+          ${{ matrix.url }} > /dev/null
+        env:
+          SMOKE_TEST_BYPASS_TOKEN: ${{ secrets.SMOKE_TEST_BYPASS_TOKEN }}
 
       - name: Smoke test alias
         if: steps.revision.outputs.current == 'true' && matrix.alias != ''
-        run: curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 --max-time 20 ${{ matrix.alias }} > /dev/null
+        run: >-
+          curl --fail --silent --show-error
+          --header "x-maelstrom-health-check: $SMOKE_TEST_BYPASS_TOKEN"
+          --retry 12 --retry-all-errors --retry-delay 5 --max-time 20
+          ${{ matrix.alias }} > /dev/null
+        env:
+          SMOKE_TEST_BYPASS_TOKEN: ${{ secrets.SMOKE_TEST_BYPASS_TOKEN }}
