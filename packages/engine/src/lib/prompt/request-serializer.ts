@@ -1,14 +1,15 @@
 import type {
   ActionParameter,
   ChartRequest,
-  InstanceId,
-  TilingNode,
   UpdateReason,
   Vessel,
   VesselAction,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { isInstanceIdNode, sanitizeControlChars } from '@maelstrom-co/protocol';
+import {
+  getVisibleInstanceIds,
+  sanitizeControlChars,
+} from '@maelstrom-co/protocol';
 import type { Logger } from '../logger.js';
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
@@ -247,6 +248,13 @@ function serializeInstanceActions(
   return '';
 }
 
+/**
+ * Serializes retained Instances while partitioning them by rendered visibility.
+ *
+ * Visibility follows the Protocol's first-preorder-root projection; malformed
+ * or trailing tree tokens remain serialized, and retained non-visible
+ * Instances are reported as hidden rather than removed from the prompt.
+ */
 export function buildTilingChartState(
   request: ChartRequest,
   logger?: Logger,
@@ -258,7 +266,7 @@ export function buildTilingChartState(
   const { layout } = request;
   if (layout.type !== 'tiling') return lines.join('\n');
 
-  const visibleIds = extractVisibleInstanceIds(layout.tree);
+  const visibleIds = getVisibleInstanceIds(layout);
 
   const visible = request.instances.filter((i: VesselInstanceSnapshot) =>
     visibleIds.has(i.instanceId),
@@ -314,18 +322,6 @@ function serializeInstanceForTiling(
   }
 
   return line;
-}
-
-function extractVisibleInstanceIds(
-  tree: readonly TilingNode[],
-): Set<InstanceId> {
-  const ids = new Set<InstanceId>();
-  for (const node of tree) {
-    if (isInstanceIdNode(node)) {
-      ids.add(node);
-    }
-  }
-  return ids;
 }
 
 export function buildUpdateTriggersSection(

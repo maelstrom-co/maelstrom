@@ -636,6 +636,82 @@ describe('buildTilingChartState', () => {
     expect(output).toContain('tasks-main');
   });
 
+  test('keeps trailing preorder instances retained but marks only the first root visible', () => {
+    const request = makeTilingRequest({
+      instances: [
+        { instanceId: 'weather-1', vesselId: 'calendar', variant: 'month' },
+        { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' },
+      ],
+      layout: {
+        type: 'tiling',
+        tree: ['weather-1', 'calendar-1'],
+        instances: [
+          { instanceId: 'weather-1', vesselId: 'calendar', variant: 'month' },
+          {
+            instanceId: 'calendar-1',
+            vesselId: 'calendar',
+            variant: 'month',
+          },
+        ],
+      },
+    });
+
+    expect(request.instances.map(({ instanceId }) => instanceId)).toEqual([
+      InstanceId('weather-1'),
+      InstanceId('calendar-1'),
+    ]);
+    expect(request.layout.type).toBe('tiling');
+    if (request.layout.type !== 'tiling')
+      throw new Error('Expected tiling layout');
+    expect(
+      request.layout.instances.map(({ instanceId }) => instanceId),
+    ).toEqual([InstanceId('weather-1'), InstanceId('calendar-1')]);
+    expect(request.layout.tree).toEqual([
+      InstanceId('weather-1'),
+      InstanceId('calendar-1'),
+    ]);
+
+    const output = buildTilingChartState(request);
+    const visibleSection = output
+      .split('Currently Visible:\n')[1]
+      ?.split('\n\nAvailable (hidden):')[0];
+    const hiddenSection = output
+      .split('Available (hidden):\n')[1]
+      ?.split('\n\n## Current Tiling Layout')[0];
+
+    expect(visibleSection).toBe('- weather-1 (calendar), variant: month');
+    expect(hiddenSection).toBe('- calendar-1 (calendar), variant: month');
+    expect(output).toContain('Preorder: ["weather-1","calendar-1"]');
+  });
+
+  test('does not invent a visible instance for an incomplete split', () => {
+    const request = makeTilingRequest({
+      instances: [
+        { instanceId: 'weather-1', vesselId: 'calendar', variant: 'month' },
+        { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' },
+      ],
+      layout: {
+        type: 'tiling',
+        tree: ['H', 'weather-1'],
+        instances: [
+          { instanceId: 'weather-1', vesselId: 'calendar', variant: 'month' },
+          {
+            instanceId: 'calendar-1',
+            vesselId: 'calendar',
+            variant: 'month',
+          },
+        ],
+      },
+    });
+
+    const output = buildTilingChartState(request);
+    const visibleSection = output
+      .split('Currently Visible:\n')[1]
+      ?.split('\n\nAvailable (hidden):')[0];
+
+    expect(visibleSection).toBe('- weather-1 (calendar), variant: month');
+  });
+
   test('handles tree with null, H, and V nodes', () => {
     const request = makeTilingRequest({
       instances: [

@@ -101,22 +101,40 @@ describe('computeTilingLayout', () => {
   const visibilityCases: readonly {
     readonly name: string;
     readonly tree: readonly TilingNode[];
+    readonly expectedVisibleIds: readonly InstanceId[];
   }[] = [
-    { name: 'trailing tokens', tree: [weatherId, calendarId] },
-    { name: 'incomplete split', tree: ['H', weatherId] },
-    { name: 'duplicate leaves', tree: ['H', weatherId, weatherId] },
-    { name: 'null leaf', tree: [null] },
+    {
+      name: 'trailing tokens',
+      tree: [weatherId, calendarId],
+      expectedVisibleIds: [weatherId],
+    },
+    {
+      name: 'incomplete split',
+      tree: ['H', weatherId],
+      expectedVisibleIds: [weatherId],
+    },
+    {
+      name: 'duplicate leaves',
+      tree: ['H', weatherId, weatherId],
+      expectedVisibleIds: [weatherId],
+    },
+    { name: 'null leaf', tree: [null], expectedVisibleIds: [] },
   ];
 
-  for (const { name, tree } of visibilityCases) {
+  for (const { name, tree, expectedVisibleIds } of visibilityCases) {
     it(`matches protocol visibility for ${name}`, () => {
       const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
       const parsedTree = parseTilingTree(layout.tree);
       const computedTiles = computeTilingLayout(parsedTree, containerRect, 0);
+      const expectedIds = new Set(expectedVisibleIds);
+      const protocolIds = new Set(getVisibleInstanceIds(layout));
+      const chartIds = new Set(
+        computedTiles.map(({ instanceId }) => instanceId),
+      );
 
-      expect(
-        new Set(computedTiles.map(({ instanceId }) => instanceId)),
-      ).toEqual(new Set(getVisibleInstanceIds(layout)));
+      expect(protocolIds).toEqual(expectedIds);
+      expect(chartIds).toEqual(expectedIds);
+      expect(protocolIds).toEqual(chartIds);
     });
   }
 
