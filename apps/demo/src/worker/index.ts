@@ -27,19 +27,11 @@ export default {
         return new Response('Expected WebSocket upgrade', { status: 426 });
       }
 
-      // Session identity IS object identity — this replaces shard.ts's
-      // hash-based bucketing, which existed only to spread visitors across
-      // five pre-provisioned containers. SessionDO holds exactly one
-      // #engine/#engineKey slot per object (unlike the old container's
-      // SessionEngineManager, which kept one engine per protocol sessionId
-      // *within* a shared shard bucket) -- so a missing/empty session must
-      // be rejected outright rather than defaulted. Defaulting every
-      // session-less visitor onto one shared 'anonymous' object would let
-      // them thrash one engine, and two visitors presenting the same key
-      // would see each other's conversation history. The shipped client
-      // (connector.ts's buildWsUrl/routingSession) always generates a
-      // non-empty SessionId() in hosted mode, so this never rejects real
-      // traffic.
+      // Session identity is object identity. SessionDO holds exactly one
+      // engine and key slot per object, so a missing or empty session must be
+      // rejected rather than defaulted. Defaulting session-less visitors onto
+      // one shared object would let them thrash one engine, and two visitors
+      // presenting the same key would see each other's conversation history.
       const session = url.searchParams.get('session');
       if (!session) {
         return new Response('Missing session query param', { status: 400 });

@@ -79,9 +79,22 @@
           {
             "env": "GITHUB_SHA"
           },
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/bun.lock",
           "production",
           "^production"
         ]
+      },
+      "deploy": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "wrangler deploy"
+        }
       },
       "typecheck": {
         "inputs": [

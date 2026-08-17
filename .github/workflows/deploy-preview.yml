@@ -9,7 +9,7 @@ permissions:
   pull-requests: write
 
 env:
-  NX_NO_CLOUD: ${{ vars.NX_NO_CLOUD }}
+  NX_NO_CLOUD: 'true'
 
 jobs:
   deploy:
@@ -34,14 +34,11 @@ jobs:
         || github.event.label.name == 'deploy-preview')
       && contains(github.event.pull_request.labels.*.name, 'deploy-preview')
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # deploy and teardown deliberately share one group: a teardown must be able
-    # to cancel an in-flight deploy for the same PR. This narrows — but does not
-    # close — the window in which a deploy can land after the teardown meant to
-    # remove it: cancel-in-progress stops the job, not an upload already in
-    # flight to Cloudflare. Declared per-job, not at workflow level: a run whose
-    # jobs are all skipped still joins a workflow-level group and would cancel
-    # an in-flight teardown it has nothing to do with — after which no further
-    # event could retry it.
+    environment: preview
+    # Deploy and teardown deliberately share one group so teardown can cancel an
+    # in-flight deploy for the same PR. Declared per-job, not at workflow level:
+    # a run whose jobs are all skipped would otherwise cancel an in-flight
+    # teardown it has nothing to do with.
     concurrency:
       group: deploy-preview-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: true
@@ -73,12 +70,28 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build demo
-        # VITE_HOSTED=1 flips every hosted-mode gate in the client bundle (key
-        # drawer, playground.hello handshake, same-origin WS URL, browser-direct
-        # mint) — without it the deployed SPA is a keyless local-mode build that
-        # tries ws://localhost:3001 and never works.
-        run: VITE_HOSTED=1 bunx nx build @maelstrom-co/demo
+      # Preview artifacts must come from this checkout, not Nx Cloud or a stale
+      # local runner cache. build-hosted sets VITE_HOSTED=1 for the demo.
+      - name: Build preview artifacts
+        run: |
+          CLOUDFLARE_ENV=preview bunx nx run @maelstrom-co/www:build --skip-nx-cache
+          bunx nx run @maelstrom-co/docs:build --skip-nx-cache
+          bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache
+
+      # Astro redirects www deployments to a generated Wrangler config. Validate
+      # that effective config, not only the source file, before releasing a token.
+      - name: Validate route-free preview configurations
+        run: >-
+          bun -e "import { unstable_readConfig } from 'wrangler';
+          for (const config of ['apps/www/dist/server/wrangler.json',
+          'apps/docs/wrangler.json', 'apps/demo/wrangler.jsonc']) {
+          const resolved = unstable_readConfig({ config, env: 'preview' },
+          { hideWarnings: true });
+          if (resolved.workers_dev !== true || resolved.routes?.length) {
+          throw new Error(config + ' must enable workers.dev and define no preview routes');
+          } if (resolved.kv_namespaces?.some((namespace) => !namespace.id)) {
+          throw new Error(config + ' must not auto-provision preview KV namespaces');
+          } }"
 
       - name: Resolve the installed wrangler version
         id: wrangler
@@ -91,29 +104,51 @@ jobs:
         # stale within a day of landing; deriving it cannot.
         run: echo "version=$(node -p "require('wrangler/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy to Cloudflare
-        id: deploy
-        # A separately-named Worker per PR, not `wrangler versions upload`:
-        # Cloudflare does not generate preview URLs for Workers that implement a
-        # Durable Object, and this one exports SessionDO. A brand-new Worker per
-        # PR also satisfies the no-migration-history precondition that the single
-        # `v1` migration in apps/demo/wrangler.jsonc assumes.
+      - name: Deploy www to Cloudflare
+        id: deploy-www
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
+          workingDirectory: apps/www
+          wranglerVersion: ${{ steps.wrangler.outputs.version }}
+          command: deploy --env preview --name maelstrom-www-pr-${{ github.event.pull_request.number }}
+
+      - name: Deploy docs to Cloudflare
+        id: deploy-docs
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
+          workingDirectory: apps/docs
+          wranglerVersion: ${{ steps.wrangler.outputs.version }}
+          command: deploy --env preview --name maelstrom-docs-pr-${{ github.event.pull_request.number }}
+
+      # Each PR gets an isolated Worker and SessionDO namespace.
+      - name: Deploy demo to Cloudflare
+        id: deploy-demo
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
           workingDirectory: apps/demo
           wranglerVersion: ${{ steps.wrangler.outputs.version }}
-          command: deploy --name maelstrom-playground-pr-${{ github.event.pull_request.number }}
+          command: deploy --env preview --name maelstrom-playground-pr-${{ github.event.pull_request.number }}
 
-      - name: Require a preview URL
-        # apps/demo/wrangler.jsonc sets no `workers_dev` key, so a deploy can
-        # succeed while returning no URL if the account's workers.dev subdomain
-        # is off. Fail here rather than post a comment with a blank link.
-        if: steps.deploy.outputs.deployment-url == ''
+      - name: Require all preview URLs
+        env:
+          WWW_URL: ${{ steps.deploy-www.outputs.deployment-url }}
+          DOCS_URL: ${{ steps.deploy-docs.outputs.deployment-url }}
+          DEMO_URL: ${{ steps.deploy-demo.outputs.deployment-url }}
         run: |
-          echo "::error::Deploy succeeded but reported no preview URL. Check that the workers.dev subdomain is enabled for this account, or add \"workers_dev\": true to apps/demo/wrangler.jsonc."
-          exit 1
+          set -euo pipefail
+          for app in WWW DOCS DEMO; do
+            url_variable="${app}_URL"
+            if [ -z "${!url_variable}" ]; then
+              echo "::error::$app deploy succeeded but reported no workers.dev URL. Check the preview account's workers.dev subdomain."
+              exit 1
+            fi
+          done
 
       - name: Find existing preview comment
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
@@ -135,11 +170,15 @@ jobs:
           edit-mode: replace
           body: |
             <!-- pr-preview-demo -->
-            **Playground preview deployed** for commit ${{ github.event.pull_request.head.sha }}
+            **PR previews deployed** for commit ${{ github.event.pull_request.head.sha }}
 
-            ${{ steps.deploy.outputs.deployment-url }}
+            | App | Preview |
+            | --- | --- |
+            | Website | ${{ steps.deploy-www.outputs.deployment-url }} |
+            | Documentation | ${{ steps.deploy-docs.outputs.deployment-url }} |
+            | Demo | ${{ steps.deploy-demo.outputs.deployment-url }} |
 
-            The playground is bring-your-own-key — it will ask for your own API key on load, and nothing is stored server-side. This preview runs the PR branch's own code, so use a throwaway key, or only open previews for branches you trust.
+            The demo is bring-your-own-key. This preview runs the PR branch's own code, so use a throwaway key or only open previews for branches you trust.
 
             Remove the `deploy-preview` label or close this PR to tear the preview down.
 
@@ -158,70 +197,73 @@ jobs:
           && github.event.label.name == 'deploy-preview')
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: preview
     # Same group as the deploy job — see the comment there.
     concurrency:
       group: deploy-preview-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
       - name: Setup Node
-        # Needed here too, even though the delete runs through `bunx`: bunx
-        # invokes wrangler's bin, whose shebang is `#!/usr/bin/env node`, so it
-        # executes under system Node — not Bun — and wrangler 4 refuses to start
-        # on the runner's default Node 20.
+        # The teardown intentionally has no checkout. Run a pinned Wrangler
+        # package directly instead of reading tool versions from PR-controlled
+        # files while holding a token that can delete preview Workers.
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          # This job holds a Cloudflare token that can delete Workers, so it
-          # must not take whatever toolchain ships that morning. Every workflow
-          # now reads the same pin from .bun-version.
-          bun-version-file: .bun-version
-
-      - name: Delete preview Worker
-        # Run through a shell step rather than wrangler-action so a Worker that
-        # is already gone can be told apart from a real failure. `wrangler delete`
-        # exits non-zero either way, and a blanket continue-on-error would hide
-        # auth failures and API outages just as well as it hides a stale name.
-        # --force skips wrangler's interactive confirmation, which has no answer
-        # in CI. Pinned rather than derived from the lockfile as the deploy job
-        # does — this job has no checkout, so there is nothing to read. Drift is
-        # harmless here: bunx fetches this exact version and a delete is a
-        # delete, whereas a stale pin on the deploy side fails the deploy.
-        # If this step fails for a real reason (auth blip, Cloudflare outage), the
-        # Worker and its Durable Object storage are orphaned with no automatic
-        # retry — recover manually by re-adding then re-removing the
-        # `deploy-preview` label, or by running
-        # `bunx wrangler delete --name maelstrom-playground-pr-<N> --force` locally.
+      - name: Delete preview Workers
+        # Cancellation cannot recall an upload already accepted by Cloudflare.
+        # Repeat every deletion while canceled uploads settle, and report only
+        # errors from the final pass so transient failures can recover.
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          WORKER_NAME: maelstrom-playground-pr-${{ github.event.pull_request.number }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
-          # GitHub runs this under `bash -e`, and `set -uo pipefail` does not clear
-          # it — a bare `output=$(cmd)` would abort the step at the assignment, so
-          # neither the diagnostics below nor the not-found branch would ever run.
-          if output=$(bunx wrangler@4.115.0 delete --name "$WORKER_NAME" --force 2>&1); then
-            status=0
-          else
-            status=$?
+          workers=(
+            "maelstrom-www-pr-$PR_NUMBER"
+            "maelstrom-docs-pr-$PR_NUMBER"
+            "maelstrom-playground-pr-$PR_NUMBER"
+          )
+          delete_workers() {
+            local failed=0
+            for worker_name in "${workers[@]}"; do
+              if output=$(npx --yes wrangler@4.115.0 delete --name "$worker_name" --force 2>&1); then
+                status=0
+              else
+                status=$?
+              fi
+              printf '%s\n' "$output"
+              if [ "$status" -eq 0 ]; then
+                continue
+              fi
+              if grep -qiE 'script_not_found|\[code: ?10007\]|\[code: ?10090\]' <<<"$output"; then
+                echo "No preview Worker named $worker_name; nothing to tear down."
+                continue
+              fi
+              echo "Failed to delete preview Worker $worker_name."
+              failed=1
+            done
+            return "$failed"
+          }
+
+          failed=0
+          for attempt in 1 2 3; do
+            echo "Preview deletion pass $attempt of 3"
+            if delete_workers; then
+              failed=0
+            else
+              failed=1
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep 15
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::Preview Worker deletion still failed after three attempts."
           fi
-          printf '%s\n' "$output"
-          if [ "$status" -eq 0 ]; then
-            exit 0
-          fi
-          # 10007 and 10090 (WORKER_LEGACY_ENVIRONMENT_NOT_FOUND_ERR_CODE) are
-          # the two codes wrangler's own isWorkerNotFoundError treats as
-          # "already gone" — mirror that rather than drift from it.
-          if grep -qiE 'script_not_found|\[code: ?10007\]|\[code: ?10090\]' <<<"$output"; then
-            echo "No preview Worker named $WORKER_NAME — nothing to tear down."
-            exit 0
-          fi
-          echo "::error::Failed to delete preview Worker $WORKER_NAME."
-          exit "$status"
+          exit "$failed"
 
       - name: Find existing preview comment
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
@@ -244,6 +286,6 @@ jobs:
           edit-mode: replace
           body: |
             <!-- pr-preview-demo -->
-            **Playground preview torn down.** The preview Worker for this PR has been deleted.
+            **PR previews torn down.** The website, documentation, and demo preview Workers for this PR have been deleted.
 
             Re-add the `deploy-preview` label while the PR is open to bring it back.

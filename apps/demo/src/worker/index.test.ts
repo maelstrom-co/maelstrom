@@ -115,13 +115,10 @@ describe('worker /ws routing to SessionDO', () => {
 
     const response = await worker.fetch(request, env);
 
-    // SessionDO holds exactly one #engine/#engineKey slot per object,
-    // unlike the old container's per-sessionId SessionEngineManager --
-    // defaulting a missing session onto one shared object would let
-    // session-less visitors thrash (or, worse, share) one engine. The
-    // shipped client always sends a non-empty session, so this path is only
-    // ever hit by a malformed or hand-crafted request, and must be rejected
-    // before any Durable Object is addressed.
+    // SessionDO holds one engine and key slot per object. Defaulting a missing
+    // session onto one shared object would let session-less visitors thrash or
+    // share one engine, so reject the request before addressing a Durable
+    // Object.
     expect(response.status).toBe(400);
     expect(idFromName).not.toHaveBeenCalled();
     expect(get).not.toHaveBeenCalled();

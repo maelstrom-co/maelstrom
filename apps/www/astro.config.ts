@@ -16,6 +16,11 @@ const adapter = isDevServer ? undefined : cloudflare();
 export default defineConfig({
   site: 'https://maelstrom-ai.co',
   output: 'static',
+  // The site does not use Astro sessions. Avoid provisioning an orphaned KV
+  // namespace that prevents a deleted PR Worker from being deployed again.
+  session: {
+    driver: { entrypoint: 'unstorage/drivers/null' },
+  },
   // Pinned to Astro 6's behaviour. Astro 7 defaults this to 'jsx', which deletes
   // any whitespace run containing a newline instead of collapsing it to one
   // space — so a source line that *begins* with an inline tag silently ships
