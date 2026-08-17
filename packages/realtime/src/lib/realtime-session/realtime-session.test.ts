@@ -362,8 +362,63 @@ const populatedSnapshot: UIStructuralSnapshot = {
       variant: VariantName('default'),
     },
   ],
-  layout: null,
+  layout: {
+    type: 'grid',
+    positions: [
+      {
+        instanceId: InstanceId('inst-1'),
+        position: { row: 0, column: 0 },
+        size: { width: 1, height: 1 },
+      },
+    ],
+  },
   layoutMode: 'grid',
+  chartDimensions: { rows: 8, columns: 12 },
+};
+
+const visibleWeatherSnapshot: UIStructuralSnapshot = {
+  instances: [
+    {
+      instanceId: InstanceId('weather-1'),
+      vesselId: VesselId('weather'),
+      variant: VariantName('weekly'),
+    },
+  ],
+  layout: {
+    type: 'tiling',
+    tree: [InstanceId('weather-1')],
+    instances: [
+      {
+        instanceId: InstanceId('weather-1'),
+        vesselId: VesselId('weather'),
+        variant: VariantName('weekly'),
+      },
+    ],
+  },
+  layoutMode: 'tiling',
+  chartDimensions: { rows: 8, columns: 12 },
+};
+
+const visibleCalendarSnapshot: UIStructuralSnapshot = {
+  instances: [
+    {
+      instanceId: InstanceId('calendar-1'),
+      vesselId: VesselId('calendar'),
+      variant: VariantName('month'),
+    },
+  ],
+  layout: {
+    type: 'tiling',
+    tree: [InstanceId('calendar-1')],
+    instances: [
+      {
+        instanceId: InstanceId('calendar-1'),
+        vesselId: VesselId('calendar'),
+        variant: VariantName('month'),
+      },
+    ],
+  },
+  layoutMode: 'tiling',
   chartDimensions: { rows: 8, columns: 12 },
 };
 
@@ -471,14 +526,17 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
     });
     await flushMicrotasks();
 
-    liveSnapshot = populatedSnapshot;
+    liveSnapshot = visibleWeatherSnapshot;
     instance.settle();
     await flushMicrotasks();
 
-    expect(adapter.toolResults[0].output).toEqual({
-      ok: true,
-      summary: expect.stringContaining('labs-chart'),
-    });
+    const output = adapter.toolResults[0].output as UpdateUIToolResult;
+    expect(output.ok).toBe(true);
+    expect(output.summary).toContain('1 vessel');
+    expect(output.summary).toContain('weather');
+    expect(output.summary).toContain('weekly');
+    expect(output.summary).not.toContain('calendar');
+    expect(output.summary).not.toContain('tasks');
   });
 });
 
@@ -487,10 +545,22 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
 // ============================================================================
 
 describe('RealtimeSession — get_ui_state', () => {
-  it('answers immediately with the structural snapshot, no intent involved', async () => {
-    const { session, adapter, instance } = makeHarness(populatedSnapshot);
+  it('reads the latest visible-only snapshot immediately, without an intent', async () => {
+    let liveSnapshot = visibleCalendarSnapshot;
+    const adapter = makeMockAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const wrappedInstance: RealtimeInstance = {
+      ...instance,
+      getStructuralSnapshot: () => liveSnapshot,
+    };
+    const session = new RealtimeSession({
+      adapter,
+      instance: wrappedInstance,
+      sessionId: testSessionId,
+    });
     await session.connect();
 
+    liveSnapshot = visibleWeatherSnapshot;
     adapter.emitToolCall({
       callId: 'c2',
       name: 'get_ui_state',
@@ -499,11 +569,21 @@ describe('RealtimeSession — get_ui_state', () => {
     await flushMicrotasks();
 
     expect(instance.submitted).toEqual([]); // no engine round-trip
-    expect(adapter.toolResults).toHaveLength(1);
-    expect(adapter.toolResults[0]).toEqual({
-      callId: 'c2',
-      output: populatedSnapshot,
-    });
+    expect(adapter.toolResults).toEqual([
+      { callId: 'c2', output: visibleWeatherSnapshot },
+    ]);
+    const output = adapter.toolResults[0].output as UIStructuralSnapshot;
+    expect(output.instances).toEqual(visibleWeatherSnapshot.instances);
+    if (output.layout?.type !== 'tiling') {
+      throw new Error('expected tiling layout');
+    }
+    expect(output.layout.instances).toEqual(
+      visibleWeatherSnapshot.layout?.type === 'tiling'
+        ? visibleWeatherSnapshot.layout.instances
+        : [],
+    );
+    expect(JSON.stringify(output)).not.toContain('calendar');
+    expect(JSON.stringify(output)).not.toContain('tasks');
   });
 });
 
@@ -562,19 +642,11 @@ describe('RealtimeSession — grounding debounce', () => {
     });
     await session.connect();
 
-    // The final settle's snapshot must be distinguishable from the middle
-    // one (both otherwise contain 'labs-chart') so the assertion below
-    // proves latest-wins rather than coincidentally matching either.
-    const finalSnapshot: UIStructuralSnapshot = {
-      ...populatedSnapshot,
-      layoutMode: 'tiling',
-    };
-
-    liveSnapshot = { ...emptySnapshot, layoutMode: 'grid' };
+    liveSnapshot = emptySnapshot;
     instance.settle();
-    liveSnapshot = populatedSnapshot;
+    liveSnapshot = visibleCalendarSnapshot;
     instance.settle();
-    liveSnapshot = finalSnapshot;
+    liveSnapshot = visibleWeatherSnapshot;
     instance.settle();
 
     expect(adapter.groundingCalls).toEqual([]); // debounced, nothing yet
@@ -582,8 +654,13 @@ describe('RealtimeSession — grounding debounce', () => {
     await new Promise((resolve) => setTimeout(resolve, 40));
 
     expect(adapter.groundingCalls).toHaveLength(1);
-    expect(adapter.groundingCalls[0]).toContain('labs-chart');
+    expect(adapter.groundingCalls[0]).toContain('1 vessel');
+    expect(adapter.groundingCalls[0]).toContain('weather');
+    expect(adapter.groundingCalls[0]).toContain('weekly');
     expect(adapter.groundingCalls[0]).toContain('tiling');
+    expect(adapter.groundingCalls[0]).not.toContain('calendar');
+    expect(adapter.groundingCalls[0]).not.toContain('tasks');
+    expect(adapter.groundingCalls[0]).not.toContain('3 vessels');
   });
 });
 
@@ -759,7 +836,9 @@ describe('RealtimeSession — domain-data boundary', () => {
 
 describe('RealtimeSession — barge-in latest-wins queueing', () => {
   it('queues a concurrent update_ui instead of answering busy immediately, then applies it once the first settles', async () => {
-    const { session, adapter, instance, events } = makeHarness();
+    const { session, adapter, instance, events } = makeHarness(
+      visibleWeatherSnapshot,
+    );
     await session.connect();
 
     adapter.emitToolCall({
@@ -796,7 +875,10 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
     const c1Result = adapter.toolResults.find((r) => r.callId === 'c1');
     const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
     expect(c1Result?.output).toEqual({ ok: true, summary: expect.any(String) });
-    expect(c2Result?.output).toEqual({ ok: true, summary: expect.any(String) });
+    const c2Output = c2Result?.output as UpdateUIToolResult;
+    expect(c2Output.ok).toBe(true);
+    expect(c2Output.summary).toContain('1 vessel');
+    expect(c2Output.summary).toContain('weather');
 
     // Exactly one sendToolResult + one tool_result sidechannel event per callId.
     expect(adapter.toolResults.filter((r) => r.callId === 'c1')).toHaveLength(
@@ -1230,7 +1312,7 @@ describe('RealtimeSession — engine userMessage precedence', () => {
   it('omits userMessage so the summary is the fallback when the engine surfaces none', async () => {
     // Empty (whitespace-only) userMessage is treated as absent — fall back.
     const { session, adapter, instance } = makeHarness(
-      populatedSnapshot,
+      visibleWeatherSnapshot,
       emptyCapabilitySnapshot,
       { userMessage: '   ' },
     );
@@ -1248,40 +1330,14 @@ describe('RealtimeSession — engine userMessage precedence', () => {
     const output = adapter.toolResults[0].output as UpdateUIToolResult;
     expect(output.ok).toBe(true);
     expect(output.userMessage).toBeUndefined(); // whitespace-only reply omitted
-    expect(output.summary).toContain('labs-chart'); // the default summarizer ran
+    expect(output.summary).toContain('1 vessel');
+    expect(output.summary).toContain('weather');
   });
 
-  it('carries the engine reply distinct from a structural summary that would miscount hidden instances', async () => {
-    // The structural summarizer counts every instance in the snapshot,
-    // including ones a tiling layout keeps alive but off-screen — so it would
-    // say "3 vessels on screen" even when fewer are visible. The engine's
-    // userMessage, which knows what actually rendered, is the field a consuming
-    // adapter prefers, so the miscount never reaches the user.
-    const threeInstanceSnapshot: UIStructuralSnapshot = {
-      instances: [
-        {
-          instanceId: InstanceId('inst-1'),
-          vesselId: VesselId('labs-chart'),
-          variant: VariantName('default'),
-        },
-        {
-          instanceId: InstanceId('inst-2'),
-          vesselId: VesselId('revenue-chart'),
-          variant: VariantName('default'),
-        },
-        {
-          instanceId: InstanceId('inst-3'),
-          vesselId: VesselId('pipeline-chart'),
-          variant: VariantName('default'),
-        },
-      ],
-      layout: null,
-      layoutMode: 'tiling',
-      chartDimensions: { rows: 8, columns: 12 },
-    };
-    const engineReply = 'Showing your labs.';
+  it('preserves the engine reply while the structural fallback describes visible Weather', async () => {
+    const engineReply = 'Showing weekly Weather.';
     const { session, adapter, instance } = makeHarness(
-      threeInstanceSnapshot,
+      visibleWeatherSnapshot,
       emptyCapabilitySnapshot,
       { userMessage: engineReply },
     );
@@ -1298,7 +1354,12 @@ describe('RealtimeSession — engine userMessage precedence', () => {
 
     const output = adapter.toolResults[0].output as UpdateUIToolResult;
     expect(output.userMessage).toBe(engineReply);
-    expect(output.userMessage).not.toContain('3 vessels');
+    expect(output.summary).toContain('1 vessel');
+    expect(output.summary).toContain('weather');
+    expect(output.summary).toContain('weekly');
+    expect(output.summary).not.toContain('calendar');
+    expect(output.summary).not.toContain('tasks');
+    expect(output.summary).not.toContain('3 vessels');
   });
 
   it('speaks the engine reply for a barge-in queued call too, not just the first', async () => {

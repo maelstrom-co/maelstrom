@@ -78,7 +78,11 @@ export type {
   TilingNode,
   TilingSplit,
 } from './lib/response.ts';
-export { isInstanceIdNode, isTilingSplit } from './lib/response.ts';
+export {
+  getVisibleInstanceIds,
+  isInstanceIdNode,
+  isTilingSplit,
+} from './lib/response.ts';
 export type { Result } from './lib/result.ts';
 export { err, isErr, isOk, ok, unwrap } from './lib/result.ts';
 export { sanitizeControlChars } from './lib/sanitize-control-chars.ts';
