@@ -1489,6 +1489,24 @@ describe('OpenAIAdapter — transcript-confirmed interruption', () => {
     ]);
   });
 
+  it('clears active output once when distinct input items target the same response', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.sent.length = 0;
+
+    channel.receive(usefulDelta);
+    channel.receive({ ...usefulDelta, item_id: 'user-item-2' });
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
   it('does not let duplicate response.created reset active output attribution', async () => {
     const { channel } = await connectTranscriptConfirmed();
     const created = {
@@ -1779,6 +1797,37 @@ describe('OpenAIAdapter — transcript-confirmed interruption', () => {
     ]);
   });
 
+  it('lets a distinct input item retry cancellation after the first cancel send fails', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.sent.length = 0;
+    const originalSend = channel.send.bind(channel);
+    let failCancel = true;
+    channel.send = (frame) => {
+      if (
+        failCancel &&
+        (JSON.parse(frame) as { type?: string }).type === 'response.cancel'
+      ) {
+        failCancel = false;
+        throw new Error('cancel failed');
+      }
+      originalSend(frame);
+    };
+
+    channel.receive(usefulDelta);
+    channel.receive({ ...usefulDelta, item_id: 'user-item-2' });
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'output_audio_buffer.clear' },
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
   it('clears buffered output without a speculative cancel', async () => {
     const { channel } = await connectTranscriptConfirmed();
     channel.receive({ type: 'output_audio_buffer.started' });
@@ -1983,7 +2032,7 @@ describe('OpenAIAdapter — lifecycle diagnostics', () => {
           [
             '[OpenAIAdapter]',
             'input lifecycle',
-            { category: 'speech_started' },
+            { category: 'speech_started', greetingActive: false },
           ],
         ],
       },
@@ -2064,7 +2113,7 @@ describe('OpenAIAdapter — lifecycle diagnostics', () => {
           [
             '[OpenAIAdapter]',
             'input lifecycle',
-            { category: 'speech_started' },
+            { category: 'speech_started', greetingActive: false },
           ],
           [
             '[OpenAIAdapter]',
@@ -3075,10 +3124,10 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
       channel.sent.some((s) => s.includes('conversation.item.create')),
     ).toBe(true);
     expect(mic.enabled).toBe(true);
-    expect(mic.enabledMutations).toEqual([]);
+    expect(mic.enabledMutations).toEqual([false, true]);
   });
 
-  it('keeps microphone tracks at their prior values while synthesis is pending and when it is aborted', async () => {
+  it('gates microphone tracks while synthesis is pending and restores them on abort', async () => {
     const enabled = new FakeTrack('audio', true);
     const disabled = new FakeTrack('audio', false);
     useMicTracks([enabled, disabled]);
@@ -3104,15 +3153,15 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
       'greeting synthesis did not start',
     );
 
-    expect([enabled.enabled, disabled.enabled]).toEqual([true, false]);
-    expect(enabled.enabledMutations).toEqual([]);
-    expect(disabled.enabledMutations).toEqual([]);
+    expect([enabled.enabled, disabled.enabled]).toEqual([false, false]);
+    expect(enabled.enabledMutations).toEqual([false]);
+    expect(disabled.enabledMutations).toEqual([false]);
 
     caller.abort();
     await expect(speak).resolves.toBe('accepted');
     expect(synthesisSignal?.aborted).toBe(true);
-    expect(enabled.enabledMutations).toEqual([]);
-    expect(disabled.enabledMutations).toEqual([]);
+    expect(enabled.enabledMutations).toEqual([false, true]);
+    expect(disabled.enabledMutations).toEqual([false, false]);
   });
 
   it('gates every unique audio track across decode and playback, then restores exact prior values without replacing capture', async () => {
@@ -3174,7 +3223,7 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     context.sources.at(-1)?.end();
     await expect(speak).resolves.toBe('accepted');
 
-    expect(valuesDuringSynthesis).toEqual([true, false, true]);
+    expect(valuesDuringSynthesis).toEqual([false, false, true]);
     expect(valuesDuringDecode).toEqual([false, false, true]);
     expect(valuesAtSourceStart).toEqual([false, false, true]);
     expect(valuesDuringPlayback).toEqual([false, false, true]);
@@ -3407,7 +3456,7 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     await expect(speakA).resolves.toBe('accepted');
     await flushMicrotasks();
 
-    expect(micValueWhenReplacementSynthesisStarted).toBe(true);
+    expect(micValueWhenReplacementSynthesisStarted).toBe(false);
     expect(mic.enabled).toBe(false);
     expect(mic.enabledMutations).toEqual(mutationsBeforeStaleEnd);
     replacementSource.end();
@@ -3705,12 +3754,13 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     ).toHaveLength(1);
   });
 
-  it('retains immediate local speech_started abort before the playback gate begins', async () => {
+  it('does not abort pending greeting synthesis from raw speech_started while gated', async () => {
     const mic = new FakeTrack('audio', true);
     useMicTracks([mic]);
     let synthesisSignal: AbortSignal | undefined;
     const adapter = new OpenAIAdapter({
       mintToken: async () => fakeToken,
+      debug: true,
       synthesizeGreeting: async ({ signal }) => {
         synthesisSignal = signal;
         return new Promise<ArrayBuffer>(() => {});
@@ -3720,23 +3770,39 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     adapter.activateAudio();
     const events: string[] = [];
     adapter.on((event) => events.push(event.type));
+    const caller = new AbortController();
     const speak = adapter.speakAssistantText({
       id: greetingId,
       text: greetingText,
-      signal: new AbortController().signal,
+      signal: caller.signal,
     });
     await waitForGreetingCondition(
       () => synthesisSignal !== undefined,
       'synthesis did not start',
     );
 
-    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      channel.receive({ type: 'input_audio_buffer.speech_started' });
+    } finally {
+      console.debug = originalDebug;
+    }
 
-    expect(synthesisSignal?.aborted).toBe(true);
-    await expect(speak).resolves.toBe('accepted');
+    expect(synthesisSignal?.aborted).toBe(false);
     expect(events).toContain('speech_started');
+    expect(debugCalls).toContainEqual([
+      '[OpenAIAdapter]',
+      'input lifecycle',
+      { category: 'speech_started', greetingActive: true },
+    ]);
+    expect(mic.enabled).toBe(false);
+
+    caller.abort();
+    await expect(speak).resolves.toBe('accepted');
     expect(mic.enabled).toBe(true);
-    expect(mic.enabledMutations).toEqual([]);
+    expect(mic.enabledMutations).toEqual([false, true]);
   });
 
   it('waits for a useful correlated delta before aborting transcript-confirmed greeting synthesis', async () => {

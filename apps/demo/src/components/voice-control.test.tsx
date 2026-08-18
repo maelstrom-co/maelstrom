@@ -84,11 +84,9 @@ afterEach(() => {
 
 describe('VoiceControl hold-to-talk button', () => {
   it.each([
+    'connecting',
     'connected',
-    'listening',
-    'thinking',
-    'speaking',
-  ] as const)('shows preparing over incidental %s activity with one live status and an indeterminate bar', (state) => {
+  ] as const)('shows preparation while the voice is %s', (state) => {
     voiceResult = makeVoiceResult(
       state,
       undefined,
@@ -105,6 +103,28 @@ describe('VoiceControl hold-to-talk button', () => {
     expect(progress.hasAttribute('aria-valuenow')).toBe(false);
     expect(progress.hasAttribute('aria-valuemin')).toBe(false);
     expect(progress.hasAttribute('aria-valuemax')).toBe(false);
+    expect(progress.firstElementChild?.className).toContain(
+      'motion-reduce:animate-none',
+    );
+  });
+
+  it.each([
+    ['listening', 'Listening'],
+    ['thinking', 'Thinking…'],
+    ['speaking', 'Speaking…'],
+  ] as const)('keeps the %s activity visible during preparation', (state, label) => {
+    voiceResult = makeVoiceResult(
+      state,
+      undefined,
+      'automatic',
+      undefined,
+      'preparing',
+    );
+    const { getAllByRole, getByRole } = render(<VoiceControl />);
+
+    expect(getAllByRole('status')).toHaveLength(1);
+    expect(getByRole('status').textContent).toContain(label);
+    expect(getByRole('progressbar')).toBeDefined();
   });
 
   it('keeps fatal and disconnected presentation ahead of greeting preparation', () => {

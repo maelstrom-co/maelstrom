@@ -26,6 +26,12 @@ const CONNECTED_STATES: ReadonlySet<VoiceSessionState> = new Set([
   'speaking',
 ]);
 
+const ACTIVE_STATES: ReadonlySet<VoiceSessionState> = new Set([
+  'listening',
+  'thinking',
+  'speaking',
+]);
+
 interface VoiceControlProps {
   /**
    * Render the orb inline. The launch shell already shows a hero orb next to
@@ -52,7 +58,7 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   const isPreparing =
     greetingState === 'preparing' && state !== 'idle' && state !== 'error';
   let statusLabel = STATE_LABEL[state];
-  if (isPreparing) {
+  if (isPreparing && !ACTIVE_STATES.has(state)) {
     statusLabel = 'Preparing voice…';
   } else if (greetingState === 'settled' && state === 'connected') {
     statusLabel = 'Listening';
@@ -122,7 +128,7 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
             className="h-1 w-16 max-w-[20vw] shrink-0 overflow-hidden rounded-full bg-ink-2/20"
             role="progressbar"
           >
-            <span className="block h-full w-1/2 animate-pulse rounded-full bg-accent" />
+            <span className="block h-full w-1/2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
           </span>
         )}
       </div>

@@ -223,6 +223,7 @@ export class OpenAIAdapter
   #responseCreateDrainDeferred = false;
   readonly #validatedTurnQueue: string[] = [];
   readonly #settledResponseIds = new Set<string>();
+  readonly #cancelAttemptedResponseIds = new Set<string>();
   #voiceActivity: VoiceSessionState = 'connected';
   #unexpectedEvents: UnexpectedEventTracker = createUnexpectedEventTracker();
   #connectionGeneration = 0;
@@ -495,9 +496,10 @@ export class OpenAIAdapter
   /**
    * Speak the exact configured greeting text once the coordinator hands off.
    * Sends provider history first, then synthesizes and plays WAV bytes without
-   * waiting for any provider acknowledgement. During decode and playback, each
-   * current microphone audio track is disabled (sending silence, not ending the
-   * track) and then restored to its prior value. Never issues `response.create`.
+   * waiting for any provider acknowledgement. During synthesis, decode, and
+   * playback, each current microphone audio track is disabled (sending silence,
+   * not ending the track) and then restored to its prior value. Never issues
+   * `response.create`.
    *
    * Pre-send failures return `not_started`. Once the send call returns,
    * every later outcome settles as `accepted`.
@@ -542,7 +544,8 @@ export class OpenAIAdapter
     this.#abortGreetingPlayback();
     const op = new AbortController();
     this.#greetingOp = op;
-    let microphoneGate: GreetingMicrophoneGate | undefined;
+    const microphoneGate = this.#createGreetingMicrophoneGate(op);
+    for (const { track } of microphoneGate.tracks) track.enabled = false;
     const onCallerAbort = (): void => {
       op.abort();
     };
@@ -566,8 +569,6 @@ export class OpenAIAdapter
       );
       if (synthRace.status === 'aborted') return 'accepted';
       if (op.signal.aborted) return 'accepted';
-      microphoneGate = this.#createGreetingMicrophoneGate(op);
-      for (const { track } of microphoneGate.tracks) track.enabled = false;
       await this.#greetingPlayer.play(synthRace.value, op.signal);
     } catch (error) {
       // Synthesis/decode/playback failure after send — still accepted.
@@ -940,6 +941,7 @@ export class OpenAIAdapter
   #startConnectionGeneration(): void {
     this.#connectionGeneration += 1;
     this.#interruptionLedger.clear();
+    this.#cancelAttemptedResponseIds.clear();
     this.#responseInFlight = undefined;
     this.#toolFollowUpPending = false;
     this.#responseSchedulerFatal = false;
@@ -1032,7 +1034,15 @@ export class OpenAIAdapter
         useful: transcript !== undefined && transcript.trim().length > 0,
       });
     } else if (lifecycleCategory !== undefined) {
-      this.#logger.debug('input lifecycle', { category: lifecycleCategory });
+      this.#logger.debug(
+        'input lifecycle',
+        lifecycleCategory === 'speech_started'
+          ? {
+              category: lifecycleCategory,
+              greetingActive: this.#greetingOp !== undefined,
+            }
+          : { category: lifecycleCategory },
+      );
       if (
         lifecycleCategory === 'speech_started' &&
         previousActivity === 'speaking' &&
@@ -1423,8 +1433,13 @@ export class OpenAIAdapter
     entry: InterruptionLedgerEntry,
     responseId: string,
   ): void {
-    if (entry.responseCancelAttempted) return;
+    if (
+      entry.responseCancelAttempted ||
+      this.#cancelAttemptedResponseIds.has(responseId)
+    )
+      return;
     entry.responseCancelAttempted = true;
+    this.#cancelAttemptedResponseIds.add(responseId);
     this.#logger.debug('input interruption', {
       category: 'interruption-cancel',
       useful: true,
@@ -1438,6 +1453,7 @@ export class OpenAIAdapter
       );
       this.#fulfillClearObligations();
     } catch (error) {
+      this.#cancelAttemptedResponseIds.delete(responseId);
       entry.outputClearPending = false;
       entry.outputClearResponseId = undefined;
       this.#emit({ type: 'error', error });
@@ -1453,6 +1469,10 @@ export class OpenAIAdapter
   #sendStandaloneOutputClear(entry: InterruptionLedgerEntry): void {
     if (entry.standaloneOutputClearAttempted) return;
     entry.standaloneOutputClearAttempted = true;
+    this.#sendOutputClear();
+  }
+
+  #sendOutputClear(): void {
     this.#logger.debug('input interruption', {
       category: 'interruption-clear',
       useful: true,
@@ -1472,6 +1492,7 @@ export class OpenAIAdapter
   #fulfillClearObligations(): void {
     this.#responseCreateDrainBlockDepth += 1;
     try {
+      let shouldClearActiveOutput = false;
       for (const entry of this.#interruptionLedger.values()) {
         if (!entry.outputClearPending) continue;
         if (
@@ -1485,16 +1506,9 @@ export class OpenAIAdapter
         if (this.#outputActivity !== 'active') continue;
         entry.outputClearPending = false;
         entry.outputClearResponseId = undefined;
-        this.#logger.debug('input interruption', {
-          category: 'interruption-clear',
-          useful: true,
-        });
-        try {
-          this.#dc?.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
-        } catch (error) {
-          this.#emit({ type: 'error', error });
-        }
+        shouldClearActiveOutput = true;
       }
+      if (shouldClearActiveOutput) this.#sendOutputClear();
     } finally {
       this.#responseCreateDrainBlockDepth -= 1;
       this.#resumeResponseCreateDrain();

@@ -100,6 +100,7 @@ function createAdapter({
       ? {
           serverVad: {
             threshold: 0.8,
+            bargeInMode: 'transcript-confirmed',
           },
         }
       : {}),

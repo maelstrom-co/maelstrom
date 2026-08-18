@@ -87,13 +87,7 @@ export function createVoiceOrb(useVoice: () => UseVoiceResult) {
         aria-label={live ? 'Stop voice' : 'Start voice'}
         className={className}
         style={style}
-        disabled={state === 'connecting'}
         onClick={() => {
-          // RealtimeSession now guards a disconnect() racing an in-flight
-          // connect() at the source (an epoch check), so this is a UX
-          // affordance rather than the only defense: it just keeps a click
-          // mid-handshake from doing nothing instead of visibly disabling.
-          if (state === 'connecting') return;
           void (live ? disconnect() : connect()).catch(() => {});
         }}
       />

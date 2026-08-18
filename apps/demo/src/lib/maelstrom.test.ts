@@ -166,13 +166,14 @@ describe('demo voice provider wiring', () => {
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 
-  it('keeps hosted OpenAI barge-in immediate while tuning the server VAD threshold', () => {
+  it('requires a useful transcript before hosted OpenAI interrupts output', () => {
     vi.stubEnv('VITE_HOSTED', '1');
     createAdapter('openai');
 
     const options = state.openAIAdapterOptions[0] as OpenAIOptions;
     expect(options.serverVad).toEqual({
       threshold: 0.8,
+      bargeInMode: 'transcript-confirmed',
     });
     expect(options).not.toHaveProperty('vad');
     expect(state.liveKitAdapterOptions).toHaveLength(0);

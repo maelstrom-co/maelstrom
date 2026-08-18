@@ -39,11 +39,14 @@ export function VoiceControl() {
   const canStart = state === 'idle' || state === 'error';
   const hasFailure = operationFailed || error !== undefined;
   const isPreparingGreeting = greetingState === 'preparing';
-  const voiceLabel = isPreparingGreeting
-    ? 'Preparing voice…'
-    : state === 'connected'
-      ? 'Listening'
-      : `Voice: ${state}`;
+  const hasActiveTurn =
+    state === 'listening' || state === 'thinking' || state === 'speaking';
+  const voiceLabel =
+    isPreparingGreeting && !hasActiveTurn
+      ? 'Preparing voice…'
+      : state === 'connected'
+        ? 'Listening'
+        : `Voice: ${state}`;
 
   return (
     <section aria-label="Voice controls">
