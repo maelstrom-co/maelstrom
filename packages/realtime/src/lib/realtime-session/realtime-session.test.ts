@@ -57,6 +57,8 @@ interface MockAdapter extends RealtimeProviderAdapter {
   failNextDisconnect(error: unknown, beforeReject?: () => void): void;
   /** Makes `connect()` block until the returned function is called. */
   gateConnect(): () => void;
+  /** Makes `disconnect()` block until the returned function is called. */
+  gateDisconnect(): () => void;
   emitToolCall(call: {
     callId: string;
     name: string;
@@ -86,6 +88,7 @@ function makeMockAdapter(): MockAdapter {
     | { error: unknown; beforeReject?: () => void }
     | undefined;
   let gate: Promise<void> | undefined;
+  let disconnectGate: Promise<void> | undefined;
   let turnControl: AdapterTurnControl | undefined;
   const lastAudioStreams: AdapterAudioStreams = {};
 
@@ -122,6 +125,13 @@ function makeMockAdapter(): MockAdapter {
       });
       return release;
     },
+    gateDisconnect() {
+      let release!: () => void;
+      disconnectGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
+    },
     connect: async (opts) => {
       connectCalls += 1;
       lastConnectTools = opts.tools;
@@ -136,6 +146,10 @@ function makeMockAdapter(): MockAdapter {
     },
     disconnect: async () => {
       disconnectCalls += 1;
+      if (disconnectGate) {
+        await disconnectGate;
+        disconnectGate = undefined;
+      }
       if (nextDisconnectFailure) {
         const failure = nextDisconnectFailure;
         nextDisconnectFailure = undefined;
@@ -1614,6 +1628,25 @@ describe('RealtimeSession — connection lifecycle', () => {
     expect(instance.settledSubscriberCount).toBe(0);
   });
 
+  it('shares one provider cleanup across concurrent disconnect callers', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    const release = adapter.gateDisconnect();
+
+    const first = session.disconnect();
+    const second = session.disconnect();
+    await flushMicrotasks();
+
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(session.state).toBe('connected');
+
+    release();
+    await Promise.all([first, second]);
+
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(session.state).toBe('idle');
+  });
+
   it('preserves local teardown and rethrows the identical provider disconnect rejection', async () => {
     const adapter = makeGreetingAdapter();
     const instance = makeMockInstance(emptySnapshot);
@@ -1653,6 +1686,23 @@ describe('RealtimeSession — connection lifecycle', () => {
     await flushMicrotasks();
     expect(session.greetingState).toBe('pending');
     expect(instance.acknowledged).toEqual([]);
+  });
+
+  it('shares cleanup with a disconnect re-entered synchronously by the adapter', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    const rejection = new Error('provider disconnect failed');
+    let reentrant: Promise<void> | undefined;
+    adapter.failNextDisconnect(rejection, () => {
+      reentrant = session.disconnect();
+    });
+
+    const first = session.disconnect();
+
+    expect(reentrant).toBe(first);
+    await expect(first).rejects.toBe(rejection);
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(session.state).toBe('idle');
   });
 });
 

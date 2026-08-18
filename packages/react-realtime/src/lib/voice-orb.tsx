@@ -4,6 +4,7 @@ import {
   type ReactElement,
   useEffect,
   useRef,
+  useState,
 } from 'react';
 
 import { createLevelMeter } from './level-meter.js';
@@ -40,6 +41,8 @@ export function createVoiceOrb(useVoice: () => UseVoiceResult) {
   }: VoiceOrbProps): ReactElement {
     const { state, session, connect, disconnect } = useVoice();
     const orbRef = useRef<HTMLButtonElement>(null);
+    const disconnectPendingRef = useRef(false);
+    const [disconnectPending, setDisconnectPending] = useState(false);
 
     useEffect(() => {
       if (state !== 'listening' && state !== 'speaking') return;
@@ -87,8 +90,21 @@ export function createVoiceOrb(useVoice: () => UseVoiceResult) {
         aria-label={live ? 'Stop voice' : 'Start voice'}
         className={className}
         style={style}
+        disabled={disconnectPending}
         onClick={() => {
-          void (live ? disconnect() : connect()).catch(() => {});
+          if (!live) {
+            void connect().catch(() => {});
+            return;
+          }
+          if (disconnectPendingRef.current) return;
+          disconnectPendingRef.current = true;
+          setDisconnectPending(true);
+          void disconnect()
+            .catch(() => {})
+            .finally(() => {
+              disconnectPendingRef.current = false;
+              setDisconnectPending(false);
+            });
         }}
       />
     );

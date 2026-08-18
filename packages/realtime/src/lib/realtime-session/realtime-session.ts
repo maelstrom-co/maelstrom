@@ -209,6 +209,7 @@ export class RealtimeSession implements VoiceSession {
   // clobbered when the handshake resolves and the connect() call resumes
   // into 'connected' with a hot mic and zero consumers.
   #connectEpoch = 0;
+  #disconnectInFlight: Promise<void> | undefined;
   // The connection generation that most recently established a mode. A
   // successful generation with no adapter event uses the automatic fallback;
   // failed or stale generations never clear the previously retained mode.
@@ -401,7 +402,28 @@ export class RealtimeSession implements VoiceSession {
    * `pending` or terminal `settled`, and the public state becomes `idle`.
    * `lastError` is preserved, and any provider rejection is rethrown unchanged.
    */
-  async disconnect(): Promise<void> {
+  disconnect(): Promise<void> {
+    if (this.#disconnectInFlight !== undefined) {
+      return this.#disconnectInFlight;
+    }
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const operation = new Promise<void>((operationResolve, operationReject) => {
+      resolve = operationResolve;
+      reject = operationReject;
+    });
+    this.#disconnectInFlight = operation;
+    void this.#performDisconnect().then(resolve, reject);
+    const clear = (): void => {
+      if (this.#disconnectInFlight === operation) {
+        this.#disconnectInFlight = undefined;
+      }
+    };
+    void operation.then(clear, clear);
+    return operation;
+  }
+
+  async #performDisconnect(): Promise<void> {
     this.#connectEpoch++;
     this.#cleanupConnection();
     try {

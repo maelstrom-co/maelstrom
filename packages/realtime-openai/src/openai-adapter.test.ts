@@ -1507,6 +1507,26 @@ describe('OpenAIAdapter — transcript-confirmed interruption', () => {
     ]);
   });
 
+  it('re-clears late output for a distinct item without cancelling the response twice', async () => {
+    const { channel } = await connectTranscriptConfirmed();
+    channel.receive({
+      type: 'response.created',
+      response: { id: 'response-1' },
+    });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.sent.length = 0;
+
+    channel.receive(usefulDelta);
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.receive({ ...usefulDelta, item_id: 'user-item-2' });
+
+    expect(sentFrames(channel)).toEqual([
+      { type: 'response.cancel', response_id: 'response-1' },
+      { type: 'output_audio_buffer.clear' },
+      { type: 'output_audio_buffer.clear' },
+    ]);
+  });
+
   it('does not let duplicate response.created reset active output attribution', async () => {
     const { channel } = await connectTranscriptConfirmed();
     const created = {
@@ -1824,7 +1844,6 @@ describe('OpenAIAdapter — transcript-confirmed interruption', () => {
     expect(sentFrames(channel)).toEqual([
       { type: 'output_audio_buffer.clear' },
       { type: 'response.cancel', response_id: 'response-1' },
-      { type: 'output_audio_buffer.clear' },
     ]);
   });
 

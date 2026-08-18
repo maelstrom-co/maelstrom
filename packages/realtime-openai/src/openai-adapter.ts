@@ -1250,6 +1250,7 @@ export class OpenAIAdapter
       return;
 
     this.#settledResponseIds.add(responseId);
+    this.#cancelAttemptedResponseIds.delete(responseId);
     this.#responseInFlight = undefined;
     this.#releaseClearObligationForProvenNoOutput(event, responseId);
     if (
@@ -1433,12 +1434,14 @@ export class OpenAIAdapter
     entry: InterruptionLedgerEntry,
     responseId: string,
   ): void {
-    if (
-      entry.responseCancelAttempted ||
-      this.#cancelAttemptedResponseIds.has(responseId)
-    )
-      return;
+    if (entry.responseCancelAttempted) return;
     entry.responseCancelAttempted = true;
+    if (this.#cancelAttemptedResponseIds.has(responseId)) {
+      if (this.#outputActivity === 'active') {
+        this.#sendStandaloneOutputClear(entry);
+      }
+      return;
+    }
     this.#cancelAttemptedResponseIds.add(responseId);
     this.#logger.debug('input interruption', {
       category: 'interruption-cancel',
@@ -1477,9 +1480,16 @@ export class OpenAIAdapter
       category: 'interruption-clear',
       useful: true,
     });
+    const channel = this.#dc;
+    if (channel === undefined) return;
+    const previousOutputActivity = this.#outputActivity;
+    this.#outputActivity = 'cleared';
     try {
-      this.#dc?.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
+      channel.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
     } catch (error) {
+      if (this.#outputActivity === 'cleared') {
+        this.#outputActivity = previousOutputActivity;
+      }
       this.#emit({ type: 'error', error });
     }
   }

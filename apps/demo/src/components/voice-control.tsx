@@ -47,9 +47,9 @@ interface VoiceControlProps {
  * exposes `turnControl`. An active manual turn is ended before a mode change or
  * disconnect hides the control. Automatic-mode degradation shows generic
  * recovery guidance based only on diagnostic presence; the diagnostic itself
- * is never rendered or serialized. A configured greeting replaces live
- * activity labels with indeterminate preparation until it settles, while idle
- * and error states retain connection-status precedence.
+ * is never rendered or serialized. A configured greeting shows indeterminate
+ * preparation until it settles, while idle, error, and active-turn labels keep
+ * precedence over the preparation label.
  */
 export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   const { greetingState, state, turnControl, turnMode, turnModeError } =

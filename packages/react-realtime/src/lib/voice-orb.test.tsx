@@ -19,6 +19,8 @@ class FakeRealtimeSession {
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   #resolveConnect: (() => void) | undefined;
+  #resolveDisconnect: (() => void) | undefined;
+  #holdDisconnect = false;
 
   constructor(readonly options: unknown) {
     FakeRealtimeSession.instances.push(this);
@@ -44,7 +46,22 @@ class FakeRealtimeSession {
 
   async disconnect(): Promise<void> {
     this.disconnectCalls += 1;
+    if (this.#holdDisconnect) {
+      await new Promise<void>((resolve) => {
+        this.#resolveDisconnect = resolve;
+      });
+    }
     this.emitState('idle');
+  }
+
+  holdDisconnect(): void {
+    this.#holdDisconnect = true;
+  }
+
+  resolveDisconnect(): void {
+    this.#holdDisconnect = false;
+    this.#resolveDisconnect?.();
+    this.#resolveDisconnect = undefined;
   }
 
   on(event: 'state' | 'transcript', handler: never): () => void {
@@ -168,12 +185,25 @@ describe('VoiceOrb', () => {
     const session = must(FakeRealtimeSession.instances[0]);
     expect(session.state).toBe('connecting');
     expect(button.dataset.state).toBe('connecting');
+    session.holdDisconnect();
 
     await act(async () => {
       fireEvent.click(button);
     });
 
     expect(session.disconnectCalls).toBe(1);
+    expect(button.disabled).toBe(true);
+    expect(button.dataset.state).toBe('connecting');
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(session.disconnectCalls).toBe(1);
+
+    await act(async () => {
+      session.resolveDisconnect();
+      await Promise.resolve();
+    });
     expect(button.disabled).toBe(false);
     expect(button.dataset.state).toBe('idle');
   });
