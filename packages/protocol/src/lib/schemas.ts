@@ -2,8 +2,18 @@ import { z } from 'zod';
 
 import { ActionName } from './action-name.ts';
 import { InstanceId } from './instance.ts';
+import { MAX_ACTION_PARAMS_JSON_UTF8_BYTES } from './model-output-limits.ts';
 import { VariantName } from './variant-name.ts';
 import { VesselId } from './vessel-id.ts';
+
+const textEncoder = new TextEncoder();
+
+/** Returns whether a string fits within the model-output UTF-8 byte ceiling. */
+function isActionParamsJsonWithinByteLimit(value: string): boolean {
+  return (
+    textEncoder.encode(value).byteLength <= MAX_ACTION_PARAMS_JSON_UTF8_BYTES
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -40,9 +50,12 @@ export const ActionExecutionSchema = z.object({
     .describe('The action name (must be valid for the current variant)'),
   paramsJson: z
     .string()
+    .refine(isActionParamsJsonWithinByteLimit, {
+      message: `paramsJson must be at most ${MAX_ACTION_PARAMS_JSON_UTF8_BYTES} UTF-8 bytes`,
+    })
     .optional()
     .describe(
-      'Optional JSON-encoded parameters for the action. Must be a valid JSON object string like {"orderId":"123"} or omitted if no params needed.',
+      `Optional JSON-encoded parameters for the action, limited to ${MAX_ACTION_PARAMS_JSON_UTF8_BYTES} UTF-8 bytes. Must be a valid JSON object string like {"orderId":"123"} or omitted if no params needed.`,
     ),
 });
 

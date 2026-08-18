@@ -514,7 +514,15 @@ export type AuthorSkippedAction =
       readonly reason: 'params_parse_failed';
       readonly instanceId: string;
       readonly action: string;
-      readonly paramsJson: string;
+    }
+  | {
+      readonly reason: 'params_validation_failed';
+      readonly instanceId: string;
+      readonly action: string;
+      readonly issues: Extract<
+        SkippedAction,
+        { reason: 'params_validation_failed' }
+      >['issues'];
     }
   | {
       readonly reason: 'state_drift';
@@ -570,7 +578,13 @@ export function buildSkippedAction(author: AuthorSkippedAction): SkippedAction {
         reason: author.reason,
         instanceId: InstanceId(author.instanceId),
         action: ActionName(author.action),
-        paramsJson: author.paramsJson,
+      };
+    case 'params_validation_failed':
+      return {
+        reason: author.reason,
+        instanceId: InstanceId(author.instanceId),
+        action: ActionName(author.action),
+        issues: author.issues,
       };
     case 'state_drift':
       return {

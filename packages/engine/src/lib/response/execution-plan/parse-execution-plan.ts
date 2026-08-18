@@ -5,6 +5,7 @@ import type {
 } from '@maelstrom-co/protocol';
 import { isErr } from '@maelstrom-co/protocol';
 
+import type { ActionParameterEnumSnapshot } from '../../action-parameter-enum.js';
 import type { Logger } from '../../logger.js';
 import { parseParams } from './parse-params.js';
 import {
@@ -21,13 +22,19 @@ import type {
 } from './state.js';
 import { createSimulationState } from './state.js';
 import type { RawActionExecution, SkippedAction } from './types.js';
+import {
+  hasInvalidActionParameterDefinitions,
+  validateParams,
+} from './validate-params.js';
 
+/** Parses one Action without mutating simulated Variant state on any failure. */
 function parseSingleAction(
   item: RawActionExecution,
   lookups: ValidationLookups,
   simReader: SimulationState,
   simWriter: SimulationStateWriter,
   skippedActions: SkippedAction[],
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger: Logger,
 ): ActionExecution[] {
   const resolution = resolveAction(item, lookups, simReader);
@@ -38,30 +45,59 @@ function parseSingleAction(
   }
   const resolved = resolution.value;
 
-  if (!item.paramsJson) {
-    const outcome = updateSimulatedVariant(item, resolved, logger, simWriter);
-    if (outcome.kind === 'drift') {
-      skippedActions.push(
-        stateDriftSkipped(item, resolved, outcome.targetVariant),
-      );
-      return [];
-    }
-    return [{ instanceId: item.instanceId, action: item.action }];
+  if (hasInvalidActionParameterDefinitions(resolved.actionDef)) {
+    logger.warn('Invalid Action parameter definitions, skipping action');
+    skippedActions.push({
+      reason: 'invalid_action_definition',
+    });
+    return [];
   }
 
-  const params = parseParams(
-    item.paramsJson,
-    item.action,
-    item.instanceId,
-    logger,
-  );
+  let params: Record<string, unknown> | undefined;
+  if (item.paramsJson !== undefined) {
+    const parsed = parseParams(
+      item.paramsJson,
+      item.action,
+      item.instanceId,
+      logger,
+    );
 
-  if (params === undefined) {
+    if (parsed.kind === 'parse_failed') {
+      skippedActions.push({
+        reason: 'params_parse_failed',
+        instanceId: item.instanceId,
+        action: item.action,
+      });
+      return [];
+    }
+    if (parsed.kind === 'limit') {
+      skippedActions.push({
+        reason: 'params_limits_exceeded',
+        limit: parsed.limit,
+      });
+      return [];
+    }
+    params = parsed.params;
+  }
+
+  const validation = validateParams(resolved.actionDef, params, enumSnapshot);
+  if (validation.kind === 'limit') {
     skippedActions.push({
-      reason: 'params_parse_failed',
+      reason: 'params_limits_exceeded',
+      limit: validation.limit,
+    });
+    return [];
+  }
+  if (validation.kind === 'invalid') {
+    logger.warn(
+      `Invalid params for action "${item.action}" on "${item.instanceId}", skipping action`,
+      { issues: validation.issues },
+    );
+    skippedActions.push({
+      reason: 'params_validation_failed',
       instanceId: item.instanceId,
       action: item.action,
-      paramsJson: item.paramsJson,
+      issues: validation.issues,
     });
     return [];
   }
@@ -73,7 +109,13 @@ function parseSingleAction(
     );
     return [];
   }
-  return [{ instanceId: item.instanceId, action: item.action, params }];
+  return [
+    {
+      instanceId: item.instanceId,
+      action: item.action,
+      ...(params !== undefined ? { params } : {}),
+    },
+  ];
 }
 
 export interface ParsedExecutionPlan {
@@ -81,10 +123,16 @@ export interface ParsedExecutionPlan {
   readonly skippedActions: SkippedAction[];
 }
 
+/**
+ * Parses Actions sequentially against one immutable request enum snapshot.
+ * Rejected Actions, including ambiguous duplicate definitions, leave the
+ * simulated Variant unchanged for every following Action.
+ */
 export function parseExecutionPlan(
   plan: readonly RawActionExecution[],
   instances: readonly VesselInstanceSnapshot[],
   vessels: readonly Vessel[],
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger: Logger,
 ): ParsedExecutionPlan {
   const lookups: ValidationLookups = {
@@ -107,6 +155,7 @@ export function parseExecutionPlan(
       simReader,
       simWriter,
       skippedActions,
+      enumSnapshot,
       logger,
     ),
   );

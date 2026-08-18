@@ -6,10 +6,9 @@ import type {
   VesselAction,
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import {
-  getVisibleInstanceIds,
-  sanitizeControlChars,
-} from '@maelstrom-co/protocol';
+import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
+import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
+import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
@@ -21,14 +20,27 @@ export function buildDefaultUserSections(
   request: ChartRequest,
   logger?: Logger,
 ): readonly PromptSection[] {
+  return buildDefaultUserSectionsWithSnapshot(
+    request,
+    buildActionParameterEnumSnapshot(request.vessels),
+    logger,
+  );
+}
+
+/** @internal Serializes with the exact enum snapshot used for validation. */
+export function buildDefaultUserSectionsWithSnapshot(
+  request: ChartRequest,
+  enumSnapshot: ActionParameterEnumSnapshot,
+  logger?: Logger,
+): readonly PromptSection[] {
   const mode = request.context.layoutMode;
 
   const chartStateContent = (() => {
     switch (mode) {
       case 'grid':
-        return buildGridChartState(request, logger);
+        return buildGridChartStateWithSnapshot(request, enumSnapshot, logger);
       case 'tiling':
-        return buildTilingChartState(request, logger);
+        return buildTilingChartStateWithSnapshot(request, enumSnapshot, logger);
       default: {
         const _exhaustive: never = mode;
         throw new Error(`Unhandled layout mode: ${String(_exhaustive)}`);
@@ -39,7 +51,11 @@ export function buildDefaultUserSections(
   return [
     {
       key: UserSection.VESSELS,
-      content: buildVesselsSection(request.vessels, logger),
+      content: buildVesselsSectionWithSnapshot(
+        request.vessels,
+        enumSnapshot,
+        logger,
+      ),
     },
     { key: UserSection.CHART_STATE, content: chartStateContent },
     {
@@ -53,16 +69,32 @@ export function buildVesselsSection(
   vessels: readonly Vessel[],
   logger?: Logger,
 ): string {
+  return buildVesselsSectionWithSnapshot(
+    vessels,
+    buildActionParameterEnumSnapshot(vessels),
+    logger,
+  );
+}
+
+function buildVesselsSectionWithSnapshot(
+  vessels: readonly Vessel[],
+  enumSnapshot: ActionParameterEnumSnapshot,
+  logger?: Logger,
+): string {
   const lines: string[] = ['## Registered Vessels', ''];
 
   for (const vessel of vessels) {
-    lines.push(serializeVessel(vessel, logger));
+    lines.push(serializeVessel(vessel, enumSnapshot, logger));
   }
 
   return lines.join('\n');
 }
 
-function serializeVessel(vessel: Vessel, logger?: Logger): string {
+function serializeVessel(
+  vessel: Vessel,
+  enumSnapshot: ActionParameterEnumSnapshot,
+  logger?: Logger,
+): string {
   const lines: string[] = [];
   lines.push(`### ${vessel.id} - ${vessel.name}`);
   lines.push(vessel.description);
@@ -76,7 +108,9 @@ function serializeVessel(vessel: Vessel, logger?: Logger): string {
     lines.push(`- ${variantName}${defaultMarker}${variantDesc}`);
 
     if (variant.actions.length > 0) {
-      lines.push(`  Actions: ${formatActions(variant.actions, logger)}`);
+      lines.push(
+        `  Actions: ${formatActions(variant.actions, enumSnapshot, logger)}`,
+      );
     }
   }
 
@@ -84,35 +118,18 @@ function serializeVessel(vessel: Vessel, logger?: Logger): string {
   return lines.join('\n');
 }
 
-// Enum values are free-form, LLM- or voice-transcript-produced strings (task
-// and journal titles), so they can't be trusted to omit the '|' delimiter or
-// a line break. The system prompt asks the model to copy a chosen value
-// straight into a JSON `paramsJson` blob, so the displayed literal has to
-// already be valid JSON: a string renders quoted with proper escaping, and a
-// number or boolean renders bare, matching its declared `type` instead of
-// being silently coerced to a string. `sanitizeControlChars` strips
-// control characters after stringifying, otherwise a value could still
-// spill the "Actions:" line into what would read as a fresh top-level
-// prompt instruction. A value JSON.stringify cannot represent (a cyclic
-// object, a throwing `toJSON`, `undefined`) has no faithful literal at all,
-// so it yields `undefined` and is dropped by the caller: a placeholder like
-// "[object Object]" would read to the model as a genuine, copyable option.
-function serializeEnumValue(value: unknown): string | undefined {
-  let json: string | undefined;
-  try {
-    json = JSON.stringify(value);
-  } catch {
-    json = undefined;
-  }
-  return json === undefined ? undefined : sanitizeControlChars(json);
-}
-
-function serializeAction(action: VesselAction, logger?: Logger): string {
+function serializeAction(
+  action: VesselAction,
+  enumSnapshot: ActionParameterEnumSnapshot,
+  logger?: Logger,
+): string {
   let str: string = action.name;
 
   if (action.parameters && action.parameters.length > 0) {
     const params = action.parameters
-      .map((p: ActionParameter) => serializeParameter(p, action.name, logger))
+      .map((p: ActionParameter) =>
+        serializeParameter(p, action.name, enumSnapshot, logger),
+      )
       .join(', ');
     str += `(${params})`;
   }
@@ -134,19 +151,20 @@ function serializeAction(action: VesselAction, logger?: Logger): string {
 function serializeParameter(
   parameter: ActionParameter,
   actionName: string,
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const values = parameter.enum ?? [];
   if (values.length === 0) return `${parameter.name}: ${parameter.type}`;
 
-  const serialized = values
-    .map(serializeEnumValue)
-    .filter((value): value is string => value !== undefined);
+  const serialized = enumSnapshot
+    .get(parameter)
+    .map((value) => value.serialized);
 
   const dropped = values.length - serialized.length;
   if (dropped > 0) {
     logger?.warn(
-      `Dropped ${dropped} enum value(s) that cannot be rendered as JSON for parameter "${parameter.name}" on action "${actionName}"`,
+      `Dropped ${dropped} enum value(s) that cannot be rendered as JSON matching the declared type for parameter "${parameter.name}" on action "${actionName}"`,
     );
   }
 
@@ -156,9 +174,12 @@ function serializeParameter(
 
 function formatActions(
   actions: readonly VesselAction[],
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
-  return actions.map((action) => serializeAction(action, logger)).join(', ');
+  return actions
+    .map((action) => serializeAction(action, enumSnapshot, logger))
+    .join(', ');
 }
 
 function lookupVesselForInstance(
@@ -177,6 +198,18 @@ function lookupVesselForInstance(
 
 export function buildGridChartState(
   request: ChartRequest,
+  logger?: Logger,
+): string {
+  return buildGridChartStateWithSnapshot(
+    request,
+    buildActionParameterEnumSnapshot(request.vessels),
+    logger,
+  );
+}
+
+function buildGridChartStateWithSnapshot(
+  request: ChartRequest,
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const lines: string[] = [...CHART_STATE_HEADING];
@@ -202,6 +235,7 @@ export function buildGridChartState(
         const actions = serializeInstanceActions(
           instance,
           request.vessels,
+          enumSnapshot,
           logger,
         );
         if (actions) {
@@ -230,6 +264,7 @@ export function buildGridChartState(
 function serializeInstanceActions(
   instance: VesselInstanceSnapshot,
   vessels: readonly Vessel[],
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const vessel = lookupVesselForInstance(instance, vessels, logger);
@@ -243,7 +278,7 @@ function serializeInstanceActions(
     return '';
   }
   if (variant.actions.length > 0) {
-    return `  Actions: ${formatActions(variant.actions, logger)}`;
+    return `  Actions: ${formatActions(variant.actions, enumSnapshot, logger)}`;
   }
   return '';
 }
@@ -257,6 +292,18 @@ function serializeInstanceActions(
  */
 export function buildTilingChartState(
   request: ChartRequest,
+  logger?: Logger,
+): string {
+  return buildTilingChartStateWithSnapshot(
+    request,
+    buildActionParameterEnumSnapshot(request.vessels),
+    logger,
+  );
+}
+
+function buildTilingChartStateWithSnapshot(
+  request: ChartRequest,
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const lines: string[] = [...CHART_STATE_HEADING];
@@ -278,7 +325,14 @@ export function buildTilingChartState(
   if (visible.length > 0) {
     lines.push('Currently Visible:');
     for (const instance of visible) {
-      lines.push(serializeInstanceForTiling(instance, request.vessels, logger));
+      lines.push(
+        serializeInstanceForTiling(
+          instance,
+          request.vessels,
+          enumSnapshot,
+          logger,
+        ),
+      );
     }
   } else {
     lines.push('No vessels currently visible.');
@@ -288,7 +342,14 @@ export function buildTilingChartState(
     lines.push('');
     lines.push('Available (hidden):');
     for (const instance of hidden) {
-      lines.push(serializeInstanceForTiling(instance, request.vessels, logger));
+      lines.push(
+        serializeInstanceForTiling(
+          instance,
+          request.vessels,
+          enumSnapshot,
+          logger,
+        ),
+      );
     }
   }
 
@@ -305,6 +366,7 @@ export function buildTilingChartState(
 function serializeInstanceForTiling(
   instance: VesselInstanceSnapshot,
   vessels: readonly Vessel[],
+  enumSnapshot: ActionParameterEnumSnapshot,
   logger?: Logger,
 ): string {
   const vessel = lookupVesselForInstance(instance, vessels, logger);
@@ -318,7 +380,7 @@ function serializeInstanceForTiling(
   let line = `- ${instance.instanceId} (${instance.vesselId}), variant: ${instance.variant}`;
 
   if (variant && variant.actions.length > 0) {
-    line += `\n  Available: ${formatActions(variant.actions, logger)}`;
+    line += `\n  Available: ${formatActions(variant.actions, enumSnapshot, logger)}`;
   }
 
   return line;

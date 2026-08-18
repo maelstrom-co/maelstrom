@@ -34,7 +34,21 @@ const skip = (reason: SkippedAction['reason']): SkippedAction => {
         validActions: [],
       };
     case 'params_parse_failed':
-      return { reason, instanceId, action, paramsJson: '{x' };
+      return { reason, instanceId, action };
+    case 'params_validation_failed':
+      return {
+        reason,
+        instanceId,
+        action,
+        issues: [{ kind: 'missing_parameter', parameter: 'label' }],
+      };
+    case 'params_limits_exceeded':
+      return {
+        reason,
+        limit: 'traversal_work',
+      };
+    case 'invalid_action_definition':
+      return { reason };
     case 'state_drift':
       return { reason, instanceId, action, vesselId, targetVariant: variant };
     case 'self_transition_noop':
@@ -57,6 +71,9 @@ describe('deriveRetryHint', () => {
       ['variant_not_on_vessel' as const, true],
       ['action_not_valid' as const, true],
       ['params_parse_failed' as const, true],
+      ['params_validation_failed' as const, true],
+      ['params_limits_exceeded' as const, false],
+      ['invalid_action_definition' as const, false],
       ['state_drift' as const, false],
       ['self_transition_noop' as const, false],
     ])('skip reason %p → recommend = %p', (reason, expectedRecommend) => {
@@ -71,6 +88,33 @@ describe('deriveRetryHint', () => {
       });
       expect(hint.recommend).toBe(expectedRecommend);
     });
+  });
+
+  test('does not retry params limit failures', () => {
+    const limitOnly = deriveRetryHint({
+      healedLayoutSize: 1,
+      requestInstanceCount: 1,
+      proposedActionCount: 1,
+      acceptedActionCount: 0,
+      skippedActions: [skip('params_limits_exceeded')],
+      droppedLayoutCount: 0,
+      warningCount: 0,
+    });
+    const mixedWithFixable = deriveRetryHint({
+      healedLayoutSize: 1,
+      requestInstanceCount: 1,
+      proposedActionCount: 2,
+      acceptedActionCount: 0,
+      skippedActions: [
+        skip('params_limits_exceeded'),
+        skip('params_validation_failed'),
+      ],
+      droppedLayoutCount: 0,
+      warningCount: 0,
+    });
+
+    expect(limitOnly).toEqual({ severity: 'medium', recommend: false });
+    expect(mixedWithFixable).toEqual({ severity: 'medium', recommend: true });
   });
 
   // Mixing a non-fixable skip with a fixable one must still recommend retry —

@@ -134,6 +134,122 @@ describe('validateVessel', () => {
     ).toBe(true);
   });
 
+  test('rejects duplicate parameter names at the later exact path', () => {
+    const result = validateVessel({
+      ...validVessel,
+      variants: {
+        month: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            {
+              name: 'select',
+              description: 'Select an event',
+              parameters: [
+                {
+                  name: 'eventId',
+                  type: 'string',
+                  description: 'The event to select',
+                },
+                {
+                  name: 'eventId',
+                  type: 'string',
+                  description: 'The duplicate event identifier',
+                },
+              ],
+            },
+          ],
+        },
+      },
+      defaultVariant: 'month',
+    });
+
+    expect(result.valid).toBe(false);
+    if (result.valid) throw new Error('expected invalid result');
+    expect(
+      result.issues.some(
+        (issue) =>
+          issue.path.join('.') ===
+            'variants.month.actions.0.parameters.1.name' &&
+          /Duplicate parameter name "eventId"/.test(issue.message),
+      ),
+    ).toBe(true);
+  });
+
+  test('allows the same parameter name in different actions', () => {
+    const parameter = {
+      name: 'eventId',
+      type: 'string' as const,
+      description: 'The event identifier',
+    };
+    const result = validateVessel({
+      ...validVessel,
+      variants: {
+        month: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            {
+              name: 'select',
+              description: 'Select an event',
+              parameters: [parameter],
+            },
+            {
+              name: 'remove',
+              description: 'Remove an event',
+              parameters: [parameter],
+            },
+          ],
+        },
+      },
+      defaultVariant: 'month',
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
+  test('accepts 64 enum candidates and rejects 65', () => {
+    const vesselWithEnum = (candidateCount: number) => ({
+      ...validVessel,
+      variants: {
+        month: {
+          props: {},
+          minSize: { width: 4, height: 4 },
+          actions: [
+            {
+              name: 'selectView',
+              description: 'Select a calendar view',
+              parameters: [
+                {
+                  name: 'view',
+                  type: 'string' as const,
+                  description: 'The view to select',
+                  enum: Array.from(
+                    { length: candidateCount },
+                    (_, index) => `view-${index}`,
+                  ),
+                },
+              ],
+            },
+          ],
+        },
+      },
+      defaultVariant: 'month',
+    });
+
+    expect(validateVessel(vesselWithEnum(64)).valid).toBe(true);
+
+    const overLimit = validateVessel(vesselWithEnum(65));
+    expect(overLimit.valid).toBe(false);
+    if (overLimit.valid) throw new Error('expected invalid result');
+    expect(
+      overLimit.issues.some(
+        (issue) =>
+          issue.path.join('.') === 'variants.month.actions.0.parameters.0.enum',
+      ),
+    ).toBe(true);
+  });
+
   test('rejects an action that transitions to a non-existent variant', () => {
     const result = validateVessel({
       ...validVessel,
