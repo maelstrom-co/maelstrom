@@ -42,8 +42,8 @@ export const ChartSizeSchema = z.object({
 /**
  * Parses model-authored Action execution output.
  *
- * IDs and Action names are branded, while optional parameters remain a
- * byte-bounded JSON string for later semantic parsing by the Engine.
+ * IDs and Action names are branded. Optional parameters remain byte-bounded;
+ * JSON syntax and semantic parameters are validated later by the Engine.
  */
 export const ActionExecutionSchema = z.object({
   instanceId: z
@@ -89,8 +89,8 @@ export const GridPositionSchema = z.object({
 /**
  * Parses the model-output grid layout body.
  *
- * The schema validates individual positions but does not enforce overlap,
- * Chart bounds, uniqueness, or Variant minimum sizes; the heal layer does.
+ * The schema validates individual positions but allows overlap. Chart bounds,
+ * uniqueness, and Variant minimum sizes are deferred to the heal layer.
  */
 export const GridLayoutSchema = z.object({
   positions: z

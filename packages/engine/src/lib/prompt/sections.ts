@@ -50,7 +50,7 @@ export const SystemSection = {
   RULES: 'rules',
 } as const;
 
-/** Key of a built-in system prompt section. */
+/** Built-in system key accepted for typed in-place overrides. */
 export type SystemSectionKey =
   (typeof SystemSection)[keyof typeof SystemSection];
 
@@ -65,7 +65,7 @@ export const UserSection = {
   UPDATE_TRIGGERS: 'updateTriggers',
 } as const;
 
-/** Key of a built-in user prompt section. */
+/** Built-in user key accepted for typed in-place overrides. */
 export type UserSectionKey = (typeof UserSection)[keyof typeof UserSection];
 
 // ---------------------------------------------------------------------------
@@ -73,12 +73,12 @@ export type UserSectionKey = (typeof UserSection)[keyof typeof UserSection];
 // arbitrary keys allowed for new sections.
 // ---------------------------------------------------------------------------
 
-/** System-section customizers with built-in-key autocomplete that also allow custom keys. */
+/** Built-in system keys override in place; custom keys append in property order. */
 export type SystemSectionOverrides = {
   [K in SystemSectionKey]?: SectionCustomizer;
 } & { [key: string]: SectionCustomizer | undefined };
 
-/** User-section customizers with built-in-key autocomplete that also allow custom keys. */
+/** Built-in user keys override in place; custom keys append in property order. */
 export type UserSectionOverrides = {
   [K in UserSectionKey]?: SectionCustomizer;
 } & { [key: string]: SectionCustomizer | undefined };

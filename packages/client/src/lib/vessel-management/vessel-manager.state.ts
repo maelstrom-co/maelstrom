@@ -1,8 +1,8 @@
 import type { Vessel, VesselId } from '@maelstrom-co/protocol';
 
-/** Registry state for validated Vessel definitions. */
+/** Registry state whose registrations are validated; caller-supplied initial state is trusted. */
 export type VesselManagerState = {
-  /** Registered Vessels keyed by Vessel identity. */
+  /** Successful registration replaces any Vessel with the same identity. */
   vessels: Map<VesselId, Vessel>;
 };
 

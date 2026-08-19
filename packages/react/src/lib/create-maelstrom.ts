@@ -28,9 +28,15 @@ type AssertNarrowIds<T extends readonly AnyVesselEntry[]> =
 export interface CreateMaelstromConfig<T extends readonly AnyVesselEntry[]> {
   /** Vessel entries available to the Provider and generated hooks. */
   vessels: AssertNarrowIds<T> & T;
-  /** Grid cell size in pixels. */
+  /**
+   * Grid cell size in pixels. Defaults to 80, must be positive, and may be
+   * overridden by the Provider.
+   */
   cellSizePx?: number;
-  /** Pixel gap inset around computed tiling regions. */
+  /**
+   * Pixel gap inset around computed tiling regions. Defaults to 8, must be
+   * non-negative, and may be overridden by the Provider.
+   */
   tilingPaddingPx?: number;
   /** Enables client diagnostic logging. Defaults to `false`. */
   debug?: boolean;

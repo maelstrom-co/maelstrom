@@ -4,21 +4,21 @@ import type {
   TilingLayout,
 } from '@maelstrom-co/protocol';
 
-/** Command that replaces the retained layout before Actions execute. */
+/** Applies a layout and reconciles retained Instances before the next command. */
 export interface SetLayoutCommand {
-  /** Command discriminator. */
+  /** Dispatches to layout reconciliation. */
   kind: 'set_layout';
-  /** Grid or tiling layout to retain and apply. */
+  /** Grid layouts reuse retained metadata; tiling layouts replace it from `instances`. */
   layout: GridLayout | TilingLayout;
 }
 
-/** Command that executes an ordered plan of Actions. */
+/** Executes different Instances concurrently and each Instance's Actions in order. */
 export interface ExecuteActionsCommand {
-  /** Command discriminator. */
+  /** Dispatches to Action execution. */
   kind: 'execute_actions';
-  /** Actions to execute in order. */
+  /** Plan order is preserved only among Actions targeting the same Instance. */
   executionPlan: readonly ActionExecution[];
 }
 
-/** Command accepted by the sequential command processor. */
+/** Queue command discriminated by `kind`; command batches preserve command order. */
 export type Command = SetLayoutCommand | ExecuteActionsCommand;

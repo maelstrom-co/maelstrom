@@ -22,7 +22,7 @@ export type TilingTreeNode = TilingSplitNode | TilingLeafNode;
 
 /** Split node whose children divide the current rectangle into equal regions. */
 export interface TilingSplitNode {
-  /** Node discriminator. */
+  /** Selects recursive equal-region traversal. */
   readonly type: 'split';
   /** `H` divides top/bottom; `V` divides left/right. */
   readonly direction: TilingSplit;
@@ -34,7 +34,7 @@ export interface TilingSplitNode {
 
 /** Leaf node that either names an Instance or reserves empty space. */
 export interface TilingLeafNode {
-  /** Node discriminator. */
+  /** Terminates traversal and allocates the current region. */
   readonly type: 'leaf';
   /** Instance occupying the region, or `null` for an empty region. */
   readonly instanceId: InstanceId | null;
@@ -42,7 +42,7 @@ export interface TilingLeafNode {
 
 /** Renderable tile computed for one Instance. */
 export interface ComputedTile {
-  /** Instance rendered in the tile. */
+  /** Repeated leaves with this identity coalesce into one bounding tile. */
   readonly instanceId: InstanceId;
   /** Padded pixel-space bounds for the Instance. */
   readonly rect: Rect;
@@ -52,7 +52,8 @@ export interface ComputedTile {
  * Parses the first preorder root from a flat tiling tree.
  *
  * Returns `null` for empty input. Malformed input is retained as a partial tree:
- * missing children are omitted and trailing tokens are ignored, with a warning.
+ * missing children are omitted and trailing tokens are ignored. Each malformed
+ * split and any trailing input produces a warning.
  */
 export function parseTilingTree(
   nodes: readonly TilingNode[],

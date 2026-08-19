@@ -11,6 +11,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import ts from 'typescript';
 
+import {
+  discoverPublishablePackages,
+  type PublishablePackageManifest as PackageManifest,
+  type PublishablePackage as PublicPackage,
+} from './package-discovery';
+
 export interface Finding {
   path: string;
   line: number;
@@ -34,19 +40,6 @@ export interface AuditReport {
 export interface PackageAuditInput {
   name: string;
   tarball: string;
-}
-
-interface PublicPackage {
-  directory: string;
-  manifest: PackageManifest;
-}
-
-interface PackageManifest {
-  name: string;
-  private?: boolean;
-  exports?: unknown;
-  dependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
 }
 
 interface ForbiddenRule {
@@ -698,34 +691,6 @@ export async function installPackedConsumer(
   return { errors: errors.sort() };
 }
 
-async function discoverPublicPackages(root: string): Promise<PublicPackage[]> {
-  const packagesRoot = join(root, 'packages');
-  const packages: PublicPackage[] = [];
-  for (const entry of (
-    await readdir(packagesRoot, { withFileTypes: true })
-  ).sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!entry.isDirectory()) continue;
-    const directory = join(packagesRoot, entry.name);
-    try {
-      const manifest = JSON.parse(
-        await readFile(join(directory, 'package.json'), 'utf8'),
-      ) as Partial<PackageManifest>;
-      if (
-        typeof manifest.name === 'string' &&
-        manifest.name.length > 0 &&
-        manifest.private !== true
-      )
-        packages.push({
-          directory,
-          manifest: { ...manifest, name: manifest.name },
-        });
-    } catch {
-      // Directories without a package manifest are not package projects.
-    }
-  }
-  return packages;
-}
-
 async function filesRecursively(
   root: string,
   extensions: string[],
@@ -850,7 +815,9 @@ async function main(): Promise<number> {
     );
     return 2;
   }
-  const discovered = declarations ? await discoverPublicPackages(root) : [];
+  const discovered = declarations
+    ? await discoverPublishablePackages(root)
+    : [];
   const unknownSelectedNames = selectedNames
     ? [...selectedNames]
         .filter(

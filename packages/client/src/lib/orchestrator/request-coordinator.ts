@@ -12,11 +12,15 @@ import type { EventSubscriber } from '../utils/typed-emitter.js';
 import { TypedEmitter } from '../utils/typed-emitter.js';
 import type { RequestCoordinatorOptions } from './request-coordinator.types.js';
 
-/** Observable state for the active request and latest successful response. */
+/** Observable state for the request stream and latest successful response. */
 export interface RequestCoordinatorState {
-  /** Whether a connector request is currently in flight. */
+  /**
+   * Set at each {@link RequestCoordinator.send} start and cleared when that call
+   * settles. Callers must not overlap sends because this flag is not
+   * reference-counted.
+   */
   isProcessing: boolean;
-  /** Latest successful Engine response, or `null` before one is received. */
+  /** Most recently completed successful response; failures retain the prior value. */
   lastResponse: MaelstromResponse | null;
 }
 

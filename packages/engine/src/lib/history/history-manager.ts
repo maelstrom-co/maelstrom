@@ -34,10 +34,12 @@ export interface HistoryConfig<TMeta = unknown> {
    */
   readonly maxEntries?: number;
   /**
-   * Budget for total chars across retained entries — a token proxy. Omit to
-   * disable the char budget entirely. Unlike the strict `maxEntries` cap, a
-   * positive budget retains the newest entry even if it alone exceeds the
-   * budget; a non-positive budget retains no entries.
+   * Budget for total characters in retained LLM-context projections. Omit to
+   * disable it. With {@link createEngine}, this must be a positive integer and
+   * an `assistant_message` whose `content.length` exceeds it is rejected.
+   * Truncation retains the newest entry even if its projection alone exceeds
+   * the budget. Direct {@link createHistoryManager} calls skip those Engine
+   * boundary checks; a non-positive value retains no entries.
    */
   readonly maxChars?: number;
   /**

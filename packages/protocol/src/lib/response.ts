@@ -22,27 +22,27 @@ export interface ActionExecution {
 // Layout types
 // ---------------------------------------------------------------------------
 
-/** Cell position and allocation for one visible Instance in grid mode. */
+/** Grid allocation that resolves an Instance from retained client state. */
 export interface GridPosition {
-  /** Instance placed by this entry. */
+  /** Unknown IDs cannot create grid Instances and are dropped by layout application. */
   readonly instanceId: InstanceId;
-  /** Zero-based Chart cell containing the allocation's top-left corner. */
+  /** Model schemas reject fractions and negatives; Engine healing enforces bounds. */
   readonly position: { readonly row: number; readonly column: number };
-  /** Allocation in Chart cells. */
+  /** Engine healing enforces Chart bounds and the Variant minimum size. */
   readonly size: { readonly width: number; readonly height: number };
 }
 
-/** Grid layout containing explicit positions for visible Instances. */
+/** Cell-based layout reconciled against already-retained Instance metadata. */
 export interface GridLayout {
-  /** Layout discriminator. */
+  /** Must agree with the request's `layoutMode`. */
   readonly type: 'grid';
-  /** Position and allocation for each visible Instance. */
+  /** Only listed, known Instances remain visible after reconciliation. */
   readonly positions: readonly GridPosition[];
 }
 
-/** Instance declaration carried by a tiling layout. */
+/** Retained tiling Instance metadata, whether or not the tree renders it. */
 export interface TilingInstance {
-  /** Instance identity referenced by tiling leaves. */
+  /** Stable retained identity that may be absent from the tree or used by several leaves. */
   readonly instanceId: InstanceId;
   /** Vessel implemented by the Instance. */
   readonly vesselId: VesselId;
@@ -73,13 +73,13 @@ export function isTilingSplit(node: TilingNode): node is TilingSplit {
   return node === 'H' || node === 'V';
 }
 
-/** Tiling layout represented as a preorder binary tree plus Instance declarations. */
+/** Tiling layout with separate tree visibility and retained Instance metadata. */
 export interface TilingLayout {
-  /** Layout discriminator. */
+  /** Must agree with the request's `layoutMode`. */
   readonly type: 'tiling';
-  /** Preorder split, Instance, and empty-space nodes. */
+  /** First preorder root controls visibility; `null` reserves an empty region. */
   readonly tree: readonly TilingNode[];
-  /** Complete Instance set retained after applying the layout. */
+  /** Complete retained set, including Instances hidden by omission from the tree. */
   readonly instances: readonly TilingInstance[];
 }
 
@@ -143,18 +143,18 @@ function collectVisibleTilingLeaves(
 // MaelstromResponse — the engine's output contract
 // ---------------------------------------------------------------------------
 
-/** Engine decision returned for a Chart request. */
+/** Healed Chart decision whose layout is applied before its Action plan. */
 export interface MaelstromResponse {
-  /** Response discriminator. */
+  /** Wire discriminator for a Maelstrom Chart response. */
   readonly type: 'maelstrom_response';
-  /** Input message identity used for request correlation. */
+  /** Echoes the input message ID and matches the enclosing output correlation ID. */
   readonly requestId: MessageId;
-  /** User-facing assistant text. */
+  /** Assistant text intended for display and optional speech output. */
   readonly userMessage: string;
   /** Engine rationale intended for diagnostics rather than user display. */
   readonly rationale: string;
-  /** Ordered Actions to execute after applying the layout. */
+  /** Applied after layout; order is preserved only within each target Instance. */
   readonly executionPlan: readonly ActionExecution[];
-  /** Grid or tiling layout selected for this response. */
+  /** Uses the same mode requested in the Chart context after successful healing. */
   readonly layout: GridLayout | TilingLayout;
 }

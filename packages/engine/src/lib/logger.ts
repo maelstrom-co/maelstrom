@@ -1,10 +1,10 @@
-/** Structured logging contract consumed by the Engine. */
+/** Logger injected into the Engine; implementations may discard individual levels. */
 export interface Logger {
-  /** Records diagnostic detail with optional structured data. */
+  /** Receives potentially high-volume diagnostic events. */
   debug(message: string, data?: Record<string, unknown>): void;
-  /** Records normal lifecycle information with optional structured data. */
+  /** Receives normal lifecycle and retry events. */
   info(message: string, data?: Record<string, unknown>): void;
-  /** Records a recoverable concern with optional structured data. */
+  /** Receives recoverable conditions after which processing continues. */
   warn(message: string, data?: Record<string, unknown>): void;
   /** Records a failure, keeping the error separate from correlation data. */
   error(message: string, error?: unknown, data?: Record<string, unknown>): void;
@@ -19,7 +19,7 @@ const log =
       : console[level](formatted);
   };
 
-/** Console-backed logger that prefixes every message with `[engine]`. */
+/** Prefixes messages with `[engine]` and passes structured values separately. */
 export const consoleLogger: Logger = {
   debug: log('debug'),
   info: log('info'),

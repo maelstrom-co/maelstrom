@@ -26,7 +26,7 @@ export const ActionParameterSchema = z.object({
     .optional(),
 });
 
-/** Parses an Action definition and brands its name and optional target Variant. */
+/** Brands an Action and defers transition-target existence to {@link VesselSchema}. */
 export const VesselActionSchema = z.object({
   name: z.string().min(1, 'Action name is required').transform(ActionName),
   description: z.string().min(1, 'Action description is required'),
@@ -38,7 +38,7 @@ export const VesselActionSchema = z.object({
     .optional(),
 });
 
-/** Parses a Variant's props, minimum Chart size, and available Actions. */
+/** Validates local Variant shape; cross-Action invariants require {@link VesselSchema}. */
 export const VesselVariantSchema = z.object({
   description: z.string().optional(),
   props: z.record(z.string(), z.unknown()),

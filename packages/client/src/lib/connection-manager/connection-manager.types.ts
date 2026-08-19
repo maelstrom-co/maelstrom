@@ -4,7 +4,11 @@ import type { ConnectionManagerState } from './connection-manager.state.js';
 
 /** Retry and circuit-breaker policy for an engine connection. */
 export interface ConnectionOptions {
-  /** Maximum failed retries before the circuit opens. */
+  /**
+   * Maximum connection attempts before the circuit opens. This includes the
+   * initial {@link ConnectionManager.connect} attempt and separately caps
+   * automatic reconnects after a dropped connection.
+   */
   maxRetries: number;
   /** Delay before the first retry, in milliseconds. */
   initialDelayMs: number;

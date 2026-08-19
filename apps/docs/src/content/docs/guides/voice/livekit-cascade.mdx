@@ -60,7 +60,7 @@ Two absences in that picture matter. Audio reaches the room over the top of your
 
 Routing every transcript back through the browser is also what decides when the worker speaks. A successful UI update waits for rendering to settle before the result returns through LiveKit for TTS. Malformed tool arguments and genuine submission failures return immediately, without waiting for render settlement.
 
-One held turn goes: microphone → LiveKit room → worker STT → final transcript → `update_ui` intent → Engine → settled UI → worker TTS. [The voice boundary](/understanding/voice-architecture/) walks each stage.
+One detected turn goes: microphone → LiveKit room → worker STT → final transcript → `update_ui` intent → Engine → settled UI → worker TTS. Automatic mode detects the boundary in the browser; manual mode uses the same path after the user ends the turn. [The voice boundary](/understanding/voice-architecture/) walks each stage.
 
 ## Mint a room grant on your server
 
@@ -490,12 +490,13 @@ It trades away the error surface built above: it discards `connect()` and `disco
 
 ## Verify
 
-Check one complete held turn across all three roles:
+Check one complete automatic turn across all three roles, then repeat in manual fallback:
 
 - **Token route:** an authenticated request passes the configured origin, CSRF, and rate-limit controls; the returned grant validates with `LiveKitTokenGrantSchema` and every response carries `Cache-Control: private, no-store`.
 - **Browser:** after the adapter uses that grant, the shared voice state reaches `connected` without any browser-supplied room or identity becoming authoritative.
-- **Worker:** the separately deployed worker joins the authorized room and publishes one final transcript when the held turn ends.
-- **Lifecycle:** a successful turn progresses through the observable `listening`, `thinking`, and `speaking` states; the final transcript becomes ordinary intent, the intent renders, and TTS follows settle rather than predicting the result. An empty held turn instead produces no final transcript, intent or Engine request, or spoken response, then returns to `connected` after the bounded fallback.
+- **Worker:** the separately deployed worker joins the authorized room and publishes one final transcript when browser VAD ends the turn.
+- **Lifecycle:** a successful automatic turn progresses through the observable `listening`, `thinking`, and `speaking` states; the final transcript becomes ordinary intent, the intent renders, and TTS follows settle rather than predicting the result.
+- **Manual fallback:** reconnect with `vad: false`, confirm `turnControl` appears, and complete one held turn through the same lifecycle. An empty held turn produces no final transcript, intent, Engine request, or spoken response, then returns to `connected` after the bounded fallback.
 
 Unit tests can verify requested options, original-track inspection, and the mute/publish/pause order. They cannot establish mobile acoustics. Before claiming that AEC prevents self-triggering while preserving interruption, run the release protocol in [Validate browser audio processing](/understanding/browser-vad-and-barge-in/#validate-browser-audio-processing), including the LiveKit idle/upstream privacy checks.
 

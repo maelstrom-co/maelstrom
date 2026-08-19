@@ -39,6 +39,29 @@ async function write(path: string, contents: string): Promise<void> {
   await writeFile(path, contents);
 }
 
+async function copyAuditCli(workspace: string): Promise<void> {
+  const [auditSource, discoverySource, workspacePackagesSource] =
+    await Promise.all([
+      readFile(join(import.meta.dir, 'audit.ts'), 'utf8'),
+      readFile(join(import.meta.dir, 'package-discovery.ts'), 'utf8'),
+      readFile(
+        join(import.meta.dir, '../../scripts/lib/workspace-packages.ts'),
+        'utf8',
+      ),
+    ]);
+  await Promise.all([
+    write(join(workspace, 'tools/public-api-docs/audit.ts'), auditSource),
+    write(
+      join(workspace, 'tools/public-api-docs/package-discovery.ts'),
+      discoverySource,
+    ),
+    write(
+      join(workspace, 'scripts/lib/workspace-packages.ts'),
+      workspacePackagesSource,
+    ),
+  ]);
+}
+
 async function emitDeclaration(
   source: string,
 ): Promise<{ declaration: string; root: string }> {
@@ -112,10 +135,7 @@ function runTool(path: string, arguments_: string[]) {
  */
 async function runTypedocAudit(generated: 'missing' | 'empty' | 'valid') {
   const workspace = await temporaryRoot();
-  await write(
-    join(workspace, 'tools/public-api-docs/audit.ts'),
-    await readFile(join(import.meta.dir, 'audit.ts'), 'utf8'),
-  );
+  await copyAuditCli(workspace);
   await symlink(
     join(import.meta.dir, '../../node_modules'),
     join(workspace, 'node_modules'),
@@ -142,9 +162,10 @@ async function runTypedocAudit(generated: 'missing' | 'empty' | 'valid') {
 
 async function createDeclarationAuditWorkspace(): Promise<string> {
   const workspace = await temporaryRoot();
+  await copyAuditCli(workspace);
   await write(
-    join(workspace, 'tools/public-api-docs/audit.ts'),
-    await readFile(join(import.meta.dir, 'audit.ts'), 'utf8'),
+    join(workspace, 'package.json'),
+    JSON.stringify({ private: true, workspaces: ['packages/*'] }),
   );
   await symlink(
     join(import.meta.dir, '../../node_modules'),
@@ -372,10 +393,7 @@ describe('packed package qualification', () => {
       join(packageRoot, 'dist/index.js'),
       'export const portable = true;',
     );
-    await write(
-      join(workspace, 'tools/public-api-docs/audit.ts'),
-      await readFile(join(import.meta.dir, 'audit.ts'), 'utf8'),
-    );
+    await copyAuditCli(workspace);
     await symlink(
       join(import.meta.dir, '../../node_modules'),
       join(workspace, 'node_modules'),
@@ -1008,15 +1026,21 @@ describe('package selection', () => {
     );
   }, 30_000);
 
-  test('the audit CLI rejects a mixed known and unknown package selection', () => {
+  test('both audit CLIs reject the same mixed package selection', () => {
     const selection =
       '--packages=@maelstrom-co/protocol,@maelstrom-co/does-not-exist';
-    const result = runTool('audit.ts', ['--declarations', selection]);
 
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr.toString()).toBe(
-      'Unknown public package selection: @maelstrom-co/does-not-exist.\n',
-    );
+    for (const [path, mode] of [
+      ['audit.ts', '--declarations'],
+      ['strip-internal-comparison.ts', undefined],
+    ] as const) {
+      const result = runTool(path, mode ? [mode, selection] : [selection]);
+
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr.toString()).toBe(
+        'Unknown public package selection: @maelstrom-co/does-not-exist.\n',
+      );
+    }
   }, 30_000);
 
   test('the audit CLI rejects a package filter in TypeDoc-only mode', () => {
@@ -1166,10 +1190,7 @@ test('declaration audit reports missing build output before packing', async () =
       publishConfig: { access: 'public' },
     }),
   );
-  await write(
-    join(workspace, 'tools/public-api-docs/audit.ts'),
-    await readFile(join(import.meta.dir, 'audit.ts'), 'utf8'),
-  );
+  await copyAuditCli(workspace);
   await symlink(
     join(import.meta.dir, '../../node_modules'),
     join(workspace, 'node_modules'),

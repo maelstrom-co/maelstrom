@@ -11,6 +11,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 
+import { discoverPublishablePackages } from './package-discovery';
+
 export type StripInternalStatus =
   | 'identical'
   | 'drift-rejected'
@@ -156,25 +158,10 @@ async function main(): Promise<number> {
   const selected = packageArgument
     ? new Set(packageArgument.slice('--packages='.length).split(','))
     : undefined;
-  const packageDirectories = (
-    await readdir(join(root, 'packages'), { withFileTypes: true })
-  )
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => join(root, 'packages', entry.name))
-    .filter(
-      (directory) =>
-        existsSync(join(directory, 'package.json')) &&
-        existsSync(join(directory, 'tsconfig.lib.json')),
-    )
-    .sort();
-  const publicPackageNames: string[] = [];
-  for (const directory of packageDirectories) {
-    const manifest = JSON.parse(
-      await readFile(join(directory, 'package.json'), 'utf8'),
-    ) as { name: string; publishConfig?: { access?: string } };
-    if (manifest.publishConfig?.access === 'public')
-      publicPackageNames.push(manifest.name);
-  }
+  const packages = (await discoverPublishablePackages(root)).filter(
+    ({ directory }) => existsSync(join(directory, 'tsconfig.lib.json')),
+  );
+  const publicPackageNames = packages.map(({ manifest }) => manifest.name);
   const unknownSelectedNames = selected
     ? [...selected].filter((name) => !publicPackageNames.includes(name)).sort()
     : [];
@@ -187,18 +174,8 @@ async function main(): Promise<number> {
   const workspace = await mkdtemp(join(tmpdir(), 'maelstrom-strip-internal-'));
   try {
     const results: Array<{ package: string; result: StripInternalResult }> = [];
-    for (const directory of packageDirectories) {
-      const manifest = JSON.parse(
-        await readFile(join(directory, 'package.json'), 'utf8'),
-      ) as {
-        name: string;
-        publishConfig?: { access?: string };
-      };
-      if (
-        manifest.publishConfig?.access !== 'public' ||
-        (selected && !selected.has(manifest.name))
-      )
-        continue;
+    for (const { directory, manifest } of packages) {
+      if (selected && !selected.has(manifest.name)) continue;
       const result = await compareStripInternal(
         join(directory, 'tsconfig.lib.json'),
         join(workspace, manifest.name.replaceAll('/', '-')),

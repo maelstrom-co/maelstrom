@@ -34,5 +34,8 @@ export interface AssistantMessageResultOutput extends EngineOutputBase {
   readonly outcome: 'inserted' | 'deduped';
 }
 
-/** Output returned after the Engine handles a supported input message. */
+/**
+ * Successful output discriminated by input: Chart requests produce
+ * `chart_response`; assistant injections produce `assistant_message_result`.
+ */
 export type EngineOutput = ChartResponseOutput | AssistantMessageResultOutput;

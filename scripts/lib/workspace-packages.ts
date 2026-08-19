@@ -7,6 +7,7 @@ export type WorkspacePackage = {
   isPrivate: boolean;
   dir: string;
   manifestPath: string;
+  manifest: Record<string, unknown>;
 };
 
 // Walks the root `workspaces` globs rather than hardcoding `packages/*`, so a
@@ -56,6 +57,7 @@ export function listWorkspacePackages(
           isPrivate: pkg.private === true,
           dir,
           manifestPath,
+          manifest: pkg,
         });
       } catch {
         // Not every directory under a workspace glob is a package.

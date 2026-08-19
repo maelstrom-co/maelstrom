@@ -7,20 +7,23 @@ import type {
 
 import type { VesselInstance } from '../types.js';
 
-/** Lifecycle status of the sequential command processor. */
+/** Processor phase; errors return to `idle` after the queue drains. */
 export type CommandProcessingStatus = 'idle' | 'processing' | 'error';
 
-/** Current command-processing state, including the retained Instances and layout. */
+/** Observable command state; failures preserve the last applied layout and Instances. */
 export type CommandProcessingState = {
-  /** Current processor lifecycle status. */
+  /** Returns to `idle` after the queue drains, including after a command error. */
   status: CommandProcessingStatus;
-  /** Retained Instances keyed by identity. */
+  /** Reconciled by `set_layout`; omitted Instances are removed. */
   instances: Map<InstanceId, VesselInstance>;
-  /** Most recently applied layout, or `null` before one is applied. */
+  /** Last successfully applied layout; Action and failed layout commands leave it unchanged. */
   layout: GridLayout | TilingLayout | null;
-  /** Layout strategy expected by subsequent commands. */
+  /** Initial-state metadata that {@link CommandProcessor} does not read or update. */
   layoutMode: LayoutMode;
-  /** Most recent processing failure, or `null` when none is retained. */
+  /**
+   * Last thrown command error. Individual Action failures emit `action_error`;
+   * this field clears when the next command starts.
+   */
   lastError: Error | null;
 };
 
