@@ -35,7 +35,10 @@ export const MINT_FAILURE_REASONS = [
   'upstream-failure',
 ] as const;
 
-/** @see {@link MINT_FAILURE_REASONS} for what each reason means. */
+/**
+ * Provider-agnostic reason code for a failed token-mint attempt. Derived from
+ * {@link MINT_FAILURE_REASONS}; that list documents the meaning of each code.
+ */
 export type MintFailureReason = (typeof MINT_FAILURE_REASONS)[number];
 
 /**
