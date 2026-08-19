@@ -57,7 +57,7 @@ Measure complete turns rather than trusting one component's benchmark. Latency d
 
 ## One cascade turn
 
-Maelstrom's shipped cascade makes the stages concrete. A turn passes through eight of them, and the interesting part is where the intent stops being audio and starts being text a planner can use. The browser normally detects the turn automatically; manual controls delimit the same flow when detection is disabled or safely degrades.
+Maelstrom's shipped cascade passes through eight stages. The intent stops being audio and becomes text before it reaches the planner. The browser normally detects the turn automatically; manual controls delimit the same flow when detection is disabled or safely degrades.
 
 1. The adapter admits the turn's microphone audio to a LiveKit room.
 2. The Deepgram worker publishes one final transcript for the turn.
