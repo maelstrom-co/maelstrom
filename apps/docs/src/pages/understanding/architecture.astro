@@ -44,7 +44,7 @@ import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagr
     Every update begins with an <code>UpdateReason</code>, and there are three: a
     <code>user_intent</code> (someone asks for something), a
     <code>chart_resize</code> (the available grid changed), or a
-    <code>vessel_mutation</code> (a component changed its own state).
+    <code>vessel_mutation</code> (an Instance changed its active Variant).
     <a href="/understanding/llm-orchestration/"><code>@maelstrom-co/client</code></a>
     batches the pending reasons and builds a <code>ChartRequest</code> — a snapshot
     of the current Vessel instances, the chart's dimensions <em>in grid cells</em>,
@@ -87,14 +87,15 @@ import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagr
   <dl>
     <dt><strong>Vessel</strong></dt>
     <dd>
-      A registered component type — an id, a description, and a set of variants.
+      A registered UI definition — an id, a description, and a set of Variants.
       The LLM reasons about Vessels by their descriptions. See the
       <a href="/understanding/vessel-state-machine/">vessel state machine</a>.
     </dd>
     <dt><strong>Variant</strong></dt>
     <dd>
-      One mode of a Vessel, carrying its props, the actions available in that mode,
-      and a <code>minSize</code> — the smallest number of grid cells it needs.
+      One discrete state of a Vessel, carrying its props, the Actions available in
+      that Variant, and a <code>minSize</code> — the smallest number of grid cells it
+      needs.
     </dd>
     <dt><strong>Action</strong></dt>
     <dd>
@@ -112,7 +113,7 @@ import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagr
   </dl>
 
   <p>
-    <strong>The five packages:</strong> <code>protocol</code> is the contract;
+    <strong>The core pieces:</strong> <code>protocol</code> is the contract;
     <code>client</code> orchestrates and <code>react</code> binds it to React, with
     the <code>demo</code> app consuming them on the browser side; and
     <code>engine</code> runs the decision on the server.

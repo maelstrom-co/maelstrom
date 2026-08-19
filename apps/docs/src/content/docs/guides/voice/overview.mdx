@@ -15,7 +15,7 @@ Maelstrom ships two voice modes. Pick one by deciding where the conversation, th
 
 **Realtime** sends audio straight to a speech-native model. You get lower latency and fewer moving parts, and the provider owns the pipeline.
 
-**Cascade** splits STT and TTS into a worker you operate. You choose the STT model and the TTS voice, and you decide when a turn commits rather than leave that to the provider. You pay for that with higher latency and a worker to run.
+**Cascade** splits STT and TTS into a worker you operate. The shipped worker uses Deepgram and Cartesia, while the browser owns automatic turn detection and manual fallback. You can replace the worker to choose different speech providers, at the cost of a custom integration. Either way, the extra stages add operational work and may add latency.
 
 Whichever you choose, the client — never the voice provider — builds the Chart snapshot the Engine plans from. Read [The voice boundary](/understanding/voice-architecture/) for why that is structural rather than a rule you follow, and for the full comparison of latency, provider control, specialization, operations, observability, and privacy.
 

@@ -111,13 +111,14 @@ Provider catalogues change faster than these docs do — the model ids above
 are illustrative, not recommendations. Check the provider and TanStack AI adapter documentation before pinning a production model. Pick from the provider's own catalogue, then weight the choice along
 three axes:
 
-- **Structured output quality.** The engine asks for JSON validated against
-  the protocol schema. Stronger models heal less often, which trims retries
-  and latency. The bundled retry policy (default `maxRetries: 1`) papers over
-  most slips but is not free.
+- **Structured output quality.** The Engine asks for JSON validated against
+  the protocol schema. Its heal layer is a coherence pass that drops invalid
+  layout or Action entries from an otherwise valid response. Stronger models
+  need that recovery less often, which trims retries and latency. The bundled
+  retry policy (default `maxRetries: 1`) papers over most slips but is not free.
 - **Latency.** The LLM call is the dominant cost of a turn. "Flash" / "mini"
-  tier models trade some accuracy for first-token latency that the heal
-  layer can usually absorb.
+  tier models trade some accuracy for first-token latency; the heal layer can
+  recover from some invalid entries, but it cannot guarantee a useful response.
 - **Cost.** Maelstrom prompts include the vessel/variant catalogue, so input
   tokens scale with how many vessels you register, not how chatty the user
   is.

@@ -55,11 +55,11 @@ A **cascade** splits the turn into stages you assemble: speech-to-text produces 
 
 Measure complete turns rather than trusting one component's benchmark. Latency depends on provider, network, model, turn policy, and your own workload far more than on the mode.
 
-## One held turn
+## One cascade turn
 
-Maelstrom's shipped cascade makes the stages concrete. A held turn passes through eight of them, and the interesting part is where the intent stops being audio and starts being text a planner can use:
+Maelstrom's shipped cascade makes the stages concrete. A turn passes through eight of them, and the interesting part is where the intent stops being audio and starts being text a planner can use. The browser normally detects the turn automatically; manual controls delimit the same flow when detection is disabled or safely degrades.
 
-1. The microphone publishes audio to a LiveKit room.
+1. The adapter admits the turn's microphone audio to a LiveKit room.
 2. The Deepgram worker publishes one final transcript for the turn.
 3. `LiveKitAdapter` converts that transcript into an `update_ui` call carrying only the natural-language intent — the boundary crossing.
 4. `RealtimeSession` submits it to the client, which captures the current Instances, Variants, and chart dimensions.
@@ -97,6 +97,6 @@ Either way the boundary is the same, so the choice is reversible. You are pickin
 
 <CardGrid>
   <LinkCard title="OpenAI Realtime" href="/guides/voice/openai-realtime/" description="Build the realtime mode: a server-minted credential and browser-direct WebRTC." />
-  <LinkCard title="LiveKit cascade" href="/guides/voice/livekit-cascade/" description="Build the cascade: a room grant, a model-free worker, and turn control you own." />
+  <LinkCard title="LiveKit cascade" href="/guides/voice/livekit-cascade/" description="Build the cascade: a room Grant, a model-free worker, and browser-owned turn detection with manual fallback." />
   <LinkCard title="Architecture Overview" href="/understanding/architecture/" description="The client and Engine request loop that both voice modes reuse unchanged." />
 </CardGrid>
