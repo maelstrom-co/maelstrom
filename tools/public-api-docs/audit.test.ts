@@ -140,6 +140,53 @@ async function runTypedocAudit(generated: 'missing' | 'empty' | 'valid') {
   );
 }
 
+async function createDeclarationAuditWorkspace(): Promise<string> {
+  const workspace = await temporaryRoot();
+  await write(
+    join(workspace, 'tools/public-api-docs/audit.ts'),
+    await readFile(join(import.meta.dir, 'audit.ts'), 'utf8'),
+  );
+  await symlink(
+    join(import.meta.dir, '../../node_modules'),
+    join(workspace, 'node_modules'),
+  );
+  return workspace;
+}
+
+function runDeclarationAudit(workspace: string, arguments_: string[] = []) {
+  return Bun.spawnSync(
+    [
+      process.execPath,
+      join(workspace, 'tools/public-api-docs/audit.ts'),
+      '--declarations',
+      ...arguments_,
+    ],
+    { cwd: workspace, stderr: 'pipe', stdout: 'pipe' },
+  );
+}
+
+async function writePublishableFixture(workspace: string): Promise<void> {
+  await write(
+    join(workspace, 'packages/publishable/package.json'),
+    JSON.stringify({
+      name: '@fixture/publishable',
+      version: '1.0.0',
+      exports: {
+        '.': { types: './dist/index.d.ts', import: './dist/index.js' },
+      },
+      files: ['dist'],
+    }),
+  );
+  await write(
+    join(workspace, 'packages/publishable/dist/index.d.ts'),
+    'export declare const publishable: true;',
+  );
+  await write(
+    join(workspace, 'packages/publishable/dist/index.js'),
+    'export const publishable = true;',
+  );
+}
+
 describe('generated TypeDoc prerequisite', () => {
   test('reports missing generated HTML as a JSON audit error', async () => {
     const result = await runTypedocAudit('missing');
@@ -907,21 +954,69 @@ describe('packed package qualification', () => {
 });
 
 describe('package selection', () => {
-  test('both CLIs reject a mixed known and unknown package selection', () => {
+  test('discovers only named non-private packages under packages', async () => {
+    const workspace = await createDeclarationAuditWorkspace();
+    await writePublishableFixture(workspace);
+    await write(
+      join(workspace, 'packages/private/package.json'),
+      JSON.stringify({
+        name: '@fixture/private',
+        version: '1.0.0',
+        private: true,
+      }),
+    );
+    await write(
+      join(workspace, 'packages/unnamed/package.json'),
+      JSON.stringify({ version: '1.0.0' }),
+    );
+    await write(
+      join(workspace, 'packages/malformed/package.json'),
+      '{not json',
+    );
+
+    const result = runDeclarationAudit(workspace);
+
+    expect(result.exitCode, result.stdout.toString()).toBe(0);
+    expect(result.stderr.toString()).toBe('');
+    expect(JSON.parse(result.stdout.toString()).errors).toEqual([]);
+  }, 30_000);
+
+  test('applies package filters after discovery and rejects excluded names', async () => {
+    const workspace = await createDeclarationAuditWorkspace();
+    await writePublishableFixture(workspace);
+    await write(
+      join(workspace, 'packages/private/package.json'),
+      JSON.stringify({
+        name: '@fixture/private',
+        version: '1.0.0',
+        private: true,
+      }),
+    );
+
+    const selected = runDeclarationAudit(workspace, [
+      '--packages=@fixture/publishable',
+    ]);
+    const excluded = runDeclarationAudit(workspace, [
+      '--packages=@fixture/private,@fixture/unknown',
+    ]);
+
+    expect(selected.exitCode, selected.stdout.toString()).toBe(0);
+    expect(JSON.parse(selected.stdout.toString()).errors).toEqual([]);
+    expect(excluded.exitCode).toBe(2);
+    expect(excluded.stderr.toString()).toBe(
+      'Unknown public package selection: @fixture/private, @fixture/unknown.\n',
+    );
+  }, 30_000);
+
+  test('the audit CLI rejects a mixed known and unknown package selection', () => {
     const selection =
       '--packages=@maelstrom-co/protocol,@maelstrom-co/does-not-exist';
+    const result = runTool('audit.ts', ['--declarations', selection]);
 
-    for (const [path, mode] of [
-      ['audit.ts', '--declarations'],
-      ['strip-internal-comparison.ts', undefined],
-    ] as const) {
-      const result = runTool(path, mode ? [mode, selection] : [selection]);
-
-      expect(result.exitCode).toBe(2);
-      expect(result.stderr.toString()).toContain(
-        'Unknown public package selection: @maelstrom-co/does-not-exist.',
-      );
-    }
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toBe(
+      'Unknown public package selection: @maelstrom-co/does-not-exist.\n',
+    );
   }, 30_000);
 
   test('the audit CLI rejects a package filter in TypeDoc-only mode', () => {

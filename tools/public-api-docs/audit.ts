@@ -43,10 +43,10 @@ interface PublicPackage {
 
 interface PackageManifest {
   name: string;
+  private?: boolean;
   exports?: unknown;
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
-  publishConfig?: { access?: string };
 }
 
 interface ForbiddenRule {
@@ -709,9 +709,16 @@ async function discoverPublicPackages(root: string): Promise<PublicPackage[]> {
     try {
       const manifest = JSON.parse(
         await readFile(join(directory, 'package.json'), 'utf8'),
-      ) as PackageManifest;
-      if (manifest.publishConfig?.access === 'public')
-        packages.push({ directory, manifest });
+      ) as Partial<PackageManifest>;
+      if (
+        typeof manifest.name === 'string' &&
+        manifest.name.length > 0 &&
+        manifest.private !== true
+      )
+        packages.push({
+          directory,
+          manifest: { ...manifest, name: manifest.name },
+        });
     } catch {
       // Directories without a package manifest are not package projects.
     }
