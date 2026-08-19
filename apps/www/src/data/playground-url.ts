@@ -40,6 +40,6 @@ export function resolvePlaygroundUrl(
 }
 
 export const PLAYGROUND_URL = resolvePlaygroundUrl(
-  process.env.PUBLIC_PLAYGROUND_URL,
-  process.env.CLOUDFLARE_ENV,
+  import.meta.env.PUBLIC_PLAYGROUND_URL,
+  import.meta.env.CLOUDFLARE_ENV,
 );
