@@ -243,6 +243,30 @@ the replacement session's UI. This shared lifecycle lets custom controls and the
 demo show one compact indeterminate “Preparing voice…” treatment, then
 “Listening”, without creating a second timer or provider-specific state machine.
 
+### Why Skip is terminal
+
+`RealtimeSession.skipGreeting()` is the Phase 1 user-control action. It records
+`skipped` synchronously before aborting local work, does not disconnect the
+provider or change turn mode, and is idempotent. The retained proof survives a
+provider reconnect or session recreation for the same Maelstrom `SessionId`; a
+new `SessionId` starts independently. A completed presentation remains
+`presented` and an Engine-deduped presentation remains `suppressed`; Skip never
+rewrites either terminal reason.
+
+The irreversible-side-effect boundary is explicit. If Skip wins before or while
+waiting for Engine readiness, no acknowledgement, caption, provider item,
+synthesis, or playback begins. An acknowledgement already in flight may settle
+once, but after Skip no caption, provider item, synthesis, or playback begins.
+After Engine insertion or provider handoff, the existing history can remain at
+most once; local work aborts, the exact microphone enabled values are restored,
+and reconnect does not replay the greeting.
+
+Skip is the reliable immediate-control path in this phase. It does not add
+spoken greeting interruption, local VAD, pre-roll, or a real-device acoustic
+claim. Mobile timing, echo removal, VAD accuracy, and first-phoneme preservation
+remain unverified. Diagnostics continue to exclude audio, transcript content,
+streams and tracks, device identity, and complete media settings.
+
 ### OpenAI greeting TTS (demo)
 
 OpenAI retains the exact assistant item in provider conversation

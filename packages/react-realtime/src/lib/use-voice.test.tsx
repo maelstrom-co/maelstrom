@@ -23,16 +23,24 @@ let sessionDisconnectGate: Promise<void> | undefined;
 const nativeQueueMicrotask = globalThis.queueMicrotask;
 
 class FakeGreetingCoordinator {
-  #terminal = false;
+  #reason: 'presented' | 'skipped' | undefined;
+  skipCalls = 0;
 
   getSnapshot() {
-    return {
-      lifecycle: this.#terminal ? ('terminal' as const) : ('pending' as const),
-    };
+    return this.#reason === undefined
+      ? { lifecycle: 'pending' as const }
+      : { lifecycle: 'terminal' as const, reason: this.#reason };
   }
 
   markTerminal(): void {
-    this.#terminal = true;
+    this.#reason = 'presented';
+  }
+
+  skip(): boolean {
+    if (this.#reason !== undefined) return false;
+    this.skipCalls += 1;
+    this.#reason = 'skipped';
+    return true;
   }
 }
 
@@ -62,9 +70,12 @@ class FakeRealtimeSession {
     const coordinator = options.greeting?.coordinator as
       | FakeGreetingCoordinator
       | undefined;
+    const snapshot = coordinator?.getSnapshot();
     this.greetingState = options.greeting
-      ? coordinator?.getSnapshot().lifecycle === 'terminal'
-        ? 'settled'
+      ? snapshot?.lifecycle === 'terminal'
+        ? snapshot.reason === 'skipped'
+          ? 'skipped'
+          : 'settled'
         : 'pending'
       : 'not_configured';
     FakeRealtimeSession.instances.push(this);
@@ -74,6 +85,13 @@ class FakeRealtimeSession {
     this.connectCalls += 1;
     if (sessionConnectGate) await sessionConnectGate;
     this.emitState('connected');
+  }
+
+  skipGreeting(): void {
+    const coordinator = this.options.greeting?.coordinator as
+      | FakeGreetingCoordinator
+      | undefined;
+    if (coordinator?.skip()) this.emitGreetingState('skipped');
   }
 
   async disconnect(): Promise<void> {
@@ -1145,6 +1163,46 @@ describe('maelstromRealtime() greeting option', () => {
     expect(firstCoordinator).toBeDefined();
     expect(secondCoordinator).toBeDefined();
     expect(secondCoordinator).not.toBe(firstCoordinator);
+  });
+
+  it('shares synchronous Skip with simultaneous consumers and retains it across recreation', async () => {
+    const { m, connector } = setup({ greeting: { text: 'Welcome.' } });
+    let first: UseVoiceResult | undefined;
+    let second: UseVoiceResult | undefined;
+    function First() {
+      first = m.useVoice();
+      return null;
+    }
+    function Second() {
+      second = m.useVoice();
+      return null;
+    }
+    const { rerender } = render(
+      <m.Provider connector={connector}>
+        <First />
+        <Second />
+      </m.Provider>,
+    );
+    const session = must(FakeRealtimeSession.instances[0]);
+    const coordinator = session.options.greeting
+      ?.coordinator as FakeGreetingCoordinator;
+
+    await act(async () => {
+      must(first).skipGreeting();
+      must(second).skipGreeting();
+    });
+    expect(must(first).greetingState).toBe('skipped');
+    expect(must(second).greetingState).toBe('skipped');
+    expect(coordinator.skipCalls).toBe(1);
+
+    rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+    await act(async () => Promise.resolve());
+    rerender(
+      <m.Provider connector={connector}>
+        <First />
+      </m.Provider>,
+    );
+    expect(must(first).greetingState).toBe('skipped');
   });
 
   it('omits greeting from session options when not configured', async () => {

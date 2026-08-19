@@ -302,7 +302,7 @@ export class RealtimeSession implements VoiceSession {
    * automatic mode; a failed or stale attempt never synthesizes that fallback
    * and rejects with the adapter failure. An eligible configured greeting moves
    * to `preparing` synchronously before the provider handshake; retained
-   * terminal proof leaves it `settled` and skips greeting work. The connection
+   * terminal proof leaves it `settled` or `skipped` and skips greeting work. The connection
    * generation owns both the greeting and `connecting` notifications: a
    * synchronous disconnect from either notification stops before audio
    * activation, adapter subscription, or provider connect. Audio activation
@@ -334,7 +334,9 @@ export class RealtimeSession implements VoiceSession {
       this.#greetingController = greetingController;
       const snapshot = this.#greeting.coordinator.getSnapshot(this.#sessionId);
       if (snapshot.lifecycle === 'terminal') {
-        this.#setGreetingState('settled');
+        this.#setGreetingState(
+          snapshot.reason === 'skipped' ? 'skipped' : 'settled',
+        );
       } else {
         this.#setGreetingState('preparing');
       }
@@ -389,10 +391,25 @@ export class RealtimeSession implements VoiceSession {
     if (
       this.#greeting &&
       greetingController &&
-      this.#greetingState === 'preparing'
+      this.#greetingState === 'preparing' &&
+      this.#greetingController === greetingController
     ) {
       void this.#runGreetingGeneration(greetingController, epoch);
     }
+  }
+
+  /**
+   * Synchronously and idempotently skip the configured fixed greeting without
+   * disconnecting voice or changing turn mode. The coordinator proof wins
+   * before local work is aborted, so stale async continuations cannot replay
+   * or replace the retained `skipped` state.
+   */
+  skipGreeting(): void {
+    if (!this.#greeting) return;
+    if (!this.#greeting.coordinator.skip(this.#sessionId)) return;
+    this.#greetingController?.abort();
+    this.#greetingController = undefined;
+    this.#setGreetingState('skipped');
   }
 
   /**
@@ -486,14 +503,17 @@ export class RealtimeSession implements VoiceSession {
   /** Derives the constructor-visible state without adopting or running coordinator work. */
   #initialGreetingState(): GreetingState {
     if (!this.#greeting) return 'not_configured';
-    return this.#greeting.coordinator.getSnapshot(this.#sessionId).lifecycle ===
-      'terminal'
-      ? 'settled'
-      : 'pending';
+    const snapshot = this.#greeting.coordinator.getSnapshot(this.#sessionId);
+    if (snapshot.lifecycle === 'pending') return 'pending';
+    return snapshot.reason === 'skipped' ? 'skipped' : 'settled';
   }
 
-  /** Retains the current generation's retryable or settled presentation result. */
+  /** Retains the current generation's retryable or terminal presentation result. */
   #applyGreetingDisposition(disposition: GreetingRunDisposition): void {
+    if (disposition === 'skipped') {
+      this.#setGreetingState('skipped');
+      return;
+    }
     if (disposition === 'aborted') {
       this.#setGreetingState('pending');
       return;
@@ -507,10 +527,14 @@ export class RealtimeSession implements VoiceSession {
   /** Restores retryable or terminal dormant state from durable coordinator proof after any teardown outcome. */
   #resetGreetingAfterConnectionEnd(): void {
     if (!this.#greeting) return;
-    const lifecycle = this.#greeting.coordinator.getSnapshot(
-      this.#sessionId,
-    ).lifecycle;
-    this.#setGreetingState(lifecycle === 'terminal' ? 'settled' : 'pending');
+    const snapshot = this.#greeting.coordinator.getSnapshot(this.#sessionId);
+    this.#setGreetingState(
+      snapshot.lifecycle === 'pending'
+        ? 'pending'
+        : snapshot.reason === 'skipped'
+          ? 'skipped'
+          : 'settled',
+    );
   }
 
   #emitGreetingTranscript(text: string): void {

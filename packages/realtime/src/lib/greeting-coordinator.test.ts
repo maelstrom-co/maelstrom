@@ -897,6 +897,118 @@ describe('GreetingCoordinator', () => {
     expect(captions.filter((c) => c === 'Hi B')).toHaveLength(1);
   });
 
+  it('records Skip synchronously and prevents side effects across every pre-speech race', async () => {
+    const coordinator = new GreetingCoordinator();
+    const fake = makeFakeInstance(false);
+    const adapter = makeFakeAdapter();
+    const controller = new AbortController();
+    const captions: string[] = [];
+    const run = coordinator.run({
+      sessionId: session('skipped'),
+      text: 'Hello',
+      instance: fake.instance,
+      adapter: adapter.adapter,
+      signal: controller.signal,
+      emitTranscript: (text) => captions.push(text),
+    });
+    await flushTasks();
+
+    expect(coordinator.skip(session('skipped'))).toBe(true);
+    expect(coordinator.skip(session('skipped'))).toBe(false);
+    controller.abort();
+    fake.setConnected(true);
+    expect(await run).toBe('skipped');
+    expect(coordinator.getSnapshot(session('skipped'))).toEqual({
+      lifecycle: 'terminal',
+      reason: 'skipped',
+    });
+    expect(fake.ackCalls).toEqual([]);
+    expect(captions).toEqual([]);
+    expect(adapter.speakCalls).toEqual([]);
+  });
+
+  it('does not rewrite presented or suppressed terminal proof with Skip and resets it for a new session', async () => {
+    const coordinator = new GreetingCoordinator();
+    const fake = makeFakeInstance();
+    const adapter = makeFakeAdapter();
+    const context = (sessionId: SessionId) => ({
+      sessionId,
+      text: 'Hello',
+      instance: fake.instance,
+      adapter: adapter.adapter,
+      signal: new AbortController().signal,
+      emitTranscript: () => {},
+    });
+    await coordinator.run(context(session('presented')));
+    expect(coordinator.skip(session('presented'))).toBe(false);
+    fake.setAck('deduped');
+    await coordinator.run(context(session('suppressed')));
+    expect(coordinator.skip(session('suppressed'))).toBe(false);
+    expect(coordinator.skip(session('fresh'))).toBe(true);
+    expect(coordinator.getSnapshot(session('fresh'))).toEqual({
+      lifecycle: 'terminal',
+      reason: 'skipped',
+    });
+  });
+
+  it('keeps the inserted history but skips before caption when Skip wins after acknowledgement', async () => {
+    const coordinator = new GreetingCoordinator();
+    const fake = makeFakeInstance();
+    const adapter = makeFakeAdapter();
+    fake.setAck(async () => {
+      coordinator.skip(session('after-ack'));
+      return 'inserted';
+    });
+    const captions: string[] = [];
+
+    expect(
+      await coordinator.run({
+        sessionId: session('after-ack'),
+        text: 'Hello',
+        instance: fake.instance,
+        adapter: adapter.adapter,
+        signal: new AbortController().signal,
+        emitTranscript: (text) => captions.push(text),
+      }),
+    ).toBe('skipped');
+    expect(fake.ackCalls).toHaveLength(1);
+    expect(captions).toEqual([]);
+    expect(adapter.speakCalls).toEqual([]);
+  });
+
+  it('skips an active provider handoff without allowing a later completion to rewrite proof', async () => {
+    const coordinator = new GreetingCoordinator();
+    const fake = makeFakeInstance();
+    const adapter = makeFakeAdapter();
+    let release!: (result: GreetingSpeechResult) => void;
+    adapter.setSpeak(
+      () =>
+        new Promise<GreetingSpeechResult>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const run = coordinator.run({
+      sessionId: session('active-speech'),
+      text: 'Hello',
+      instance: fake.instance,
+      adapter: adapter.adapter,
+      signal: controller.signal,
+      emitTranscript: () => {},
+    });
+    await flushTasks();
+    expect(adapter.speakCalls).toHaveLength(1);
+
+    expect(coordinator.skip(session('active-speech'))).toBe(true);
+    controller.abort();
+    release('accepted');
+    expect(await run).toBe('skipped');
+    expect(coordinator.getSnapshot(session('active-speech'))).toEqual({
+      lifecycle: 'terminal',
+      reason: 'skipped',
+    });
+  });
+
   describe('lifecycle dispositions and snapshots', () => {
     function lifecycle(coordinator: GreetingCoordinator, id: SessionId) {
       return coordinator.getSnapshot(id);
@@ -922,6 +1034,7 @@ describe('GreetingCoordinator', () => {
       expect(await coordinator.run(context)).toBe('accepted');
       expect(lifecycle(coordinator, sessionId)).toEqual({
         lifecycle: 'terminal',
+        reason: 'presented',
       });
       expect(await coordinator.run(context)).toBe('already_terminal');
     });
@@ -934,6 +1047,7 @@ describe('GreetingCoordinator', () => {
             fake.setAck('deduped'),
           expected: 'suppressed',
           lifecycle: 'terminal',
+          reason: 'suppressed',
         },
         {
           name: 'not-started',
@@ -941,6 +1055,7 @@ describe('GreetingCoordinator', () => {
             adapter.setSpeak('not_started'),
           expected: 'not_started',
           lifecycle: 'pending',
+          reason: undefined,
         },
         {
           name: 'failed',
@@ -948,6 +1063,7 @@ describe('GreetingCoordinator', () => {
             fake.setAck(new Error('engine failed')),
           expected: 'failed',
           lifecycle: 'pending',
+          reason: undefined,
         },
       ] as const;
 
@@ -966,9 +1082,11 @@ describe('GreetingCoordinator', () => {
           emitTranscript: () => {},
         });
         expect(result).toBe(testCase.expected);
-        expect(lifecycle(coordinator, sessionId)).toEqual({
-          lifecycle: testCase.lifecycle,
-        });
+        expect(lifecycle(coordinator, sessionId)).toEqual(
+          testCase.lifecycle === 'terminal'
+            ? { lifecycle: 'terminal', reason: testCase.reason }
+            : { lifecycle: 'pending' },
+        );
       }
 
       const coordinator = new GreetingCoordinator();
@@ -1019,6 +1137,7 @@ describe('GreetingCoordinator', () => {
       expect(await runB).toBe('accepted');
       expect(lifecycle(coordinator, session('stale-b'))).toEqual({
         lifecycle: 'terminal',
+        reason: 'presented',
       });
     });
   });

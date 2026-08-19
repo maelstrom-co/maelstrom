@@ -52,15 +52,24 @@ interface VoiceControlProps {
  * precedence over the preparation label.
  */
 export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
-  const { greetingState, state, turnControl, turnMode, turnModeError } =
-    m.useVoice();
+  const {
+    greetingState,
+    state,
+    turnControl,
+    turnMode,
+    turnModeError,
+    skipGreeting,
+  } = m.useVoice();
   const isConnected = CONNECTED_STATES.has(state);
   const isPreparing =
     greetingState === 'preparing' && state !== 'idle' && state !== 'error';
   let statusLabel = STATE_LABEL[state];
   if (isPreparing && !ACTIVE_STATES.has(state)) {
     statusLabel = 'Preparing voice…';
-  } else if (greetingState === 'settled' && state === 'connected') {
+  } else if (
+    (greetingState === 'settled' || greetingState === 'skipped') &&
+    state === 'connected'
+  ) {
     statusLabel = 'Listening';
   }
   // Keep input handlers independent from the latest rendered session state.
@@ -132,6 +141,15 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
           </span>
         )}
       </div>
+      {isPreparing && (
+        <button
+          type="button"
+          onClick={skipGreeting}
+          className="status-pill min-h-11 shrink-0 whitespace-nowrap rounded-full px-3 py-2 font-mono text-xs uppercase tracking-[.1em] text-ink-2 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          Skip greeting
+        </button>
+      )}
       {turnMode === 'manual' && turnControl && turnModeError !== undefined && (
         <span className="min-w-0 text-xs text-amber-300">
           Automatic voice detection unavailable; hold to talk.

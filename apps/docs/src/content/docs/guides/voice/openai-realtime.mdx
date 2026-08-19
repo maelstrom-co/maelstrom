@@ -210,6 +210,7 @@ export function VoiceControl() {
     assistantTranscript,
     connect,
     disconnect,
+    skipGreeting,
   } = m.useVoice();
   const [operationFailed, setOperationFailed] = useState(false);
   const canStart = state === 'idle' || state === 'error';
@@ -222,6 +223,8 @@ export function VoiceControl() {
     : state === 'connected'
       ? 'Listening'
       : `Voice: ${state}`;
+  const canSkipGreeting =
+    greetingState === 'preparing' && state !== 'idle' && state !== 'error';
 
   return (
     <section aria-label="Voice controls">
@@ -241,6 +244,11 @@ export function VoiceControl() {
         {canStart ? 'Start voice' : 'Stop voice'}
       </button>
       <p>{voiceLabel}</p>
+      {canSkipGreeting && (
+        <button type="button" onClick={skipGreeting}>
+          Skip greeting
+        </button>
+      )}
       {isPreparingGreeting && <progress aria-label="Preparing voice" />}
       {userTranscript && <p>You: {userTranscript.text}</p>}
       {assistantTranscript && <p>Assistant: {assistantTranscript.text}</p>}
@@ -260,6 +268,10 @@ export function VoiceControl() {
 The session accumulates non-final transcript fragments and replaces them with the final entry. The control starts from `idle` or `error`; at every other point it remains a Stop voice control, including while a greeting is preparing, so the user can cancel a connection or an indefinite wait for Engine readiness.
 
 `greetingState` belongs to the shared session rather than this component. When a fixed greeting is configured, `preparing` begins before the provider handshake and covers the Engine wait, caption, and speech attempt. The compact `<progress>` is indeterminate because the Engine wait has no deadline or meaningful percentage. Listening, thinking, and speaking labels take precedence when real voice activity overlaps preparation. `settled` changes an otherwise connected label to `Listening`, but it means only that greeting presentation has ended—not that speech succeeded or that the provider is currently producing audio. A retryable disconnect can return the lifecycle to `pending`; terminal proof remains `settled` if the shared provider session is recreated. A stale connection attempt cannot update the replacement session's lifecycle.
+
+Call `skipGreeting()` while `greetingState` is `preparing` to give the user immediate control. It is synchronous, shared by every `useVoice()` consumer, idempotent, and does not disconnect voice. A winning call sets the terminal `skipped` state, which survives reconnecting or recreating the provider session for the same Maelstrom session; a fresh session may greet normally. Skip is the reliable user-control path in this phase. If it wins before or during the Engine wait, no acknowledgement, caption, provider item, synthesis, or playback starts. An acknowledgement or provider send already in flight can settle once, but no later irreversible side effect starts; after provider handoff, local work aborts and microphone state is restored without replaying history.
+
+This phase does not support spoken interruption during the gated OpenAI greeting. It does not prove mobile timing, echo removal, VAD accuracy, or first-phoneme preservation on real devices.
 
 Two failure channels reach this component. A failed `connect()` rejects *and* moves the session to `error`, so the same failure can arrive twice — deduplicate before reporting. A rejected `disconnect()` only rejects; it never becomes a session error, which is why `operationFailed` exists rather than an empty catch that would hide a failed cleanup.
 

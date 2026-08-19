@@ -34,6 +34,7 @@ export function VoiceControl() {
     assistantTranscript,
     connect,
     disconnect,
+    skipGreeting,
   } = m.useVoice();
   const [operationFailed, setOperationFailed] = useState(false);
   const canStart = state === 'idle' || state === 'error';
@@ -47,6 +48,8 @@ export function VoiceControl() {
       : state === 'connected'
         ? 'Listening'
         : `Voice: ${state}`;
+  const canSkipGreeting =
+    greetingState === 'preparing' && state !== 'idle' && state !== 'error';
 
   return (
     <section aria-label="Voice controls">
@@ -66,6 +69,11 @@ export function VoiceControl() {
         {canStart ? 'Start voice' : 'Stop voice'}
       </button>
       <p>{voiceLabel}</p>
+      {canSkipGreeting && (
+        <button type="button" onClick={skipGreeting}>
+          Skip greeting
+        </button>
+      )}
       {isPreparingGreeting && <progress aria-label="Preparing voice" />}
       {userTranscript && <p>You: {userTranscript.text}</p>}
       {assistantTranscript && <p>Assistant: {assistantTranscript.text}</p>}

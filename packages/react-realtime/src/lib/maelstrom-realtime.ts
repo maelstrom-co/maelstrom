@@ -76,9 +76,10 @@ export interface UseVoiceResult {
    *
    * `pending` is retryable; `preparing` starts before the provider handshake and
    * can wait indefinitely for Engine readiness; `settled` ends presentation
-   * without implying provider activity or speech success; and `not_configured`
-   * means that no greeting exists. Retained terminal proof survives shared
-   * session recreation, and stale connection generations cannot update it.
+   * without implying provider activity or speech success; `skipped` is the
+   * terminal explicit user choice; and `not_configured` means that no greeting
+   * exists. Retained terminal proof survives shared session recreation, and
+   * stale connection generations cannot update it.
    */
   readonly greetingState: GreetingState;
   /** Failure behind the current `error` state, if any. */
@@ -120,6 +121,11 @@ export interface UseVoiceResult {
    * swallowed, so cleanup failures stay visible and can be retried.
    */
   readonly disconnect: () => Promise<void>;
+  /**
+   * Synchronously skip the shared configured greeting. This is idempotent,
+   * shared by every hook consumer, and never disconnects voice.
+   */
+  readonly skipGreeting: () => void;
 }
 
 function createBridge(orchestrator: Orchestrator): RealtimeInstance {
@@ -279,6 +285,7 @@ export function maelstromRealtime(
 
       const connect = useCallback(() => session.connect(), [session]);
       const disconnect = useCallback(() => session.disconnect(), [session]);
+      const skipGreeting = useCallback(() => session.skipGreeting(), [session]);
 
       return {
         state,
@@ -292,6 +299,7 @@ export function maelstromRealtime(
         turnModeError: turnPolicy.error,
         connect,
         disconnect,
+        skipGreeting,
       };
     };
 

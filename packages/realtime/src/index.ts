@@ -18,6 +18,7 @@ export type {
   GreetingCoordinatorLifecycle,
   GreetingCoordinatorSnapshot,
   GreetingRunContext,
+  GreetingTerminalReason,
 } from './lib/greeting-coordinator.js';
 export { GreetingCoordinator } from './lib/greeting-coordinator.js';
 export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';

@@ -30,6 +30,7 @@ import type {
 } from './provider-adapter.types.js';
 import { RealtimeSession } from './realtime-session.js';
 import type {
+  GreetingState,
   RealtimeInstance,
   SubmitIntentResult,
 } from './realtime-session.types.js';
@@ -2253,6 +2254,28 @@ describe('RealtimeSession — greeting lifecycle', () => {
     expect(instance.acknowledged).toEqual([]);
   });
 
+  it('skips during the Engine-readiness wait without starting later greeting work', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    instance.emitEngineConnected(false);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+
+    await session.connect();
+    expect(session.greetingState).toBe('preparing');
+    session.skipGreeting();
+    expect(session.greetingState).toBe('skipped');
+
+    instance.emitEngineConnected(true);
+    await flushMicrotasks();
+    expect(instance.acknowledged).toEqual([]);
+    expect(adapter.speakCalls).toEqual([]);
+  });
+
   it('disconnect makes a pending Engine wait retryable and late readiness cannot settle the stale generation', async () => {
     const adapter = makeGreetingAdapter();
     const instance = makeMockInstance(emptySnapshot);
@@ -2276,6 +2299,199 @@ describe('RealtimeSession — greeting lifecycle', () => {
 
     await session.connect();
     expect(session.greetingState).toBe('preparing');
+  });
+
+  it('skips synchronously before a gated provider handshake and retains the terminal state across reconnect and recreation', async () => {
+    const coordinator = new GreetingCoordinator();
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const release = adapter.gateConnect();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator },
+    });
+    const states: GreetingState[] = [];
+    session.on('greeting_state', (state) => states.push(state));
+
+    const connecting = session.connect();
+    session.skipGreeting();
+    session.skipGreeting();
+    expect(session.greetingState).toBe('skipped');
+    release();
+    await connecting;
+    await flushMicrotasks();
+    expect(states.filter((state) => state === 'skipped')).toHaveLength(1);
+    expect(instance.acknowledged).toEqual([]);
+    expect(adapter.speakCalls).toEqual([]);
+    expect(adapter.disconnectCalls).toBe(0);
+
+    await session.disconnect();
+    expect(session.greetingState).toBe('skipped');
+    await session.connect();
+    await flushMicrotasks();
+    expect(instance.acknowledged).toEqual([]);
+
+    const recreated = new RealtimeSession({
+      adapter: makeGreetingAdapter(),
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator },
+    });
+    expect(recreated.greetingState).toBe('skipped');
+  });
+
+  it('retains Skip when it races a fatal adapter error and late Engine readiness', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    instance.emitEngineConnected(false);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+
+    await session.connect();
+    session.skipGreeting();
+    const fatal = new RealtimeVoiceError(
+      'CONNECTION_FAILED',
+      'connection failed after Skip',
+    );
+    adapter.emitError(fatal);
+    instance.emitEngineConnected(true);
+    await flushMicrotasks();
+
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBe(fatal);
+    expect(session.greetingState).toBe('skipped');
+    expect(instance.acknowledged).toEqual([]);
+    expect(adapter.speakCalls).toEqual([]);
+  });
+
+  it('skips during engine acknowledgement without starting caption or speech', async () => {
+    const coordinator = new GreetingCoordinator();
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const release = instance.gateAck();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator },
+    });
+    await session.connect();
+    await flushMicrotasks();
+    session.skipGreeting();
+    release();
+    await flushMicrotasks();
+
+    expect(session.greetingState).toBe('skipped');
+    expect(adapter.speakCalls).toEqual([]);
+  });
+
+  it('skips active speech once, aborts its generation, and preserves skipped across disconnect rejection', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    let releaseSpeak!: (result: GreetingSpeechResult) => void;
+    adapter.setSpeakResult(
+      () =>
+        new Promise<GreetingSpeechResult>((resolve) => {
+          releaseSpeak = resolve;
+        }),
+    );
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    const states: GreetingState[] = [];
+    session.on('greeting_state', (state) => states.push(state));
+    await session.connect();
+    await flushMicrotasks();
+    const signal = adapter.speakCalls[0]?.signal;
+
+    session.skipGreeting();
+    session.skipGreeting();
+    expect(signal?.aborted).toBe(true);
+    expect(session.greetingState).toBe('skipped');
+    expect(states.filter((state) => state === 'skipped')).toHaveLength(1);
+    adapter.failNextDisconnect(new Error('disconnect failed'));
+    await expect(session.disconnect()).rejects.toThrow('disconnect failed');
+    expect(session.greetingState).toBe('skipped');
+    releaseSpeak('accepted');
+    await flushMicrotasks();
+    expect(session.greetingState).toBe('skipped');
+  });
+
+  it('does nothing when unconfigured and cannot rewrite accepted or suppressed terminal proof', async () => {
+    const plain = makeMockAdapter();
+    const unconfigured = new RealtimeSession({
+      adapter: plain,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+    });
+    unconfigured.skipGreeting();
+    expect(unconfigured.greetingState).toBe('not_configured');
+    expect(plain.disconnectCalls).toBe(0);
+
+    const presentedCoordinator = new GreetingCoordinator();
+    const presented = new RealtimeSession({
+      adapter: makeGreetingAdapter(),
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator: presentedCoordinator },
+    });
+    await presented.connect();
+    await flushMicrotasks();
+    presented.skipGreeting();
+    expect(presented.greetingState).toBe('settled');
+
+    const suppressedAdapter = makeGreetingAdapter();
+    const suppressedInstance = makeMockInstance(emptySnapshot);
+    suppressedInstance.setAckResult('deduped');
+    const suppressed = new RealtimeSession({
+      adapter: suppressedAdapter,
+      instance: suppressedInstance,
+      sessionId: SessionId('suppressed-skip'),
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    await suppressed.connect();
+    await flushMicrotasks();
+    suppressed.skipGreeting();
+    expect(suppressed.greetingState).toBe('settled');
+  });
+
+  it('allows a fresh session ID to greet normally after Skip', async () => {
+    const coordinator = new GreetingCoordinator();
+    const skipped = new RealtimeSession({
+      adapter: makeGreetingAdapter(),
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      greeting: { text: 'Hello.', coordinator },
+    });
+    skipped.skipGreeting();
+    expect(skipped.greetingState).toBe('skipped');
+
+    const freshId = SessionId('fresh-after-skip');
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const fresh = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: freshId,
+      greeting: { text: 'Hello.', coordinator },
+    });
+    await fresh.connect();
+    await flushMicrotasks();
+
+    expect(fresh.greetingState).toBe('settled');
+    expect(instance.acknowledged).toEqual([
+      { id: coordinator.greetingIdFor(freshId), message: 'Hello.' },
+    ]);
+    expect(adapter.speakCalls).toHaveLength(1);
   });
 
   it('settles accepted greetings and initializes a recreated session synchronously from terminal proof', async () => {

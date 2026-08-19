@@ -50,6 +50,7 @@ function makeVoiceResult(
   turnMode: 'automatic' | 'manual' = 'manual',
   turnModeError: unknown = undefined,
   greetingState: GreetingState = 'not_configured',
+  skipGreeting: () => void = () => {},
 ): UseVoiceResult {
   return {
     state,
@@ -63,6 +64,7 @@ function makeVoiceResult(
     greetingState,
     connect: async () => {},
     disconnect: async () => {},
+    skipGreeting,
   } as UseVoiceResult;
 }
 
@@ -80,6 +82,133 @@ function getHoldButton(container: HTMLElement): HTMLButtonElement {
 
 afterEach(() => {
   cleanup();
+});
+
+describe('VoiceControl greeting Skip action', () => {
+  it('renders one native Skip greeting button only while actively preparing and activates it once per click', async () => {
+    let skips = 0;
+    voiceResult = makeVoiceResult(
+      'connected',
+      undefined,
+      'automatic',
+      undefined,
+      'preparing',
+      () => {
+        skips += 1;
+      },
+    );
+    const { getAllByRole, queryAllByRole, rerender } = render(<VoiceControl />);
+    const button = getAllByRole('button', {
+      name: 'Skip greeting',
+    })[0]! as HTMLButtonElement;
+    expect(button.type).toBe('button');
+    expect(button.className).toContain('min-h-11');
+    await act(async () => fireEvent.click(button));
+    await act(async () => fireEvent.click(button));
+    expect(skips).toBe(2);
+
+    voiceResult = makeVoiceResult(
+      'connected',
+      undefined,
+      'automatic',
+      undefined,
+      'skipped',
+    );
+    rerender(<VoiceControl />);
+    expect(queryAllByRole('button', { name: 'Skip greeting' })).toHaveLength(0);
+  });
+
+  it('activates the native Skip button through Enter and Space keyboard clicks', async () => {
+    let skips = 0;
+    voiceResult = makeVoiceResult(
+      'connected',
+      undefined,
+      'automatic',
+      undefined,
+      'preparing',
+      () => {
+        skips += 1;
+      },
+    );
+    const { getByRole } = render(<VoiceControl />);
+    const button = getByRole('button', {
+      name: 'Skip greeting',
+    }) as HTMLButtonElement;
+
+    // Browsers dispatch click for these native button keyboard activations;
+    // exercise both key sequences and their resulting click without requiring
+    // a custom keyboard handler in the component.
+    await act(async () => {
+      fireEvent.keyDown(button, { key: 'Enter' });
+      fireEvent.keyUp(button, { key: 'Enter' });
+      fireEvent.click(button);
+      fireEvent.keyDown(button, { key: ' ' });
+      fireEvent.keyUp(button, { key: ' ' });
+      fireEvent.click(button);
+    });
+
+    expect(skips).toBe(2);
+  });
+
+  it('keeps Skip outside the sole polite live region with keyboard-ready native button styling', () => {
+    voiceResult = makeVoiceResult(
+      'connected',
+      undefined,
+      'automatic',
+      undefined,
+      'preparing',
+    );
+    const { getByRole, getByText, getAllByRole, container } = render(
+      <VoiceControl />,
+    );
+    const button = getByRole('button', {
+      name: 'Skip greeting',
+    }) as HTMLButtonElement;
+    const status = getByRole('status');
+    expect(getAllByRole('status')).toHaveLength(1);
+    expect(status.contains(button)).toBe(false);
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(button.className).toContain('focus-visible:');
+    expect(button.className).toContain('whitespace-nowrap');
+    expect(container.firstElementChild?.className).toContain('flex-wrap');
+    expect(getByText('Skip greeting')).toBe(button);
+  });
+
+  it.each([
+    'idle',
+    'error',
+  ] as const)('does not render Skip greeting while voice is %s', (state) => {
+    voiceResult = makeVoiceResult(
+      state,
+      undefined,
+      'automatic',
+      undefined,
+      'preparing',
+    );
+    const { queryByRole } = render(<VoiceControl />);
+    expect(queryByRole('button', { name: 'Skip greeting' })).toBeNull();
+  });
+
+  it('uses Listening after Skip without replacing active or error labels', () => {
+    for (const [state, label] of [
+      ['connected', 'Listening'],
+      ['listening', 'Listening'],
+      ['thinking', 'Thinking…'],
+      ['speaking', 'Speaking…'],
+      ['error', 'Voice error'],
+    ] as const) {
+      voiceResult = makeVoiceResult(
+        state,
+        undefined,
+        'automatic',
+        undefined,
+        'skipped',
+      );
+      const { container, unmount } = render(<VoiceControl />);
+      expect(container.textContent).toContain(label);
+      unmount();
+    }
+  });
 });
 
 describe('VoiceControl hold-to-talk button', () => {

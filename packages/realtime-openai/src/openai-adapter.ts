@@ -547,10 +547,13 @@ export class OpenAIAdapter
     const microphoneGate = this.#createGreetingMicrophoneGate(op);
     for (const { track } of microphoneGate.tracks) track.enabled = false;
     const onCallerAbort = (): void => {
-      op.abort();
+      // Caller abort (including Skip) must release this operation's publication
+      // gate synchronously; waiting for a synth/decode continuation would keep
+      // the microphone muted after the user chose to speak.
+      this.#abortGreetingPlayback(op);
     };
     if (args.signal.aborted) {
-      op.abort();
+      onCallerAbort();
     } else {
       args.signal.addEventListener('abort', onCallerAbort, { once: true });
     }

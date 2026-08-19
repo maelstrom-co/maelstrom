@@ -3149,7 +3149,7 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
   it('gates microphone tracks while synthesis is pending and restores them on abort', async () => {
     const enabled = new FakeTrack('audio', true);
     const disabled = new FakeTrack('audio', false);
-    useMicTracks([enabled, disabled]);
+    useMicTracks([enabled, enabled, disabled]);
     const synthesis = deferred<ArrayBuffer>();
     let synthesisSignal: AbortSignal | undefined;
     const adapter = new OpenAIAdapter({
@@ -3177,6 +3177,11 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     expect(disabled.enabledMutations).toEqual([false]);
 
     caller.abort();
+    // Skip observes caller abort synchronously: each unique microphone track
+    // restores its exact prior value before the async greeting settles.
+    expect([enabled.enabled, disabled.enabled]).toEqual([true, false]);
+    expect(enabled.enabledMutations).toEqual([false, true]);
+    expect(disabled.enabledMutations).toEqual([false, false]);
     await expect(speak).resolves.toBe('accepted');
     expect(synthesisSignal?.aborted).toBe(true);
     expect(enabled.enabledMutations).toEqual([false, true]);
@@ -3329,6 +3334,10 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     const valueDuringDecode = mic.enabled;
 
     caller.abort();
+    // The caller signal is the adapter boundary used by Skip. Restoration must
+    // happen synchronously even while decode remains unresolved.
+    expect(mic.enabled).toBe(true);
+    expect(mic.enabledMutations).toEqual([false, true]);
     await expect(speak).resolves.toBe('accepted');
     const mutationsAfterAbort = [...mic.enabledMutations];
     decode.resolve(new GreetingFakeAudioBuffer(1, 8, context.sampleRate));
@@ -3771,6 +3780,37 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
         }
       }),
     ).toHaveLength(1);
+  });
+
+  it('restores the microphone synchronously when Skip aborts active playback', async () => {
+    const mic = new FakeTrack('audio', true);
+    useMicTracks([mic]);
+    const { synthesizeGreeting } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const caller = new AbortController();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: caller.signal,
+    });
+    const context = GreetingFakeAudioContext.instances.at(-1)!;
+    await waitForGreetingCondition(
+      () =>
+        context.sources.length >= 2 && context.sources.at(-1)?.started === true,
+      'playback did not start',
+    );
+    const playback = context.sources.at(-1)!;
+
+    caller.abort();
+    expect(mic.enabled).toBe(true);
+    expect(mic.enabledMutations).toEqual([false, true]);
+    expect(playback.stopped).toBe(true);
+    await expect(speak).resolves.toBe('accepted');
   });
 
   it('does not abort pending greeting synthesis from raw speech_started while gated', async () => {

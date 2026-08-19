@@ -28,16 +28,21 @@ export interface GreetingRunContext {
 /** Whether replay remains possible for a session's configured greeting. */
 export type GreetingCoordinatorLifecycle = 'pending' | 'terminal';
 
+/** Why a greeting session became terminal. */
+export type GreetingTerminalReason = 'presented' | 'suppressed' | 'skipped';
+
 /**
  * Minimal replay-eligibility proof retained by {@link GreetingCoordinator}.
  * `terminal` means replay is forbidden; `pending` permits a later generation.
  * The snapshot deliberately contains no provider phase, failure, or run
  * disposition.
  */
-export interface GreetingCoordinatorSnapshot {
-  /** `terminal` forbids replay; `pending` permits a later generation. */
-  readonly lifecycle: GreetingCoordinatorLifecycle;
-}
+export type GreetingCoordinatorSnapshot =
+  | { readonly lifecycle: 'pending' }
+  | {
+      readonly lifecycle: 'terminal';
+      readonly reason: GreetingTerminalReason;
+    };
 
 /**
  * Result of one coordinator run. Terminal results forbid replay, retryable
@@ -48,6 +53,7 @@ export type GreetingRunDisposition =
   | 'accepted'
   | 'already_terminal'
   | 'suppressed'
+  | 'skipped'
   | 'not_started'
   | 'failed'
   | 'aborted'
@@ -70,6 +76,9 @@ export class GreetingCoordinator {
   #persist: GreetingPersistState = 'unstarted';
   #caption: 'unpublished' | 'published' = 'unpublished';
   #speech: 'unstarted' | 'not_started' | 'accepted' = 'unstarted';
+  // Explicit user choice is independent of persistence and speech progress so
+  // an in-flight continuation can never erase it.
+  #skipped = false;
   #persistInFlight: Promise<void> | undefined;
   #speechInFlight: Promise<GreetingRunDisposition> | undefined;
 
@@ -81,11 +90,23 @@ export class GreetingCoordinator {
    * provider phase, failure details, or an internal run disposition.
    */
   getSnapshot(sessionId: SessionId): GreetingCoordinatorSnapshot {
-    const terminal =
-      this.#sessionId === sessionId &&
-      (this.#persist === 'suppressed' ||
-        (this.#persist === 'inserted' && this.#speech === 'accepted'));
-    return { lifecycle: terminal ? 'terminal' : 'pending' };
+    if (this.#sessionId !== sessionId) return { lifecycle: 'pending' };
+    const reason = this.#terminalReason();
+    return reason === undefined
+      ? { lifecycle: 'pending' }
+      : { lifecycle: 'terminal', reason };
+  }
+
+  /**
+   * Synchronously make the configured greeting terminal for this session.
+   * Returns true only for the winning transition; presented and suppressed
+   * proof are intentionally never rewritten by a late Skip.
+   */
+  skip(sessionId: SessionId): boolean {
+    this.#adoptSession(sessionId);
+    if (this.#terminalReason() !== undefined) return false;
+    this.#skipped = true;
+    return true;
   }
 
   /**
@@ -109,6 +130,7 @@ export class GreetingCoordinator {
 
     // Idempotency short-circuit: suppressed forever for this session, or a
     // fully completed greeting (persisted + spoken).
+    if (this.#skipped) return 'skipped';
     if (this.#persist === 'suppressed') return 'suppressed';
     if (this.#persist === 'inserted' && this.#speech === 'accepted') {
       return 'already_terminal';
@@ -120,10 +142,12 @@ export class GreetingCoordinator {
         context.signal,
       );
       if (!this.#isCurrentSession(runSessionId)) return 'stale';
+      if (this.#skipped) return 'skipped';
       if (!engineReady || context.signal.aborted) return 'aborted';
 
       await this.#persistGreeting(context);
       if (!this.#isCurrentSession(runSessionId)) return 'stale';
+      if (this.#skipped) return 'skipped';
       const persistAfterAttempt = this.#persist as GreetingPersistState;
       if (persistAfterAttempt === 'suppressed') return 'suppressed';
       if (context.signal.aborted) return 'aborted';
@@ -135,14 +159,17 @@ export class GreetingCoordinator {
         context.emitTranscript(context.text);
       }
 
-      // Caption handlers can synchronously adopt a different session.
+      // Caption handlers can synchronously adopt a different session or Skip.
       if (!this.#isCurrentSession(runSessionId)) return 'stale';
+      if (this.#skipped) return 'skipped';
       if (this.#speech === 'accepted') return 'already_terminal';
       if (context.signal.aborted) return 'aborted';
 
-      return await this.#speakGreeting(context, runSessionId);
+      const disposition = await this.#speakGreeting(context, runSessionId);
+      return this.#isSkippedCurrent(runSessionId) ? 'skipped' : disposition;
     } catch {
       if (!this.#isCurrentSession(runSessionId)) return 'stale';
+      if (this.#skipped) return 'skipped';
       if (this.#speech === 'accepted') return 'accepted';
       if (context.signal.aborted) return 'aborted';
       return 'failed';
@@ -164,6 +191,7 @@ export class GreetingCoordinator {
     this.#persist = 'unstarted';
     this.#caption = 'unpublished';
     this.#speech = 'unstarted';
+    this.#skipped = false;
     // Drop pointers so the new session never awaits a stale attempt. Prior
     // continuations still settle, but are generation-scoped and must not clear
     // a newer in-flight promise (see #persistGreeting / #speakGreeting).
@@ -175,10 +203,24 @@ export class GreetingCoordinator {
     return this.#sessionId === sessionId;
   }
 
+  #isSkippedCurrent(sessionId: SessionId): boolean {
+    return this.#isCurrentSession(sessionId) && this.#skipped;
+  }
+
+  #terminalReason(): GreetingTerminalReason | undefined {
+    if (this.#skipped) return 'skipped';
+    if (this.#persist === 'suppressed') return 'suppressed';
+    if (this.#persist === 'inserted' && this.#speech === 'accepted') {
+      return 'presented';
+    }
+    return undefined;
+  }
+
   async #speakGreeting(
     context: GreetingRunContext,
     runSessionId: SessionId,
   ): Promise<GreetingRunDisposition> {
+    if (this.#isSkippedCurrent(runSessionId)) return 'skipped';
     if (this.#speechInFlight) {
       return this.#speechInFlight;
     }
@@ -199,6 +241,7 @@ export class GreetingCoordinator {
           signal: context.signal,
         });
         if (!this.#isCurrentSession(attemptSessionId)) return 'stale';
+        if (this.#skipped) return 'skipped';
         if (result === 'accepted') {
           // Terminal even if the owning signal aborted while the adapter ran
           // (post-send abort is accepted at the adapter boundary).
@@ -212,6 +255,7 @@ export class GreetingCoordinator {
         return 'not_started';
       } catch {
         if (!this.#isCurrentSession(attemptSessionId)) return 'stale';
+        if (this.#skipped) return 'skipped';
         if (context.signal.aborted) return 'aborted';
         // Adapter threw before returning a verdict: leave speech retriable.
         // Do not write #speech; a later generation may retry.
