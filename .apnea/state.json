@@ -2,11 +2,12 @@
   "version": 1,
   "slug": "shared-audio-preroll-foundation",
   "step": "committing",
-  "phase_index": 1,
+  "phase_index": 2,
   "phase_count_hint": null,
   "rounds": {
     "plan_review": 2,
-    "phase-01/code_review": 4
+    "phase-01/code_review": 4,
+    "phase-02/code_review": 1
   },
   "vcs": "jj",
   "allow_dirty": true,
@@ -24,20 +25,20 @@
   "pending_extended": false,
   "role_panes": {
     "planner": {
-      "pane_id": "w1:p1BE",
-      "label": "apnea:planner:mt08ucyc-4dqc"
+      "pane_id": "w1:p1BK",
+      "label": "apnea:planner:mt0fbmqh-bkf2"
     },
     "reviewer": {
-      "pane_id": "w1:p1BF",
-      "label": "apnea:reviewer:mt09185s-4hc9"
+      "pane_id": "w1:p1BN",
+      "label": "apnea:reviewer:mt0kgt41-cvcc"
     },
     "coder": {
-      "pane_id": "w1:p1BG",
-      "label": "apnea:coder:mt097l12-20hd"
+      "pane_id": "w1:p1BM",
+      "label": "apnea:coder:mt0grtju-udom"
     }
   },
   "package_root": "/Users/nachovazquez/work/1-projects/naxodev/pi-apnea",
   "reviewer_tree_fingerprint": null,
-  "current_phase_package": ".apnea/artifacts/phase-01/round-1/phase-package.md",
-  "current_code_review": ".apnea/artifacts/phase-01/round-4/code-review.md"
+  "current_phase_package": ".apnea/artifacts/phase-02/round-1/phase-package.md",
+  "current_code_review": ".apnea/artifacts/phase-02/round-1/code-review.md"
 }

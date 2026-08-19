@@ -27,6 +27,8 @@ import {
 import {
   type BrowserVad,
   createBrowserVad,
+  createLocalAudioPreRoll,
+  type LocalAudioPreRoll,
   resolveBrowserVadConfig,
 } from '@maelstrom-co/realtime-vad';
 import type {
@@ -43,10 +45,6 @@ import {
 } from 'livekit-client';
 
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
-import {
-  createLocalAudioPreRoll,
-  type LocalAudioPreRoll,
-} from './local-audio-pre-roll.js';
 
 /** Microphone resources acquired and owned by one asynchronous connect attempt. */
 interface ConnectMicrophoneResources {

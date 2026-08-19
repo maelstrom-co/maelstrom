@@ -125,6 +125,10 @@ bridge owns and releases its generated track, worklet, and audio context.
 The bridge loads its AudioWorklet from a Blob URL. Deployments using it must
 allow `blob:` worklet scripts in their Content Security Policy.
 
+`LiveKitAdapter` consumes this shared primitive today. The primitive owns local
+buffering and generated-track resources; LiveKit continues to own transport
+publication, pause/resume ordering, and turn policy.
+
 ## Deploy browser VAD assets
 
 Default-on VAD still requires a build-time asset step. The default

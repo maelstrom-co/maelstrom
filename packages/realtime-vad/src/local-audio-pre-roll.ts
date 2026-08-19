@@ -158,7 +158,8 @@ export async function createLocalAudioPreRoll(
     source = context.createMediaStreamSource(new MediaStream([sourceTrack]));
     const destination = context.createMediaStreamDestination();
     generatedTrack = destination.stream.getAudioTracks()[0];
-    if (!generatedTrack) throw new Error('AudioWorklet produced no audio track');
+    if (!generatedTrack)
+      throw new Error('AudioWorklet produced no audio track');
 
     const module = new Blob([AUDIO_WORKLET_SOURCE], {
       type: 'text/javascript',

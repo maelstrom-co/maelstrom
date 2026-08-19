@@ -3,9 +3,9 @@ import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type { LiveKitTokenGrant } from '@maelstrom-co/realtime-protocol/livekit';
+import type { LocalAudioPreRoll } from '@maelstrom-co/realtime-vad';
 import './__tests__/setup.js';
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
-import type { LocalAudioPreRoll } from './local-audio-pre-roll.js';
 
 // --- Mocks for livekit-client ---
 
@@ -28,6 +28,7 @@ const mockPublishTrack = mock(async (_track: unknown) => mockMicPublication);
 const mockGetTrackPublication = mock((_source: string) => mockMicPublication);
 const mockBridgeStartAutomaticTurn = mock(async (_preRollMs: number) => {});
 const mockBridgeStartManualTurn = mock(async () => {});
+const mockBridgeClear = mock(async () => {});
 const mockBridgeEndTurn = mock(async () => {});
 const mockBridgeDestroy = mock(async () => {});
 const mockVadStart = mock(async () => {});
@@ -58,6 +59,7 @@ const mockBridge = {
   track: mockGeneratedTrack,
   startAutomaticTurn: mockBridgeStartAutomaticTurn,
   startManualTurn: mockBridgeStartManualTurn,
+  clear: mockBridgeClear,
   endTurn: mockBridgeEndTurn,
   destroy: mockBridgeDestroy,
 };
@@ -171,12 +173,14 @@ mock.module('livekit-client', () => ({
   setLogLevel: mock(() => {}),
 }));
 
-mock.module('./local-audio-pre-roll.js', () => ({
-  createLocalAudioPreRoll: mockCreateLocalAudioPreRoll,
-}));
-
 mock.module('@ricky0123/vad-web', () => ({
   MicVAD: { new: mockMicVADNew },
+}));
+
+const realtimeVad = await import('@maelstrom-co/realtime-vad');
+mock.module('@maelstrom-co/realtime-vad', () => ({
+  ...realtimeVad,
+  createLocalAudioPreRoll: mockCreateLocalAudioPreRoll,
 }));
 
 const { LiveKitAdapter } = await import('./livekit-adapter');
@@ -309,6 +313,8 @@ describe('LiveKitAdapter connect', () => {
     mockBridgeStartAutomaticTurn.mockImplementation(async () => {});
     mockBridgeStartManualTurn.mockReset();
     mockBridgeStartManualTurn.mockImplementation(async () => {});
+    mockBridgeClear.mockReset();
+    mockBridgeClear.mockImplementation(async () => {});
     mockBridgeEndTurn.mockReset();
     mockBridgeEndTurn.mockImplementation(async () => {});
     mockBridgeDestroy.mockReset();
