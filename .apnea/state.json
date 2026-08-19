@@ -1,17 +1,16 @@
 {
   "version": 1,
-  "slug": "ux-first-greeting-interruption",
+  "slug": "shared-audio-preroll-foundation",
   "step": "committing",
-  "phase_index": 2,
+  "phase_index": 1,
   "phase_count_hint": null,
   "rounds": {
-    "plan_review": 1,
-    "phase-01/code_review": 3,
-    "phase-02/code_review": 5
+    "plan_review": 2,
+    "phase-01/code_review": 4
   },
   "vcs": "jj",
-  "allow_dirty": false,
-  "goal": "Redesign PR 117's voice greeting and interruption architecture around user control. The primary product outcome is that a user can go straight to their task without waiting for the fixed greeting, while preserving the first utterance, preventing greeting self-echo, retaining intentional barge-in after greeting, and keeping reconnect/history behavior deterministic. Do not merely refactor the current non-interruptible solution. Plan and implement in small stacked phases: first a reliable explicit Skip greeting action with terminal skipped semantics; then clean module boundaries for response arbitration, greeting presentation, microphone publication gating, and shared session operations; then establish a provider-neutral path toward spoken greeting interruption with pre-roll and explicit real-device validation gates. Preserve at-most-once provider/Engine history, exact prior microphone state restoration, privacy-safe diagnostics, LiveKit behavior unless intentionally generalized, accessibility, and mobile/desktop UX. Prefer deleting compensating state over relocating it. Include regression tests, typecheck, lint, docs, and a clear list of acoustic claims that remain unverified.",
+  "allow_dirty": true,
+  "goal": "Create one focused change that extracts LiveKit's local-audio pre-roll into @maelstrom-co/realtime-vad and switches LiveKit to consume it. Preserve LiveKit behavior exactly. Add provider-neutral sample-level and lifecycle tests for bounded silence buffering, newest-tail pre-roll before live audio, rapid starts, manual/clear discard, acknowledgement fencing, timeout recovery, source/generated ownership, partial cleanup, and idempotent destroy. Delete the LiveKit-local duplicate and update both READMEs. Do not add any OpenAI API or behavior. Important verification constraint: realtime-vad is not marked publishConfig.access public, and no package in this repository is, so audit:public-api-docs intentionally cannot select it. Do not change package distribution visibility to satisfy that audit. Instead require declaration-visible JSDoc, package build, tarball inspection, and a clean temporary consumer that installs the packed tarball and typechecks/imports the root exports. Run VAD and LiveKit test/build/typecheck, lint, removal proof, packed-consumer verification, and the serial repository gate.",
   "last_error": null,
   "pending_artifact": null,
   "pending_role": null,
@@ -25,20 +24,20 @@
   "pending_extended": false,
   "role_panes": {
     "planner": {
-      "pane_id": "w1:p1AG",
-      "label": "apnea:planner:mszekhqv-m2ub"
+      "pane_id": "w1:p1BE",
+      "label": "apnea:planner:mt08ucyc-4dqc"
     },
     "reviewer": {
-      "pane_id": "w1:p1AJ",
-      "label": "apnea:reviewer:mszess1t-i7jq"
+      "pane_id": "w1:p1BF",
+      "label": "apnea:reviewer:mt09185s-4hc9"
     },
     "coder": {
-      "pane_id": "w1:p1AK",
-      "label": "apnea:coder:mszez4bh-sb4y"
+      "pane_id": "w1:p1BG",
+      "label": "apnea:coder:mt097l12-20hd"
     }
   },
   "package_root": "/Users/nachovazquez/work/1-projects/naxodev/pi-apnea",
   "reviewer_tree_fingerprint": null,
-  "current_phase_package": ".apnea/artifacts/phase-02/round-1/phase-package.md",
-  "current_code_review": ".apnea/artifacts/phase-02/round-5/code-review.md"
+  "current_phase_package": ".apnea/artifacts/phase-01/round-1/phase-package.md",
+  "current_code_review": ".apnea/artifacts/phase-01/round-4/code-review.md"
 }

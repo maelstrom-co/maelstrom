@@ -1,0 +1,69 @@
+$ bash .apnea/verify-realtime-vad-packed.sh
+bun pack v1.3.7 (ba426210)
+
+packed 1.95KB package.json
+packed 1.14KB LICENSE
+packed 10.58KB README.md
+packed 0.80KB dist/bin/maelstrom-vad-assets.d.ts
+packed 509B dist/bin/maelstrom-vad-assets.d.ts.map
+packed 1.35KB dist/bin/maelstrom-vad-assets.js
+packed 4.89KB dist/browser-vad.d.ts
+packed 1.81KB dist/browser-vad.d.ts.map
+packed 2.90KB dist/browser-vad.types.d.ts
+packed 1.0KB dist/browser-vad.types.d.ts.map
+packed 1.34KB dist/index.d.ts
+packed 361B dist/index.d.ts.map
+packed 11.53KB dist/index.js
+packed 3.0KB dist/local-audio-pre-roll.d.ts
+packed 0.62KB dist/local-audio-pre-roll.d.ts.map
+packed 3.57KB dist/vad-assets-B-lNL3ng.js
+packed 1.70KB dist/vad-assets.d.ts
+packed 328B dist/vad-assets.d.ts.map
+packed 89B dist/vad-assets.js
+
+/var/folders/fh/zx6t2vf55zd3rmf08mrg5jdc0000gn/T/tmp.oaq1JdnS3U/tarballs/maelstrom-co-realtime-vad-0.1.0-alpha.2.tgz
+
+Total files: 19
+Shasum: fb365330ba4f7dcdd67cc3e6a569afa29692ccec
+Integrity: sha512-rf30gXS1UzWrE[...]VGtPLlUa2fsQg==
+Unpacked size: 49.49KB
+Packed size: 17.44KB
+package/dist/bin/maelstrom-vad-assets.d.ts
+package/dist/bin/maelstrom-vad-assets.d.ts.map
+package/dist/bin/maelstrom-vad-assets.js
+package/dist/browser-vad.d.ts
+package/dist/browser-vad.d.ts.map
+package/dist/browser-vad.types.d.ts
+package/dist/browser-vad.types.d.ts.map
+package/dist/index.d.ts
+package/dist/index.d.ts.map
+package/dist/index.js
+package/dist/local-audio-pre-roll.d.ts
+package/dist/local-audio-pre-roll.d.ts.map
+package/dist/vad-assets-B-lNL3ng.js
+package/dist/vad-assets.d.ts
+package/dist/vad-assets.d.ts.map
+package/dist/vad-assets.js
+package/LICENSE
+package/package.json
+package/README.md
+1:/**
+10:export interface LocalAudioPreRoll {
+11:    /**
+13:     * track. The bridge disables and stops this track during `destroy()`.
+16:    /**
+22:    startAutomaticTurn(preRollMs: number): Promise<void>;
+23:    /**
+28:    startManualTurn(): Promise<void>;
+29:    /**
+34:    clear(): Promise<void>;
+35:    /**
+41:    endTurn(): Promise<void>;
+42:    /**
+46:     * requests reject because the generation is destroyed.
+48:    destroy(): Promise<void>;
+50:/**
+58: * established. `destroy()` releases only bridge-owned resources.
+60:export declare function createLocalAudioPreRoll(sourceTrack: MediaStreamTrack): Promise<LocalAudioPreRoll>;
+exit=0
+

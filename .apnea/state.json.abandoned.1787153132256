@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "slug": "ux-first-greeting-interruption",
+  "step": "committing",
+  "phase_index": 2,
+  "phase_count_hint": null,
+  "rounds": {
+    "plan_review": 1,
+    "phase-01/code_review": 3,
+    "phase-02/code_review": 5
+  },
+  "vcs": "jj",
+  "allow_dirty": false,
+  "goal": "Redesign PR 117's voice greeting and interruption architecture around user control. The primary product outcome is that a user can go straight to their task without waiting for the fixed greeting, while preserving the first utterance, preventing greeting self-echo, retaining intentional barge-in after greeting, and keeping reconnect/history behavior deterministic. Do not merely refactor the current non-interruptible solution. Plan and implement in small stacked phases: first a reliable explicit Skip greeting action with terminal skipped semantics; then clean module boundaries for response arbitration, greeting presentation, microphone publication gating, and shared session operations; then establish a provider-neutral path toward spoken greeting interruption with pre-roll and explicit real-device validation gates. Preserve at-most-once provider/Engine history, exact prior microphone state restoration, privacy-safe diagnostics, LiveKit behavior unless intentionally generalized, accessibility, and mobile/desktop UX. Prefer deleting compensating state over relocating it. Include regression tests, typecheck, lint, docs, and a clear list of acoustic claims that remain unverified.",
+  "last_error": null,
+  "pending_artifact": null,
+  "pending_role": null,
+  "pending_pane_id": null,
+  "pending_pane_label": null,
+  "pending_floating_exit": null,
+  "pending_started_at": null,
+  "pending_deadline_ms": null,
+  "pending_nudged_at": null,
+  "pending_final_grace": false,
+  "pending_extended": false,
+  "role_panes": {
+    "planner": {
+      "pane_id": "w1:p1AG",
+      "label": "apnea:planner:mszekhqv-m2ub"
+    },
+    "reviewer": {
+      "pane_id": "w1:p1AJ",
+      "label": "apnea:reviewer:mszess1t-i7jq"
+    },
+    "coder": {
+      "pane_id": "w1:p1AK",
+      "label": "apnea:coder:mszez4bh-sb4y"
+    }
+  },
+  "package_root": "/Users/nachovazquez/work/1-projects/naxodev/pi-apnea",
+  "reviewer_tree_fingerprint": null,
+  "current_phase_package": ".apnea/artifacts/phase-02/round-1/phase-package.md",
+  "current_code_review": ".apnea/artifacts/phase-02/round-5/code-review.md"
+}

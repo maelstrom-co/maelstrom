@@ -2,257 +2,209 @@
 status: done
 ---
 
-# Plan: user-controlled voice greeting and interruption
+# Plan: extract provider-neutral local audio pre-roll
 
 ## Goal restatement
 
-Redesign PR 117 so the fixed greeting never blocks a user from starting their task. Ship a dependable, accessible **Skip greeting** action first; then deepen the modules that own greeting, response, microphone, and shared-session invariants; finally add an opt-in, provider-neutral route to spoken interruption with local pre-roll. Throughout, retain at-most-once Engine/provider history, deterministic reconnects, exact microphone-state restoration, greeting self-echo protection, normal post-greeting barge-in, privacy-safe diagnostics, and existing LiveKit behavior. Do not present unit-tested audio plumbing as proof of real-device acoustic behavior.
+Move the browser-local AudioWorklet pre-roll bridge from `@maelstrom-co/realtime-livekit` into the root API of `@maelstrom-co/realtime-vad`, strengthen it with provider-neutral sample and lifecycle coverage, and make `LiveKitAdapter` consume that shared implementation without changing its turn, failure, degradation, reconnect, or teardown behavior. Remove the LiveKit-local implementation and tests, update the VAD and LiveKit READMEs, and make no OpenAI API or runtime changes.
 
-## Phase 1 — Ship explicit Skip greeting with terminal semantics
+`@maelstrom-co/realtime-vad` must remain at its current distribution visibility: its manifest has no `publishConfig.access`, so `audit:public-api-docs` cannot select it and must not be made applicable by changing package metadata. Public API verification will instead use generated declarations, a packed tarball, and a clean temporary consumer.
 
-### Intent
-
-Deliver the user-control outcome without depending on acoustic detection. Add one idempotent session operation that terminally skips the configured greeting, expose it through `useVoice()`, and render an accessible Skip greeting button while preparation is active.
-
-The terminal race contract must be explicit:
-
-- Skip records terminal proof synchronously before aborting current greeting work. Reconnects, remounts, and recreation of the provider session for the same Maelstrom session must remain skipped.
-- If Skip wins before Engine acknowledgement starts or completes, no caption, provider history item, synthesis request, or playback may start.
-- An Engine acknowledgement or provider send that became irreversible before Skip may remain, but it must occur at most once; Skip must prevent every later caption/send/playback step and all reconnect retries. The implementation must not pretend it can roll back an already delivered side effect.
-- If synthesis, decode, or playback is active, Skip stops it and restores every microphone track to its exact captured `enabled` value before releasing operation ownership.
-- Repeated Skip, Skip after another terminal result, Skip racing disconnect/fatal error, and stale completions are no-ops against the newer terminal/generation owner.
-
-Represent skipped presentation distinctly (for example, an additive `skipped` `GreetingState` and terminal reason in the coordinator snapshot) rather than collapsing it into retryable `pending` or ambiguous `settled`. Keep `skipGreeting()` synchronous and idempotent at the `RealtimeSession`/hook interface so UI callers do not need to coordinate abort controllers or provider capabilities.
-
-### Files likely touched
-
-- `packages/realtime/src/lib/greeting-coordinator.ts`
-- `packages/realtime/src/lib/greeting-coordinator.test.ts`
-- `packages/realtime/src/lib/realtime-session/realtime-session.types.ts`
-- `packages/realtime/src/lib/realtime-session/realtime-session.ts`
-- `packages/realtime/src/lib/realtime-session/realtime-session.test.ts`
-- `packages/realtime/src/index.ts`
-- `packages/react-realtime/src/lib/maelstrom-realtime.ts`
-- `packages/react-realtime/src/lib/use-voice.test.tsx`
-- `apps/demo/src/components/voice-control.tsx`
-- `apps/demo/src/components/voice-control.test.tsx`
-- `apps/docs/e2e/fixtures/voice/openai-voice-control.tsx`
-- `apps/docs/src/content/docs/guides/voice/openai-realtime.mdx`
-- `docs/realtime-voice-architecture.md`
-
-### Acceptance checks
-
-- A configured greeting in `preparing` exposes one clearly named **Skip greeting** button; it is keyboard operable, has a usable touch target, does not overflow at mobile or desktop widths, and does not create a second competing live region.
-- Activating Skip immediately removes the action and leaves a connected session ready for the user's task; idle, error, listening, thinking, and speaking labels retain precedence.
-- Coordinator/session tests cover Skip during Engine wait, in-flight acknowledgement, provider handoff, synthesis, decode, and playback, plus duplicate clicks, disconnect rejection, reconnect, shared-session recreation, new session IDs, and stale generations.
-- Tests assert zero-or-one Engine acknowledgement, caption, provider item, synthesis, and playback according to the documented race point; no path duplicates provider or Engine history.
-- Existing OpenAI greeting abort tests continue to prove exact prior microphone state restoration, including initially disabled and multiple unique tracks.
-- Existing LiveKit greeting/readiness/barge-in tests remain unchanged and green.
-
-### Verify commands
-
-```bash
-bun test packages/realtime/src/lib/greeting-coordinator.test.ts packages/realtime/src/lib/realtime-session/realtime-session.test.ts
-bun test packages/react-realtime/src/lib/use-voice.test.tsx
-bun test apps/demo/src/components/voice-control.test.tsx
-bunx nx typecheck @maelstrom-co/realtime --skipSync
-bunx nx typecheck @maelstrom-co/react-realtime --skipSync
-bunx nx typecheck @maelstrom-co/demo --skipSync
-bunx biome check packages/realtime/src packages/react-realtime/src/lib/maelstrom-realtime.ts packages/react-realtime/src/lib/use-voice.test.tsx apps/demo/src/components/voice-control.tsx apps/demo/src/components/voice-control.test.tsx --error-on-warnings
-```
-
-### Dependencies
-
-None. This is the first independently shippable slice and the fallback user-control mechanism for all later acoustic work.
-
-### Non-goals
-
-- Spoken greeting interruption or claims that VAD can distinguish the user from speaker output.
-- Changing OpenAI server-VAD defaults or LiveKit turn-taking.
-- Removing an Engine/provider history item that was already irreversibly accepted before Skip won.
-
-## Phase 2 — Deepen the ownership modules without changing behavior
+## Phase 1 — Ship the provider-neutral pre-roll primitive in realtime-vad
 
 ### Intent
 
-Replace the growing cross-coupled state in the adapters and React binding with deep, package-private modules. Write characterization tests first, then move behavior behind small interfaces; delete obsolete or compensating flags when the new owner can derive them instead of copying the same state into new files.
+Add a standalone root export that accepts a caller-owned `MediaStreamTrack`, owns a generated publication track and its Web Audio graph, emits silence while closed, retains only the bounded newest source tail, and opens either with that tail before live samples or in live-only manual mode. Keep the existing LiveKit copy temporarily so this phase leaves both packages green.
 
-Create four clear seams:
+The public `LocalAudioPreRoll` contract should expose the generated `track`, automatic start, manual start, explicit `clear`, draining `endTurn`, and idempotent `destroy`. Preserve the existing bounds: 0–500 ms pre-roll, 250 ms start/manual/clear acknowledgement timeout, and `min(1500, 500 + 2 * clampedPreRollMs)` for end-drain acknowledgement. Every lifecycle request must be ID-fenced; a timeout must clear processor state before rejection so a late acknowledgement cannot settle a newer operation.
 
-1. **OpenAI response arbitration** owns response identity, validated-turn/tool-follow-up priority, cancellation attribution, late output-clear obligations, fatal `response.create` send closure, and generation reset. The adapter supplies typed provider facts and executes returned wire commands; it does not mutate arbiter internals. Delete the unused `response-lifecycle` state machine once the arbiter covers the real behavior.
-2. **OpenAI greeting presentation** owns gesture activation, provider history handoff, synthesis/decode/playback, replacement/abort/Skip, and operation ownership. Engine acknowledgement and replay policy remain in `GreetingCoordinator`; presentation must not duplicate that responsibility.
-3. **Microphone publication gating** owns one generation-scoped snapshot and idempotent acquire/release. Its interface must guarantee exact prior `enabled` restoration and stale-owner no-ops; callers must not carry parallel gate/controller/generation fields.
-4. **Shared React session operations** own the per-Orchestrator session/coordinator entry, consumer reference count, microtask retirement, eviction-before-disconnect ordering, and reacquisition races. `useVoice()` remains responsible only for React subscriptions and callbacks.
-
-Keep these modules package-private unless a second real adapter requires the seam. Test through each module interface and retain adapter/session integration tests for ordering across seams.
+Write processor-level tests against the actual worklet source, not only a mock that echoes messages. A practical harness can capture the Blob module, register the processor against fake `AudioWorkletProcessor`/ports, and drive message and `process()` calls with deterministic sample arrays. Retain separate Web Audio lifecycle fakes for initialization, acknowledgement, timeout, ownership, and cleanup behavior.
 
 ### Files likely touched
 
-- `packages/realtime-openai/src/openai-adapter.ts`
-- `packages/realtime-openai/src/openai-adapter.test.ts`
-- `packages/realtime-openai/src/response-lifecycle.ts` (delete after replacement)
-- `packages/realtime-openai/src/response-lifecycle.test.ts` (delete after replacement)
-- `packages/realtime-openai/src/web-audio-greeting-player.ts`
-- `packages/realtime-openai/src/web-audio-greeting-player.test.ts`
-- `packages/realtime-openai/src/` (new package-private arbiter, greeting-presentation, and publication-gate modules with focused tests)
-- `packages/react-realtime/src/lib/maelstrom-realtime.ts`
-- `packages/react-realtime/src/lib/use-voice.test.tsx`
-- `packages/react-realtime/src/lib/` (new package-private shared-session operations module and focused tests)
-- `packages/realtime/src/lib/greeting-coordinator.ts`
-- `packages/realtime/src/lib/realtime-session/realtime-session.ts`
-- `docs/realtime-voice-architecture.md`
-
-### Acceptance checks
-
-- Public exports and Phase 1 Skip behavior are unchanged; package-private refactoring does not add provider-specific concepts to `RealtimeSession`.
-- The response arbiter's table/sequence tests preserve: one active response, tool follow-up priority, item correlation, exactly-once cancel, proven-empty versus ambiguous cancellation handling, late audio clear, send-failure closure, re-entrant provider events, and stale-generation rejection.
-- Greeting presentation tests preserve Engine ack → caption → provider item → synthesis → playback ordering, terminal handoff semantics, Skip/abort/replacement behavior, and exact gate restoration.
-- Shared-session tests preserve simultaneous/late consumers, Strict Mode-style mount churn, retirement deduplication, eviction before async disconnect, reacquisition during teardown, and coordinator proof across session recreation.
-- The old response lifecycle module and redundant adapter/session flags are deleted rather than left as two sources of truth.
-- OpenAI and LiveKit package integration suites remain green; there is no LiveKit runtime change in this phase.
-
-### Verify commands
-
-```bash
-bunx nx test @maelstrom-co/realtime-openai --skipSync
-bunx nx typecheck @maelstrom-co/realtime-openai --skipSync
-bunx nx test @maelstrom-co/realtime --skipSync
-bunx nx typecheck @maelstrom-co/realtime --skipSync
-bunx nx test @maelstrom-co/react-realtime --skipSync
-bunx nx typecheck @maelstrom-co/react-realtime --skipSync
-bunx nx test @maelstrom-co/realtime-livekit --skipSync
-bunx biome check packages/realtime-openai/src packages/realtime/src packages/react-realtime/src --error-on-warnings
-```
-
-### Dependencies
-
-Phase 1, so Skip is a fixed behavior that the extracted modules must preserve.
-
-### Non-goals
-
-- A public framework for hypothetical providers; one adapter does not justify a public seam.
-- Enabling local VAD for OpenAI greetings.
-- Moving fields unchanged into shallow state-holder classes.
-- Altering wire payloads, server-VAD tuning, or LiveKit runtime ordering.
-
-## Phase 3 — Add an opt-in provider-neutral spoken-interruption path with pre-roll
-
-### Intent
-
-Build the reusable browser-audio path needed to interrupt a greeting by speech without dropping the start of the utterance, but keep it opt-in until real-device gates pass. The reliable Skip action remains available regardless of VAD/worklet support.
-
-Generalize the existing LiveKit-local AudioWorklet pre-roll implementation into `@maelstrom-co/realtime-vad` rather than creating a second ring buffer. Its interface must separate browser-local capture from transport publication and support bounded buffering, silence/closed publication, one ordered pre-roll flush, live pass-through, clear, and idempotent destroy. LiveKit should consume the generalized primitive with byte-for-byte-equivalent turn ordering and failure behavior.
-
-For OpenAI's opt-in greeting-interruption mode:
-
-- Capture remains local while greeting publication is closed; speaker output must never be intentionally forwarded to OpenAI during the gate.
-- A generation-owned local VAD observes the local stream. On an accepted speech start, stop local greeting playback first, then open publication and flush bounded pre-roll before live samples so the first utterance can enter the existing OpenAI server-VAD/transcription path.
-- Retire the greeting-only VAD and return to normal OpenAI server-VAD behavior once greeting presentation is played, skipped, interrupted, failed, or disconnected. Intentional barge-in after greeting must continue to use the existing configured immediate/transcript-confirmed policy.
-- VAD/worklet setup or callback failure fails closed to the Phase 1 explicit Skip path; it must not leak greeting-period audio, wedge preparation, silently enable a different turn mode, or affect a replacement generation.
-- Keep the option disabled by default and do not enable it in the hosted demo until the real-device matrix below has evidence. Unit tests prove ordering and state ownership, not echo cancellation or speech recognition quality.
-
-Diagnostics may report only bounded categories/reason codes, booleans such as gate/VAD activity, and non-content timing. They must never log audio, transcript/delta text, complete media settings, stream/track objects, device identifiers, credentials, or raw provider events containing content.
-
-### Files likely touched
-
+- `packages/realtime-vad/src/local-audio-pre-roll.ts` (new)
+- `packages/realtime-vad/src/local-audio-pre-roll.test.ts` (new)
 - `packages/realtime-vad/src/index.ts`
-- `packages/realtime-vad/src/browser-vad.ts`
-- `packages/realtime-vad/src/browser-vad.test.ts`
-- `packages/realtime-vad/src/browser-vad.types.ts`
-- `packages/realtime-vad/src/` (generalized pre-roll/publication module and tests)
 - `packages/realtime-vad/README.md`
-- `packages/realtime-livekit/src/local-audio-pre-roll.ts` (move/delete after generalization)
-- `packages/realtime-livekit/src/local-audio-pre-roll.test.ts` (move/delete after generalization)
+
+### Acceptance checks
+
+- The root VAD entry point exports `createLocalAudioPreRoll` and `LocalAudioPreRoll`; every exported symbol and interface member has consumer-facing JSDoc that survives into `dist/local-audio-pre-roll.d.ts`.
+- Sample tests prove that closed mode outputs zeros while retaining at most `maxSamples`, including wraparound, and that automatic start emits exactly the requested newest retained tail before later live samples.
+- Rapid/repeated starts cannot replay or duplicate an older queued tail. Manual start and explicit clear discard retained and queued samples; manual mode then passes only new live input, while clear returns to closed silent buffering.
+- End-of-turn tests prove accepted automatic audio drains before acknowledgement, no new live samples are accepted after end begins, and the bridge returns to silent closed buffering after the drain.
+- Lifecycle tests cover clamping and sample-count conversion, exact acknowledgement bounds, stale/mismatched/late acknowledgement fencing, timeout-triggered clear, recovery on a later request, and post-destroy rejection.
+- Ownership tests prove `destroy()` disables/stops only the generated track, never disables/stops the source track, settles pending operations, disconnects created nodes, closes the port/context, and is idempotent.
+- Table-driven partial-initialization failures cover object URL creation/module load, generated-track discovery, worklet/node connection, and context resume as applicable: every resource that was successfully acquired is released once, object URLs are revoked, context close is attempted, and the original construction failure is not replaced by cleanup noise.
+- The VAD README documents independent use of browser VAD and local pre-roll, publication ordering, automatic/manual/clear/end semantics, source/generated ownership, limits/timeouts, teardown, and the Blob-backed worklet CSP requirement.
+- `packages/realtime-vad/package.json` retains its current `publishConfig` without an `access` field. No OpenAI package or API is touched.
+
+### Verify commands
+
+```bash
+set -euo pipefail
+bunx nx run-many -t test build typecheck lint --projects=@maelstrom-co/realtime-vad --parallel=false --skipSync
+```
+
+After the build, inspect the package and exercise a clean packed consumer without using the inapplicable public-package selector:
+
+```bash
+set -euo pipefail
+tmp="$(mktemp -d)"
+tmp_parent="$(dirname "$tmp")"
+cleanup() {
+  if [[ ! -e "$tmp" ]]; then
+    return 0
+  fi
+  if [[ -d "$tmp" && "$tmp" == "$tmp_parent"/tmp.* ]]; then
+    rm -r -- "$tmp"
+    return 0
+  fi
+  printf 'Refusing to remove unexpected temporary path: %s\n' "$tmp" >&2
+  return 1
+}
+trap cleanup EXIT
+mkdir -p "$tmp/tarballs" "$tmp/consumer"
+(cd packages/realtime-vad && bun pm pack --ignore-scripts --destination "$tmp/tarballs")
+tarball="$(find "$tmp/tarballs" -maxdepth 1 -name '*.tgz' -print -quit)"
+test -n "$tarball"
+tar -tzf "$tarball" | sort
+tar -xzf "$tarball" -C "$tmp"
+test -f "$tmp/package/dist/index.js"
+test -f "$tmp/package/dist/index.d.ts"
+test -f "$tmp/package/dist/local-audio-pre-roll.d.ts"
+rg -q "createLocalAudioPreRoll" "$tmp/package/dist/index.d.ts"
+rg -q "LocalAudioPreRoll" "$tmp/package/dist/index.d.ts"
+rg -q '/\*\*' "$tmp/package/dist/local-audio-pre-roll.d.ts"
+rg -n '/\*\*|interface LocalAudioPreRoll|createLocalAudioPreRoll|startAutomaticTurn|startManualTurn|clear\(\)|endTurn|destroy' "$tmp/package/dist/local-audio-pre-roll.d.ts"
+
+cat > "$tmp/consumer/package.json" <<JSON
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@maelstrom-co/realtime-vad": "file:$tarball"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.2"
+  }
+}
+JSON
+cat > "$tmp/consumer/consumer.ts" <<'TS'
+import {
+  createBrowserVad,
+  createLocalAudioPreRoll,
+  resolveBrowserVadConfig,
+  type LocalAudioPreRoll,
+} from '@maelstrom-co/realtime-vad';
+
+const factory: (track: MediaStreamTrack) => Promise<LocalAudioPreRoll> =
+  createLocalAudioPreRoll;
+void factory;
+void createBrowserVad;
+void resolveBrowserVadConfig;
+TS
+cat > "$tmp/consumer/runtime.mjs" <<'JS'
+const api = await import('@maelstrom-co/realtime-vad');
+for (const name of [
+  'createBrowserVad',
+  'createLocalAudioPreRoll',
+  'resolveBrowserVadConfig',
+]) {
+  if (typeof api[name] !== 'function') throw new Error(`Missing root export: ${name}`);
+}
+JS
+cat > "$tmp/consumer/tsconfig.json" <<'JSON'
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "skipLibCheck": false,
+    "strict": true,
+    "target": "ES2022"
+  },
+  "files": ["consumer.ts"]
+}
+JSON
+(cd "$tmp/consumer" && bun install --ignore-scripts && bun install --ignore-scripts --frozen-lockfile && bunx tsc -p tsconfig.json && bun run runtime.mjs)
+bun -e 'const p = await Bun.file("packages/realtime-vad/package.json").json(); if (p.publishConfig?.access !== undefined) process.exit(1)'
+```
+
+### Dependencies
+
+None. This phase creates and validates a usable provider-neutral primitive before changing its first consumer.
+
+### Non-goals
+
+- Switching or deleting the LiveKit-local bridge yet.
+- Changing package distribution visibility or adding a new package subpath.
+- Changing browser-VAD speech-boundary behavior.
+- Adding OpenAI dependencies, options, APIs, greeting interruption, or runtime behavior.
+
+## Phase 2 — Switch LiveKit to the shared primitive and remove the duplicate
+
+### Intent
+
+Import `createLocalAudioPreRoll` and `LocalAudioPreRoll` from the existing `@maelstrom-co/realtime-vad` root dependency, adapt the LiveKit test mock at that package boundary, and delete the local implementation and its relocated test file. Keep all adapter control flow unchanged: resume upstream before automatic/manual opening, drain before pause on normal end, preserve current VAD-misfire handling, retain acknowledgement-failure degradation, and destroy generated pre-roll resources before releasing source/room ownership.
+
+The explicit provider-neutral `clear()` API is added for general consumers and tested in VAD; it must not silently replace a LiveKit lifecycle call or otherwise alter LiveKit's current semantics. When mocking the VAD package in adapter tests, preserve the real browser-VAD/config exports so the existing VAD callback integration remains covered while only the bridge factory is substituted.
+
+### Files likely touched
+
 - `packages/realtime-livekit/src/livekit-adapter.ts`
 - `packages/realtime-livekit/src/livekit-adapter.test.ts`
+- `packages/realtime-livekit/src/local-audio-pre-roll.ts` (delete)
+- `packages/realtime-livekit/src/local-audio-pre-roll.test.ts` (delete after its coverage is moved and expanded in Phase 1)
 - `packages/realtime-livekit/README.md`
-- `packages/realtime-openai/package.json`
-- `packages/realtime-openai/src/openai-adapter.types.ts`
-- `packages/realtime-openai/src/openai-adapter.ts`
-- `packages/realtime-openai/src/openai-adapter.test.ts`
-- `packages/realtime-openai/README.md`
-- `apps/demo/src/lib/maelstrom.ts`
-- `apps/demo/src/lib/maelstrom.test.ts`
-- `apps/docs/src/content/docs/guides/voice/openai-realtime.mdx`
-- `apps/docs/src/content/docs/guides/voice/livekit-cascade.mdx`
-- `apps/docs/src/content/docs/understanding/browser-vad-and-barge-in.mdx`
-- `docs/realtime-voice-architecture.md`
-- `bun.lock`
 
 ### Acceptance checks
 
-- Audio-worklet tests prove a bounded ring, one pre-roll flush before live samples, no duplication across rapid starts, clear/misfire behavior, acknowledgement bounds, and stale/destroyed generation no-ops.
-- OpenAI mocked tests prove greeting-period publication stays closed, speech-trigger ordering is playback stop → publication open → pre-roll → live audio, Skip remains available, and failure/disconnect/reconnect restores exact prior track/publication state.
-- Cross-layer tests preserve one Engine message, one caption, and at most one provider history item whether the greeting plays, is explicitly skipped, or is interrupted by the opt-in spoken path.
-- Normal post-greeting immediate and transcript-confirmed barge-in regression suites remain unchanged and green.
-- LiveKit tests prove its existing pause-before-idle, resume-before-pre-roll, manual degradation, misfire, teardown, TTS cancellation, and reconnect behavior did not change when the primitive moved.
-- Documentation labels the spoken path experimental/opt-in, states the fallback, provides trusted VAD asset setup, and records the unverified acoustic claims rather than implying guarantees.
-
-### Real-device validation gate
-
-Before changing the default or enabling the spoken path in the hosted demo, record pass/fail evidence for current Safari/iOS, Chrome/Android, and desktop Safari/Chrome using built-in speaker/mic, earpiece where available, wired headset, and Bluetooth routes. At minimum verify:
-
-1. Skip during Engine wait, synthesis, and playback stops promptly; the immediately following first utterance is complete and executes once.
-2. Spoken interruption preserves the first phoneme/word with no duplicate prefix and reaches the task exactly once.
-3. The greeting alone does not trigger interruption or reach provider transcription/history at supported playback volumes.
-4. Quiet and normal speakers can interrupt; fan noise, sustained sibilance, keyboard noise, and room speech do not cause unacceptable false starts.
-5. Post-greeting barge-in still works in both OpenAI policies, and reconnect/new-session behavior matches terminal proof.
-6. Microphone indicators, permission prompts, autoplay unlock, route changes, background/foreground transitions, and Bluetooth handoffs recover without a hot-mic or stuck-silence state.
-
-If any required route fails, keep the feature opt-in/default-off, preserve explicit Skip, document the failure, and do not convert the failed observation into a product claim.
+- Production and test code import the pre-roll factory/type from `@maelstrom-co/realtime-vad`; there is no remaining relative local-pre-roll import or module mock.
+- The complete LiveKit suite preserves connect gating, resume-before-pre-roll, pause-after-drain, automatic and manual turns, rapid boundaries, VAD misfire cancellation, timeout/manual degradation, track replacement, stale-generation fencing, reconnect races, partial-connect cleanup, and disconnect ordering.
+- The adapter still creates one bridge from the VAD-owned microphone clone, publishes its generated track, and leaves ownership of the clone/source with the existing LiveKit connection generation.
+- Bridge creation/start/end/destroy failures retain their existing fatal versus safe-manual-degradation classifications and event ordering. The move introduces no new `clear()` call into LiveKit behavior.
+- The LiveKit-local source and test are deleted, and repository search proves no local duplicate/import remains.
+- The LiveKit README identifies pre-roll as the provider-neutral VAD primitive, links its ownership/lifecycle contract, retains LiveKit-specific resume/pause ordering and CSP guidance, and does not imply a provider-specific implementation remains.
+- No manifest or lockfile change is needed because LiveKit already directly depends on realtime-vad. No OpenAI file changes.
 
 ### Verify commands
 
 ```bash
-bunx nx test @maelstrom-co/realtime-vad --skipSync
-bunx nx typecheck @maelstrom-co/realtime-vad --skipSync
-bunx nx test @maelstrom-co/realtime-livekit --skipSync
-bunx nx typecheck @maelstrom-co/realtime-livekit --skipSync
-bunx nx test @maelstrom-co/realtime-openai --skipSync
-bunx nx typecheck @maelstrom-co/realtime-openai --skipSync
-bunx nx test @maelstrom-co/demo --skipSync
-bunx nx typecheck @maelstrom-co/demo --skipSync
-CI=1 bunx nx run @maelstrom-co/docs:e2e --skipSync
-bunx biome check packages/realtime-vad packages/realtime-livekit packages/realtime-openai apps/demo/src/lib/maelstrom.ts apps/demo/src/lib/maelstrom.test.ts apps/docs/src/content/docs/guides/voice apps/docs/src/content/docs/understanding/browser-vad-and-barge-in.mdx docs/realtime-voice-architecture.md --error-on-warnings
+set -euo pipefail
+bunx nx run-many -t test build typecheck lint --projects=@maelstrom-co/realtime-vad,@maelstrom-co/realtime-livekit --parallel=false --skipSync
+
+test ! -e packages/realtime-livekit/src/local-audio-pre-roll.ts
+test ! -e packages/realtime-livekit/src/local-audio-pre-roll.test.ts
+! rg -n "from './local-audio-pre-roll\\.js'|mock\\.module\\('./local-audio-pre-roll\\.js'" packages/realtime-livekit/src
+rg -n "createLocalAudioPreRoll|LocalAudioPreRoll" packages/realtime-vad/src packages/realtime-livekit/src
+```
+
+Rerun Phase 1's tarball/declaration/clean-consumer block after the final build, then run the repository gate serially:
+
+```bash
+set -euo pipefail
+bunx nx run-many -t check test build typecheck e2e --parallel=false
 ```
 
 ### Dependencies
 
-Phase 2's greeting-presentation and publication-gate seams. Reuse the existing `@maelstrom-co/realtime-vad` callback model and LiveKit pre-roll behavior rather than adding a parallel detector.
+Phase 1. LiveKit must not point at the shared root export until that export, declaration surface, package artifact, and standalone behavior are green.
 
 ### Non-goals
 
-- Enabling spoken interruption by default before device evidence exists.
-- Claiming AEC/NS/AGC, VAD accuracy, no self-echo, first-phoneme preservation, or interruption latency from mocks.
-- Replacing OpenAI server VAD after greeting.
-- Changing LiveKit semantics beyond intentionally sharing the provider-neutral audio primitive.
-
-## Acoustic claims that remain unverified by automated tests
-
-The run must leave this list in user/contributor documentation with current device evidence, including explicit “not tested” entries:
-
-- Browser/OS AEC actually removes the app's own greeting on each speaker/microphone/audio route.
-- Local VAD distinguishes a real user from greeting playback, background speech, fans, sibilance, and transient noise at acceptable false-positive/false-negative rates.
-- Configured pre-roll preserves the first phoneme/word without audible gaps, duplication, resampling artifacts, or excessive latency.
-- Track/publication gating sends no intelligible greeting audio over real WebRTC implementations; `track.enabled` and mocked worklets alone do not prove this.
-- Skip-to-listening and spoken-interruption latency feel prompt on supported mobile and desktop hardware.
-- Normal post-greeting barge-in remains reliable at the configured OpenAI threshold and across LiveKit routes.
-- Autoplay unlock, AudioWorklet behavior, permission state, route changes, backgrounding, and Bluetooth transitions behave consistently on supported devices.
-- Requested/applied AEC, NS, and AGC booleans describe configuration only, not acoustic effectiveness.
+- Refactoring unrelated LiveKit lifecycle code or changing transport ordering, timeout policy, VAD defaults, wire messages, or fallback behavior.
+- Making pre-roll a LiveKit export or adding another VAD subpath.
+- Changing `publishConfig.access` to make `audit:public-api-docs` discover realtime-vad.
+- Any OpenAI API, dependency, test, documentation, or behavior change.
 
 ## Definition of done
 
-- All three phases are delivered in order and each phase leaves its focused package set green.
-- Explicit Skip is production-usable, accessible, idempotent, terminal for the same session, and available even when experimental spoken interruption is unavailable or fails.
-- Engine acknowledgement, caption, provider history, synthesis, and playback have documented linearization points and at-most-once regression coverage across Skip/interruption/disconnect/reconnect races.
-- Microphone/publication ownership restores exact prior state and stale work cannot alter a replacement generation.
-- Response arbitration, greeting presentation, microphone gating, and shared-session lifecycle each have one deep owner; obsolete compensating state/tests are removed.
-- LiveKit behavior is unchanged except for the explicitly tested reuse of the generalized pre-roll primitive.
-- Diagnostics remain privacy-safe and documentation covers the public interfaces, fallback behavior, mobile/desktop UX, manual matrix, and residual acoustic uncertainty.
-- Focused checks above pass, followed by the repository gate:
-
-```bash
-bunx nx run-many -t check test build typecheck e2e
-```
-
-- Any real-device failures or unrun matrix entries are recorded; the spoken path remains opt-in/default-off until the validation gate passes. No acoustic guarantee is inferred solely from automated tests.
+- `@maelstrom-co/realtime-vad` owns the sole source implementation and exports a declaration-documented provider-neutral pre-roll API from its root.
+- Provider-neutral processor and lifecycle tests cover bounded silent buffering, newest-tail-before-live ordering, rapid starts, manual/clear discard, drain semantics, acknowledgement fencing and recovery, source/generated ownership, partial cleanup, and idempotent destroy.
+- `LiveKitAdapter` consumes that API with its existing behavior and full regression suite unchanged in meaning; the LiveKit-local source/test and all relative references are gone.
+- Both package READMEs describe the new ownership boundary and operational constraints.
+- Realtime-vad's distribution visibility is unchanged; declaration inspection, package build, tarball contents, and a clean installed consumer prove the root type/runtime exports instead of an inapplicable `audit:public-api-docs --packages` invocation.
+- Every multi-command verification block fails closed under `set -euo pipefail`; temporary packed-consumer files are removed only through a guarded, non-forced recursive cleanup of the exact `mktemp` directory.
+- Focused VAD and LiveKit test/build/typecheck/lint checks, removal proof, final packed-consumer verification, and `bunx nx run-many -t check test build typecheck e2e --parallel=false` all pass on the final tree.
+- No OpenAI file, API, dependency, or runtime behavior is added or changed.
