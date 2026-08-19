@@ -144,6 +144,12 @@ export interface ChartRequest {
 // LLM structured-output schemas
 // ---------------------------------------------------------------------------
 
+/**
+ * Structured-output schema for a grid-mode LLM response.
+ *
+ * Limits the execution plan but leaves semantic layout validation to the
+ * Engine's heal layer.
+ */
 export const GridResponseSchema = z.object({
   userMessage: z
     .string()
@@ -166,8 +172,15 @@ export const GridResponseSchema = z.object({
   ),
 });
 
+/** Parsed grid-mode LLM output before Engine healing and envelope metadata. */
 export type GridResponse = z.infer<typeof GridResponseSchema>;
 
+/**
+ * Structured-output schema for a tiling-mode LLM response.
+ *
+ * Limits the execution plan but leaves tree and Instance coherence checks to
+ * the Engine's heal layer.
+ */
 export const TilingResponseSchema = z.object({
   userMessage: z
     .string()
@@ -190,6 +203,7 @@ export const TilingResponseSchema = z.object({
   ),
 });
 
+/** Parsed tiling-mode LLM output before Engine healing and envelope metadata. */
 export type TilingResponse = z.infer<typeof TilingResponseSchema>;
 
 // ---------------------------------------------------------------------------

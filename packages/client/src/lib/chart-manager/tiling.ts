@@ -5,32 +5,55 @@ import {
   type TilingSplit,
 } from '@maelstrom-co/protocol';
 
+/** Pixel-space rectangle used while projecting a tiling tree. */
 export interface Rect {
+  /** Horizontal coordinate of the rectangle's top-left corner. */
   readonly x: number;
+  /** Vertical coordinate of the rectangle's top-left corner. */
   readonly y: number;
+  /** Rectangle width in pixels. */
   readonly width: number;
+  /** Rectangle height in pixels. */
   readonly height: number;
 }
 
+/** Parsed node in a binary tiling tree. */
 export type TilingTreeNode = TilingSplitNode | TilingLeafNode;
 
+/** Split node whose children divide the current rectangle into equal regions. */
 export interface TilingSplitNode {
+  /** Node discriminator. */
   readonly type: 'split';
+  /** `H` divides top/bottom; `V` divides left/right. */
   readonly direction: TilingSplit;
+  /** First child, absent when the preorder input is incomplete. */
   readonly left?: TilingTreeNode | undefined;
+  /** Second child, absent when the preorder input is incomplete. */
   readonly right?: TilingTreeNode | undefined;
 }
 
+/** Leaf node that either names an Instance or reserves empty space. */
 export interface TilingLeafNode {
+  /** Node discriminator. */
   readonly type: 'leaf';
+  /** Instance occupying the region, or `null` for an empty region. */
   readonly instanceId: InstanceId | null;
 }
 
+/** Renderable tile computed for one Instance. */
 export interface ComputedTile {
+  /** Instance rendered in the tile. */
   readonly instanceId: InstanceId;
+  /** Padded pixel-space bounds for the Instance. */
   readonly rect: Rect;
 }
 
+/**
+ * Parses the first preorder root from a flat tiling tree.
+ *
+ * Returns `null` for empty input. Malformed input is retained as a partial tree:
+ * missing children are omitted and trailing tokens are ignored, with a warning.
+ */
 export function parseTilingTree(
   nodes: readonly TilingNode[],
 ): TilingTreeNode | null {
@@ -81,6 +104,12 @@ export function parseTilingTree(
   return result;
 }
 
+/**
+ * Projects a parsed tiling tree into padded pixel-space tiles.
+ *
+ * Empty trees and empty leaves produce no tile. Repeated Instance leaves are
+ * merged into their bounding rectangle, and padding never yields negative size.
+ */
 export function computeTilingLayout(
   tree: TilingTreeNode | null,
   containerRect: Rect,

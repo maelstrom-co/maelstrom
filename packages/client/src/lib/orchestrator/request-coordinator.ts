@@ -12,8 +12,11 @@ import type { EventSubscriber } from '../utils/typed-emitter.js';
 import { TypedEmitter } from '../utils/typed-emitter.js';
 import type { RequestCoordinatorOptions } from './request-coordinator.types.js';
 
+/** Observable state for the active request and latest successful response. */
 export interface RequestCoordinatorState {
+  /** Whether a connector request is currently in flight. */
   isProcessing: boolean;
+  /** Latest successful Engine response, or `null` before one is received. */
   lastResponse: MaelstromResponse | null;
 }
 

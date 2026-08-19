@@ -24,10 +24,15 @@ type AssertNarrowIds<T extends readonly AnyVesselEntry[]> =
     ? 'Error: All vessel IDs must be literal string types (e.g. "orders"), not `string`. Use vessel() or defineVessel() to preserve literal types.'
     : T;
 
+/** Configuration used to create one typed React Maelstrom instance. */
 export interface CreateMaelstromConfig<T extends readonly AnyVesselEntry[]> {
+  /** Vessel entries available to the Provider and generated hooks. */
   vessels: AssertNarrowIds<T> & T;
+  /** Grid cell size in pixels. */
   cellSizePx?: number;
+  /** Pixel gap inset around computed tiling regions. */
   tilingPaddingPx?: number;
+  /** Enables client diagnostic logging. Defaults to `false`. */
   debug?: boolean;
   /**
    * Chart motion/choreography settings. A `motion` prop on the Provider

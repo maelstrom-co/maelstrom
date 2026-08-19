@@ -3,8 +3,11 @@
 // system prompt sections and user prompt sections.
 // ---------------------------------------------------------------------------
 
+/** Named prompt fragment retained through customization and composition. */
 export interface PromptSection {
+  /** Stable section key used to target overrides. */
   readonly key: string;
+  /** Text contributed by this section before prompts are joined. */
   readonly content: string;
 }
 
@@ -25,6 +28,7 @@ export type SectionCustomizer =
   | ((defaultContent: string) => string)
   | null;
 
+/** Prepend and/or append content around a section's default text. */
 export type SectionExtension =
   | { readonly prepend: string; readonly append?: string }
   | { readonly prepend?: string; readonly append: string };
@@ -33,6 +37,7 @@ export type SectionExtension =
 // System prompt section keys
 // ---------------------------------------------------------------------------
 
+/** Built-in system prompt section keys, in their default semantic order. */
 export const SystemSection = {
   IDENTITY: 'identity',
   TRIGGERS: 'triggers',
@@ -41,6 +46,7 @@ export const SystemSection = {
   RULES: 'rules',
 } as const;
 
+/** Key of a built-in system prompt section. */
 export type SystemSectionKey =
   (typeof SystemSection)[keyof typeof SystemSection];
 
@@ -48,12 +54,14 @@ export type SystemSectionKey =
 // User prompt section keys
 // ---------------------------------------------------------------------------
 
+/** Built-in user prompt section keys, in their default semantic order. */
 export const UserSection = {
   VESSELS: 'vessels',
   CHART_STATE: 'chartState',
   UPDATE_TRIGGERS: 'updateTriggers',
 } as const;
 
+/** Key of a built-in user prompt section. */
 export type UserSectionKey = (typeof UserSection)[keyof typeof UserSection];
 
 // ---------------------------------------------------------------------------
@@ -61,10 +69,12 @@ export type UserSectionKey = (typeof UserSection)[keyof typeof UserSection];
 // arbitrary keys allowed for new sections.
 // ---------------------------------------------------------------------------
 
+/** System-section customizers with autocomplete for built-in and custom keys. */
 export type SystemSectionOverrides = {
   [K in SystemSectionKey]?: SectionCustomizer;
 } & { [key: string]: SectionCustomizer | undefined };
 
+/** User-section customizers with autocomplete for built-in and custom keys. */
 export type UserSectionOverrides = {
   [K in UserSectionKey]?: SectionCustomizer;
 } & { [key: string]: SectionCustomizer | undefined };

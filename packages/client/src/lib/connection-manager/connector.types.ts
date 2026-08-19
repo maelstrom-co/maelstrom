@@ -59,6 +59,12 @@ export type ConnectionStatus =
 // Circuit Status
 // ============================================================================
 
+/**
+ * Circuit-breaker phase for engine connection attempts.
+ *
+ * `closed` permits normal attempts, `open` rejects them, and `half_open`
+ * permits a single recovery probe.
+ */
 export type CircuitStatus = 'closed' | 'open' | 'half_open';
 
 // ============================================================================

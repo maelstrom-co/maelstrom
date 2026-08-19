@@ -8,9 +8,13 @@ import type { VesselId } from './vessel-id.ts';
 // Action execution — parsed form (params as object, not JSON string)
 // ---------------------------------------------------------------------------
 
+/** Parsed instruction to invoke one Action on one Instance. */
 export interface ActionExecution {
+  /** Target Instance identity. */
   readonly instanceId: InstanceId;
+  /** Action name valid for the Instance's current Variant. */
   readonly action: ActionName;
+  /** Parsed Action parameters, omitted for a parameterless invocation. */
   readonly params?: Record<string, unknown>;
 }
 
@@ -18,20 +22,31 @@ export interface ActionExecution {
 // Layout types
 // ---------------------------------------------------------------------------
 
+/** Cell position and allocation for one visible Instance in grid mode. */
 export interface GridPosition {
+  /** Instance placed by this entry. */
   readonly instanceId: InstanceId;
+  /** Zero-based Chart cell containing the allocation's top-left corner. */
   readonly position: { readonly row: number; readonly column: number };
+  /** Allocation in Chart cells. */
   readonly size: { readonly width: number; readonly height: number };
 }
 
+/** Grid layout containing explicit positions for visible Instances. */
 export interface GridLayout {
+  /** Layout discriminator. */
   readonly type: 'grid';
+  /** Position and allocation for each visible Instance. */
   readonly positions: readonly GridPosition[];
 }
 
+/** Instance declaration carried by a tiling layout. */
 export interface TilingInstance {
+  /** Instance identity referenced by tiling leaves. */
   readonly instanceId: InstanceId;
+  /** Vessel implemented by the Instance. */
   readonly vesselId: VesselId;
+  /** Current Variant after the response is applied. */
   readonly variant: VariantName;
 }
 
@@ -58,9 +73,13 @@ export function isTilingSplit(node: TilingNode): node is TilingSplit {
   return node === 'H' || node === 'V';
 }
 
+/** Tiling layout represented as a preorder binary tree plus Instance declarations. */
 export interface TilingLayout {
+  /** Layout discriminator. */
   readonly type: 'tiling';
+  /** Preorder split, Instance, and empty-space nodes. */
   readonly tree: readonly TilingNode[];
+  /** Complete Instance set retained after applying the layout. */
   readonly instances: readonly TilingInstance[];
 }
 
@@ -124,11 +143,18 @@ function collectVisibleTilingLeaves(
 // MaelstromResponse — the engine's output contract
 // ---------------------------------------------------------------------------
 
+/** Engine decision returned for a Chart request. */
 export interface MaelstromResponse {
+  /** Response discriminator. */
   readonly type: 'maelstrom_response';
+  /** Input message identity used for request correlation. */
   readonly requestId: MessageId;
+  /** User-facing assistant text. */
   readonly userMessage: string;
+  /** Engine rationale intended for diagnostics rather than user display. */
   readonly rationale: string;
+  /** Ordered Actions to execute after applying the layout. */
   readonly executionPlan: readonly ActionExecution[];
+  /** Grid or tiling layout selected for this response. */
   readonly layout: GridLayout | TilingLayout;
 }

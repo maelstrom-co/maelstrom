@@ -19,6 +19,7 @@ function isActionParamsJsonWithinByteLimit(value: string): boolean {
 // Shared schemas
 // ---------------------------------------------------------------------------
 
+/** Parses a non-negative, zero-based Chart cell position. */
 export const ChartPositionSchema = z.object({
   row: z
     .number()
@@ -32,11 +33,18 @@ export const ChartPositionSchema = z.object({
     .describe('Column position on the chart (0-indexed)'),
 });
 
+/** Parses a positive Chart allocation measured in cells. */
 export const ChartSizeSchema = z.object({
   width: z.number().int().min(1).describe('Width in chart cells'),
   height: z.number().int().min(1).describe('Height in chart cells'),
 });
 
+/**
+ * Parses model-authored Action execution output.
+ *
+ * IDs and Action names are branded, while optional parameters remain a
+ * byte-bounded JSON string for later semantic parsing by the Engine.
+ */
 export const ActionExecutionSchema = z.object({
   instanceId: z
     .string()
@@ -63,6 +71,7 @@ export const ActionExecutionSchema = z.object({
 // Grid layout
 // ---------------------------------------------------------------------------
 
+/** Parses and brands one grid-mode Instance allocation. */
 export const GridPositionSchema = z.object({
   instanceId: z
     .string()
@@ -77,6 +86,12 @@ export const GridPositionSchema = z.object({
   ),
 });
 
+/**
+ * Parses the model-output grid layout body.
+ *
+ * The schema validates individual positions but does not enforce overlap,
+ * Chart bounds, uniqueness, or Variant minimum sizes; the heal layer does.
+ */
 export const GridLayoutSchema = z.object({
   positions: z
     .array(GridPositionSchema)
@@ -104,12 +119,14 @@ export const TilingNodeSchema = z
     'A node in the tiling binary tree: "H" for horizontal split (top/bottom), "V" for vertical split (left/right), vessel instance ID string for leaf nodes, or null for empty space.',
   );
 
+/** Parses a preorder tiling tree without checking tree completeness or references. */
 export const TilingTreeSchema = z
   .array(TilingNodeSchema)
   .describe(
     'Preorder traversal of the tiling binary tree. Each split divides the current region in half.',
   );
 
+/** Parses and brands an Instance identity, Vessel identity, and current Variant. */
 export const VesselInstanceSnapshotSchema = z.object({
   instanceId: z
     .string()
@@ -132,6 +149,12 @@ export const VesselInstanceSnapshotSchema = z.object({
     ),
 });
 
+/**
+ * Parses the model-output tiling layout body.
+ *
+ * Tree completeness, duplicate identities, and leaf-to-Instance coherence are
+ * intentionally deferred to the Engine's heal layer.
+ */
 export const TilingLayoutSchema = z.object({
   tree: TilingTreeSchema.describe(
     'Binary tree layout as preorder traversal. Instance IDs in this tree are VISIBLE; omitted instances are HIDDEN.',

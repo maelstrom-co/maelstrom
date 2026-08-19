@@ -25,6 +25,7 @@ export interface LLMContextMessage {
   readonly content: string;
 }
 
+/** Persistence, retention, and prompt-projection policy for Engine history. */
 export interface HistoryConfig<TMeta = unknown> {
   /**
    * Hard cap on per-session entry count. Omit to disable the entry-count

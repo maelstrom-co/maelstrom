@@ -1,5 +1,6 @@
 declare const brand: unique symbol;
 
+/** Adds a compile-time nominal marker to a structural value without runtime data. */
 export type Brand<T, B extends string> = T & {
   readonly [brand]: B;
 };

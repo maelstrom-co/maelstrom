@@ -157,6 +157,7 @@ export interface RequestValidationError {
   readonly stack?: string;
 }
 
+/** Closed union of failures returned by Engine operations. */
 export type EngineError =
   | ParseError
   | ProviderError
@@ -169,6 +170,7 @@ export type EngineError =
 const captureStack = (message: string): string | undefined =>
   new Error(message).stack;
 
+/** Creates a parse failure while retaining the raw provider output. */
 export const parseError = (message: string, raw: string): ParseError => ({
   _tag: 'ParseError',
   message,
@@ -176,6 +178,7 @@ export const parseError = (message: string, raw: string): ParseError => ({
   stack: captureStack(message),
 });
 
+/** Creates a provider failure while retaining its original cause. */
 export const providerError = (
   message: string,
   cause: unknown,
@@ -186,6 +189,12 @@ export const providerError = (
   stack: captureStack(message),
 });
 
+/**
+ * Creates a semantic validation failure.
+ *
+ * Omitted `field` and `cause` properties remain absent rather than being set
+ * to `undefined`, so key-presence checks and serialization stay meaningful.
+ */
 export const validationError = (
   message: string,
   field?: string,
@@ -202,6 +211,11 @@ export const validationError = (
   stack: captureStack(message),
 });
 
+/**
+ * Creates a timeout failure for a non-negative finite duration.
+ *
+ * @throws {RangeError} If `timeoutMs` is negative or non-finite.
+ */
 export const timeoutError = (
   message: string,
   timeoutMs: number,
@@ -219,6 +233,7 @@ export const timeoutError = (
   };
 };
 
+/** Creates a cancellation failure while retaining the caller-supplied reason. */
 export const cancellationError = (
   message: string,
   reason: unknown,
@@ -314,6 +329,13 @@ const buildError = (
   };
 };
 
+/**
+ * Classifies Zod request issues as envelope or payload validation failures.
+ *
+ * Root issues and empty issue lists are envelope failures. Otherwise, any
+ * issue on an envelope field wins regardless of issue order; remaining issues
+ * are payload failures. Symbol path segments are stringified in the result.
+ */
 export const requestValidationError = (
   issues: readonly z.ZodIssue[],
 ): RequestValidationError => {

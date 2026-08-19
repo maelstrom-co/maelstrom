@@ -18,6 +18,7 @@ const DEFAULT_VARS: PromptVars = {
   assistantName: 'Maelstrom',
 };
 
+/** String substitutions available to system prompt sections. */
 export interface PromptVars {
   /** Assistant name substituted into the identity section. Default: 'Maelstrom' */
   readonly assistantName?: string;
@@ -25,6 +26,7 @@ export interface PromptVars {
   readonly [key: string]: string | undefined;
 }
 
+/** Section-level customization for Engine system and user prompts. */
 export interface PromptOptions {
   /** Template variables substituted into section defaults (e.g. assistantName) */
   readonly vars?: PromptVars;
@@ -34,11 +36,17 @@ export interface PromptOptions {
   readonly user?: Readonly<UserSectionOverrides>;
 }
 
+/** Fully joined prompts together with their post-customization sections. */
 export interface PromptResult {
+  /** System sections joined with blank lines. */
   readonly systemPrompt: string;
+  /** User sections joined with blank lines. */
   readonly userPrompt: string;
+  /** Post-interpolation and post-override sections used to build each prompt. */
   readonly sections: {
+    /** Ordered system prompt sections. */
     readonly system: readonly PromptSection[];
+    /** Ordered user prompt sections. */
     readonly user: readonly PromptSection[];
   };
 }
