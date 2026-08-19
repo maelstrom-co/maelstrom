@@ -28,7 +28,11 @@ export type SectionCustomizer =
   | ((defaultContent: string) => string)
   | null;
 
-/** Prepend and/or append content around a section's default text. */
+/**
+ * Prepend and/or append content. For an existing default section, the content
+ * wraps its default text; for a new custom key, `prepend` and `append` are
+ * joined directly.
+ */
 export type SectionExtension =
   | { readonly prepend: string; readonly append?: string }
   | { readonly prepend?: string; readonly append: string };
@@ -69,12 +73,12 @@ export type UserSectionKey = (typeof UserSection)[keyof typeof UserSection];
 // arbitrary keys allowed for new sections.
 // ---------------------------------------------------------------------------
 
-/** System-section customizers with autocomplete for built-in and custom keys. */
+/** System-section customizers with built-in-key autocomplete that also allow custom keys. */
 export type SystemSectionOverrides = {
   [K in SystemSectionKey]?: SectionCustomizer;
 } & { [key: string]: SectionCustomizer | undefined };
 
-/** User-section customizers with autocomplete for built-in and custom keys. */
+/** User-section customizers with built-in-key autocomplete that also allow custom keys. */
 export type UserSectionOverrides = {
   [K in UserSectionKey]?: SectionCustomizer;
 } & { [key: string]: SectionCustomizer | undefined };

@@ -34,8 +34,10 @@ export interface HistoryConfig<TMeta = unknown> {
    */
   readonly maxEntries?: number;
   /**
-   * Budget for total chars across retained entries — a token proxy. Omit
-   * to disable the char budget entirely.
+   * Budget for total chars across retained entries — a token proxy. Omit to
+   * disable the char budget entirely. Unlike the strict `maxEntries` cap, a
+   * positive budget retains the newest entry even if it alone exceeds the
+   * budget; a non-positive budget retains no entries.
    */
   readonly maxChars?: number;
   /**
