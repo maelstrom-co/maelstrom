@@ -35,7 +35,7 @@ export const MINT_FAILURE_REASONS = [
   'upstream-failure',
 ] as const;
 
-/** Provider-agnostic token-mint failure reason derived from {@link MINT_FAILURE_REASONS}. */
+/** Provider-agnostic failure reason for minting a Grant, derived from {@link MINT_FAILURE_REASONS}. */
 export type MintFailureReason = (typeof MINT_FAILURE_REASONS)[number];
 
 /**
