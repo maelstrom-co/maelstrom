@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test';
 
-const playgroundUrl = process.env.PLAYGROUND_URL;
-if (!playgroundUrl) {
-  throw new Error('PLAYGROUND_URL is required to test the Playground link');
-}
+const playgroundUrl =
+  process.env.PLAYGROUND_URL ?? 'https://demo.maelstrom-ai.co';
 
 test('main navigation links to the configured Playground', async ({ page }) => {
   await page.goto('/');
