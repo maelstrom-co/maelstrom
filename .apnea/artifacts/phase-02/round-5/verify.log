@@ -1,0 +1,1872 @@
+$ bun test packages/realtime-openai/src/response-arbiter.test.ts packages/realtime-openai/src/microphone-publication-gate.test.ts packages/realtime-openai/src/greeting-presentation.test.ts packages/realtime-openai/src/web-audio-greeting-player.test.ts packages/realtime-openai/src/openai-adapter.test.ts
+bun test v1.3.7 (ba426210)
+[OpenAIAdapter] connect timing {
+  step: "mint",
+  ms: 0,
+}
+[OpenAIAdapter] connect timing {
+  step: "getUserMedia",
+  ms: 1,
+}
+[OpenAIAdapter] microphone audio processing {
+  audioProcessing: {
+    requested: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+    applied: {
+      echoCancellation: "unavailable",
+      noiseSuppression: "unavailable",
+      autoGainControl: "unavailable",
+    },
+  },
+}
+[OpenAIAdapter] connect timing {
+  step: "dataChannelOpen",
+  ms: 1,
+}
+[OpenAIAdapter] → session.update {
+  type: "session.update",
+  session: {
+    type: "realtime",
+    tools: [
+      [Object ...]
+    ],
+    instructions: "be helpful",
+    audio: {
+      input: [Object ...],
+      output: [Object ...],
+    },
+  },
+}
+[OpenAIAdapter] connect timing {
+  step: "sdpExchange",
+  ms: 1,
+}
+[OpenAIAdapter] connect timing {
+  step: "setRemoteDescription",
+  ms: 1,
+}
+
+packages/realtime-openai/src/web-audio-greeting-player.test.ts:
+(pass) WebAudioGreetingPlayer > begins AudioContext construction, resume, silent source create/connect/start synchronously in activate() [1.88ms]
+(pass) WebAudioGreetingPlayer > reuses the same AudioContext on repeated activation and may resume again [0.03ms]
+(pass) WebAudioGreetingPlayer > readiness fails for no activation, resume rejection, and pre-abort [1.12ms]
+(pass) WebAudioGreetingPlayer > decodes a defensive copy of WAV bytes and resolves play only on onended [1.30ms]
+(pass) WebAudioGreetingPlayer > abort during playback stops/disconnects and settles once [0.42ms]
+(pass) WebAudioGreetingPlayer > stop() is idempotent and does not close the context [0.13ms]
+(pass) WebAudioGreetingPlayer > stop() during decode settles without hanging [0.09ms]
+(pass) WebAudioGreetingPlayer > treats InvalidStateError from stop as benign [0.05ms]
+(pass) WebAudioGreetingPlayer > ensureReady aborts while resume hangs without ever releasing resume [0.12ms]
+(pass) WebAudioGreetingPlayer > reports unlock_failed when silent start throws even if resume later succeeds [0.18ms]
+(pass) WebAudioGreetingPlayer > overlapping activations: newer unlock failure is not cleared by older resume success [0.12ms]
+
+packages/realtime-openai/src/microphone-publication-gate.test.ts:
+(pass) MicrophonePublicationGate restores unique tracks to exact prior state [0.34ms]
+(pass) stale-generation release is a no-op [0.03ms]
+(pass) replacement lease prevents stale release from restoring over the current gate [0.06ms]
+
+packages/realtime-openai/src/response-arbiter.test.ts:
+(pass) coalesces tools and drains them before eligible turns [1.71ms]
+(pass) requires one correlated committed and useful completed transcript in either order [0.05ms]
+(pass) cancels an active response once and clears output for late activity [0.18ms]
+(pass) only exact cancelled empty completion releases a clear obligation [0.05ms]
+(pass) malformed, duplicate, and non-empty completion cannot release a clear obligation [0.06ms]
+(pass) matching cancelled-empty completion releases only its own clear obligation [0.03ms]
+(pass) stopped and cleared output settle pending obligations without another clear [0.04ms]
+(pass) failed create closes the generation without retrying re-entrant work [0.07ms]
+(pass) failed cancel and clear report errors without duplicating decisions [0.06ms]
+(pass) synchronous re-entrant output during cancel emits one clear [0.94ms]
+(pass) failed create closes before notifying re-entrant error work [0.04ms]
+(pass) synchronous re-entrant completion during cancel preserves one clear decision [0.10ms]
+(pass) closed old generation cannot command a replacement arbiter [0.06ms]
+(pass) generation close drops queued and settled state [0.05ms]
+
+packages/realtime-openai/src/openai-adapter.test.ts:
+(pass) OpenAIAdapter — mintToken failure > rejects connect without constructing an RTCPeerConnection, and resets the connecting guard for a clean retry [2.55ms]
+(pass) OpenAIAdapter — getUserMedia failure > rejects connect, closes the peer connection, and resets the connecting guard for a clean retry [0.24ms]
+(pass) OpenAIAdapter — microphone audio processing > requests non-mandatory AEC, noise suppression, and automatic gain control preferences [0.22ms]
+(pass) OpenAIAdapter — microphone audio processing > logs only requested values and boolean applied settings for the accepted original track [0.34ms]
+(pass) OpenAIAdapter — microphone audio processing > projects missing and non-boolean applied settings as unavailable [0.16ms]
+(pass) OpenAIAdapter — microphone audio processing > keeps connecting and projects unavailable settings when getSettings throws [0.18ms]
+(pass) OpenAIAdapter — microphone audio processing > keeps connecting and projects unavailable settings when getSettings is absent [0.16ms]
+(pass) OpenAIAdapter — microphone audio processing > contains throwing getSettings lookup and applied-setting access without failing connect [0.44ms]
+(pass) OpenAIAdapter — microphone audio processing > snapshots each applied setting exactly once before boolean validation [0.19ms]
+(pass) OpenAIAdapter — microphone audio processing > does not evaluate settings or log audio processing when debug logging is disabled [0.20ms]
+(pass) OpenAIAdapter — failed SDP exchange > rejects connect and tears down mic tracks, data channel, and peer connection [0.18ms]
+(pass) OpenAIAdapter — failed SDP exchange > wraps a createOffer rejection as CONNECTION_FAILED instead of letting the raw error escape [0.18ms]
+(pass) OpenAIAdapter — failed SDP exchange > wraps a fetch rejection (network failure) as CONNECTION_FAILED instead of letting the raw error escape [0.11ms]
+(pass) OpenAIAdapter — failed SDP exchange > wraps a setRemoteDescription rejection as CONNECTION_FAILED instead of letting the raw error escape [0.03ms]
+(pass) OpenAIAdapter — failed SDP exchange > wraps a response.text() rejection (broken/aborted stream) as CONNECTION_FAILED instead of letting the raw error escape [0.19ms]
+(pass) OpenAIAdapter — double connect during mint > rejects a second connect() started while the first is still awaiting mintToken, and only one RTCPeerConnection/mic stream ever exists [0.07ms]
+(pass) OpenAIAdapter — data-channel readiness > keeps connect pending after SDP exchange until the data channel opens [2.95ms]
+(pass) OpenAIAdapter — data-channel readiness > rejects as superseded when disconnect closes a channel that is still opening [0.33ms]
+(pass) OpenAIAdapter — data-channel readiness > rejects and cleans up when the data channel errors before opening [0.20ms]
+(pass) OpenAIAdapter — data-channel readiness > preserves DATA_CHANNEL_ERROR through a RealtimeSession pre-open failure [0.60ms]
+(pass) OpenAIAdapter — data-channel readiness > ignores open and error callbacks from an abandoned data channel [0.38ms]
+(pass) OpenAIAdapter — data-channel readiness > does not send or emit after the first pre-open channel error [0.26ms]
+(pass) OpenAIAdapter — data-channel readiness > rejects when the channel closes after opening but before SDP completes [1.33ms]
+(pass) OpenAIAdapter — closed data channel > injectGrounding on a non-open channel drops silently, without emitting an error or sending anything [0.20ms]
+(pass) OpenAIAdapter — closed data channel > sendToolResult on a non-open channel still emits an error [0.23ms]
+(pass) OpenAIAdapter — successful connect then disconnect > sends session.update with tools and instructions on channel open, then disconnect tears everything down [1.33ms]
+(pass) OpenAIAdapter — typed errors > throws ALREADY_CONNECTED on double connect [0.44ms]
+(pass) OpenAIAdapter — typed errors > wraps a mint rejection as TOKEN_MINT_FAILED with cause preserved [0.24ms]
+(pass) OpenAIAdapter — typed errors > maps getUserMedia NotAllowedError to MIC_PERMISSION_DENIED [0.23ms]
+(pass) OpenAIAdapter — voice activity state > emits listening/thinking/speaking/connected across a full turn [0.70ms]
+(pass) OpenAIAdapter — voice activity state > does not re-emit an unchanged state [0.12ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > creates one response for a committed useful transcript: commit then completion [0.78ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > creates one response for a committed useful transcript: completion then commit [0.11ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > creates one response for a committed useful transcript: delta then completion then commit [0.27ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > creates one response for a committed useful transcript: duplicate commit and completion [0.11ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not create a response from useful delta only [0.15ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not create a response from commit only [0.05ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not create a response from completion only [0.03ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not create a response from empty completed transcript [0.05ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not create a response from uncorrelated events [0.06ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not create a response from speech stop and commit [0.03ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > queues distinct validated turns FIFO without collapsing them [0.18ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > prioritizes one coalesced tool follow-up before FIFO turns: tools before turns [0.25ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > prioritizes one coalesced tool follow-up before FIFO turns: turns before tools [0.10ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > gives a pending tool follow-up priority after an idle validated turn
+(pass) OpenAIAdapter — transcript-confirmed interruption > handles done-before-created once and ignores duplicate, stale, and conflicting lifecycle events [0.38ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not retry a failed response.create attempt from duplicate item events [0.20ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > retires a failed validated-turn response.create and fatally closes the scheduler before error notification [1.54ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > retires a failed tool follow-up response.create and never drains later work [0.39ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not interrupt provider output on raw speech_started [0.11ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > cancels the active response by id then clears active output exactly once [0.13ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > clears active output once when distinct input items target the same response [0.58ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > re-clears late output for a distinct item without cancelling the response twice [0.37ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not let duplicate response.created reset active output attribution [0.10ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > retains a pending clear through re-entrant response.done until late output starts [0.15ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > releases a cancelled response clear obligation only from explicit empty output and preserves arbiter priority [0.21ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > keeps the clear obligation for cancelled response.done with omitted output [0.15ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > keeps the clear obligation for cancelled response.done with malformed output [0.06ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > keeps the clear obligation for cancelled response.done with nonempty output [0.05ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > does not release a cancelled response clear obligation from wrong, duplicate, or newer response events [0.13ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > preserves cancel-before-clear order when response.done is re-entrant with active output [0.10ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > clears active output before draining a pending tool follow-up after re-entrant response.done [0.15ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > clears active output before draining an already validated turn after re-entrant response.done [0.12ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > fulfills a pending clear as already empty when output stops before starting [0.09ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > surfaces cancel failure and still attempts one standalone safety clear for active output [0.31ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > lets a distinct input item retry cancellation after the first cancel send fails [0.23ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > clears buffered output without a speculative cancel [0.08ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > sends nothing for whitespace, missing correlation, no target, or already-empty output [0.20ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > ignores events from a stale data channel after reconnect [0.13ms]
+(pass) OpenAIAdapter — transcript-confirmed interruption > resets response attribution and validated-turn queues across reconnect [0.16ms]
+(pass) OpenAIAdapter — lifecycle diagnostics > classifies input transcript deltas without logging identifiers or text and preserves delivery [1.20ms]
+(pass) OpenAIAdapter — lifecycle diagnostics > distinguishes lifecycle categories with fixed sanitized projections [0.66ms]
+[OpenAIAdapter] unexpected realtime event type conversation.item.input_audio_transcription.completed
+[OpenAIAdapter] unexpected realtime event type conversation.item.input_audio_transcription.completed
+(pass) OpenAIAdapter — lifecycle diagnostics > treats missing and non-string completed transcripts as non-useful [0.31ms]
+(pass) OpenAIAdapter — lifecycle diagnostics > keeps completed transcript delivery unchanged without logging its text [0.17ms]
+(pass) OpenAIAdapter — lifecycle diagnostics > emits no lifecycle diagnostics when debug logging is disabled [0.11ms]
+(pass) OpenAIAdapter — audio streams > exposes mic and playback streams while connected and clears them on disconnect [0.12ms]
+(pass) OpenAIAdapter — audio streams > pauses and detaches the playback audio element on teardown [0.29ms]
+[RealtimeSession] adapter error RealtimeVoiceError: ICE connection failed
+ cause: undefined,
+  code: "CONNECTION_FAILED"
+
+      at <anonymous> (/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime-openai/src/openai-adapter.ts:468:18)
+      at <anonymous> (/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime-openai/src/openai-adapter.test.ts:2348:8)
+
+(pass) RealtimeSession + OpenAIAdapter — fatal in-session error recovery > tears down the adapter on a fatal ICE error (mic goes cold) so a retry connect() succeeds instead of throwing ALREADY_CONNECTED [3.58ms]
+(pass) OpenAIAdapter — superseded connect abandonment > abandons a superseded in-flight attempt, closing only its own pc + mic, while the winner stays live and owns the shared fields [4.43ms]
+(pass) OpenAIAdapter — ICE disconnected grace window > does not fail immediately on ICE disconnected, fails only after the grace window elapses, and a recovery cancels it [2.55ms]
+(pass) OpenAIAdapter — ICE disconnected grace window > fails immediately with no grace window on ICE failed [0.25ms]
+(pass) OpenAIAdapter — ICE disconnected grace window > a grace timer left pending by a disconnect never fires after teardown [0.80ms]
+(pass) OpenAIAdapter — transcription config > enables input-audio transcription with the default model and marin output voice by default [0.65ms]
+(pass) OpenAIAdapter — transcription config > uses a caller-supplied transcription model alongside output voice [0.35ms]
+(pass) OpenAIAdapter — transcription config > configures transcript-confirmed barge-in without changing transcription or output voice [0.16ms]
+(pass) OpenAIAdapter — transcription config > keeps immediate barge-in flags when only the server VAD threshold is configured [0.19ms]
+(pass) OpenAIAdapter — transcription config > uses the default threshold with transcript-confirmed barge-in [0.06ms]
+(pass) OpenAIAdapter — transcription config > falls back to the default model when the transcription object omits model [0.17ms]
+(pass) OpenAIAdapter — transcription config > omits input transcription when disabled but retains output voice [0.08ms]
+(pass) OpenAIAdapter — transcription config > keeps immediate mode compatible with disabled transcription [0.10ms]
+(pass) OpenAIAdapter — transcription config > rejects non-finite and out-of-range server VAD thresholds synchronously [0.13ms]
+(pass) OpenAIAdapter — transcription config > accepts both inclusive server VAD threshold boundaries [0.12ms]
+(pass) OpenAIAdapter — transcription config > rejects transcript-confirmed mode without transcription before external effects [0.07ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > sends the exact assistant item before TTS without forwarding an engine ID that OpenAI may reject [1.48ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > completes without any conversation.item.created provider event [0.47ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > returns not_started when the data channel is absent [0.12ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > returns not_started without a synthesizer and does not unlock Web Audio [0.39ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > returns not_started when activateAudio was never called [0.11ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > returns not_started when the caller signal is already aborted [0.12ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > returns not_started when dc.send throws and never calls TTS [0.88ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > returns accepted when synthesis fails after send [0.97ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > gates microphone tracks while synthesis is pending and restores them on abort [1.44ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > gates every unique audio track across decode and playback, then restores exact prior values without replacing capture [21.07ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > restores the microphone when greeting decode fails [84.25ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > restores the microphone when greeting source-start fails [0.31ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > restores through caller abort during decode and ignores the late decode completion [5.53ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > restores through adapter teardown during decode before stopping the track [5.26ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > restores before teardown stops tracks and stale playback completion cannot affect a reconnected mic [2.07ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > releases an active gate before replacement synthesis and stale completion cannot restore over the replacement gate [3.58ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > returns accepted when decode/playback fails after send [5.25ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > abort after send settles accepted and aborts the synthesizer signal without releasing it [7.76ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > disconnect settles an uncooperative pending synthesizer without releasing it [1.68ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > pre-send abort while resume hangs returns not_started without releasing resume [1.70ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > stale operation finally does not stop a newer operation playback [8.12ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > passes the configured voice to the synthesizer [0.39ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > propagates speech_started state and event without aborting local playback while the microphone gate is active [3.43ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > restores the microphone synchronously when Skip aborts active playback [0.40ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > does not abort pending greeting synthesis from raw speech_started while gated [0.80ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > waits for a useful correlated delta before aborting transcript-confirmed greeting synthesis [1.57ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > interrupts active greeting and provider output together only once [1.63ms]
+(pass) OpenAIAdapter — greeting speakAssistantText > aborts the prior greeting on replacement, then interrupts only the current operation [2.66ms]
+(pass) GreetingCoordinator × OpenAIAdapter — cross-layer ordering > orders Engine ack → caption → exact provider item → TTS without provider ack or response.create [1.88ms]
+
+packages/realtime-openai/src/greeting-presentation.test.ts:
+(pass) GreetingPresentation returns not_started without a configured synthesizer [0.12ms]
+(pass) activation is synchronous, repeatable, and swallows player errors
+(pass) hands off the exact assistant item before synthesis and never creates a response [0.39ms]
+(pass) readiness and pre-send failures remain retriable without gating microphone [1.50ms]
+(pass) post-send synthesis failure emits only a bounded diagnostic and restores the gate [0.26ms]
+(pass) closed channel and caller abort are retriable without provider handoff [0.30ms]
+(pass) publication gate remains held through playback [0.37ms]
+(pass) replacement releases the first operation and stale completion cannot restore the successor gate [0.24ms]
+(pass) Skip abort restores a gated microphone synchronously [0.12ms]
+
+ 159 pass
+ 0 fail
+ 656 expect() calls
+Ran 159 tests across 5 files. [445.00ms]
+exit=0
+
+$ bun test --conditions=@maelstrom-co/source --preload ./packages/react-realtime/src/lib/__tests__/setup.ts packages/react-realtime/src/lib/shared-realtime-session.test.ts packages/react-realtime/src/lib/use-voice.test.tsx
+bun test v1.3.7 (ba426210)
+
+packages/react-realtime/src/lib/shared-realtime-session.test.ts:
+(pass) shares a live entry and release is idempotent [3.36ms]
+(pass) queues one retirement for multiple final releases [0.54ms]
+(pass) Strict Mode-style reacquisition before retirement keeps the entry live [0.52ms]
+(pass) evicts before disconnect and reacquires independently while it settles [0.41ms]
+(pass) swallows best-effort disconnect rejection and retains skipped proof across recreation [0.75ms]
+(pass) retains presented and suppressed terminal proof across recreation [1.13ms]
+(pass) evicts the zero-consumer entry before disconnect starts [0.42ms]
+(pass) pending old disconnect rejection cannot affect its replacement [0.41ms]
+(pass) pending old disconnect completion cannot affect its replacement [0.39ms]
+(pass) different orchestrators retain independent entries and coordinators [0.43ms]
+
+packages/react-realtime/src/lib/use-voice.test.tsx:
+(pass) maelstromRealtime() useVoice lifecycle > shares one session between consumers under one Provider [21.70ms]
+(pass) maelstromRealtime() useVoice lifecycle > keeps the shared session usable through a StrictMode remount [6.63ms]
+(pass) maelstromRealtime() useVoice lifecycle > disconnects only after the last consumer unmounts [3.93ms]
+(pass) maelstromRealtime() useVoice lifecycle > creates a fresh session when the prior consumer retires during connect [3.80ms]
+(pass) maelstromRealtime() useVoice lifecycle > cancels queued retirement when a consumer remounts first [22.72ms]
+(pass) maelstromRealtime() useVoice lifecycle > replaces a retired session before its delayed disconnect can update the winner [3.33ms]
+(pass) maelstromRealtime() useVoice lifecycle > concatenates assistant transcript partials [2.84ms]
+(pass) maelstromRealtime() useVoice lifecycle > replaces assistant partials with the final transcript [1.55ms]
+(pass) maelstromRealtime() useVoice lifecycle > starts a new assistant transcript after a final transcript [2.68ms]
+(pass) maelstromRealtime() useVoice lifecycle > accumulates user and assistant transcripts independently [2.99ms]
+(pass) maelstromRealtime() useVoice lifecycle > initializes a late-mounted consumer from retained session state [4.98ms]
+(pass) maelstromRealtime() useVoice lifecycle > exposes a fatal session error emitted after mount [2.93ms]
+(pass) maelstromRealtime() useVoice lifecycle > initializes a late-mounted consumer from an errored session [2.82ms]
+(pass) maelstromRealtime() useVoice lifecycle > passes the orchestrator sessionId to createAdapter [1.29ms]
+(pass) session-owned turn mode > updates every consumer from one turn_mode event [1.63ms]
+(pass) session-owned turn mode > does not expose manual control in automatic mode [1.27ms]
+(pass) session-owned turn mode > exposes degraded manual mode and its diagnostic after the event [1.81ms]
+(pass) session-owned turn mode > exposes intentional manual mode without an error [3.13ms]
+(pass) session-owned turn mode > clears a degradation diagnostic when automatic mode is restored [6.74ms]
+(pass) session-owned turn mode > reads replacement manual controls dynamically [3.02ms]
+(pass) session-owned turn mode > removes manual control from every consumer on disconnect without changing retained turn mode [2.81ms]
+(pass) session-owned turn mode > removes manual control from every consumer on fatal teardown while preserving mode diagnostics [1.78ms]
+(pass) session-owned turn mode > does not mirror turn-mode diagnostics to the sidechannel [1.62ms]
+(pass) maelstromRealtime() greeting option > propagates one retained greeting lifecycle to simultaneous and late consumers [2.10ms]
+(pass) maelstromRealtime() greeting option > preserves synchronous terminal state across zero-consumer retirement and recreation [3.36ms]
+(pass) maelstromRealtime() greeting option > passes greeting text and a coordinator into RealtimeSession options [4.78ms]
+(pass) maelstromRealtime() greeting option > reuses the same coordinator across session recreation under one orchestrator [3.07ms]
+(pass) maelstromRealtime() greeting option > creates a distinct coordinator for a fresh orchestrator/session [3.00ms]
+(pass) maelstromRealtime() greeting option > shares synchronous Skip with simultaneous consumers and retains it across recreation [3.21ms]
+(pass) maelstromRealtime() greeting option > omits greeting from session options when not configured [1.22ms]
+
+ 40 pass
+ 0 fail
+ 103 expect() calls
+Ran 40 tests across 2 files. [549.00ms]
+exit=0
+
+$ bunx nx test @maelstrom-co/realtime-openai --skipSync --skipNxCache
+
+ NX   Running target test for project @maelstrom-co/realtime-openai and 4 tasks it depends on:
+
+
+
+> nx run @maelstrom-co/protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 105 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 919ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m111.54 kB[0m[2m │ gzip: 26.35 kB[0m
+
+[32m✓ built in 1.03s[39m
+
+> nx run @maelstrom-co/realtime-protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 10 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 760ms.
+
+computing gzip size...
+[2mdist/[0m[36munix-seconds-DyyohwZw.js  [0m[1;2m0.14 kB[0m[2m │ gzip: 0.13 kB[0m
+[2mdist/[0m[36mlivekit-wire-BOPK9uch.js  [0m[1;2m0.19 kB[0m[2m │ gzip: 0.15 kB[0m
+[2mdist/[0m[36mlivekit-wire.js           [0m[1;2m0.23 kB[0m[2m │ gzip: 0.18 kB[0m
+[2mdist/[0m[36mindex.js                  [0m[1;2m0.46 kB[0m[2m │ gzip: 0.30 kB[0m
+[2mdist/[0m[36mopenai.js                 [0m[1;2m0.49 kB[0m[2m │ gzip: 0.29 kB[0m
+[2mdist/[0m[36mlivekit.js                [0m[1;2m0.50 kB[0m[2m │ gzip: 0.34 kB[0m
+
+[32m✓ built in 852ms[39m
+
+> nx run @maelstrom-co/client:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 32 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 1357ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m163.66 kB[0m[2m │ gzip: 39.15 kB[0m
+
+[32m✓ built in 1.43s[39m
+
+> nx run @maelstrom-co/realtime:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 8 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 622ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m17.74 kB[0m[2m │ gzip: 5.35 kB[0m
+
+[32m✓ built in 682ms[39m
+
+> nx run @maelstrom-co/realtime-openai:test
+
+> bun test --passWithNoTests=true
+
+[0m[1mbun test [0m[2mv1.3.7 (ba426210)[0m
+[OpenAIAdapter] connect timing {
+  [0mstep[2m:[0m [0m[32m[0m[32m"mint"[0m[0m[0m[2m,[0m
+  [0mms[2m:[0m [0m[33m0[0m[0m[2m,[0m
+}
+[OpenAIAdapter] connect timing {
+  [0mstep[2m:[0m [0m[32m[0m[32m"getUserMedia"[0m[0m[0m[2m,[0m
+  [0mms[2m:[0m [0m[33m0[0m[0m[2m,[0m
+}
+[OpenAIAdapter] microphone audio processing {
+  [0maudioProcessing[2m:[0m {
+    [0mrequested[2m:[0m {
+      [0mechoCancellation[2m:[0m [0m[33mtrue[0m[0m[2m,[0m
+      [0mnoiseSuppression[2m:[0m [0m[33mtrue[0m[0m[2m,[0m
+      [0mautoGainControl[2m:[0m [0m[33mtrue[0m[0m[2m,[0m
+    }[0m[2m,[0m
+    [0mapplied[2m:[0m {
+      [0mechoCancellation[2m:[0m [0m[32m[0m[32m"unavailable"[0m[0m[0m[2m,[0m
+      [0mnoiseSuppression[2m:[0m [0m[32m[0m[32m"unavailable"[0m[0m[0m[2m,[0m
+      [0mautoGainControl[2m:[0m [0m[32m[0m[32m"unavailable"[0m[0m[0m[2m,[0m
+    }[0m[2m,[0m
+  }[0m[2m,[0m
+}
+[OpenAIAdapter] connect timing {
+  [0mstep[2m:[0m [0m[32m[0m[32m"dataChannelOpen"[0m[0m[0m[2m,[0m
+  [0mms[2m:[0m [0m[33m0[0m[0m[2m,[0m
+}
+[OpenAIAdapter] → session.update {
+  [0mtype[2m:[0m [0m[32m[0m[32m"session.update"[0m[0m[0m[2m,[0m
+  [0msession[2m:[0m {
+    [0mtype[2m:[0m [0m[32m[0m[32m"realtime"[0m[0m[0m[2m,[0m
+    [0mtools[2m:[0m [
+      [0m[36m[Object ...][0m
+    ][0m[2m,[0m
+    [0minstructions[2m:[0m [0m[32m[0m[32m"be helpful"[0m[0m[0m[2m,[0m
+    [0maudio[2m:[0m {
+      [0minput[2m:[0m [0m[36m[Object ...][0m[0m[2m,[0m
+      [0moutput[2m:[0m [0m[36m[Object ...][0m[0m[2m,[0m
+    }[0m[2m,[0m
+  }[0m[2m,[0m
+}
+[OpenAIAdapter] connect timing {
+  [0mstep[2m:[0m [0m[32m[0m[32m"sdpExchange"[0m[0m[0m[2m,[0m
+  [0mms[2m:[0m [0m[33m0[0m[0m[2m,[0m
+}
+[OpenAIAdapter] connect timing {
+  [0mstep[2m:[0m [0m[32m[0m[32m"setRemoteDescription"[0m[0m[0m[2m,[0m
+  [0mms[2m:[0m [0m[33m0[0m[0m[2m,[0m
+}
+
+
+
+ NX   Successfully ran target test for project @maelstrom-co/realtime-openai and 4 tasks it depends on
+
+
+  Run duration:      6.0s
+  Cache:             Skipped (--skip-nx-cache)
+  Critical path:     6.0s (4 tasks)
+  Recoverable time:  <1ms
+
+  Recommendations:
+    - Cache: drop --skip-nx-cache to restore unchanged tasks instantly.
+    - Speed up or split the longest tasks on the critical path:
+        @maelstrom-co/protocol:build    2.5s
+        @maelstrom-co/client:build      2.0s
+        @maelstrom-co/realtime:build    1.2s
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ NX   --skip-nx-cache disables the connection to Nx Cloud for the current run.
+
+The remote cache will not be read from or written to during this run.
+
+[0m
+src/web-audio-greeting-player.test.ts:
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m begins AudioContext construction, resume, silent source create/connect/start synchronously in activate()[0m [0m[2m[0.33ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m reuses the same AudioContext on repeated activation and may resume again[0m [0m[2m[0.05ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m readiness fails for no activation, resume rejection, and pre-abort[0m [0m[2m[1.04ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m decodes a defensive copy of WAV bytes and resolves play only on onended[0m [0m[2m[0.34ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m abort during playback stops/disconnects and settles once[0m [0m[2m[0.57ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m stop() is idempotent and does not close the context[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m stop() during decode settles without hanging[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m treats InvalidStateError from stop as benign[0m [0m[2m[0.09ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m ensureReady aborts while resume hangs without ever releasing resume[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m reports unlock_failed when silent start throws even if resume later succeeds[0m [0m[2m[0.09ms[0m[2m][0m
+[0m[32m✓[0m [0mWebAudioGreetingPlayer[2m >[0m[1m overlapping activations: newer unlock failure is not cleared by older resume success[0m [0m[2m[0.13ms[0m[2m][0m
+[0m
+src/microphone-publication-gate.test.ts:
+[0m[32m✓[0m[0m[1m MicrophonePublicationGate restores unique tracks to exact prior state[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m stale-generation release is a no-op[0m [0m[2m[0.27ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m replacement lease prevents stale release from restoring over the current gate[0m
+[0m
+src/parse-openai-event.test.ts:
+[0m[32m✓[0m [0mparseOpenAIServerEvent — tool calls[2m >[0m[1m maps a function_call event to a tool_call adapter event[0m [0m[2m[2.23ms[0m[2m][0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — tool calls[2m >[0m[1m returns null when a function_call event is missing a required field[0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — transcript[2m >[0m[1m maps an assistant transcript delta to a non-final transcript event[0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — transcript[2m >[0m[1m maps an assistant transcript done to a final transcript event[0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — transcript[2m >[0m[1m maps a completed user input transcription to a final user transcript event[0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — transcript[2m >[0m[1m maps user input transcription deltas to non-final user transcripts[0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — transcript[2m >[0m[1m rejects a user transcription delta without a string delta[0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — speech and error[2m >[0m[1m maps input_audio_buffer.speech_started to a speech_started event[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — speech and error[2m >[0m[1m maps an error event to an error adapter event[0m [0m[2m[0.02ms[0m[2m][0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — unknown / malformed input[2m >[0m[1m returns null for an unrecognized event type[0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — unknown / malformed input[2m >[0m[1m returns null for conversation.item.created (greeting no longer consumes it)[0m [0m[2m[0.03ms[0m[2m][0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — unknown / malformed input[2m >[0m[1m returns null for non-object input[0m [0m[2m[0.02ms[0m[2m][0m
+[0m[32m✓[0m [0mparseOpenAIServerEvent — unknown / malformed input[2m >[0m[1m returns null when type is missing or not a string[0m [0m[2m[0.01ms[0m[2m][0m
+[0m
+src/voice-activity.test.ts:
+[0m[32m✓[0m [0mderiveVoiceActivity[2m >[0m[1m maps the happy-path turn: listen → think → speak → settle[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mderiveVoiceActivity[2m >[0m[1m keeps listening when a response spins up mid-user-speech[0m
+[0m[32m✓[0m [0mderiveVoiceActivity[2m >[0m[1m does not end speaking on response.done — audio may still be playing[0m
+[0m[32m✓[0m [0mderiveVoiceActivity[2m >[0m[1m handles barge-in: user speech during playback wins[0m
+[0m[32m✓[0m [0mderiveVoiceActivity[2m >[0m[1m settles on output buffer cleared (barge-in cancellation path)[0m
+[0m[32m✓[0m [0mderiveVoiceActivity[2m >[0m[1m stays listening through a full barge-in interruption sequence instead of getting stomped back to connected[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mderiveVoiceActivity[2m >[0m[1m returns null for every settle event while listening, leaving speech_stopped as the only way out[0m [0m[2m[0.04ms[0m[2m][0m
+[0m[32m✓[0m [0mderiveVoiceActivity[2m >[0m[1m returns null for events that carry no activity meaning[0m [0m[2m[0.02ms[0m[2m][0m
+[0m
+src/response-arbiter.test.ts:
+[0m[32m✓[0m[0m[1m coalesces tools and drains them before eligible turns[0m [0m[2m[0.39ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m requires one correlated committed and useful completed transcript in either order[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m cancels an active response once and clears output for late activity[0m [0m[2m[0.14ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m only exact cancelled empty completion releases a clear obligation[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m malformed, duplicate, and non-empty completion cannot release a clear obligation[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m matching cancelled-empty completion releases only its own clear obligation[0m [0m[2m[0.02ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m stopped and cleared output settle pending obligations without another clear[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m failed create closes the generation without retrying re-entrant work[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m failed cancel and clear report errors without duplicating decisions[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m synchronous re-entrant output during cancel emits one clear[0m [0m[2m[0.05ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m failed create closes before notifying re-entrant error work[0m [0m[2m[0.04ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m synchronous re-entrant completion during cancel preserves one clear decision[0m [0m[2m[0.05ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m closed old generation cannot command a replacement arbiter[0m [0m[2m[0.04ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m generation close drops queued and settled state[0m [0m[2m[0.03ms[0m[2m][0m
+[0m
+src/unexpected-event-tracker.test.ts:
+[0m[32m✓[0m [0mtrack[2m >[0m[1m warns (returns true) on the first sighting of an unexpected type[0m [0m[2m[0.05ms[0m[2m][0m
+[0m[32m✓[0m [0mtrack[2m >[0m[1m does not warn again on repeat sightings of the same type[0m [0m[2m[0.03ms[0m[2m][0m
+[0m[32m✓[0m [0mtrack[2m >[0m[1m warns once per distinct unexpected type[0m
+[0m[32m✓[0m [0mtrack[2m >[0m[1m never flags allowlisted known-benign unmapped types[0m [0m[2m[0.09ms[0m[2m][0m
+[0m[32m✓[0m [0msnapshot[2m >[0m[1m accumulates occurrence counts per distinct unexpected type[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0msnapshot[2m >[0m[1m does not count allowlisted types[0m [0m[2m[0.01ms[0m[2m][0m
+[0m[32m✓[0m [0msnapshot[2m >[0m[1m returns a snapshot that is unaffected by later tracking[0m [0m[2m[0.04ms[0m[2m][0m
+[0m
+src/openai-adapter.test.ts:
+[0m[32m✓[0m [0mOpenAIAdapter — mintToken failure[2m >[0m[1m rejects connect without constructing an RTCPeerConnection, and resets the connecting guard for a clean retry[0m [0m[2m[1.94ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — getUserMedia failure[2m >[0m[1m rejects connect, closes the peer connection, and resets the connecting guard for a clean retry[0m [0m[2m[0.51ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — microphone audio processing[2m >[0m[1m requests non-mandatory AEC, noise suppression, and automatic gain control preferences[0m [0m[2m[0.18ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — microphone audio processing[2m >[0m[1m logs only requested values and boolean applied settings for the accepted original track[0m [0m[2m[0.33ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — microphone audio processing[2m >[0m[1m projects missing and non-boolean applied settings as unavailable[0m [0m[2m[0.23ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — microphone audio processing[2m >[0m[1m keeps connecting and projects unavailable settings when getSettings throws[0m [0m[2m[0.25ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — microphone audio processing[2m >[0m[1m keeps connecting and projects unavailable settings when getSettings is absent[0m [0m[2m[0.23ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — microphone audio processing[2m >[0m[1m contains throwing getSettings lookup and applied-setting access without failing connect[0m [0m[2m[0.44ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — microphone audio processing[2m >[0m[1m snapshots each applied setting exactly once before boolean validation[0m [0m[2m[0.19ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — microphone audio processing[2m >[0m[1m does not evaluate settings or log audio processing when debug logging is disabled[0m [0m[2m[0.19ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — failed SDP exchange[2m >[0m[1m rejects connect and tears down mic tracks, data channel, and peer connection[0m [0m[2m[0.18ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — failed SDP exchange[2m >[0m[1m wraps a createOffer rejection as CONNECTION_FAILED instead of letting the raw error escape[0m [0m[2m[0.18ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — failed SDP exchange[2m >[0m[1m wraps a fetch rejection (network failure) as CONNECTION_FAILED instead of letting the raw error escape[0m [0m[2m[0.10ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — failed SDP exchange[2m >[0m[1m wraps a setRemoteDescription rejection as CONNECTION_FAILED instead of letting the raw error escape[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — failed SDP exchange[2m >[0m[1m wraps a response.text() rejection (broken/aborted stream) as CONNECTION_FAILED instead of letting the raw error escape[0m [0m[2m[0.15ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — double connect during mint[2m >[0m[1m rejects a second connect() started while the first is still awaiting mintToken, and only one RTCPeerConnection/mic stream ever exists[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — data-channel readiness[2m >[0m[1m keeps connect pending after SDP exchange until the data channel opens[0m [0m[2m[2.46ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — data-channel readiness[2m >[0m[1m rejects as superseded when disconnect closes a channel that is still opening[0m [0m[2m[0.24ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — data-channel readiness[2m >[0m[1m rejects and cleans up when the data channel errors before opening[0m [0m[2m[0.13ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — data-channel readiness[2m >[0m[1m preserves DATA_CHANNEL_ERROR through a RealtimeSession pre-open failure[0m [0m[2m[0.68ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — data-channel readiness[2m >[0m[1m ignores open and error callbacks from an abandoned data channel[0m [0m[2m[0.19ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — data-channel readiness[2m >[0m[1m does not send or emit after the first pre-open channel error[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — data-channel readiness[2m >[0m[1m rejects when the channel closes after opening but before SDP completes[0m [0m[2m[1.21ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — closed data channel[2m >[0m[1m injectGrounding on a non-open channel drops silently, without emitting an error or sending anything[0m [0m[2m[0.26ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — closed data channel[2m >[0m[1m sendToolResult on a non-open channel still emits an error[0m [0m[2m[0.26ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — successful connect then disconnect[2m >[0m[1m sends session.update with tools and instructions on channel open, then disconnect tears everything down[0m [0m[2m[0.22ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — typed errors[2m >[0m[1m throws ALREADY_CONNECTED on double connect[0m [0m[2m[0.14ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — typed errors[2m >[0m[1m wraps a mint rejection as TOKEN_MINT_FAILED with cause preserved[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — typed errors[2m >[0m[1m maps getUserMedia NotAllowedError to MIC_PERMISSION_DENIED[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — voice activity state[2m >[0m[1m emits listening/thinking/speaking/connected across a full turn[0m [0m[2m[0.42ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — voice activity state[2m >[0m[1m does not re-emit an unchanged state[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m creates one response for a committed useful transcript: commit then completion[0m [0m[2m[0.34ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m creates one response for a committed useful transcript: completion then commit[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m creates one response for a committed useful transcript: delta then completion then commit[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m creates one response for a committed useful transcript: duplicate commit and completion[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not create a response from useful delta only[0m [0m[2m[0.17ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not create a response from commit only[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not create a response from completion only[0m [0m[2m[0.04ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not create a response from empty completed transcript[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not create a response from uncorrelated events[0m [0m[2m[0.04ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not create a response from speech stop and commit[0m [0m[2m[0.04ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m queues distinct validated turns FIFO without collapsing them[0m [0m[2m[0.15ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m prioritizes one coalesced tool follow-up before FIFO turns: tools before turns[0m [0m[2m[0.20ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m prioritizes one coalesced tool follow-up before FIFO turns: turns before tools[0m [0m[2m[0.17ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m gives a pending tool follow-up priority after an idle validated turn[0m [0m[2m[0.17ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m handles done-before-created once and ignores duplicate, stale, and conflicting lifecycle events[0m [0m[2m[0.13ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not retry a failed response.create attempt from duplicate item events[0m [0m[2m[0.18ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m retires a failed validated-turn response.create and fatally closes the scheduler before error notification[0m [0m[2m[0.24ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m retires a failed tool follow-up response.create and never drains later work[0m [0m[2m[0.19ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not interrupt provider output on raw speech_started[0m [0m[2m[0.13ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m cancels the active response by id then clears active output exactly once[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m clears active output once when distinct input items target the same response[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m re-clears late output for a distinct item without cancelling the response twice[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not let duplicate response.created reset active output attribution[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m retains a pending clear through re-entrant response.done until late output starts[0m [0m[2m[0.14ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m releases a cancelled response clear obligation only from explicit empty output and preserves arbiter priority[0m [0m[2m[0.13ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m keeps the clear obligation for cancelled response.done with omitted output[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m keeps the clear obligation for cancelled response.done with malformed output[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m keeps the clear obligation for cancelled response.done with nonempty output[0m [0m[2m[0.04ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m does not release a cancelled response clear obligation from wrong, duplicate, or newer response events[0m [0m[2m[0.09ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m preserves cancel-before-clear order when response.done is re-entrant with active output[0m [0m[2m[0.10ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m clears active output before draining a pending tool follow-up after re-entrant response.done[0m [0m[2m[0.13ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m clears active output before draining an already validated turn after re-entrant response.done[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m fulfills a pending clear as already empty when output stops before starting[0m [0m[2m[0.05ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m surfaces cancel failure and still attempts one standalone safety clear for active output[0m [0m[2m[0.14ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m lets a distinct input item retry cancellation after the first cancel send fails[0m [0m[2m[0.14ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m clears buffered output without a speculative cancel[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m sends nothing for whitespace, missing correlation, no target, or already-empty output[0m [0m[2m[0.16ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m ignores events from a stale data channel after reconnect[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcript-confirmed interruption[2m >[0m[1m resets response attribution and validated-turn queues across reconnect[0m [0m[2m[0.13ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — lifecycle diagnostics[2m >[0m[1m classifies input transcript deltas without logging identifiers or text and preserves delivery[0m [0m[2m[0.46ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — lifecycle diagnostics[2m >[0m[1m distinguishes lifecycle categories with fixed sanitized projections[0m [0m[2m[0.38ms[0m[2m][0m
+[OpenAIAdapter] unexpected realtime event type conversation.item.input_audio_transcription.completed
+[OpenAIAdapter] unexpected realtime event type conversation.item.input_audio_transcription.completed
+[0m[32m✓[0m [0mOpenAIAdapter — lifecycle diagnostics[2m >[0m[1m treats missing and non-string completed transcripts as non-useful[0m [0m[2m[1.30ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — lifecycle diagnostics[2m >[0m[1m keeps completed transcript delivery unchanged without logging its text[0m [0m[2m[0.26ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — lifecycle diagnostics[2m >[0m[1m emits no lifecycle diagnostics when debug logging is disabled[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — audio streams[2m >[0m[1m exposes mic and playback streams while connected and clears them on disconnect[0m [0m[2m[0.13ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — audio streams[2m >[0m[1m pauses and detaches the playback audio element on teardown[0m [0m[2m[0.12ms[0m[2m][0m
+[RealtimeSession] adapter error [0m[33mRealtimeVoiceError[0m[2m:[0m [1mICE connection failed[0m
+ cause[0m[2m:[0m [0m[2mundefined[0m[0m[2m,[0m
+  code[0m[2m:[0m [32m"CONNECTION_FAILED"[0m
+
+[0m      [2mat [0m[0m[2m<anonymous>[0m[2m ([0m[0m[36m[2m/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime-openai/[0m[36msrc/openai-adapter.ts[0m[2m:[0m[33m468[0m[2m:[33m18[0m[2m)[0m
+[0m      [2mat [0m[0m[2m<anonymous>[0m[2m ([0m[0m[36m[2m/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime-openai/[0m[36msrc/openai-adapter.test.ts[0m[2m:[0m[33m2348[0m[2m:[33m8[0m[2m)[0m
+
+[0m[32m✓[0m [0mRealtimeSession + OpenAIAdapter — fatal in-session error recovery[2m >[0m[1m tears down the adapter on a fatal ICE error (mic goes cold) so a retry connect() succeeds instead of throwing ALREADY_CONNECTED[0m [0m[2m[1.39ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — superseded connect abandonment[2m >[0m[1m abandons a superseded in-flight attempt, closing only its own pc + mic, while the winner stays live and owns the shared fields[0m [0m[2m[3.89ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — ICE disconnected grace window[2m >[0m[1m does not fail immediately on ICE disconnected, fails only after the grace window elapses, and a recovery cancels it[0m [0m[2m[1.76ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — ICE disconnected grace window[2m >[0m[1m fails immediately with no grace window on ICE failed[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — ICE disconnected grace window[2m >[0m[1m a grace timer left pending by a disconnect never fires after teardown[0m [0m[2m[0.27ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m enables input-audio transcription with the default model and marin output voice by default[0m [0m[2m[0.09ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m uses a caller-supplied transcription model alongside output voice[0m [0m[2m[0.13ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m configures transcript-confirmed barge-in without changing transcription or output voice[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m keeps immediate barge-in flags when only the server VAD threshold is configured[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m uses the default threshold with transcript-confirmed barge-in[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m falls back to the default model when the transcription object omits model[0m [0m[2m[0.05ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m omits input transcription when disabled but retains output voice[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m keeps immediate mode compatible with disabled transcription[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m rejects non-finite and out-of-range server VAD thresholds synchronously[0m [0m[2m[0.10ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m accepts both inclusive server VAD threshold boundaries[0m [0m[2m[0.05ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — transcription config[2m >[0m[1m rejects transcript-confirmed mode without transcription before external effects[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m sends the exact assistant item before TTS without forwarding an engine ID that OpenAI may reject[0m [0m[2m[0.79ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m completes without any conversation.item.created provider event[0m [0m[2m[0.18ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m returns not_started when the data channel is absent[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m returns not_started without a synthesizer and does not unlock Web Audio[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m returns not_started when activateAudio was never called[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m returns not_started when the caller signal is already aborted[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m returns not_started when dc.send throws and never calls TTS[0m [0m[2m[0.19ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m returns accepted when synthesis fails after send[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m gates microphone tracks while synthesis is pending and restores them on abort[0m [0m[2m[0.29ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m gates every unique audio track across decode and playback, then restores exact prior values without replacing capture[0m [0m[2m[1.62ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m restores the microphone when greeting decode fails[0m [0m[2m[0.36ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m restores the microphone when greeting source-start fails[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m restores through caller abort during decode and ignores the late decode completion[0m [0m[2m[1.42ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m restores through adapter teardown during decode before stopping the track[0m [0m[2m[1.60ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m restores before teardown stops tracks and stale playback completion cannot affect a reconnected mic[0m [0m[2m[1.59ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m releases an active gate before replacement synthesis and stale completion cannot restore over the replacement gate[0m [0m[2m[1.55ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m returns accepted when decode/playback fails after send[0m [0m[2m[0.27ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m abort after send settles accepted and aborts the synthesizer signal without releasing it[0m [0m[2m[1.41ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m disconnect settles an uncooperative pending synthesizer without releasing it[0m [0m[2m[1.61ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m pre-send abort while resume hangs returns not_started without releasing resume[0m [0m[2m[3.10ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m stale operation finally does not stop a newer operation playback[0m [0m[2m[5.30ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m passes the configured voice to the synthesizer[0m [0m[2m[0.34ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m propagates speech_started state and event without aborting local playback while the microphone gate is active[0m [0m[2m[1.72ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m restores the microphone synchronously when Skip aborts active playback[0m [0m[2m[0.33ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m does not abort pending greeting synthesis from raw speech_started while gated[0m [0m[2m[0.79ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m waits for a useful correlated delta before aborting transcript-confirmed greeting synthesis[0m [0m[2m[1.36ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m interrupts active greeting and provider output together only once[0m [0m[2m[1.45ms[0m[2m][0m
+[0m[32m✓[0m [0mOpenAIAdapter — greeting speakAssistantText[2m >[0m[1m aborts the prior greeting on replacement, then interrupts only the current operation[0m [0m[2m[2.64ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator × OpenAIAdapter — cross-layer ordering[2m >[0m[1m orders Engine ack → caption → exact provider item → TTS without provider ack or response.create[0m [0m[2m[1.76ms[0m[2m][0m
+[0m
+src/greeting-presentation.test.ts:
+[0m[32m✓[0m[0m[1m GreetingPresentation returns not_started without a configured synthesizer[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m activation is synchronous, repeatable, and swallows player errors[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m hands off the exact assistant item before synthesis and never creates a response[0m [0m[2m[0.20ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m readiness and pre-send failures remain retriable without gating microphone[0m [0m[2m[0.09ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m post-send synthesis failure emits only a bounded diagnostic and restores the gate[0m [0m[2m[0.15ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m closed channel and caller abort are retriable without provider handoff[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m publication gate remains held through playback[0m [0m[2m[0.15ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m replacement releases the first operation and stale completion cannot restore the successor gate[0m [0m[2m[0.18ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m Skip abort restores a gated microphone synchronously[0m [0m[2m[0.17ms[0m[2m][0m
+
+[0m[32m 187 pass[0m
+[0m[2m 0 fail[0m
+ 751 expect() calls
+Ran 187 tests across 8 files. [0m[2m[[1m154.00ms[0m[2m][0m
+exit=0
+
+$ bunx nx typecheck @maelstrom-co/realtime-openai --skipSync --skipNxCache
+
+ NX   Running target typecheck for project @maelstrom-co/realtime-openai and 5 tasks it depends on:
+
+
+
+> nx run @maelstrom-co/protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 105 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 732ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m111.54 kB[0m[2m │ gzip: 26.35 kB[0m
+
+[32m✓ built in 805ms[39m
+
+> nx run @maelstrom-co/realtime-protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 10 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 605ms.
+
+computing gzip size...
+[2mdist/[0m[36munix-seconds-DyyohwZw.js  [0m[1;2m0.14 kB[0m[2m │ gzip: 0.13 kB[0m
+[2mdist/[0m[36mlivekit-wire-BOPK9uch.js  [0m[1;2m0.19 kB[0m[2m │ gzip: 0.15 kB[0m
+[2mdist/[0m[36mlivekit-wire.js           [0m[1;2m0.23 kB[0m[2m │ gzip: 0.18 kB[0m
+[2mdist/[0m[36mindex.js                  [0m[1;2m0.46 kB[0m[2m │ gzip: 0.30 kB[0m
+[2mdist/[0m[36mopenai.js                 [0m[1;2m0.49 kB[0m[2m │ gzip: 0.29 kB[0m
+[2mdist/[0m[36mlivekit.js                [0m[1;2m0.50 kB[0m[2m │ gzip: 0.34 kB[0m
+
+[32m✓ built in 666ms[39m
+
+> nx run @maelstrom-co/client:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 32 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 973ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m163.66 kB[0m[2m │ gzip: 39.15 kB[0m
+
+[32m✓ built in 1.05s[39m
+
+> nx run @maelstrom-co/realtime:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 8 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 635ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m17.74 kB[0m[2m │ gzip: 5.35 kB[0m
+
+[32m✓ built in 682ms[39m
+
+> nx run @maelstrom-co/realtime-openai:build
+
+> vite build
+
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 10 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 696ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m27.18 kB[0m[2m │ gzip: 7.62 kB[0m
+
+[32m✓ built in 759ms[39m
+
+> nx run @maelstrom-co/realtime-openai:typecheck
+
+> tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit
+
+
+
+
+ NX   Successfully ran target typecheck for project @maelstrom-co/realtime-openai and 5 tasks it depends on
+
+
+  Run duration:      7.2s
+  Cache:             Skipped (--skip-nx-cache)
+  Critical path:     7.2s (5 tasks)
+  Recoverable time:  <1ms
+
+  Recommendations:
+    - Cache: drop --skip-nx-cache to restore unchanged tasks instantly.
+    - Speed up or split the longest tasks on the critical path:
+        @maelstrom-co/client:build             1.7s
+        @maelstrom-co/protocol:build           1.7s
+        @maelstrom-co/realtime-openai:build    1.3s
+
+ NX   --skip-nx-cache disables the connection to Nx Cloud for the current run.
+
+The remote cache will not be read from or written to during this run.
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+exit=0
+
+$ bunx nx test @maelstrom-co/realtime --skipSync --skipNxCache
+
+ NX   Running target test for project @maelstrom-co/realtime and 2 tasks it depends on:
+
+
+
+> nx run @maelstrom-co/protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 105 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 691ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m111.54 kB[0m[2m │ gzip: 26.35 kB[0m
+
+[32m✓ built in 764ms[39m
+
+> nx run @maelstrom-co/client:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 32 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 1083ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m163.66 kB[0m[2m │ gzip: 39.15 kB[0m
+
+[32m✓ built in 1.19s[39m
+
+> nx run @maelstrom-co/realtime:test
+
+> bun test --passWithNoTests=true
+
+[0m[1mbun test [0m[2mv1.3.7 (ba426210)[0m
+
+
+
+ NX   Successfully ran target test for project @maelstrom-co/realtime and 2 tasks it depends on
+
+
+  Run duration:      3.6s
+  Cache:             Skipped (--skip-nx-cache)
+  Critical path:     3.6s (3 tasks)
+  Recoverable time:  <1ms
+
+  Recommendations:
+    - Cache: drop --skip-nx-cache to restore unchanged tasks instantly.
+    - Speed up or split the longest tasks on the critical path:
+        @maelstrom-co/client:build       1.7s
+        @maelstrom-co/protocol:build     1.3s
+        @maelstrom-co/realtime:test     503ms
+
+ NX   --skip-nx-cache disables the connection to Nx Cloud for the current run.
+
+The remote cache will not be read from or written to during this run.
+
+[0m
+src/lib/connect-race-guard.test.ts:
+[0m[32m✓[0m [0mConnectRaceGuard[2m >[0m[1m a fresh attempt is current and assertCurrent does not throw[0m [0m[2m[1.05ms[0m[2m][0m
+[0m[32m✓[0m [0mConnectRaceGuard[2m >[0m[1m a newer begin() supersedes the prior attempt while staying current itself[0m [0m[2m[0.02ms[0m[2m][0m
+[0m[32m✓[0m [0mConnectRaceGuard[2m >[0m[1m supersede() invalidates the current attempt[0m [0m[2m[0.04ms[0m[2m][0m
+[0m[32m✓[0m [0mConnectRaceGuard[2m >[0m[1m assertCurrent on a superseded attempt throws CONNECT_SUPERSEDED[0m [0m[2m[1.12ms[0m[2m][0m
+[0m[32m✓[0m [0mConnectRaceGuard[2m >[0m[1m isCurrent re-reads the live generation rather than latching a snapshot[0m [0m[2m[0.18ms[0m[2m][0m
+[0m
+src/lib/realtime-voice-error.test.ts:
+[0m[32m✓[0m [0mRealtimeVoiceError[2m >[0m[1m is a MaelstromError with a narrowed code and preserved cause[0m [0m[2m[0.05ms[0m[2m][0m
+[0m
+src/lib/greeting-coordinator.test.ts:
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m derives a stable greeting id from the session id without hashing[0m [0m[2m[0.16ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m orders persist before caption before speech[0m [0m[2m[2.86ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m is a no-op after a full success for the same session[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m retries speech only after not_started without re-publishing the caption[0m [0m[2m[0.15ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m resets proofs and greets again for a new session id[0m [0m[2m[0.14ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m suppresses caption and speech when ack is deduped without retained inserted[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m continues in-page work when a later ack is deduped after retained inserted[0m [0m[2m[0.14ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m returns persist to unstarted on rejection and retries on the next run[0m [0m[2m[0.16ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m waits on the engine barrier and proceeds from an already-connected snapshot[0m [0m[2m[1.38ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m unsubscribes the engine barrier when the snapshot is already connected[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m shares one in-flight persist and exactly one speech call across concurrent runs[0m [0m[2m[1.41ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m aborts the engine barrier without side effects so a later generation retries[0m [0m[2m[1.45ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m short-circuits suppressed even when speech was never accepted[0m [0m[2m[0.12ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m ignores a stale session-A ack after session B adopts (no proof corruption)[0m [0m[2m[4.38ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m does not invoke speak after a synchronous mid-caption session adoption[0m [0m[2m[2.67ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m does not let a stale finally clear a newer session in-flight promise[0m [0m[2m[5.47ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m keeps accepted terminal after a post-send abort so reconnect does not retry[0m [0m[2m[0.27ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m does not concurrently re-invoke speech for not_started in the same generation[0m [0m[2m[1.33ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m leaves speech retriable when the adapter throws before a verdict[0m [0m[2m[0.26ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m ignores a stale session-A speech completion after session B adopts[0m [0m[2m[3.73ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m records Skip synchronously and prevents side effects across every pre-speech race[0m [0m[2m[1.33ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m does not rewrite presented or suppressed terminal proof with Skip and resets it for a new session[0m [0m[2m[0.22ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m keeps the inserted history but skips before caption when Skip wins after acknowledgement[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m >[0m[1m skips an active provider handoff without allowing a later completion to rewrite proof[0m [0m[2m[1.27ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m > [0mlifecycle dispositions and snapshots[2m >[0m[1m returns accepted, then already_terminal, and exposes terminal proof synchronously[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m > [0mlifecycle dispositions and snapshots[2m >[0m[1m classifies suppressed, not_started, failed, and current abort without inventing terminal proof[0m [0m[2m[0.26ms[0m[2m][0m
+[0m[32m✓[0m [0mGreetingCoordinator[2m > [0mlifecycle dispositions and snapshots[2m >[0m[1m returns stale when a superseded continuation resumes without changing the adopted snapshot[0m [0m[2m[1.31ms[0m[2m][0m
+[0m
+src/lib/realtime-session/grounding-debounce.test.ts:
+[0m[32m✓[0m [0mgroundedDebounce[2m >[0m[1m fires once with the latest value after the window[0m [0m[2m[1.24ms[0m[2m][0m
+[0m[32m✓[0m [0mgroundedDebounce[2m >[0m[1m fires again for a call after the window has elapsed[0m [0m[2m[0.15ms[0m[2m][0m
+[0m[32m✓[0m [0mgroundedDebounce[2m >[0m[1m cancel() drops a pending trailing call[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mgroundedDebounce[2m >[0m[1m cancel() is a no-op when nothing is pending[0m [0m[2m[0.21ms[0m[2m][0m
+[0m[32m✓[0m [0mgroundedDebounce[2m >[0m[1m a call after cancel() still fires normally[0m [0m[2m[0.18ms[0m[2m][0m
+[0m
+src/lib/realtime-session/realtime-session.test.ts:
+[0m[32m✓[0m [0mRealtimeSession — tool registration[2m >[0m[1m passes update_ui, get_ui_state, and get_capabilities to the adapter on connect[0m [0m[2m[0.64ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — update_ui speak-after-render[2m >[0m[1m withholds the update_ui tool-result until the render settles[0m [0m[2m[4.45ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — update_ui speak-after-render[2m >[0m[1m derives the summary from the POST-settle snapshot, not the pre-call one[0m [0m[2m[2.54ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — get_ui_state[2m >[0m[1m answers immediately with the structural snapshot, no intent involved[0m [0m[2m[1.38ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — get_capabilities[2m >[0m[1m answers immediately with the capability snapshot, no intent involved[0m [0m[2m[1.30ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — grounding debounce[2m >[0m[1m collapses rapid settles into a single latest-wins grounding push[0m [0m[2m[[1m41.67ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — grounding subscription timing[2m >[0m[1m never grounds on a settle fired during the connect() handshake, but does ground on a settle after connect resolves[0m [0m[2m[[1m23.65ms[0m[2m][0m
+[RealtimeSession] grounding text exceeded 400 chars, truncating [0m[33m500[0m
+[0m[32m✓[0m [0mRealtimeSession — grounding length clamp[2m >[0m[1m clamps a grounding push exceeding the char budget to 400 chars ending in an ellipsis[0m [0m[2m[[1m11.68ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — grounding length clamp[2m >[0m[1m passes a grounding summary within the char budget through untouched[0m [0m[2m[[1m11.31ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — grounding length clamp[2m >[0m[1m warns on the first clamp and only debug-logs subsequent clamps in the same session[0m [0m[2m[[1m23.01ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — domain-data boundary[2m >[0m[1m passes submitIntent only the plain intent string[0m [0m[2m[1.43ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — domain-data boundary[2m >[0m[1m the get_ui_state snapshot carries only structural keys, no vessel contents[0m [0m[2m[1.32ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — barge-in latest-wins queueing[2m >[0m[1m queues a concurrent update_ui instead of answering busy immediately, then applies it once the first settles[0m [0m[2m[5.05ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — barge-in latest-wins queueing[2m >[0m[1m supersedes a queued call with a newer one, answering the bumped call immediately[0m [0m[2m[7.34ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — barge-in latest-wins queueing[2m >[0m[1m answers busy after exhausting bounded retry attempts, without ever applying the queued intent[0m [0m[2m[2.62ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — barge-in latest-wins queueing[2m >[0m[1m a genuine failure during a queued retry still yields APPLY_FAILED_SUMMARY, not a busy answer[0m [0m[2m[4.67ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — barge-in latest-wins queueing[2m >[0m[1m queues a barge-in when the instance throws a duck-typed request_in_flight error, not just a real RequestInFlightError instance[0m [0m[2m[5.07ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — barge-in latest-wins queueing[2m >[0m[1m surfaces a non-busy rejection distinctly instead of mislabeling it as busy[0m [0m[2m[1.48ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — defensive outcome normalization[2m >[0m[1m treats an undefined submitIntent resolution as {} on the direct call path, instead of throwing[0m [0m[2m[2.67ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — defensive outcome normalization[2m >[0m[1m treats an undefined submitIntent resolution as {} on the barge-in retry path, instead of throwing[0m [0m[2m[5.17ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — engine userMessage precedence[2m >[0m[1m carries the engine userMessage alongside the structural summary[0m [0m[2m[3.37ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — engine userMessage precedence[2m >[0m[1m omits userMessage so the summary is the fallback when the engine surfaces none[0m [0m[2m[2.57ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — engine userMessage precedence[2m >[0m[1m carries the engine reply distinct from a structural summary that would miscount hidden instances[0m [0m[2m[2.56ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — engine userMessage precedence[2m >[0m[1m speaks the engine reply for a barge-in queued call too, not just the first[0m [0m[2m[4.95ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — sidechannel events[2m >[0m[1m emits a matching tool_call -> tool_result pair with a measured latencyMs[0m [0m[2m[1.30ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m transitions connecting -> connected on success, and connected -> idle on disconnect[0m [0m[2m[0.40ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m transitions connecting -> error and rethrows when adapter.connect rejects[0m [0m[2m[0.19ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m is a no-op when connect() is called again while already connected[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m is a no-op when connect() is called again while still connecting[0m [0m[2m[1.21ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m tears down subscriptions on a failed connect so a stale settle never reaches the adapter[0m [0m[2m[1.37ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m retries cleanly after a failed connect — exactly one subscription, no double-handling[0m [0m[2m[1.31ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m disconnect cancels a pending debounced grounding push so it cannot land after teardown[0m [0m[2m[[1m41.49ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m disconnect drops a pending queued intent silently instead of leaving it dangling with an unhandled rejection[0m [0m[2m[4.50ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m resolves the abandoned queued-intent promise to false on teardown instead of leaving it hanging forever[0m [0m[2m[3.81ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m disconnecting while connect() is still in flight lands idle instead of resurrecting the session once the handshake resolves[0m [0m[2m[2.60ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m shares one provider cleanup across concurrent disconnect callers[0m [0m[2m[1.43ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m preserves local teardown and rethrows the identical provider disconnect rejection[0m [0m[2m[2.47ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — connection lifecycle[2m >[0m[1m shares cleanup with a disconnect re-entered synchronously by the adapter[0m [0m[2m[0.24ms[0m[2m][0m
+[RealtimeSession] adapter error [0m[33mRealtimeVoiceError[0m[2m:[0m [1mresponse.create send failed[0m
+ cause[0m[2m:[0m [0m[2mundefined[0m[0m[2m,[0m
+  code[0m[2m:[0m [32m"DATA_CHANNEL_ERROR"[0m
+
+[0m      [2mat [0m[0m[2m<anonymous>[0m[2m ([0m[0m[36m[2m/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime/[0m[36msrc/lib/realtime-session/realtime-session.test.ts[0m[2m:[0m[33m1719[0m[2m:[33m19[0m[2m)[0m
+
+[0m[32m✓[0m [0mRealtimeSession — error surfacing[2m >[0m[1m transitions to error and records lastError on a fatal adapter error[0m [0m[2m[0.51ms[0m[2m][0m
+[RealtimeSession] adapter error [0m[33mwarn[0m[2m:[0m [1mmalformed frame[0m
+[0m      [2mat [0m[0m[2m<anonymous>[0m[2m ([0m[0m[36m[2m/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime/[0m[36msrc/lib/realtime-session/realtime-session.test.ts[0m[2m:[0m[33m1735[0m[2m:[33m27[0m[2m)[0m
+
+[0m[32m✓[0m [0mRealtimeSession — error surfacing[2m >[0m[1m stays connected on a non-fatal adapter error[0m [0m[2m[0.21ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — error surfacing[2m >[0m[1m records lastError when connect() itself rejects[0m [0m[2m[0.06ms[0m[2m][0m
+[RealtimeSession] adapter error [0m[33mRealtimeVoiceError[0m[2m:[0m [1mICE connection failed[0m
+ cause[0m[2m:[0m [0m[2mundefined[0m[0m[2m,[0m
+  code[0m[2m:[0m [32m"CONNECTION_FAILED"[0m
+
+[0m      [2mat [0m[0m[2m<anonymous>[0m[2m ([0m[0m[36m[2m/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime/[0m[36msrc/lib/realtime-session/realtime-session.test.ts[0m[2m:[0m[33m1754[0m[2m:[33m19[0m[2m)[0m
+
+[0m[32m✓[0m [0mRealtimeSession — error surfacing[2m >[0m[1m rejecting disconnect preserves lastError while moving the public state to idle[0m [0m[2m[0.38ms[0m[2m][0m
+[RealtimeSession] adapter error [0m[33mRealtimeVoiceError[0m[2m:[0m [1mICE connection failed[0m
+ cause[0m[2m:[0m [0m[2mundefined[0m[0m[2m,[0m
+  code[0m[2m:[0m [32m"CONNECTION_FAILED"[0m
+
+[0m      [2mat [0m[0m[2m<anonymous>[0m[2m ([0m[0m[36m[2m/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime/[0m[36msrc/lib/realtime-session/realtime-session.test.ts[0m[2m:[0m[33m1785[0m[2m:[33m19[0m[2m)[0m
+
+[0m[32m✓[0m [0mRealtimeSession — error surfacing[2m >[0m[1m a fatal error during a gated handshake lands in error and never transitions to connected[0m [0m[2m[2.50ms[0m[2m][0m
+[RealtimeSession] adapter error [0m[33mRealtimeVoiceError[0m[2m:[0m [1mICE connection failed[0m
+ cause[0m[2m:[0m [0m[2mundefined[0m[0m[2m,[0m
+  code[0m[2m:[0m [32m"CONNECTION_FAILED"[0m
+
+[0m      [2mat [0m[0m[2m<anonymous>[0m[2m ([0m[0m[36m[2m/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime/[0m[36msrc/lib/realtime-session/realtime-session.test.ts[0m[2m:[0m[33m1809[0m[2m:[33m19[0m[2m)[0m
+
+[0m[32m✓[0m [0mRealtimeSession — error surfacing[2m >[0m[1m cleans up the dead subscription on a fatal adapter error so a reconnect does not stack a second one[0m [0m[2m[1.38ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — transcript subscription[2m >[0m[1m forwards adapter transcripts to on(transcript) subscribers[0m [0m[2m[0.24ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — transcript subscription[2m >[0m[1m unsubscribe stops delivery[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — transcript subscription[2m >[0m[1m mirrors transcripts onto the sidechannel with session id and timestamp[0m [0m[2m[2.78ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — audio streams[2m >[0m[1m delegates getAudioStreams to the adapter[0m [0m[2m[0.21ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m defaults speech-native adapters to automatic mode without manual controls[0m [0m[2m[0.10ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m retains manual degradation, notifies subscribers, and delegates the current manual control[0m [0m[2m[0.22ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m clears a prior diagnostic when the adapter establishes a clean mode[0m [0m[2m[0.08ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m clears stale turn-mode state after a successful reconnect[0m [0m[2m[0.11ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m does not mirror turn-mode events onto the sidechannel[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m stops turn-mode delivery after unsubscribe[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m delivers each update to every turn-mode subscriber[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m preserves degraded manual mode when a reconnect fails[0m [0m[2m[0.06ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m establishes speech-native automatic mode only after connect succeeds[0m [0m[2m[2.06ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — turn mode[2m >[0m[1m exposes manual turn control before notifying turn-mode subscribers[0m [0m[2m[0.25ms[0m[2m][0m
+[0m[32m✓[0m [0mVoiceSession — realtime boundary[2m >[0m[1m keeps turn mode off the shared client seam[0m [0m[2m[0.02ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting activation and validation[2m >[0m[1m activates audio before adapter.connect and greets once after connected[0m [0m[2m[2.85ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting activation and validation[2m >[0m[1m rejects greeting config against a plain adapter before any provider connect[0m [0m[2m[0.16ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting activation and validation[2m >[0m[1m leaves connect behavior unchanged when greeting is not configured[0m [0m[2m[1.21ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m stops before activation or provider setup when preparing synchronously disconnects[0m [0m[2m[0.19ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m stops before activation or provider setup when connecting synchronously disconnects[0m [0m[2m[0.13ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m retains preparing indefinitely while the provider is connected but Engine readiness is pending[0m [0m[2m[1.28ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m skips during the Engine-readiness wait without starting later greeting work[0m [0m[2m[1.39ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m disconnect makes a pending Engine wait retryable and late readiness cannot settle the stale generation[0m [0m[2m[1.27ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m skips synchronously before a gated provider handshake and retains the terminal state across reconnect and recreation[0m [0m[2m[2.57ms[0m[2m][0m
+[RealtimeSession] adapter error [0m[33mRealtimeVoiceError[0m[2m:[0m [1mconnection failed after Skip[0m
+ cause[0m[2m:[0m [0m[2mundefined[0m[0m[2m,[0m
+  code[0m[2m:[0m [32m"CONNECTION_FAILED"[0m
+
+[0m      [2mat [0m[0m[2m<anonymous>[0m[2m ([0m[0m[36m[2m/Users/nachovazquez/work/1-projects/maelstrom-co/maelstrom-5/packages/realtime/[0m[36msrc/lib/realtime-session/realtime-session.test.ts[0m[2m:[0m[33m2358[0m[2m:[33m19[0m[2m)[0m
+
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m retains Skip when it races a fatal adapter error and late Engine readiness[0m [0m[2m[1.40ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m skips during engine acknowledgement without starting caption or speech[0m [0m[2m[2.54ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m skips active speech once, aborts its generation, and preserves skipped across disconnect rejection[0m [0m[2m[3.12ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m does nothing when unconfigured and cannot rewrite accepted or suppressed terminal proof[0m [0m[2m[2.50ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m allows a fresh session ID to greet normally after Skip[0m [0m[2m[1.29ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m settles accepted greetings and initializes a recreated session synchronously from terminal proof[0m [0m[2m[1.29ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m settles a not_started attempt but returns to preparing only on a later reconnect[0m [0m[2m[1.26ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m aborts an in-flight generation on disconnect[0m [0m[2m[2.50ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m does not re-greet the same session after a completed greeting + reconnect[0m [0m[2m[2.50ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m greets again when a new session reuses the same coordinator[0m [0m[2m[2.84ms[0m[2m][0m
+[RealtimeSession] greeting generation failed
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m does not speak when acknowledgement fails[0m [0m[2m[1.50ms[0m[2m][0m
+[0m[32m✓[0m [0mRealtimeSession — greeting lifecycle[2m >[0m[1m retries not_started speech on the next connection generation[0m [0m[2m[3.13ms[0m[2m][0m
+
+[0m[32m 118 pass[0m
+[0m[2m 0 fail[0m
+ 447 expect() calls
+Ran 118 tests across 5 files. [0m[2m[[1m479.00ms[0m[2m][0m
+exit=0
+
+$ bunx nx typecheck @maelstrom-co/realtime --skipSync --skipNxCache
+
+ NX   Running target typecheck for project @maelstrom-co/realtime and 3 tasks it depends on:
+
+
+
+> nx run @maelstrom-co/protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 105 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 696ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m111.54 kB[0m[2m │ gzip: 26.35 kB[0m
+
+[32m✓ built in 779ms[39m
+
+> nx run @maelstrom-co/client:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 32 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 944ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m163.66 kB[0m[2m │ gzip: 39.15 kB[0m
+
+[32m✓ built in 1.01s[39m
+
+> nx run @maelstrom-co/realtime:build
+
+> vite build
+
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 8 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 705ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m17.74 kB[0m[2m │ gzip: 5.35 kB[0m
+
+[32m✓ built in 766ms[39m
+
+> nx run @maelstrom-co/realtime:typecheck
+
+> tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit
+
+
+
+
+ NX   Successfully ran target typecheck for project @maelstrom-co/realtime and 3 tasks it depends on
+
+
+  Run duration:      5.4s
+  Cache:             Skipped (--skip-nx-cache)
+  Critical path:     5.4s (4 tasks)
+  Recoverable time:  <1ms
+
+  Recommendations:
+    - Cache: drop --skip-nx-cache to restore unchanged tasks instantly.
+    - Speed up or split the longest tasks on the critical path:
+        @maelstrom-co/client:build      1.5s
+        @maelstrom-co/protocol:build    1.3s
+        @maelstrom-co/realtime:build    1.3s
+
+ NX   --skip-nx-cache disables the connection to Nx Cloud for the current run.
+
+The remote cache will not be read from or written to during this run.
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+exit=0
+
+$ bunx nx build @maelstrom-co/react --skipSync --skipNxCache
+
+ NX   Running target build for project @maelstrom-co/react and 2 tasks it depends on:
+
+
+
+> nx run @maelstrom-co/protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 105 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 831ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m111.54 kB[0m[2m │ gzip: 26.35 kB[0m
+
+[32m✓ built in 925ms[39m
+
+> nx run @maelstrom-co/client:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 32 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 866ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m163.66 kB[0m[2m │ gzip: 39.15 kB[0m
+
+[32m✓ built in 966ms[39m
+
+> nx run @maelstrom-co/react:build
+
+> vite build
+
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 30 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 1097ms.
+
+computing gzip size...
+[2mdist/[0m[36m_testing.js            [0m[1;2m  0.08 kB[0m[2m │ gzip:  0.09 kB[0m
+[2mdist/[0m[36mwarn-once-Cq9ShMdA.js  [0m[1;2m  0.22 kB[0m[2m │ gzip:  0.18 kB[0m
+[2mdist/[0m[36mindex.js               [0m[1;2m138.27 kB[0m[2m │ gzip: 33.66 kB[0m
+
+[32m✓ built in 1.14s[39m
+
+
+
+ NX   Successfully ran target build for project @maelstrom-co/react and 2 tasks it depends on
+
+
+  Run duration:      4.6s
+  Cache:             Skipped (--skip-nx-cache)
+  Critical path:     4.6s (3 tasks)
+  Recoverable time:  <1ms
+
+  Recommendations:
+    - Cache: drop --skip-nx-cache to restore unchanged tasks instantly.
+    - Speed up or split the longest tasks on the critical path:
+        @maelstrom-co/react:build       1.7s
+        @maelstrom-co/client:build      1.5s
+        @maelstrom-co/protocol:build    1.5s
+
+ NX   --skip-nx-cache disables the connection to Nx Cloud for the current run.
+
+The remote cache will not be read from or written to during this run.
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:7:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+
+ NX   Nx detected a flaky task
+
+  @maelstrom-co/react:build
+exit=0
+
+$ bunx nx test @maelstrom-co/react-realtime --skipSync --skipNxCache
+
+ NX   Running target test for project @maelstrom-co/react-realtime and 4 tasks it depends on:
+
+
+
+> nx run @maelstrom-co/protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 105 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 672ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m111.54 kB[0m[2m │ gzip: 26.35 kB[0m
+
+[32m✓ built in 753ms[39m
+
+> nx run @maelstrom-co/client:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 32 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 799ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m163.66 kB[0m[2m │ gzip: 39.15 kB[0m
+
+[32m✓ built in 857ms[39m
+
+> nx run @maelstrom-co/realtime:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 8 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 839ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m17.74 kB[0m[2m │ gzip: 5.35 kB[0m
+
+[32m✓ built in 947ms[39m
+
+> nx run @maelstrom-co/react:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:7:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 30 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 1264ms.
+
+computing gzip size...
+[2mdist/[0m[36m_testing.js            [0m[1;2m  0.08 kB[0m[2m │ gzip:  0.09 kB[0m
+[2mdist/[0m[36mwarn-once-Cq9ShMdA.js  [0m[1;2m  0.22 kB[0m[2m │ gzip:  0.18 kB[0m
+[2mdist/[0m[36mindex.js               [0m[1;2m138.27 kB[0m[2m │ gzip: 33.66 kB[0m
+
+[32m✓ built in 1.32s[39m
+
+> nx run @maelstrom-co/react-realtime:test
+
+> bun test --passWithNoTests=true
+
+[0m[1mbun test [0m[2mv1.3.7 (ba426210)[0m
+
+
+
+ NX   Successfully ran target test for project @maelstrom-co/react-realtime and 4 tasks it depends on
+
+
+  Run duration:      5.0s
+  Cache:             Skipped (--skip-nx-cache)
+  Critical path:     5.0s (4 tasks)
+  Recoverable time:  <1ms
+
+  Recommendations:
+    - Cache: drop --skip-nx-cache to restore unchanged tasks instantly.
+    - Speed up or split the longest tasks on the critical path:
+        @maelstrom-co/react:build       1.9s
+        @maelstrom-co/client:build      1.4s
+        @maelstrom-co/protocol:build    1.3s
+
+ NX   --skip-nx-cache disables the connection to Nx Cloud for the current run.
+
+The remote cache will not be read from or written to during this run.
+
+[0m
+src/lib/voice-orb.test.tsx:
+[0m[32m✓[0m [0mVoiceOrb[2m >[0m[1m renders a button with data-state and starts voice on click from idle[0m [0m[2m[[1m26.24ms[0m[2m][0m
+[0m[32m✓[0m [0mVoiceOrb[2m >[0m[1m lets the user cancel while connecting[0m [0m[2m[[1m18.40ms[0m[2m][0m
+[0m[32m✓[0m [0mVoiceOrb[2m >[0m[1m stops voice on click while connected[0m [0m[2m[4.79ms[0m[2m][0m
+[0m[32m✓[0m [0mVoiceOrb[2m >[0m[1m reflects live state on data-state[0m [0m[2m[4.19ms[0m[2m][0m
+[0m[32m✓[0m [0mVoiceOrb[2m >[0m[1m renders a distinct thinking state instead of falling back to idle styling[0m [0m[2m[3.39ms[0m[2m][0m
+[0m[32m✓[0m [0mVoiceOrb[2m >[0m[1m retries connect on click from error state[0m [0m[2m[3.35ms[0m[2m][0m
+[0m
+src/lib/shared-realtime-session.test.ts:
+[0m[32m✓[0m[0m[1m shares a live entry and release is idempotent[0m [0m[2m[0.82ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m queues one retirement for multiple final releases[0m [0m[2m[0.52ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m Strict Mode-style reacquisition before retirement keeps the entry live[0m [0m[2m[0.58ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m evicts before disconnect and reacquires independently while it settles[0m [0m[2m[0.30ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m swallows best-effort disconnect rejection and retains skipped proof across recreation[0m [0m[2m[0.59ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m retains presented and suppressed terminal proof across recreation[0m [0m[2m[0.45ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m evicts the zero-consumer entry before disconnect starts[0m [0m[2m[0.38ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m pending old disconnect rejection cannot affect its replacement[0m [0m[2m[0.27ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m pending old disconnect completion cannot affect its replacement[0m [0m[2m[0.53ms[0m[2m][0m
+[0m[32m✓[0m[0m[1m different orchestrators retain independent entries and coordinators[0m [0m[2m[0.30ms[0m[2m][0m
+[0m
+src/lib/use-voice.test.tsx:
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m shares one session between consumers under one Provider[0m [0m[2m[2.75ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m keeps the shared session usable through a StrictMode remount[0m [0m[2m[3.43ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m disconnects only after the last consumer unmounts[0m [0m[2m[2.88ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m creates a fresh session when the prior consumer retires during connect[0m [0m[2m[2.67ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m cancels queued retirement when a consumer remounts first[0m [0m[2m[2.92ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m replaces a retired session before its delayed disconnect can update the winner[0m [0m[2m[2.53ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m concatenates assistant transcript partials[0m [0m[2m[5.45ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m replaces assistant partials with the final transcript[0m [0m[2m[3.53ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m starts a new assistant transcript after a final transcript[0m [0m[2m[1.61ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m accumulates user and assistant transcripts independently[0m [0m[2m[1.64ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m initializes a late-mounted consumer from retained session state[0m [0m[2m[3.13ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m exposes a fatal session error emitted after mount[0m [0m[2m[1.38ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m initializes a late-mounted consumer from an errored session[0m [0m[2m[1.33ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() useVoice lifecycle[2m >[0m[1m passes the orchestrator sessionId to createAdapter[0m [0m[2m[1.15ms[0m[2m][0m
+[0m[32m✓[0m [0msession-owned turn mode[2m >[0m[1m updates every consumer from one turn_mode event[0m [0m[2m[4.60ms[0m[2m][0m
+[0m[32m✓[0m [0msession-owned turn mode[2m >[0m[1m does not expose manual control in automatic mode[0m [0m[2m[1.60ms[0m[2m][0m
+[0m[32m✓[0m [0msession-owned turn mode[2m >[0m[1m exposes degraded manual mode and its diagnostic after the event[0m [0m[2m[1.55ms[0m[2m][0m
+[0m[32m✓[0m [0msession-owned turn mode[2m >[0m[1m exposes intentional manual mode without an error[0m [0m[2m[1.67ms[0m[2m][0m
+[0m[32m✓[0m [0msession-owned turn mode[2m >[0m[1m clears a degradation diagnostic when automatic mode is restored[0m [0m[2m[1.88ms[0m[2m][0m
+[0m[32m✓[0m [0msession-owned turn mode[2m >[0m[1m reads replacement manual controls dynamically[0m [0m[2m[3.06ms[0m[2m][0m
+[0m[32m✓[0m [0msession-owned turn mode[2m >[0m[1m removes manual control from every consumer on disconnect without changing retained turn mode[0m [0m[2m[1.45ms[0m[2m][0m
+[0m[32m✓[0m [0msession-owned turn mode[2m >[0m[1m removes manual control from every consumer on fatal teardown while preserving mode diagnostics[0m [0m[2m[1.59ms[0m[2m][0m
+[0m[32m✓[0m [0msession-owned turn mode[2m >[0m[1m does not mirror turn-mode diagnostics to the sidechannel[0m [0m[2m[1.72ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() greeting option[2m >[0m[1m propagates one retained greeting lifecycle to simultaneous and late consumers[0m [0m[2m[1.40ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() greeting option[2m >[0m[1m preserves synchronous terminal state across zero-consumer retirement and recreation[0m [0m[2m[4.21ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() greeting option[2m >[0m[1m passes greeting text and a coordinator into RealtimeSession options[0m [0m[2m[1.83ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() greeting option[2m >[0m[1m reuses the same coordinator across session recreation under one orchestrator[0m [0m[2m[2.80ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() greeting option[2m >[0m[1m creates a distinct coordinator for a fresh orchestrator/session[0m [0m[2m[4.00ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() greeting option[2m >[0m[1m shares synchronous Skip with simultaneous consumers and retains it across recreation[0m [0m[2m[2.74ms[0m[2m][0m
+[0m[32m✓[0m [0mmaelstromRealtime() greeting option[2m >[0m[1m omits greeting from session options when not configured[0m [0m[2m[1.33ms[0m[2m][0m
+[0m
+src/lib/level-meter.test.ts:
+[0m[32m✓[0m [0mcreateLevelMeter[2m >[0m[1m reads 0 for silence (samples at the 128 midpoint)[0m [0m[2m[2.42ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLevelMeter[2m >[0m[1m reads ~1 for a full-scale signal[0m [0m[2m[0.68ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLevelMeter[2m >[0m[1m reads 0 after dispose[0m [0m[2m[0.56ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLevelMeter[2m >[0m[1m reuses the same AudioContext across sequential meters instead of building a new one per press[0m [0m[2m[0.33ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLevelMeter[2m >[0m[1m suspends the shared context once the last active meter disposes, and resumes it for the next meter[0m [0m[2m[0.36ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLevelMeter[2m >[0m[1m does not wedge the refcount when node construction throws, so a later meter can still suspend the shared context[0m [0m[2m[0.37ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLevelMeter[2m >[0m[1m never closes the shared context[0m [0m[2m[0.28ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLevelMeter[2m >[0m[1m is safe to dispose twice[0m [0m[2m[0.28ms[0m[2m][0m
+
+[0m[32m 54 pass[0m
+[0m[2m 0 fail[0m
+ 137 expect() calls
+Ran 54 tests across 4 files. [0m[2m[[1m379.00ms[0m[2m][0m
+
+ NX   Nx detected a flaky task
+
+  @maelstrom-co/react:build
+exit=0
+
+$ bunx nx typecheck @maelstrom-co/react-realtime --skipSync --skipNxCache
+
+ NX   Running target typecheck for project @maelstrom-co/react-realtime and 5 tasks it depends on:
+
+
+
+> nx run @maelstrom-co/protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 105 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 673ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m111.54 kB[0m[2m │ gzip: 26.35 kB[0m
+
+[32m✓ built in 762ms[39m
+
+> nx run @maelstrom-co/client:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 32 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 799ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m163.66 kB[0m[2m │ gzip: 39.15 kB[0m
+
+[32m✓ built in 854ms[39m
+
+> nx run @maelstrom-co/realtime:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 8 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 831ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m17.74 kB[0m[2m │ gzip: 5.35 kB[0m
+
+[32m✓ built in 917ms[39m
+
+> nx run @maelstrom-co/react:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:7:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 30 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 1242ms.
+
+computing gzip size...
+[2mdist/[0m[36m_testing.js            [0m[1;2m  0.08 kB[0m[2m │ gzip:  0.09 kB[0m
+[2mdist/[0m[36mwarn-once-Cq9ShMdA.js  [0m[1;2m  0.22 kB[0m[2m │ gzip:  0.18 kB[0m
+[2mdist/[0m[36mindex.js               [0m[1;2m138.27 kB[0m[2m │ gzip: 33.66 kB[0m
+
+[32m✓ built in 1.27s[39m
+
+> nx run @maelstrom-co/react-realtime:build
+
+> vite build
+
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 6 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 791ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m5.85 kB[0m[2m │ gzip: 2.41 kB[0m
+
+[32m✓ built in 814ms[39m
+
+> nx run @maelstrom-co/react-realtime:typecheck
+
+> tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit
+
+
+
+
+ NX   Successfully ran target typecheck for project @maelstrom-co/react-realtime and 5 tasks it depends on
+
+
+  Run duration:      7.6s
+  Cache:             Skipped (--skip-nx-cache)
+  Critical path:     7.6s (5 tasks)
+  Recoverable time:  <1ms
+
+  Recommendations:
+    - Cache: drop --skip-nx-cache to restore unchanged tasks instantly.
+    - Speed up or split the longest tasks on the critical path:
+        @maelstrom-co/react:build                 1.8s
+        @maelstrom-co/react-realtime:typecheck    1.8s
+        @maelstrom-co/client:build                1.4s
+
+ NX   --skip-nx-cache disables the connection to Nx Cloud for the current run.
+
+The remote cache will not be read from or written to during this run.
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:7:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+
+ NX   Nx detected a flaky task
+
+  @maelstrom-co/react:build
+exit=0
+
+$ bunx nx test @maelstrom-co/realtime-livekit --skipSync --skipNxCache
+
+ NX   Running target test for project @maelstrom-co/realtime-livekit and 5 tasks it depends on:
+
+
+
+> nx run @maelstrom-co/realtime-vad:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:10:11). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 5 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 697ms.
+
+computing gzip size...
+[2mdist/[0m[36mvad-assets.js                [0m[1;2m0.08 kB[0m[2m │ gzip: 0.09 kB[0m
+[2mdist/[0m[36mbin/maelstrom-vad-assets.js  [0m[1;2m1.35 kB[0m[2m │ gzip: 0.71 kB[0m
+[2mdist/[0m[36mvad-assets-B-lNL3ng.js       [0m[1;2m3.56 kB[0m[2m │ gzip: 1.53 kB[0m
+[2mdist/[0m[36mindex.js                     [0m[1;2m4.81 kB[0m[2m │ gzip: 1.83 kB[0m
+
+[32m✓ built in 775ms[39m
+
+> nx run @maelstrom-co/protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 105 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 901ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m111.54 kB[0m[2m │ gzip: 26.35 kB[0m
+
+[32m✓ built in 978ms[39m
+
+> nx run @maelstrom-co/realtime-protocol:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 10 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 717ms.
+
+computing gzip size...
+[2mdist/[0m[36munix-seconds-DyyohwZw.js  [0m[1;2m0.14 kB[0m[2m │ gzip: 0.13 kB[0m
+[2mdist/[0m[36mlivekit-wire-BOPK9uch.js  [0m[1;2m0.19 kB[0m[2m │ gzip: 0.15 kB[0m
+[2mdist/[0m[36mlivekit-wire.js           [0m[1;2m0.23 kB[0m[2m │ gzip: 0.18 kB[0m
+[2mdist/[0m[36mindex.js                  [0m[1;2m0.46 kB[0m[2m │ gzip: 0.30 kB[0m
+[2mdist/[0m[36mopenai.js                 [0m[1;2m0.49 kB[0m[2m │ gzip: 0.29 kB[0m
+[2mdist/[0m[36mlivekit.js                [0m[1;2m0.50 kB[0m[2m │ gzip: 0.34 kB[0m
+
+[32m✓ built in 756ms[39m
+
+> nx run @maelstrom-co/client:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 32 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 1068ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m163.66 kB[0m[2m │ gzip: 39.15 kB[0m
+
+[32m✓ built in 1.13s[39m
+
+> nx run @maelstrom-co/realtime:build
+
+> vite build
+
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vite.config.ts:6:9). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[32m✓[0m 8 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+[vite:dts] Declaration files built in 631ms.
+
+computing gzip size...
+[2mdist/[0m[36mindex.js  [0m[1;2m17.74 kB[0m[2m │ gzip: 5.35 kB[0m
+
+[32m✓ built in 700ms[39m
+
+> nx run @maelstrom-co/realtime-livekit:test
+
+> bun test --isolate --passWithNoTests=true
+
+[0m[1mbun test [0m[2mv1.3.7 (ba426210)[0m
+
+
+
+ NX   Successfully ran target test for project @maelstrom-co/realtime-livekit and 5 tasks it depends on
+
+
+  Run duration:      7.5s
+  Cache:             Skipped (--skip-nx-cache)
+  Critical path:     7.5s (4 tasks)
+  Recoverable time:  <1ms
+
+  Recommendations:
+    - Cache: drop --skip-nx-cache to restore unchanged tasks instantly.
+    - Speed up or split the longest tasks on the critical path:
+        @maelstrom-co/realtime-livekit:test    2.4s
+        @maelstrom-co/protocol:build           2.1s
+        @maelstrom-co/client:build             1.8s
+
+ NX   --skip-nx-cache disables the connection to Nx Cloud for the current run.
+
+The remote cache will not be read from or written to during this run.
+
+[0m
+src/local-audio-pre-roll.test.ts:
+[0m[32m✓[0m [0mcreateLocalAudioPreRoll[2m >[0m[1m bounds the 0ms pre-roll end acknowledgement at exactly 500ms[0m [0m[2m[3.31ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLocalAudioPreRoll[2m >[0m[1m bounds the 250ms pre-roll end acknowledgement at exactly 1000ms[0m [0m[2m[0.85ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLocalAudioPreRoll[2m >[0m[1m bounds the 500ms pre-roll end acknowledgement at exactly 1500ms[0m [0m[2m[0.54ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLocalAudioPreRoll[2m >[0m[1m fences a timed-out end acknowledgement from the next request generation[0m [0m[2m[0.74ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLocalAudioPreRoll[2m >[0m[1m resets active pre-roll after a failed automatic start[0m [0m[2m[0.65ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLocalAudioPreRoll[2m >[0m[1m resets active pre-roll after a failed manual start[0m [0m[2m[0.45ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLocalAudioPreRoll[2m >[0m[1m allows a bounded audio tail to drain before destroying its generation[0m [0m[2m[[1m301.95ms[0m[2m][0m
+[0m[32m✓[0m [0mcreateLocalAudioPreRoll[2m >[0m[1m clears timed-out worklet requests before accepting another turn[0m [0m[2m[[1m1255.16ms[0m[2m][0m
+[0m
+src/livekit-adapter.test.ts:
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m emits connecting → connected and publishes+mutes the mic[0m [0m[2m[2.83ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m requests non-mandatory AEC, noise suppression, and automatic gain control preferences[0m [0m[2m[0.81ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m inspects only accepted original-track settings before cloning and logs a bounded projection[0m [0m[2m[0.85ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m projects missing and non-boolean original-track settings as unavailable[0m [0m[2m[1.00ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m keeps connecting and projects unavailable settings when getSettings throws[0m [0m[2m[0.78ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m contains a throwing getSettings lookup without failing connection[0m [0m[2m[0.44ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m reads each browser-owned setting once and projects only booleans[0m [0m[2m[0.82ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m stops an acquired unpublished track once when diagnostics throw[0m [0m[2m[0.76ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m keeps connecting and projects unavailable settings when getSettings is absent[0m [0m[2m[0.68ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m does not log audio processing when debug logging is disabled[0m [0m[2m[0.36ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m mutes locally acquired audio before its first publication and exposes mode only after upstream pause[0m [0m[2m[0.42ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m publishes one generated track and pauses upstream while automatic turns are idle[0m [0m[2m[1.03ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m establishes automatic mode without exposing manual turn control[0m [0m[2m[0.40ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m starts VAD on the local clone before announcing automatic mode[0m [0m[2m[0.46ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m does not let superseded VAD initialization overwrite reconnect manual mode[0m [0m[2m[0.73ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m serializes automatic speech callbacks and sends pre-roll once per turn[0m [0m[2m[1.47ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m cancels a short automatic turn on VAD misfire without signaling end or thinking[0m [0m[2m[1.00ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m does not emit connected when disconnect supersedes a delayed misfire drain[0m [0m[2m[0.66ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m resumes upstream before emitting automatic pre-roll[0m [0m[2m[0.46ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m destroys VAD on disconnect and fences its callbacks from a fresh reconnect[0m [0m[2m[0.54ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m degrades a VAD start failure to manual without failing the room[0m [0m[2m[0.53ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m pauses automatic VAD and upstream before exposing manual fallback after a callback failure[0m [0m[2m[1.01ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m replaces a failed pre-roll bridge with disabled native capture before exposing manual control[0m [0m[2m[1.15ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m re-pauses a replacement that resumes upstream before honoring a stale generation[0m [0m[2m[0.92ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m does not retire a successor microphone clone when stale generation replacement completes[0m [0m[2m[1.22ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m fails transport instead of exposing manual control when replacement capture is unavailable[0m [0m[2m[1.24ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m waits for the degradation pause before exposing manual fallback[0m [0m[2m[1.33ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m does not finalize an automatic turn twice when degradation follows a finalized drain failure[0m [0m[2m[1.11ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m degrades to manual without signaling turn end when misfire drain is uncertain[0m [0m[2m[1.18ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m does not publish manual fallback when disconnect wins a delayed degradation[0m [0m[2m[0.87ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m reconnect reevaluates automatic mode after a runtime degradation[0m [0m[2m[0.91ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a failed degradation pause is fatal and tears down the connection instead of exposing manual control[0m [0m[2m[1.03ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a fatal pause while handling VAD start failure rejects connect and cleans every local generation resource[0m [0m[2m[2.67ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m an automatic turn-end data-channel failure is fatal and tears down without manual fallback[0m [0m[2m[1.38ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m an automatic turn end without a published microphone track is fatal before turn_end[0m [0m[2m[1.90ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m automatic degradation without a published microphone track is fatal without manual fallback[0m [0m[2m[4.40ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a VAD misfire upstream-pause failure is fatal without manual fallback[0m [0m[2m[0.74ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a VAD misfire without a published microphone track is fatal without manual fallback[0m [0m[2m[0.61ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m vad false skips automatic resources and establishes manual mode after muting[0m [0m[2m[0.76ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m runtime vad value null degrades the connected room to manual with a diagnostic[0m [0m[2m[1.42ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m runtime vad value "automatic" degrades the connected room to manual with a diagnostic[0m [0m[2m[0.51ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m runtime vad value 1 degrades the connected room to manual with a diagnostic[0m [0m[2m[0.52ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m runtime vad value [] degrades the connected room to manual with a diagnostic[0m [0m[2m[0.35ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m invalid automatic configuration degrades the connected room to manual[0m [0m[2m[0.47ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m keeps replacement audio disabled until LiveKit's replaceTrack resume is paused[0m [0m[2m[0.61ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m logically unmutes the generated publication while upstream remains paused in automatic mode[0m [0m[2m[0.50ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m logically unmutes the generated publication while upstream remains paused in manual degradation mode[0m [0m[2m[0.55ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m does not announce turn mode until generated-track unmute settles[0m [0m[2m[0.55ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m pauses the raw publication before asynchronous bridge initialization[0m [0m[2m[1.62ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m restores native upstream control after bridge initialization falls back to manual[0m [0m[2m[5.08ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m cleans raw, clone, and generated resources when track replacement fails[0m [0m[2m[1.04ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m treats generated-track unmute failure as fatal and cleans every local resource[0m [0m[2m[0.44ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m owns and destroys the generated bridge while track replacement is pending[0m [0m[2m[0.77ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m does not unmute a stale generated track after its replacement pause settles[0m [0m[2m[0.67ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m disables a stale generated track when disconnect wins a pending unmute[0m [0m[2m[0.64ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m destroys a bridge that finishes initializing after disconnect[0m [0m[2m[0.42ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m destroys the generated audio generation on disconnect[0m [0m[2m[0.40ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a token failure wraps as TOKEN_MINT_FAILED, tears down, and ends in error state[0m [0m[2m[0.46ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m rejects a second connect with an ALREADY_CONNECTED RealtimeVoiceError[0m [0m[2m[0.42ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a mic-permission denial on connect surfaces MIC_PERMISSION_DENIED[0m [0m[2m[0.53ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a post-connect step failure disconnects the room, not just teardown[0m [0m[2m[0.45ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a connect failure whose room.disconnect fires Disconnected still ends in error state[0m [0m[2m[0.47ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m an unexpected Disconnected emits a fatal CONNECTION_FAILED (not a bare idle) and tears down so the adapter can reconnect[0m [0m[2m[0.75ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a locally-initiated disconnect() does not emit an error even when it fires Disconnected[0m [0m[2m[0.38ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a disconnect during an in-flight connect rejects CONNECT_SUPERSEDED and abandons the orphaned room[0m [0m[2m[0.52ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a stale microphone acquisition is stopped without settings, clone, diagnostics, or publication[0m [0m[2m[0.52ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a connect superseded by a newer connect rejects without clobbering the winner[0m [0m[2m[0.46ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a stale publication completion releases only its attempt resources after reconnect[0m [0m[2m[0.59ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a stale replacement rejection cannot release reconnect microphone ownership[0m [0m[2m[0.93ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter connect[2m >[0m[1m a stale initial pause continuation cannot touch reconnect microphone resources or emit turn mode[0m [0m[2m[1.13ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter disconnect teardown[2m >[0m[1m a rejecting room.disconnect() still tears down so a later connect() can succeed[0m [0m[2m[0.58ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter disconnect teardown[2m >[0m[1m disables and destroys local audio before awaiting room disconnect[0m [0m[2m[0.45ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter transcript → tool_call synthesis[2m >[0m[1m a final transcript emits a transcript event then an update_ui tool call[0m [0m[2m[0.51ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter transcript → tool_call synthesis[2m >[0m[1m synthesized tool calls get distinct call ids[0m [0m[2m[0.49ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter transcript → tool_call synthesis[2m >[0m[1m an empty or non-final transcription emits nothing[0m [0m[2m[0.25ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter sendToolResult → speak topic[2m >[0m[1m speaks the structural summary when there is no engine userMessage[0m [0m[2m[0.44ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter sendToolResult → speak topic[2m >[0m[1m prefers the engine userMessage over the structural summary[0m [0m[2m[0.43ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter sendToolResult → speak topic[2m >[0m[1m debug logging excludes speech-derived and credential-like content[0m [0m[2m[0.40ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter sendToolResult → speak topic[2m >[0m[1m collapses speaking → connected only when the worker signals tts_done[0m [0m[2m[0.47ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter sendToolResult → speak topic[2m >[0m[1m a send failure is non-fatal: a plain error event, no fatal RealtimeVoiceError, releases speaking[0m [0m[2m[0.58ms[0m[2m][0m
+[LiveKitAdapter] sendToolResult called with no active LiveKit room (non-fatal) {
+  [0mcallId[2m:[0m [0m[32m[0m[32m"call-1"[0m[0m[0m[2m,[0m
+}
+[0m[32m✓[0m [0mLiveKitAdapter sendToolResult → speak topic[2m >[0m[1m with no active room, is non-fatal: no error event, no throw, and no send[0m [0m[2m[0.44ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter sendToolResult → speak topic[2m >[0m[1m serializes a read-only snapshot result rather than voicing it[0m [0m[2m[0.07ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m startTurn resumes native upstream before unmuting and emits speech_started + listening[0m [0m[2m[0.68ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m endTurn publishes turn_end on the turn topic, mutes, emits thinking[0m [0m[2m[0.43ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m endTurn mutes and pauses native upstream before publishing turn_end[0m [0m[2m[0.53ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a finalized manual bridge drain failure warns but preserves ordering and the next turn[0m [0m[2m[1.23ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a native upstream resume failure is fatal and never enables the microphone[0m [0m[2m[0.64ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a native upstream pause failure is fatal and never publishes turn_end[0m [0m[2m[0.78ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m endTurn surfaces a fatal DATA_CHANNEL_ERROR when publishData rejects, still muted, and stops the turn[0m [0m[2m[[1m41.12ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m endTurn surfaces a fatal CONNECTION_FAILED when muting rejects and then stops the turn[0m [0m[2m[2.25ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m startTurn surfaces a CONNECTION_FAILED when unmuting rejects and skips listening[0m [0m[2m[0.65ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m startTurn maps a mic-permission denial to MIC_PERMISSION_DENIED[0m [0m[2m[0.67ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a barge-in during speaking publishes tts_cancel then still unmutes and listens[0m [0m[2m[0.61ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a turn started while thinking cancels its outstanding utterance exactly once[0m [0m[2m[[1m35.36ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m mutes already-playing remote audio before awaiting the cancel publish[0m [0m[2m[1.52ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m latches a barge-in mute before the remote audio sink is attached[0m [0m[2m[1.02ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m serializes endTurn behind a delayed barge-in start so the hidden turn stays muted[0m [0m[2m[0.81ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m disconnect fences an in-flight start and its queued end from a replacement room[0m [0m[2m[0.61ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m does not mute playback for an ordinary listening start[0m [0m[2m[0.51ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m stale TTS completion does not unmute a barge-in-muted player[0m [0m[2m[0.51ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m the next assistant TTS handoff unmutes playback[0m [0m[2m[0.43ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m repeated barge-in calls publish one cancel and enable the mic once[0m [0m[2m[0.48ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m repeated end calls share one native mute, pause, and turn_end operation[0m [0m[2m[0.42ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a startTurn from connected (no assistant audio) does not publish tts_cancel[0m [0m[2m[0.30ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a startTurn from thinking without an outstanding utterance does not publish tts_cancel[0m [0m[2m[0.32ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a tts_cancel publish rejection is non-fatal: no error event, warns once, and the turn still proceeds[0m [0m[2m[0.53ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a microphone-enable failure recovers playback from the barge-in mute[0m [0m[2m[0.79ms[0m[2m][0m
+[LiveKitAdapter] Failed to signal TTS cancel to the LiveKit worker (non-fatal)
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a cancel publish failure leaves a recoverable mute until the next TTS handoff[0m [0m[2m[0.54ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m a tts_done arriving after a barge-in does not stomp the newer listening state[0m [0m[2m[0.33ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m disconnect removes the hidden player and resets its mute state[0m [0m[2m[0.33ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter turnControl (push-to-talk) state mapping[2m >[0m[1m disconnect clears a latched mute before reconnect attaches a sink[0m [0m[2m[0.54ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m a current-utterance tts_done collapses speaking normally[0m [0m[2m[0.43ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m a matching tts_done does not leave a phantom utterance for a later empty turn[0m [0m[2m[0.32ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m an id-less tts_done accepted for the current utterance does not leave a phantom cancel[0m [0m[2m[0.31ms[0m[2m][0m
+[LiveKitAdapter] LiveKit worker TTS read-back failed (non-fatal) {
+  [0mkind[2m:[0m [0m[32m[0m[32m"tts_error"[0m[0m[0m[2m,[0m
+}
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m a matching tts_error does not leave a phantom utterance for a later empty turn[0m [0m[2m[0.27ms[0m[2m][0m
+[LiveKitAdapter] LiveKit worker TTS read-back failed (non-fatal) {
+  [0mkind[2m:[0m [0m[32m[0m[32m"tts_error"[0m[0m[0m[2m,[0m
+}
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m an id-less tts_error accepted for the current utterance does not leave a phantom cancel[0m [0m[2m[0.26ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m a failed speak handoff does not leave a phantom utterance for a later empty turn[0m [0m[2m[0.29ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m an older failed handoff neither clears nor collapses the newer utterance[0m [0m[2m[0.37ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m client stamps the utterance id on the speak text stream[0m [0m[2m[0.29ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m a stale tts_done from a barged-past utterance is a no-op: fallback not cleared, state unchanged, and the fallback still fires[0m [0m[2m[[1m52.38ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m a late id-less tts_done after barge-in does not cancel the replacement empty-turn fallback[0m [0m[2m[[1m53.06ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter TTS utterance-id staleness[2m >[0m[1m a late id-less tts_error after barge-in does not cancel the replacement empty-turn fallback[0m [0m[2m[[1m54.03ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter thinking fallback[2m >[0m[1m an empty turn falls back from thinking to connected after the timeout[0m [0m[2m[[1m42.59ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter thinking fallback[2m >[0m[1m a transcript arriving cancels the thinking fallback[0m [0m[2m[[1m43.09ms[0m[2m][0m
+[LiveKitAdapter] LiveKit worker TTS read-back failed (non-fatal) {
+  [0mkind[2m:[0m [0m[32m[0m[32m"tts_error"[0m[0m[0m[2m,[0m
+}
+[0m[32m✓[0m [0mLiveKitAdapter thinking fallback[2m >[0m[1m a current id-less tts signal cancels the thinking fallback[0m [0m[2m[[1m43.24ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter thinking fallback[2m >[0m[1m a fallback that fires after a barge-in does not stomp listening[0m [0m[2m[[1m42.25ms[0m[2m][0m
+[LiveKitAdapter] LiveKit worker TTS read-back failed (non-fatal) {
+  [0mkind[2m:[0m [0m[32m[0m[32m"tts_error"[0m[0m[0m[2m,[0m
+}
+[0m[32m✓[0m [0mLiveKitAdapter misc surface[2m >[0m[1m a worker tts_error is non-fatal: no error event, and speaking collapses[0m [0m[2m[1.15ms[0m[2m][0m
+[LiveKitAdapter] LiveKit worker TTS read-back failed (non-fatal) {
+  [0mkind[2m:[0m [0m[32m[0m[32m"malformed"[0m[0m[0m[2m,[0m
+}
+[0m[32m✓[0m [0mLiveKitAdapter misc surface[2m >[0m[1m a malformed TTS_TOPIC packet is non-fatal and collapses speaking[0m [0m[2m[0.65ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter misc surface[2m >[0m[1m getAudioStreams exposes an enabled clone independent of the muted publication[0m [0m[2m[0.54ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter misc surface[2m >[0m[1m stops a clone exactly once when a connect attempt fails after cloning[0m [0m[2m[0.78ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter misc surface[2m >[0m[1m stops the old clone before creating one for a reconnect[0m [0m[2m[0.38ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter misc surface[2m >[0m[1m injectGrounding is a no-op and never throws[0m [0m[2m[0.37ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter misc surface[2m >[0m[1m on() returns an unsubscribe that stops delivery[0m [0m[2m[0.35ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m without activateAudio, speakAssistantText is not_started and never sends[0m [0m[2m[0.62ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m suppresses when tts_ready never arrives within greetingReadyWaitMs[0m [0m[2m[[1m34.21ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m ready packet unlocks SPEAK_TOPIC send of exact text and returns accepted[0m [0m[2m[1.12ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m abort while waiting for ready returns not_started without send[0m [0m[2m[0.80ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m ambiguous send rejection returns terminal accepted and collapses local speaking state[0m [0m[2m[0.53ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m teardown resets ttsReady; a reconnect requires a fresh tts_ready[0m [0m[2m[[1m41.99ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m a genuinely late tts_ready after teardown is a no-op under the room-currency guard[0m [0m[2m[[1m42.46ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m an earlier wait finish cannot clear a newer waiter deadline[0m [0m[2m[[1m62.96ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m activateAudio constructs Room and invokes startAudio before token mint/connect[0m [0m[2m[0.99ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m activateAudio startAudio rejection is non-fatal and raises no unhandled rejection[0m [0m[2m[1.85ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m reconnect after disconnect prepares a fresh room rather than reusing the old one[0m [0m[2m[0.72ms[0m[2m][0m
+[0m[32m✓[0m [0mLiveKitAdapter greeting capability[2m >[0m[1m a second connect while joined still throws ALREADY_CONNECTED after activateAudio prepare[0m [0m[2m[0.58ms[0m[2m][0m
+
+[0m[32m 153 pass[0m
+[0m[2m 0 fail[0m
+ 633 expect() calls
+Ran 153 tests across 2 files. [0m[2m[[1m2.42s[0m[2m][0m
+exit=0
+
+$ bunx biome check packages/realtime-openai/src packages/react-realtime/src docs/realtime-voice-architecture.md --error-on-warnings
+Checked 30 files in 82ms. No fixes applied.
+exit=0
+

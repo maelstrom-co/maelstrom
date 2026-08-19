@@ -1,0 +1,18 @@
+---
+status: done
+verdict: CHANGES_REQUIRED
+---
+
+# Findings
+
+## High — Focused arbiter and presentation contracts remain under-tested
+
+The round-5 presentation additions cover handoff, basic readiness/send failure, and synchronous abort, but they still omit required activation behavior, closed channel/caller abort/hanging readiness, post-send failure semantics, synthesis→decode→playback gate span, replacement ordering, teardown, immediate versus transcript-confirmed interruption, and privacy diagnostics. The test named “stale completion cannot stop successor” never creates a successor, so it does not prove its stated invariant. The arbiter tests are unchanged from round 4 and still lack both useful eligibility orders, exact cancelled-empty release, stopped/cleared output, malformed/duplicate/newer completion, synchronous re-entrancy, and replacement-generation stale-event coverage. The phase package explicitly requires these at the extracted owner interfaces.
+
+## High — Registry behavioral proof remains incomplete
+
+The coder result acknowledges that registry tests still prove coordinator identity only, not recreation with actual `skipped`, `presented`, and `suppressed` terminal proof. They also still do not hold an old disconnect pending while a replacement is acquired, directly assert one queued retirement, or observe disconnect rejection for unhandled-rejection safety. Those are explicit acceptance cases for the shared-session owner and remain blocking.
+
+## High — Final verification evidence is still missing
+
+Focused tests, typechecks, and the React build are now green across the accumulated rounds, but the required docs E2E evidence and serial repository gate were not run. The helper files are deleted and unimported, but the prescribed helper-removal command still has no successful result. Complete the remaining gate evidence using the phase package's documented treatment for the known docs flake and prohibited barrel comment.

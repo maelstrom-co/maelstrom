@@ -1,0 +1,18 @@
+---
+status: done
+verdict: CHANGES_REQUIRED
+---
+
+# Findings
+
+## High — Required owner-level characterization remains materially incomplete
+
+The new tests improve coverage but still do not satisfy the phase package's explicit module-interface matrices. `response-arbiter.test.ts` does not exercise useful eligibility in both event orders, matching cancelled/empty completion releasing an obligation, stopped/cleared output, malformed/duplicate/newer completion, synchronous re-entrant command events, re-entrant fatal notification, or replacement-generation stale events. `greeting-presentation.test.ts` still has only its no-synthesizer smoke test, leaving the required payload/order, readiness/send failures, gate span, synchronous Skip, replacement/stale completion, teardown, interruption, and privacy cases only at adapter level. The package specifically requires these focused owner tests after extraction.
+
+## High — Registry proof tests do not cover the required retained semantics
+
+The expanded registry suite verifies entry/coordinator object reuse, but it never records and recreates `skipped`, `presented`, or `suppressed` coordinator proof as required. It also does not hold an old disconnect pending to prove replacement independence, assert retirement-microtask deduplication, or observe a rejected disconnect for absence of an unhandled rejection. These concurrency and terminal-proof guarantees are the purpose of the extracted owner and need behavioral assertions rather than identity-only checks.
+
+## High — Required verification is still incomplete
+
+This round supplies the package test targets and core/LiveKit tests, but the coder result explicitly omits the prescribed typechecks, React build, helper-removal success, docs evidence, and serial repository gate. Phase 2 cannot be approved without the remaining verification evidence (subject to the package's documented handling for the known docs flake and the prohibited barrel comment).

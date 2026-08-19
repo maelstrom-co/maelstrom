@@ -1,0 +1,18 @@
+---
+status: done
+verdict: CHANGES_REQUIRED
+---
+
+# Findings
+
+## High — Stale-generation release corrupts the next microphone snapshot
+
+`MicrophonePublicationGate.release()` clears `#current` before checking whether the lease generation is stale. The stale call therefore is not a no-op: it leaves the old tracks muted and forgets the lease that owns their original values. A subsequent `acquire()` cannot perform replacement restoration and snapshots `enabled: false`, so its eventual release preserves the microphone as muted. Move the generation check before clearing ownership (while retaining an explicit replacement path), and extend the stale-generation test to acquire/release a successor and prove the original value is restored.
+
+## High — The required arbiter interface matrix is still absent
+
+The scheduler state is now moved into and used through `ResponseArbiter`, but `response-arbiter.test.ts` still has only one tool-follow-up test. The phase package explicitly requires interface-level coverage for eligibility event order, duplicate/uncorrelated input, cancel attribution, all output-clear cases, malformed/wrong response completion, re-entrant sends, cancel/clear/create failures, fatal closure, and generation replacement. Adapter-level characterization is valuable but does not satisfy the required focused owner contract, especially after moving roughly 275 lines of policy behind this seam.
+
+## High — Shared-registry coverage and verification remain incomplete
+
+`shared-realtime-session.test.ts` still has only its original smoke test rather than the required retirement, Strict Mode, eviction-before-disconnect, reacquisition, rejection, retained-proof, and Orchestrator-isolation matrix. This round also omits the prescribed package test targets, realtime core, LiveKit, helper-removal success, docs evidence, and serial repository gate. The coder result explicitly lists these gaps, so Phase 2 does not yet have the acceptance or verification evidence required for approval.

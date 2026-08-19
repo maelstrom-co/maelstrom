@@ -16,6 +16,8 @@ import type {
   OpenAIBuiltInVoice,
   OpenAITokenGrant,
 } from '@maelstrom-co/realtime-protocol/openai';
+import { GreetingPresentation } from './greeting-presentation.js';
+import { MicrophonePublicationGate } from './microphone-publication-gate.js';
 import type {
   OpenAIAdapterOptions,
   SynthesizeGreeting,
@@ -25,15 +27,13 @@ import {
   isRecord,
   parseOpenAIServerEvent,
 } from './parse-openai-event.js';
+import { ResponseArbiter } from './response-arbiter.js';
 import {
   createUnexpectedEventTracker,
   type UnexpectedEventTracker,
 } from './unexpected-event-tracker.js';
 import { deriveVoiceActivity } from './voice-activity.js';
-import {
-  raceAbortSignal,
-  WebAudioGreetingPlayer,
-} from './web-audio-greeting-player.js';
+import { WebAudioGreetingPlayer } from './web-audio-greeting-player.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 
@@ -112,48 +112,6 @@ const DEFAULT_OUTPUT_VOICE: OpenAIBuiltInVoice = 'marin';
 const DEFAULT_SERVER_VAD_THRESHOLD = 0.5;
 const DEFAULT_BARGE_IN_MODE = 'immediate';
 
-type OutputActivity = 'not-started' | 'active' | 'stopped' | 'cleared';
-type CompletedTranscript = 'unseen' | 'useful' | 'empty';
-
-interface ResponseInFlight {
-  readonly responseId?: string;
-}
-
-interface GreetingMicrophoneGate {
-  readonly operation: AbortController;
-  readonly connectionGeneration: number;
-  readonly tracks: readonly {
-    readonly track: MediaStreamTrack;
-    readonly previousEnabled: boolean;
-  }[];
-}
-
-interface InterruptionLedgerEntry {
-  interruptionEvaluated: boolean;
-  committed: boolean;
-  completedTranscript: CompletedTranscript;
-  responseCreateQueued: boolean;
-  responseCreateSent: boolean;
-  responseCancelAttempted: boolean;
-  outputClearPending: boolean;
-  /** Response whose successful cancellation created this clear obligation. */
-  outputClearResponseId?: string;
-  standaloneOutputClearAttempted: boolean;
-}
-
-function createInterruptionLedgerEntry(): InterruptionLedgerEntry {
-  return {
-    interruptionEvaluated: false,
-    committed: false,
-    completedTranscript: 'unseen',
-    responseCreateQueued: false,
-    responseCreateSent: false,
-    responseCancelAttempted: false,
-    outputClearPending: false,
-    standaloneOutputClearAttempted: false,
-  };
-}
-
 function toOpenAITool(spec: RealtimeToolSpec): unknown {
   return {
     type: 'function',
@@ -193,7 +151,7 @@ export class OpenAIAdapter
   readonly #bargeInMode: 'immediate' | 'transcript-confirmed';
   readonly #voice: OpenAIBuiltInVoice;
   readonly #synthesizeGreeting: SynthesizeGreeting | undefined;
-  readonly #greetingPlayer = new WebAudioGreetingPlayer();
+  readonly #greetingPresentation: GreetingPresentation;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
 
   #pc: RTCPeerConnection | undefined;
@@ -212,27 +170,10 @@ export class OpenAIAdapter
   // aborts instead of clobbering the winner's shared state.
   readonly #connectGuard = new ConnectRaceGuard();
   #iceGraceTimer: ReturnType<typeof setTimeout> | undefined;
-  #responseInFlight: ResponseInFlight | undefined;
-  #toolFollowUpPending = false;
-  // A failed response.create send is fatal for this connection generation.
-  // It is reset only when teardown or connect starts a fresh generation.
-  #responseSchedulerFatal = false;
-  // Re-entrant provider events cannot drain a newly eligible response while a
-  // cancel-derived output clear is still being sent or awaited.
-  #responseCreateDrainBlockDepth = 0;
-  #responseCreateDrainDeferred = false;
-  readonly #validatedTurnQueue: string[] = [];
-  readonly #settledResponseIds = new Set<string>();
-  readonly #cancelAttemptedResponseIds = new Set<string>();
+  #arbiter: ResponseArbiter | undefined;
   #voiceActivity: VoiceSessionState = 'connected';
   #unexpectedEvents: UnexpectedEventTracker = createUnexpectedEventTracker();
   #connectionGeneration = 0;
-  readonly #interruptionLedger = new Map<string, InterruptionLedgerEntry>();
-  #activeResponseId: string | undefined;
-  #outputActivity: OutputActivity = 'not-started';
-  /** Operation-scoped controller for in-flight greeting synthesis/playback. */
-  #greetingOp: AbortController | undefined;
-  #greetingMicrophoneGate: GreetingMicrophoneGate | undefined;
 
   constructor(options: OpenAIAdapterOptions) {
     const serverVadThreshold =
@@ -263,6 +204,17 @@ export class OpenAIAdapter
     this.#voice = options.voice ?? DEFAULT_OUTPUT_VOICE;
     this.#synthesizeGreeting = options.synthesizeGreeting;
     this.#logger = new Logger(options.debug ?? false, 'OpenAIAdapter');
+    this.#greetingPresentation = new GreetingPresentation({
+      synthesize: this.#synthesizeGreeting,
+      voice: this.#voice,
+      player: new WebAudioGreetingPlayer(),
+      gate: new MicrophonePublicationGate(() => this.#connectionGeneration),
+      channel: () => this.#dc,
+      microphone: () => this.#micStream,
+      generation: () => this.#connectionGeneration,
+      debug: () => this.#logger.debug('greeting presentation failed'),
+    });
+    this.#arbiter = this.#newArbiter();
   }
 
   /**
@@ -479,108 +431,18 @@ export class OpenAIAdapter
     };
   }
 
-  /**
-   * Unlock greeting audio synchronously within the initiating user gesture.
-   * Must never throw. Failures surface later as `not_started` from
-   * {@link speakAssistantText}. Only activates when a synthesizer is configured.
-   */
+  /** Unlocks retained Web Audio activation in the initiating gesture. */
   activateAudio(): void {
-    try {
-      if (this.#synthesizeGreeting === undefined) return;
-      this.#greetingPlayer.activate();
-    } catch {
-      // Never throw from the gesture path; readiness fails later.
-    }
+    this.#greetingPresentation.activate();
   }
 
-  /**
-   * Speak the exact configured greeting text once the coordinator hands off.
-   * Sends provider history first, then synthesizes and plays WAV bytes without
-   * waiting for any provider acknowledgement. During synthesis, decode, and
-   * playback, each current microphone audio track is disabled (sending silence,
-   * not ending the track) and then restored to its prior value. Never issues
-   * `response.create`.
-   *
-   * Pre-send failures return `not_started`. Once the send call returns,
-   * every later outcome settles as `accepted`.
-   */
-  async speakAssistantText(args: {
+  /** Delegates provider handoff and local presentation to its package-private owner. */
+  speakAssistantText(args: {
     readonly id: MessageId;
     readonly text: string;
     readonly signal: AbortSignal;
   }): Promise<GreetingSpeechResult> {
-    if (!this.#dc || this.#dc.readyState !== 'open') return 'not_started';
-    if (this.#synthesizeGreeting === undefined) return 'not_started';
-    if (args.signal.aborted) return 'not_started';
-
-    const readiness = await this.#greetingPlayer.ensureReady(args.signal);
-    if (!readiness.ok) return 'not_started';
-    // Re-check channel after the readiness await — disconnect may have raced.
-    if (!this.#dc || this.#dc.readyState !== 'open') return 'not_started';
-    if (args.signal.aborted) return 'not_started';
-
-    const { text } = args;
-    const synthesize = this.#synthesizeGreeting;
-
-    try {
-      this.#dc.send(
-        JSON.stringify({
-          type: 'conversation.item.create',
-          item: {
-            // Engine message IDs can exceed OpenAI's 32-character item-ID limit.
-            type: 'message',
-            role: 'assistant',
-            status: 'completed',
-            content: [{ type: 'output_text', text }],
-          },
-        }),
-      );
-    } catch {
-      // No delivery began — the only retriable outcome after readiness.
-      return 'not_started';
-    }
-
-    // Send succeeded: every later outcome is terminal `accepted`.
-    this.#abortGreetingPlayback();
-    const op = new AbortController();
-    this.#greetingOp = op;
-    const microphoneGate = this.#createGreetingMicrophoneGate(op);
-    for (const { track } of microphoneGate.tracks) track.enabled = false;
-    const onCallerAbort = (): void => {
-      // Caller abort (including Skip) must release this operation's publication
-      // gate synchronously; waiting for a synth/decode continuation would keep
-      // the microphone muted after the user chose to speak.
-      this.#abortGreetingPlayback(op);
-    };
-    if (args.signal.aborted) {
-      onCallerAbort();
-    } else {
-      args.signal.addEventListener('abort', onCallerAbort, { once: true });
-    }
-
-    try {
-      // Race the synthesizer against abort so an uncooperative pending fetch
-      // cannot hang the adapter (or the coordinator's speech-in-flight) after
-      // disconnect/abort. Late synth settlement is observed inside the race.
-      const synthRace = await raceAbortSignal(
-        synthesize({
-          text,
-          voice: this.#voice,
-          signal: op.signal,
-        }),
-        op.signal,
-      );
-      if (synthRace.status === 'aborted') return 'accepted';
-      if (op.signal.aborted) return 'accepted';
-      await this.#greetingPlayer.play(synthRace.value, op.signal);
-    } catch (error) {
-      // Synthesis/decode/playback failure after send — still accepted.
-      this.#logger.debug('greeting synthesis or playback failed', error);
-    } finally {
-      args.signal.removeEventListener('abort', onCallerAbort);
-      this.#settleGreetingOperation(op, microphoneGate);
-    }
-    return 'accepted';
+    return this.#greetingPresentation.speak(args);
   }
 
   #wireConnectionEvents(connection: RTCPeerConnection): void {
@@ -867,73 +729,8 @@ export class OpenAIAdapter
     for (const handler of this.#handlers) handler(event);
   }
 
-  #createGreetingMicrophoneGate(
-    operation: AbortController,
-  ): GreetingMicrophoneGate {
-    const uniqueTracks = new Set(this.#micStream?.getAudioTracks() ?? []);
-    const gate: GreetingMicrophoneGate = {
-      operation,
-      connectionGeneration: this.#connectionGeneration,
-      tracks: [...uniqueTracks].map((track) => ({
-        track,
-        previousEnabled: track.enabled,
-      })),
-    };
-    this.#greetingMicrophoneGate = gate;
-    return gate;
-  }
-
-  /**
-   * Settle only the current greeting owner. A current gate restores exact prior
-   * track values before the gate and operation are cleared and playback stops;
-   * stale operations and generations are complete no-ops.
-   */
-  #settleGreetingOperation(
-    operation: AbortController,
-    gate: GreetingMicrophoneGate | undefined,
-  ): void {
-    if (gate !== undefined) {
-      if (
-        this.#greetingMicrophoneGate !== gate ||
-        gate.operation !== operation ||
-        this.#greetingOp !== operation ||
-        gate.connectionGeneration !== this.#connectionGeneration
-      ) {
-        return;
-      }
-      for (const { track, previousEnabled } of gate.tracks) {
-        track.enabled = previousEnabled;
-      }
-      this.#greetingMicrophoneGate = undefined;
-    } else if (
-      this.#greetingOp !== operation ||
-      this.#greetingMicrophoneGate !== undefined
-    ) {
-      return;
-    }
-
-    if (this.#greetingOp !== operation) return;
-    this.#greetingOp = undefined;
-    this.#greetingPlayer.stop();
-  }
-
-  /**
-   * Abort in-flight greeting synthesis/playback without closing the session.
-   * Any current decode/playback microphone gate restores before the shared
-   * player stops. Player AudioContext is retained across reconnects, and stale
-   * operation or generation cleanup cannot affect its replacement. When an
-   * expected operation is supplied, a different or absent owner is a no-op.
-   */
-  #abortGreetingPlayback(expectedOp?: AbortController): void {
-    const greetingOp = this.#greetingOp;
-    if (expectedOp !== undefined && greetingOp !== expectedOp) return;
-    if (greetingOp === undefined) return;
-    const gate =
-      this.#greetingMicrophoneGate?.operation === greetingOp
-        ? this.#greetingMicrophoneGate
-        : undefined;
-    greetingOp.abort();
-    this.#settleGreetingOperation(greetingOp, gate);
+  #abortGreetingPlayback(): void {
+    this.#greetingPresentation.abort();
   }
 
   /**
@@ -943,17 +740,8 @@ export class OpenAIAdapter
    */
   #startConnectionGeneration(): void {
     this.#connectionGeneration += 1;
-    this.#interruptionLedger.clear();
-    this.#cancelAttemptedResponseIds.clear();
-    this.#responseInFlight = undefined;
-    this.#toolFollowUpPending = false;
-    this.#responseSchedulerFatal = false;
-    this.#responseCreateDrainBlockDepth = 0;
-    this.#responseCreateDrainDeferred = false;
-    this.#validatedTurnQueue.length = 0;
-    this.#settledResponseIds.clear();
-    this.#activeResponseId = undefined;
-    this.#outputActivity = 'not-started';
+    this.#arbiter?.close();
+    this.#arbiter = this.#newArbiter();
   }
 
   #teardown(): void {
@@ -1042,7 +830,7 @@ export class OpenAIAdapter
         lifecycleCategory === 'speech_started'
           ? {
               category: lifecycleCategory,
-              greetingActive: this.#greetingOp !== undefined,
+              greetingActive: this.#greetingPresentation.isActive,
             }
           : { category: lifecycleCategory },
       );
@@ -1072,18 +860,18 @@ export class OpenAIAdapter
     // field carries completed/cancelled/failed/incomplete) — there is no
     // separate `response.cancelled` server event.
     if (type === 'response.created') {
-      this.#handleResponseCreated(parsed);
+      this.#arbiter?.responseCreated(this.#responseId(parsed));
     } else if (type === 'response.done') {
-      this.#handleResponseDone(parsed);
+      this.#arbiter?.responseDone(
+        this.#responseId(parsed),
+        this.#completedResponseHasExplicitlyEmptyOutput(parsed),
+      );
     } else if (type === 'output_audio_buffer.started') {
-      this.#outputActivity = 'active';
-      this.#fulfillClearObligations();
+      this.#arbiter?.outputStarted();
     } else if (type === 'output_audio_buffer.stopped') {
-      this.#outputActivity = 'stopped';
-      this.#fulfillClearObligations();
+      this.#arbiter?.outputStopped();
     } else if (type === 'output_audio_buffer.cleared') {
-      this.#outputActivity = 'cleared';
-      this.#fulfillClearObligations();
+      this.#arbiter?.outputCleared();
     }
 
     if (type !== undefined) {
@@ -1100,19 +888,37 @@ export class OpenAIAdapter
     if (
       type === 'input_audio_buffer.speech_started' &&
       this.#bargeInMode === 'immediate' &&
-      this.#greetingMicrophoneGate === undefined
+      !this.#greetingPresentation.isPublicationGated
     ) {
       this.#abortGreetingPlayback();
     }
 
-    if (isInputTranscriptDelta) this.#handleInputTranscriptDelta(parsed);
+    if (isInputTranscriptDelta) {
+      const itemId = this.#itemId(parsed);
+      const useful =
+        isRecord(parsed) &&
+        typeof parsed.delta === 'string' &&
+        parsed.delta.trim().length > 0;
+      if (this.#bargeInMode === 'transcript-confirmed' && useful) {
+        this.#logger.debug('input interruption', {
+          category: 'useful-delta',
+          useful: true,
+        });
+        if (this.#greetingPresentation.isActive) this.#abortGreetingPlayback();
+        this.#arbiter?.usefulDelta(itemId);
+      }
+    }
     if (this.#bargeInMode === 'transcript-confirmed') {
       if (type === 'input_audio_buffer.committed') {
-        this.#handleCommittedItem(parsed);
+        this.#arbiter?.committed(this.#itemId(parsed));
       } else if (
         type === 'conversation.item.input_audio_transcription.completed'
       ) {
-        this.#handleCompletedTranscript(parsed);
+        const useful =
+          isRecord(parsed) &&
+          typeof parsed.transcript === 'string' &&
+          parsed.transcript.trim().length > 0;
+        this.#arbiter?.completed(this.#itemId(parsed), useful);
       }
     }
 
@@ -1132,399 +938,42 @@ export class OpenAIAdapter
     }
   }
 
+  #newArbiter(): ResponseArbiter {
+    return new ResponseArbiter({
+      send: (command) => {
+        if (!this.#dc || this.#dc.readyState !== 'open') {
+          throw new Error('OpenAI realtime data channel not open');
+        }
+        this.#dc.send(JSON.stringify(command));
+      },
+      error: (error) => this.#emit({ type: 'error', error }),
+      debug: (category) => this.#logger.debug('response arbiter', { category }),
+    });
+  }
+
   #responseId(event: unknown): string | undefined {
     if (!isRecord(event) || !isRecord(event.response)) return undefined;
     const id = asString(event.response.id);
     return id !== undefined && id.length > 0 ? id : undefined;
   }
 
-  /**
-   * Coalesces tool follow-ups behind the active response, ahead of validated
-   * turns. A generation whose `response.create` send failed is permanently
-   * closed and ignores newly requested follow-ups until teardown or reconnect.
-   */
-  #requestToolFollowUp(): void {
-    if (this.#responseSchedulerFatal) return;
-    if (
-      this.#responseInFlight !== undefined ||
-      this.#responseCreateDrainBlocked()
-    ) {
-      this.#toolFollowUpPending = true;
-      if (this.#responseInFlight === undefined) {
-        this.#responseCreateDrainDeferred = true;
-      }
-      return;
-    }
-    this.#attemptResponseCreate();
+  #completedResponseHasExplicitlyEmptyOutput(event: unknown): boolean {
+    return (
+      isRecord(event) &&
+      isRecord(event.response) &&
+      asString(event.response.status) === 'cancelled' &&
+      Array.isArray(event.response.output) &&
+      event.response.output.length === 0
+    );
   }
 
-  /**
-   * Queues each validated item at most once without overtaking a tool follow-up.
-   * Fatal scheduler generations reject new queue entries rather than retaining
-   * work that could be retried after an unsent `response.create`.
-   */
-  #requestValidatedTurn(itemId: string, entry: InterruptionLedgerEntry): void {
-    if (this.#responseSchedulerFatal) return;
-    if (entry.responseCreateQueued) return;
-    entry.responseCreateQueued = true;
-    if (
-      this.#responseInFlight === undefined &&
-      !this.#toolFollowUpPending &&
-      !this.#responseCreateDrainBlocked()
-    ) {
-      entry.responseCreateSent = true;
-      this.#attemptResponseCreate();
-      return;
-    }
-    this.#validatedTurnQueue.push(itemId);
-    if (this.#responseInFlight === undefined) {
-      this.#responseCreateDrainDeferred = true;
-    }
-  }
-
-  /**
-   * Optimistically reserves the single in-flight response before sending. A
-   * synchronous send failure retires that placeholder, closes this generation's
-   * scheduler before notifying listeners, and emits one typed fatal error. The
-   * failed source and any re-entrant work are never retried locally.
-   */
-  #attemptResponseCreate(): void {
-    if (this.#responseSchedulerFatal) return;
-    this.#responseInFlight = {};
-    try {
-      if (!this.#dc || this.#dc.readyState !== 'open') {
-        throw new Error('response.create: data channel not open');
-      }
-      this.#dc.send(JSON.stringify({ type: 'response.create' }));
-    } catch (cause) {
-      this.#responseInFlight = undefined;
-      this.#responseSchedulerFatal = true;
-      this.#emit({
-        type: 'error',
-        error: new RealtimeVoiceError(
-          'DATA_CHANNEL_ERROR',
-          'Failed to send OpenAI realtime response.create',
-          cause,
-        ),
-      });
-    }
-  }
-
-  #handleResponseCreated(event: unknown): void {
-    const responseId = this.#responseId(event);
-    if (responseId === undefined || this.#settledResponseIds.has(responseId)) {
-      this.#logger.debug('response arbiter', { category: 'created-unmatched' });
-      return;
-    }
-    const current = this.#responseInFlight;
-    if (current === undefined) {
-      this.#responseInFlight = { responseId };
-    } else if (current.responseId === undefined) {
-      this.#responseInFlight = { responseId };
-    } else {
-      if (current.responseId !== responseId) {
-        this.#logger.debug('response arbiter', {
-          category: 'created-conflict',
-        });
-      }
-      return;
-    }
-    this.#activeResponseId = responseId;
-    this.#outputActivity = 'not-started';
-  }
-
-  /**
-   * Settles only the attributable in-flight response. A cancellation proves no
-   * output, and releases its interruption clear obligation, only when the same
-   * response carries exact `cancelled` status and an explicitly empty output
-   * array. Ambiguous shapes remain pending for a late output lifecycle event.
-   */
-  #handleResponseDone(event: unknown): void {
-    const responseId = this.#responseId(event);
-    const current = this.#responseInFlight;
-    if (
-      responseId === undefined ||
-      current === undefined ||
-      this.#settledResponseIds.has(responseId)
-    ) {
-      return;
-    }
-    if (current.responseId !== undefined && current.responseId !== responseId)
-      return;
-
-    this.#settledResponseIds.add(responseId);
-    this.#cancelAttemptedResponseIds.delete(responseId);
-    this.#responseInFlight = undefined;
-    this.#releaseClearObligationForProvenNoOutput(event, responseId);
-    if (
-      this.#activeResponseId === responseId ||
-      current.responseId === undefined
-    ) {
-      this.#activeResponseId = undefined;
-    }
-    this.#drainResponseCreate();
-  }
-
-  /** Drains one eligible source unless the current generation is fatally closed. */
-  #drainResponseCreate(): void {
-    if (this.#responseSchedulerFatal) return;
-    if (this.#responseInFlight !== undefined) return;
-    if (this.#responseCreateDrainBlocked()) {
-      this.#responseCreateDrainDeferred = true;
-      return;
-    }
-    this.#responseCreateDrainDeferred = false;
-    if (this.#toolFollowUpPending) {
-      this.#toolFollowUpPending = false;
-      this.#attemptResponseCreate();
-      return;
-    }
-    const itemId = this.#validatedTurnQueue.shift();
-    if (itemId === undefined) return;
-    const entry = this.#interruptionLedger.get(itemId);
-    if (!entry || entry.responseCreateSent) return;
-    entry.responseCreateSent = true;
-    this.#attemptResponseCreate();
-  }
-
-  #responseCreateDrainBlocked(): boolean {
-    if (this.#responseCreateDrainBlockDepth > 0) return true;
-    for (const entry of this.#interruptionLedger.values()) {
-      if (entry.outputClearPending) return true;
-    }
-    return false;
-  }
-
-  /**
-   * Releases only obligations created by cancellation of this exact response.
-   * Missing, malformed, or non-empty output cannot prove that late audio will
-   * not start, so those obligations remain guarded by output lifecycle events.
-   */
-  #releaseClearObligationForProvenNoOutput(
-    event: unknown,
-    responseId: string,
-  ): void {
-    if (!isRecord(event) || !isRecord(event.response)) return;
-    if (asString(event.response.status) !== 'cancelled') return;
-    if (
-      !Array.isArray(event.response.output) ||
-      event.response.output.length > 0
-    )
-      return;
-    for (const entry of this.#interruptionLedger.values()) {
-      if (entry.outputClearResponseId !== responseId) continue;
-      entry.outputClearPending = false;
-      entry.outputClearResponseId = undefined;
-    }
-  }
-
-  #resumeResponseCreateDrain(): void {
-    if (!this.#responseCreateDrainDeferred) return;
-    this.#drainResponseCreate();
-  }
-
-  #handleCommittedItem(event: unknown): void {
-    const correlated = this.#correlatedItem(event);
-    if (correlated === undefined) return;
-    const [itemId, entry] = correlated;
-    entry.committed = true;
-    this.#requestResponseForEligibleItem(itemId, entry);
-  }
-
-  #handleCompletedTranscript(event: unknown): void {
-    const correlated = this.#correlatedItem(event);
-    if (correlated === undefined) return;
-    const [itemId, entry] = correlated;
-    if (entry.completedTranscript === 'unseen') {
-      const transcript = isRecord(event)
-        ? asString(event.transcript)
-        : undefined;
-      entry.completedTranscript =
-        transcript !== undefined && transcript.trim().length > 0
-          ? 'useful'
-          : 'empty';
-    }
-    this.#requestResponseForEligibleItem(itemId, entry);
-  }
-
-  #correlatedItem(
-    event: unknown,
-  ): readonly [string, InterruptionLedgerEntry] | undefined {
+  #itemId(event: unknown): string | undefined {
     if (!isRecord(event)) return undefined;
-    const itemId = asString(event.item_id);
-    if (itemId === undefined || itemId.trim().length === 0) return undefined;
-    const entry =
-      this.#interruptionLedger.get(itemId) ?? createInterruptionLedgerEntry();
-    this.#interruptionLedger.set(itemId, entry);
-    return [itemId, entry];
+    const id = asString(event.item_id);
+    return id !== undefined && id.trim().length > 0 ? id : undefined;
   }
 
-  #requestResponseForEligibleItem(
-    itemId: string,
-    entry: InterruptionLedgerEntry,
-  ): void {
-    if (entry.committed && entry.completedTranscript === 'useful') {
-      this.#requestValidatedTurn(itemId, entry);
-    }
-  }
-
-  #handleInputTranscriptDelta(event: unknown): void {
-    if (!isRecord(event)) return;
-    const itemId = asString(event.item_id);
-    const delta = asString(event.delta);
-    const useful = delta !== undefined && delta.trim().length > 0;
-    if (itemId === undefined || itemId.trim().length === 0) {
-      this.#logger.debug('input interruption', {
-        category: 'uncorrelated',
-        useful,
-      });
-      return;
-    }
-    if (!useful) {
-      this.#logger.debug('input interruption', {
-        category: 'not-useful',
-        useful: false,
-      });
-      return;
-    }
-    if (this.#bargeInMode !== 'transcript-confirmed') {
-      this.#logger.debug('input interruption', {
-        category: 'useful-delta',
-        useful: true,
-      });
-      return;
-    }
-
-    const entry =
-      this.#interruptionLedger.get(itemId) ?? createInterruptionLedgerEntry();
-    this.#interruptionLedger.set(itemId, entry);
-    if (entry.interruptionEvaluated) return;
-    entry.interruptionEvaluated = true;
-
-    let targeted = false;
-    const greetingOp = this.#greetingOp;
-    if (greetingOp !== undefined) {
-      targeted = true;
-      this.#logger.debug('input interruption', {
-        category: 'interruption-greeting',
-        useful: true,
-      });
-      this.#abortGreetingPlayback(greetingOp);
-    }
-
-    if (this.#activeResponseId !== undefined) {
-      targeted = true;
-      this.#cancelActiveResponse(entry, this.#activeResponseId);
-    } else if (this.#outputActivity === 'active') {
-      targeted = true;
-      this.#sendStandaloneOutputClear(entry);
-    }
-
-    if (!targeted) {
-      this.#logger.debug('input interruption', {
-        category: 'interruption-no-target',
-        useful: true,
-      });
-    }
-  }
-
-  /**
-   * Sends one attributable cancellation and opens its clear obligation before
-   * the send so re-entrant completion can settle it. A failed cancel retracts
-   * the obligation. No completion can drain work until this decision finishes.
-   */
-  #cancelActiveResponse(
-    entry: InterruptionLedgerEntry,
-    responseId: string,
-  ): void {
-    if (entry.responseCancelAttempted) return;
-    entry.responseCancelAttempted = true;
-    if (this.#cancelAttemptedResponseIds.has(responseId)) {
-      if (this.#outputActivity === 'active') {
-        this.#sendStandaloneOutputClear(entry);
-      }
-      return;
-    }
-    this.#cancelAttemptedResponseIds.add(responseId);
-    this.#logger.debug('input interruption', {
-      category: 'interruption-cancel',
-      useful: true,
-    });
-    this.#responseCreateDrainBlockDepth += 1;
-    entry.outputClearPending = true;
-    entry.outputClearResponseId = responseId;
-    try {
-      this.#dc?.send(
-        JSON.stringify({ type: 'response.cancel', response_id: responseId }),
-      );
-      this.#fulfillClearObligations();
-    } catch (error) {
-      this.#cancelAttemptedResponseIds.delete(responseId);
-      entry.outputClearPending = false;
-      entry.outputClearResponseId = undefined;
-      this.#emit({ type: 'error', error });
-      if (this.#outputActivity === 'active') {
-        this.#sendStandaloneOutputClear(entry);
-      }
-    } finally {
-      this.#responseCreateDrainBlockDepth -= 1;
-      this.#resumeResponseCreateDrain();
-    }
-  }
-
-  #sendStandaloneOutputClear(entry: InterruptionLedgerEntry): void {
-    if (entry.standaloneOutputClearAttempted) return;
-    entry.standaloneOutputClearAttempted = true;
-    this.#sendOutputClear();
-  }
-
-  #sendOutputClear(): void {
-    this.#logger.debug('input interruption', {
-      category: 'interruption-clear',
-      useful: true,
-    });
-    const channel = this.#dc;
-    if (channel === undefined) return;
-    const previousOutputActivity = this.#outputActivity;
-    this.#outputActivity = 'cleared';
-    try {
-      channel.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
-    } catch (error) {
-      if (this.#outputActivity === 'cleared') {
-        this.#outputActivity = previousOutputActivity;
-      }
-      this.#emit({ type: 'error', error });
-    }
-  }
-
-  /**
-   * Settles pending interruption clears from provider output lifecycle. Stopped
-   * or cleared output proves the buffer empty; active output requires exactly
-   * one explicit clear. Not-started output remains ambiguous for a late start.
-   */
-  #fulfillClearObligations(): void {
-    this.#responseCreateDrainBlockDepth += 1;
-    try {
-      let shouldClearActiveOutput = false;
-      for (const entry of this.#interruptionLedger.values()) {
-        if (!entry.outputClearPending) continue;
-        if (
-          this.#outputActivity === 'stopped' ||
-          this.#outputActivity === 'cleared'
-        ) {
-          entry.outputClearPending = false;
-          entry.outputClearResponseId = undefined;
-          continue;
-        }
-        if (this.#outputActivity !== 'active') continue;
-        entry.outputClearPending = false;
-        entry.outputClearResponseId = undefined;
-        shouldClearActiveOutput = true;
-      }
-      if (shouldClearActiveOutput) this.#sendOutputClear();
-    } finally {
-      this.#responseCreateDrainBlockDepth -= 1;
-      this.#resumeResponseCreateDrain();
-    }
+  #requestToolFollowUp(): void {
+    this.#arbiter?.requestToolFollowUp();
   }
 }

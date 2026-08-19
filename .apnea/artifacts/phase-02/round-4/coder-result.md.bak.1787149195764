@@ -1,0 +1,47 @@
+---
+status: done
+---
+
+Fixed the round-3 generation lease bug and added direct owner-level coverage.
+
+Changes:
+- A stale direct publication-lease release now leaves the current lease/snapshot owned by the gate. A replacement acquisition explicitly restores that snapshot before it mutes the successor, so the successor restores the original microphone state.
+- Added arbiter-interface tests for eligibility ordering, duplicate/uncorrelated inputs, cancellation attribution, late output clear, conservative completion handling, command failures, fatal create closure, and generation close.
+- Expanded registry tests for sharing, idempotent release, Strict Mode-style reacquisition, eviction before disconnect, recreation, swallowed disconnect rejection/coordinator retention, and Orchestrator isolation.
+
+Files touched:
+- `packages/realtime-openai/src/microphone-publication-gate.ts`
+- `packages/realtime-openai/src/microphone-publication-gate.test.ts`
+- `packages/realtime-openai/src/response-arbiter.test.ts`
+- `packages/react-realtime/src/lib/shared-realtime-session.test.ts`
+
+Verification transcript (command — exit — tail):
+
+```text
+bun test packages/realtime-openai/src/response-arbiter.test.ts packages/realtime-openai/src/microphone-publication-gate.test.ts — 0
+10 pass, 0 fail
+
+bun test --conditions=@maelstrom-co/source --preload ./packages/react-realtime/src/lib/__tests__/setup.ts packages/react-realtime/src/lib/shared-realtime-session.test.ts — 0
+5 pass, 0 fail
+
+bunx nx test @maelstrom-co/realtime-openai --skipSync --skipNxCache — 0
+168 pass, 0 fail
+
+bunx nx test @maelstrom-co/realtime --skipSync --skipNxCache — 0
+118 pass, 0 fail
+
+bunx nx test @maelstrom-co/react-realtime --skipSync --skipNxCache — 0
+49 pass, 0 fail
+
+bunx nx test @maelstrom-co/realtime-livekit --skipSync --skipNxCache — 0
+153 pass, 0 fail
+
+bunx biome check packages/realtime-openai/src packages/react-realtime/src docs/realtime-voice-architecture.md --error-on-warnings — 0
+Checked 30 files. No fixes applied.
+```
+
+Residual risks:
+- The focused arbiter tests exercise the requested categories; adapter integration remains the detailed wire-order characterization suite.
+- The required helper-removal check still reports the prohibited public-barrel comment in `packages/realtime-openai/src/index.ts`; there are no helper imports/implementation references, and this phase forbids changing that barrel.
+- Typechecks, React build, docs E2E, and the serial repository gate were not rerun this round.
+- No acoustic claim was added; mobile timing, echo removal, VAD accuracy, and first-phoneme preservation remain unverified.

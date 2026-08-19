@@ -365,3 +365,18 @@ Verify before you trust. Run these steps in order.
    no `SPEAK_TOPIC` send occurs; reconnecting may retry on the later connection
    generation. After a `SPEAK_TOPIC` send begins, reconnecting must not repeat the
    greeting. A new session greets once.
+
+## Package-private OpenAI ownership seams
+
+Four package-private modules concentrate implementation ownership without
+changing Phase 1 public interfaces. The response arbiter owns OpenAI response
+scheduling, cancellation, and output-clear policy. Greeting presentation owns
+the provider assistant-history handoff and local Web Audio playback. The
+microphone publication gate owns the exact prior `enabled` value for every
+unique microphone track while that presentation is active. The shared React
+session registry owns per-Orchestrator session lifetime and retains the greeting
+coordinator across provider-session recreation.
+
+These seams preserve Engine acknowledgement → caption → provider handoff →
+synthesis → playback ordering, existing privacy constraints, and LiveKit
+behavior. They add no acoustic or spoken-interruption claim.
