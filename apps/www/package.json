@@ -38,7 +38,13 @@
           "production",
           "^production",
           "{workspaceRoot}/package.json",
-          "{workspaceRoot}/bun.lock"
+          "{workspaceRoot}/bun.lock",
+          {
+            "env": "CLOUDFLARE_ENV"
+          },
+          {
+            "env": "PUBLIC_PLAYGROUND_URL"
+          }
         ],
         "outputs": [
           "{projectRoot}/dist",
