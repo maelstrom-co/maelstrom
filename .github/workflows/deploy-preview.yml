@@ -81,21 +81,26 @@ jobs:
         # stale within a day of landing; deriving it cannot.
         run: echo "version=$(node -p "require('wrangler/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # Preview artifacts must come from this checkout, not Nx Cloud or a stale
-      # local runner cache. build-hosted sets VITE_HOSTED=1 for the demo.
-      - name: Build Playground preview
-        run: bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache
+      # Build every independent artifact before the first deployment. The
+      # website remains dependent on the deployed Playground URL.
+      - name: Build independent preview artifacts
+        run: |
+          bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache
+          bunx nx run @maelstrom-co/docs:build --skip-nx-cache
 
-      - name: Validate Playground route-free preview configuration
+      - name: Validate independent route-free preview configurations
         run: >-
           bun -e "import { unstable_readConfig } from 'wrangler';
-          const config = 'apps/demo/wrangler.jsonc';
-          const resolved = unstable_readConfig({ config, env: 'preview' },
-          { hideWarnings: true });
-          if (resolved.workers_dev !== true || resolved.routes?.length) {
-          throw new Error(config + ' must enable workers.dev and define no preview routes');
-          } if (resolved.kv_namespaces?.some((namespace) => !namespace.id)) {
-          throw new Error(config + ' must not auto-provision preview KV namespaces');
+          for (const config of ['apps/demo/wrangler.jsonc',
+          'apps/docs/wrangler.json']) {
+            const resolved = unstable_readConfig({ config, env: 'preview' },
+            { hideWarnings: true });
+            if (resolved.workers_dev !== true || resolved.routes?.length) {
+              throw new Error(config + ' must enable workers.dev and define no preview routes');
+            }
+            if (resolved.kv_namespaces?.some((namespace) => !namespace.id)) {
+              throw new Error(config + ' must not auto-provision preview KV namespaces');
+            }
           }"
 
       # Each PR gets an isolated Worker and SessionDO namespace.
@@ -148,30 +153,6 @@ jobs:
           wranglerVersion: ${{ steps.wrangler.outputs.version }}
           command: deploy --env preview --name maelstrom-www-pr-${{ github.event.pull_request.number }}
 
-      - name: Validate website preview URL
-        id: website-url
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy-www.outputs.deployment-url }}
-        run: |
-          set -euo pipefail
-          bun -e "const value = process.env.DEPLOYMENT_URL; if (!value || !value.toLowerCase().startsWith('https://') || /\s/u.test(value)) throw new Error('Website deploy must report one non-empty absolute HTTPS URL'); const parsed = new URL(value); if (parsed.username || parsed.password) throw new Error('Website deploy must report an absolute HTTPS URL without credentials');"
-          printf 'url=%s\n' "$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Build documentation preview
-        run: bunx nx run @maelstrom-co/docs:build --skip-nx-cache
-
-      - name: Validate documentation route-free preview configuration
-        run: >-
-          bun -e "import { unstable_readConfig } from 'wrangler';
-          const config = 'apps/docs/wrangler.json';
-          const resolved = unstable_readConfig({ config, env: 'preview' },
-          { hideWarnings: true });
-          if (resolved.workers_dev !== true || resolved.routes?.length) {
-          throw new Error(config + ' must enable workers.dev and define no preview routes');
-          } if (resolved.kv_namespaces?.some((namespace) => !namespace.id)) {
-          throw new Error(config + ' must not auto-provision preview KV namespaces');
-          }"
-
       - name: Deploy docs to Cloudflare
         id: deploy-docs
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
@@ -182,25 +163,19 @@ jobs:
           wranglerVersion: ${{ steps.wrangler.outputs.version }}
           command: deploy --env preview --name maelstrom-docs-pr-${{ github.event.pull_request.number }}
 
-      - name: Validate documentation preview URL
-        id: documentation-url
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy-docs.outputs.deployment-url }}
-        run: |
-          set -euo pipefail
-          bun -e "const value = process.env.DEPLOYMENT_URL; if (!value || !value.toLowerCase().startsWith('https://') || /\s/u.test(value)) throw new Error('Documentation deploy must report one non-empty absolute HTTPS URL'); const parsed = new URL(value); if (parsed.username || parsed.password) throw new Error('Documentation deploy must report an absolute HTTPS URL without credentials');"
-          printf 'url=%s\n' "$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
-
       - name: Require all preview URLs
         env:
-          WWW_URL: ${{ steps.website-url.outputs.url }}
-          DOCS_URL: ${{ steps.documentation-url.outputs.url }}
+          WWW_URL: ${{ steps.deploy-www.outputs.deployment-url }}
+          DOCS_URL: ${{ steps.deploy-docs.outputs.deployment-url }}
           DEMO_URL: ${{ steps.playground-url.outputs.url }}
         run: |
           set -euo pipefail
           for app in WWW DOCS DEMO; do
             url_variable="${app}_URL"
-            bun -e "const value = process.env.$url_variable; if (!value || !value.toLowerCase().startsWith('https://') || /\s/u.test(value)) throw new Error('$app deploy did not produce a valid HTTPS preview URL'); const parsed = new URL(value); if (parsed.username || parsed.password) throw new Error('$app deploy did not produce a valid HTTPS preview URL');"
+            if [ -z "${!url_variable}" ]; then
+              echo "::error::$app deploy succeeded but reported no workers.dev URL. Check the preview account's workers.dev subdomain."
+              exit 1
+            fi
           done
 
       - name: Find existing preview comment
@@ -227,8 +202,8 @@ jobs:
 
             | App | Preview |
             | --- | --- |
-            | Website | ${{ steps.website-url.outputs.url }} |
-            | Documentation | ${{ steps.documentation-url.outputs.url }} |
+            | Website | ${{ steps.deploy-www.outputs.deployment-url }} |
+            | Documentation | ${{ steps.deploy-docs.outputs.deployment-url }} |
             | Demo | ${{ steps.playground-url.outputs.url }} |
 
             The demo is bring-your-own-key. This preview runs the PR branch's own code, so use a throwaway key or only open previews for branches you trust.

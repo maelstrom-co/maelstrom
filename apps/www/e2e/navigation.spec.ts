@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 const playgroundUrl =
-  process.env.PLAYGROUND_URL ?? 'https://demo.maelstrom-ai.co';
+  process.env.PUBLIC_PLAYGROUND_URL ?? 'https://demo.maelstrom-ai.co';
 
 test('main navigation links to the configured Playground', async ({ page }) => {
   await page.goto('/');
@@ -11,6 +11,11 @@ test('main navigation links to the configured Playground', async ({ page }) => {
   });
   await expect(
     navigation.getByRole('link', { name: 'Playground', exact: true }),
+  ).toHaveAttribute('href', playgroundUrl);
+
+  const footer = page.locator('footer');
+  await expect(
+    footer.getByRole('link', { name: 'Playground', exact: true }),
   ).toHaveAttribute('href', playgroundUrl);
 });
 
