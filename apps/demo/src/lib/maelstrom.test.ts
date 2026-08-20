@@ -169,7 +169,7 @@ describe('demo voice provider wiring', () => {
     expect(state.openAIAdapterOptions[0]).not.toHaveProperty('serverVad');
     expect(
       (state.openAIAdapterOptions[0] as OpenAIOptions).greetingInterruption,
-    ).toBe(false);
+    ).toBe(true);
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 
@@ -183,7 +183,7 @@ describe('demo voice provider wiring', () => {
       bargeInMode: 'transcript-confirmed',
     });
     expect(options).not.toHaveProperty('vad');
-    expect(options.greetingInterruption).toBe(false);
+    expect(options.greetingInterruption).toBe(true);
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 
@@ -265,7 +265,7 @@ describe('demo voice provider wiring', () => {
 
     expect(capturedUrl).toBe(DEMO_GREETING_TTS_URL);
     expect(capturedAuth).toBe('Bearer sk-local-browser-key-1234567890');
-    expect(options.greetingInterruption).toBe(false);
+    expect(options.greetingInterruption).toBe(true);
     await expect(options.mintToken?.()).rejects.toThrow(
       /createBrowserMintToken should not be called in tests/,
     );
