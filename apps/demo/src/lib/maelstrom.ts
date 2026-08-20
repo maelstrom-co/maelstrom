@@ -108,7 +108,7 @@ function createAdapter({
     synthesizeGreeting: browserKeyMode
       ? hostedSynthesizeGreeting
       : localSynthesizeGreeting,
-    greetingInterruption: false,
+    greetingInterruption: true,
     debug: isDebugRequested(),
   });
 }
