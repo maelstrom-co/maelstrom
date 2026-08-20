@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readFile } from 'node:fs/promises';
+import { readFile, readlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const root = join(import.meta.dir, '..');
@@ -16,7 +16,8 @@ describe('shared agent guidance', () => {
         readFile(join(root, 'docs/agents/domain.md'), 'utf8'),
       ]);
 
-    expect(claude.trim()).toBe('@AGENTS.md');
+    expect(await readlink(join(root, 'CLAUDE.md'))).toBe('AGENTS.md');
+    expect(claude).toBe(agents);
     const openCodeConfig = JSON.parse(openCode);
     expect(openCodeConfig).not.toHaveProperty('instructions');
     expect(openCodeConfig).not.toHaveProperty('model');
