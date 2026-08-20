@@ -20,7 +20,10 @@ import {
   type ResolvedBrowserVadConfig,
   resolveBrowserVadConfig,
 } from '@maelstrom-co/realtime-vad/config';
-import { GreetingInterruption } from './greeting-interruption.js';
+import {
+  GreetingInterruption,
+  type ReplacePublicationArgs,
+} from './greeting-interruption.js';
 import { GreetingPresentation } from './greeting-presentation.js';
 import { MicrophonePublicationGate } from './microphone-publication-gate.js';
 import type {
@@ -181,6 +184,7 @@ export class OpenAIAdapter
   readonly #voice: OpenAIBuiltInVoice;
   readonly #synthesizeGreeting: SynthesizeGreeting | undefined;
   readonly #greetingInterruption: ResolvedBrowserVadConfig;
+  readonly #greetingGate: MicrophonePublicationGate;
   readonly #greetingPresentation: GreetingPresentation;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
 
@@ -237,23 +241,24 @@ export class OpenAIAdapter
     this.#voice = options.voice ?? DEFAULT_OUTPUT_VOICE;
     this.#synthesizeGreeting = options.synthesizeGreeting;
     this.#logger = new Logger(options.debug ?? false, 'OpenAIAdapter');
-    const greetingGate = new MicrophonePublicationGate(
+    this.#greetingGate = new MicrophonePublicationGate(
       () => this.#connectionGeneration,
     );
     this.#greetingPresentation = new GreetingPresentation({
       synthesize: this.#synthesizeGreeting,
       voice: this.#voice,
       player: new WebAudioGreetingPlayer(),
-      gate: greetingGate,
+      gate: this.#greetingGate,
       channel: () => this.#dc,
       microphone: () => this.#micStream,
       generation: () => this.#connectionGeneration,
-      debug: (category) => this.#logger.debug(`greeting ${category}`),
+      debug: (category) => this.#logger.debug('greeting', { category }),
       interruption: new GreetingInterruption({
         config: this.#greetingInterruption,
-        gate: greetingGate,
+        gate: this.#greetingGate,
         generation: () => this.#connectionGeneration,
-        debug: () => this.#logger.debug('greeting interruption failed'),
+        replacePublication: (args) => this.#replacePublication(args),
+        debug: (category) => this.#logger.debug('greeting', { category }),
       }),
     });
     this.#arbiter = this.#newArbiter();
@@ -793,6 +798,38 @@ export class OpenAIAdapter
 
   #abortGreetingPlayback(): void {
     this.#greetingPresentation.abort();
+  }
+
+  async #replacePublication(
+    args: ReplacePublicationArgs,
+  ): Promise<'replaced' | 'stale' | 'failed'> {
+    if (args.generation !== this.#connectionGeneration) return 'stale';
+    const sender = this.#pc
+      ?.getSenders()
+      .find((candidate) => candidate.track === args.generated);
+    if (!sender) return 'stale';
+    this.#greetingGate.acquire(
+      this.#micStream ??
+        ({ getAudioTracks: () => [args.raw] } as unknown as MediaStream),
+      args.generation,
+    );
+    args.generated.enabled = false;
+    try {
+      await sender.replaceTrack(args.raw);
+    } catch {
+      this.#logger.debug('greeting', {
+        category: 'publication-replace-failed',
+      });
+      this.#emit({
+        type: 'error',
+        error: new RealtimeVoiceError(
+          'CONNECTION_FAILED',
+          'Failed to restore the OpenAI microphone publication',
+        ),
+      });
+      return 'failed';
+    }
+    return sender.track === args.raw ? 'replaced' : 'failed';
   }
 
   /**

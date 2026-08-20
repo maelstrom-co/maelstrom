@@ -631,6 +631,143 @@ test('enabled replacement fences stale playback hooks and local boundaries', asy
   expect(raw.enabled).toBe(true);
 });
 
+test('enabled synthesis-period callback plus later setup failure cannot flush before playback start', async () => {
+  const raw = { enabled: true } as MediaStreamTrack;
+  const generated = { enabled: true } as MediaStreamTrack;
+  const order: string[] = [];
+  let resolveSynthesis!: (value: ArrayBuffer) => void;
+  let finishPlayback!: () => void;
+  const interruption = new GreetingInterruption({
+    config: {
+      enabled: true,
+      assetBaseUrl: '/vad-web/',
+      preRollMs: 1,
+      providerOptions: {},
+    },
+    gate: new MicrophonePublicationGate(() => 1),
+    generation: () => 1,
+    loadRuntime: async () =>
+      ({
+        createLocalAudioPreRoll: async () => ({
+          track: generated,
+          startAutomaticTurn: async () => order.push('automatic'),
+          startManualTurn: async () => order.push('manual'),
+          clear: async () => {},
+          endTurn: async () => {},
+          destroy: async () => {},
+        }),
+        createBrowserVad: async () => {
+          throw new Error('vad start');
+        },
+      }) as never,
+    replacePublication: async () => {
+      order.push('replace');
+      return 'replaced';
+    },
+    debug: () => {},
+  });
+  const stream = { getAudioTracks: () => [raw] } as unknown as MediaStream;
+  const prepared = await interruption.prepareAndRemember(stream);
+  interruption.commit(prepared, {} as RTCRtpSender, 1);
+  const presentation = new GreetingPresentation({
+    synthesize: () =>
+      new Promise<ArrayBuffer>((resolve) => {
+        resolveSynthesis = resolve;
+      }),
+    voice: 'marin',
+    gate: new MicrophonePublicationGate(() => 1),
+    player: {
+      activate: () => {},
+      ensureReady: async () => ({ ok: true }),
+      play: async (
+        _bytes: ArrayBuffer,
+        _signal: AbortSignal,
+        hooks: { onPlaybackStart?(): void; onPlaybackEnd?(): void },
+      ) => {
+        hooks.onPlaybackStart?.();
+        await new Promise<void>((resolve) => {
+          finishPlayback = resolve;
+        });
+        hooks.onPlaybackEnd?.();
+      },
+      stop: () => finishPlayback?.(),
+    } as never,
+    channel: () => ({ readyState: 'open', send: () => {} }) as never,
+    microphone: () => stream,
+    generation: () => 1,
+    debug: () => {},
+    interruption,
+  });
+  const speech = presentation.speak({
+    id: 'id' as never,
+    text: 'hello',
+    signal: new AbortController().signal,
+  });
+  for (let attempt = 0; attempt < 10 && !resolveSynthesis; attempt += 1)
+    await Promise.resolve();
+  expect(order).toEqual([]);
+  resolveSynthesis(new ArrayBuffer(1));
+  for (
+    let attempt = 0;
+    attempt < 10 && !order.includes('replace');
+    attempt += 1
+  )
+    await Promise.resolve();
+  expect(order).toEqual(['replace']);
+  await speech;
+  expect(order).not.toContain('automatic');
+});
+
+test('enabled speak after pre-attachment fallback uses the existing raw gate', async () => {
+  const raw = { enabled: true } as MediaStreamTrack;
+  const diagnostics: string[] = [];
+  const interruption = new GreetingInterruption({
+    config: {
+      enabled: true,
+      assetBaseUrl: '/vad-web/',
+      preRollMs: 1,
+      providerOptions: {},
+    },
+    gate: new MicrophonePublicationGate(() => 1),
+    generation: () => 1,
+    loadRuntime: async () => {
+      throw new Error('chunk missing');
+    },
+    debug: (category) => diagnostics.push(category),
+  });
+  const stream = { getAudioTracks: () => [raw] } as unknown as MediaStream;
+  const prepared = await interruption.prepareAndRemember(stream);
+  expect(prepared.generated).toBe(false);
+  interruption.commit(prepared, {} as RTCRtpSender, 1);
+  const presentation = new GreetingPresentation({
+    synthesize: async () => new ArrayBuffer(1),
+    voice: 'marin',
+    gate: new MicrophonePublicationGate(() => 1),
+    player: {
+      activate: () => {},
+      ensureReady: async () => ({ ok: true }),
+      play: async () => {
+        expect(raw.enabled).toBe(false);
+      },
+      stop: () => {},
+    } as never,
+    channel: () => ({ readyState: 'open', send: () => {} }) as never,
+    microphone: () => stream,
+    generation: () => 1,
+    debug: () => {},
+    interruption,
+  });
+  await expect(
+    presentation.speak({
+      id: 'id' as never,
+      text: 'hello',
+      signal: new AbortController().signal,
+    }),
+  ).resolves.toBe('accepted');
+  expect(raw.enabled).toBe(true);
+  expect(diagnostics).toEqual(['runtime-unavailable']);
+});
+
 test('publication gate remains held through playback', async () => {
   const track = { enabled: true } as MediaStreamTrack;
   let finishPlayback!: () => void;
