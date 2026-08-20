@@ -9,29 +9,16 @@ Before editing files for a substantial task:
 - Run `bunx @tanstack/intent@latest list` from the workspace root to see available local skills.
 - If a listed skill matches the task, run `bunx @tanstack/intent@latest load <package>#<skill>` before changing files.
 - Use the loaded `SKILL.md` guidance while making the change.
-- Monorepos: run the skill check from the workspace root and prefer the local skill for the package being changed.
-- Multiple matches: prefer the most specific skill; load more only when the task spans multiple concerns.
 <!-- intent-skills:end -->
 
 ## Commands
 
-Use Bun and Nx according to the existing lockfile and workspace conventions.
+Bun and Nx, per the existing lockfile and workspace conventions. The demo app runs with `nx dev demo`.
 
-```bash
-bun install
-nx dev demo
-nx run-many -t build
-nx run-many -t test
-nx run-many -t typecheck
-nx run-many -t check
-nx run-many -t format
-```
-
-- Tests depend on `^build`; build dependencies before testing.
-- `check` is the CI lint, format, and import-order gate. There is no separate ESLint gate.
-- Run typecheck, tests, and `check` for every affected project before declaring work complete.
-- Final verification must use `--skip-nx-cache` for affected typecheck, test, and check targets. Cached results are acceptable only during iteration.
-- The root `@maelstrom-co/source:check` covers files outside project roots. New packages need a `biome.json` containing `{"extends": "//"}` for per-project caching.
+- `check` is the CI gate: Biome lint, format, and import order. There is no separate ESLint gate.
+- Run typecheck, test, and `check` for every affected project before declaring work complete.
+- Final verification must use `--skip-nx-cache`. Cached results are acceptable only during iteration.
+- New packages need a `biome.json` containing `{"extends": "//"}`. Without one they lose per-project caching and are covered only by the root `check` target defined in `package.json`.
 
 ## Version Control
 
@@ -40,45 +27,32 @@ nx run-many -t format
 
 ## Architecture Invariants
 
-- `@maelstrom-co/protocol` is the transport-independent contract foundation.
-- `@maelstrom-co/client` is framework-independent. React behavior belongs in `@maelstrom-co/react`.
-- The engine is a stateless decision core.
+Rationale for these lives in `docs/architecture.md`.
+
+- `@maelstrom-co/client` is framework-independent. React behavior belongs in `@maelstrom-co/react`. No test enforces this; both count as browser packages.
 - Grid calculations use the Chart container, not the browser viewport.
-- Process engine responses atomically in this order: apply `set_layout`, then run `execute_actions`.
+- Process engine responses atomically: apply `set_layout`, then run `execute_actions`. The order is not type-enforced, and reversing it silently breaks actions targeting an instance introduced by the same response.
 - Do not add an inline overflow or size-reconciliation step. The Chart `ResizeObserver` starts a new `chart_resize` request when whole grid dimensions change.
 - Browser realtime packages never hold provider secrets. Server packages mint ephemeral tokens or provider grants.
-- Realtime code sits in four layers: CONTRACT, BROWSER, SERVER, WORKER. No server or worker package may depend on a browser package. Contracts ship as `@maelstrom-co/realtime-protocol` subpaths; implementations ship as sibling packages. `packages/realtime-protocol/src/layer-boundary.test.ts` enforces the rule.
+- Realtime code sits in four layers: CONTRACT, BROWSER, SERVER, WORKER. No server or worker package may depend on a browser package. `packages/realtime-protocol/src/layer-boundary.test.ts` enforces the rule and documents the regression that prompted it.
 
-Before changing architecture or domain terminology, read `docs/architecture.md` and `CONTEXT.md`. Read `docs/realtime-voice-architecture.md` and `docs/adr/0001`–`0003` when the work touches realtime voice.
+Read `docs/realtime-voice-architecture.md` and `docs/adr/0001`–`0003` when the work touches realtime voice.
 
 ## Published APIs
 
-The `@maelstrom-co/*` packages serve external consumers. A symbol is public when reachable from the package root or another published `exports` entry.
+The `@maelstrom-co/*` packages serve external consumers. The full contract is `apps/docs/src/content/docs/community/jsdoc-contract.mdx`.
 
 - Add JSDoc to every public function, type, class, and exported field.
-- Explain what, why, and load-bearing invariants. Add examples when the call pattern is not obvious.
 - Default internal code to no comments. Keep only non-obvious constraints and rationale.
 - Never restate code behavior or reference tickets and current callers in comments.
 
-Before changing a published API, read `apps/docs/src/content/docs/community/jsdoc-contract.mdx` for the complete contract.
-
 ## Workspace Conventions
 
-- Nx targets are inferred through workspace plugins.
-- Biome suppressions use `// biome-ignore <rule>: <why>` directly above the offending token.
-- Environment variables are documented in `.env.example`. Never commit provider keys.
-- Packages are private, published to GitHub Packages under the `@maelstrom-co` scope. CI publishes releases and PR previews with its `GITHUB_TOKEN`. Installing outside CI needs a classic PAT with `read:packages`.
+- Never commit provider keys. `.env.example` documents the variables.
+- Packages are private, published to GitHub Packages under the `@maelstrom-co` scope. `CONTRIBUTING.md` covers tokens and preview releases.
 
 ## Agent skills
 
-### Issue tracker
-
-Private maintainer work lives in ClickUp. Public community and contributor work lives in GitHub Issues. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Public GitHub issues use the five canonical triage labels. Private ClickUp work uses the maintainer mappings. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This repository uses one root `CONTEXT.md` and system-wide ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+- Issue tracker: `docs/agents/issue-tracker.md`
+- Triage labels: `docs/agents/triage-labels.md`
+- Domain docs: `docs/agents/domain.md`
