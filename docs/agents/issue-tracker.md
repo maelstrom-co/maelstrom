@@ -55,7 +55,7 @@ The four needs/ready triage roles and `wayfinder:<type>` roles are tags. The `wo
 
 ## GitHub Issues
 
-Use `gh` for public community and contributor work. In a Jujutsu-only checkout, pass `--repo maelstrom-co/maelstrom` explicitly because `gh` cannot infer the repository.
+Use `gh` for public community and contributor work.
 
 ### Operations
 

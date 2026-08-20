@@ -35,15 +35,8 @@ nx run-many -t format
 
 ## Version Control
 
-Detect the checkout's VCS before running mutating commands.
-
-- Follow the DCO sign-off requirements in `CONTRIBUTING.md` for every revision or commit.
-- When `jj root` succeeds, use `jj` for every mutating operation. Never mutate a Jujutsu repository with Git.
-- In a Jujutsu repository without a colocated `.git`, pass `--repo maelstrom-co/maelstrom` to `gh` because it cannot infer the repository.
-- Review Jujutsu remote changes with `jj diff -r 'main..<bookmark>@origin' --git`. Files in the working copy may still represent `main`.
-- Push Jujutsu changes by setting and tracking the bookmark, then running `jj git push --bookmark <name>`.
-- In Jujutsu revsets, a bare string can resolve as a change ID instead of a bookmark. Use the complete bookmark name.
-- When `jj root` fails, use Git and follow the workflow in `CONTRIBUTING.md`.
+- Follow the DCO sign-off requirements in `CONTRIBUTING.md` for every commit.
+- Use Git for every mutating operation and follow the workflow in `CONTRIBUTING.md`.
 
 ## Architecture Invariants
 
