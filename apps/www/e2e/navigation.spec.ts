@@ -13,7 +13,7 @@ test('main navigation links to the configured Playground', async ({ page }) => {
     navigation.getByRole('link', { name: 'Playground', exact: true }),
   ).toHaveAttribute('href', playgroundUrl);
 
-  const footer = page.locator('footer');
+  const footer = page.getByRole('contentinfo');
   await expect(
     footer.getByRole('link', { name: 'Playground', exact: true }),
   ).toHaveAttribute('href', playgroundUrl);
