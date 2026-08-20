@@ -1,56 +1,88 @@
-# Issue tracker: ClickUp
+# Issue trackers: ClickUp and GitHub
 
-Issues and specs for this repo live in **ClickUp**, not GitHub Issues. Drive ClickUp through the connected ClickUp MCP tools (`mcp__*clickup*`); load their schemas via `ToolSearch` (query `clickup`) when they aren't already available.
+Maelstrom uses two issue trackers with separate audiences.
 
-> **Migrated from Linear on 2026-07-21.** The workspace structure below is confirmed against the live workspace, and triage / wayfinder roles are modelled as ClickUp **tags** (decided). Historical `MAE-XXX` ids in git history / PR titles stay as-is.
+| Tracker | Canonical scope |
+| --- | --- |
+| ClickUp | Private maintainer planning, specs, and work that is not ready for public visibility |
+| GitHub Issues | Public community reports, requests, and contributor-ready work |
 
-## Workspace structure (confirmed)
+ClickUp remains the source of truth for private maintainer work. GitHub is the source of truth for public discussion and contributor coordination.
 
-- **One space** `Maelstrom` (`901511445093`) → **one list** `Maelstrom List` (`901524483528`); tasks sit under a `hidden` folder. Most MCP tools resolve names, so you rarely need the ids.
-- **Task ids**: tasks keep a `MAE-###` **custom id** (e.g. `MAE-670`), but they were **renumbered on import** — a ClickUp `MAE-###` does **not** equal the same Linear number (no fixed offset). Each task's origin Linear id lives in a **"Linear Issue" URL custom field** (not keyword-searchable). Internal ids look like `86cav67db`; `get_task` accepts either the custom id or the internal id.
-- **Statuses** (in order): `backlog` → `to do` → `in progress` → `in review` → `canceled` → `complete`.
+## Routing rules
 
-## Conventions
+- A `MAE-###` reference resolves to ClickUp. Preserve historical `MAE-###` references in commits and PR titles.
+- A `#123` issue reference resolves to GitHub unless the surrounding text says otherwise.
+- Unspecified maintainer planning, specs, and skill-generated internal tickets default to ClickUp.
+- Existing inbound community issues and new work explicitly designated public by a maintainer go to GitHub Issues.
+- Moving private work to GitHub requires explicit maintainer approval. Approval authorizes only a scrubbed public summary.
+- Private ClickUp links and details never appear on GitHub. When work spans both trackers, link the public GitHub issue from ClickUp only.
 
-- **Create an issue / spec**: `clickup_create_task` in `Maelstrom List` (`list_id: 901524483528`). Body goes in `markdown_description`; set the `Project` / `Milestone` custom fields when known.
-- **Read a ticket**: `clickup_get_task` by its `MAE-###` custom id (add `include: ["description","custom_fields","dependencies"]` for full detail; `expand_statuses: true` to see assignable statuses). `get_task` returns comment *counts*, not bodies — fetch discussion separately with `clickup_get_task_comments` (and `clickup_get_threaded_comments` for replies).
-- **List issues**: `clickup_filter_tasks` (by list / status / assignee) or `clickup_search` (keyword). Note `filter_tasks` cannot filter by custom-field value.
-- **Comment on a ticket**: `clickup_create_comment`.
-- **Apply / remove labels**: see [Labels & tags](#labels--tags) and `triage-labels.md`.
-- **Change state**: `clickup_update_task` `status` between the statuses above. `wontfix` → move to **`canceled`**.
-- **Blocking**: ClickUp native **task dependencies** (`clickup_add_task_dependency` / `clickup_remove_task_dependency`), never text in the description — that is the canonical, UI-visible representation. A task is unblocked when every task blocking it is in a terminal state (`complete` or `canceled`). Skills that emit tickets with dependency edges (`to-tickets`, `/wayfinder`) must write these relations.
+## ClickUp
 
-## Labels & tags
+The workspace structure below was confirmed after the Linear migration on 2026-07-21. Triage and wayfinder roles are represented as ClickUp tags. Historical `MAE-###` ids were preserved in repository history.
 
-The four triage roles and the `wayfinder:<type>` labels are ClickUp **tags** (`clickup_add_tag_to_task` / `clickup_remove_tag_from_task`).
+### Workspace
 
-**Creating a new tag is a manual step.** The ClickUp MCP has no space-tag creator, and `add_tag_to_task` fails on a tag that doesn't exist yet — so a tag must first be created in the ClickUp UI (Space Settings → Tags) before any tool can apply it. Don't assume `/triage` can mint its own tags. See `triage-labels.md` for the current set and their status.
+- Space: `Maelstrom` (`901511445093`).
+- List: `Maelstrom List` (`901524483528`) under a hidden folder.
+- Tasks use `MAE-###` custom ids, but imported Linear numbers were remapped. The original Linear URL is stored in the `Linear Issue` custom field.
+- Statuses: `backlog`, `to do`, `in progress`, `in review`, `canceled`, `complete`.
 
-## Picking up a ticket (repo rule)
+### Operations
 
-When you pick up a `MAE-###` task to start work, **immediately move it to `in progress`** before doing anything else — not after planning, not after the first commit. If it's already In Progress, leave it. (This mirrors the "Issue Tracker Workflow" section in `CLAUDE.md`.)
+- Create: `clickup_create_task` in `Maelstrom List`, using `markdown_description` and setting `Project` or `Milestone` when known.
+- Read: `clickup_get_task` by `MAE-###`, including `description`, `custom_fields`, and `dependencies`. Fetch discussion with `clickup_get_task_comments` and `clickup_get_threaded_comments`.
+- List: `clickup_filter_tasks` by list, status, or assignee, or `clickup_search` by keyword.
+- Comment: `clickup_create_comment`.
+- Change state: `clickup_update_task`. Map `wontfix` to `canceled`.
+- Blocking: use native ClickUp task dependencies, never description text. Both `complete` and `canceled` are terminal states that unblock dependents.
+- Start work: move the task to `in progress` immediately. If it is already there, leave it unchanged.
+- Duplicates: ClickUp has no duplicate status. Merge with `clickup_merge_tasks`, then move the duplicate to `canceled`.
 
-## Pull requests as a triage surface
+### ClickUp tags
 
-**PRs as a request surface: no.** Feature requests are tracked as ClickUp tasks, not inbound GitHub PRs. GitHub PRs in `maelstrom-co/maelstrom` are the implementation of a task and reference it (e.g. `(MAE-###)` in the title), but `/triage` does not pull external PRs into the queue.
+The four needs/ready triage roles and `wayfinder:<type>` roles are tags. The `wontfix` role maps to the `canceled` status. The ClickUp MCP cannot create space tags, so missing tags must be created in the ClickUp UI before a tool can apply them. See `triage-labels.md`.
 
-## When a skill says "publish to the issue tracker"
+### Private wayfinding
 
-Create a ClickUp task in `Maelstrom List`.
+- Map: a task tagged `wayfinder:map`; its description holds Notes, Decisions so far, and Fog.
+- Ticket: a subtask tagged `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling`, or `wayfinder:task`.
+- Claim: assign the subtask to yourself before starting work.
+- Blocking: use native ClickUp dependencies.
+- Frontier: open, unblocked, unassigned subtasks in map order.
+- Resolve: comment with the answer, move the subtask to `complete`, and append a short result plus link to the map's Decisions so far.
 
-## When a skill says "fetch the relevant ticket"
+## GitHub Issues
 
-`clickup_get_task` by its `MAE-###` custom id for the task and current status, plus `clickup_get_task_comments` for the discussion (specs/decisions often live in comments).
+Use `gh` for public community and contributor work.
 
-## Wayfinding operations
+### Operations
 
-How `/wayfinder`'s map, tickets, blocking, and frontier physically live in ClickUp. The skill defines the concepts (map, ticket types, fog); this section is only the tracker-specific expression it looks up.
+- Create: `gh issue create --repo maelstrom-co/maelstrom --title "..." --body "..."`.
+- Read: `gh issue view <number> --repo maelstrom-co/maelstrom --comments`.
+- List: `gh issue list --repo maelstrom-co/maelstrom --state open --json number,title,body,labels,comments`.
+- Comment: `gh issue comment <number> --repo maelstrom-co/maelstrom --body "..."`.
+- Label: `gh issue edit <number> --repo maelstrom-co/maelstrom --add-label "..."` or `--remove-label "..."`.
+- Close: `gh issue close <number> --repo maelstrom-co/maelstrom --comment "..."`.
 
-- **Map**: a ClickUp task in `Maelstrom List`, tagged `wayfinder:map` (create the tag first — see [Labels & tags](#labels--tags)). Its description holds the `## Notes` / `## Decisions so far` / `## Fog` sections.
-- **Ticket**: a **subtask** of the map (its `parent` is the map task), description a single `## Question` section, carrying one `wayfinder:<type>` tag — `wayfinder:research` / `wayfinder:prototype` / `wayfinder:grilling` / `wayfinder:task`.
-- **Claim**: **assign the subtask to yourself** before any work. The assignee *is* the claim — an open, unassigned subtask is unclaimed. Do not use a `claimed` tag.
-- **Blocking**: ClickUp task **dependencies**, exactly as in [Conventions](#conventions) above.
-- **Frontier**: the map's open subtasks that are unblocked and unassigned; take the first in order.
-- **Resolve**: post the answer as a **comment** on the subtask, move it to `complete`, then append a one-line gist + link to the map task's `## Decisions so far`.
+GitHub shares one number space across issues and pull requests. Resolve an ambiguous `#123` with `gh pr view 123 --repo maelstrom-co/maelstrom`, then fall back to `gh issue view`.
 
-Refer to the map and its tickets by their **title**, not their `MAE-###` id, in anything the human reads.
+### Pull requests as a triage surface
+
+PRs as a request surface: no. Pull requests implement accepted work; `/triage` does not treat external PRs as feature requests.
+
+### Public wayfinding
+
+- Map: an issue labelled `wayfinder:map` with Notes, Decisions so far, and Fog in its body.
+- Ticket: a GitHub sub-issue labelled with one `wayfinder:<type>` role. When sub-issues are unavailable, create a separate issue and link it from the map's task list.
+- Claim: assign the issue to yourself before starting work.
+- Blocking: use native GitHub issue dependencies when available. Otherwise use a `Blocked by: #<n>` line.
+- Frontier: open, unblocked, unassigned child issues in map order.
+- Resolve: comment with the answer, close the child issue, and append a short result plus link to the map's Decisions so far.
+
+## Skill routing
+
+- When a skill says "publish to the issue tracker", use ClickUp unless a maintainer explicitly requests public or community visibility.
+- When a skill says "fetch the relevant ticket", use the identifier and routing rules above to choose ClickUp or GitHub.
+- Triage incoming GitHub issues in GitHub. Triage private maintainer tasks in ClickUp.

@@ -27,7 +27,7 @@ Single-context repo:
 
 ## Use the glossary's vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids. Maelstrom already has load-bearing domain terms (Vessel, Chart, Engine, Variant, Action) — see `CLAUDE.md` and `docs/architecture.md`; treat those as canonical until a `CONTEXT.md` glossary supersedes them.
+When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids. Maelstrom already has load-bearing domain terms (Vessel, Chart, Engine, Variant, Action) — see `AGENTS.md` and `docs/architecture.md`; treat those as canonical until a `CONTEXT.md` glossary supersedes them.
 
 If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 

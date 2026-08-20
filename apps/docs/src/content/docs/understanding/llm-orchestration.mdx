@@ -118,7 +118,7 @@ This order is load-bearing. An action can transition a Vessel to a different var
 - The client places Calendar in that two-column slot, then runs `collapse`.
 - Calendar renders as `collapsed` in the space that was always meant for it — no clipped intermediate frame.
 
-There is no separate "look up the new size" or "handle overflow" step. `minSize` is enforced on the engine side, before the response is sent; on the client, overflow is just `overflow: hidden` on the Chart container. What closes the loop instead is the React `<Chart>`'s `ResizeObserver`: it floors the container's pixel size to whole grid cells and, only when the cell count actually changes, schedules a fresh `chart_resize` request back to the engine — a feedback path independent of the layout-plus-actions apply batch.
+There is no separate "look up the new size" or "handle overflow" step. In grid mode, `minSize` is enforced on the engine side, before the response is sent, and tiling never validates it; on the client, overflow is just `overflow: hidden` on the Chart container. What closes the loop instead is the React `<Chart>`'s `ResizeObserver`: it floors the container's pixel size to whole grid cells and, only when the cell count actually changes, schedules a fresh `chart_resize` request back to the engine — a feedback path independent of the layout-plus-actions apply batch.
 
 ## What this design avoids
 

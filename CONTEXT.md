@@ -21,7 +21,7 @@ A live occurrence of a Vessel placed on a Chart. Several Instances of the same V
 _Avoid_: element, node
 
 **Chart**:
-The grid-based layout surface Instances are arranged on. Sized by its container, addressed in integer grid coordinates, never pixels.
+The layout surface Instances are arranged on, sized by its container. In grid mode, addressed in integer grid coordinates, never pixels. In tiling mode, addressed as a split tree whose leaves derive their size from the tree and container.
 _Avoid_: canvas, board, grid container
 
 **Engine**:
