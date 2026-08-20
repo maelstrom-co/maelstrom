@@ -231,7 +231,8 @@ See the [README](./README.md) for the package architecture and core concepts.
 ## Pull requests
 
 - Sign off every commit (`git commit -s`) — see [DCO](#developer-certificate-of-origin-dco).
-- Run `nx run-many -t build test typecheck` before pushing.
+- Run `nx run-many -t check test build typecheck` before pushing. CI runs the
+  same four targets plus `e2e`.
 - PR titles follow [Conventional Commits](https://www.conventionalcommits.org)
   (`type(scope): summary`). Squash-merge lands the PR title verbatim as the
   commit subject, so the title is the permanent changelog entry.
