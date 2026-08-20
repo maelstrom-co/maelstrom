@@ -72,6 +72,22 @@ new OpenAIAdapter({
 the [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/#configure-server-vad)
 for interruption mechanics, audio-processing limitations, and tuning guidance.
 
+## Experimental greeting interruption
+
+`greetingInterruption?: false | true | BrowserVadOptions` is experimental and
+default-off. Omitted and `false` keep the current raw-track gate and do not
+load VAD or worklet runtime. `true` selects shared defaults; an object is
+validated synchronously by the constructor. Enabled connections lazy-load
+`@maelstrom-co/realtime-vad` only during connection preparation.
+
+Local acceptance is playback-scoped. The first accepted local boundary stops
+greeting playback, then flushes one bounded 0–500 ms pre-roll. Normal
+completion and Skip discard the retained tail. After greeting settlement,
+OpenAI server VAD is unchanged. Skip greeting remains the reliable control.
+`BrowserVadOptions` is available from `@maelstrom-co/realtime-openai`.
+
+See [Configure experimental greeting interruption](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/#configure-experimental-greeting-interruption).
+
 ## Connection lifecycle
 
 `connect()` is guarded against re-entrancy while a mint round-trip is in

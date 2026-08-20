@@ -208,7 +208,9 @@ transport connection a fatal transport failure — that call is the adapter's.
   `BrowserVadProviderOptions`, `CreateBrowserVadOptions`,
   `ResolvedBrowserVadConfig`, and `LocalAudioPreRoll` types.
 - `@maelstrom-co/realtime-vad/config` — validation/type-only loading boundary
-  for browser-VAD configuration; it does not load the VAD runtime.
+  for browser-VAD configuration; it does not load the VAD runtime. OpenAI may
+  import that subpath for option validation without loading VAD, ONNX, or
+  worklet runtime.
 - `@maelstrom-co/realtime-vad/assets` — Node-only asset deployment helper;
   never import this subpath into browser code.
 

@@ -45,8 +45,11 @@ export interface OpenAIAdapterOptions {
    * Experimental local greeting-interruption configuration (default off).
    * Omitted or `false` preserves the existing non-interruptible greeting gate.
    * `true` selects shared defaults; an object selects validated browser-VAD
-   * settings. Enabled connections lazy-load the browser runtime; interruption
-   * lifecycle behavior is introduced separately.
+   * settings. Enabled connections lazy-load the browser runtime. Local
+   * acceptance is playback-scoped: the first accepted local boundary stops
+   * greeting playback, then flushes one bounded pre-roll. Skip and normal
+   * completion discard the retained tail. Setup and worklet-command failure
+   * fall back to the non-interruptible gate.
    */
   readonly greetingInterruption?: false | true | BrowserVadOptions;
   /**

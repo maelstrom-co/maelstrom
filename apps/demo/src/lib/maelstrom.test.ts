@@ -89,6 +89,7 @@ function createAdapter(provider: 'livekit' | 'openai') {
 }
 
 type OpenAIOptions = {
+  greetingInterruption?: false | true | object;
   serverVad?: {
     threshold?: number;
   };
@@ -139,6 +140,9 @@ describe('demo voice provider wiring', () => {
     createAdapter('livekit');
 
     expect(state.liveKitAdapterOptions).toHaveLength(1);
+    expect(state.liveKitAdapterOptions[0]).not.toHaveProperty(
+      'greetingInterruption',
+    );
     expect(state.liveKitAdapterOptions[0]).toMatchObject({
       roomName: 'maelstrom-session-1',
       vad: {
@@ -163,6 +167,9 @@ describe('demo voice provider wiring', () => {
     expect(state.openAIAdapterOptions[0]).toMatchObject({ debug: true });
     expect(state.openAIAdapterOptions[0]).not.toHaveProperty('vad');
     expect(state.openAIAdapterOptions[0]).not.toHaveProperty('serverVad');
+    expect(
+      (state.openAIAdapterOptions[0] as OpenAIOptions).greetingInterruption,
+    ).toBe(false);
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 
@@ -176,6 +183,7 @@ describe('demo voice provider wiring', () => {
       bargeInMode: 'transcript-confirmed',
     });
     expect(options).not.toHaveProperty('vad');
+    expect(options.greetingInterruption).toBe(false);
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 
@@ -257,6 +265,7 @@ describe('demo voice provider wiring', () => {
 
     expect(capturedUrl).toBe(DEMO_GREETING_TTS_URL);
     expect(capturedAuth).toBe('Bearer sk-local-browser-key-1234567890');
+    expect(options.greetingInterruption).toBe(false);
     await expect(options.mintToken?.()).rejects.toThrow(
       /createBrowserMintToken should not be called in tests/,
     );

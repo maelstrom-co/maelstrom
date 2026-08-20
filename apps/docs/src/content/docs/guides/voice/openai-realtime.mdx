@@ -194,7 +194,36 @@ The session also requests OpenAI's `near_field` input noise reduction. During ca
 
 OpenAI manages turn detection, model responses, and response audio for this mode. When OpenAI publishes audio, `OpenAIAdapter` attaches the remote audio stream to an autoplay audio element and exposes both microphone and playback streams through `getAudioStreams()`. `disconnect()` stops local tracks, pauses playback, clears both streams, and closes the data channel and peer connection. The adapter does not expose manual turn controls or an application-owned audio-response queue; this differs from the LiveKit cascade mode, where the application explicitly starts and ends held turns and the worker owns TTS.
 
-When an application configures the optional OpenAI greeting synthesizer, a private greeting gate disables the adapter's current microphone audio tracks while the greeting is synthesized, decoded, and played, then restores each track's prior enabled state. Disabling sends silence without ending the tracks. The fixed greeting cannot accept contemporaneous barge-in while the gate is active. This bounded gate does not change LiveKit and does not establish mobile behavior, real-device echo removal, acoustic suppression, or barge-in timing; verify those outcomes on the devices and routes that you support.
+When an application configures the optional OpenAI greeting synthesizer, a private greeting gate disables the adapter's current microphone audio tracks while the greeting is synthesized, decoded, and played, then restores each track's prior enabled state. Disabling sends silence without ending the tracks. That default gate does not accept spoken interruption. The experimental option below can add one playback-scoped local acceptance window; Skip greeting remains the reliable control.
+
+## Configure experimental greeting interruption
+
+`greetingInterruption` is experimental and default-off. Omitted and `false` keep the current raw-track gate and do not load VAD or worklet runtime.
+
+`true` selects shared defaults. An object is validated synchronously by the constructor; invalid shape, URL, pre-roll, or provider tuning throws `TypeError` naming `greetingInterruption` before mint, capture, or connection.
+
+Enabled mode lazy-loads `@maelstrom-co/realtime-vad` only from connection preparation. Deploy matching VAD and ONNX assets at `assetBaseUrl` (default `/vad-web/`) with the package helper.
+
+```ts title="src/voice/openai-adapter.ts"
+new OpenAIAdapter({
+  mintToken: mintOpenAIToken,
+  greetingInterruption: {
+    assetBaseUrl: '/vad-web/',
+  },
+});
+```
+
+Local acceptance is playback-scoped. Synthesis and decode are not interruption windows. Acceptance arms only after `AudioBufferSourceNode.start(0)` and closes synchronously at playback end or stop.
+
+The first accepted local boundary stops greeting playback, then flushes one bounded 0–500 ms pre-roll, then live audio. Normal completion and Skip discard the retained tail and do not flush it.
+
+Speech that begins before playback may not produce another accepted boundary. Skip greeting remains necessary.
+
+After greeting settlement, OpenAI server VAD remains the sole turn and response owner. This option does not add `turnControl` or a LiveKit-style turn mode.
+
+Loader or bridge-creation failure keeps voice connected and uses the old raw gate. Later VAD or worklet command failure recovers through generation-fenced raw-track replacement. An independent `replaceTrack` failure is fatal. No fallback publishes greeting-period audio.
+
+Local acceptance may be playback echo, another sound, or speech. Requested AEC, NS, and AGC, and mock tests, do not prove those outcomes on a real device. See [Turn detection in the browser](/understanding/browser-vad-and-barge-in/#validate-browser-audio-processing) for the real-device protocol; every required OpenAI greeting-interruption cell is **Not tested**.
 
 ## Show session state
 
@@ -269,9 +298,7 @@ The session accumulates non-final transcript fragments and replaces them with th
 
 `greetingState` belongs to the shared session rather than this component. When a fixed greeting is configured, `preparing` begins before the provider handshake and covers the Engine wait, caption, and speech attempt. The compact `<progress>` is indeterminate because the Engine wait has no deadline or meaningful percentage. Listening, thinking, and speaking labels take precedence when real voice activity overlaps preparation. `settled` changes an otherwise connected label to `Listening`, but it means only that greeting presentation has ended—not that speech succeeded or that the provider is currently producing audio. A retryable disconnect can return the lifecycle to `pending`; terminal proof remains `settled` if the shared provider session is recreated. A stale connection attempt cannot update the replacement session's lifecycle.
 
-Call `skipGreeting()` while `greetingState` is `preparing` to give the user immediate control. It is synchronous, shared by every `useVoice()` consumer, idempotent, and does not disconnect voice. A winning call sets the terminal `skipped` state, which survives reconnecting or recreating the provider session for the same Maelstrom session; a fresh session may greet normally. Skip is the reliable user-control path in this phase. If it wins before or during the Engine wait, no acknowledgement, caption, provider item, synthesis, or playback starts. An acknowledgement or provider send already in flight can settle once, but no later irreversible side effect starts; after provider handoff, local work aborts and microphone state is restored without replaying history.
-
-This phase does not support spoken interruption during the gated OpenAI greeting. It does not prove mobile timing, echo removal, VAD accuracy, or first-phoneme preservation on real devices.
+Call `skipGreeting()` while `greetingState` is `preparing` to give the user immediate control. It is synchronous, shared by every `useVoice()` consumer, idempotent, and does not disconnect voice. A winning call sets the terminal `skipped` state, which survives reconnecting or recreating the provider session for the same Maelstrom session; a fresh session may greet normally. Skip remains the deterministic escape hatch, including for speech that starts too early or is not accepted. If it wins before or during the Engine wait, no acknowledgement, caption, provider item, synthesis, or playback starts. An acknowledgement or provider send already in flight can settle once, but no later irreversible side effect starts; after provider handoff, local work aborts and microphone state is restored without replaying history.
 
 Two failure channels reach this component. A failed `connect()` rejects *and* moves the session to `error`, so the same failure can arrive twice — deduplicate before reporting. A rejected `disconnect()` only rejects; it never becomes a session error, which is why `operationFailed` exists rather than an empty catch that would hide a failed cleanup.
 
