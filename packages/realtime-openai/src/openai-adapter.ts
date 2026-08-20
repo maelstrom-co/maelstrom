@@ -16,6 +16,11 @@ import type {
   OpenAIBuiltInVoice,
   OpenAITokenGrant,
 } from '@maelstrom-co/realtime-protocol/openai';
+import {
+  type ResolvedBrowserVadConfig,
+  resolveBrowserVadConfig,
+} from '@maelstrom-co/realtime-vad/config';
+import { loadGreetingInterruptionRuntime } from './greeting-interruption-runtime.js';
 import { GreetingPresentation } from './greeting-presentation.js';
 import { MicrophonePublicationGate } from './microphone-publication-gate.js';
 import type {
@@ -112,6 +117,30 @@ const DEFAULT_OUTPUT_VOICE: OpenAIBuiltInVoice = 'marin';
 const DEFAULT_SERVER_VAD_THRESHOLD = 0.5;
 const DEFAULT_BARGE_IN_MODE = 'immediate';
 
+/**
+ * Validates the OpenAI-specific opt-in without inheriting the VAD API's
+ * default-on `undefined` behavior. Phase 1 intentionally discards enabled
+ * configuration; later phases own its runtime lifecycle.
+ */
+function resolveGreetingInterruptionConfig(
+  greetingInterruption: unknown,
+): ResolvedBrowserVadConfig {
+  if (greetingInterruption === undefined || greetingInterruption === false) {
+    return { enabled: false };
+  }
+  try {
+    return resolveBrowserVadConfig(greetingInterruption);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new TypeError(
+        error.message.replace(/^vad\b/, 'greetingInterruption'),
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
 function toOpenAITool(spec: RealtimeToolSpec): unknown {
   return {
     type: 'function',
@@ -151,6 +180,7 @@ export class OpenAIAdapter
   readonly #bargeInMode: 'immediate' | 'transcript-confirmed';
   readonly #voice: OpenAIBuiltInVoice;
   readonly #synthesizeGreeting: SynthesizeGreeting | undefined;
+  readonly #greetingInterruption: ResolvedBrowserVadConfig;
   readonly #greetingPresentation: GreetingPresentation;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
 
@@ -176,6 +206,9 @@ export class OpenAIAdapter
   #connectionGeneration = 0;
 
   constructor(options: OpenAIAdapterOptions) {
+    this.#greetingInterruption = resolveGreetingInterruptionConfig(
+      options.greetingInterruption,
+    );
     const serverVadThreshold =
       options.serverVad?.threshold ?? DEFAULT_SERVER_VAD_THRESHOLD;
     if (
@@ -282,6 +315,10 @@ export class OpenAIAdapter
             applied: audioProcessingSettings(micStream.getAudioTracks()[0]),
           },
         });
+      }
+      if (this.#greetingInterruption.enabled) {
+        await loadGreetingInterruptionRuntime();
+        attempt.assertCurrent();
       }
       for (const track of micStream.getTracks()) {
         connection.addTrack(track, micStream);

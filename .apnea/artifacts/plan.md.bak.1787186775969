@@ -1,0 +1,228 @@
+---
+status: done
+---
+
+# Goal
+
+Add an experimental, opt-in `greetingInterruption?: false | true | BrowserVadOptions` path to `OpenAIAdapter`. During a fixed greeting, locally accepted speech must stop local greeting audio first, then publish one bounded `LocalAudioPreRoll` tail before live microphone samples. Omitted or `false` configuration must retain the current raw-track attachment and non-interruptible greeting gate. Any runtime VAD or AudioWorklet failure must keep voice connected, discard greeting-period audio, and use that existing gate. Explicit **Skip greeting** remains the reliable control.
+
+The change must remain narrow. OpenAI still owns normal turn detection and response behavior after the greeting. `GreetingPresentation` composes a package-private interruption owner. `OpenAIAdapter` only asks presentation to prepare the publication track, attaches that track, and delegates greeting and teardown lifecycle.
+
+# Phases
+
+## Phase 1 — Deliver the opt-in greeting interruption slice
+
+### Intent
+
+Expose the validated option and implement one complete enabled path from microphone capture through local greeting interruption. Keep disabled construction and connection on the current path.
+
+### Files likely touched
+
+- `packages/realtime-openai/package.json`
+- `packages/realtime-openai/tsconfig.lib.json`
+- `packages/realtime-openai/vite.config.ts`
+- `packages/realtime-openai/src/index.ts`
+- `packages/realtime-openai/src/openai-adapter.types.ts`
+- `packages/realtime-openai/src/openai-adapter.ts`
+- `packages/realtime-openai/src/openai-adapter.test.ts`
+- `packages/realtime-openai/src/greeting-presentation.ts`
+- `packages/realtime-openai/src/greeting-presentation.test.ts`
+- `packages/realtime-openai/src/greeting-interruption.ts` (new)
+- `packages/realtime-openai/src/greeting-interruption.test.ts` (new)
+- `bun.lock`
+
+### Implementation steps
+
+1. Add `@maelstrom-co/realtime-vad` as a browser-package dependency, TypeScript project reference, and external package build dependency. Update the lockfile through Bun rather than by hand.
+2. Add the public option and re-export the referenced VAD option type from the OpenAI package root. Treat omitted and `false` as disabled. Treat `true` as default browser-VAD settings and an object as explicit settings. Reuse the shared resolver, but surface errors in terms of `greetingInterruption`. Validate in the constructor before token minting, microphone capture, peer creation, or any asynchronous work.
+3. Add a package-private `GreetingInterruption` owner. It owns the connection-generation-specific `LocalAudioPreRoll`, generated publication track, one-shot browser VAD, fallback gate state, and cleanup. Keep it out of `src/index.ts`.
+4. Have `GreetingPresentation` compose this owner. Presentation must retain ownership of provider handoff, synthesis, playback, abort, and settlement. The owner receives a narrow callback that stops local greeting playback; it must not send provider commands or mutate greeting history.
+5. For an enabled connection, let presentation prepare the shared pre-roll bridge from the original microphone track. Return the generated track to `OpenAIAdapter` for `addTrack`. Keep the original `MediaStream` in `#micStream` so `getAudioStreams().mic` and raw-stream metering do not change.
+6. Keep the enabled bridge closed and silent while the greeting is active. Arm local VAD against the raw local microphone without stopping or transferring ownership of that stream.
+7. On the first accepted local speech boundary, enforce this order in one serialized owner transition:
+   - stop local greeting playback;
+   - release only the generated-track publication gate while the bridge still emits silence;
+   - call `startAutomaticTurn(config.preRollMs)` exactly once;
+   - leave the bridge live after the one pre-roll flush, and retire greeting-only VAD so OpenAI server VAD resumes sole ownership of later turn boundaries.
+8. On normal greeting completion or Skip before local acceptance, discard buffered greeting-period samples with the bridge's live-only/manual transition, then release the gate. Never flush pre-roll on this path.
+9. Preserve the existing provider item send position and result semantics. The exact assistant item remains at most once, no `response.create` is added, and post-send local failures still resolve as `accepted`.
+10. For omitted or `false`, do not create a pre-roll bridge, VAD instance, provider asset load, worklet, or generated track. Attach the original microphone track and use `MicrophonePublicationGate` exactly as today.
+
+### Acceptance checks
+
+- `new OpenAIAdapter({ greetingInterruption: invalid })` throws synchronously with no external side effects.
+- Omitted and explicit `false` configurations attach the original track and never invoke pre-roll or VAD setup.
+- Enabled configuration attaches one generated publication track while `getAudioStreams().mic` remains the original raw stream.
+- Direct owner tests prove local stop precedes `startAutomaticTurn`, the configured bounded pre-roll value is passed once, duplicate or adjacent callbacks cannot flush twice, and later live samples follow the pre-roll.
+- Direct presentation and adapter tests prove normal completion and Skip discard the retained tail and restore live input without replaying greeting-period audio.
+- Existing tests still prove one Engine/provider greeting history entry, no provider acknowledgement wait, and no extra response creation.
+- OpenAI still exposes no manual turn control and does not emit a LiveKit-style turn-mode change.
+
+### Verify commands
+
+```bash
+bun install
+bunx nx run @maelstrom-co/realtime-vad:test
+bunx nx run @maelstrom-co/realtime-vad:typecheck
+bunx nx run @maelstrom-co/realtime-openai:check
+bunx nx run @maelstrom-co/realtime-openai:test
+bunx nx run @maelstrom-co/realtime-openai:typecheck
+bunx nx run @maelstrom-co/realtime-openai:build
+```
+
+### Dependencies
+
+- Uses the reviewed `createLocalAudioPreRoll`, `createBrowserVad`, and browser-VAD config resolver from `@maelstrom-co/realtime-vad` without changing their provider-neutral contracts.
+- Uses the current `GreetingPresentation`, `MicrophonePublicationGate`, and `WebAudioGreetingPlayer` ordering as the baseline.
+
+### Non-goals
+
+- Do not add browser VAD to ordinary OpenAI turns.
+- Do not change LiveKit behavior or the provider-neutral realtime session interface.
+- Do not make local VAD a second owner of OpenAI response creation, transcript confirmation, or post-greeting turn boundaries.
+- Do not claim that a mocked VAD boundary represents human speech or excludes loudspeaker echo.
+
+## Phase 2 — Harden fallback, races, and exact ownership
+
+### Intent
+
+Make every setup failure and lifecycle race safe. Voice must continue through the old non-interruptible greeting gate when possible, with no greeting-period publication and no stale-generation effects.
+
+### Files likely touched
+
+- `packages/realtime-openai/src/greeting-interruption.ts`
+- `packages/realtime-openai/src/greeting-interruption.test.ts`
+- `packages/realtime-openai/src/greeting-presentation.ts`
+- `packages/realtime-openai/src/greeting-presentation.test.ts`
+- `packages/realtime-openai/src/openai-adapter.ts`
+- `packages/realtime-openai/src/openai-adapter.test.ts`
+
+### Implementation steps
+
+1. Separate preparation failure from transport failure. If pre-roll worklet preparation fails before attachment, attach the original microphone track and use the existing gate. Do not reject `connect()` solely because experimental interruption is unavailable.
+2. If VAD load, construction, start, or a later callback fails after the generated track is attached, keep the publication gate held for the rest of the greeting. On settlement, discard the bridge's greeting-period buffer, open live-only publication, and release the gate. Do not expose raw or generated greeting-period audio while degrading.
+3. Emit only stable, bounded diagnostic categories for experimental setup/runtime degradation. Never include error messages, stacks, tracks, streams, device data, audio, transcript text, provider payloads, or VAD scores.
+4. Serialize speech acceptance, playback completion, caller abort/Skip, replacement greeting, runtime failure, disconnect, and reconnect. Exactly one terminal transition owns each generation. A stale callback may not stop a replacement greeting, open its bridge, restore its gate, or mutate its diagnostic state.
+5. Fence delayed bridge and VAD initialization with the existing connect guard and connection generation. Destroy a resource that resolves after supersession instead of attaching or publishing it.
+6. Keep resource ownership exact: the interruption owner destroys its VAD, pre-roll bridge, generated track, worklet, and Web Audio resources once; the adapter stops the caller-owned raw microphone once and closes its peer/data-channel resources. Avoid both leaked generated tracks and double ownership during failed attachment.
+7. Preserve existing immediate and transcript-confirmed paths after greeting settlement. A later raw `speech_started` still uses immediate arbitration. A useful correlated transcript delta still drives transcript-confirmed interruption and response arbitration. Neither path can trigger a second greeting pre-roll.
+8. Add focused tests for pre-roll setup failure, VAD setup failure, callback failure, delayed preparation overtaken by disconnect, disconnect during local acceptance, reconnect generation isolation, repeated teardown, Skip-versus-speech races, replacement greetings, and both server barge-in modes.
+9. Add acoustic-uncertainty tests around diagnostics and naming. Model a local VAD acceptance as an untrusted boundary that may be self-echo; assert only ordering and data-flow properties, never real-device accuracy, first-phoneme retention, self-echo rejection, or latency.
+
+### Acceptance checks
+
+- Every experimental runtime setup failure preserves a usable OpenAI voice connection and the existing non-interruptible microphone gate.
+- No failure path publishes buffered greeting-period audio. Only the winning accepted-speech path may flush one bounded tail.
+- Skip remains synchronous, idempotent, and able to restore or transition publication without disconnecting voice.
+- Delayed work from generation N cannot affect generation N+1.
+- Disconnect and fatal teardown release all owner-managed and adapter-managed resources exactly once, including partial setup.
+- Existing response-arbiter, immediate barge-in, transcript-confirmed correlation, voice-state, and greeting coordinator suites remain green.
+- Debug assertions observe only allowlisted categories and booleans. They do not inspect or serialize acoustic content.
+
+### Verify commands
+
+```bash
+bunx nx run @maelstrom-co/realtime-openai:check
+bunx nx run @maelstrom-co/realtime-openai:test
+bunx nx run @maelstrom-co/realtime-openai:typecheck
+bunx nx run @maelstrom-co/realtime-openai:build
+bunx nx run @maelstrom-co/realtime-vad:test
+bunx nx run @maelstrom-co/realtime-vad:typecheck
+```
+
+### Dependencies
+
+- Depends on Phase 1's owner and generated-track attachment.
+- Reuses `ConnectRaceGuard`, greeting operation identity, and connection generations rather than introducing a parallel generation system.
+
+### Non-goals
+
+- Do not turn experimental interruption failure into a fatal voice error when the old gate can remain safe.
+- Do not expose a public fallback mode, error object, VAD score, or turn-control API.
+- Do not restart a stopped greeting after a local acceptance later proves acoustically wrong.
+- Do not infer acoustic success from browser settings, fake tracks, fake worklets, or mocked VAD callbacks.
+
+## Phase 3 — Document the experiment, pin demo default-off, and run repository gates
+
+### Intent
+
+Ship compile-checked usage guidance and honest validation status. Keep the repository demo on the reliable non-interruptible greeting path.
+
+### Files likely touched
+
+- `packages/realtime-openai/README.md`
+- `apps/demo/src/lib/maelstrom.ts`
+- `apps/demo/src/lib/maelstrom.test.ts`
+- `apps/docs/e2e/fixtures/voice/openai-realtime.tsx`
+- `apps/docs/e2e/voice-docs.spec.ts`
+- `apps/docs/src/content/docs/guides/voice/openai-realtime.mdx`
+- `apps/docs/src/content/docs/understanding/browser-vad-and-barge-in.mdx`
+
+### Implementation steps
+
+1. Keep the demo explicit and testable with `greetingInterruption: false`. Retain the visible Skip greeting action as its reliable fallback and do not change current hosted/local server-VAD tuning.
+2. Add a compile-checked OpenAI fixture region showing opt-in `greetingInterruption` configuration and matching VAD asset URL. Render the exact fixture region in the OpenAI guide and include it in the existing docs fixture test.
+3. Document synchronous validation, one-shot greeting-only ownership, stop-before-pre-roll ordering, the 0–500 ms bounded pre-roll contract, normal/Skip buffer discard, runtime fallback to the old gate, asset deployment, and unchanged post-greeting OpenAI server-VAD behavior.
+4. Correct the browser-VAD explanation so it no longer says local VAD never applies to OpenAI. Describe this feature as a narrow fixed-greeting exception; OpenAI remains the only owner after greeting settlement.
+5. State the acoustic uncertainty plainly: locally accepted audio may be playback echo or noise; requested AEC/NS/AGC and mock tests do not prove self-echo rejection, VAD accuracy, first-phoneme retention, or latency. Keep Skip greeting as the supported deterministic escape hatch.
+6. Add a real-device evidence matrix for iOS Safari built-in audio, Android Chrome built-in audio, and desktop Chromium built-in audio. Initialize every cell to **Not tested**. Include the revision, route, quiet/self-trigger trials, spoken-interruption trials, first-word observation, and latency evidence fields without filling or implying results.
+7. Point the experiment at the existing real-browser protocol, and require actual device evidence before replacing **Not tested** or making an acoustic claim. Automated results establish state-machine and publication ordering only.
+8. Run package, demo, docs, public API, and root non-browser gates. Do not report real-device validation as passed because those devices are outside this automated run.
+
+### Acceptance checks
+
+- Demo tests assert `greetingInterruption` remains disabled for every OpenAI demo mode.
+- The docs fixture compiles against the public option, appears verbatim in the rendered guide, and uses a real package export.
+- Documentation preserves Skip greeting and clearly distinguishes local greeting-only acceptance from post-greeting OpenAI server VAD.
+- The device matrix says **Not tested** in every required cell. No surrounding text upgrades that status to passed or blocked.
+- README and generated API documentation expose the option without exporting the package-private owner.
+- Package, demo, docs, public API, and root non-browser checks pass.
+
+### Verify commands
+
+```bash
+bunx nx run @maelstrom-co/demo:check
+bunx nx run @maelstrom-co/demo:test
+bunx nx run @maelstrom-co/demo:typecheck
+bunx nx run @maelstrom-co/demo:build
+bunx nx run @maelstrom-co/demo:build-hosted
+bunx nx run @maelstrom-co/demo:build-livekit
+bunx nx run @maelstrom-co/docs:check
+bunx nx run @maelstrom-co/docs:test
+bunx nx run @maelstrom-co/docs:typecheck
+bunx nx run @maelstrom-co/docs:build
+bunx nx run '@maelstrom-co/docs:e2e-ci--e2e/voice-docs.spec.ts'
+bun run audit:public-api-docs --declarations --packed-consumer
+bun run audit:public-api-docs --typedoc
+bun run audit:strip-internal
+bunx nx run @maelstrom-co/source:check
+bunx nx run @maelstrom-co/source:typecheck
+bunx nx run @maelstrom-co/source:test
+```
+
+### Dependencies
+
+- Depends on the final public option and behavior from Phases 1–2.
+- Uses the existing docs fixture-region and Playwright rendering checks.
+- Uses the existing browser audio-processing release protocol as the evidence standard.
+
+### Non-goals
+
+- Do not enable the experiment in the demo.
+- Do not mark any real-device matrix cell passed from unit, integration, build, or Playwright results.
+- Do not promise self-echo rejection, VAD accuracy, first-phoneme retention, interruption latency, or mobile behavior.
+- Do not redesign the demo's Skip greeting UI or general voice controls.
+
+# Definition of done
+
+- The public option is typed, documented, synchronously validated when enabled, and disabled by default.
+- Disabled behavior attaches and gates the raw microphone exactly as before and performs no VAD/worklet setup.
+- Enabled behavior attaches one owner-managed generated track, stops greeting playback before one bounded pre-roll flush, then carries live audio.
+- Normal completion and Skip discard greeting-period audio before restoring live publication.
+- Runtime experimental failures safely retain the old non-interruptible gate and do not fail voice or leak greeting-period audio.
+- Greeting history remains at most once in Engine and OpenAI, and immediate/transcript-confirmed response behavior remains unchanged after greeting settlement.
+- Cleanup is exact across success, failure, disconnect, replacement, and reconnect generations. Raw-stream metering remains unchanged.
+- Direct owner, adapter, race, fallback, teardown, default-off, docs fixture, and acoustic-uncertainty coverage is green.
+- The demo remains explicitly disabled.
+- The real-device matrix remains **Not tested** until actual hardware evidence exists.
+- All listed package, demo, docs, public API, and root non-browser verification commands pass.

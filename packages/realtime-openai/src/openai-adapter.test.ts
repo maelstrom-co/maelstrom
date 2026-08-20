@@ -17,6 +17,10 @@ import {
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type { OpenAITokenGrant } from '@maelstrom-co/realtime-protocol/openai';
 import FakeTimers from '@sinonjs/fake-timers';
+import {
+  type GreetingInterruptionRuntime,
+  setGreetingInterruptionRuntimeImporterForTests,
+} from './greeting-interruption-runtime.js';
 import { OpenAIAdapter } from './openai-adapter.js';
 
 function flushMicrotasks(): Promise<void> {
@@ -370,6 +374,148 @@ afterEach(() => {
   } else {
     Reflect.deleteProperty(globalThis, 'navigator');
   }
+});
+
+// ============================================================================
+// Greeting-interruption configuration
+// ============================================================================
+
+describe('OpenAIAdapter — greeting interruption configuration', () => {
+  const runtime = {} as GreetingInterruptionRuntime;
+
+  it('accepts omitted, false, true, and valid object configurations synchronously', () => {
+    for (const greetingInterruption of [
+      undefined,
+      false,
+      true,
+      {
+        assetBaseUrl: 'https://cdn.example.com/vad',
+        preRollMs: 0,
+        providerOptions: { positiveSpeechThreshold: 0 },
+      },
+    ] as const) {
+      expect(
+        () =>
+          new OpenAIAdapter({
+            mintToken: async () => fakeToken,
+            ...(greetingInterruption === undefined
+              ? {}
+              : { greetingInterruption }),
+          }),
+      ).not.toThrow();
+    }
+  });
+
+  it.each([
+    ['null', null],
+    ['array', []],
+    ['primitive', 'enabled'],
+    ['unsafe asset URL', { assetBaseUrl: 'http://cdn.example.com/vad/' }],
+    ['non-finite pre-roll', { preRollMs: Number.NaN }],
+    ['out-of-range pre-roll', { preRollMs: 501 }],
+    ['unsupported provider tuning', { providerOptions: { unsupported: true } }],
+    [
+      'malformed provider ratio',
+      { providerOptions: { positiveSpeechThreshold: 2 } },
+    ],
+    ['malformed provider options', { providerOptions: [] }],
+  ])('rejects invalid runtime configuration synchronously: %s', (_name, value) => {
+    let thrown: unknown;
+    try {
+      new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        greetingInterruption: value as unknown as false,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(TypeError);
+    expect((thrown as Error).message).toStartWith('greetingInterruption');
+  });
+
+  it('rejects invalid configuration before token, microphone, peer, or VAD work', () => {
+    let mintCalls = 0;
+    let mediaCalls = 0;
+    getUserMediaImpl = async () => {
+      mediaCalls += 1;
+      return new FakeMediaStream(1);
+    };
+
+    expect(
+      () =>
+        new OpenAIAdapter({
+          mintToken: async () => {
+            mintCalls += 1;
+            return fakeToken;
+          },
+          greetingInterruption: { assetBaseUrl: 'http://unsafe.example/vad/' },
+        }),
+    ).toThrow(TypeError);
+
+    expect(mintCalls).toBe(0);
+    expect(mediaCalls).toBe(0);
+    expect(FakeRTCPeerConnection.instances).toEqual([]);
+  });
+
+  it.each([
+    undefined,
+    false,
+  ] as const)('keeps the original raw microphone attachment when %p', async (greetingInterruption) => {
+    let runtimeLoads = 0;
+    const restoreRuntime = setGreetingInterruptionRuntimeImporterForTests(
+      async () => {
+        runtimeLoads += 1;
+        return runtime;
+      },
+    );
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      ...(greetingInterruption === undefined ? {} : { greetingInterruption }),
+    });
+    try {
+      await connectAndOpen(adapter);
+    } finally {
+      restoreRuntime();
+    }
+
+    const stream = FakeMediaStream.instances.at(-1);
+    const connection = FakeRTCPeerConnection.instances.at(-1);
+    expect(adapter.getAudioStreams().mic).toBe(
+      stream as unknown as MediaStream,
+    );
+    expect(connection?.getSenders().map((sender) => sender.track)).toEqual(
+      stream?.getTracks(),
+    );
+    expect(connection?.addTrackCalls).toBe(stream?.getTracks().length);
+    expect(runtimeLoads).toBe(0);
+  });
+
+  it('lazy-loads the enabled interruption runtime during connection preparation', async () => {
+    let runtimeLoads = 0;
+    const restoreRuntime = setGreetingInterruptionRuntimeImporterForTests(
+      async () => {
+        runtimeLoads += 1;
+        return runtime;
+      },
+    );
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      greetingInterruption: true,
+    });
+
+    try {
+      await connectAndOpen(adapter);
+    } finally {
+      restoreRuntime();
+    }
+
+    const stream = FakeMediaStream.instances.at(-1);
+    expect(adapter.getAudioStreams().mic).toBe(
+      stream as unknown as MediaStream,
+    );
+    expect(runtimeLoads).toBe(1);
+  });
 });
 
 // ============================================================================

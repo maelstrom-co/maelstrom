@@ -19,13 +19,13 @@ export {
   type BrowserVad,
   type CreateBrowserVadOptions,
   createBrowserVad,
+} from './browser-vad.js';
+export {
+  type BrowserVadOptions,
+  type BrowserVadProviderOptions,
   type ResolvedBrowserVadConfig,
   resolveBrowserVadConfig,
-} from './browser-vad.js';
-export type {
-  BrowserVadOptions,
-  BrowserVadProviderOptions,
-} from './browser-vad.types.js';
+} from './browser-vad-config.js';
 export {
   createLocalAudioPreRoll,
   type LocalAudioPreRoll,

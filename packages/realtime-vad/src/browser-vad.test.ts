@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import { createBrowserVad, resolveBrowserVadConfig } from './browser-vad.js';
+import { createBrowserVad } from './browser-vad.js';
+import { resolveBrowserVadConfig } from './browser-vad-config.js';
 
 type CapturedVadOptions = {
   baseAssetPath?: string;

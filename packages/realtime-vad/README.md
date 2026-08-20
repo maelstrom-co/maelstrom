@@ -207,6 +207,8 @@ transport connection a fatal transport failure — that call is the adapter's.
   `createLocalAudioPreRoll`, and the `BrowserVad`, `BrowserVadOptions`,
   `BrowserVadProviderOptions`, `CreateBrowserVadOptions`,
   `ResolvedBrowserVadConfig`, and `LocalAudioPreRoll` types.
+- `@maelstrom-co/realtime-vad/config` — validation/type-only loading boundary
+  for browser-VAD configuration; it does not load the VAD runtime.
 - `@maelstrom-co/realtime-vad/assets` — Node-only asset deployment helper;
   never import this subpath into browser code.
 

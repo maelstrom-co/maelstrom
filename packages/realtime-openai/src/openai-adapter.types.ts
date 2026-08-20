@@ -2,6 +2,7 @@ import type {
   OpenAIBuiltInVoice,
   OpenAITokenGrant,
 } from '@maelstrom-co/realtime-protocol/openai';
+import type { BrowserVadOptions } from '@maelstrom-co/realtime-vad/config';
 
 /** Arguments passed to an injected greeting synthesizer. */
 export interface SynthesizeGreetingArgs {
@@ -40,6 +41,14 @@ export interface OpenAIAdapterOptions {
    * transcription config is sent in `session.update`.
    */
   readonly transcription?: false | { readonly model?: string };
+  /**
+   * Experimental local greeting-interruption configuration (default off).
+   * Omitted or `false` preserves the existing non-interruptible greeting gate.
+   * `true` selects shared defaults; an object selects validated browser-VAD
+   * settings. Enabled connections lazy-load the browser runtime; interruption
+   * lifecycle behavior is introduced separately.
+   */
+  readonly greetingInterruption?: false | true | BrowserVadOptions;
   /**
    * OpenAI server-VAD tuning and barge-in policy.
    *

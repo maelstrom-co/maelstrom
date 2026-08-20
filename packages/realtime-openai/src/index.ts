@@ -12,6 +12,10 @@
  * exact same source of truth.
  */
 export * from '@maelstrom-co/realtime-protocol/openai';
+export type {
+  BrowserVadOptions,
+  BrowserVadProviderOptions,
+} from '@maelstrom-co/realtime-vad/config';
 export { OpenAIAdapter } from './openai-adapter.js';
 export type {
   OpenAIAdapterOptions,
