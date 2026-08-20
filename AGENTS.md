@@ -35,8 +35,8 @@ nx run-many -t format
 
 ## Version Control
 
-- Follow the DCO sign-off requirements in `CONTRIBUTING.md` for every commit.
-- Use Git for every mutating operation and follow the workflow in `CONTRIBUTING.md`.
+- Sign off every commit with `git commit -s`. CI rejects unsigned commits.
+- Follow `CONTRIBUTING.md` for pull request and release workflow.
 
 ## Architecture Invariants
 
