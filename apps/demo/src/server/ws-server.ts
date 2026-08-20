@@ -1,9 +1,8 @@
 /// <reference types="bun" />
 /**
- * Text-only WebSocket engine server for local dev: one shared module-scope
- * engine, OpenAI, keyed by OPENAI_API_KEY. If it's missing the socket still
- * connects and each request returns an `engine.error` rather than failing the
- * connection.
+ * Text-only WebSocket engine server for local dev. It uses one shared engine
+ * keyed by OPENAI_API_KEY when configured; otherwise each connection accepts
+ * the browser's memory-only key through playground.hello and owns its engine.
  *
  * Speaks the same handleEnvelope/encodeEnvelope loop from @maelstrom-co/engine
  * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),
@@ -80,19 +79,25 @@ export function buildSharedEngine(apiKey: string): SharedEngineResult {
     const initError = redactSecrets(rawMessage, apiKey);
     console.warn(
       `[demo ws] engine unavailable: ${initError}\n` +
-        '  Set OPENAI_API_KEY. The socket still connects; ' +
-        'chart requests will return an error until a key is set.',
+        '  Check the configured or browser-supplied OpenAI key. The socket ' +
+        'still connects, but chart requests need a valid key.',
     );
     return { engine: null, initError };
   }
 }
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? '';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim() ?? '';
+const HAS_SERVER_API_KEY = OPENAI_API_KEY.length > 0;
 const { engine: sharedEngine, initError: sharedEngineInitError } =
-  buildSharedEngine(OPENAI_API_KEY);
+  HAS_SERVER_API_KEY
+    ? buildSharedEngine(OPENAI_API_KEY)
+    : { engine: null, initError: 'No server OpenAI key configured.' };
 
 export interface SocketData {
   helloReceived: boolean;
+  browserApiKey?: string;
+  browserEngine?: Engine | null;
+  browserEngineInitError?: string | null;
 }
 
 export interface WebSocketHandlerDeps {
@@ -115,24 +120,31 @@ export function createWebSocketHandlers(
 
   return {
     async message(ws, raw) {
+      const browserApiKey = ws.data.browserApiKey;
       const result = await dispatchFrame(raw, {
         helloReceived: ws.data.helloReceived,
-        getEngine: () => sharedEngine,
+        getEngine: () => sharedEngine ?? ws.data.browserEngine ?? null,
         // Bun never hibernates, so a connection here has either helloed
         // in this lifetime or never at all.
         wasHelloed: false,
-        engineUnavailableReason: sharedEngineInitError ?? 'engine unavailable',
+        engineUnavailableReason:
+          ws.data.browserEngineInitError ??
+          sharedEngineInitError ??
+          'engine unavailable',
       });
 
       switch (result.kind) {
         case 'heartbeat':
           ws.send(HEARTBEAT_PONG_FRAME);
           return;
-        case 'hello':
-          // Unreachable locally: ws.data.helloReceived is always true below,
-          // so classifyIncomingFrame never returns 'hello' here. Only the DO
-          // transport (session-do.ts) has a real handshake to accept.
+        case 'hello': {
+          const built = buildSharedEngine(result.frame.apiKey);
+          ws.data.browserApiKey = result.frame.apiKey;
+          ws.data.browserEngine = built.engine;
+          ws.data.browserEngineInitError = built.initError;
+          ws.data.helloReceived = true;
           return;
+        }
         case 'rehello':
           // Unreachable under Bun (wasHelloed is always false above); the
           // DO transport is the only producer.
@@ -145,7 +157,7 @@ export function createWebSocketHandlers(
           ws.close(result.code, truncateCloseReason(result.reason));
           return;
         case 'reply':
-          ws.send(redactSecrets(result.wire, apiKey));
+          ws.send(redactSecrets(result.wire, browserApiKey ?? apiKey));
           return;
         case 'none':
           return;
@@ -175,7 +187,7 @@ if (import.meta.main) {
       }
       if (pathname === '/ws') {
         return srv.upgrade(req, {
-          data: { helloReceived: true },
+          data: { helloReceived: HAS_SERVER_API_KEY },
         })
           ? undefined
           : new Response('WebSocket upgrade failed', { status: 400 });

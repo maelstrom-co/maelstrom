@@ -1,4 +1,5 @@
 ---
+import { PLAYGROUND_URL } from '../data/playground-url.ts';
 import LiveDemo from '../islands/demo/LiveDemo.tsx';
 ---
 
@@ -16,5 +17,24 @@ import LiveDemo from '../islands/demo/LiveDemo.tsx';
     <div class="demo-frame">
       <LiveDemo client:idle />
     </div>
+
+    <div class="demo-cta">
+      <p>Want to explore it yourself?</p>
+      <a class="btn btn-primary" href={PLAYGROUND_URL} target="_blank" rel="noopener noreferrer">
+        Try the Playground
+      </a>
+    </div>
   </div>
 </section>
+
+<style>
+  .demo-cta {
+    margin-top: 32px;
+    text-align: center;
+  }
+
+  .demo-cta p {
+    margin-bottom: 14px;
+    color: var(--muted);
+  }
+</style>

@@ -83,15 +83,10 @@ const overflowDrop = (id: string): DroppedLayoutEntry => ({
   chartRows: 8,
 });
 
-const paramsParseFailed = (
-  id: string,
-  action: string,
-  paramsJson: string,
-): SkippedAction => ({
+const paramsParseFailed = (id: string, action: string): SkippedAction => ({
   reason: 'params_parse_failed',
   instanceId: InstanceId(id),
   action: ActionName(action),
-  paramsJson,
 });
 
 const stateDrift = (id: string, action: string): SkippedAction => ({
@@ -278,7 +273,7 @@ describe('callWithRetry', () => {
     test('retry prompt suppresses state_drift skipped actions', async () => {
       const failed = recommendingResponse({
         skippedActions: [
-          paramsParseFailed('a', 'go', '{bad'),
+          paramsParseFailed('a', 'go'),
           stateDrift('b', 'wander'),
         ],
         severity: 'medium',
@@ -375,7 +370,7 @@ describe('callWithRetry', () => {
         droppedLayoutEntries: [overflowDrop('a')],
       });
       const r2 = recommendingResponse({
-        skippedActions: [paramsParseFailed('b', 'go', '{x')],
+        skippedActions: [paramsParseFailed('b', 'go')],
         severity: 'medium',
       });
       const { runOnce, prompts, calls } = recordingRunOnce([
@@ -572,7 +567,7 @@ describe('callWithRetry', () => {
       // others → info. Exhaustion ctx pins every key so a future log-shape
       // regression (extra fields, missing fields) fails the assertion.
       const failed = recommendingResponse({
-        skippedActions: [paramsParseFailed('a', 'go', '{bad')],
+        skippedActions: [paramsParseFailed('a', 'go')],
         severity: 'medium',
       });
       const { logger, entries } = spyLogger();
@@ -765,8 +760,14 @@ describe('buildRetryPrompt', () => {
   });
 
   test('layout drops and skipped actions appear in their own sections', () => {
+    const malformedParams = '{"secret":"do-not-repeat"';
+    const skipped = {
+      ...paramsParseFailed('b', 'doIt'),
+      // Runtime diagnostics may outlive their originating Engine version.
+      paramsJson: malformedParams,
+    } as unknown as SkippedAction;
     const out = buildRetryPrompt('orig', {
-      skippedActions: [paramsParseFailed('b', 'doIt', '{x')],
+      skippedActions: [skipped],
       droppedLayoutEntries: [overflowDrop('a')],
       warnings: [],
       retryHint: recommendMedium,
@@ -778,8 +779,10 @@ describe('buildRetryPrompt', () => {
       'instance "a" at (10,5) size 4x3 exceeds chart bounds (12x8)',
     );
     expect(out).toContain(
-      'Action "doIt" on instance "b" had unparseable params: {x',
+      'Action "doIt" on instance "b" had unparseable params',
     );
+    expect(out).not.toContain(malformedParams);
+    expect(out).not.toContain('do-not-repeat');
     expect(out).toContain('orig');
   });
 
@@ -853,8 +856,8 @@ describe('buildRetryPrompt', () => {
   // Pin every non-state_drift SkippedAction formatter.
   test.each([
     [
-      paramsParseFailed('a', 'go', '{bad'),
-      'Action "go" on instance "a" had unparseable params: {bad',
+      paramsParseFailed('a', 'go'),
+      'Action "go" on instance "a" had unparseable params',
     ],
     [
       {
@@ -900,7 +903,7 @@ describe('buildRetryPrompt', () => {
         variant: VariantName('default'),
         validActions: [ActionName('x'), ActionName('y')],
       },
-      'Action "badAction" is not valid on instance "a" in variant "default" — valid actions: x, y',
+      'Action "badAction" is not valid on instance "a" in variant "default" — valid actions: "x", "y"',
     ],
     [
       {
@@ -956,4 +959,218 @@ describe('buildRetryPrompt', () => {
     expect(out).not.toContain('"a"');
     expect(out).not.toContain('go');
   });
+
+  test('resource and definition skips add no retry diagnostics', () => {
+    const out = buildRetryPrompt('original', {
+      skippedActions: [
+        { reason: 'params_limits_exceeded', limit: 'traversal_work' },
+        { reason: 'invalid_action_definition' },
+      ],
+      droppedLayoutEntries: [],
+      warnings: [],
+      retryHint: { severity: 'medium', recommend: false },
+    });
+
+    expect(out).toBe(
+      [
+        'The previous response had issues. Please re-issue the response addressing:',
+        '',
+        'Original request:',
+        'original',
+      ].join('\n'),
+    );
+  });
+
+  test('quotes and sanitizes every model-derived diagnostic identifier', () => {
+    const injected =
+      'line\ncarriage\rcontrol\u0000quote"slash\\ls\u2028ps\u2029';
+    const id = (prefix: string) => `${prefix}-${injected}`;
+    const out = buildRetryPrompt('original\nrequest stays verbatim', {
+      skippedActions: [
+        {
+          reason: 'params_validation_failed',
+          instanceId: InstanceId(id('instance')),
+          action: ActionName(id('action')),
+          issues: [{ kind: 'unknown_parameter', parameter: id('parameter') }],
+        },
+        {
+          reason: 'unknown_vessel',
+          instanceId: InstanceId(id('instance-vessel')),
+          action: ActionName(id('action-vessel')),
+          vesselId: VesselId(id('vessel')),
+        },
+        {
+          reason: 'action_not_valid',
+          instanceId: InstanceId(id('instance-valid')),
+          action: ActionName(id('action-invalid')),
+          vesselId: VesselId(id('vessel-valid')),
+          variant: VariantName(id('variant')),
+          validActions: [ActionName(id('valid-action'))],
+        },
+      ],
+      droppedLayoutEntries: [
+        {
+          reason: 'unknown_vessel',
+          instanceId: InstanceId(id('layout-instance')),
+          vesselId: VesselId(id('layout-vessel')),
+        },
+        {
+          reason: 'unknown_variant',
+          instanceId: InstanceId(id('layout-variant-instance')),
+          variant: VariantName(id('layout-variant')),
+        },
+      ],
+      warnings: [],
+      retryHint: recommendMedium,
+    });
+    const diagnostics = retryDiagnosticSection(out);
+
+    for (const prefix of [
+      'instance',
+      'action',
+      'parameter',
+      'vessel',
+      'variant',
+      'valid-action',
+      'layout-instance',
+      'layout-vessel',
+      'layout-variant',
+    ]) {
+      const sanitized = id(prefix).replace(/[\p{Cc}\u2028\u2029]/gu, '\uFFFD');
+      expect(diagnostics).toContain(JSON.stringify(sanitized));
+    }
+    for (const codePoint of [
+      ...Array.from({ length: 32 }, (_, value) => value).filter(
+        (value) => value !== 10,
+      ),
+      ...Array.from({ length: 33 }, (_, value) => value + 127),
+      0x2028,
+      0x2029,
+    ]) {
+      expect(diagnostics).not.toContain(String.fromCodePoint(codePoint));
+    }
+    expect(diagnostics).not.toContain('line\ncarriage');
+    expect(out.endsWith('original\nrequest stays verbatim')).toBe(true);
+  });
+
+  test('accepts 128 identifier code points and truncates 129', () => {
+    const atLimit = '😀'.repeat(128);
+    const overLimit = `${atLimit}x`;
+    const atLimitOutput = buildRetryPrompt('original', {
+      skippedActions: [paramsParseFailed('instance', atLimit)],
+      droppedLayoutEntries: [],
+      warnings: [],
+      retryHint: recommendMedium,
+    });
+    const overLimitOutput = buildRetryPrompt('original', {
+      skippedActions: [paramsParseFailed('instance', overLimit)],
+      droppedLayoutEntries: [],
+      warnings: [],
+      retryHint: recommendMedium,
+    });
+
+    expect(retryDiagnosticSection(atLimitOutput)).toContain(
+      JSON.stringify(atLimit),
+    );
+    expect(retryDiagnosticSection(atLimitOutput)).not.toContain('[truncated]');
+    expect(retryDiagnosticSection(overLimitOutput)).toContain(
+      JSON.stringify(`${atLimit}…[truncated]`),
+    );
+    expect(retryDiagnosticSection(overLimitOutput)).not.toContain(overLimit);
+  });
+
+  test('renders 16 list identifiers and summarizes the seventeenth', () => {
+    const makeOutput = (count: number) =>
+      buildRetryPrompt('original', {
+        skippedActions: [
+          {
+            reason: 'action_not_valid',
+            instanceId: InstanceId('instance'),
+            action: ActionName('invalid'),
+            vesselId: VesselId('vessel'),
+            variant: VariantName('variant'),
+            validActions: Array.from({ length: count }, (_, index) =>
+              ActionName(`valid-${index}`),
+            ),
+          },
+        ],
+        droppedLayoutEntries: [],
+        warnings: [],
+        retryHint: recommendMedium,
+      });
+    const atLimit = retryDiagnosticSection(makeOutput(16));
+    const overLimit = retryDiagnosticSection(makeOutput(17));
+
+    for (let index = 0; index < 16; index += 1) {
+      expect(atLimit).toContain(JSON.stringify(`valid-${index}`));
+      expect(overLimit).toContain(JSON.stringify(`valid-${index}`));
+    }
+    expect(atLimit).not.toContain('identifier omitted');
+    expect(overLimit).not.toContain(JSON.stringify('valid-16'));
+    expect(overLimit).toContain('1 additional identifier omitted');
+  });
+
+  test('renders at most 32 diagnostic lines', () => {
+    const makeOutput = (count: number) =>
+      buildRetryPrompt('original', {
+        skippedActions: Array.from({ length: count }, (_, index) =>
+          paramsParseFailed(`instance-${index}`, `action-${index}`),
+        ),
+        droppedLayoutEntries: [],
+        warnings: [],
+        retryHint: recommendMedium,
+      });
+    const atLimit = retryDiagnosticSection(makeOutput(32));
+    const overLimit = retryDiagnosticSection(makeOutput(33));
+
+    expect(diagnosticBulletLines(atLimit)).toHaveLength(32);
+    expect(atLimit).toContain(JSON.stringify('action-31'));
+    expect(atLimit).not.toContain('diagnostic lines omitted');
+    expect(diagnosticBulletLines(overLimit)).toHaveLength(32);
+    expect(overLimit).toContain(JSON.stringify('action-30'));
+    expect(overLimit).not.toContain(JSON.stringify('action-31'));
+    expect(overLimit).not.toContain(JSON.stringify('action-32'));
+    expect(overLimit).toContain('2 diagnostic lines omitted');
+  });
+
+  test('caps the diagnostic section at 8192 UTF-8 bytes', () => {
+    const makeOutput = (finalAsciiCount: number) =>
+      buildRetryPrompt('original', {
+        skippedActions: [
+          ...Array.from({ length: 14 }, (_, index) =>
+            paramsParseFailed(`i-${index}`, '😀'.repeat(128)),
+          ),
+          paramsParseFailed(
+            'last',
+            `${'😀'.repeat(27)}${'x'.repeat(finalAsciiCount)}`,
+          ),
+        ],
+        droppedLayoutEntries: [],
+        warnings: [],
+        retryHint: recommendMedium,
+      });
+    const atLimit = retryDiagnosticSection(makeOutput(100));
+    const overLimit = retryDiagnosticSection(makeOutput(101));
+
+    expect(new TextEncoder().encode(atLimit).byteLength).toBe(8_192);
+    expect(atLimit).not.toContain('diagnostic text omitted');
+    expect(new TextEncoder().encode(overLimit).byteLength).toBeLessThanOrEqual(
+      8_192,
+    );
+    expect(overLimit).toContain('diagnostic text omitted');
+    expect(overLimit).not.toContain(JSON.stringify('last'));
+  });
 });
+
+const RETRY_HEADER =
+  'The previous response had issues. Please re-issue the response addressing:\n\n';
+
+function retryDiagnosticSection(prompt: string): string {
+  const end = prompt.indexOf('\n\nOriginal request:');
+  if (!prompt.startsWith(RETRY_HEADER) || end < 0) return '';
+  return prompt.slice(RETRY_HEADER.length, end);
+}
+
+function diagnosticBulletLines(section: string): string[] {
+  return section.split('\n').filter((line) => line.startsWith('- '));
+}

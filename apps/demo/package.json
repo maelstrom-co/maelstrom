@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare:voice-assets": "maelstrom-livekit-assets public/vad-web",
+    "prepare:voice-assets": "maelstrom-vad-assets public/vad-web",
     "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev:client\"",
     "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"bun run dev:client:livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
@@ -15,7 +15,7 @@
     "build-livekit": "bunx nx run @maelstrom-co/demo:build-livekit",
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
-    "deploy": "VITE_HOSTED=1 bunx nx build @maelstrom-co/demo && wrangler deploy",
+    "deploy": "bunx nx run @maelstrom-co/demo:deploy",
     "verify:hibernation": "bun run scripts/verify-hibernation.ts"
   },
   "nx": {
@@ -39,16 +39,64 @@
           "command": "vite build --mode livekit"
         }
       },
+      "build-hosted": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "^build"
+        ],
+        "cache": true,
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/bun.lock",
+          {
+            "externalDependencies": [
+              "vite"
+            ]
+          }
+        ],
+        "outputs": [
+          "{projectRoot}/dist"
+        ],
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "VITE_HOSTED=1 vite build"
+        }
+      },
+      "deploy": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build-hosted"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "wrangler deploy --env=\"\""
+        }
+      },
       "prepare-voice-assets": {
         "executor": "nx:run-commands",
         "dependsOn": [
           "...",
           {
             "projects": [
-              "@maelstrom-co/realtime-livekit"
+              "@maelstrom-co/realtime-vad"
             ],
             "target": "build"
           }
+        ],
+        "cache": true,
+        "inputs": [
+          {
+            "externalDependencies": [
+              "onnxruntime-web",
+              "@ricky0123/vad-web"
+            ]
+          }
+        ],
+        "outputs": [
+          "{projectRoot}/public/vad-web"
         ],
         "options": {
           "cwd": "apps/demo",
@@ -139,7 +187,10 @@
     "@maelstrom-co/realtime-livekit": "workspace:*",
     "@maelstrom-co/realtime-livekit-agent": "workspace:*",
     "@maelstrom-co/realtime-livekit-server": "workspace:*",
-    "@maelstrom-co/realtime-server": "workspace:*",
+    "@maelstrom-co/realtime-openai": "workspace:*",
+    "@maelstrom-co/realtime-openai-server": "workspace:*",
+    "@maelstrom-co/realtime-protocol": "workspace:*",
+    "@maelstrom-co/realtime-vad": "workspace:*",
     "@tanstack/ai": "catalog:",
     "@tanstack/ai-openai": "catalog:",
     "@tanstack/react-router": "catalog:",
@@ -159,6 +210,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "catalog:",
+    "@testing-library/dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@types/geojson": "^7946.0.16",
     "@types/react": "catalog:",

@@ -51,7 +51,7 @@ jobs:
           # Floating, unlike the third-party actions above: this is our own
           # toolchain, not PR- or fork-supplied code, so there's no supply-chain
           # exposure to pin against.
-          bun-version: latest
+          bun-version-file: .bun-version
       - uses: ./.github/actions/dco-check
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

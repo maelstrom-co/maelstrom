@@ -6,6 +6,10 @@ import { defineConfig, fontProviders } from 'astro/config';
 import mermaid from 'astro-mermaid';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
+import {
+  createGitHubSourceLinkTemplate,
+  resolveDocsSourceRef,
+} from './src/lib/docs-source-links.js';
 
 const [reactTypeDoc, reactTypeDocSidebarGroup] = createStarlightTypeDocPlugin();
 const [clientTypeDoc, clientTypeDocSidebarGroup] =
@@ -16,9 +20,13 @@ const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeTypeDoc, realtimeTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [realtimeProtocolTypeDoc, realtimeProtocolTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [realtimeOpenaiTypeDoc, realtimeOpenaiTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 const [reactRealtimeTypeDoc, reactRealtimeTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
-const [realtimeServerTypeDoc, realtimeServerTypeDocSidebarGroup] =
+const [realtimeOpenaiServerTypeDoc, realtimeOpenaiServerTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeLivekitTypeDoc, realtimeLivekitTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
@@ -26,18 +34,18 @@ const [realtimeLivekitServerTypeDoc, realtimeLivekitServerTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeLivekitAgentTypeDoc, realtimeLivekitAgentTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [realtimeVadTypeDoc, realtimeVadTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 
-// TypeDoc emits {path} relative to its `basePath` setting. We pin basePath to
-// the workspace root on every plugin call, so {path} carries the full
-// repo-relative path (e.g. `packages/engine/src/lib/engine.ts`). One template
-// for all packages keeps the URL space coherent.
+// Git discovery makes TypeDoc's {path} repository-relative. `basePath` remains
+// the workspace root for displayed paths and relative documentation assets.
 const repoRoot = '../../';
-const sourceLinkTemplate =
-  'https://github.com/maelstrom-co/maelstrom/blob/main/{path}#L{line}';
+const sourceLinkTemplate = createGitHubSourceLinkTemplate(
+  resolveDocsSourceRef(process.env),
+);
 const multiEntryTypeDocOptions = {
   entryPointStrategy: 'resolve' as const,
   excludeInternal: true,
-  disableGit: true,
   basePath: repoRoot,
   sourceLinkTemplate,
 };
@@ -150,7 +158,6 @@ export default defineConfig({
           sidebar: { label: '@maelstrom-co/react', collapsed: true },
           typeDoc: {
             excludeInternal: true,
-            disableGit: true,
             basePath: repoRoot,
             sourceLinkTemplate,
           },
@@ -162,7 +169,6 @@ export default defineConfig({
           sidebar: { label: '@maelstrom-co/client', collapsed: true },
           typeDoc: {
             excludeInternal: true,
-            disableGit: true,
             basePath: repoRoot,
             sourceLinkTemplate,
           },
@@ -174,7 +180,6 @@ export default defineConfig({
           sidebar: { label: '@maelstrom-co/protocol', collapsed: true },
           typeDoc: {
             excludeInternal: true,
-            disableGit: true,
             basePath: repoRoot,
             sourceLinkTemplate,
           },
@@ -186,19 +191,37 @@ export default defineConfig({
           sidebar: { label: '@maelstrom-co/engine', collapsed: true },
           typeDoc: {
             excludeInternal: true,
-            disableGit: true,
             basePath: repoRoot,
             sourceLinkTemplate,
           },
         }),
         realtimeTypeDoc({
-          entryPoints: [
-            '../../packages/realtime/src/index.ts',
-            '../../packages/realtime/src/openai.ts',
-          ],
+          entryPoints: ['../../packages/realtime/src/index.ts'],
           tsconfig: '../../packages/realtime/tsconfig.lib.json',
           output: 'reference/realtime',
           sidebar: { label: '@maelstrom-co/realtime', collapsed: true },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeProtocolTypeDoc({
+          entryPoints: [
+            '../../packages/realtime-protocol/src/index.ts',
+            '../../packages/realtime-protocol/src/openai.ts',
+            '../../packages/realtime-protocol/src/livekit.ts',
+            '../../packages/realtime-protocol/src/livekit-wire.ts',
+          ],
+          tsconfig: '../../packages/realtime-protocol/tsconfig.lib.json',
+          output: 'reference/realtime-protocol',
+          sidebar: {
+            label: '@maelstrom-co/realtime-protocol',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeOpenaiTypeDoc({
+          entryPoints: ['../../packages/realtime-openai/src/index.ts'],
+          tsconfig: '../../packages/realtime-openai/tsconfig.lib.json',
+          output: 'reference/realtime-openai',
+          sidebar: { label: '@maelstrom-co/realtime-openai', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
         reactRealtimeTypeDoc({
@@ -211,23 +234,18 @@ export default defineConfig({
           },
           typeDoc: multiEntryTypeDocOptions,
         }),
-        realtimeServerTypeDoc({
-          entryPoints: ['../../packages/realtime-server/src/index.ts'],
-          tsconfig: '../../packages/realtime-server/tsconfig.lib.json',
-          output: 'reference/realtime-server',
+        realtimeOpenaiServerTypeDoc({
+          entryPoints: ['../../packages/realtime-openai-server/src/index.ts'],
+          tsconfig: '../../packages/realtime-openai-server/tsconfig.lib.json',
+          output: 'reference/realtime-openai-server',
           sidebar: {
-            label: '@maelstrom-co/realtime-server',
+            label: '@maelstrom-co/realtime-openai-server',
             collapsed: true,
           },
           typeDoc: multiEntryTypeDocOptions,
         }),
         realtimeLivekitTypeDoc({
-          entryPoints: [
-            '../../packages/realtime-livekit/src/index.ts',
-            '../../packages/realtime-livekit/src/protocol.ts',
-            '../../packages/realtime-livekit/src/livekit-token.ts',
-            '../../packages/realtime-livekit/src/vad-assets.ts',
-          ],
+          entryPoints: ['../../packages/realtime-livekit/src/index.ts'],
           tsconfig: '../../packages/realtime-livekit/tsconfig.lib.json',
           output: 'reference/realtime-livekit',
           sidebar: {
@@ -254,6 +272,16 @@ export default defineConfig({
             label: '@maelstrom-co/realtime-livekit-agent',
             collapsed: true,
           },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeVadTypeDoc({
+          entryPoints: [
+            '../../packages/realtime-vad/src/index.ts',
+            '../../packages/realtime-vad/src/vad-assets.ts',
+          ],
+          tsconfig: '../../packages/realtime-vad/tsconfig.lib.json',
+          output: 'reference/realtime-vad',
+          sidebar: { label: '@maelstrom-co/realtime-vad', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
       ],
@@ -291,6 +319,10 @@ export default defineConfig({
         Pagination: './src/components/Pagination.astro',
       },
       sidebar: [
+        {
+          label: 'Private Beta',
+          items: [{ slug: 'getting-started/install-beta' }],
+        },
         {
           label: 'Getting Started',
           items: [
@@ -378,11 +410,14 @@ export default defineConfig({
               label: 'Voice',
               items: [
                 realtimeTypeDocSidebarGroup,
+                realtimeProtocolTypeDocSidebarGroup,
+                realtimeOpenaiTypeDocSidebarGroup,
                 reactRealtimeTypeDocSidebarGroup,
-                realtimeServerTypeDocSidebarGroup,
+                realtimeOpenaiServerTypeDocSidebarGroup,
                 realtimeLivekitTypeDocSidebarGroup,
                 realtimeLivekitServerTypeDocSidebarGroup,
                 realtimeLivekitAgentTypeDocSidebarGroup,
+                realtimeVadTypeDocSidebarGroup,
               ],
             },
           ],
@@ -409,18 +444,108 @@ export default defineConfig({
   outDir: './dist',
   fonts: [
     {
-      provider: fontProviders.google(),
+      provider: fontProviders.local(),
       name: 'Inter',
       cssVariable: '--font-heading',
-      weights: [400, 500, 600, 700],
       fallbacks: ['system-ui', 'sans-serif'],
+      options: {
+        variants: [
+          {
+            weight: 400,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
+            ],
+          },
+          {
+            weight: 400,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-400-italic.woff2',
+            ],
+          },
+          {
+            weight: 500,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-500-normal.woff2',
+            ],
+          },
+          {
+            weight: 500,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-500-italic.woff2',
+            ],
+          },
+          {
+            weight: 600,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2',
+            ],
+          },
+          {
+            weight: 600,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-600-italic.woff2',
+            ],
+          },
+          {
+            weight: 700,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
+            ],
+          },
+          {
+            weight: 700,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/inter/files/inter-latin-700-italic.woff2',
+            ],
+          },
+        ],
+      },
     },
     {
-      provider: fontProviders.google(),
+      provider: fontProviders.local(),
       name: 'JetBrains Mono',
       cssVariable: '--font-code',
-      weights: [400, 500],
       fallbacks: ['monospace'],
+      options: {
+        variants: [
+          {
+            weight: 400,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2',
+            ],
+          },
+          {
+            weight: 400,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-italic.woff2',
+            ],
+          },
+          {
+            weight: 500,
+            style: 'normal',
+            src: [
+              './node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2',
+            ],
+          },
+          {
+            weight: 500,
+            style: 'italic',
+            src: [
+              './node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-italic.woff2',
+            ],
+          },
+        ],
+      },
     },
   ],
 });

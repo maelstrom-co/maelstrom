@@ -13,12 +13,15 @@ import { type ReactNode, StrictMode } from 'react';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import type {
   CreateAdapterContext,
+  MaelstromRealtimeOptions,
   UseVoiceResult,
 } from './maelstrom-realtime.js';
 
 let sessionConnectGate: Promise<void> | undefined;
 let sessionDisconnectGate: Promise<void> | undefined;
 const nativeQueueMicrotask = globalThis.queueMicrotask;
+
+class FakeGreetingCoordinator {}
 
 class FakeRealtimeSession {
   static instances: FakeRealtimeSession[] = [];
@@ -30,11 +33,15 @@ class FakeRealtimeSession {
   turnControl: AdapterTurnControl | undefined;
   connectCalls = 0;
   disconnectCalls = 0;
+  readonly options: {
+    greeting?: { text: string; coordinator: unknown };
+  };
   readonly #stateHandlers = new Set<(state: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(entry: TranscriptEntry) => void>();
   readonly #turnModeHandlers = new Set<(event: TurnModeEvent) => void>();
 
-  constructor(readonly options: unknown) {
+  constructor(options: { greeting?: { text: string; coordinator: unknown } }) {
+    this.options = options;
     FakeRealtimeSession.instances.push(this);
   }
 
@@ -103,6 +110,7 @@ class FakeRealtimeSession {
 
 mock.module('@maelstrom-co/realtime', () => ({
   RealtimeSession: FakeRealtimeSession,
+  GreetingCoordinator: FakeGreetingCoordinator,
 }));
 
 const { maelstromRealtime } = await import('./maelstrom-realtime.js');
@@ -149,14 +157,35 @@ function deferred<T>() {
 }
 
 function setup(
-  createAdapter: (
-    context: CreateAdapterContext,
-  ) => RealtimeProviderAdapter = () => makeFakeAdapter(),
+  createAdapter?:
+    | ((context: CreateAdapterContext) => RealtimeProviderAdapter)
+    | {
+        createAdapter?: (
+          context: CreateAdapterContext,
+        ) => RealtimeProviderAdapter;
+        onEvent?: (event: unknown) => void;
+        greeting?: MaelstromRealtimeOptions['greeting'];
+      },
   onEvent?: (event: unknown) => void,
 ) {
+  const defaultAdapter = () => makeFakeAdapter();
+  const opts =
+    createAdapter === undefined
+      ? { createAdapter: defaultAdapter, onEvent, greeting: undefined }
+      : typeof createAdapter === 'function'
+        ? { createAdapter, onEvent, greeting: undefined }
+        : {
+            createAdapter: createAdapter.createAdapter ?? defaultAdapter,
+            onEvent: createAdapter.onEvent ?? onEvent,
+            greeting: createAdapter.greeting,
+          };
   const entry = vessel(testVessel, () => null);
   const m = createMaelstrom({ vessels: [entry] }).with(
-    maelstromRealtime({ createAdapter, onEvent: onEvent as never }),
+    maelstromRealtime({
+      createAdapter: opts.createAdapter,
+      onEvent: opts.onEvent as never,
+      greeting: opts.greeting,
+    }),
   );
   return { m, connector: createMockConnector() };
 }
@@ -924,5 +953,122 @@ describe('session-owned turn mode', () => {
     });
 
     expect(sidechannelEvents).toEqual([]);
+  });
+});
+
+describe('maelstromRealtime() greeting option', () => {
+  it('passes greeting text and a coordinator into RealtimeSession options', async () => {
+    const { m, connector } = setup({ greeting: { text: 'Welcome aboard.' } });
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    const session = must(FakeRealtimeSession.instances[0]);
+    expect(session.options.greeting?.text).toBe('Welcome aboard.');
+    expect(session.options.greeting?.coordinator).toBeInstanceOf(
+      FakeGreetingCoordinator,
+    );
+  });
+
+  it('reuses the same coordinator across session recreation under one orchestrator', async () => {
+    const { m, connector } = setup({ greeting: { text: 'Hello again.' } });
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      ));
+    });
+    const first = must(FakeRealtimeSession.instances[0]);
+    const firstCoordinator = first.options.greeting?.coordinator;
+    expect(firstCoordinator).toBeDefined();
+
+    // Drop all consumers so retirement can evict the session entry, then
+    // remount under the same Provider/orchestrator.
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rerender(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    const second = must(FakeRealtimeSession.instances.at(-1));
+    expect(FakeRealtimeSession.instances.length).toBeGreaterThan(1);
+    expect(second.options.greeting?.coordinator).toBe(firstCoordinator);
+  });
+
+  it('creates a distinct coordinator for a fresh orchestrator/session', async () => {
+    const { m, connector } = setup({ greeting: { text: 'Hi there.' } });
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider key="a" connector={connector} sessionId="session-a">
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const firstCoordinator = must(FakeRealtimeSession.instances[0]).options
+      .greeting?.coordinator;
+
+    cleanup();
+    FakeRealtimeSession.instances = [];
+
+    await act(async () => {
+      render(
+        <m.Provider key="b" connector={connector} sessionId="session-b">
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const secondCoordinator = must(FakeRealtimeSession.instances[0]).options
+      .greeting?.coordinator;
+
+    expect(firstCoordinator).toBeDefined();
+    expect(secondCoordinator).toBeDefined();
+    expect(secondCoordinator).not.toBe(firstCoordinator);
+  });
+
+  it('omits greeting from session options when not configured', async () => {
+    const { m, connector } = setup();
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+
+    expect(
+      must(FakeRealtimeSession.instances[0]).options.greeting,
+    ).toBeUndefined();
   });
 });

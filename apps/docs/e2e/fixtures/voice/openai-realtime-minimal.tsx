@@ -12,7 +12,7 @@ import { isOk } from '@maelstrom-co/protocol';
 import {
   createOpenAIMinter,
   mintFailureHttpStatus,
-} from '@maelstrom-co/realtime-server';
+} from '@maelstrom-co/realtime-openai-server';
 
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY ?? '',

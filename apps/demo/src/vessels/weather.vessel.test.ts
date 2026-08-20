@@ -11,3 +11,21 @@ describe('weatherVessel hourly variant minSize', () => {
     );
   });
 });
+
+describe('weatherVessel location action', () => {
+  it.each([
+    'current',
+    'hourly',
+    'weekly',
+  ] as const)('makes setLocation available in the %s variant without a transition', (variant) => {
+    const action = weatherVessel.variants[variant].actions.find(
+      ({ name }) => name === 'setLocation',
+    );
+    expect(action).toMatchObject({
+      name: 'setLocation',
+      description: expect.stringMatching(/^Try to load/),
+      parameters: [{ name: 'location', type: 'string' }],
+    });
+    expect(action).not.toHaveProperty('transitionsTo');
+  });
+});

@@ -1,8 +1,9 @@
 import type { SessionId } from '@maelstrom-co/protocol';
 import {
+  type OpenAIBuiltInVoice,
   type OpenAITokenGrant,
   OpenAITokenGrantSchema,
-} from '@maelstrom-co/realtime/openai';
+} from '@maelstrom-co/realtime-protocol/openai';
 import { withFetchTimeout } from './fetch-timeout';
 
 /**
@@ -70,15 +71,18 @@ export async function mintOpenAIToken(
  *
  * Each invocation requests a 600-second realtime credential for `model` and
  * maps OpenAI's `value` and `expires_at` fields into a schema-validated
- * `OpenAITokenGrant`. It rejects when no key is available; when the request
- * times out or otherwise fails at the network layer; when OpenAI returns an
- * HTTP error (with a distinct invalid-key error for 401); when the response is
- * not JSON or lacks the expected client-secret fields; or when the mapped
- * grant fails schema validation.
+ * `OpenAITokenGrant`. Redirects are rejected before the browser can forward the
+ * visitor's key to another URL and surface through the same actionable network
+ * error as other rejected fetches. The minter also rejects when no key is
+ * available; when the request times out or otherwise fails at the network
+ * layer; when OpenAI returns an HTTP error (with a distinct invalid-key error
+ * for 401); when the response is not JSON or lacks the expected client-secret
+ * fields; or when the mapped grant fails schema validation.
  */
 export function createBrowserMintToken(
   getApiKey: () => string | null,
   model: string,
+  voice: OpenAIBuiltInVoice,
 ): () => Promise<OpenAITokenGrant> {
   return async () => {
     const apiKey = getApiKey();
@@ -97,11 +101,17 @@ export function createBrowserMintToken(
         // expires_after is sent explicitly rather than left to OpenAI's
         // default so both mint paths pin the same token lifetime — a
         // default that shifts under us would silently change it for
-        // browser-direct visitors only.
+        // browser-direct visitors only. Trusted output voice is nested under
+        // session.audio.output so Realtime audio matches greeting TTS.
         body: JSON.stringify({
           expires_after: { anchor: 'created_at', seconds: 600 },
-          session: { type: 'realtime', model },
+          session: {
+            type: 'realtime',
+            model,
+            audio: { output: { voice } },
+          },
         }),
+        redirect: 'error',
         signal: withFetchTimeout(),
       });
     } catch {

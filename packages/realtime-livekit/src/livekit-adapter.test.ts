@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import type { RealtimeAdapterEvent, UnixSeconds } from '@maelstrom-co/realtime';
+import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
+import type { LiveKitTokenGrant } from '@maelstrom-co/realtime-protocol/livekit';
 import './__tests__/setup.js';
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
-import type { LiveKitTokenGrant } from './livekit-token.js';
 import type { LocalAudioPreRoll } from './local-audio-pre-roll.js';
 
 // --- Mocks for livekit-client ---
@@ -20,7 +21,9 @@ const mockReplaceTrack = mock(
 );
 const mockMuteLocalMic = mock(async () => {});
 const mockUnmuteLocalMic = mock(async () => {});
-const mockCreateLocalAudioTrack = mock(async () => mockMicPublication.track);
+const mockCreateLocalAudioTrack = mock(
+  async (_options?: unknown) => mockMicPublication.track,
+);
 const mockPublishTrack = mock(async (_track: unknown) => mockMicPublication);
 const mockGetTrackPublication = mock((_source: string) => mockMicPublication);
 const mockBridgeStartAutomaticTurn = mock(async (_preRollMs: number) => {});
@@ -69,6 +72,7 @@ const mockCreateLocalAudioPreRoll = mock<() => Promise<LocalAudioPreRoll>>(
 // LiveKit mutes the former between turns, while VAD must read the latter.
 const mockPublishedMicTrack = {
   enabled: false,
+  getSettings: mock(() => ({}) as MediaTrackSettings),
   clone: mock(() => mockMicCloneTrack),
   stop: mock(() => {}),
 };
@@ -138,10 +142,18 @@ function makeMockRoom() {
 }
 
 let currentRoom = makeMockRoom();
+/** Counts `new Room()` constructions across the livekit-client mock. */
+let roomConstructCount = 0;
+/** Ordered lifecycle probes for gesture-unlock / connect sequencing tests. */
+const lifecycleOrder: string[] = [];
 
 mock.module('livekit-client', () => ({
   createLocalAudioTrack: mockCreateLocalAudioTrack,
   Room: class {
+    constructor() {
+      roomConstructCount += 1;
+      lifecycleOrder.push('Room');
+    }
     on = currentRoom.on;
     off = currentRoom.off;
     connect = currentRoom.connect;
@@ -168,8 +180,14 @@ mock.module('@ricky0123/vad-web', () => ({
 }));
 
 const { LiveKitAdapter } = await import('./livekit-adapter');
-const { SPEAK_TOPIC, SPEAK_UTTERANCE_ID_ATTR, TURN_TOPIC, TTS_TOPIC } =
-  await import('./protocol');
+const {
+  SPEAK_TOPIC,
+  SPEAK_UTTERANCE_ID_ATTR,
+  TURN_TOPIC,
+  TTS_TOPIC,
+  TTS_READY_TOPIC,
+} = await import('@maelstrom-co/realtime-protocol/livekit');
+const { MessageId } = await import('@maelstrom-co/protocol');
 
 // The utterance id the client stamped on the most recent speak text stream — the
 // worker echoes this on its TTS status packets, so tests read it back to forge a
@@ -211,7 +229,7 @@ function makeAdapter(
     DEFAULT_GRANT,
   options: Pick<
     LiveKitAdapterOptions,
-    'debug' | 'thinkingFallbackMs' | 'vad'
+    'debug' | 'thinkingFallbackMs' | 'vad' | 'greetingReadyWaitMs'
   > = {},
 ) {
   const events: RealtimeAdapterEvent[] = [];
@@ -268,6 +286,10 @@ describe('LiveKitAdapter connect', () => {
     });
     mockMicPublication.track.isMuted = false;
     mockPublishedMicTrack.enabled = false;
+    mockPublishedMicTrack.getSettings.mockReset();
+    mockPublishedMicTrack.getSettings.mockImplementation(
+      () => ({}) as MediaTrackSettings,
+    );
     mockMicCloneTrack.enabled = false;
     mockManualReplacementTrack.enabled = true;
     mockGeneratedTrack.enabled = true;
@@ -317,6 +339,308 @@ describe('LiveKitAdapter connect', () => {
     ]);
   });
 
+  test('requests non-mandatory AEC, noise suppression, and automatic gain control preferences', async () => {
+    const { adapter } = makeAdapter(undefined, { vad: false });
+
+    await adapter.connect({ tools: [], instructions: '' });
+
+    const options = mockCreateLocalAudioTrack.mock.calls[0]?.[0];
+    expect(options).toEqual({
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    });
+    expect(JSON.stringify(options)).not.toContain('exact');
+  });
+
+  test('inspects only accepted original-track settings before cloning and logs a bounded projection', async () => {
+    const order: string[] = [];
+    mockPublishedMicTrack.getSettings.mockImplementationOnce(() => {
+      order.push('settings');
+      return {
+        echoCancellation: false,
+        noiseSuppression: true,
+        autoGainControl: false,
+        deviceId: 'sensitive-device-id',
+        groupId: 'sensitive-group-id',
+        sampleRate: 48_000,
+      };
+    });
+    mockPublishedMicTrack.clone.mockImplementationOnce(() => {
+      order.push('clone');
+      return mockMicCloneTrack;
+    });
+    const debug = spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const { adapter } = makeAdapter(undefined, { debug: true, vad: false });
+      await adapter.connect({ tools: [], instructions: '' });
+
+      const audioProcessingCall = debug.mock.calls.find(
+        (call) => call[1] === 'microphone audio processing',
+      );
+      expect(order).toEqual(['settings', 'clone']);
+      expect(audioProcessingCall).toEqual([
+        '[LiveKitAdapter]',
+        'microphone audio processing',
+        {
+          audioProcessing: {
+            requested: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            applied: {
+              echoCancellation: false,
+              noiseSuppression: true,
+              autoGainControl: false,
+            },
+          },
+        },
+      ]);
+      expect(JSON.stringify(audioProcessingCall)).not.toContain('sensitive');
+      expect(JSON.stringify(audioProcessingCall)).not.toContain('sampleRate');
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  test('projects missing and non-boolean original-track settings as unavailable', async () => {
+    mockPublishedMicTrack.getSettings.mockImplementationOnce(
+      () =>
+        ({
+          echoCancellation: true,
+          noiseSuppression: 'enabled',
+        }) as unknown as MediaTrackSettings,
+    );
+    const debug = spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const { adapter } = makeAdapter(undefined, { debug: true, vad: false });
+      await adapter.connect({ tools: [], instructions: '' });
+
+      expect(
+        debug.mock.calls.find(
+          (call) => call[1] === 'microphone audio processing',
+        )?.[2],
+      ).toEqual({
+        audioProcessing: {
+          requested: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          applied: {
+            echoCancellation: true,
+            noiseSuppression: 'unavailable',
+            autoGainControl: 'unavailable',
+          },
+        },
+      });
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  test('keeps connecting and projects unavailable settings when getSettings throws', async () => {
+    mockPublishedMicTrack.getSettings.mockImplementationOnce(() => {
+      throw new Error('settings unavailable');
+    });
+    const debug = spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const { adapter } = makeAdapter(undefined, { debug: true, vad: false });
+      await expect(
+        adapter.connect({ tools: [], instructions: '' }),
+      ).resolves.toBeUndefined();
+
+      expect(
+        debug.mock.calls.find(
+          (call) => call[1] === 'microphone audio processing',
+        )?.[2],
+      ).toMatchObject({
+        audioProcessing: {
+          applied: {
+            echoCancellation: 'unavailable',
+            noiseSuppression: 'unavailable',
+            autoGainControl: 'unavailable',
+          },
+        },
+      });
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  test('contains a throwing getSettings lookup without failing connection', async () => {
+    const rawTrack = {
+      enabled: false,
+      clone: mock(() => mockMicCloneTrack),
+      stop: mock(() => {}),
+    };
+    Object.defineProperty(rawTrack, 'getSettings', {
+      get() {
+        throw new Error('browser-owned method lookup failed');
+      },
+    });
+    const micTrack = {
+      ...mockMicPublication.track,
+      mediaStreamTrack: rawTrack as unknown as MediaStreamTrack,
+      stop: rawTrack.stop,
+    } as typeof mockMicPublication.track;
+    mockCreateLocalAudioTrack.mockImplementationOnce(async () => micTrack);
+    const debug = spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const { adapter } = makeAdapter(undefined, { debug: true, vad: false });
+      await expect(
+        adapter.connect({ tools: [], instructions: '' }),
+      ).resolves.toBeUndefined();
+
+      expect(
+        debug.mock.calls.find(
+          (call) => call[1] === 'microphone audio processing',
+        )?.[2],
+      ).toMatchObject({
+        audioProcessing: {
+          applied: {
+            echoCancellation: 'unavailable',
+            noiseSuppression: 'unavailable',
+            autoGainControl: 'unavailable',
+          },
+        },
+      });
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  test('reads each browser-owned setting once and projects only booleans', async () => {
+    const reads = {
+      echoCancellation: 0,
+      noiseSuppression: 0,
+      autoGainControl: 0,
+    };
+    const settings = Object.defineProperties(
+      {},
+      {
+        echoCancellation: {
+          get() {
+            reads.echoCancellation += 1;
+            return reads.echoCancellation === 1 ? true : 'sensitive-device-id';
+          },
+        },
+        noiseSuppression: {
+          get() {
+            reads.noiseSuppression += 1;
+            throw new Error('setting access failed');
+          },
+        },
+        autoGainControl: {
+          get() {
+            reads.autoGainControl += 1;
+            return reads.autoGainControl === 1 ? false : 'sensitive-group-id';
+          },
+        },
+      },
+    );
+    mockPublishedMicTrack.getSettings.mockImplementationOnce(
+      () => settings as MediaTrackSettings,
+    );
+    const debug = spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const { adapter } = makeAdapter(undefined, { debug: true, vad: false });
+      await expect(
+        adapter.connect({ tools: [], instructions: '' }),
+      ).resolves.toBeUndefined();
+
+      const audioProcessingCall = debug.mock.calls.find(
+        (call) => call[1] === 'microphone audio processing',
+      );
+      expect(reads).toEqual({
+        echoCancellation: 1,
+        noiseSuppression: 1,
+        autoGainControl: 1,
+      });
+      expect(audioProcessingCall?.[2]).toMatchObject({
+        audioProcessing: {
+          applied: {
+            echoCancellation: true,
+            noiseSuppression: 'unavailable',
+            autoGainControl: false,
+          },
+        },
+      });
+      expect(JSON.stringify(audioProcessingCall)).not.toContain('sensitive');
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  test('stops an acquired unpublished track once when diagnostics throw', async () => {
+    const debug = spyOn(console, 'debug').mockImplementation(() => {
+      throw new Error('diagnostic sink failed');
+    });
+    try {
+      const { adapter } = makeAdapter(undefined, { debug: true, vad: false });
+
+      await expect(
+        adapter.connect({ tools: [], instructions: '' }),
+      ).rejects.toMatchObject({ code: 'CONNECTION_FAILED' });
+
+      expect(mockPublishedMicTrack.stop).toHaveBeenCalledTimes(1);
+      expect(mockPublishedMicTrack.clone).not.toHaveBeenCalled();
+      expect(mockPublishTrack).not.toHaveBeenCalled();
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  test('keeps connecting and projects unavailable settings when getSettings is absent', async () => {
+    const rawTrack = {
+      enabled: false,
+      clone: mock(() => mockMicCloneTrack),
+      stop: mock(() => {}),
+    } as unknown as MediaStreamTrack;
+    const micTrack = {
+      ...mockMicPublication.track,
+      mediaStreamTrack: rawTrack,
+      stop: rawTrack.stop,
+    } as typeof mockMicPublication.track;
+    mockCreateLocalAudioTrack.mockImplementationOnce(async () => micTrack);
+    const debug = spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const { adapter } = makeAdapter(undefined, { debug: true, vad: false });
+      await expect(
+        adapter.connect({ tools: [], instructions: '' }),
+      ).resolves.toBeUndefined();
+
+      expect(
+        debug.mock.calls.find(
+          (call) => call[1] === 'microphone audio processing',
+        )?.[2],
+      ).toMatchObject({
+        audioProcessing: {
+          applied: {
+            echoCancellation: 'unavailable',
+            noiseSuppression: 'unavailable',
+            autoGainControl: 'unavailable',
+          },
+        },
+      });
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  test('does not log audio processing when debug logging is disabled', async () => {
+    const debug = spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const { adapter } = makeAdapter(undefined, { vad: false });
+      await adapter.connect({ tools: [], instructions: '' });
+      expect(debug).not.toHaveBeenCalled();
+      expect(mockPublishedMicTrack.getSettings).not.toHaveBeenCalled();
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
   test('mutes locally acquired audio before its first publication and exposes mode only after upstream pause', async () => {
     const order: string[] = [];
     let rawEnabledAtPublish: boolean | undefined;
@@ -324,6 +648,10 @@ describe('LiveKitAdapter connect', () => {
     mockCreateLocalAudioTrack.mockImplementationOnce(async () => {
       order.push('acquire');
       return mockMicPublication.track;
+    });
+    mockPublishedMicTrack.getSettings.mockImplementationOnce(() => {
+      order.push('settings');
+      return {};
     });
     mockPublishedMicTrack.clone.mockImplementationOnce(() => {
       order.push('clone');
@@ -2030,6 +2358,52 @@ describe('LiveKitAdapter connect', () => {
     expect(mockRoomDisconnect).toHaveBeenCalled();
   });
 
+  test('a stale microphone acquisition is stopped without settings, clone, diagnostics, or publication', async () => {
+    const acquired = deferred<typeof mockMicPublication.track>();
+    const getSettings = mock(() => ({ echoCancellation: true }));
+    const clone = mock(() => mockMicCloneTrack);
+    const stop = mock(() => {});
+    const rawTrack = {
+      enabled: true,
+      getSettings,
+      clone,
+      stop,
+    } as unknown as MediaStreamTrack;
+    const staleMicTrack = {
+      ...mockMicPublication.track,
+      mediaStreamTrack: rawTrack,
+      stop,
+    } as typeof mockMicPublication.track;
+    mockCreateLocalAudioTrack.mockImplementationOnce(() => acquired.promise);
+    const debug = spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const { adapter } = makeAdapter(undefined, { debug: true, vad: false });
+      const connecting = adapter.connect({ tools: [], instructions: '' });
+      for (let attempts = 0; attempts < 20; attempts += 1) {
+        if (mockCreateLocalAudioTrack.mock.calls.length > 0) break;
+        await Promise.resolve();
+      }
+
+      await adapter.disconnect();
+      acquired.resolve(staleMicTrack);
+
+      await expect(connecting).rejects.toMatchObject({
+        code: 'CONNECT_SUPERSEDED',
+      });
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(getSettings).not.toHaveBeenCalled();
+      expect(clone).not.toHaveBeenCalled();
+      expect(mockPublishTrack).not.toHaveBeenCalled();
+      expect(
+        debug.mock.calls.some(
+          (call) => call[1] === 'microphone audio processing',
+        ),
+      ).toBe(false);
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
   test('a connect superseded by a newer connect rejects without clobbering the winner', async () => {
     mockRoomConnect.mockClear();
     mockRoomDisconnect.mockClear();
@@ -2062,6 +2436,79 @@ describe('LiveKitAdapter connect', () => {
 
     // The winner is fully connected and was not driven into 'error' by the loser.
     expect(states(events).at(-1)).toBe('connected');
+  });
+
+  test('a stale publication completion releases only its attempt resources after reconnect', async () => {
+    const makeMic = () => {
+      const clone = {
+        enabled: false,
+        stop: mock(() => {}),
+      };
+      const raw = {
+        enabled: true,
+        clone: mock(() => clone as unknown as MediaStreamTrack),
+        stop: mock(() => {}),
+      };
+      const track = {
+        isMuted: false,
+        mediaStream: { id: 'attempt-mic-stream' } as unknown as MediaStream,
+        mediaStreamTrack: raw as unknown as MediaStreamTrack,
+        mute: mock(async () => {
+          raw.enabled = false;
+        }),
+        unmute: mock(async () => {}),
+        pauseUpstream: mock(async () => {}),
+        resumeUpstream: mock(async () => {}),
+        replaceTrack: mock(async () => {}),
+        stop: raw.stop,
+      };
+      return { clone, raw, track, publication: { track } };
+    };
+    const stale = makeMic();
+    const winner = makeMic();
+    const stalePublication = deferred<typeof stale.publication>();
+    let acquired = 0;
+    mockCreateLocalAudioTrack.mockImplementation(async () =>
+      acquired++ === 0 ? stale.track : winner.track,
+    );
+    mockPublishTrack.mockImplementation((track) =>
+      track === stale.track
+        ? stalePublication.promise
+        : Promise.resolve(winner.publication),
+    );
+    const { adapter } = makeAdapter(undefined, { vad: false });
+
+    const staleConnect = adapter.connect({ tools: [], instructions: '' });
+    for (let attempts = 0; attempts < 20; attempts += 1) {
+      if (mockPublishTrack.mock.calls.length > 0) break;
+      await Promise.resolve();
+    }
+    expect(mockPublishTrack).toHaveBeenCalledWith(stale.track);
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    const winnerStream = adapter.getAudioStreams().mic;
+
+    stalePublication.resolve(stale.publication);
+    await expect(staleConnect).rejects.toMatchObject({
+      code: 'CONNECT_SUPERSEDED',
+    });
+
+    expect(stale.raw.stop).toHaveBeenCalledTimes(1);
+    expect(stale.clone.stop).toHaveBeenCalledTimes(1);
+    expect(winner.raw.stop).not.toHaveBeenCalled();
+    expect(winner.clone.stop).not.toHaveBeenCalled();
+    expect(adapter.getAudioStreams().mic).toBe(winnerStream);
+    expect(adapter.getAudioStreams().mic?.getAudioTracks()).toEqual([
+      winner.clone as unknown as MediaStreamTrack,
+    ]);
+
+    await adapter.disconnect();
+    expect(stale.raw.stop).toHaveBeenCalledTimes(1);
+    expect(stale.clone.stop).toHaveBeenCalledTimes(1);
+    expect(winner.raw.stop).toHaveBeenCalledTimes(1);
+    expect(winner.clone.stop).toHaveBeenCalledTimes(1);
   });
 
   test('a stale replacement rejection cannot release reconnect microphone ownership', async () => {
@@ -3856,5 +4303,336 @@ describe('LiveKitAdapter misc surface', () => {
 
     await adapter.connect({ tools: [], instructions: '' });
     expect(received.length).toBe(0);
+  });
+});
+
+describe('LiveKitAdapter greeting capability', () => {
+  const greetingId = MessageId('greeting:s1');
+  const greetingText = 'Welcome aboard.';
+
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    roomConstructCount = 0;
+    lifecycleOrder.length = 0;
+    mockRoomConnect.mockReset();
+    mockRoomConnect.mockImplementation(async () => {
+      lifecycleOrder.push('room.connect');
+    });
+    mockRoomDisconnect.mockReset();
+    mockRoomDisconnect.mockImplementation(async () => {});
+    mockSendText.mockReset();
+    mockSendText.mockImplementation(async () => ({}));
+    mockStartAudio.mockReset();
+    mockStartAudio.mockImplementation(async () => {
+      lifecycleOrder.push('startAudio');
+    });
+    mockCreateLocalAudioTrack.mockReset();
+    mockCreateLocalAudioTrack.mockImplementation(
+      async () => mockMicPublication.track,
+    );
+    mockPublishTrack.mockReset();
+    mockPublishTrack.mockImplementation(async () => mockMicPublication);
+    mockGetTrackPublication.mockReset();
+    mockGetTrackPublication.mockImplementation(() => mockMicPublication);
+    mockPauseUpstream.mockReset();
+    mockPauseUpstream.mockImplementation(async () => {});
+    mockPublishedMicTrack.enabled = false;
+    mockMicCloneTrack.enabled = false;
+    mockCreateLocalAudioPreRoll.mockReset();
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => {
+      throw new Error('AudioWorklet unavailable');
+    });
+  });
+
+  test('without activateAudio, speakAssistantText is not_started and never sends', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 20 });
+    await adapter.connect({ tools: [], instructions: '' });
+    // Ready packet would otherwise allow send — unlock gate is independent.
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('suppresses when tts_ready never arrives within greetingReadyWaitMs', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 30 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('ready packet unlocks SPEAK_TOPIC send of exact text and returns accepted', async () => {
+    const { adapter, events } = makeAdapter(undefined, {
+      greetingReadyWaitMs: 5000,
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+    });
+    // Yield so the waiter is registered, then announce ready.
+    await Promise.resolve();
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+    await expect(speak).resolves.toBe('accepted');
+    expectSpoke(greetingText);
+    expect(states(events).at(-1)).toBe('speaking');
+  });
+
+  test('abort while waiting for ready returns not_started without send', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 5000 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    const controller = new AbortController();
+    const speak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: controller.signal,
+    });
+    await Promise.resolve();
+    controller.abort();
+    await expect(speak).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('ambiguous send rejection returns terminal accepted and collapses local speaking state', async () => {
+    const { adapter, events } = makeAdapter(undefined, {
+      greetingReadyWaitMs: 5000,
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+
+    mockSendText.mockImplementationOnce(async () => {
+      throw new Error('send failed');
+    });
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('accepted');
+    // The adapter cannot prove non-delivery after sendText starts. It collapses
+    // local state but returns a terminal result so the coordinator cannot retry.
+    expect(states(events)).toContain('speaking');
+    expect(states(events).at(-1)).toBe('connected');
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  test('teardown resets ttsReady; a reconnect requires a fresh tts_ready', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 40 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+
+    await adapter.disconnect();
+
+    // Fresh room after reconnect — readiness must be re-announced.
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('a genuinely late tts_ready after teardown is a no-op under the room-currency guard', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 40 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    // Retain the old room's emitter, then tear the adapter down so `#room` no
+    // longer matches. A late ready packet on the abandoned room must not arm
+    // readiness for the next connection.
+    const oldRoom = currentRoom;
+    await adapter.disconnect();
+    oldRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+
+    currentRoom = makeMockRoom();
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('an earlier wait finish cannot clear a newer waiter deadline', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 60 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+
+    const firstAbort = new AbortController();
+    const firstSpeak = adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: firstAbort.signal,
+    });
+    await Promise.resolve();
+
+    const secondSpeak = adapter.speakAssistantText({
+      id: greetingId,
+      text: 'Later greeting',
+      signal: new AbortController().signal,
+    });
+    await Promise.resolve();
+
+    // Settling the replaced wait must not strip the active wait's timeout.
+    firstAbort.abort();
+    await expect(firstSpeak).resolves.toBe('not_started');
+
+    const secondOutcome = await Promise.race([
+      secondSpeak,
+      new Promise<'hung'>((resolve) => {
+        setTimeout(() => resolve('hung'), 200);
+      }),
+    ]);
+    expect(secondOutcome).toBe('not_started');
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('activateAudio constructs Room and invokes startAudio before token mint/connect', async () => {
+    const { adapter } = makeAdapter(async () => {
+      lifecycleOrder.push('mintToken');
+      return DEFAULT_GRANT;
+    });
+
+    adapter.activateAudio();
+    expect(lifecycleOrder).toEqual(['Room', 'startAudio']);
+    expect(roomConstructCount).toBe(1);
+    expect(mockStartAudio).toHaveBeenCalledTimes(1);
+
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(lifecycleOrder).toEqual([
+      'Room',
+      'startAudio',
+      'mintToken',
+      'room.connect',
+    ]);
+    // Prepared room is reused — connect must not construct a second Room.
+    expect(roomConstructCount).toBe(1);
+  });
+
+  test('activateAudio startAudio rejection is non-fatal and raises no unhandled rejection', async () => {
+    mockStartAudio.mockImplementation(async () => {
+      lifecycleOrder.push('startAudio');
+      throw new Error('autoplay blocked');
+    });
+
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const { adapter } = makeAdapter();
+      expect(() => adapter.activateAudio()).not.toThrow();
+      expect(mockStartAudio).toHaveBeenCalledTimes(1);
+      expect(lifecycleOrder).toEqual(['Room', 'startAudio']);
+      await Promise.resolve();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toEqual([]);
+
+      await expect(
+        adapter.connect({ tools: [], instructions: '' }),
+      ).resolves.toBeUndefined();
+      expect(roomConstructCount).toBe(1);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  test('reconnect after disconnect prepares a fresh room rather than reusing the old one', async () => {
+    const { adapter } = makeAdapter();
+    adapter.activateAudio();
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(roomConstructCount).toBe(1);
+
+    await adapter.disconnect();
+    currentRoom = makeMockRoom();
+    lifecycleOrder.length = 0;
+
+    adapter.activateAudio();
+    expect(roomConstructCount).toBe(2);
+    expect(lifecycleOrder).toEqual(['Room', 'startAudio']);
+
+    await adapter.connect({ tools: [], instructions: '' });
+    expect(roomConstructCount).toBe(2);
+  });
+
+  test('a second connect while joined still throws ALREADY_CONNECTED after activateAudio prepare', async () => {
+    const { adapter } = makeAdapter();
+    adapter.activateAudio();
+    await adapter.connect({ tools: [], instructions: '' });
+
+    let error: unknown;
+    try {
+      await adapter.connect({ tools: [], instructions: '' });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(RealtimeVoiceError);
+    expect((error as RealtimeVoiceError).code).toBe('ALREADY_CONNECTED');
+    expect(roomConstructCount).toBe(1);
   });
 });

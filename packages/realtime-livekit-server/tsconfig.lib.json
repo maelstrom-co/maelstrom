@@ -16,10 +16,7 @@
       "path": "../protocol/tsconfig.lib.json"
     },
     {
-      "path": "../realtime/tsconfig.lib.json"
-    },
-    {
-      "path": "../realtime-livekit/tsconfig.lib.json"
+      "path": "../realtime-protocol/tsconfig.lib.json"
     }
   ],
   "exclude": [

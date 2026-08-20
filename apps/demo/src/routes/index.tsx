@@ -4,6 +4,7 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { createFileRoute } from '@tanstack/react-router';
 import { useStore } from '@tanstack/react-store';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AssistantResponse } from '../components/assistant-response';
 import { Captions } from '../components/captions';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
 import { KeyDrawer } from '../components/key-drawer';
@@ -14,7 +15,11 @@ import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { DEFAULT_LAYOUT } from '../lib/default-layout';
 import { STATUS_COLORS } from '../lib/design-tokens';
-import { isHosted } from '../lib/hosted-mode';
+import {
+  isHosted,
+  usesBrowserKey,
+  usesBrowserOpenAIVoice,
+} from '../lib/hosted-mode';
 import { m } from '../lib/maelstrom';
 import {
   clearPlaygroundKey,
@@ -25,7 +30,7 @@ import { useFlashInstances } from '../lib/use-touched-instances';
 
 /**
  * True for a text-path (chart_request) failure caused by a rejected OpenAI
- * key — the hosted-mode analogue of the voice path's TOKEN_MINT_FAILED. The
+ * key — the browser-key analogue of the voice path's TOKEN_MINT_FAILED. The
  * wire error's `code` is the engine's `ProviderError._tag`, which covers
  * every LLM-adapter failure (network, rate limit, bad key); the message
  * text is what actually narrows it to a rejected key.
@@ -48,6 +53,7 @@ export const Route = createFileRoute('/')({
 // Router's per-route code-splitting costs nothing here.
 export function HomePage() {
   const hosted = isHosted();
+  const browserKeyMode = usesBrowserKey();
   // Bumping this forces a fresh <m.Provider key={keyEpoch}>, which remounts
   // the connector/session cleanly. useMaelstrom() exposes no public
   // disconnect(), so remount-by-key is the supported way to force a clean
@@ -56,10 +62,15 @@ export function HomePage() {
   // without one, so that handshake skipped the playground.hello frame) and
   // when it's cleared.
   const [keyEpoch, setKeyEpoch] = useState(0);
-  // Starts closed even when hosted and keyless — the playground renders
-  // keyless by design. It only opens via onRequireKey, when a Send/mic press
-  // actually needs a key that isn't there yet.
+  // Start closed on both server and client to keep hydration deterministic.
+  // A browser-owned localhost key is memory-only, so prompt after hydration
+  // whenever the local server starts without its own OpenAI key.
   const [drawerOpen, setDrawerOpen] = useState(false);
+  useEffect(() => {
+    if (!hosted && browserKeyMode && playgroundKeyStore.state.apiKey === null) {
+      setDrawerOpen(true);
+    }
+  }, [hosted, browserKeyMode]);
 
   // Lifted above <m.Provider key={keyEpoch}> so a key-save remount doesn't
   // wipe whatever the visitor already typed while the drawer was blocking
@@ -73,8 +84,8 @@ export function HomePage() {
   // happens to be sitting in the box on save.
   const [blockedSubmit, setBlockedSubmit] = useState(false);
 
-  // Populated when a voice mint fails in hosted mode, so the reopened
-  // drawer explains why rather than looking like an unprompted reappearance.
+  // Populated when a browser-key voice mint fails, so the reopened drawer
+  // explains why rather than looking like an unprompted reappearance.
   const [keyErrorMessage, setKeyErrorMessage] = useState<string | null>(null);
   // Stable across renders — passed as an effect dependency in DemoApp, and an
   // unstable reference there would re-fire that effect on every render while
@@ -127,7 +138,7 @@ export function HomePage() {
           onResumeIntentHandled={() => setResumeIntent(false)}
         />
       </m.Provider>
-      {hosted && (
+      {browserKeyMode && (
         <KeyDrawer
           isOpen={drawerOpen}
           onClose={() => {
@@ -135,13 +146,13 @@ export function HomePage() {
             setKeyErrorMessage(null);
             setBlockedSubmit(false);
           }}
-          onSave={(key, remember) => {
+          onSave={(key) => {
             // Re-entering (or merely viewing) the same key from the header
             // pill must not remount <m.Provider> mid-session — that would
             // mint a fresh sessionId and drop everything the LLM has
             // arranged so far. Only a genuine key change earns the reset.
             const keyChanged = key !== playgroundKeyStore.state.apiKey;
-            setPlaygroundKey(key, remember);
+            setPlaygroundKey(key);
             setDrawerOpen(false);
             setKeyErrorMessage(null);
             if (!keyChanged) {
@@ -188,15 +199,15 @@ function DemoApp({
   const { isProcessing } = m.useMaelstrom();
   const { state: voiceState, error: voiceError } = m.useVoice();
   const thinking = isProcessing || voiceState === 'thinking';
-  const hosted = isHosted();
+  const browserKeyMode = usesBrowserKey();
+  const browserOpenAIVoice = usesBrowserOpenAIVoice();
 
-  // In hosted/BYOK mode a mint failure means the visitor's key is missing or
-  // rejected, not a server misconfiguration — reopen the drawer with the
-  // mint layer's own safe error text (never the key, never raw upstream
-  // text) instead of leaving VoiceErrorNote's server-env copy as the only
-  // signal, since that copy doesn't apply once there's no server-side key.
+  // For browser-key OpenAI voice, a mint failure means the visitor's key is
+  // missing or rejected, not a server misconfiguration. Reopen the drawer
+  // with the mint layer's safe error text instead of VoiceErrorNote's
+  // server-env copy, which does not apply without a server-side key.
   useEffect(() => {
-    if (!hosted || voiceState !== 'error') return;
+    if (!browserOpenAIVoice || voiceState !== 'error') return;
     if (
       !(voiceError instanceof RealtimeVoiceError) ||
       voiceError.code !== 'TOKEN_MINT_FAILED'
@@ -209,7 +220,7 @@ function DemoApp({
         ? cause.message
         : "Voice couldn't start with that key. Check it and try again.",
     );
-  }, [hosted, voiceState, voiceError, onMintError]);
+  }, [browserOpenAIVoice, voiceState, voiceError, onMintError]);
 
   return (
     <div className="h-screen flex flex-col relative z-[2]">
@@ -227,7 +238,7 @@ function DemoApp({
           </div>
           <div className="flex items-center gap-3">
             <VoiceControl showOrb={false} />
-            {hosted && (
+            {browserKeyMode && (
               <button
                 type="button"
                 onClick={onRequireKey}
@@ -314,11 +325,17 @@ function IntentInput({
   resumeIntent,
   onResumeIntentHandled,
 }: IntentInputProps) {
-  const { processIntent, isProcessing, lastError, connectionStatus } =
-    m.useMaelstrom();
-  const hosted = isHosted();
+  const {
+    processIntent,
+    isProcessing,
+    lastError,
+    lastResponse,
+    connectionStatus,
+  } = m.useMaelstrom();
+  const { state: voiceState } = m.useVoice();
+  const browserKeyMode = usesBrowserKey();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
-  const needsKey = hosted && !apiKey;
+  const needsKey = browserKeyMode && !apiKey;
   // Last text actually submitted — read by the invalid-key effect below to
   // restore the draft after handleSubmit's unconditional clear, since
   // processIntent() resolving doesn't mean the request succeeded.
@@ -361,13 +378,13 @@ function IntentInput({
   // processIntent() is actually called — a sibling component's lastError is
   // a different piece of state.
   useEffect(() => {
-    if (!hosted || !lastError || !isInvalidKeyError(lastError)) return;
+    if (!browserKeyMode || !lastError || !isInvalidKeyError(lastError)) return;
     // handleSubmit already cleared the input unconditionally (processIntent
     // never rejects) — restore what was actually submitted before reopening
     // the drawer, so the visitor doesn't lose their draft to a rejected key.
     onIntentChange(submittedIntentRef.current);
     onMintError('Invalid API key.');
-  }, [hosted, lastError, onMintError, onIntentChange]);
+  }, [browserKeyMode, lastError, onMintError, onIntentChange]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -394,9 +411,14 @@ function IntentInput({
 
   return (
     <div
-      className="border-t p-4 bg-bg-1"
+      className="relative border-t p-4 bg-bg-1"
       style={{ borderColor: 'var(--line)' }}
     >
+      <AssistantResponse
+        isProcessing={isProcessing}
+        message={lastResponse?.userMessage}
+        voiceActive={voiceState !== 'idle' && voiceState !== 'error'}
+      />
       <VoiceErrorNote />
       {/* Captions stay in footer chrome (never under main): a chart-bottom
           scrim covered vessel flash borders, and in-flow height changes here
@@ -408,13 +430,19 @@ function IntentInput({
       >
         <m.VoiceOrb size={56} className="voice-orb" />
       </div>
+      <p
+        className="text-center text-xs mb-3 opacity-70"
+        data-testid="ai-voice-disclosure"
+      >
+        AI-generated voice
+      </p>
       <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
         <div className="flex gap-2">
           <input
             type="text"
             value={intent}
             onChange={(e) => onIntentChange(e.target.value)}
-            placeholder="Tell Maelstrom what you want to do..."
+            placeholder="Tell Maelstrom what you want to arrange..."
             className="intent-pill flex-1 px-4 py-3"
             disabled={isProcessing}
           />

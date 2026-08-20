@@ -1,6 +1,5 @@
 # @maelstrom-co/engine
 
-[![npm](https://img.shields.io/npm/v/@maelstrom-co/engine.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/engine)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
 
 Reference implementation of the Maelstrom orchestration engine. Given the current chart state, available vessels, and accumulated update reasons, it asks an LLM for a layout + execution plan and returns a structured response.

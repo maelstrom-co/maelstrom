@@ -83,7 +83,9 @@ export type {
 } from './lib/connection-manager/connection-manager.types.js';
 // Connector types (client-specific transport interfaces)
 export type {
+  AcknowledgedAssistantConnector,
   AssistantMessage,
+  AssistantMessageOutcome,
   CircuitStatus,
   ConnectionStatus,
   ConnectorCapabilities,
@@ -91,7 +93,10 @@ export type {
   EngineConnector,
   PushConnector,
 } from './lib/connection-manager/connector.types.js';
-export { WireEngineError } from './lib/connection-manager/connector.types.js';
+export {
+  isAcknowledgedAssistantConnector,
+  WireEngineError,
+} from './lib/connection-manager/connector.types.js';
 export {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_PING_FRAME,

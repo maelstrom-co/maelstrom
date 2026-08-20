@@ -1,7 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 
 import { InstanceId } from './instance.js';
-import { isInstanceIdNode, isTilingSplit } from './response.js';
+import {
+  type GridLayout,
+  getVisibleInstanceIds,
+  isInstanceIdNode,
+  isTilingSplit,
+  type TilingLayout,
+  type TilingNode,
+} from './response.js';
+import { VariantName } from './variant-name.js';
+import { VesselId } from './vessel-id.js';
 
 describe('isInstanceIdNode', () => {
   test('true for a branded instance id', () => {
@@ -39,6 +48,160 @@ describe('isTilingSplit', () => {
 
   test('false for null', () => {
     expect(isTilingSplit(null)).toBe(false);
+  });
+});
+
+describe('getVisibleInstanceIds', () => {
+  const weatherId = InstanceId('weather-1');
+  const calendarId = InstanceId('calendar-1');
+  const tasksId = InstanceId('tasks-1');
+
+  test('returns only tiling tree leaves', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: ['H', weatherId, 'V', null, calendarId],
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId, calendarId]);
+  });
+
+  test('handles a depth-5000 right spine without overflowing the call stack', () => {
+    const depth = 5000;
+    const tree: TilingNode[] = [];
+    const expected: InstanceId[] = [];
+
+    for (let index = 0; index < depth; index += 1) {
+      const instanceId = InstanceId(`instance-${index}`);
+      tree.push('H', instanceId);
+      expected.push(instanceId);
+    }
+
+    const finalInstanceId = InstanceId(`instance-${depth}`);
+    tree.push(finalInstanceId);
+    expected.push(finalInstanceId);
+
+    const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual(expected);
+  });
+
+  test('handles a 10k all-splits malformed tree without visible leaves', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: new Array<TilingNode>(10_000).fill('H'),
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([]);
+  });
+
+  test.each([
+    {
+      name: 'a split with both children missing',
+      tree: ['H'] satisfies readonly TilingNode[],
+      expected: [],
+    },
+    {
+      name: 'a split with its right child missing',
+      tree: ['H', weatherId] satisfies readonly TilingNode[],
+      expected: [weatherId],
+    },
+    {
+      name: 'a nested split with its final child missing',
+      tree: ['H', weatherId, 'V', calendarId] satisfies readonly TilingNode[],
+      expected: [weatherId, calendarId],
+    },
+  ])('collects encountered leaves from $name', ({ tree, expected }) => {
+    const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([...expected]);
+  });
+
+  test('deduplicates repeated tiling leaves', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: ['H', weatherId, weatherId],
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId]);
+  });
+
+  test('returns grid position instance IDs', () => {
+    const layout: GridLayout = {
+      type: 'grid',
+      positions: [
+        {
+          instanceId: weatherId,
+          position: { row: 0, column: 0 },
+          size: { width: 1, height: 1 },
+        },
+        {
+          instanceId: calendarId,
+          position: { row: 0, column: 1 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId, calendarId]);
+  });
+
+  test('deduplicates repeated grid positions', () => {
+    const layout: GridLayout = {
+      type: 'grid',
+      positions: [
+        {
+          instanceId: tasksId,
+          position: { row: 0, column: 0 },
+          size: { width: 1, height: 1 },
+        },
+        {
+          instanceId: tasksId,
+          position: { row: 1, column: 0 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([tasksId]);
+  });
+
+  test('returns no visible Instances for a null layout', () => {
+    expect([...getVisibleInstanceIds(null)]).toEqual([]);
+  });
+
+  test('ignores trailing tiling tokens after the first complete tree', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: [weatherId, calendarId],
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId]);
+  });
+
+  test('does not treat tiling declarations omitted from the tree as visible', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: [weatherId],
+      instances: [
+        {
+          instanceId: weatherId,
+          vesselId: VesselId('weather'),
+          variant: VariantName('default'),
+        },
+        {
+          instanceId: calendarId,
+          vesselId: VesselId('calendar'),
+          variant: VariantName('default'),
+        },
+      ],
+    };
+
+    expect(getVisibleInstanceIds(layout).has(weatherId)).toBe(true);
+    expect(getVisibleInstanceIds(layout).has(calendarId)).toBe(false);
   });
 });
 

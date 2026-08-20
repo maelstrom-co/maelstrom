@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 import type { ChartRequest, EngineMessage } from '@maelstrom-co/protocol';
 import {
+  ActionName,
   AssistantInjectionMessage,
   ChartRequestMessage,
   InstanceId,
@@ -587,7 +588,17 @@ describe('engine.handle — chart_request', () => {
                   props: {},
                   minSize: { width: 4, height: 4 },
                   actions: [
-                    { name: 'showWeek', description: 'Show week view' },
+                    {
+                      name: 'showWeek',
+                      description: 'Show week view',
+                      parameters: [
+                        {
+                          name: 'weekStart',
+                          type: 'string',
+                          description: 'First day of the week',
+                        },
+                      ],
+                    },
                   ],
                 },
               },
@@ -603,6 +614,48 @@ describe('engine.handle — chart_request', () => {
     expect(result.value.response.executionPlan[0]?.params).toEqual({
       weekStart: '2026-04-06',
     });
+  });
+
+  test.each([
+    ['empty', '', 'empty-user-message-secret-8d41e2'],
+    ['whitespace-only', ' \t\n ', 'whitespace-user-message-secret-c390af'],
+  ])('redacts model output when userMessage is %s', async (_case, userMessage, secret) => {
+    const logged: unknown[][] = [];
+    const logger: Parameters<typeof createEngine>[0]['logger'] = {
+      debug: () => undefined,
+      info: () => undefined,
+      warn: () => undefined,
+      error: (message, error, data) => logged.push([message, error, data]),
+    };
+    mockChat.mockResolvedValueOnce(
+      buildGridResponse({
+        userMessage,
+        executionPlan: [
+          {
+            instanceId: 'calendar-main',
+            action: 'showWeek',
+            paramsJson: JSON.stringify({ nested: { value: secret } }),
+          },
+        ],
+      }),
+    );
+    const engine = createEngine({ adapter: dummyAdapter, logger });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('ParseError');
+    if (result.error._tag !== 'ParseError') return;
+    expect(result.error.raw).toBe('userMessage');
+    const serializedError = JSON.stringify(result.error);
+    const serializedLogs = JSON.stringify(logged);
+    expect(serializedError).not.toContain('paramsJson');
+    expect(serializedError).not.toContain(secret);
+    expect(serializedLogs).not.toContain('paramsJson');
+    expect(serializedLogs).not.toContain(secret);
   });
 
   test('processes a tiling-mode request end-to-end', async () => {
@@ -1015,6 +1068,162 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     if (!isErr(result)) return;
     expect(result.error._tag).toBe('ParseError');
     expect(mockChat).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('engine.handle — request enum snapshot', () => {
+  test('reuses the exact prompt enum snapshot for stateful toJSON validation', async () => {
+    let toJSONCalls = 0;
+    const statefulValue = {
+      toJSON: () => ({ id: ++toJSONCalls }),
+    };
+    const base = makeGridRequest();
+    const calendar = base.vessels[0];
+    expect(calendar).toBeDefined();
+    if (calendar === undefined) return;
+    const month = calendar.variants[calendar.defaultVariant];
+    expect(month).toBeDefined();
+    if (month === undefined) return;
+    const showWeek = month.actions[0];
+    expect(showWeek).toBeDefined();
+    if (showWeek === undefined) return;
+
+    const request: ChartRequest = {
+      ...base,
+      vessels: [
+        {
+          ...calendar,
+          variants: {
+            ...calendar.variants,
+            [calendar.defaultVariant]: {
+              ...month,
+              actions: [
+                {
+                  ...showWeek,
+                  parameters: [
+                    {
+                      name: 'selection',
+                      type: 'object',
+                      description: 'Selected view',
+                      enum: [statefulValue],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    const action = {
+      instanceId: 'calendar-main',
+      action: 'showWeek',
+      paramsJson: '{"selection":{"id":1}}',
+    };
+    mockChat.mockResolvedValueOnce(
+      buildGridResponse({
+        executionPlan: [action],
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 15, height: 4 },
+            },
+          ],
+        },
+      }),
+    );
+    mockChat.mockResolvedValueOnce(
+      buildGridResponse({ executionPlan: [action] }),
+    );
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      maxRetries: 1,
+    });
+    const result = await engine.handle(toChartRequestMessage(request));
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'chart_response') return;
+    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(toJSONCalls).toBe(1);
+    expect(getLastUserMessage(mockChat, 0)).toContain('selection: {"id":1}');
+    expect(getLastUserMessage(mockChat, 1)).toContain('selection: {"id":1}');
+    expect(getLastUserMessage(mockChat, 1)).not.toContain('had invalid params');
+    expect(result.value.response.executionPlan).toEqual([
+      {
+        instanceId: InstanceId('calendar-main'),
+        action: ActionName('showWeek'),
+        params: { selection: { id: 1 } },
+      },
+    ]);
+  });
+
+  test('rejects duplicate parameter definitions before calling the adapter', async () => {
+    let promptCustomizerCalls = 0;
+    const base = makeGridRequest();
+    const calendar = base.vessels[0];
+    expect(calendar).toBeDefined();
+    if (calendar === undefined) return;
+    const month = calendar.variants[calendar.defaultVariant];
+    expect(month).toBeDefined();
+    if (month === undefined) return;
+    const showWeek = month.actions[0];
+    expect(showWeek).toBeDefined();
+    if (showWeek === undefined) return;
+    const request: ChartRequest = {
+      ...base,
+      vessels: [
+        {
+          ...calendar,
+          variants: {
+            ...calendar.variants,
+            [calendar.defaultVariant]: {
+              ...month,
+              actions: [
+                {
+                  ...showWeek,
+                  parameters: [
+                    {
+                      name: 'duplicate',
+                      type: 'string',
+                      description: 'First definition',
+                    },
+                    {
+                      name: 'duplicate',
+                      type: 'number',
+                      description: 'Second definition',
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      prompt: {
+        user: {
+          vessels: (defaults) => {
+            promptCustomizerCalls++;
+            return defaults;
+          },
+        },
+      },
+    });
+    const result = await engine.handle(toChartRequestMessage(request));
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('RequestValidationError');
+    expect(promptCustomizerCalls).toBe(0);
+    expect(mockChat).not.toHaveBeenCalled();
   });
 });
 

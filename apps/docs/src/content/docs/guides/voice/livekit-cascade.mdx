@@ -123,7 +123,7 @@ Fetch the grant with same-origin credentials and a CSRF proof, then validate the
 import {
   type LiveKitTokenGrant,
   LiveKitTokenGrantSchema,
-} from '@maelstrom-co/realtime-livekit/token';
+} from '@maelstrom-co/realtime-protocol/livekit';
 
 export async function fetchAuthenticatedLiveKitToken(): Promise<LiveKitTokenGrant> {
   const response = await fetch('/api/livekit-token', {
@@ -140,7 +140,7 @@ export async function fetchAuthenticatedLiveKitToken(): Promise<LiveKitTokenGran
 }
 ```
 
-`LiveKitTokenGrantSchema` comes from the `@maelstrom-co/realtime-livekit/token` entry point, which carries the grant schema without pulling in the LiveKit browser transport. The request sends the app's session credentials and CSRF token, and no client-selected room or participant identity. The schema requires a non-empty token, a `ws:` or `wss:` LiveKit URL, and an absolute expiry in Unix seconds. Shape validation does not replace endpoint authentication or authorization.
+`LiveKitTokenGrantSchema` comes from the `@maelstrom-co/realtime-protocol/livekit` entry point, which carries the grant schema without pulling in the LiveKit browser transport. The request sends the app's session credentials and CSRF token, and no client-selected room or participant identity. The schema requires a non-empty token, a `ws:` or `wss:` LiveKit URL, and an absolute expiry in Unix seconds. Shape validation does not replace endpoint authentication or authorization.
 
 ## Start the STT/TTS worker
 
@@ -213,7 +213,11 @@ export const m = createMaelstrom({ vessels }).with(
 
 The `roomName` option remains necessary to satisfy the generic adapter API, and the adapter forwards it only to `mintToken(roomName)`. It is not an authorization input in this integration. The browser fetch sends no room or identity in its body; the authenticated endpoint's signed grant is the authority used when LiveKit joins the participant.
 
-`connect()` joins the room, acquires the microphone track locally, mutes it, and only then publishes it and pauses it upstream. The order is deliberate: `setMicrophoneEnabled(true)` would publish an enabled track before the adapter could apply its gate, so the adapter does not use it. This implementation therefore requests microphone access during connection, before the first held turn. The browser retains microphone access while the published track is muted, until `disconnect()` leaves the room and stops the adapter's media resources. Starting a turn changes the existing track's mute state; it does not acquire or release microphone permission. Turn boundaries are found in the browser, not by LiveKit or the worker — see [Configure browser VAD](#configure-browser-vad) next.
+`connect()` joins the room and asks LiveKit to capture with echo cancellation (AEC), noise suppression (NS), and automatic gain control (AGC). These plain-boolean constraints are best-effort browser preferences, not guarantees for a device, operating system, or audio route. The adapter inspects the accepted original track, clones it for local metering, VAD, and pre-roll, mutes the LiveKit track, and only then publishes it and pauses it upstream. The order is deliberate: `setMicrophoneEnabled(true)` would publish an enabled track before the adapter could apply its gate, so the adapter does not use it.
+
+With `debug: true`, the adapter logs only the three requested values and the original track's applied values as `true`, `false`, or `unavailable`; it never treats the local clone as evidence for the transmitted track. A missing or throwing settings API, missing field, or non-boolean value becomes `unavailable` without failing connection. The diagnostic excludes tracks, streams, the complete settings object, device identity, and audio. It reports bounded browser settings, not acoustic success.
+
+This implementation requests microphone access during connection, before the first turn. The local clone remains enabled for detection while the published track stays muted and upstream-paused outside an admitted turn. The browser retains microphone access until `disconnect()` leaves the room and stops the adapter's media resources. Starting a turn changes the existing gated track; it does not reacquire permission. Passing `vad: false` changes only turn detection and keeps the same capture preferences and privacy gate. Turn boundaries are found in the browser, not by LiveKit or the worker — see [Configure browser VAD](#configure-browser-vad) next.
 
 Token expiry is checked for each initial or fresh room connection, including an explicit `connect()` after `disconnect()`. It does not impact LiveKit SDK-managed reconnects for an already connected participant because LiveKit pushes refreshed tokens to connected clients, and the SDK uses the refreshed token for managed reconnects. Expiry alone does not disconnect an active participant or end the room. Each fresh `connect()` invokes `mintToken`; the adapter does not read `expiresAt` or schedule proactive renewal. Expiry does not impose a maximum room duration or schedule adapter cleanup, so production hosts must enforce their own maximum session duration, call `disconnect()` on policy termination, and clean up abandoned rooms and participants separately.
 
@@ -226,7 +230,7 @@ Automatic mode needs asset files that this package does not publish for you. Cop
 ```json title="package.json"
 {
   "scripts": {
-    "prepare:vad": "maelstrom-livekit-assets public/vad-web",
+    "prepare:vad": "maelstrom-vad-assets public/vad-web",
     "build": "bun run prepare:vad && vite build"
   }
 }
@@ -252,7 +256,7 @@ new LiveKitAdapter({
 });
 ```
 
-Raising `positiveSpeechThreshold` cuts false interruptions and starts missing quiet speakers. `preRollMs` is the audio sent at the start of a turn so the first word survives; the provider's `preSpeechPadMs` is a different setting and does not do this. [`LiveKitBrowserVadOptions`](/reference/realtime-livekit/packages/realtime-livekit/src/interfaces/livekitbrowservadoptions/) lists every key and its accepted values.
+Raising `positiveSpeechThreshold` cuts false interruptions and starts missing quiet speakers. `preRollMs` is the audio sent at the start of a turn so the first word survives; the provider's `preSpeechPadMs` is a different setting and does not do this. [`BrowserVadOptions`](/reference/realtime-vad/packages/realtime-vad/src/interfaces/browservadoptions/) lists every key and its accepted values.
 
 To take the boundary yourself instead, turn detection off:
 
@@ -271,7 +275,7 @@ import {
   SPEAK_TOPIC,
   TURN_TOPIC,
   TTS_TOPIC,
-} from "@maelstrom-co/realtime-livekit/protocol";
+} from "@maelstrom-co/realtime-protocol/livekit-wire";
 ```
 
 `TURN_TOPIC` carries turn-end and TTS-cancel data messages. `SPEAK_TOPIC` carries settled result text to the worker, and `TTS_TOPIC` carries playout-complete or synthesis-error status back to the browser. Application code normally lets the adapter and worker publish these messages.
@@ -493,6 +497,8 @@ Check one complete held turn across all three roles:
 - **Worker:** the separately deployed worker joins the authorized room and publishes one final transcript when the held turn ends.
 - **Lifecycle:** a successful turn progresses through the observable `listening`, `thinking`, and `speaking` states; the final transcript becomes ordinary intent, the intent renders, and TTS follows settle rather than predicting the result. An empty held turn instead produces no final transcript, intent or Engine request, or spoken response, then returns to `connected` after the bounded fallback.
 
+Unit tests can verify requested options, original-track inspection, and the mute/publish/pause order. They cannot establish mobile acoustics. Before claiming that AEC prevents self-triggering while preserving interruption, run the release protocol in [Validate browser audio processing](/understanding/browser-vad-and-barge-in/#validate-browser-audio-processing), including the LiveKit idle/upstream privacy checks.
+
 ## Harden the mint route
 
 The route above authenticates and derives scope on the server. Add these before it is reachable from the internet. Each one closes a specific hole:
@@ -553,9 +559,9 @@ Teams may accept the custom-worker cost to specialize recognition by language or
 
 Use the generated reference for the public contracts used in this guide:
 
-- [`LiveKitAdapter`](/reference/realtime-livekit/packages/realtime-livekit/src/classes/livekitadapter/) from the `@maelstrom-co/realtime-livekit` root
-- [`SPEAK_TOPIC`](/reference/realtime-livekit/packages/realtime-livekit/src/protocol/variables/speak_topic/) from `@maelstrom-co/realtime-livekit/protocol`
-- [`LiveKitTokenGrantSchema`](/reference/realtime-livekit/packages/realtime-livekit/src/livekit-token/variables/livekittokengrantschema/) from `@maelstrom-co/realtime-livekit/token`
+- [`LiveKitAdapter`](/reference/realtime-livekit/classes/livekitadapter/) from the `@maelstrom-co/realtime-livekit` root
+- [`SPEAK_TOPIC`](/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/speak_topic/) from `@maelstrom-co/realtime-protocol/livekit-wire`
+- [`LiveKitTokenGrantSchema`](/reference/realtime-protocol/packages/realtime-protocol/src/livekit/variables/livekittokengrantschema/) from `@maelstrom-co/realtime-protocol/livekit`
 - [`mintLiveKitToken`](/reference/realtime-livekit-server/functions/mintlivekittoken/) and [`LiveKitTokenRequestSchema`](/reference/realtime-livekit-server/variables/livekittokenrequestschema/) from `@maelstrom-co/realtime-livekit-server`
 - [`defineMaelstromVoiceAgent`](/reference/realtime-livekit-agent/functions/definemaelstromvoiceagent/) and [`runVoiceAgent`](/reference/realtime-livekit-agent/functions/runvoiceagent/) from `@maelstrom-co/realtime-livekit-agent`
 

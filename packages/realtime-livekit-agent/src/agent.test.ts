@@ -8,6 +8,34 @@ const END_OF_STREAM = Symbol('END_OF_STREAM');
 // Placeholder constructor for SDK classes whose behavior is irrelevant here.
 class Stub {}
 
+/** Minimal Cartesia TTS double used by maelstromVoiceJob setup. */
+class TtsStub {
+  sampleRate = 24_000;
+  numChannels = 1;
+  on(_event: string, _handler: (...args: unknown[]) => void): void {}
+  stream() {
+    return {
+      pushText() {},
+      flush() {},
+      endInput() {},
+      close() {},
+      async *[Symbol.asyncIterator]() {},
+    };
+  }
+}
+
+class SttStub {
+  stream() {
+    return {
+      pushFrame() {},
+      endInput() {},
+      close() {},
+      async *[Symbol.asyncIterator]() {},
+    };
+  }
+}
+
+const mockCreateAudioTrack = mock(() => ({}));
 const runApp = mock(() => {});
 mock.module('@livekit/agents', () => ({
   cli: { runApp },
@@ -16,15 +44,16 @@ mock.module('@livekit/agents', () => ({
   stt: { SpeechEventType: { FINAL_TRANSCRIPT: 'final_transcript' } },
   tts: { SynthesizeStream: { END_OF_STREAM } },
 }));
-mock.module('@livekit/agents-plugin-deepgram', () => ({ STT: Stub }));
-mock.module('@livekit/agents-plugin-cartesia', () => ({ TTS: Stub }));
+mock.module('@livekit/agents-plugin-deepgram', () => ({ STT: SttStub }));
+mock.module('@livekit/agents-plugin-cartesia', () => ({ TTS: TtsStub }));
 mock.module('@livekit/rtc-node', () => ({
   AudioSource: Stub,
   AudioStream: Stub,
-  LocalAudioTrack: { createAudioTrack: mock(() => ({})) },
+  LocalAudioTrack: { createAudioTrack: mockCreateAudioTrack },
   RoomEvent: {
     DataReceived: 'dataReceived',
     TrackSubscribed: 'trackSubscribed',
+    ParticipantConnected: 'participantConnected',
   },
   TrackKind: { KIND_AUDIO: 'audio' },
   TrackPublishOptions: Stub,
@@ -48,10 +77,10 @@ const {
   createTurnAggregator,
   createSubscribedMicrophoneTrackHandler,
   createTurnControlHandler,
-} = await import('./agent');
-const { SPEAK_UTTERANCE_ID_ATTR, TURN_TOPIC } = await import(
-  '@maelstrom-co/realtime-livekit/protocol'
-);
+  maelstromVoiceJob,
+} = await import('./agent.ts');
+const { SPEAK_UTTERANCE_ID_ATTR, SPEAK_TOPIC, TTS_READY_TOPIC, TURN_TOPIC } =
+  await import('@maelstrom-co/realtime-protocol/livekit-wire');
 
 describe('privacy-safe worker diagnostics', () => {
   test('keeps only fixed reason and own boolean or finite-number metadata', () => {
@@ -255,6 +284,7 @@ describe('privacy-safe worker diagnostics', () => {
       'tts-synthesis-failed',
       'tts-cancellation-failed',
       'tts-status-publication-failed',
+      'tts-ready-publication-failed',
       'transcript-publication-failed',
       'overlapping-microphone-track',
       'audio-track-processing-failed',
@@ -2568,5 +2598,210 @@ describe('createSpeakHandler', () => {
       expect(errorIds).toEqual([40]);
     });
     expect(rejections).toEqual([]);
+  });
+});
+
+describe('maelstromVoiceJob greeting readiness', () => {
+  function makeJobContext(opts: {
+    user: { identity: string; trackPublications: Map<string, unknown> } | null;
+    publishDataImpl?: (
+      data: Uint8Array,
+      options: { reliable?: boolean; topic?: string },
+    ) => Promise<void>;
+  }) {
+    const order: string[] = [];
+    const roomHandlers: Record<
+      string,
+      Array<(...args: unknown[]) => void>
+    > = {};
+    const publishTrack = mock(async () => {
+      order.push('publishTrack');
+    });
+    const registerTextStreamHandler = mock((topic: string) => {
+      order.push(`register:${topic}`);
+    });
+    const publishData = mock(
+      async (
+        data: Uint8Array,
+        options: { reliable?: boolean; topic?: string },
+      ) => {
+        order.push(`publishData:${options.topic ?? ''}`);
+        if (opts.publishDataImpl) await opts.publishDataImpl(data, options);
+      },
+    );
+    const shutdown = mock((_reason?: string) => {});
+    const room = {
+      localParticipant: {
+        publishTrack,
+        publishData,
+        publishTranscription: mock(async () => {}),
+      },
+      registerTextStreamHandler,
+      on: mock((event: string, handler: (...args: unknown[]) => void) => {
+        if (!roomHandlers[event]) roomHandlers[event] = [];
+        roomHandlers[event].push(handler);
+      }),
+    };
+    const ctx = {
+      connect: mock(async () => {}),
+      waitForParticipant: mock(async () => {
+        if (!opts.user) {
+          // Never resolves — waitForParticipantOrTimeout races the deadline.
+          return new Promise(() => {});
+        }
+        return opts.user;
+      }),
+      shutdown,
+      room,
+    };
+    return {
+      ctx: ctx as unknown as JobContext,
+      order,
+      publishTrack,
+      registerTextStreamHandler,
+      publishData,
+      shutdown,
+      emitParticipantConnected(participant: { identity: string }) {
+        for (const handler of roomHandlers.participantConnected ?? []) {
+          handler(participant);
+        }
+      },
+    };
+  }
+
+  test('publishes tts_ready once after publishTrack and SPEAK_TOPIC registration', async () => {
+    const harness = makeJobContext({
+      user: { identity: 'user', trackPublications: new Map() },
+    });
+
+    await maelstromVoiceJob(harness.ctx);
+
+    expect(harness.order).toEqual([
+      'publishTrack',
+      `register:${SPEAK_TOPIC}`,
+      `publishData:${TTS_READY_TOPIC}`,
+    ]);
+    expect(harness.publishData).toHaveBeenCalledTimes(1);
+    const [payload, options] = harness.publishData.mock.calls[0] as unknown as [
+      Uint8Array,
+      { reliable: boolean; topic: string },
+    ];
+    expect(JSON.parse(new TextDecoder().decode(payload))).toEqual({
+      type: 'tts_ready',
+    });
+    expect(options).toEqual({ reliable: true, topic: TTS_READY_TOPIC });
+  });
+
+  test('never publishes tts_ready when the user participant never joins', async () => {
+    const harness = makeJobContext({ user: null });
+    // Exercise the falsy-participant shutdown path without waiting the real
+    // 60s join timeout: resolve waitForParticipant to undefined so the job
+    // takes the same `if (!userParticipant)` branch as a timed-out join.
+    harness.ctx.waitForParticipant = (async () =>
+      undefined) as unknown as JobContext['waitForParticipant'];
+
+    await maelstromVoiceJob(harness.ctx);
+
+    expect(harness.shutdown).toHaveBeenCalled();
+    expect(harness.publishTrack).not.toHaveBeenCalled();
+    expect(harness.publishData).not.toHaveBeenCalled();
+    expect(harness.order.some((s) => s.includes(TTS_READY_TOPIC))).toBe(false);
+  });
+
+  test('publishData rejection for tts_ready is non-fatal and still finishes setup', async () => {
+    const diagnostics: unknown[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      diagnostics.push(args);
+    };
+    try {
+      const harness = makeJobContext({
+        user: { identity: 'user', trackPublications: new Map() },
+        publishDataImpl: async () => {
+          throw new Error('publish failed');
+        },
+      });
+
+      await expect(maelstromVoiceJob(harness.ctx)).resolves.toBeUndefined();
+      expect(harness.order).toEqual([
+        'publishTrack',
+        `register:${SPEAK_TOPIC}`,
+        `publishData:${TTS_READY_TOPIC}`,
+      ]);
+      expect(JSON.stringify(diagnostics)).toContain(
+        'tts-ready-publication-failed',
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  test('re-publishes tts_ready when the bound user participant reconnects', async () => {
+    const harness = makeJobContext({
+      user: { identity: 'user', trackPublications: new Map() },
+    });
+
+    await maelstromVoiceJob(harness.ctx);
+    expect(harness.publishData).toHaveBeenCalledTimes(1);
+
+    harness.emitParticipantConnected({ identity: 'user' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(harness.publishData).toHaveBeenCalledTimes(2);
+    const payloads = harness.publishData.mock.calls.map((call) =>
+      JSON.parse(new TextDecoder().decode(call[0] as Uint8Array)),
+    );
+    expect(payloads).toEqual([{ type: 'tts_ready' }, { type: 'tts_ready' }]);
+    expect(harness.publishData.mock.calls[1]?.[1]).toEqual({
+      reliable: true,
+      topic: TTS_READY_TOPIC,
+    });
+  });
+
+  test('does not re-publish tts_ready for an unrelated participant identity', async () => {
+    const harness = makeJobContext({
+      user: { identity: 'user', trackPublications: new Map() },
+    });
+
+    await maelstromVoiceJob(harness.ctx);
+    harness.emitParticipantConnected({ identity: 'spectator' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(harness.publishData).toHaveBeenCalledTimes(1);
+  });
+
+  test('ParticipantConnected tts_ready republish rejection is non-fatal without unhandled rejection', async () => {
+    const diagnostics: unknown[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      diagnostics.push(args);
+    };
+    try {
+      let publishCount = 0;
+      const rejections = await captureUnhandledRejections(async () => {
+        const harness = makeJobContext({
+          user: { identity: 'user', trackPublications: new Map() },
+          publishDataImpl: async () => {
+            publishCount += 1;
+            if (publishCount > 1) throw new Error('republish failed');
+          },
+        });
+
+        await maelstromVoiceJob(harness.ctx);
+        harness.emitParticipantConnected({ identity: 'user' });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(harness.publishData).toHaveBeenCalledTimes(2);
+        expect(JSON.stringify(diagnostics)).toContain(
+          'tts-ready-publication-failed',
+        );
+      });
+      expect(rejections).toEqual([]);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 });

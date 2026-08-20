@@ -11,6 +11,8 @@ export class FakeRealtimeSession {
   lastError: unknown = undefined;
   connectCalls = 0;
   disconnectCalls = 0;
+  /** Demo-boundary once-per-instance greeting emission (no coordinator logic). */
+  greetingEmitted = false;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
 
@@ -21,6 +23,20 @@ export class FakeRealtimeSession {
   async connect(): Promise<void> {
     this.connectCalls += 1;
     this.emitState('connected');
+  }
+
+  /**
+   * Emit the configured greeting as one final assistant transcript, once per
+   * instance. No-op when unconfigured or already emitted. Does not auto-fire
+   * from `connect()` — keeps existing tests deterministic.
+   */
+  emitGreeting(): void {
+    const greeting = (
+      this.options as { greeting?: { text?: string } } | undefined
+    )?.greeting?.text;
+    if (this.greetingEmitted || !greeting) return;
+    this.greetingEmitted = true;
+    this.emitTranscript({ role: 'assistant', text: greeting, final: true });
   }
 
   async disconnect(): Promise<void> {

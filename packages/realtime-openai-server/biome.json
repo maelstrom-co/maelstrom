@@ -1,0 +1,44 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
+  "extends": "//",
+  "linter": {
+    "rules": {
+      "style": {
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "@maelstrom-co/client": {
+                "message": "Server and worker packages may not import @maelstrom-co/client — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/react": {
+                "message": "Server and worker packages may not import @maelstrom-co/react — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/react-realtime": {
+                "message": "Server and worker packages may not import @maelstrom-co/react-realtime — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/react/_testing": {
+                "message": "Server and worker packages may not import @maelstrom-co/react/_testing — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-livekit": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-livekit — it's a browser package (it peer-depends on the livekit-client WebRTC SDK). See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-openai": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-openai — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-vad": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-vad — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-vad/assets": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-vad/assets — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

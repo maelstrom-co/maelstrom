@@ -2,8 +2,9 @@ import { isOk } from '@maelstrom-co/protocol';
 import {
   createOpenAIMinter,
   mintFailureHttpStatus,
-} from '@maelstrom-co/realtime-server';
+} from '@maelstrom-co/realtime-openai-server';
 import { createFileRoute } from '@tanstack/react-router';
+import { DEMO_OPENAI_VOICE } from '../../lib/demo-greeting-tts';
 import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
 
 /**
@@ -11,11 +12,12 @@ import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
  * OPENAI_API_KEY never leaves this server-only minter — see
  * createOpenAIMinter for the mint contract. This route owns the HTTP
  * transport concerns (method check, body parsing, status mapping) that the
- * minter itself is agnostic to.
+ * minter itself is agnostic to. Output voice is trusted server config only.
  */
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY ?? '',
   model: process.env.OPENAI_REALTIME_MODEL?.trim() || DEFAULT_REALTIME_MODEL,
+  voice: DEMO_OPENAI_VOICE,
 });
 
 export async function handleRealtimeTokenRequest(

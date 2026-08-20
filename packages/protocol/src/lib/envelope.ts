@@ -3,7 +3,8 @@ import { z } from 'zod';
 import type { Mutable } from './_drift-guards.ts';
 import { ActionName } from './action-name.ts';
 import {
-  type AssistantInjectionMessage,
+  AssistantInjectionMessage,
+  AssistantInjectionMessageSchema,
   type ChartRequestMessage,
   EngineMessageSchema,
 } from './engine-message.ts';
@@ -115,17 +116,67 @@ export const HistoryGetMessageSchema = z.object({
 });
 
 /**
+ * An opt-in assistant-history injection that requests a correlated
+ * {@link AssistantMessageResultMessage}. It carries the same payload and
+ * validation invariants as the legacy `assistant_message` envelope, but its
+ * distinct transport-only discriminator lets legacy injections remain
+ * fire-and-forget.
+ */
+export interface AcknowledgedAssistantMessage
+  extends Omit<AssistantInjectionMessage, 'type'> {
+  /** Selects the opt-in, correlated assistant-injection wire path. */
+  readonly type: 'client.assistant_message.acknowledged';
+}
+
+/**
+ * Constructs an acknowledged assistant-history injection.
+ *
+ * Defaults `id` and `timestamp` exactly like {@link AssistantInjectionMessage},
+ * then validates the complete wire value. Empty or whitespace-only ids and
+ * session ids, empty content, and non-finite timestamps throw synchronously.
+ * The host echoes the generated or supplied id in either the result or a
+ * correlated error. Unlike the legacy constructor, this discriminator opts in
+ * to that response.
+ */
+export const AcknowledgedAssistantMessage = (args: {
+  /** Session whose history receives the assistant entry. */
+  sessionId: SessionId;
+  /** Non-empty assistant text persisted without invoking the LLM. */
+  content: string;
+  /** Correlation and deduplication id; generated when omitted. */
+  id?: MessageId;
+  /** Finite event time in milliseconds; defaults to `Date.now()`. */
+  timestamp?: number;
+}): AcknowledgedAssistantMessage =>
+  AcknowledgedAssistantMessageSchema.parse({
+    ...AssistantInjectionMessage(args),
+    type: 'client.assistant_message.acknowledged',
+  });
+
+/**
+ * Wire parser for {@link AcknowledgedAssistantMessage}. Reuses the legacy
+ * assistant payload schema so both request forms enforce branded non-empty ids,
+ * a finite timestamp, and non-empty content identically.
+ */
+export const AcknowledgedAssistantMessageSchema =
+  AssistantInjectionMessageSchema.extend({
+    type: z.literal('client.assistant_message.acknowledged'),
+  });
+
+/**
  * Every message a client may send to an engine host over the duplex stream.
  *
  * Every {@link ChartRequestMessage} / {@link AssistantInjectionMessage} —
  * i.e. every `EngineMessage` — is a valid ClientEnvelope; the envelope module
- * adds the transport-only messages ({@link HistoryGetMessage}) that the LLM
- * never sees. Discriminated on `type`, so a host router can dispatch with a
- * single switch.
+ * adds transport-only messages ({@link HistoryGetMessage} and
+ * {@link AcknowledgedAssistantMessage}) that the LLM never sees. The legacy
+ * assistant arm remains fire-and-forget; only the acknowledged arm requests a
+ * response. Discriminated on `type`, so a host router can use one switch.
  */
 export type ClientEnvelope =
   | ChartRequestMessage
   | AssistantInjectionMessage
+  | AcknowledgedAssistantMessage
   | HistoryGetMessage;
 
 /**
@@ -136,6 +187,7 @@ export type ClientEnvelope =
  */
 export const ClientEnvelopeSchema = z.discriminatedUnion('type', [
   ...EngineMessageSchema.options,
+  AcknowledgedAssistantMessageSchema,
   HistoryGetMessageSchema,
 ]);
 
@@ -219,6 +271,61 @@ export const HistoryResponseMessageSchema = z.object({
 });
 
 /**
+ * Engine acknowledgement that an assistant-message injection finished.
+ *
+ * `requestId` echoes the originating {@link AcknowledgedAssistantMessage} `id`
+ * so clients can correlate the result to a waiter. Legacy
+ * {@link AssistantInjectionMessage} requests remain fire-and-forget and do not
+ * receive this frame. `outcome` is load-bearing: `'inserted'` means the engine
+ * stored a new history entry; `'deduped'` means an entry with that id already
+ * existed and nothing was appended. Greeting and other idempotent injectors
+ * branch on that distinction before running side effects such as speech.
+ */
+export interface AssistantMessageResultMessage {
+  /** Identifies the correlated assistant-injection result frame. */
+  readonly type: 'engine.assistant_message.result';
+  /** Echoes the acknowledged request id. */
+  readonly requestId: MessageId;
+  /** Echoes the session whose history was targeted. */
+  readonly sessionId: SessionId;
+  /** Whether history grew or already contained the request id. */
+  readonly outcome: 'inserted' | 'deduped';
+}
+
+/**
+ * Smart constructor for {@link AssistantMessageResultMessage}.
+ *
+ * `requestId` must be the acknowledged injection message id.
+ * `outcome` is `'inserted'` when history grew and `'deduped'` when the engine
+ * already held that id.
+ */
+export const AssistantMessageResultMessage = (args: {
+  /** Id of the acknowledged request being answered. */
+  requestId: MessageId;
+  /** Session whose history was targeted. */
+  sessionId: SessionId;
+  /** Engine-reported insertion or deduplication result. */
+  outcome: 'inserted' | 'deduped';
+}): AssistantMessageResultMessage => ({
+  type: 'engine.assistant_message.result',
+  ...args,
+});
+
+/**
+ * Wire-format Zod parser for {@link AssistantMessageResultMessage}.
+ *
+ * Validates the discriminator, branded `requestId` / `sessionId`, and the
+ * closed `'inserted' | 'deduped'` outcome so consumers can trust correlation
+ * and branching semantics at the decode boundary.
+ */
+export const AssistantMessageResultMessageSchema = z.object({
+  type: z.literal('engine.assistant_message.result'),
+  requestId: MessageIdSchema,
+  sessionId: SessionIdSchema,
+  outcome: z.union([z.literal('inserted'), z.literal('deduped')]),
+});
+
+/**
  * A failure the engine host reports for a request (or for a stream-level fault
  * with no recoverable request).
  *
@@ -275,6 +382,7 @@ export const EngineErrorMessageSchema = z.object({
 export type ServerEnvelope =
   | MaelstromResponseMessage
   | HistoryResponseMessage
+  | AssistantMessageResultMessage
   | EngineErrorMessage;
 
 /**
@@ -284,6 +392,7 @@ export type ServerEnvelope =
 export const ServerEnvelopeSchema = z.discriminatedUnion('type', [
   MaelstromResponseMessageSchema,
   HistoryResponseMessageSchema,
+  AssistantMessageResultMessageSchema,
   EngineErrorMessageSchema,
 ]);
 
@@ -494,6 +603,16 @@ const _hgBwd: Mutable<HistoryGetMessage> extends _InferredHistoryGet
   ? true
   : false = true;
 
+type _InferredAcknowledgedAssistantMessage = z.infer<
+  typeof AcknowledgedAssistantMessageSchema
+>;
+const _aamFwd: _InferredAcknowledgedAssistantMessage extends Mutable<AcknowledgedAssistantMessage>
+  ? true
+  : false = true;
+const _aamBwd: Mutable<AcknowledgedAssistantMessage> extends _InferredAcknowledgedAssistantMessage
+  ? true
+  : false = true;
+
 type _InferredMaelstromResponseMessage = z.infer<
   typeof MaelstromResponseMessageSchema
 >;
@@ -533,6 +652,8 @@ void [
   _tlBwd,
   _hgFwd,
   _hgBwd,
+  _aamFwd,
+  _aamBwd,
   _mrmFwd,
   _mrmBwd,
   _hrmFwd,

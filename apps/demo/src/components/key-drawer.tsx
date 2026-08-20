@@ -5,7 +5,7 @@ import { playgroundKeyStore } from '../lib/playground-key-store';
 export interface KeyDrawerProps {
   readonly isOpen: boolean;
   readonly onClose: () => void;
-  readonly onSave: (apiKey: string, remember: boolean) => void;
+  readonly onSave: (apiKey: string) => void;
   readonly onRemove?: () => void;
   readonly errorMessage?: string | null;
 }
@@ -17,13 +17,23 @@ export interface KeyDrawerProps {
 // and the client can no longer decode any reply.
 const MIN_API_KEY_LENGTH = 20;
 
+function RunLocallyLink() {
+  return (
+    <a
+      href="https://github.com/maelstrom-co/maelstrom/blob/main/README.md"
+      target="_blank"
+      rel="noreferrer noopener"
+      className="text-sm text-ink-3 underline"
+    >
+      run it locally instead
+    </a>
+  );
+}
+
 /**
- * BYOK key entry drawer, shown before the first Send/mic press in hosted
- * mode when no visitor key is on hand, or on demand via the header "API
- * key" affordance. Custody copy and the "remember" opt-in are load-bearing
- * — the key only touches localStorage if the visitor explicitly asks for
- * it (`setPlaygroundKey`'s `remember` flag), and a stored key is never
- * rendered back into the input.
+ * BYOK key entry drawer for hosted deployments and localhost without a
+ * server-side OpenAI key. The key stays in browser memory for this page
+ * session and is never rendered back into the input after use.
  */
 export function KeyDrawer({
   isOpen,
@@ -33,9 +43,7 @@ export function KeyDrawer({
   errorMessage,
 }: KeyDrawerProps) {
   const [apiKey, setApiKey] = useState('');
-  const [remember, setRemember] = useState(false);
   const storedKey = useStore(playgroundKeyStore, (state) => state.apiKey);
-  const keyPersisted = useStore(playgroundKeyStore, (state) => state.persisted);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const trimmedApiKey = apiKey.trim();
@@ -44,20 +52,17 @@ export function KeyDrawer({
 
   const handleSave = () => {
     if (trimmedApiKey.length < MIN_API_KEY_LENGTH) return;
-    onSave(trimmedApiKey, remember);
+    onSave(trimmedApiKey);
     setApiKey('');
-    setRemember(false);
   };
 
   const handleClose = () => {
     setApiKey('');
-    setRemember(false);
     onClose();
   };
 
   const handleRemove = () => {
     setApiKey('');
-    setRemember(false);
     onRemove?.();
   };
 
@@ -115,13 +120,7 @@ export function KeyDrawer({
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder={
-            storedKey
-              ? keyPersisted
-                ? 'saved on this device'
-                : 'set for this session'
-              : 'sk-...'
-          }
+          placeholder={storedKey ? 'set for this session' : 'sk-...'}
           autoComplete="off"
           aria-describedby={isTooShort ? 'playground-api-key-hint' : undefined}
           className="mt-1 w-full rounded-md border px-3 py-2 text-sm text-ink"
@@ -137,23 +136,11 @@ export function KeyDrawer({
           </p>
         )}
 
-        <label
-          className="mt-3 flex items-center gap-2 text-sm text-ink-2"
-          htmlFor="remember-key"
-        >
-          <input
-            id="remember-key"
-            type="checkbox"
-            checked={remember}
-            onChange={(e) => setRemember(e.target.checked)}
-          />
-          Remember on this device
-        </label>
-
         <p className="mt-3 text-sm text-ink-3">
-          Voice connects to OpenAI directly from your browser. Text requests go
-          through our server, which holds your key in memory for the session
-          only — never written to disk or logs.
+          Your key stays in browser memory and disappears when you reload or
+          close this page. Voice connects to OpenAI directly. Text requests go
+          through our server, which holds the key in memory only — never written
+          to disk or logs.
         </p>
 
         {errorMessage && (
@@ -166,14 +153,7 @@ export function KeyDrawer({
         )}
 
         <div className="mt-5 flex items-center justify-between">
-          <a
-            href="https://github.com/maelstrom-co/maelstrom/blob/main/README.md"
-            target="_blank"
-            rel="noreferrer noopener"
-            className="text-sm text-ink-3 underline"
-          >
-            run it locally instead
-          </a>
+          <RunLocallyLink />
           <div className="flex gap-2">
             {storedKey && (
               <button

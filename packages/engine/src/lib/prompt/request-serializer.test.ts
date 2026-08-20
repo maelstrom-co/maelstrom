@@ -6,6 +6,7 @@ import {
   makeGridRequest,
   makeTilingRequest,
 } from '../__test-helpers__/fixtures.js';
+import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import {
   buildDefaultUserSections,
@@ -282,7 +283,7 @@ describe('buildVesselsSection', () => {
     expect(output).toContain('checkTask(title: "say \\"hi\\"\\nbye")');
   });
 
-  test('renders a numeric enum with bare (unquoted) values matching the declared type', () => {
+  test('renders type-compatible numeric enum values as bare literals', () => {
     const request = makeGridRequest({
       vessels: [
         {
@@ -303,7 +304,7 @@ describe('buildVesselsSection', () => {
                       name: 'priority',
                       type: 'number',
                       description: 'Priority level',
-                      enum: [1, 2, 3],
+                      enum: [1, 2, 3, Number.NaN, Number.POSITIVE_INFINITY],
                     },
                   ],
                 },
@@ -316,6 +317,7 @@ describe('buildVesselsSection', () => {
     const output = buildVesselsSection(request.vessels);
     expect(output).toContain('setPriority(priority: 1|2|3)');
     expect(output).not.toContain('"1"|"2"|"3"');
+    expect(output).not.toContain('null');
   });
 
   test('renders a boolean enum with bare (unquoted) values matching the declared type', () => {
@@ -351,6 +353,43 @@ describe('buildVesselsSection', () => {
     });
     const output = buildVesselsSection(request.vessels);
     expect(output).toContain('setArchived(archived: true|false)');
+  });
+
+  test('hides enum values whose normalized JSON type conflicts with the declared type', () => {
+    const request = makeGridRequest({
+      vessels: [
+        {
+          id: 'events',
+          name: 'Events',
+          description: 'Events',
+          defaultVariant: 'list',
+          variants: {
+            list: {
+              props: {},
+              minSize: { width: 4, height: 4 },
+              actions: [
+                {
+                  name: 'selectEvent',
+                  description: 'Select an event',
+                  parameters: [
+                    {
+                      name: 'event',
+                      type: 'object',
+                      description: 'Event data',
+                      enum: [new Date(0)],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+
+    const output = buildVesselsSection(request.vessels);
+    expect(output).toContain('selectEvent(event: object)');
+    expect(output).not.toContain('1970-01-01T00:00:00.000Z');
   });
 
   test('strips a U+2028 line separator inside an enum value, which JSON.stringify does not escape', () => {
@@ -422,7 +461,9 @@ describe('buildVesselsSection', () => {
 
   test('falls back to the declared type when every enum value is unrenderable', () => {
     const request = makeGridRequest({
-      vessels: [makeEnumVessel([makeCyclicValue(), makeCyclicValue()])],
+      vessels: [
+        makeEnumVessel([makeCyclicValue(), makeCyclicValue()], 'object'),
+      ],
     });
     const output = buildVesselsSection(request.vessels);
     expect(output).toContain('checkTask(title: object)');
@@ -449,6 +490,37 @@ describe('buildVesselsSection', () => {
     buildVesselsSection(request.vessels, logger);
     expect(warns).toHaveLength(0);
   });
+
+  test('freezes nested normalized enum snapshot values', () => {
+    const declaredValue = { nested: { id: 1 } };
+    const vessel = makeEnumVessel([declaredValue], 'object');
+    const request = makeGridRequest({
+      vessels: [vessel],
+    });
+    const parameter = vessel.variants.list.actions[0]?.parameters?.[0];
+    expect(parameter).toBeDefined();
+    if (parameter === undefined) return;
+
+    const snapshot = buildActionParameterEnumSnapshot(request.vessels);
+    const normalized = snapshot.get(parameter)[0];
+    expect(normalized?.value).toEqual({ nested: { id: 1 } });
+    expect(Object.isFrozen(normalized)).toBe(true);
+    expect(Object.isFrozen(normalized?.value)).toBe(true);
+    expect(
+      Object.isFrozen((normalized?.value as { nested: object }).nested),
+    ).toBe(true);
+
+    declaredValue.nested.id = 2;
+    expect(normalized?.value).toEqual({ nested: { id: 1 } });
+    expect(
+      Reflect.set(
+        (normalized?.value as { nested: { id: number } }).nested,
+        'id',
+        3,
+      ),
+    ).toBe(false);
+    expect(normalized?.value).toEqual({ nested: { id: 1 } });
+  });
 });
 
 function makeCyclicValue(): unknown {
@@ -458,7 +530,10 @@ function makeCyclicValue(): unknown {
   return cyclic;
 }
 
-function makeEnumVessel(values: unknown[]): AuthorVessel {
+function makeEnumVessel(
+  values: unknown[],
+  type: 'string' | 'object' = 'string',
+) {
   return {
     id: 'tasks',
     name: 'Tasks',
@@ -475,7 +550,7 @@ function makeEnumVessel(values: unknown[]): AuthorVessel {
             parameters: [
               {
                 name: 'title',
-                type: 'object',
+                type,
                 description: 'Task title',
                 enum: values,
               },
@@ -484,7 +559,7 @@ function makeEnumVessel(values: unknown[]): AuthorVessel {
         ],
       },
     },
-  };
+  } satisfies AuthorVessel;
 }
 
 // ---------------------------------------------------------------------------
@@ -634,6 +709,82 @@ describe('buildTilingChartState', () => {
     expect(output).toContain('Currently Visible:');
     expect(output).toContain('Available (hidden):');
     expect(output).toContain('tasks-main');
+  });
+
+  test('keeps trailing preorder instances retained but marks only the first root visible', () => {
+    const request = makeTilingRequest({
+      instances: [
+        { instanceId: 'weather-1', vesselId: 'calendar', variant: 'month' },
+        { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' },
+      ],
+      layout: {
+        type: 'tiling',
+        tree: ['weather-1', 'calendar-1'],
+        instances: [
+          { instanceId: 'weather-1', vesselId: 'calendar', variant: 'month' },
+          {
+            instanceId: 'calendar-1',
+            vesselId: 'calendar',
+            variant: 'month',
+          },
+        ],
+      },
+    });
+
+    expect(request.instances.map(({ instanceId }) => instanceId)).toEqual([
+      InstanceId('weather-1'),
+      InstanceId('calendar-1'),
+    ]);
+    expect(request.layout.type).toBe('tiling');
+    if (request.layout.type !== 'tiling')
+      throw new Error('Expected tiling layout');
+    expect(
+      request.layout.instances.map(({ instanceId }) => instanceId),
+    ).toEqual([InstanceId('weather-1'), InstanceId('calendar-1')]);
+    expect(request.layout.tree).toEqual([
+      InstanceId('weather-1'),
+      InstanceId('calendar-1'),
+    ]);
+
+    const output = buildTilingChartState(request);
+    const visibleSection = output
+      .split('Currently Visible:\n')[1]
+      ?.split('\n\nAvailable (hidden):')[0];
+    const hiddenSection = output
+      .split('Available (hidden):\n')[1]
+      ?.split('\n\n## Current Tiling Layout')[0];
+
+    expect(visibleSection).toBe('- weather-1 (calendar), variant: month');
+    expect(hiddenSection).toBe('- calendar-1 (calendar), variant: month');
+    expect(output).toContain('Preorder: ["weather-1","calendar-1"]');
+  });
+
+  test('does not invent a visible instance for an incomplete split', () => {
+    const request = makeTilingRequest({
+      instances: [
+        { instanceId: 'weather-1', vesselId: 'calendar', variant: 'month' },
+        { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' },
+      ],
+      layout: {
+        type: 'tiling',
+        tree: ['H', 'weather-1'],
+        instances: [
+          { instanceId: 'weather-1', vesselId: 'calendar', variant: 'month' },
+          {
+            instanceId: 'calendar-1',
+            vesselId: 'calendar',
+            variant: 'month',
+          },
+        ],
+      },
+    });
+
+    const output = buildTilingChartState(request);
+    const visibleSection = output
+      .split('Currently Visible:\n')[1]
+      ?.split('\n\nAvailable (hidden):')[0];
+
+    expect(visibleSection).toBe('- weather-1 (calendar), variant: month');
   });
 
   test('handles tree with null, H, and V nodes', () => {

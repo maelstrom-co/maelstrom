@@ -57,7 +57,9 @@ You did not write any of this, but three parts of it are worth knowing before yo
 
 **The demo chose the provider for you.** It selects OpenAI unless the client is built with `VITE_VOICE_PROVIDER=livekit`, which `apps/demo/.env.livekit` sets and the `dev-livekit` target uses. Both modes reach the same `m.useVoice()` hook and the same Vessels; only the adapter differs.
 
-**Your key never reached the browser.** The browser posted to `/api/realtime-token`, and the server minted a short-lived credential from `OPENAI_API_KEY` and returned only that. Audio then went from the browser straight to OpenAI over WebRTC, so it never passed through the process you started. The [OpenAI Realtime guide](/guides/voice/openai-realtime/) shows the route you would deploy in place of the demo's.
+**Your key never reached the browser.** The browser posted to `/api/realtime-token`, and the server minted a short-lived credential from `OPENAI_API_KEY` and returned only that. The same server-held key also synthesizes the one fixed greeting through a development-only same-origin TTS route (`gpt-4o-mini-tts` / recommended `cedar` voice / WAV). Ordinary Realtime conversation audio still goes from the browser straight to OpenAI over WebRTC, so it never passed through the process you started. Both mint and greeting TTS routes are development-only — replace them before any deployment. The [OpenAI Realtime guide](/guides/voice/openai-realtime/) shows the route you would deploy in place of the demo's.
+
+**The greeting is AI-generated speech.** The demo discloses that next to the voice orb. It is not a human voice recording, and it uses the same recommended built-in `cedar` voice as later model replies.
 
 **Nothing you said reached the Engine as structure.** The model called one tool with one sentence, and the Maelstrom client attached the Chart snapshot itself. That is why speaking to the demo could not break a Vessel, and it is the subject of [The voice boundary](/understanding/voice-architecture/).
 

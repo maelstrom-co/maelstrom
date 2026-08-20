@@ -2,7 +2,7 @@
 
 import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
 import { cleanup, render } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockConnector } from './__tests__/mock-connector';
 
 // Fakes the module boundary maelstrom.ts wires against — RealtimeSession is
@@ -11,8 +11,11 @@ import { createMockConnector } from './__tests__/mock-connector';
 // adapter internals are the package's own tested concern (see
 // packages/react-realtime/src/lib/use-voice.test.tsx).
 class FakeRealtimeSession {
+  static instances: FakeRealtimeSession[] = [];
   state: VoiceSessionState = 'idle';
-  constructor(readonly options: unknown) {}
+  constructor(readonly options: unknown) {
+    FakeRealtimeSession.instances.push(this);
+  }
   on(): Unsubscribe {
     return () => {};
   }
@@ -28,8 +31,8 @@ vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
   RealtimeSession: FakeRealtimeSession,
 }));
 
-vi.mock('@maelstrom-co/realtime/openai', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@maelstrom-co/realtime/openai')>()),
+vi.mock('@maelstrom-co/realtime-openai', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/realtime-openai')>()),
   OpenAIAdapter: class {},
 }));
 
@@ -42,7 +45,11 @@ vi.mock('./mint-token', () => ({
   },
 }));
 
-const { m } = await import('./maelstrom');
+const { m, DEMO_GREETING } = await import('./maelstrom');
+
+beforeEach(() => {
+  FakeRealtimeSession.instances = [];
+});
 
 afterEach(cleanup);
 
@@ -62,5 +69,20 @@ describe('maelstrom.ts realtime wiring', () => {
 
     const orb = await findByRole('button');
     expect(orb.getAttribute('data-state')).toBe('idle');
+  });
+
+  it('constructs the realtime session with the demo greeting', () => {
+    const connector = createMockConnector();
+    render(
+      <m.Provider connector={connector}>
+        <m.VoiceOrb size={56} />
+      </m.Provider>,
+    );
+
+    const session = FakeRealtimeSession.instances[0];
+    expect(session).toBeDefined();
+    expect(session?.options).toMatchObject({
+      greeting: { text: DEMO_GREETING },
+    });
   });
 });

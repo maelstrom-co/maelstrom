@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/react-realtime",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.2",
   "description": "React bindings for Maelstrom realtime voice: the maelstromRealtime() extension, useVoice, VoiceOrb, and a createLevelMeter audio-metering utility.",
   "keywords": [
     "maelstrom",
@@ -34,7 +34,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/react-realtime"
   },
   "homepage": "https://maelstrom-ai.co",
@@ -43,14 +43,13 @@
   },
   "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org"
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.0.0",
-    "@maelstrom-co/protocol": "0.0.0",
-    "@maelstrom-co/react": "0.0.0",
-    "@maelstrom-co/realtime": "0.0.0"
+    "@maelstrom-co/client": "0.1.0-alpha.2",
+    "@maelstrom-co/protocol": "0.1.0-alpha.2",
+    "@maelstrom-co/react": "0.1.0-alpha.2",
+    "@maelstrom-co/realtime": "0.1.0-alpha.2"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
@@ -63,7 +62,7 @@
   "nx": {
     "targets": {
       "typecheck": {
-        "command": "tsc -p tsconfig.lib.json --noEmit",
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
         "options": {
           "cwd": "{projectRoot}"
         }

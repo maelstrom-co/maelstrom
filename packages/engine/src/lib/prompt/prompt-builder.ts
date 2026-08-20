@@ -1,6 +1,10 @@
 import type { ChartRequest, LayoutMode } from '@maelstrom-co/protocol';
+import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
-import { buildDefaultUserSections } from './request-serializer.js';
+import {
+  buildDefaultUserSections,
+  buildDefaultUserSectionsWithSnapshot,
+} from './request-serializer.js';
 import type {
   PromptSection,
   SectionCustomizer,
@@ -111,10 +115,15 @@ export function buildSystemPrompt(
  * Per-call work — depends on the request's vessels, instances, layout, and
  * update reasons, so the result can't be precomputed.
  *
- * @throws {Error} If a `user` customizer is invalid (function targeting a
- *   non-default key) or itself throws. Messages have the form
- *   `Prompt section customizer for "<key>" ...`. Callers operating inside a
- *   `Promise<Result>` contract should wrap in try/catch and convert to a
+ * This standalone API constructs its own enum snapshot. The Engine instead
+ * calls the internal snapshot-aware path so prompt literals and validation
+ * reuse the exact candidates captured once for that request.
+ *
+ * @throws {Error} If Action parameter definitions are ambiguous or exceed the
+ *   enum-candidate ceiling, or if a `user` customizer is invalid (function
+ *   targeting a non-default key) or itself throws. Customizer messages have the
+ *   form `Prompt section customizer for "<key>" ...`. Callers operating inside
+ *   a `Promise<Result>` contract should wrap in try/catch and convert to a
  *   Result error rather than letting the throw escape.
  *
  * @example
@@ -130,6 +139,18 @@ export function buildUserPrompt(
   logger?: Logger,
 ): string {
   return joinSections(buildUserSections(request, options, logger));
+}
+
+/** @internal Reuses an Engine request's immutable enum snapshot. */
+export function buildUserPromptWithSnapshot(
+  request: ChartRequest,
+  enumSnapshot: ActionParameterEnumSnapshot,
+  options?: Pick<PromptOptions, 'user'>,
+  logger?: Logger,
+): string {
+  return joinSections(
+    buildUserSectionsWithSnapshot(request, enumSnapshot, options, logger),
+  );
 }
 
 function buildSystemSections(
@@ -148,6 +169,20 @@ function buildUserSections(
   logger?: Logger,
 ): readonly PromptSection[] {
   const defaults = buildDefaultUserSections(request, logger);
+  return applySectionOverrides(defaults, options?.user);
+}
+
+function buildUserSectionsWithSnapshot(
+  request: ChartRequest,
+  enumSnapshot: ActionParameterEnumSnapshot,
+  options?: Pick<PromptOptions, 'user'>,
+  logger?: Logger,
+): readonly PromptSection[] {
+  const defaults = buildDefaultUserSectionsWithSnapshot(
+    request,
+    enumSnapshot,
+    logger,
+  );
   return applySectionOverrides(defaults, options?.user);
 }
 

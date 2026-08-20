@@ -35,6 +35,7 @@ import {
 } from '../../../test-utils/mocks.js';
 import type { ActionResult } from '../command-processor/action-result.js';
 import type {
+  AcknowledgedAssistantConnector,
   EngineConnector,
   PushConnector,
 } from '../connection-manager/connector.types.js';
@@ -1322,6 +1323,58 @@ describe('Orchestrator', () => {
       expect(call.sessionId).toBeUndefined();
 
       orchestrator.dispose();
+    });
+  });
+
+  describe('addAssistantMessageAcknowledged', () => {
+    it('delegates to an acknowledged connector without changing the supplied id', async () => {
+      const addAssistantMessageAcknowledged = mock(() =>
+        Promise.resolve('inserted' as const),
+      );
+      const connector: AcknowledgedAssistantConnector = {
+        ...createMockConnector(),
+        addAssistantMessageAcknowledged,
+      };
+      const { orchestrator } = createTestOrchestrator(connector);
+      const message = { id: MessageId('a-1'), message: 'Hello' };
+
+      await expect(
+        orchestrator.addAssistantMessageAcknowledged(message),
+      ).resolves.toBe('inserted');
+      expect(addAssistantMessageAcknowledged).toHaveBeenCalledWith(message);
+      orchestrator.dispose();
+    });
+
+    it('rejects when the connector has no acknowledgement capability', async () => {
+      const { orchestrator } = createTestOrchestrator();
+      await expect(
+        orchestrator.addAssistantMessageAcknowledged({
+          id: MessageId('a-2'),
+          message: 'x',
+        }),
+      ).rejects.toThrow(/does not support acknowledged/);
+      orchestrator.dispose();
+    });
+
+    it('rejects after dispose without invoking the connector', async () => {
+      const addAssistantMessageAcknowledged = mock(() =>
+        Promise.resolve('inserted' as const),
+      );
+      const connector: AcknowledgedAssistantConnector = {
+        ...createMockConnector(),
+        addAssistantMessageAcknowledged,
+      };
+      const { orchestrator } = createTestOrchestrator(connector);
+
+      await orchestrator.dispose();
+
+      await expect(
+        orchestrator.addAssistantMessageAcknowledged({
+          id: MessageId('a-disposed'),
+          message: 'late greeting',
+        }),
+      ).rejects.toThrow(/disposed/i);
+      expect(addAssistantMessageAcknowledged).not.toHaveBeenCalled();
     });
   });
 

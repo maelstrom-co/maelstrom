@@ -3,135 +3,196 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
+  type ArchiveProcessRequest,
+  type ArchiveProcessResult,
   PACKED_MANIFEST_FILENAME,
-  type PackedPackage,
+  type ValidatedPackedPackage,
+  validatePackedManifest,
 } from './lib/packed-manifest.ts';
-import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
+import {
+  authenticationFailureHint,
+  isAlreadyPublished,
+  resolveRegistry,
+} from './lib/registry.ts';
 
-// The publishing half of the release. It runs in the only job that holds an
-// npm OIDC identity, and it deliberately does nothing that could execute
-// third-party code: no dependency install, no build, no project graph — just
-// tarballs that another job already produced, uploaded one at a time.
-//
-// That separation is the point. `bun install` runs dependency lifecycle
-// scripts and a build runs package code; either could ask for the same OIDC
-// token npm trusts. Keeping both out of this job means a compromised
-// dependency has nothing to reach for.
+// The publishing half of the release. It runs in the only job that holds a
+// GitHub Packages identity, and it deliberately does nothing that could execute
+// dependency or package code: no install, no build, no project graph. The
+// complete artifact collection is validated before any registry interaction.
 
-const { values } = parseArgs({
-  options: {
-    dir: { type: 'string' },
-    tag: { type: 'string' },
-    registry: { type: 'string' },
-    'dry-run': { type: 'boolean', default: false },
-    provenance: { type: 'boolean', default: false },
-    'skip-published': { type: 'boolean', default: false },
-  },
-});
+export type PublishOptions = {
+  dir: string;
+  tag: string;
+  registry: string;
+  expectedVersion: string;
+  dryRun: boolean;
+  provenance: boolean;
+  skipPublished: boolean;
+};
 
-const tag = values.tag;
-if (!tag) {
-  console.error('::error::Missing required --tag');
-  process.exit(1);
-}
+type PublishDependencies = {
+  runArchiveProcess?: (request: ArchiveProcessRequest) => ArchiveProcessResult;
+  isAlreadyPublished?: typeof isAlreadyPublished;
+  publish?: (
+    tarball: string,
+    pkg: ValidatedPackedPackage,
+    options: PublishOptions,
+  ) => void;
+};
 
-const dir = resolve(process.cwd(), values.dir ?? 'dist/tarballs');
-const registry = resolveRegistry(values.registry);
-const dryRun = values['dry-run'];
-const provenance = values.provenance;
-const skipPublished = values['skip-published'];
+const CANONICAL_SEMVER =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-let packages: PackedPackage[];
-try {
-  packages = JSON.parse(
-    readFileSync(join(dir, PACKED_MANIFEST_FILENAME), 'utf8'),
-  ) as PackedPackage[];
-} catch (err) {
-  console.error(
-    `::error::Cannot read ${PACKED_MANIFEST_FILENAME} in ${dir}. ` +
-      `The prepare job writes it next to the tarballs it packs.\n${
-        err instanceof Error ? err.message : String(err)
-      }`,
-  );
-  process.exit(1);
-}
-
-// An empty manifest means the prepare job packed nothing. Publishing zero
-// packages would go green and report a successful release that never happened.
-if (packages.length === 0) {
-  console.error(`::error::${PACKED_MANIFEST_FILENAME} in ${dir} is empty.`);
-  process.exit(1);
-}
-
-const failures: string[] = [];
-const succeeded: string[] = [];
-const skipped: string[] = [];
-
-for (const pkg of packages) {
-  if (skipPublished && !dryRun) {
-    let already: boolean;
-    try {
-      already = isAlreadyPublished(pkg.name, pkg.version, registry);
-    } catch (err) {
-      // An indeterminate check is this package's failure, not the run's: the
-      // rest can still go out, and the summary reports the whole picture
-      // instead of stopping at the first unreachable lookup.
-      console.error(err instanceof Error ? err.message : String(err));
-      failures.push(pkg.name);
-      continue;
-    }
-    if (already) {
-      console.log(
-        `Skipping ${pkg.name}@${pkg.version} (already on ${registry}).`,
-      );
-      skipped.push(pkg.name);
-      continue;
-    }
+/**
+ * Parses trusted command-line authority before artifact reads or registry
+ * probes. The expected version must use the separate canonical
+ * `--expected-version VALUE` form exactly once; artifact metadata can never
+ * supply or override it.
+ */
+export function parsePublishArgs(
+  argv: string[],
+  cwd = process.cwd(),
+): PublishOptions {
+  const expectedFlags = argv.filter((arg) => arg === '--expected-version');
+  if (
+    expectedFlags.length !== 1 ||
+    argv.some((arg) => arg.startsWith('--expected-version='))
+  ) {
+    throw new Error(
+      'Invalid --expected-version: provide the flag exactly once',
+    );
   }
 
+  const { values } = (() => {
+    try {
+      return parseArgs({
+        args: argv,
+        options: {
+          dir: { type: 'string' },
+          tag: { type: 'string' },
+          registry: { type: 'string' },
+          'expected-version': { type: 'string' },
+          'dry-run': { type: 'boolean', default: false },
+          provenance: { type: 'boolean', default: false },
+          'skip-published': { type: 'boolean', default: false },
+        },
+        strict: true,
+      });
+    } catch (error) {
+      throw new Error(
+        `Invalid --expected-version or publish option: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  })();
+
+  const expectedVersion = values['expected-version'];
+  if (!expectedVersion || !CANONICAL_SEMVER.test(expectedVersion)) {
+    throw new Error('Invalid --expected-version: expected canonical SemVer');
+  }
+  if (!values.tag) throw new Error('Missing required --tag');
+
+  return {
+    dir: resolve(cwd, values.dir ?? 'dist/tarballs'),
+    tag: values.tag,
+    registry: resolveRegistry(values.registry),
+    expectedVersion,
+    dryRun: values['dry-run'],
+    provenance: values.provenance,
+    skipPublished: values['skip-published'],
+  };
+}
+
+function defaultPublish(
+  tarball: string,
+  _pkg: ValidatedPackedPackage,
+  options: PublishOptions,
+) {
   const args = [
     'publish',
-    join(dir, pkg.tarball),
+    tarball,
     '--tag',
-    tag,
+    options.tag,
     '--registry',
-    registry,
+    options.registry,
   ];
-  if (dryRun) args.push('--dry-run');
-  if (provenance) args.push('--provenance');
-
-  console.log(
-    `\n→ ${pkg.name}@${pkg.version} → ${registry} [tag=${tag}]${
-      provenance ? ' (provenance)' : ''
-    }${dryRun ? ' (dry-run)' : ''}`,
-  );
-
-  try {
-    // No shell: `tag` derives from a git tag name, and a shell string here was
-    // a confirmed injection into the one job that can publish to npm.
-    execFileSync('npm', args, { stdio: ['ignore', 'inherit', 'inherit'] });
-    succeeded.push(pkg.name);
-  } catch {
-    failures.push(pkg.name);
-  }
+  if (options.dryRun) args.push('--dry-run');
+  if (options.provenance) args.push('--provenance');
+  execFileSync('npm', args, { stdio: ['ignore', 'inherit', 'inherit'] });
 }
 
-const verb = dryRun ? 'Would publish' : 'Published';
-console.log(
-  `\n${verb} ${succeeded.length}, skipped ${skipped.length}, failed ${failures.length}.`,
-);
+/**
+ * Revalidates every artifact on every invocation before probing or publishing.
+ * A positive registry presence may skip one package on a partial rerun, while
+ * an indeterminate probe fails closed. Publishing receives the same canonical
+ * original paths inspected by the validator; no tarball is repacked or copied.
+ * Dry runs never probe for an existing version. Individual publish failures are
+ * collected so later validated packages can still be attempted.
+ */
+export function publishTarballs(
+  options: PublishOptions,
+  dependencies: PublishDependencies = {},
+) {
+  let input: unknown;
+  try {
+    input = JSON.parse(
+      readFileSync(join(options.dir, PACKED_MANIFEST_FILENAME), 'utf8'),
+    ) as unknown;
+  } catch (error) {
+    throw new Error(
+      `Cannot read ${PACKED_MANIFEST_FILENAME} in ${options.dir}`,
+      { cause: error },
+    );
+  }
 
-if (failures.length > 0) {
-  console.error(`\nPublish failed for: ${failures.join(', ')}`);
-  // "A brand-new package cannot publish from CI" is a baffling failure
-  // without this: npm refuses to configure a trusted publisher for a package
-  // that does not exist yet, so the first version of each has to go out by
-  // hand before CI can ever own it.
-  console.error(
-    'If this was an authentication error, check that every package above has a ' +
-      'trusted publisher on npmjs.org pointing at this repository, release.yml, and ' +
-      'the production environment. A package that has never been published cannot ' +
-      'have one — see the bootstrap procedure in CONTRIBUTING.md.',
+  const packages = validatePackedManifest(
+    input,
+    options.expectedVersion,
+    options.dir,
+    {
+      runArchiveProcess: dependencies.runArchiveProcess,
+    },
   );
-  process.exit(1);
+  const probe = dependencies.isAlreadyPublished ?? isAlreadyPublished;
+  const publish = dependencies.publish ?? defaultPublish;
+  const failures: string[] = [];
+  let skipped = 0;
+  let succeeded = 0;
+
+  for (const pkg of packages) {
+    if (options.skipPublished && !options.dryRun) {
+      if (probe(pkg.name, pkg.version, options.registry)) {
+        skipped++;
+        continue;
+      }
+    }
+    try {
+      publish(pkg.tarballPath, pkg, options);
+      succeeded++;
+    } catch {
+      failures.push(pkg.name);
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`Publish failed for: ${failures.join(', ')}`);
+  }
+  return { succeeded, skipped };
+}
+
+if (import.meta.main) {
+  let options: PublishOptions | undefined;
+  try {
+    options = parsePublishArgs(process.argv.slice(2));
+    const result = publishTarballs(options);
+    const verb = options.dryRun ? 'Would publish' : 'Published';
+    console.log(
+      `${verb} ${result.succeeded}, skipped ${result.skipped}, failed 0.`,
+    );
+  } catch (error) {
+    console.error(
+      `::error::${error instanceof Error ? error.message : String(error)}`,
+    );
+    if (options) console.error(authenticationFailureHint(options.registry));
+    process.exit(1);
+  }
 }

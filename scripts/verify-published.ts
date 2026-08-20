@@ -1,6 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { listPublishablePackages } from './lib/workspace-packages.ts';
+import { parsePackedManifest } from './lib/packed-manifest.ts';
+import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
 
 // A green publish step is not proof the registry serves the packages: a
 // partial publish, or one that failed after the tarball upload, both look the
@@ -10,45 +11,40 @@ import { listPublishablePackages } from './lib/workspace-packages.ts';
 const { values } = parseArgs({
   options: {
     version: { type: 'string' },
+    manifest: { type: 'string' },
     registry: { type: 'string' },
     attempts: { type: 'string' },
     'retry-delay-ms': { type: 'string' },
   },
 });
 
-const version = values.version;
+const version = values.version ?? '';
 if (!version) {
   console.error('::error::Missing required --version');
   process.exit(1);
 }
+const manifest = values.manifest ?? '';
+if (!manifest) {
+  console.error('::error::Missing required --manifest');
+  process.exit(1);
+}
 
-const registry =
-  values.registry ??
-  process.env.RELEASE_REGISTRY ??
-  'https://registry.npmjs.org';
+const packages = parsePackedManifest(
+  JSON.parse(readFileSync(manifest, 'utf8')) as unknown,
+  version,
+);
+
+const registry = resolveRegistry(values.registry);
 const attempts = Number(values.attempts ?? 5);
 // Publishes are not immediately readable — the registry needs a moment to
 // serve a version it just accepted, so absence is only meaningful after retry.
 const retryDelayMs = Number(values['retry-delay-ms'] ?? 5000);
 
-function isLive(name: string): boolean {
-  try {
-    execFileSync(
-      'npm',
-      ['view', `${name}@${version}`, 'version', '--registry', registry],
-      { stdio: ['ignore', 'ignore', 'ignore'] },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 const missing: string[] = [];
-for (const pkg of listPublishablePackages()) {
+for (const pkg of packages) {
   let live = false;
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    if (isLive(pkg.name)) {
+    if (isAlreadyPublished(pkg.name, version, registry)) {
       console.log(`✓ ${pkg.name}@${version} is live`);
       live = true;
       break;

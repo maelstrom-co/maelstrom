@@ -1,0 +1,74 @@
+{
+  "name": "@maelstrom-co/realtime-openai",
+  "version": "0.1.0-alpha.2",
+  "description": "OpenAI browser adapter for Maelstrom realtime voice: a RealtimeProviderAdapter over client-direct WebRTC to gpt-realtime.",
+  "keywords": [
+    "maelstrom",
+    "ai",
+    "llm",
+    "dynamic-ui",
+    "generative-ui",
+    "realtime",
+    "voice",
+    "openai",
+    "webrtc",
+    "speech-to-speech"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/realtime-openai"
+  },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "dependencies": {
+    "@maelstrom-co/client": "0.1.0-alpha.2",
+    "@maelstrom-co/protocol": "0.1.0-alpha.2",
+    "@maelstrom-co/realtime": "0.1.0-alpha.2",
+    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.2"
+  },
+  "devDependencies": {
+    "@sinonjs/fake-timers": "catalog:"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

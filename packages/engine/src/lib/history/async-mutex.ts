@@ -2,7 +2,8 @@
  * A promise-chaining mutex — guarantees that the critical sections submitted
  * via {@link AsyncMutex.run} execute serially and in submission order, even
  * though the caller is free to fire off as many concurrent submissions as it
- * wants.
+ * wants. Each call adopts its critical section's result; a rejection still
+ * releases the queue so later submissions can run.
  *
  * Used by {@link HistoryManager} to serialize the read-modify-write pass
  * inside `recordTurn` (`store.append` + truncation), the truncation step
@@ -12,10 +13,6 @@
  * clobbering each other's appends. Identical `(sessionId, messageId)`
  * duplicates are coalesced separately by the in-flight Map in
  * `chart-request-dedup`, not by this mutex.
- *
- * ---
- *
- * TODO(multi-instance): single-process reference primitive — see WARNING below.
  *
  * WARNING — single-process reference primitive.
  *
@@ -35,9 +32,6 @@
  *     `sessionId` to the same pod)
  *   - Distributed lock service (Redis Redlock, Postgres advisory locks)
  *   - Per-session message queue (partition on `sessionId`)
- *
- * Tracked in the company-internal "Cloud Engine Improvements" doc under
- * §"Cross-process session serialization".
  */
 export interface AsyncMutex {
   run<T>(critical: () => Promise<T>): Promise<T>;

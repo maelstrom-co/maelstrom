@@ -117,7 +117,9 @@ The variant the LLM ends up choosing is rarely the only legal one — it picks t
 
 Not every action has to transition. A `Search` Vessel might expose a `query` action with a `text` parameter and no `transitionsTo` — it filters results in place, no state change. The protocol allows it: `transitionsTo` is optional on `VesselActionSchema`.
 
-`parameters` is where structured arguments live. Each parameter declares a `type` (`'string' | 'number' | 'boolean' | 'object'`), a `description` the LLM reads, optional `required`, `defaultValue`, and an `enum` of allowed values. The model returns its arguments as a JSON object encoded in a single `paramsJson` string; the declarations document the expected shape, but the engine parses that JSON without validating it against the declared `type`, `required`, or `enum` today.
+`parameters` is where structured arguments live. Each parameter declares a `type` (`'string' | 'number' | 'boolean' | 'object'`), a `description` the LLM reads, optional `required`, fallback metadata in `defaultValue`, and an `enum` of allowed values. The Engine never inserts `defaultValue` into a planned Action: omission is legal only when `required: false`, and the app's Action runner must substitute any fallback. The model returns its arguments as a JSON object encoded in a single `paramsJson` string.
+
+Before returning an execution plan, the engine rejects unknown keys, missing required parameters, values of the wrong type, and values outside a non-empty set of JSON-normalized `enum` options compatible with the declared type. Parameters are required unless you set `required: false`. An empty `enum`, or one with no declared-type-compatible options after JSON normalization, leaves the parameter unconstrained beyond its declared type. Actions without declared parameters accept an omitted argument object or `{}`, but reject non-empty arguments. These checks cover Engine planning, not local Action invocation; the app remains responsible for validating locally supplied values and applying Action-runner fallbacks.
 
 ## Authoring tips
 

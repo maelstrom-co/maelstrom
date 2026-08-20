@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { InstanceId } from '@maelstrom-co/protocol';
+import {
+  getVisibleInstanceIds,
+  InstanceId,
+  type TilingLayout,
+  type TilingNode,
+} from '@maelstrom-co/protocol';
 import { computeTilingLayout, parseTilingTree, type Rect } from './tiling.js';
 
 let warnSpy: ReturnType<typeof spyOn>;
@@ -90,6 +95,48 @@ describe('parseTilingTree', () => {
 
 describe('computeTilingLayout', () => {
   const containerRect: Rect = { x: 0, y: 0, width: 800, height: 600 };
+  const weatherId = InstanceId('weather-1');
+  const calendarId = InstanceId('calendar-1');
+
+  const visibilityCases: readonly {
+    readonly name: string;
+    readonly tree: readonly TilingNode[];
+    readonly expectedVisibleIds: readonly InstanceId[];
+  }[] = [
+    {
+      name: 'trailing tokens',
+      tree: [weatherId, calendarId],
+      expectedVisibleIds: [weatherId],
+    },
+    {
+      name: 'incomplete split',
+      tree: ['H', weatherId],
+      expectedVisibleIds: [weatherId],
+    },
+    {
+      name: 'duplicate leaves',
+      tree: ['H', weatherId, weatherId],
+      expectedVisibleIds: [weatherId],
+    },
+    { name: 'null leaf', tree: [null], expectedVisibleIds: [] },
+  ];
+
+  for (const { name, tree, expectedVisibleIds } of visibilityCases) {
+    it(`matches protocol visibility for ${name}`, () => {
+      const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
+      const parsedTree = parseTilingTree(layout.tree);
+      const computedTiles = computeTilingLayout(parsedTree, containerRect, 0);
+      const expectedIds = new Set(expectedVisibleIds);
+      const protocolIds = new Set(getVisibleInstanceIds(layout));
+      const chartIds = new Set(
+        computedTiles.map(({ instanceId }) => instanceId),
+      );
+
+      expect(protocolIds).toEqual(expectedIds);
+      expect(chartIds).toEqual(expectedIds);
+      expect(protocolIds).toEqual(chartIds);
+    });
+  }
 
   it('returns empty array for null tree', () => {
     expect(computeTilingLayout(null, containerRect, 0)).toEqual([]);

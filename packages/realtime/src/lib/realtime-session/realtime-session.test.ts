@@ -5,7 +5,7 @@ import type {
   VoiceSession,
 } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
-import type { SidechannelEvent } from '@maelstrom-co/protocol';
+import type { MessageId, SidechannelEvent } from '@maelstrom-co/protocol';
 import {
   ActionName,
   InstanceId,
@@ -15,11 +15,14 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+import { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {
   AdapterAudioStreams,
   AdapterTurnControl,
+  GreetingSpeechResult,
   RealtimeAdapterEvent,
+  RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
   TurnModeEvent,
@@ -166,6 +169,7 @@ const emptyCapabilitySnapshot: CapabilitySnapshot = { vessels: [] };
 
 interface MockInstance extends RealtimeInstance {
   readonly submitted: string[];
+  readonly acknowledged: Array<{ id: MessageId; message: string }>;
   /** Resolves pending waitForIdle() calls and clears the in-flight submitIntent gate — a full render settle. */
   settle(): void;
   /**
@@ -177,6 +181,20 @@ interface MockInstance extends RealtimeInstance {
   resolveIdle(): void;
   /** Number of onSettled subscribers currently registered — a leaked subscription shows up here. */
   readonly settledSubscriberCount: number;
+  /** Number of engine-connection observers currently registered. */
+  readonly engineConnectionSubscriberCount: number;
+  /** Emit a connected/disconnected transition to engine observers. */
+  emitEngineConnected(connected?: boolean): void;
+  /** Override the next ack outcome (or throw). */
+  setAckResult(
+    result:
+      | 'inserted'
+      | 'deduped'
+      | Error
+      | (() => Promise<'inserted' | 'deduped'>),
+  ): void;
+  /** Hold the next ack until the returned release function is called. */
+  gateAck(): () => void;
 }
 
 function makeMockInstance(
@@ -185,14 +203,27 @@ function makeMockInstance(
   submitResult: SubmitIntentResult = {},
 ): MockInstance {
   const submitted: string[] = [];
+  const acknowledged: Array<{ id: MessageId; message: string }> = [];
   const settledHandlers = new Set<() => void>();
+  const engineHandlers = new Set<(connected: boolean) => void>();
   let pendingResolvers: Array<() => void> = [];
   let inFlight = false;
+  let engineConnected = true;
+  let ackResult:
+    | 'inserted'
+    | 'deduped'
+    | Error
+    | (() => Promise<'inserted' | 'deduped'>) = 'inserted';
+  let ackGate: Promise<void> | undefined;
 
   return {
     submitted,
+    acknowledged,
     get settledSubscriberCount() {
       return settledHandlers.size;
+    },
+    get engineConnectionSubscriberCount() {
+      return engineHandlers.size;
     },
     submitIntent: async (intent: string) => {
       if (inFlight) {
@@ -214,6 +245,23 @@ function makeMockInstance(
         settledHandlers.delete(cb);
       };
     },
+    addAssistantMessageAcknowledged: async (args) => {
+      acknowledged.push(args);
+      if (ackGate) {
+        await ackGate;
+        ackGate = undefined;
+      }
+      if (typeof ackResult === 'function') return ackResult();
+      if (ackResult instanceof Error) throw ackResult;
+      return ackResult;
+    },
+    observeEngineConnection: (cb) => {
+      engineHandlers.add(cb);
+      cb(engineConnected);
+      return () => {
+        engineHandlers.delete(cb);
+      };
+    },
     settle() {
       inFlight = false;
       const resolvers = pendingResolvers;
@@ -226,7 +274,75 @@ function makeMockInstance(
       pendingResolvers = [];
       for (const resolve of resolvers) resolve();
     },
+    emitEngineConnected(connected = true) {
+      engineConnected = connected;
+      for (const cb of engineHandlers) cb(connected);
+    },
+    setAckResult(result) {
+      ackResult = result;
+    },
+    gateAck() {
+      let release!: () => void;
+      ackGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
+    },
   };
+}
+
+const inertInstanceMembers = {
+  addAssistantMessageAcknowledged: async () => 'inserted' as const,
+  observeEngineConnection: () => () => {},
+};
+
+interface MockGreetingAdapter extends MockAdapter, RealtimeGreetingAdapter {
+  readonly activateAudioCalls: number;
+  readonly speakCalls: Array<{
+    id: MessageId;
+    text: string;
+    signal: AbortSignal;
+  }>;
+  setSpeakResult(
+    result: GreetingSpeechResult | (() => Promise<GreetingSpeechResult>),
+  ): void;
+}
+
+function makeGreetingAdapter(): MockGreetingAdapter {
+  // Do not object-spread the mock: getters like connectCalls would collapse
+  // to a stale data property. Attach greeting fields onto the live mock.
+  const base = makeMockAdapter();
+  const speakCalls: Array<{
+    id: MessageId;
+    text: string;
+    signal: AbortSignal;
+  }> = [];
+  let activateAudioCalls = 0;
+  let speakResult:
+    | GreetingSpeechResult
+    | (() => Promise<GreetingSpeechResult>) = 'accepted';
+
+  const greeting = base as MockGreetingAdapter;
+  Object.defineProperty(greeting, 'activateAudioCalls', {
+    get: () => activateAudioCalls,
+    enumerable: true,
+  });
+  Object.defineProperty(greeting, 'speakCalls', {
+    get: () => speakCalls,
+    enumerable: true,
+  });
+  greeting.activateAudio = () => {
+    activateAudioCalls += 1;
+  };
+  greeting.speakAssistantText = async (args) => {
+    speakCalls.push(args);
+    if (typeof speakResult === 'function') return speakResult();
+    return speakResult;
+  };
+  greeting.setSpeakResult = (result) => {
+    speakResult = result;
+  };
+  return greeting;
 }
 
 const testSessionId = SessionId('sess-test-1');
@@ -246,8 +362,63 @@ const populatedSnapshot: UIStructuralSnapshot = {
       variant: VariantName('default'),
     },
   ],
-  layout: null,
+  layout: {
+    type: 'grid',
+    positions: [
+      {
+        instanceId: InstanceId('inst-1'),
+        position: { row: 0, column: 0 },
+        size: { width: 1, height: 1 },
+      },
+    ],
+  },
   layoutMode: 'grid',
+  chartDimensions: { rows: 8, columns: 12 },
+};
+
+const visibleWeatherSnapshot: UIStructuralSnapshot = {
+  instances: [
+    {
+      instanceId: InstanceId('weather-1'),
+      vesselId: VesselId('weather'),
+      variant: VariantName('weekly'),
+    },
+  ],
+  layout: {
+    type: 'tiling',
+    tree: [InstanceId('weather-1')],
+    instances: [
+      {
+        instanceId: InstanceId('weather-1'),
+        vesselId: VesselId('weather'),
+        variant: VariantName('weekly'),
+      },
+    ],
+  },
+  layoutMode: 'tiling',
+  chartDimensions: { rows: 8, columns: 12 },
+};
+
+const visibleCalendarSnapshot: UIStructuralSnapshot = {
+  instances: [
+    {
+      instanceId: InstanceId('calendar-1'),
+      vesselId: VesselId('calendar'),
+      variant: VariantName('month'),
+    },
+  ],
+  layout: {
+    type: 'tiling',
+    tree: [InstanceId('calendar-1')],
+    instances: [
+      {
+        instanceId: InstanceId('calendar-1'),
+        vesselId: VesselId('calendar'),
+        variant: VariantName('month'),
+      },
+    ],
+  },
+  layoutMode: 'tiling',
   chartDimensions: { rows: 8, columns: 12 },
 };
 
@@ -355,14 +526,17 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
     });
     await flushMicrotasks();
 
-    liveSnapshot = populatedSnapshot;
+    liveSnapshot = visibleWeatherSnapshot;
     instance.settle();
     await flushMicrotasks();
 
-    expect(adapter.toolResults[0].output).toEqual({
-      ok: true,
-      summary: expect.stringContaining('labs-chart'),
-    });
+    const output = adapter.toolResults[0].output as UpdateUIToolResult;
+    expect(output.ok).toBe(true);
+    expect(output.summary).toContain('1 vessel');
+    expect(output.summary).toContain('weather');
+    expect(output.summary).toContain('weekly');
+    expect(output.summary).not.toContain('calendar');
+    expect(output.summary).not.toContain('tasks');
   });
 });
 
@@ -371,10 +545,22 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
 // ============================================================================
 
 describe('RealtimeSession — get_ui_state', () => {
-  it('answers immediately with the structural snapshot, no intent involved', async () => {
-    const { session, adapter, instance } = makeHarness(populatedSnapshot);
+  it('reads the latest visible-only snapshot immediately, without an intent', async () => {
+    let liveSnapshot = visibleCalendarSnapshot;
+    const adapter = makeMockAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const wrappedInstance: RealtimeInstance = {
+      ...instance,
+      getStructuralSnapshot: () => liveSnapshot,
+    };
+    const session = new RealtimeSession({
+      adapter,
+      instance: wrappedInstance,
+      sessionId: testSessionId,
+    });
     await session.connect();
 
+    liveSnapshot = visibleWeatherSnapshot;
     adapter.emitToolCall({
       callId: 'c2',
       name: 'get_ui_state',
@@ -383,11 +569,21 @@ describe('RealtimeSession — get_ui_state', () => {
     await flushMicrotasks();
 
     expect(instance.submitted).toEqual([]); // no engine round-trip
-    expect(adapter.toolResults).toHaveLength(1);
-    expect(adapter.toolResults[0]).toEqual({
-      callId: 'c2',
-      output: populatedSnapshot,
-    });
+    expect(adapter.toolResults).toEqual([
+      { callId: 'c2', output: visibleWeatherSnapshot },
+    ]);
+    const output = adapter.toolResults[0].output as UIStructuralSnapshot;
+    expect(output.instances).toEqual(visibleWeatherSnapshot.instances);
+    if (output.layout?.type !== 'tiling') {
+      throw new Error('expected tiling layout');
+    }
+    expect(output.layout.instances).toEqual(
+      visibleWeatherSnapshot.layout?.type === 'tiling'
+        ? visibleWeatherSnapshot.layout.instances
+        : [],
+    );
+    expect(JSON.stringify(output)).not.toContain('calendar');
+    expect(JSON.stringify(output)).not.toContain('tasks');
   });
 });
 
@@ -446,19 +642,11 @@ describe('RealtimeSession — grounding debounce', () => {
     });
     await session.connect();
 
-    // The final settle's snapshot must be distinguishable from the middle
-    // one (both otherwise contain 'labs-chart') so the assertion below
-    // proves latest-wins rather than coincidentally matching either.
-    const finalSnapshot: UIStructuralSnapshot = {
-      ...populatedSnapshot,
-      layoutMode: 'tiling',
-    };
-
-    liveSnapshot = { ...emptySnapshot, layoutMode: 'grid' };
+    liveSnapshot = emptySnapshot;
     instance.settle();
-    liveSnapshot = populatedSnapshot;
+    liveSnapshot = visibleCalendarSnapshot;
     instance.settle();
-    liveSnapshot = finalSnapshot;
+    liveSnapshot = visibleWeatherSnapshot;
     instance.settle();
 
     expect(adapter.groundingCalls).toEqual([]); // debounced, nothing yet
@@ -466,8 +654,13 @@ describe('RealtimeSession — grounding debounce', () => {
     await new Promise((resolve) => setTimeout(resolve, 40));
 
     expect(adapter.groundingCalls).toHaveLength(1);
-    expect(adapter.groundingCalls[0]).toContain('labs-chart');
+    expect(adapter.groundingCalls[0]).toContain('1 vessel');
+    expect(adapter.groundingCalls[0]).toContain('weather');
+    expect(adapter.groundingCalls[0]).toContain('weekly');
     expect(adapter.groundingCalls[0]).toContain('tiling');
+    expect(adapter.groundingCalls[0]).not.toContain('calendar');
+    expect(adapter.groundingCalls[0]).not.toContain('tasks');
+    expect(adapter.groundingCalls[0]).not.toContain('3 vessels');
   });
 });
 
@@ -643,7 +836,9 @@ describe('RealtimeSession — domain-data boundary', () => {
 
 describe('RealtimeSession — barge-in latest-wins queueing', () => {
   it('queues a concurrent update_ui instead of answering busy immediately, then applies it once the first settles', async () => {
-    const { session, adapter, instance, events } = makeHarness();
+    const { session, adapter, instance, events } = makeHarness(
+      visibleWeatherSnapshot,
+    );
     await session.connect();
 
     adapter.emitToolCall({
@@ -680,7 +875,10 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
     const c1Result = adapter.toolResults.find((r) => r.callId === 'c1');
     const c2Result = adapter.toolResults.find((r) => r.callId === 'c2');
     expect(c1Result?.output).toEqual({ ok: true, summary: expect.any(String) });
-    expect(c2Result?.output).toEqual({ ok: true, summary: expect.any(String) });
+    const c2Output = c2Result?.output as UpdateUIToolResult;
+    expect(c2Output.ok).toBe(true);
+    expect(c2Output.summary).toContain('1 vessel');
+    expect(c2Output.summary).toContain('weather');
 
     // Exactly one sendToolResult + one tool_result sidechannel event per callId.
     expect(adapter.toolResults.filter((r) => r.callId === 'c1')).toHaveLength(
@@ -825,6 +1023,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
       getStructuralSnapshot: () => emptySnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -891,6 +1090,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
       getStructuralSnapshot: () => populatedSnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -943,6 +1143,7 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
       getStructuralSnapshot: () => emptySnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -993,6 +1194,7 @@ describe('RealtimeSession — defensive outcome normalization', () => {
       getStructuralSnapshot: () => populatedSnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -1036,6 +1238,7 @@ describe('RealtimeSession — defensive outcome normalization', () => {
       getStructuralSnapshot: () => populatedSnapshot,
       getCapabilitySnapshot: () => emptyCapabilitySnapshot,
       onSettled: () => () => {},
+      ...inertInstanceMembers,
     };
     const session = new RealtimeSession({
       adapter,
@@ -1109,7 +1312,7 @@ describe('RealtimeSession — engine userMessage precedence', () => {
   it('omits userMessage so the summary is the fallback when the engine surfaces none', async () => {
     // Empty (whitespace-only) userMessage is treated as absent — fall back.
     const { session, adapter, instance } = makeHarness(
-      populatedSnapshot,
+      visibleWeatherSnapshot,
       emptyCapabilitySnapshot,
       { userMessage: '   ' },
     );
@@ -1127,40 +1330,14 @@ describe('RealtimeSession — engine userMessage precedence', () => {
     const output = adapter.toolResults[0].output as UpdateUIToolResult;
     expect(output.ok).toBe(true);
     expect(output.userMessage).toBeUndefined(); // whitespace-only reply omitted
-    expect(output.summary).toContain('labs-chart'); // the default summarizer ran
+    expect(output.summary).toContain('1 vessel');
+    expect(output.summary).toContain('weather');
   });
 
-  it('carries the engine reply distinct from a structural summary that would miscount hidden instances', async () => {
-    // The structural summarizer counts every instance in the snapshot,
-    // including ones a tiling layout keeps alive but off-screen — so it would
-    // say "3 vessels on screen" even when fewer are visible. The engine's
-    // userMessage, which knows what actually rendered, is the field a consuming
-    // adapter prefers, so the miscount never reaches the user.
-    const threeInstanceSnapshot: UIStructuralSnapshot = {
-      instances: [
-        {
-          instanceId: InstanceId('inst-1'),
-          vesselId: VesselId('labs-chart'),
-          variant: VariantName('default'),
-        },
-        {
-          instanceId: InstanceId('inst-2'),
-          vesselId: VesselId('revenue-chart'),
-          variant: VariantName('default'),
-        },
-        {
-          instanceId: InstanceId('inst-3'),
-          vesselId: VesselId('pipeline-chart'),
-          variant: VariantName('default'),
-        },
-      ],
-      layout: null,
-      layoutMode: 'tiling',
-      chartDimensions: { rows: 8, columns: 12 },
-    };
-    const engineReply = 'Showing your labs.';
+  it('preserves the engine reply while the structural fallback describes visible Weather', async () => {
+    const engineReply = 'Showing weekly Weather.';
     const { session, adapter, instance } = makeHarness(
-      threeInstanceSnapshot,
+      visibleWeatherSnapshot,
       emptyCapabilitySnapshot,
       { userMessage: engineReply },
     );
@@ -1177,7 +1354,12 @@ describe('RealtimeSession — engine userMessage precedence', () => {
 
     const output = adapter.toolResults[0].output as UpdateUIToolResult;
     expect(output.userMessage).toBe(engineReply);
-    expect(output.userMessage).not.toContain('3 vessels');
+    expect(output.summary).toContain('1 vessel');
+    expect(output.summary).toContain('weather');
+    expect(output.summary).toContain('weekly');
+    expect(output.summary).not.toContain('calendar');
+    expect(output.summary).not.toContain('tasks');
+    expect(output.summary).not.toContain('3 vessels');
   });
 
   it('speaks the engine reply for a barge-in queued call too, not just the first', async () => {
@@ -1840,5 +2022,254 @@ describe('VoiceSession — realtime boundary', () => {
     void clientSession?.on('turn_mode', () => {});
 
     expect(true).toBe(true);
+  });
+});
+
+// ============================================================================
+// Greeting coordination (Phase 2)
+// ============================================================================
+
+describe('RealtimeSession — greeting activation and validation', () => {
+  it('activates audio before adapter.connect and greets once after connected', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const events: SidechannelEvent[] = [];
+    const transcripts: Array<{ role: string; text: string; final: boolean }> =
+      [];
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      onEvent: (e) => events.push(e),
+      greeting: { text: 'Welcome back.', coordinator },
+    });
+    session.on('transcript', (t) => transcripts.push(t));
+
+    // activateAudio must land inside the initiating gesture — before the
+    // awaited adapter handshake.
+    const release = adapter.gateConnect();
+    const connecting = session.connect();
+    await flushMicrotasks();
+    expect(adapter.activateAudioCalls).toBe(1);
+    expect(adapter.connectCalls).toBe(1);
+    expect(instance.acknowledged).toEqual([]);
+    expect(adapter.speakCalls).toEqual([]);
+
+    release();
+    await connecting;
+    await flushMicrotasks();
+
+    expect(instance.acknowledged).toEqual([
+      {
+        id: coordinator.greetingIdFor(testSessionId),
+        message: 'Welcome back.',
+      },
+    ]);
+    expect(transcripts).toEqual([
+      { role: 'assistant', text: 'Welcome back.', final: true },
+    ]);
+    expect(
+      events.some(
+        (e) =>
+          e.type === 'transcript' &&
+          e.role === 'assistant' &&
+          e.text === 'Welcome back.' &&
+          e.final === true,
+      ),
+    ).toBe(true);
+    expect(adapter.speakCalls).toHaveLength(1);
+    expect(adapter.speakCalls[0]?.text).toBe('Welcome back.');
+    expect(adapter.speakCalls[0]?.id).toBe(
+      coordinator.greetingIdFor(testSessionId),
+    );
+  });
+
+  it('rejects greeting config against a plain adapter before any provider connect', async () => {
+    const adapter = makeMockAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: {
+        text: 'hi',
+        coordinator: new GreetingCoordinator(),
+      },
+    });
+
+    await expect(session.connect()).rejects.toMatchObject({
+      name: 'RealtimeVoiceError',
+      code: 'GREETING_ADAPTER_UNSUPPORTED',
+    });
+    expect(session.state).toBe('error');
+    expect(session.lastError).toBeInstanceOf(RealtimeVoiceError);
+    expect(adapter.connectCalls).toBe(0);
+    expect(instance.acknowledged).toEqual([]);
+  });
+
+  it('leaves connect behavior unchanged when greeting is not configured', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+
+    expect(adapter.activateAudioCalls).toBe(0);
+    expect(instance.acknowledged).toEqual([]);
+    expect(adapter.speakCalls).toEqual([]);
+  });
+});
+
+describe('RealtimeSession — greeting lifecycle', () => {
+  it('aborts an in-flight generation on disconnect', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const coordinator = new GreetingCoordinator();
+    let speakSignal: AbortSignal | undefined;
+    let resolveSpeak!: (value: GreetingSpeechResult) => void;
+    adapter.setSpeakResult(
+      () =>
+        new Promise<GreetingSpeechResult>((resolve) => {
+          resolveSpeak = resolve;
+        }),
+    );
+    const originalSpeak = adapter.speakAssistantText.bind(adapter);
+    adapter.speakAssistantText = async (args) => {
+      speakSignal = args.signal;
+      return originalSpeak(args);
+    };
+
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello there.', coordinator },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+    expect(adapter.speakCalls).toHaveLength(1);
+    expect(speakSignal?.aborted).toBe(false);
+
+    await session.disconnect();
+    expect(speakSignal?.aborted).toBe(true);
+    resolveSpeak('accepted');
+    await flushMicrotasks();
+  });
+
+  it('does not re-greet the same session after a completed greeting + reconnect', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello there.', coordinator },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+    expect(instance.acknowledged).toHaveLength(1);
+    expect(adapter.speakCalls).toHaveLength(1);
+
+    await session.disconnect();
+
+    const ackCountAfterFirst = instance.acknowledged.length;
+    const speakCountAfterFirst = adapter.speakCalls.length;
+    await session.connect();
+    await flushMicrotasks();
+    expect(instance.acknowledged.length).toBe(ackCountAfterFirst);
+    expect(adapter.speakCalls.length).toBe(speakCountAfterFirst);
+  });
+
+  it('greets again when a new session reuses the same coordinator', async () => {
+    const coordinator = new GreetingCoordinator();
+    const sessionAId = SessionId('sess-a');
+    const sessionBId = SessionId('sess-b');
+
+    const adapterA = makeGreetingAdapter();
+    const instanceA = makeMockInstance(emptySnapshot);
+    const sessionA = new RealtimeSession({
+      adapter: adapterA,
+      instance: instanceA,
+      sessionId: sessionAId,
+      greeting: { text: 'Welcome.', coordinator },
+    });
+    await sessionA.connect();
+    await flushMicrotasks();
+    expect(instanceA.acknowledged).toHaveLength(1);
+    expect(adapterA.speakCalls).toHaveLength(1);
+    await sessionA.disconnect();
+
+    const adapterB = makeGreetingAdapter();
+    const instanceB = makeMockInstance(emptySnapshot);
+    const sessionB = new RealtimeSession({
+      adapter: adapterB,
+      instance: instanceB,
+      sessionId: sessionBId,
+      greeting: { text: 'Welcome.', coordinator },
+    });
+    await sessionB.connect();
+    await flushMicrotasks();
+    expect(instanceB.acknowledged).toEqual([
+      {
+        id: coordinator.greetingIdFor(sessionBId),
+        message: 'Welcome.',
+      },
+    ]);
+    expect(adapterB.speakCalls).toHaveLength(1);
+  });
+
+  it('does not speak when acknowledgement fails', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    instance.setAckResult(new Error('history unavailable'));
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello there.', coordinator },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+
+    expect(instance.acknowledged).toHaveLength(1);
+    expect(adapter.speakCalls).toEqual([]);
+  });
+
+  it('retries not_started speech on the next connection generation', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    adapter.setSpeakResult('not_started');
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      greeting: { text: 'Hello there.', coordinator },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+    expect(adapter.speakCalls).toHaveLength(1);
+    expect(instance.acknowledged).toHaveLength(1);
+
+    await session.disconnect();
+    adapter.setSpeakResult('accepted');
+    await session.connect();
+    await flushMicrotasks();
+
+    // The retry re-acknowledges the retained inserted history before speaking.
+    expect(adapter.speakCalls).toHaveLength(2);
+    expect(instance.acknowledged).toHaveLength(2);
   });
 });

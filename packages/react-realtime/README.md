@@ -1,6 +1,11 @@
 # @maelstrom-co/react-realtime
 
+[![npm](https://img.shields.io/npm/v/@maelstrom-co/react-realtime.svg?style=flat-square)](https://www.npmjs.com/package/@maelstrom-co/react-realtime)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
+
 Provider-neutral React binding for Maelstrom voice sessions.
+
+**Full documentation:** <https://docs.maelstrom-ai.co>
 
 ## Install
 
@@ -28,6 +33,12 @@ The hook reports what the session is doing; it does not promise a fixed sequence
 Render the current `state` rather than inferring success from a fixed order. There is no universal state sequence across providers and no universal retry policy. Use the typed error code and your own deployment policy to decide whether to request microphone permission, repair token minting, inspect the connection, or offer a reconnect.
 
 `turnControl` is a capability, not a constant. Speech-native adapters leave it undefined because the provider owns turn detection. Adapters that require explicit turn boundaries expose it, and application code should render hold-to-talk only while it is present.
+
+The React binding does not create a VAD controller. `LiveKitAdapter` drives the
+provider-neutral engine from `@maelstrom-co/realtime-vad`; applications deploy
+that package's matching browser assets during their build. Add
+`@maelstrom-co/realtime-vad` as a direct dependency so package managers link its
+`maelstrom-vad-assets` CLI onto the application's `PATH`.
 
 ## Docs
 

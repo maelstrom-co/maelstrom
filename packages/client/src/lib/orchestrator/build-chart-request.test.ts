@@ -175,6 +175,72 @@ describe('buildChartRequest', () => {
     expect(request.layout).not.toBe(staleTilingLayout);
   });
 
+  it('keeps retained hidden tiling Instances in the Engine request', () => {
+    const weatherId = InstanceId('weather-1');
+    const calendarId = InstanceId('calendar-1');
+    const tasksId = InstanceId('tasks-1');
+    const instances = new Map<InstanceId, VesselInstance>([
+      [
+        weatherId,
+        {
+          instanceId: weatherId,
+          vesselId: testVessel.id,
+          variant: VariantName('default'),
+          position: { column: 0, row: 0 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+      [
+        calendarId,
+        {
+          instanceId: calendarId,
+          vesselId: testVessel.id,
+          variant: VariantName('default'),
+          position: { column: 1, row: 0 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+      [
+        tasksId,
+        {
+          instanceId: tasksId,
+          vesselId: testVessel.id,
+          variant: VariantName('default'),
+          position: { column: 2, row: 0 },
+          size: { width: 1, height: 1 },
+        },
+      ],
+    ]);
+    const layout = {
+      type: 'tiling' as const,
+      tree: [weatherId],
+      instances: [...instances.values()].map(
+        ({ instanceId, vesselId, variant }) => ({
+          instanceId,
+          vesselId,
+          variant,
+        }),
+      ),
+    };
+
+    const request = buildChartRequest(buildParams({ instances, layout }));
+
+    expect(request.instances.map(({ instanceId }) => instanceId)).toEqual([
+      weatherId,
+      calendarId,
+      tasksId,
+    ]);
+    expect(request.layout.type).toBe('tiling');
+    if (request.layout.type !== 'tiling') {
+      throw new Error('expected tiling layout');
+    }
+    expect(
+      request.layout.instances.map(({ instanceId }) => instanceId),
+    ).toEqual([weatherId, calendarId, tasksId]);
+    expect(request.layout.tree).toEqual([weatherId]);
+    expect(() => ChartRequestSchema.parse(request)).not.toThrow();
+  });
+
   it('declares every live instance in the synthesized tiling layout when switching from grid to tiling', () => {
     // Regression: the tiling fallback used to synthesize `instances: []`
     // unconditionally. ChartRequestSchema's tiling branch requires every

@@ -8,16 +8,14 @@ import { SessionId } from '@maelstrom-co/protocol';
 // only @maelstrom-co/client and @maelstrom-co/protocol) despite living under
 // src/server — it defines the contract, not a server implementation of it.
 import { PLAYGROUND_NOKEY_FRAME } from '../server/playground-frames';
-import { isHosted } from './hosted-mode';
+import { isHosted, usesBrowserKey } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
 
 export interface CreateDemoConnectorOptions {
   /**
    * Source of truth for the visitor's key. Defaults to reading
    * `playgroundKeyStore` — the same store the key drawer and custody UI
-   * read/write — so every caller shares one key-custody source instead of
-   * risking a getter that reads localStorage directly and misses a
-   * session-only (`remember: false`) key that never touched storage.
+   * read/write — so every caller shares one in-memory key-custody source.
    */
   readonly getApiKey?: () => string | null;
   /**
@@ -108,13 +106,13 @@ function isRehelloFrame(raw: string): boolean {
 
 /**
  * Creates a WebSocketConnector that connects to the demo engine WS server.
- * Local mode: connects to VITE_WS_URL ?? ws://localhost:3001, no handshake.
- * Hosted mode (VITE_HOSTED=1): connects same-origin and sends a
- * playground.hello handshake carrying the visitor's key before any
- * protocol traffic.
+ * Local mode connects to VITE_WS_URL ?? ws://localhost:3001. When its server
+ * has no OpenAI key, it sends the same playground.hello handshake as hosted
+ * mode; hosted mode also switches the URL to the same-origin Worker.
  */
 export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
   const hosted = isHosted();
+  const browserKeyMode = usesBrowserKey();
   const getApiKey =
     options.getApiKey ?? (() => playgroundKeyStore.state.apiKey);
 
@@ -149,7 +147,7 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
     // has no proxy in front of it to drop the socket, so the heartbeat only
     // runs in hosted mode.
     heartbeatIntervalMs: hosted ? DEFAULT_HEARTBEAT_INTERVAL_MS : undefined,
-    onOpen: hosted
+    onOpen: browserKeyMode
       ? (send, sessionId) => {
           const apiKey = getApiKey();
           // No key yet: don't send a malformed handshake. The app

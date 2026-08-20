@@ -13,28 +13,37 @@
   "exclude": ["dist", "node_modules"],
   "references": [
     {
-      "path": "../../packages/realtime-server/tsconfig.json"
+      "path": "../../packages/realtime-vad"
     },
     {
-      "path": "../../packages/client/tsconfig.json"
+      "path": "../../packages/realtime-openai"
     },
     {
-      "path": "../../packages/react/tsconfig.json"
+      "path": "../../packages/realtime-openai-server"
     },
     {
-      "path": "../../packages/realtime-livekit-server/tsconfig.json"
+      "path": "../../packages/client"
     },
     {
-      "path": "../../packages/protocol/tsconfig.json"
+      "path": "../../packages/realtime-protocol"
     },
     {
-      "path": "../../packages/realtime-livekit/tsconfig.json"
+      "path": "../../packages/realtime-livekit-server"
     },
     {
-      "path": "../../packages/realtime/tsconfig.json"
+      "path": "../../packages/protocol"
     },
     {
-      "path": "../../packages/react-realtime/tsconfig.json"
+      "path": "../../packages/realtime-livekit"
+    },
+    {
+      "path": "../../packages/realtime"
+    },
+    {
+      "path": "../../packages/react-realtime"
+    },
+    {
+      "path": "../../packages/react"
     },
     {
       "path": "./tsconfig.e2e.json"

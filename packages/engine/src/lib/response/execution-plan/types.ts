@@ -8,6 +8,33 @@ import type {
 
 export type RawActionExecution = GridResponse['executionPlan'][number];
 
+export type ParamValidationIssue =
+  | { readonly kind: 'params_not_allowed' }
+  | { readonly kind: 'unknown_parameter'; readonly parameter: string }
+  | { readonly kind: 'missing_parameter'; readonly parameter: string }
+  | {
+      readonly kind: 'type_mismatch';
+      readonly parameter: string;
+      readonly expected: 'string' | 'number' | 'boolean' | 'object';
+      readonly actual:
+        | 'string'
+        | 'number'
+        | 'boolean'
+        | 'object'
+        | 'array'
+        | 'null';
+    }
+  | { readonly kind: 'enum_violation'; readonly parameter: string };
+
+/** Fixed, name- and value-free reason that parameter work stopped. */
+export type ParamsLimitKind =
+  | 'params_json_bytes'
+  | 'top_level_keys'
+  | 'depth'
+  | 'traversal_work'
+  | 'comparison_work'
+  | 'validation_issues';
+
 /**
  * Discriminated record of an action the engine refused to plan. Keep the
  * union closed and the per-arm field set stable — callers exhaust it via
@@ -49,7 +76,19 @@ export type SkippedAction =
       readonly reason: 'params_parse_failed';
       readonly instanceId: InstanceId;
       readonly action: ActionName;
-      readonly paramsJson: string;
+    }
+  | {
+      readonly reason: 'params_validation_failed';
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
+      readonly issues: readonly ParamValidationIssue[];
+    }
+  | {
+      readonly reason: 'params_limits_exceeded';
+      readonly limit: ParamsLimitKind;
+    }
+  | {
+      readonly reason: 'invalid_action_definition';
     }
   | {
       readonly reason: 'state_drift';

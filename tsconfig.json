@@ -28,13 +28,22 @@
       "path": "./packages/realtime"
     },
     {
+      "path": "./packages/realtime-protocol"
+    },
+    {
       "path": "./packages/realtime-livekit"
+    },
+    {
+      "path": "./packages/realtime-vad"
     },
     {
       "path": "./packages/realtime-livekit-agent"
     },
     {
-      "path": "./packages/realtime-server"
+      "path": "./packages/realtime-openai"
+    },
+    {
+      "path": "./packages/realtime-openai-server"
     },
     {
       "path": "./packages/react-realtime"

@@ -23,9 +23,11 @@ import { CommandProcessor } from '../command-processor/command-processor.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
 import type {
   AssistantMessage,
+  AssistantMessageOutcome,
   EngineConnector,
   PushConnector,
 } from '../connection-manager/connector.types.js';
+import { isAcknowledgedAssistantConnector } from '../connection-manager/connector.types.js';
 import type { Unsubscribe } from '../types.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
@@ -702,6 +704,38 @@ export class Orchestrator {
       message,
     };
     await this.#connector.addAssistantMessage(assistantMessage);
+  }
+
+  /**
+   * Insert an assistant message into engine history and report whether the
+   * engine stored it or recognized it as a duplicate.
+   *
+   * Used by greeting flows that must prove persistence before speech and must
+   * not speak twice for one session: `'inserted'` means this call created the
+   * record; `'deduped'` means an equal `id` already existed.
+   *
+   * Requires an active connector that implements
+   * {@link AcknowledgedAssistantConnector}.
+   *
+   * @param args.id - Stable message id; identity for engine-side dedupe.
+   * @param args.message - Exact assistant text to persist.
+   * @throws If called after {@link dispose}.
+   * @throws If the active connector lacks acknowledged-assistant support.
+   * @throws Propagates connector transport, engine, close, and timeout failures.
+   */
+  async addAssistantMessageAcknowledged(args: {
+    id: MessageId;
+    message: string;
+  }): Promise<AssistantMessageOutcome> {
+    if (this.#isDisposed) {
+      throw new Error('Orchestrator is disposed');
+    }
+    if (!isAcknowledgedAssistantConnector(this.#connector)) {
+      throw new Error(
+        'Active connector does not support acknowledged assistant messages',
+      );
+    }
+    return this.#connector.addAssistantMessageAcknowledged(args);
   }
 
   /**

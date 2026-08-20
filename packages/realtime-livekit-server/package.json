@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-livekit-server",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.2",
   "description": "Server-only minting of LiveKit room access tokens for Maelstrom. The server sibling of @maelstrom-co/realtime-livekit.",
   "keywords": [
     "maelstrom",
@@ -38,7 +38,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/realtime-livekit-server"
   },
   "homepage": "https://maelstrom-ai.co",
@@ -47,20 +47,18 @@
   },
   "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org"
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.0.0",
-    "@maelstrom-co/realtime": "0.0.0",
-    "@maelstrom-co/realtime-livekit": "0.0.0",
+    "@maelstrom-co/protocol": "0.1.0-alpha.2",
+    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.2",
     "livekit-server-sdk": "^2.13.1",
     "zod": "catalog:"
   },
   "nx": {
     "targets": {
       "typecheck": {
-        "command": "tsc -p tsconfig.lib.json --noEmit",
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
         "options": {
           "cwd": "{projectRoot}"
         }

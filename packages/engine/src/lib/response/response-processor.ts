@@ -14,6 +14,7 @@ import type {
 } from '@maelstrom-co/protocol';
 import { err, ok } from '@maelstrom-co/protocol';
 
+import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
 import { parseError, validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
@@ -58,20 +59,22 @@ export type InternalResponse = MaelstromResponse & {
 export interface ProcessResponseInput {
   readonly llmOutput: LLMOutput;
   readonly request: ChartRequest;
+  /** Exact normalized enum values displayed for this Engine request. */
+  readonly enumSnapshot: ActionParameterEnumSnapshot;
   readonly messageId: MessageId;
   readonly logger: Logger;
 }
 
+/** Processes one LLM attempt against its Engine request's fixed enum snapshot. */
 export function processResponse({
   llmOutput,
   request,
+  enumSnapshot,
   messageId,
   logger,
 }: ProcessResponseInput): Result<InternalResponse, EngineError> {
   if (!llmOutput.userMessage?.trim()) {
-    return err(
-      parseError('LLM response missing userMessage', JSON.stringify(llmOutput)),
-    );
+    return err(parseError('LLM response missing userMessage', 'userMessage'));
   }
 
   // `layoutMode` is the upstream discriminator: the schema that produced
@@ -133,6 +136,7 @@ export function processResponse({
     llmOutput.executionPlan,
     planInstances,
     request.vessels,
+    enumSnapshot,
     logger,
   );
 

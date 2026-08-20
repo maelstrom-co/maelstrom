@@ -16,19 +16,25 @@ interface DeriveRetryHintInput {
 }
 
 /**
- * Predicate for skip reasons where re-prompting the LLM has a chance of
- * producing a usable plan. The negation captures the cases retrying cannot
- * fix:
+ * Predicate for skip reasons the Engine permits to trigger an LLM retry.
+ * Ordinary parse and validation failures are fixable because a new response
+ * can correct them. The non-retryable cases are:
  * - `state_drift`: engine-state mismatch the LLM doesn't have visibility
  *   into; feedback would be noise.
  * - `self_transition_noop`: LLM emitted a transition action whose target
  *   equals the simulator's current variant; the chart is already in the
  *   desired variant and the LLM has nothing useful to change on retry.
+ * - parameter work limits: fail closed without repeating over-budget work,
+ *   even though a later independent request may supply a smaller value.
+ * - invalid definitions: only the application can correct the authored Action
+ *   definition.
  */
 export function isFixableSkip(reason: SkippedAction['reason']): boolean {
   switch (reason) {
     case 'state_drift':
     case 'self_transition_noop':
+    case 'params_limits_exceeded':
+    case 'invalid_action_definition':
       return false;
     case 'unknown_instance':
     case 'unknown_vessel':
@@ -36,6 +42,7 @@ export function isFixableSkip(reason: SkippedAction['reason']): boolean {
     case 'variant_not_on_vessel':
     case 'action_not_valid':
     case 'params_parse_failed':
+    case 'params_validation_failed':
       return true;
     default:
       return assertNever(reason, 'isFixableSkip');

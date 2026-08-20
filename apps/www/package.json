@@ -32,6 +32,25 @@
   },
   "nx": {
     "targets": {
+      "build": {
+        "...": true,
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/bun.lock",
+          {
+            "env": "CLOUDFLARE_ENV"
+          },
+          {
+            "env": "PUBLIC_PLAYGROUND_URL"
+          }
+        ],
+        "outputs": [
+          "{projectRoot}/dist",
+          "{projectRoot}/.wrangler/deploy"
+        ]
+      },
       "typegen": {
         "command": "wrangler types --env-file /dev/null",
         "options": {
@@ -49,6 +68,17 @@
         "outputs": [
           "{projectRoot}/worker-configuration.d.ts"
         ]
+      },
+      "deploy": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "wrangler deploy"
+        }
       },
       "typecheck": {
         "dependsOn": [

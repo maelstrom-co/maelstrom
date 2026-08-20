@@ -112,7 +112,8 @@
     "projects": ["packages/*"],
     "projectsRelationship": "fixed",
     "version": {
-      "preVersionCommand": "bunx nx run-many -t build",
+      "specifierSource": "conventional-commits",
+      "preVersionCommand": "bunx nx run-many -t build --projects='packages/*'",
       "currentVersionResolver": "git-tag",
       "versionActionsOptions": {
         "skipLockFileUpdate": true
@@ -129,10 +130,12 @@
       "projectChangelogs": false,
       "workspaceChangelog": {
         "file": false,
-        "createRelease": "github"
+        "createRelease": "github",
+        "renderer": "{workspaceRoot}/scripts/lib/release-changelog-renderer.ts"
       }
     }
   },
   "nxCloudId": "69b94146895823a3b98c76ba",
+  "useDaemonProcess": false,
   "analytics": true
 }

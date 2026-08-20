@@ -54,8 +54,9 @@ Detect the checkout's VCS before running mutating commands.
 - Process engine responses atomically in this order: apply `set_layout`, then run `execute_actions`.
 - Do not add an inline overflow or size-reconciliation step. The Chart `ResizeObserver` starts a new `chart_resize` request when whole grid dimensions change.
 - Browser realtime packages never hold provider secrets. Server packages mint ephemeral tokens or provider grants.
+- Realtime code sits in four layers: CONTRACT, BROWSER, SERVER, WORKER. No server or worker package may depend on a browser package. Contracts ship as `@maelstrom-co/realtime-protocol` subpaths; implementations ship as sibling packages. `packages/realtime-protocol/src/layer-boundary.test.ts` enforces the rule.
 
-Before changing architecture or domain terminology, read `docs/architecture.md` and `CONTEXT.md`. Read `docs/realtime-voice-architecture.md` when the work touches realtime voice.
+Before changing architecture or domain terminology, read `docs/architecture.md` and `CONTEXT.md`. Read `docs/realtime-voice-architecture.md` and `docs/adr/0001`–`0003` when the work touches realtime voice.
 
 ## Published APIs
 
@@ -73,7 +74,7 @@ Before changing a published API, read `apps/docs/src/content/docs/community/jsdo
 - Nx targets are inferred through workspace plugins.
 - Biome suppressions use `// biome-ignore <rule>: <why>` directly above the offending token.
 - Environment variables are documented in `.env.example`. Never commit provider keys.
-- Public packages use npm. Per-PR previews use GitHub Packages and CI's `GITHUB_TOKEN`.
+- Packages are private, published to GitHub Packages under the `@maelstrom-co` scope. CI publishes releases and PR previews with its `GITHUB_TOKEN`. Installing outside CI needs a classic PAT with `read:packages`.
 
 ## Agent skills
 

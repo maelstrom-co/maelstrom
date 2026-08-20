@@ -84,6 +84,7 @@ plans.local
 
 test-output
 graphify-out
+.codegraph
 
 # `wrangler types` output. Generated from each app's wrangler config by the
 # `typegen` target, which declares it as an Nx output — a build artifact, not a
@@ -96,3 +97,14 @@ graphify-out
 # the bindings. Consuming the generated `Env` (rather than a hand-written copy)
 # is the other half; without it a renamed binding still compiles.
 worker-configuration.d.ts
+
+# Browser VAD and ONNX Runtime assets (~80MB of .wasm and .onnx), copied out of
+# the pinned `onnxruntime-web` and `@ricky0123/vad-web` dependencies by the
+# `prepare-voice-assets` target. Generated, never committed: resolving them from
+# node_modules is what keeps the wasm binaries matched to the JavaScript loader
+# that reads them, so a checked-in copy could only ever drift from the lockfile.
+#
+# Keeping them untracked also keeps them out of history. jj has no Git LFS
+# support, so a single accidental snapshot would put 80MB in every clone
+# permanently, recoverable only by rewriting history across every workspace.
+**/public/vad-web/

@@ -19,6 +19,7 @@ import {
   silentLogger,
   type TilingResponseAuthor,
 } from '../__test-helpers__/fixtures.js';
+import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import { processResponse as processResponseBranded } from './response-processor.js';
 
@@ -40,6 +41,7 @@ const processResponse = (input: {
 }): ReturnType<typeof processResponseBranded> =>
   processResponseBranded({
     request: input.request,
+    enumSnapshot: buildActionParameterEnumSnapshot(input.request.vessels),
     messageId: input.messageId,
     logger: input.logger,
     llmOutput: isGridResponseAuthor(input.llmOutput)
@@ -542,11 +544,12 @@ describe('processResponse', () => {
     });
 
     test('skips action entirely when paramsJson is invalid JSON', () => {
-      const errors: string[] = [];
+      const errors: unknown[][] = [];
       const logger: Logger = {
         ...silentLogger,
-        error: (msg: string) => errors.push(msg),
+        error: (message, error, data) => errors.push([message, error, data]),
       };
+      const privateValue = 'do-not-log-this-value';
 
       const llmOutput: GridResponseAuthor = {
         userMessage: 'Trying action',
@@ -555,7 +558,7 @@ describe('processResponse', () => {
           {
             instanceId: 'a',
             action: 'doIt',
-            paramsJson: '{invalid json}',
+            paramsJson: `{"secret":"${privateValue}"`,
           },
         ],
         layout: { positions: [] },
@@ -572,7 +575,11 @@ describe('processResponse', () => {
 
       expect(result.value.executionPlan).toHaveLength(0);
       expect(errors).toHaveLength(1);
-      expect(errors[0]).toContain('Failed to parse paramsJson');
+      expect(errors[0]?.[0]).toContain('Failed to parse paramsJson');
+      expect(JSON.stringify(errors)).not.toContain(privateValue);
+      expect(JSON.stringify(result.value.diagnostics)).not.toContain(
+        privateValue,
+      );
     });
 
     test('handles multiple actions in execution plan', () => {
@@ -1907,8 +1914,12 @@ describe('processResponse', () => {
         executionPlan: [
           // Invalid paramsJson → action is dropped; runtime stays in 'compact'
           { instanceId: 'pw-1', action: 'expand', paramsJson: '{bad json' },
-          // Same action again without params → still valid in 'compact'
-          { instanceId: 'pw-1', action: 'expand' },
+          // Same action again with valid params → still valid in 'compact'
+          {
+            instanceId: 'pw-1',
+            action: 'expand',
+            paramsJson: '{"mode":"full"}',
+          },
         ],
         layout: { positions: [] },
       };
@@ -1927,6 +1938,7 @@ describe('processResponse', () => {
       expect(result.value.executionPlan[0]).toEqual({
         instanceId: InstanceId('pw-1'),
         action: ActionName('expand'),
+        params: { mode: 'full' },
       });
     });
   });
@@ -2151,9 +2163,9 @@ describe('processResponse', () => {
           reason: 'params_parse_failed',
           instanceId: 'calendar-main',
           action: 'showWeek',
-          paramsJson: '{not json',
         }),
       );
+      expect(JSON.stringify(skipped)).not.toContain('{not json');
     });
 
     test('preserves order matching the LLM execution plan', () => {

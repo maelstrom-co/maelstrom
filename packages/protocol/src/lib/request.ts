@@ -8,6 +8,7 @@ import { ChartDimensionsSchema } from './chart.ts';
 import type { ChartRequestMessage } from './engine-message.ts';
 import { InstanceId } from './instance.ts';
 import type { LayoutMode } from './layout.ts';
+import { MAX_EXECUTION_PLAN_ENTRIES } from './model-output-limits.ts';
 import type { GridLayout, TilingLayout } from './response.ts';
 import {
   ActionExecutionSchema,
@@ -156,8 +157,9 @@ export const GridResponseSchema = z.object({
     ),
   executionPlan: z
     .array(ActionExecutionSchema)
+    .max(MAX_EXECUTION_PLAN_ENTRIES)
     .describe(
-      'Actions to execute on vessel instances (in order). Empty array if no actions needed.',
+      `Actions to execute on vessel instances (in order), with at most ${MAX_EXECUTION_PLAN_ENTRIES} entries. Empty array if no actions needed.`,
     ),
   layout: GridLayoutSchema.describe(
     'Grid layout with positions for each visible instance.',
@@ -179,8 +181,9 @@ export const TilingResponseSchema = z.object({
     ),
   executionPlan: z
     .array(ActionExecutionSchema)
+    .max(MAX_EXECUTION_PLAN_ENTRIES)
     .describe(
-      'Actions to execute on vessel instances (in order). Empty array if no actions needed. CRITICAL: Include actions for newly created instances that require configuration.',
+      `Actions to execute on vessel instances (in order), with at most ${MAX_EXECUTION_PLAN_ENTRIES} entries. Empty array if no actions needed. CRITICAL: Include actions for newly created instances that require configuration.`,
     ),
   layout: TilingLayoutSchema.describe(
     'Tiling layout with binary tree structure and instance declarations.',

@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/protocol",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.2",
   "description": "Shared types, Zod schemas, and message contract for Maelstrom — the transport-agnostic foundation for AI-orchestrated dynamic UI.",
   "keywords": [
     "maelstrom",
@@ -35,7 +35,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/maelstrom-co/maelstrom.git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
     "directory": "packages/protocol"
   },
   "homepage": "https://maelstrom-ai.co",
@@ -44,8 +44,7 @@
   },
   "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org"
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
     "nanoid": "catalog:",
@@ -55,7 +54,7 @@
     "name": "@maelstrom-co/protocol",
     "targets": {
       "typecheck": {
-        "command": "tsc -p tsconfig.lib.json --noEmit",
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
         "options": {
           "cwd": "{projectRoot}"
         }

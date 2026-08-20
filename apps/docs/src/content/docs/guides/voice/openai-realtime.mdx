@@ -18,7 +18,7 @@ Provide:
 - a Maelstrom React instance with its normal Engine Connector
 - a server runtime that can read `OPENAI_API_KEY`
 - a browser secure context with microphone permission
-- the `@maelstrom-co/react`, `@maelstrom-co/protocol`, `@maelstrom-co/realtime`, `@maelstrom-co/react-realtime`, and `@maelstrom-co/realtime-server` packages
+- the `@maelstrom-co/react`, `@maelstrom-co/protocol`, `@maelstrom-co/realtime`, `@maelstrom-co/react-realtime`, `@maelstrom-co/realtime-openai`, and `@maelstrom-co/realtime-openai-server` packages
 
 Three things decide whether this integration is safe, and none of them are optional.
 
@@ -68,7 +68,7 @@ import { isOk } from '@maelstrom-co/protocol';
 import {
   createOpenAIMinter,
   mintFailureHttpStatus,
-} from '@maelstrom-co/realtime-server';
+} from '@maelstrom-co/realtime-openai-server';
 
 const mint = createOpenAIMinter({
   apiKey: process.env.OPENAI_API_KEY ?? '',
@@ -120,7 +120,7 @@ Fetch the credential from the same origin and treat the route response as unknow
 import {
   OpenAITokenGrantSchema,
   type OpenAITokenGrant,
-} from '@maelstrom-co/realtime/openai';
+} from '@maelstrom-co/realtime-openai';
 import { getCsrfToken } from '../auth/csrf';
 
 export async function mintOpenAIToken(): Promise<OpenAITokenGrant> {
@@ -153,7 +153,7 @@ The factory runs once per session, not per render, and receives a `CreateAdapter
 ```ts title="src/maelstrom.ts"
 import { createMaelstrom } from '@maelstrom-co/react';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
-import { OpenAIAdapter } from '@maelstrom-co/realtime/openai';
+import { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
 import { mintOpenAIToken } from './voice/mint-openai-token';
 import { vessels } from './vessels';
 
@@ -171,6 +171,8 @@ export const m = createMaelstrom({ vessels }).with(
 ```
 
 Calling `connect()` mints a fresh credential and begins microphone capture. Once WebRTC connects, the browser sends that microphone track directly to OpenAI until `disconnect()` stops the track and closes the peer connection. Make this media lifecycle clear in consent and connection UI. A second session-level `connect()` while the session is already live is a no-op; the adapter itself rejects a direct duplicate connection.
+
+During capture, the adapter asks the browser for echo cancellation (AEC), noise suppression (NS), and automatic gain control (AGC). These plain-boolean constraints are preferences: the browser, selected device, operating system, and audio route may ignore them or apply different processing. When `debug: true` is enabled, the adapter inspects the accepted original microphone track and logs only the three requested values plus each applied value as `true`, `false`, or `unavailable`. `unavailable` covers a missing or throwing settings API and missing or non-boolean fields. The diagnostic never includes the track, stream, complete settings object, device identity, or audio, and it does not prove that echo cancellation works acoustically.
 
 OpenAI manages turn detection, model responses, and response audio for this mode. When OpenAI publishes audio, `OpenAIAdapter` attaches the remote audio stream to an autoplay audio element and exposes both microphone and playback streams through `getAudioStreams()`. `disconnect()` stops local tracks, pauses playback, clears both streams, and closes the data channel and peer connection. The adapter does not expose manual turn controls or an application-owned audio-response queue; this differs from the LiveKit cascade mode, where the application explicitly starts and ends held turns and the worker owns TTS.
 
@@ -247,6 +249,7 @@ Confirm each observable boundary before relying on the integration:
 2. Start voice and confirm that the session state reaches `connected`.
 3. Speak one utterance and confirm that it appears as a user transcript.
 4. Request a successful UI change and confirm that the intent and rendering settle before assistant narration begins. Then send malformed tool arguments or force a genuine submission failure and confirm that the failure result returns immediately without waiting for render settlement.
+5. Before making a mobile barge-in or echo-cancellation claim, run the device protocol in [Turn detection in the browser](/understanding/browser-vad-and-barge-in/#validate-browser-audio-processing). Mocked unit tests and debug settings verify the request and bounded observation, not the result heard by a real microphone.
 
 ## Harden the mint route
 
@@ -306,10 +309,10 @@ Two behaviors are already wired by the time voice connects. Neither needs config
 
 Use the generated reference for the public contracts used in this guide:
 
-- [`RealtimeSession`](/reference/realtime/packages/realtime/src/classes/realtimesession/) from `@maelstrom-co/realtime`
-- [`OpenAIAdapter`](/reference/realtime/packages/realtime/src/openai/classes/openaiadapter/) and [`OpenAITokenGrantSchema`](/reference/realtime/packages/realtime/src/openai/variables/openaitokengrantschema/) from `@maelstrom-co/realtime/openai`
+- [`RealtimeSession`](/reference/realtime/classes/realtimesession/) from `@maelstrom-co/realtime`
+- [`OpenAIAdapter`](/reference/realtime-openai/classes/openaiadapter/) from `@maelstrom-co/realtime-openai` and [`OpenAITokenGrantSchema`](/reference/realtime-protocol/packages/realtime-protocol/src/openai/variables/openaitokengrantschema/) from `@maelstrom-co/realtime-protocol/openai`
 - [`maelstromRealtime`](/reference/react-realtime/functions/maelstromrealtime/) and [`UseVoiceResult`](/reference/react-realtime/interfaces/usevoiceresult/) from `@maelstrom-co/react-realtime`
-- [`createOpenAIMinter`](/reference/realtime-server/functions/createopenaiminter/) from `@maelstrom-co/realtime-server`
+- [`createOpenAIMinter`](/reference/realtime-openai-server/functions/createopenaiminter/) from `@maelstrom-co/realtime-openai-server`
 
 ## Next steps
 

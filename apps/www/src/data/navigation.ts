@@ -1,9 +1,12 @@
+import { PLAYGROUND_URL } from './playground-url';
+
 export const GITHUB_REPO_URL = 'https://github.com/maelstrom-co/maelstrom';
-export const INSTALL_COMMAND = 'npm install @maelstrom-co/react';
+export const INSTALL_COMMAND = 'npm install @maelstrom-co/react@alpha';
 
 export const navLinks = [
   { label: 'How It Works', href: '#how' },
   { label: 'Demo', href: '#demo' },
+  { label: 'Playground', href: PLAYGROUND_URL },
   { label: 'Docs', href: 'https://docs.maelstrom-ai.co' },
 ] as const;
 

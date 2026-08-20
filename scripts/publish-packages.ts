@@ -7,7 +7,11 @@ import {
   PACKED_MANIFEST_FILENAME,
   type PackedPackage,
 } from './lib/packed-manifest.ts';
-import { isAlreadyPublished, resolveRegistry } from './lib/registry.ts';
+import {
+  authenticationFailureHint,
+  isAlreadyPublished,
+  resolveRegistry,
+} from './lib/registry.ts';
 import { listWorkspacePackages } from './lib/workspace-packages.ts';
 
 // `workspace:*` and `catalog:` are Bun/pnpm-only protocols. npm doesn't
@@ -45,6 +49,41 @@ export type SubstitutionContext = {
   catalog: DepMap;
   workspaceVersions: Map<string, string>;
 };
+
+export type VersionOverrides = ReadonlyMap<string, string>;
+
+export function applyVersionOverrides(
+  ctx: SubstitutionContext,
+  manifest: Manifest,
+  overrides: VersionOverrides,
+): { ctx: SubstitutionContext; manifest: Manifest } {
+  const workspaceVersions = new Map(ctx.workspaceVersions);
+  for (const [name, version] of overrides) {
+    workspaceVersions.set(name, version);
+  }
+
+  const version = overrides.get(manifest.name);
+  const overriddenManifest = version
+    ? { ...manifest, version }
+    : { ...manifest };
+  for (const field of PUBLISHED_DEP_FIELDS) {
+    const dependencies = manifest[field];
+    if (!dependencies) continue;
+    overriddenManifest[field] = Object.fromEntries(
+      Object.entries(dependencies).map(([name, spec]) => [
+        name,
+        spec.startsWith('workspace:') || spec.startsWith('catalog:')
+          ? spec
+          : (overrides.get(name) ?? spec),
+      ]),
+    );
+  }
+
+  return {
+    ctx: { ...ctx, workspaceVersions },
+    manifest: overriddenManifest,
+  };
+}
 
 export function buildSubstitutionContext(
   cwd: string = process.cwd(),
@@ -141,6 +180,8 @@ export type PublishOptions = {
   verbose?: boolean;
   provenance?: boolean;
   skipPublished?: boolean;
+  /** Versions simulated by Nx during a dry run, which are not written to disk. */
+  versionOverrides?: VersionOverrides;
   /**
    * Pack tarballs into this directory instead of publishing. Used by the
    * release workflow's prepare job, which builds without an npm identity and
@@ -195,13 +236,14 @@ export async function publishWorkspacePackages(
     verbose = false,
     provenance = false,
     skipPublished = false,
+    versionOverrides,
     packTo,
   } = options;
   const cwd = process.cwd();
   const packDestination = packTo ? resolve(cwd, packTo) : undefined;
   if (packDestination) mkdirSync(packDestination, { recursive: true });
 
-  const ctx = buildSubstitutionContext(cwd);
+  let ctx = buildSubstitutionContext(cwd);
   const projectGraph = await createProjectGraphAsync();
   const failures: string[] = [];
   const succeeded: string[] = [];
@@ -217,7 +259,14 @@ export async function publishWorkspacePackages(
     } catch {
       continue;
     }
-    const pkgJson = JSON.parse(originalContent) as Manifest;
+    let pkgJson = JSON.parse(originalContent) as Manifest;
+    if (versionOverrides) {
+      ({ ctx, manifest: pkgJson } = applyVersionOverrides(
+        ctx,
+        pkgJson,
+        versionOverrides,
+      ));
+    }
     if (pkgJson.private === true) {
       console.log(`Skipping ${pkgJson.name} (private).`);
       continue;
@@ -349,17 +398,8 @@ if (isDirectInvocation) {
     console.error(
       `\n${packTo ? 'Pack' : 'Publish'} failed for: ${failures.join(', ')}`,
     );
-    // "A brand-new package cannot publish from CI" is a baffling failure
-    // without this: npm refuses to configure a trusted publisher for a package
-    // that does not exist yet, so the first version of each has to go out by
-    // hand before CI can ever own it.
     if (!packTo) {
-      console.error(
-        'If this was an authentication error, check that every package above has a ' +
-          'trusted publisher on npmjs.org pointing at this repository and release.yml. ' +
-          'A package that has never been published cannot have one — see the bootstrap ' +
-          'procedure in CONTRIBUTING.md.',
-      );
+      console.error(authenticationFailureHint(registry));
     }
     process.exit(1);
   }

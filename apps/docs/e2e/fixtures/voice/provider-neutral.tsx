@@ -53,6 +53,8 @@ function voiceErrorCopy(error: unknown): string {
     case 'DATA_CHANNEL_ERROR':
     case 'ALREADY_CONNECTED':
       return 'The voice connection failed. Reconnect voice to continue.';
+    case 'GREETING_ADAPTER_UNSUPPORTED':
+      return 'This voice session cannot play the greeting. Reconnect with a greeting-capable adapter.';
   }
 }
 

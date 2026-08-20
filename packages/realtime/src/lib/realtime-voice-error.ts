@@ -18,7 +18,10 @@ export type RealtimeVoiceErrorCode =
   // Raised on a connect() attempt that a newer connect()/teardown overtook
   // while it was mid-handshake — the stale attempt aborts instead of clobbering
   // the winning attempt's connection.
-  | 'CONNECT_SUPERSEDED';
+  | 'CONNECT_SUPERSEDED'
+  // Fatal config error: `greeting` was configured but the adapter does not
+  // implement the optional RealtimeGreetingAdapter capability.
+  | 'GREETING_ADAPTER_UNSUPPORTED';
 
 /**
  * A realtime voice failure with a typed cause.

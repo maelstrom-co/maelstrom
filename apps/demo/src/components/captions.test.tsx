@@ -10,8 +10,8 @@ vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
   RealtimeSession: FakeRealtimeSession,
 }));
 
-vi.mock('@maelstrom-co/realtime/openai', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@maelstrom-co/realtime/openai')>()),
+vi.mock('@maelstrom-co/realtime-openai', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/realtime-openai')>()),
   OpenAIAdapter: class {},
 }));
 
@@ -24,7 +24,7 @@ vi.mock('../lib/mint-token', () => ({
   },
 }));
 
-const { m } = await import('../lib/maelstrom');
+const { m, DEMO_GREETING } = await import('../lib/maelstrom');
 const { Captions } = await import('./captions');
 
 function must<T>(value: T | null | undefined): T {
@@ -244,5 +244,24 @@ describe('Captions', () => {
     expect(container.querySelector('[data-testid="captions"]')).not.toBeNull();
     expect(container.querySelector('[data-role="assistant"]')).toBeNull();
     expect(container.querySelector('[data-role="user"]')).toBeNull();
+  });
+
+  it('renders the greeting caption exactly once per session instance', async () => {
+    const { container, session } = renderCaptions();
+    await act(async () => {
+      session.emitState('connected');
+      session.emitGreeting();
+    });
+
+    const assistants = container.querySelectorAll('[data-role="assistant"]');
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.textContent).toContain(DEMO_GREETING);
+
+    await act(async () => {
+      session.emitGreeting();
+    });
+    expect(container.querySelectorAll('[data-role="assistant"]')).toHaveLength(
+      1,
+    );
   });
 });

@@ -13,7 +13,7 @@ Before starting, install or confirm the following:
 - Node.js 24, as specified by the repository's `.nvmrc` and CI configuration
 - free local ports 3000 and 3001
 - outbound network access to OpenAI; weather and map data also use optional external services
-- an OpenAI API key for the baseline typed flow
+- an OpenAI API key for the baseline typed flow, supplied through `.env` or the browser prompt
 
 The baseline does not require microphone permission, a LiveKit server, Deepgram, or Cartesia.
 
@@ -40,13 +40,21 @@ From the repository root, create your local environment file:
 cp .env.example .env
 ```
 
-Edit `.env` and set `OPENAI_API_KEY` to your OpenAI API key. The same server-side key powers the text-planning Engine and, when enabled, mints short-lived realtime voice credentials:
+Choose where the demo keeps your OpenAI key:
+
+- Set `OPENAI_API_KEY` in `.env` to keep the key on the local server. The server uses it for text planning, short-lived realtime voice credentials, and the fixed greeting.
+- Leave `OPENAI_API_KEY` empty to enter the key in the browser drawer. The key stays in memory until you reload or close the page. Voice calls OpenAI directly, while the local WebSocket server keeps the key and its text-planning Engine in memory for that connection.
 
 ```dotenv
+# Optional. Leave empty to use the browser key drawer.
 OPENAI_API_KEY=<redacted>
 # Optional; defaults to gpt-5.6-luna.
 ENGINE_MODEL=
 ```
+
+The server-owned greeting route is development-only: bodyless same-origin POST, exact fixed payload, process-local cache, and at most three upstream attempts in a 60-second window. The budget resets after the window elapses and after a validated response is cached; it is not a general speech API or production distributed abuse protection.
+
+The UI shows a compact disclosure next to the voice orb: “AI-generated voice”. Browser-key mode calls OpenAI speech and client-secret endpoints directly from the browser; the key never touches browser storage.
 
 The repository ignores `.env`. Never commit it or paste its contents into logs, issues, or other shared material. Keep examples empty or redacted as shown above.
 
@@ -63,7 +71,16 @@ development-only, for the same reason the LiveKit one below is: it does not
 authenticate the caller, and it forwards the request body to the minter, so the
 caller chooses the model. Replace it with the server-owned route from the
 [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/)
-before any deployment.
+before any deployment. The fixed greeting TTS route
+(`src/routes/api/demo-greeting-tts.ts`) is likewise development-only and must not
+be treated as production abuse protection.
+
+**Greeting TTS troubleshooting.** If the caption appears but there is no audio,
+confirm the browser allowed microphone/autoplay after the orb click, check that
+`POST /api/demo-greeting-tts` returned `audio/wav`, and verify `OPENAI_API_KEY`
+can call `/v1/audio/speech`. A second greeting after reconnect within the same
+session is a bug; a second upstream OpenAI TTS call after a successful cache fill
+in the same server process is also unexpected.
 
 The `nx` commands in this README run from the repository root. Commands shown
 as `bun run ...` under the LiveKit section run from `apps/demo/`.
@@ -127,6 +144,11 @@ The LiveKit cascade is also optional. It requires a local LiveKit server plus re
    ```
 
    Run this variant through Nx so its build dependencies run first. It starts the Bun Engine host, the LiveKit voice-agent worker, and Vite in `livekit` mode.
+
+   The build dependencies also run `maelstrom-vad-assets` from
+   `@maelstrom-co/realtime-vad`. This installs the package-matched VAD and ONNX
+   Runtime assets into the ignored `public/vad-web/` directory before Vite
+   starts. The default `/vad-web/` URL does not create these assets at runtime.
 
 ## Things to type or say
 

@@ -1,10 +1,16 @@
 import type {
+  AssistantMessageOutcome,
   CapabilitySnapshot,
   UIStructuralSnapshot,
   Unsubscribe,
 } from '@maelstrom-co/client';
-import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
+import type {
+  MessageId,
+  SessionId,
+  SidechannelEvent,
+} from '@maelstrom-co/protocol';
 
+import type { GreetingCoordinator } from '../greeting-coordinator.js';
 import type { RealtimeProviderAdapter } from './provider-adapter.types.js';
 
 /**
@@ -44,6 +50,22 @@ export interface RealtimeInstance {
   getStructuralSnapshot(): UIStructuralSnapshot;
   getCapabilitySnapshot(): CapabilitySnapshot;
   onSettled(cb: () => void): Unsubscribe;
+  /**
+   * Persist an assistant message with the engine's existing MessageId dedup.
+   * `'inserted'` is positive evidence this runtime owns first insertion;
+   * `'deduped'` means an earlier attempt already landed.
+   */
+  addAssistantMessageAcknowledged(args: {
+    readonly id: MessageId;
+    readonly message: string;
+  }): Promise<AssistantMessageOutcome>;
+  /**
+   * Observe engine connection readiness. Subscribe first, then the current
+   * status is delivered synchronously (subscribe-then-snapshot), so an
+   * already-connected engine resolves immediately and a not-connected engine
+   * delivers `false` now and `true` on the next transition.
+   */
+  observeEngineConnection(cb: (connected: boolean) => void): Unsubscribe;
 }
 
 /**
@@ -52,12 +74,13 @@ export interface RealtimeInstance {
  * sequencing logic; the default is deterministic and O(1) — grounding must
  * never involve a model call.
  *
- * Backs two paths: every latest-wins grounding push, and the fallback for an
- * `update_ui` / `get_ui_state` tool result. It is only a *fallback* for
- * `update_ui`: when the settled {@link SubmitIntentResult} carries a non-empty
- * `userMessage`, that engine reply is spoken instead — the product voice wins
- * over a structural description, and it also avoids misreporting instances the
- * engine keeps alive but hidden (which this summarizer would otherwise count).
+ * Backs two paths: every latest-wins grounding push and the structural
+ * fallback summary for an `update_ui` tool result. It does not summarize the
+ * direct `get_ui_state` pull, which returns its {@link UIStructuralSnapshot}
+ * directly. That snapshot already contains visible-only Instances. When the
+ * settled {@link SubmitIntentResult} carries a non-empty `userMessage`, that
+ * engine reply remains the preferred product voice over the structural
+ * fallback.
  */
 export type SummarizeFn = (snapshot: UIStructuralSnapshot) => string;
 
@@ -77,4 +100,13 @@ export interface RealtimeSessionOptions {
   readonly onEvent?: (event: SidechannelEvent) => void;
   /** Enable verbose debug tracing (default false). */
   readonly debug?: boolean;
+  /**
+   * Optional one-shot spoken greeting. The coordinator is owned by the
+   * maelstrom-realtime layer (one per Orchestrator) so session recreation
+   * reuses retained proofs. Never constructed inside {@link RealtimeSession}.
+   */
+  readonly greeting?: {
+    readonly text: string;
+    readonly coordinator: GreetingCoordinator;
+  };
 }

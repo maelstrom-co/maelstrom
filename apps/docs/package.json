@@ -8,6 +8,8 @@
     "@astrojs/sitemap": "catalog:",
     "@astrojs/starlight": "^0.41.5",
     "@astrojs/starlight-tailwind": "^5.0.0",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "astro": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
@@ -21,7 +23,10 @@
     "@maelstrom-co/realtime": "workspace:*",
     "@maelstrom-co/realtime-livekit": "workspace:*",
     "@maelstrom-co/realtime-livekit-server": "workspace:*",
-    "@maelstrom-co/realtime-server": "workspace:*",
+    "@maelstrom-co/realtime-openai": "workspace:*",
+    "@maelstrom-co/realtime-openai-server": "workspace:*",
+    "@maelstrom-co/realtime-protocol": "workspace:*",
+    "@maelstrom-co/realtime-vad": "workspace:*",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "catalog:",
     "@testing-library/react": "^16.1.0",
@@ -46,12 +51,51 @@
       "@maelstrom-co/react",
       "@maelstrom-co/realtime",
       "@maelstrom-co/react-realtime",
-      "@maelstrom-co/realtime-server",
+      "@maelstrom-co/realtime-openai",
+      "@maelstrom-co/realtime-openai-server",
+      "@maelstrom-co/realtime-protocol",
+      "@maelstrom-co/realtime-vad",
       "@maelstrom-co/realtime-livekit",
       "@maelstrom-co/realtime-livekit-server",
       "@maelstrom-co/realtime-livekit-agent"
     ],
     "targets": {
+      "build": {
+        "inputs": [
+          "{projectRoot}/astro.config.ts",
+          "{projectRoot}/src/**/*",
+          "{projectRoot}/public/**/*",
+          {
+            "externalDependencies": [
+              "astro"
+            ]
+          },
+          {
+            "env": "DOCS_SOURCE_REF"
+          },
+          {
+            "env": "WORKERS_CI_COMMIT_SHA"
+          },
+          {
+            "env": "GITHUB_SHA"
+          },
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/bun.lock",
+          "production",
+          "^production"
+        ]
+      },
+      "deploy": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "wrangler deploy"
+        }
+      },
       "typecheck": {
         "inputs": [
           "{projectRoot}/astro.config.ts",

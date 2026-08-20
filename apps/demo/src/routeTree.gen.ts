@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiDemoGreetingTtsRouteImport } from './routes/api/demo-greeting-tts'
 import { Route as ApiRealtimeTokenRouteImport } from './routes/api/realtime-token'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDemoGreetingTtsRoute = ApiDemoGreetingTtsRouteImport.update({
+  id: '/api/demo-greeting-tts',
+  path: '/api/demo-greeting-tts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiRealtimeTokenRoute = ApiRealtimeTokenRouteImport.update({
@@ -25,27 +31,31 @@ const ApiRealtimeTokenRoute = ApiRealtimeTokenRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
   '/api/realtime-token': typeof ApiRealtimeTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
   '/api/realtime-token': typeof ApiRealtimeTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
   '/api/realtime-token': typeof ApiRealtimeTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/realtime-token'
+  fullPaths: '/' | '/api/demo-greeting-tts' | '/api/realtime-token'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/realtime-token'
-  id: '__root__' | '/' | '/api/realtime-token'
+  to: '/' | '/api/demo-greeting-tts' | '/api/realtime-token'
+  id: '__root__' | '/' | '/api/demo-greeting-tts' | '/api/realtime-token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiDemoGreetingTtsRoute: typeof ApiDemoGreetingTtsRoute
   ApiRealtimeTokenRoute: typeof ApiRealtimeTokenRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/demo-greeting-tts': {
+      id: '/api/demo-greeting-tts'
+      path: '/api/demo-greeting-tts'
+      fullPath: '/api/demo-greeting-tts'
+      preLoaderRoute: typeof ApiDemoGreetingTtsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/realtime-token': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiDemoGreetingTtsRoute: ApiDemoGreetingTtsRoute,
   ApiRealtimeTokenRoute: ApiRealtimeTokenRoute,
 }
 export const routeTree = rootRouteImport

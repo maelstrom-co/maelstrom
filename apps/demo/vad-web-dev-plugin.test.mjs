@@ -15,9 +15,24 @@ import {
   createBuildPublicAssetsPlugin,
   createVadWebDevPlugin,
 } from './vad-web-dev-plugin.ts';
-import createViteConfig from './vite.config.mjs';
+import createViteConfig, { resolveBrowserKeyMode } from './vite.config.mjs';
 
 const temporaryDirectories = [];
+
+describe('resolveBrowserKeyMode', () => {
+  test('uses browser custody for hosted builds', () => {
+    expect(resolveBrowserKeyMode(true, 'sk-server-key')).toBe('1');
+  });
+
+  test('uses browser custody locally when the server key is missing or blank', () => {
+    expect(resolveBrowserKeyMode(false, undefined)).toBe('1');
+    expect(resolveBrowserKeyMode(false, '   ')).toBe('1');
+  });
+
+  test('uses server custody locally when an OpenAI key is configured', () => {
+    expect(resolveBrowserKeyMode(false, 'sk-server-key')).toBe('0');
+  });
+});
 
 const demoPackage = JSON.parse(
   await readFile(new URL('./package.json', import.meta.url), 'utf8'),

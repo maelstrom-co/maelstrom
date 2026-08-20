@@ -2,16 +2,14 @@ name: Release
 
 # Publishing is CI's job, not a laptop's. `scripts/release.ts --skip-publish`
 # versions, tags, and pushes locally; pushing the tag lands here and this
-# workflow does the publish. That split is what makes provenance possible —
-# an attestation is only worth something if the build it describes ran
-# somewhere auditable.
+# workflow does the publish.
 #
 # The workflow is split again internally, for a different reason. `prepare`
-# installs dependencies and builds; `publish` holds the npm OIDC identity.
+# installs dependencies and builds; `publish` holds package write access.
 # Neither job does both. A lifecycle script in the dependency tree, or a
 # compromised build plugin, runs in a job that has no identity to steal, and
-# the job that has one runs nothing but `npm publish` against tarballs that
-# were already packed.
+# the job that has one uses `npm publish` as its only package-write operation
+# against tarballs that were already packed.
 on:
   push:
     tags:
@@ -28,9 +26,6 @@ on:
         default: true
         type: boolean
 
-# Deliberately not `id-token: write` at the workflow level: that would grant the
-# OIDC capability to every job, including the one that installs dependencies.
-# Only `publish` asks for it.
 permissions:
   contents: read
 
@@ -43,12 +38,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Pinned, not `latest`. This runs in the job that builds the artifacts the
-  # publish job uploads, so a mutable toolchain release is an unreviewed input
-  # to a release.
-  BUN_VERSION: '1.3.7'
   NODE_VERSION: '24'
   TARBALL_DIR: dist/tarballs
+  RELEASE_REGISTRY: https://npm.pkg.github.com
 
 jobs:
   prepare:
@@ -58,6 +50,10 @@ jobs:
     # No `environment:` here. Approval belongs on the job that publishes; put
     # it here and a reviewer would be waved through before anything is built.
     outputs:
+      commit: ${{ steps.commit.outputs.commit }}
+      # Tag pushes use the tagged publisher. A manual recovery launched from
+      # main uses that reviewed workflow revision while rebuilding the old tag.
+      publisher_commit: ${{ github.event_name == 'workflow_dispatch' && github.sha || steps.commit.outputs.commit }}
       version: ${{ steps.meta.outputs.version }}
       dist_tag: ${{ steps.meta.outputs.dist_tag }}
       dry_run: ${{ steps.meta.outputs.dry_run }}
@@ -76,6 +72,20 @@ jobs:
           # lifecycle script in the dependency tree would otherwise be able to
           # read the Actions token out of .git/config.
           persist-credentials: false
+
+      - name: Record prepared commit
+        id: commit
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Assert tagged dispatch uses main publisher
+        if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          if [[ "$WORKFLOW_REF" != 'refs/heads/main' ]]; then
+            echo "::error::A tagged dispatch must be launched from main so package-write code is reviewed."
+            exit 1
+          fi
 
       # A tag can be pushed to any commit, including one that never went
       # through review. Checking ancestry here means a release can only ever
@@ -108,7 +118,8 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: ${{ env.BUN_VERSION }}
+          # One version for every workflow — see .bun-version.
+          bun-version-file: .bun-version
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -157,14 +168,18 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish to npm
+    name: Publish to GitHub Packages
     needs: prepare
+    # A branch rehearsal has no release version to validate. Its contract ends
+    # after the unprivileged job builds and packs; tagged rehearsals continue
+    # through this job to validate the privileged artifact handoff.
+    if: needs.prepare.outputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write # npm provenance; also the OIDC token for trusted publishing
-    # A tag push publishes to public npm with no human in the loop. Naming an
+      packages: write
+    # A tag push publishes with no human in the loop. Naming an
     # environment gives that an attachment point for required reviewers and
     # wait timers; GitHub creates it on first run, and it carries no protection
     # until one is configured in repository settings.
@@ -176,34 +191,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '') && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          ref: ${{ needs.prepare.outputs.publisher_commit }}
           filter: tree:0
           persist-credentials: false
 
       - name: Setup Node
-        # Deliberately no registry-url. With it, setup-node writes an .npmrc
-        # carrying `_authToken=${NODE_AUTH_TOKEN}`; with no token in this
-        # tokenless flow that expands to an empty credential, which has been
-        # observed to stop npm from falling through to the OIDC exchange.
-        # npm's own example does pass registry-url, so this is contested — but
-        # the registry is already pinned explicitly by publishConfig and the
-        # publish script's --registry, so omitting it costs nothing and is the
-        # safe choice under either reading.
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # Matches .nvmrc and `engines`. Node 24 also bundles npm 11, clearing
-          # the >= 11.5.1 that OIDC trusted publishing needs — on Node 22 this
-          # step had to be followed by a global npm upgrade, which meant
-          # fetching an unpinned npm into the one job that can publish.
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup Bun
         # Only to run the publish scripts. `bun install` is never called in
         # this job, so no dependency lifecycle script executes next to the
-        # OIDC token.
+          # package write token.
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: ${{ env.BUN_VERSION }}
+          # One version for every workflow — see .bun-version.
+          bun-version-file: .bun-version
 
       - name: Download tarballs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -211,37 +215,28 @@ jobs:
           name: release-tarballs
           path: ${{ env.TARBALL_DIR }}
 
-      - name: Warn that provenance is unavailable
-        if: github.event.repository.visibility != 'public'
-        env:
-          VISIBILITY: ${{ github.event.repository.visibility }}
-        run: echo "::warning::Repository is $VISIBILITY; publishing without provenance (npm requires a public repo to attest a build)."
+      - name: Configure GitHub Packages auth
+        run: |
+          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
+          echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/.npmrc" >> "$GITHUB_ENV"
 
       - name: Publish
-        # No token, by design. Auth is npm OIDC trusted publishing: npm trades
-        # this job's OIDC identity for a short-lived credential, so nothing
-        # long-lived is stored anywhere. It also sidesteps npm's 90-day cap on
-        # granular write tokens, which would otherwise mean rotating a secret
-        # every quarter and a broken release the one time it's forgotten.
-        #
         # --skip-published makes a re-run after a partial failure finish the
         # remaining packages instead of dying on the first one that already
         # landed; npm versions are immutable, so re-publishing is a hard error.
         #
-        # Provenance is gated on repository visibility: npm will not attest a
-        # build it cannot link to public source. Under OIDC npm also emits
-        # provenance on its own for public repos, so the flag is belt and
-        # braces — and it turns itself on when this repo goes public.
         env:
+          VERSION: ${{ needs.prepare.outputs.version }}
           DIST_TAG: ${{ needs.prepare.outputs.dist_tag }}
-          PROVENANCE: ${{ github.event.repository.visibility == 'public' && '--provenance' || '' }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run == 'true' && '--dry-run' || '' }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-
           bun scripts/publish-tarballs.ts
           --dir "$TARBALL_DIR"
+          --expected-version "$VERSION"
           --tag "$DIST_TAG"
+          --registry "$RELEASE_REGISTRY"
           --skip-published
-          $PROVENANCE
           $DRY_RUN
 
       - name: Verify packages are live
@@ -250,4 +245,9 @@ jobs:
         if: needs.prepare.outputs.dry_run != 'true'
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-        run: bun scripts/verify-published.ts --version "$VERSION"
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          bun scripts/verify-published.ts
+          --version "$VERSION"
+          --manifest "$TARBALL_DIR/packed.json"
+          --registry "$RELEASE_REGISTRY"

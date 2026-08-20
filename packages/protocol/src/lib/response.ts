@@ -64,6 +64,62 @@ export interface TilingLayout {
   readonly instances: readonly TilingInstance[];
 }
 
+/**
+ * Projects the Instance references eligible for rendering from a layout.
+ *
+ * This projection has no retained Instance store to resolve against. Callers
+ * that need the Instances actually rendered must intersect the result with
+ * their retained IDs.
+ *
+ * Grid visibility is every position. For tiling layouts, tokens are consumed
+ * for the first preorder root: split operators require two children, `null`
+ * fills a child slot without adding an Instance, and input may end with child
+ * slots still missing. Encountered Instance leaves remain visible in a partial
+ * or otherwise malformed root. Duplicate leaves are returned once in first
+ * encounter order, while tokens trailing the parsed root are ignored.
+ *
+ * Tiling projection is iterative and stack-safe for deeply nested input. This
+ * guarantee applies only to visibility projection, not to downstream parsers
+ * or renderers. A null layout has no visible Instances.
+ */
+export function getVisibleInstanceIds(
+  layout: GridLayout | TilingLayout | null,
+): ReadonlySet<InstanceId> {
+  if (layout === null) return new Set();
+
+  return layout.type === 'grid'
+    ? new Set(layout.positions.map(({ instanceId }) => instanceId))
+    : collectVisibleTilingLeaves(layout.tree);
+}
+
+/**
+ * Collects Instance leaves from the first preorder root without recursion.
+ *
+ * A pending child-slot count preserves parser consumption for complete and
+ * partial roots without allocating in proportion to nesting depth. Missing
+ * children end traversal when the tokens end; trailing tokens are left
+ * unconsumed after the root fills its final slot.
+ */
+function collectVisibleTilingLeaves(
+  tree: readonly TilingNode[],
+): ReadonlySet<InstanceId> {
+  const visible = new Set<InstanceId>();
+  let pendingSlots = 1;
+
+  for (const node of tree) {
+    if (pendingSlots === 0) break;
+
+    if (isTilingSplit(node)) {
+      pendingSlots += 1;
+    } else {
+      pendingSlots -= 1;
+      if (isInstanceIdNode(node)) visible.add(node);
+    }
+  }
+
+  return visible;
+}
+
 // ---------------------------------------------------------------------------
 // MaelstromResponse — the engine's output contract
 // ---------------------------------------------------------------------------

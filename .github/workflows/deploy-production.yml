@@ -1,0 +1,129 @@
+name: Deploy Production
+
+# workflow_run reads this workflow from the default branch, not from the commit
+# that triggered CI. Production credentials therefore never enter a PR-defined
+# workflow. The event filters below admit successful main pushes only.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NX_NO_CLOUD: 'true'
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+
+jobs:
+  deploy:
+    name: Deploy ${{ matrix.app }}
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'main'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ matrix.url }}
+    concurrency:
+      group: production-${{ matrix.app }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: www
+            project: '@maelstrom-co/www'
+            build-target: build
+            directory: apps/www
+            url: https://maelstrom-ai.co
+            alias: https://www.maelstrom-ai.co
+          - app: docs
+            project: '@maelstrom-co/docs'
+            build-target: build
+            directory: apps/docs
+            url: https://docs.maelstrom-ai.co
+            alias: ''
+          - app: demo
+            project: '@maelstrom-co/demo'
+            build-target: build-hosted
+            directory: apps/demo
+            url: https://demo.maelstrom-ai.co
+            alias: ''
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.DEPLOY_SHA }}
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # A newer workflow can finish CI before an older run acquires this app's
+      # deployment slot. Deploy only the newest commit whose `main` job passed.
+      - name: Check deployment revision
+        id: revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest_green_sha="$(bun scripts/latest-green-ci.ts)"
+          if [ "$latest_green_sha" = "$DEPLOY_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping stale revision $DEPLOY_SHA; latest green revision is $latest_green_sha"
+          fi
+
+      # Do not trust remote or local cache entries for production artifacts.
+      # Credentials are intentionally absent while application code executes.
+      - name: Build production artifact
+        if: steps.revision.outputs.current == 'true'
+        run: bunx nx run ${{ matrix.project }}:${{ matrix.build-target }} --skip-nx-cache
+        env:
+          DOCS_SOURCE_REF: ${{ env.DEPLOY_SHA }}
+
+      - name: Deploy to Cloudflare
+        if: steps.revision.outputs.current == 'true'
+        working-directory: ${{ matrix.directory }}
+        run: |
+          if [ "${{ matrix.app }}" = "demo" ]; then
+            bunx wrangler deploy --env=""
+          else
+            bunx wrangler deploy
+          fi
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PRODUCTION_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
+
+      - name: Smoke test primary domain
+        if: steps.revision.outputs.current == 'true'
+        run: >-
+          curl --fail --silent --show-error
+          --header "x-maelstrom-health-check: $SMOKE_TEST_BYPASS_TOKEN"
+          --retry 12 --retry-all-errors --retry-delay 5 --max-time 20
+          ${{ matrix.url }} > /dev/null
+        env:
+          SMOKE_TEST_BYPASS_TOKEN: ${{ secrets.SMOKE_TEST_BYPASS_TOKEN }}
+
+      - name: Smoke test alias
+        if: steps.revision.outputs.current == 'true' && matrix.alias != ''
+        run: >-
+          curl --fail --silent --show-error
+          --header "x-maelstrom-health-check: $SMOKE_TEST_BYPASS_TOKEN"
+          --retry 12 --retry-all-errors --retry-delay 5 --max-time 20
+          ${{ matrix.alias }} > /dev/null
+        env:
+          SMOKE_TEST_BYPASS_TOKEN: ${{ secrets.SMOKE_TEST_BYPASS_TOKEN }}

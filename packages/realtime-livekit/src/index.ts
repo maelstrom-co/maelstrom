@@ -6,16 +6,16 @@
  * Shipped as a package separate from `@maelstrom-co/realtime` so consumers of
  * the core never have `livekit-client` forced on them — pull this in only when
  * you want the LiveKit transport. The Node-only token minter lives in the
- * sibling `@maelstrom-co/realtime-livekit-server` package; the wire topic
- * constants re-exported on `./protocol` are shared with the
- * `@maelstrom-co/realtime-livekit-agent` worker.
+ * sibling `@maelstrom-co/realtime-livekit-server` package; the wire contracts
+ * re-exported here from `@maelstrom-co/realtime-protocol/livekit` are the same
+ * ones the `@maelstrom-co/realtime-livekit-agent` worker imports directly, so
+ * both sides read the exact same source of truth.
  */
-export { LiveKitAdapter } from './livekit-adapter.js';
+
+export * from '@maelstrom-co/realtime-protocol/livekit';
 export type {
-  LiveKitAdapterOptions,
-  LiveKitBrowserVadOptions,
-  LiveKitBrowserVadProviderOptions,
-} from './livekit-adapter.types.js';
-export type { LiveKitTokenGrant } from './livekit-token.js';
-export { LiveKitTokenGrantSchema } from './livekit-token.js';
-export * from './protocol.js';
+  BrowserVadOptions,
+  BrowserVadProviderOptions,
+} from '@maelstrom-co/realtime-vad';
+export { LiveKitAdapter } from './livekit-adapter.js';
+export type { LiveKitAdapterOptions } from './livekit-adapter.types.js';

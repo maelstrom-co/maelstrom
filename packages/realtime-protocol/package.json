@@ -1,0 +1,88 @@
+{
+  "name": "@maelstrom-co/realtime-protocol",
+  "version": "0.1.0-alpha.2",
+  "description": "Dependency-free wire contracts for Maelstrom realtime voice: token grants, mint-failure taxonomy, and shared wire topics.",
+  "keywords": [
+    "maelstrom",
+    "ai",
+    "llm",
+    "dynamic-ui",
+    "generative-ui",
+    "realtime",
+    "voice",
+    "protocol",
+    "schema",
+    "zod",
+    "token"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./openai": {
+      "@maelstrom-co/source": "./src/openai.ts",
+      "types": "./dist/openai.d.ts",
+      "import": "./dist/openai.js",
+      "default": "./dist/openai.js"
+    },
+    "./livekit": {
+      "@maelstrom-co/source": "./src/livekit.ts",
+      "types": "./dist/livekit.d.ts",
+      "import": "./dist/livekit.js",
+      "default": "./dist/livekit.js"
+    },
+    "./livekit-wire": {
+      "@maelstrom-co/source": "./src/livekit-wire.ts",
+      "types": "./dist/livekit-wire.d.ts",
+      "import": "./dist/livekit-wire.js",
+      "default": "./dist/livekit-wire.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/realtime-protocol"
+  },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "dependencies": {
+    "@maelstrom-co/protocol": "0.1.0-alpha.2",
+    "zod": "catalog:"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

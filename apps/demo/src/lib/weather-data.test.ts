@@ -11,7 +11,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeFetch } from './__tests__/fake-fetch';
 import {
   FALLBACK_WEATHER,
+  fetchGeocodedLocation,
   fetchLiveWeather,
+  unitsForCountry,
   weatherCodeToIcon,
   weatherCodeToLabel,
   weatherCodeToSkyClass,
@@ -73,17 +75,100 @@ const OPEN_METEO_FIXTURE = {
   },
 };
 
+const IMPERIAL_UNITS = {
+  temperature: 'fahrenheit',
+  windSpeed: 'mph',
+} as const;
+
+describe('fetchGeocodedLocation', () => {
+  const location = {
+    name: 'Paris',
+    country: 'France',
+    country_code: 'FR',
+    latitude: 48.8534,
+    longitude: 2.3488,
+  };
+
+  it('trims the query and requests the highest-ranked English result', async () => {
+    const fetchImpl = fakeFetch({ results: [location] });
+    await expect(
+      fetchGeocodedLocation('  Paris  ', fetchImpl),
+    ).resolves.toEqual({
+      name: 'Paris',
+      country: 'France',
+      countryCode: 'FR',
+      latitude: 48.8534,
+      longitude: 2.3488,
+    });
+    const [url] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(url).toContain('name=Paris');
+    expect(url).toContain('count=1');
+    expect(url).toContain('language=en');
+  });
+
+  it('rejects a trimmed query shorter than two characters without fetching', async () => {
+    const fetchImpl = fakeFetch({ results: [location] });
+    await expect(fetchGeocodedLocation(' a ', fetchImpl)).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects no result and malformed unknown JSON', async () => {
+    await expect(
+      fetchGeocodedLocation('Atlantis', fakeFetch({})),
+    ).rejects.toThrow(/no location/i);
+    await expect(
+      fetchGeocodedLocation(
+        'Paris',
+        fakeFetch({ results: [{ ...location, latitude: '48.8' }] }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it('accepts a valid place without country metadata', async () => {
+    await expect(
+      fetchGeocodedLocation(
+        'Antarctica',
+        fakeFetch({
+          results: [
+            {
+              name: 'Antarctica',
+              latitude: -78.15856,
+              longitude: 16.40626,
+            },
+          ],
+        }),
+      ),
+    ).resolves.toEqual({
+      name: 'Antarctica',
+      latitude: -78.15856,
+      longitude: 16.40626,
+    });
+  });
+});
+
+describe('unitsForCountry', () => {
+  it('uses Fahrenheit and mph only for the US', () => {
+    expect(unitsForCountry('US')).toEqual(IMPERIAL_UNITS);
+    expect(unitsForCountry('FR')).toEqual({
+      temperature: 'celsius',
+      windSpeed: 'kmh',
+    });
+  });
+});
+
 describe('fetchLiveWeather', () => {
   it('maps current conditions, rounding temperature and wind speed', async () => {
     const result = await fetchLiveWeather(
       37.7648,
       -122.433,
+      IMPERIAL_UNITS,
       fakeFetch(OPEN_METEO_FIXTURE),
     );
     expect(result.current).toEqual({
-      temperatureF: 55,
+      temperature: 55,
       weatherCode: 2,
-      windMph: 16,
+      windSpeed: 16,
     });
   });
 
@@ -91,17 +176,18 @@ describe('fetchLiveWeather', () => {
     const result = await fetchLiveWeather(
       37.7648,
       -122.433,
+      IMPERIAL_UNITS,
       fakeFetch(OPEN_METEO_FIXTURE),
     );
     expect(result.hourly).toHaveLength(12);
     expect(result.hourly[0]).toEqual({
       hour: '10PM',
-      temperatureF: 54,
+      temperature: 54,
       weatherCode: 3,
     });
     expect(result.hourly[11]).toEqual({
       hour: '9AM',
-      temperatureF: 55,
+      temperature: 55,
       weatherCode: 0,
     });
   });
@@ -110,48 +196,71 @@ describe('fetchLiveWeather', () => {
     const result = await fetchLiveWeather(
       37.7648,
       -122.433,
+      IMPERIAL_UNITS,
       fakeFetch(OPEN_METEO_FIXTURE),
     );
     expect(result.daily).toHaveLength(7);
     expect(result.daily[0]).toEqual({
       day: 'Thu',
-      highF: 66,
-      lowF: 53,
+      high: 66,
+      low: 53,
       weatherCode: 45,
     });
     expect(result.daily[6]).toEqual({
       day: 'Wed',
-      highF: 72,
-      lowF: 58,
+      high: 72,
+      low: 58,
       weatherCode: 0,
     });
   });
 
   it('builds the request URL from the given coordinates', async () => {
     const fetchImpl = fakeFetch(OPEN_METEO_FIXTURE);
-    await fetchLiveWeather(37.7648, -122.433, fetchImpl);
+    await fetchLiveWeather(
+      37.7648,
+      -122.433,
+      { temperature: 'celsius', windSpeed: 'kmh' },
+      fetchImpl,
+    );
     const [url] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(url).toContain('latitude=37.7648');
     expect(url).toContain('longitude=-122.433');
+    expect(url).toContain('temperature_unit=celsius');
+    expect(url).toContain('wind_speed_unit=kmh');
   });
 
   it('rejects on a non-200 response', async () => {
     await expect(
-      fetchLiveWeather(37.7648, -122.433, fakeFetch({}, false, 500)),
+      fetchLiveWeather(
+        37.7648,
+        -122.433,
+        IMPERIAL_UNITS,
+        fakeFetch({}, false, 500),
+      ),
     ).rejects.toThrow();
   });
 
   it('rejects on a network failure', async () => {
     const failing = vi.fn().mockRejectedValue(new Error('offline'));
     await expect(
-      fetchLiveWeather(37.7648, -122.433, failing as unknown as typeof fetch),
+      fetchLiveWeather(
+        37.7648,
+        -122.433,
+        IMPERIAL_UNITS,
+        failing as unknown as typeof fetch,
+      ),
     ).rejects.toThrow();
   });
 
   it('rejects on a malformed response missing expected fields', async () => {
     await expect(
-      fetchLiveWeather(37.7648, -122.433, fakeFetch({ current: {} })),
+      fetchLiveWeather(
+        37.7648,
+        -122.433,
+        IMPERIAL_UNITS,
+        fakeFetch({ current: {} }),
+      ),
     ).rejects.toThrow();
   });
 
@@ -161,7 +270,7 @@ describe('fetchLiveWeather', () => {
       current: { ...OPEN_METEO_FIXTURE.current, temperature_2m: 'n/a' },
     };
     await expect(
-      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
+      fetchLiveWeather(37.7648, -122.433, IMPERIAL_UNITS, fakeFetch(garbled)),
     ).rejects.toThrow();
   });
 
@@ -174,7 +283,7 @@ describe('fetchLiveWeather', () => {
       },
     };
     await expect(
-      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
+      fetchLiveWeather(37.7648, -122.433, IMPERIAL_UNITS, fakeFetch(garbled)),
     ).rejects.toThrow();
   });
 
@@ -187,7 +296,7 @@ describe('fetchLiveWeather', () => {
       },
     };
     await expect(
-      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
+      fetchLiveWeather(37.7648, -122.433, IMPERIAL_UNITS, fakeFetch(garbled)),
     ).rejects.toThrow();
   });
 
@@ -197,7 +306,7 @@ describe('fetchLiveWeather', () => {
       hourly: { time: [], temperature_2m: [], weather_code: [] },
     };
     await expect(
-      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
+      fetchLiveWeather(37.7648, -122.433, IMPERIAL_UNITS, fakeFetch(garbled)),
     ).rejects.toThrow();
   });
 
@@ -212,13 +321,13 @@ describe('fetchLiveWeather', () => {
       },
     };
     await expect(
-      fetchLiveWeather(37.7648, -122.433, fakeFetch(garbled)),
+      fetchLiveWeather(37.7648, -122.433, IMPERIAL_UNITS, fakeFetch(garbled)),
     ).rejects.toThrow();
   });
 
   it('passes an abort signal through to fetch so a stalled request can be cancelled', async () => {
     const fetchImpl = fakeFetch(OPEN_METEO_FIXTURE);
-    await fetchLiveWeather(37.7648, -122.433, fetchImpl);
+    await fetchLiveWeather(37.7648, -122.433, IMPERIAL_UNITS, fetchImpl);
     const [, options] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(options?.signal).toBeInstanceOf(AbortSignal);
@@ -247,6 +356,7 @@ describe('fetchLiveWeather', () => {
       const weatherPromise = fetchLiveWeather(
         37.7648,
         -122.433,
+        IMPERIAL_UNITS,
         neverResolvingFetch,
       );
       controller.abort();
@@ -395,9 +505,9 @@ describe('weatherCodeToLabel', () => {
 describe('FALLBACK_WEATHER', () => {
   it("matches today's hardcoded current conditions", () => {
     expect(FALLBACK_WEATHER.current).toEqual({
-      temperatureF: 72,
+      temperature: 72,
       weatherCode: 0,
-      windMph: 8,
+      windSpeed: 8,
     });
   });
 
@@ -409,8 +519,8 @@ describe('FALLBACK_WEATHER', () => {
     expect(FALLBACK_WEATHER.daily).toHaveLength(7);
     expect(FALLBACK_WEATHER.daily[0]).toMatchObject({
       day: 'Mon',
-      highF: 75,
-      lowF: 58,
+      high: 75,
+      low: 58,
     });
   });
 });

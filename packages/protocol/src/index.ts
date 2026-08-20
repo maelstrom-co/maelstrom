@@ -26,6 +26,10 @@ export type {
   ServerEnvelope,
 } from './lib/envelope.ts';
 export {
+  AcknowledgedAssistantMessage,
+  AcknowledgedAssistantMessageSchema,
+  AssistantMessageResultMessage,
+  AssistantMessageResultMessageSchema,
   ClientEnvelopeSchema,
   decodeClientEnvelope,
   decodeServerEnvelope,
@@ -45,6 +49,11 @@ export { MaelstromError } from './lib/errors/index.ts';
 export { InstanceId } from './lib/instance.ts';
 export type { LayoutMode } from './lib/layout.ts';
 export { MessageId, MessageIdSchema } from './lib/message.ts';
+export {
+  MAX_ACTION_PARAMETER_ENUM_CANDIDATES,
+  MAX_ACTION_PARAMS_JSON_UTF8_BYTES,
+  MAX_EXECUTION_PLAN_ENTRIES,
+} from './lib/model-output-limits.ts';
 export type {
   ChartRequest,
   ChartResizeReason,
@@ -74,7 +83,11 @@ export type {
   TilingNode,
   TilingSplit,
 } from './lib/response.ts';
-export { isInstanceIdNode, isTilingSplit } from './lib/response.ts';
+export {
+  getVisibleInstanceIds,
+  isInstanceIdNode,
+  isTilingSplit,
+} from './lib/response.ts';
 export type { Result } from './lib/result.ts';
 export { err, isErr, isOk, ok, unwrap } from './lib/result.ts';
 export { sanitizeControlChars } from './lib/sanitize-control-chars.ts';

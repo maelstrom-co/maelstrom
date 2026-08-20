@@ -9,7 +9,6 @@ on:
 permissions:
   actions: read
   contents: read
-  id-token: write
 
 env:
   NX_NO_CLOUD: ${{ vars.NX_NO_CLOUD }}
@@ -29,7 +28,14 @@ jobs:
           node-version: 24
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: latest
+          # Read from .bun-version so every workflow, and every contributor,
+          # runs one version. This job used to take `latest`, which made
+          # flag-level differences invisible until CI: `bun test --isolate`
+          # does not exist in 1.3.7, and Bun accepts unknown flags silently
+          # rather than rejecting them, so a suite that genuinely needs
+          # isolation ran unisolated locally and passed, then leaked across
+          # files here.
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
 
@@ -47,5 +53,10 @@ jobs:
       # fails the build rather than scrolling past.
       - name: Run check, test, build, typecheck, e2e
         run: bunx nx run-many -t check test build typecheck e2e
+      # Reads apps/docs/dist, so it has to follow the build rather than join the
+      # nx run above. The e2e suite link-checks a handful of pages it navigates;
+      # this covers every page the build emits, including generated reference.
+      - name: Assert no dead links in the built docs
+        run: bun scripts/assert-docs-links.ts
       # - run: bunx nx fix-ci
       #   if: always()

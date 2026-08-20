@@ -136,10 +136,12 @@ Each entry in `parameters` is an `ActionParameter`:
 | `type` | `'string' \| 'number' \| 'boolean' \| 'object'` | The value type. Drives the TypeScript type your handler receives. |
 | `description` | `string` | What the parameter means; the LLM uses this to fill the value. |
 | `required` | `boolean` *(optional)* | When `false`, the param is optional on the typed params object. Defaults to required. |
-| `defaultValue` | `unknown` *(optional)* | Value the engine may use when none is supplied. |
-| `enum` | `unknown[]` *(optional)* | Constrains the value to a fixed set of allowed options. |
+| `defaultValue` | `unknown` *(optional)* | Fallback metadata for your Action runner. The Engine never applies it; to allow omission, also set `required: false` and have the runner substitute the fallback. |
+| `enum` | `unknown[]` *(optional)* | Constrains Engine-planned Actions only when it contains at least one JSON-normalized value compatible with the declared `type`; otherwise only `type` applies. |
 
 The `type` union maps to TypeScript as you'd expect: `'string'` → `string`, `'number'` → `number`, `'boolean'` → `boolean`, `'object'` → `Record<string, unknown>`. A variant whose `actions` array is empty produces no callable actions for that state.
+
+These Engine checks do not validate Actions invoked locally through `executeAction`; validating those values and applying any `defaultValue` remain the app's responsibility in its [Action runner](#the-app-handles-actions). See [Three rules](#three-rules) for the full `enum` behavior.
 
 ## transitionsTo wiring
 
@@ -328,7 +330,7 @@ That difference in surface area is also why `registerVessel` *can* remount a ves
 ### Three rules
 
 - **An empty list behaves the same as omitting `enum` entirely.** Both the engine's prompt serializer and the voice capability catalog treat a present-but-empty `enum: []` as "no options declared". The prompt renders the parameter as `name: string` — the declared `type` standing in for the option list — and the voice catalog, which carries `type` on every parameter regardless, simply leaves `options` off. `m.updateVessel` callers don't need to special-case an empty derived list before republishing — passing `enum: []` and leaving `enum` unset produce the same result.
-- **`enum` is advisory, not enforced.** Nothing validates an incoming action's parameters against the `enum` you declared — it narrows what the model is *likely* to send, not what it's *allowed* to send. Your action runner still needs to handle a value the model invents anyway, the same way `setName`'s handler already checks for an empty `name` above.
+- **The engine enforces prompt-visible `enum` values.** Before returning an execution plan, the engine rejects a model-generated value outside the options it showed in the prompt. It compares JSON-normalized values, so an object option with an omitted `undefined` property or a `toJSON` method matches the same JSON object the model sees. Values whose normalized JSON type conflicts with the declared parameter type are not shown. Empty lists and lists with no type-compatible JSON-renderable values remain unconstrained. Action runners should still validate application-specific rules and locally supplied values, which do not cross this engine boundary.
 - **`enum` values are transmitted verbatim, not just referenced.** Every chart request carries the actual `enum` values, and so does the voice model's `get_capabilities` catalog if you're using voice — the engine sees the real strings, not a count or a pointer into your store. Don't put anything sensitive in a value the model shouldn't be told (a task titled with an access token, an event with a private attendee list), and keep lists bounded — the two paths bound them very differently. The prompt serializer joins values with `|` and never truncates, so a vessel that reuses the same option list across several actions — like the demo's `tasks` vessel, which repeats every task title across `removeTask`, `checkTask`, `uncheckTask`, and `addSubtask` — pays that full list's size once per action, per request. The voice catalog does cap it: past `MAX_CAPABILITY_OPTION_COUNT` (100) values, or `MAX_CAPABILITY_OPTIONS_TOTAL_CHARS` (2000) characters across them, it drops the list wholesale rather than truncating it and flags the parameter `optionsOmitted`, so the model learns values exist but not which ones. On both paths an individual value with no faithful text form — a cyclic object, a symbol — is dropped rather than shown as a placeholder the model could pick but your vessel couldn't act on.
 
 ## Next steps

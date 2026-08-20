@@ -1,8 +1,8 @@
-import type { UnixSeconds } from '@maelstrom-co/realtime';
 import type {
   MintFailureReason,
   MintResult,
-} from '@maelstrom-co/realtime-server';
+} from '@maelstrom-co/realtime-openai-server';
+import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_REALTIME_MODEL } from '../../lib/realtime-model';
 
@@ -43,7 +43,9 @@ let mintResult: MintResult = {
 };
 let lastMintInput: unknown;
 let mintCallCount = 0;
-let lastMinterOptions: { apiKey: string; model: string } | undefined;
+let lastMinterOptions:
+  | { apiKey: string; model: string; voice?: string }
+  | undefined;
 
 const STATUS: Record<MintFailureReason, number> = {
   'invalid-request': 400,
@@ -53,8 +55,12 @@ const STATUS: Record<MintFailureReason, number> = {
   'upstream-failure': 502,
 };
 
-vi.doMock('@maelstrom-co/realtime-server', () => ({
-  createOpenAIMinter: (options: { apiKey: string; model: string }) => {
+vi.doMock('@maelstrom-co/realtime-openai-server', () => ({
+  createOpenAIMinter: (options: {
+    apiKey: string;
+    model: string;
+    voice?: string;
+  }) => {
     lastMinterOptions = options;
     return (input: unknown) => {
       lastMintInput = input;
@@ -140,6 +146,36 @@ it('passes the parsed body to the minter and returns its response on success', a
   expect(res.status).toBe(200);
   expect(body).toEqual(mintResult.value);
   expect(lastMintInput).toEqual({ provider: 'openai', sessionId: 'sess-1' });
+});
+
+it('configures the minter with trusted cedar voice; browser body has no voice authority', async () => {
+  expect(lastMinterOptions?.voice).toBe('cedar');
+  mintResult = {
+    ok: true,
+    value: {
+      provider: 'openai',
+      value: 'ek-xyz',
+      expiresAt: 1712345678 as UnixSeconds,
+      model: 'gpt-realtime-2.1',
+    },
+  };
+  await handleRealtimeTokenRequest(
+    new Request('http://x/api/realtime-token', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: 'openai',
+        sessionId: 'sess-1',
+        voice: 'marin',
+      }),
+    }),
+  );
+  // Request input may include voice, but the minter option is trusted config only.
+  expect(lastMinterOptions?.voice).toBe('cedar');
+  expect(lastMintInput).toEqual({
+    provider: 'openai',
+    sessionId: 'sess-1',
+    voice: 'marin',
+  });
 });
 
 const REASON_STATUS: Array<[MintResult, number]> = [
