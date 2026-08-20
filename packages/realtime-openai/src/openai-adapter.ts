@@ -20,7 +20,7 @@ import {
   type ResolvedBrowserVadConfig,
   resolveBrowserVadConfig,
 } from '@maelstrom-co/realtime-vad/config';
-import { loadGreetingInterruptionRuntime } from './greeting-interruption-runtime.js';
+import { GreetingInterruption } from './greeting-interruption.js';
 import { GreetingPresentation } from './greeting-presentation.js';
 import { MicrophonePublicationGate } from './microphone-publication-gate.js';
 import type {
@@ -237,15 +237,24 @@ export class OpenAIAdapter
     this.#voice = options.voice ?? DEFAULT_OUTPUT_VOICE;
     this.#synthesizeGreeting = options.synthesizeGreeting;
     this.#logger = new Logger(options.debug ?? false, 'OpenAIAdapter');
+    const greetingGate = new MicrophonePublicationGate(
+      () => this.#connectionGeneration,
+    );
     this.#greetingPresentation = new GreetingPresentation({
       synthesize: this.#synthesizeGreeting,
       voice: this.#voice,
       player: new WebAudioGreetingPlayer(),
-      gate: new MicrophonePublicationGate(() => this.#connectionGeneration),
+      gate: greetingGate,
       channel: () => this.#dc,
       microphone: () => this.#micStream,
       generation: () => this.#connectionGeneration,
-      debug: () => this.#logger.debug('greeting presentation failed'),
+      debug: (category) => this.#logger.debug(`greeting ${category}`),
+      interruption: new GreetingInterruption({
+        config: this.#greetingInterruption,
+        gate: greetingGate,
+        generation: () => this.#connectionGeneration,
+        debug: () => this.#logger.debug('greeting interruption failed'),
+      }),
     });
     this.#arbiter = this.#newArbiter();
   }
@@ -283,6 +292,10 @@ export class OpenAIAdapter
     // abandon exactly its own connection + mic without touching the winner's.
     let connection: RTCPeerConnection | undefined;
     let micStream: MediaStream | undefined;
+    let preparedMicrophone:
+      | Awaited<ReturnType<GreetingPresentation['prepareMicrophone']>>
+      | undefined;
+    let preparedCommitted = false;
     try {
       let token: OpenAITokenGrant;
       try {
@@ -316,17 +329,33 @@ export class OpenAIAdapter
           },
         });
       }
-      if (this.#greetingInterruption.enabled) {
-        await loadGreetingInterruptionRuntime();
-        attempt.assertCurrent();
-      }
+      preparedMicrophone =
+        await this.#greetingPresentation.prepareMicrophone(micStream);
+      attempt.assertCurrent();
+      let publicationSender: RTCRtpSender | undefined;
       for (const track of micStream.getTracks()) {
-        connection.addTrack(track, micStream);
+        if (track.kind === 'audio' && preparedMicrophone?.generated) {
+          publicationSender ??= connection.addTrack(
+            preparedMicrophone.track,
+            micStream,
+          );
+          continue;
+        }
+        const sender = connection.addTrack(track, micStream);
+        if (track.kind === 'audio') publicationSender ??= sender;
       }
 
       // Past the post-getUserMedia check — this attempt is still current, so
       // publishing to the shared fields is safe.
       this.#startConnectionGeneration();
+      if (preparedMicrophone && publicationSender) {
+        this.#greetingPresentation.attachMicrophone(
+          preparedMicrophone,
+          publicationSender,
+          this.#connectionGeneration,
+        );
+        preparedCommitted = true;
+      }
       this.#pc = connection;
       this.#micStream = micStream;
       this.#connecting = false;
@@ -356,6 +385,7 @@ export class OpenAIAdapter
       // Always close this attempt's own connection + mic. They may never have
       // reached the shared fields (e.g. a failure before the post-getUserMedia
       // publish), in which case teardown() alone wouldn't clean them up.
+      if (!preparedCommitted) await preparedMicrophone?.abandon();
       this.#closeAbandonedAttempt(connection, micStream);
       // Teardown may close a still-opening data channel, whose local readiness
       // promise rejects with DATA_CHANNEL_ERROR. Preserve the adapter-wide
@@ -381,12 +411,7 @@ export class OpenAIAdapter
     micStream?.getTracks().forEach((track) => {
       track.stop();
     });
-    if (connection) {
-      for (const sender of connection.getSenders()) {
-        sender.track?.stop();
-      }
-      connection.close();
-    }
+    connection?.close();
   }
 
   async disconnect(): Promise<void> {
@@ -786,20 +811,15 @@ export class OpenAIAdapter
     // attempt instead of clobbering shared state when its awaits resume.
     this.#connectGuard.supersede();
     this.#clearIceGraceTimer();
-    // Abort in-flight greeting synthesis/playback so disconnect cannot hang.
+    // Abort greeting work and release owner-generated publication resources.
     // Fresh lifecycle state for a later reconnect; player context is retained.
-    this.#abortGreetingPlayback();
+    this.#greetingPresentation.disconnect();
     this.#audioEl?.pause();
     if (this.#audioEl) this.#audioEl.srcObject = null;
     this.#audioEl = undefined;
     this.#playbackStream = undefined;
     this.#dc?.close();
-    if (this.#pc) {
-      for (const sender of this.#pc.getSenders()) {
-        sender.track?.stop();
-      }
-      this.#pc.close();
-    }
+    this.#pc?.close();
     this.#micStream?.getTracks().forEach((track) => {
       track.stop();
     });

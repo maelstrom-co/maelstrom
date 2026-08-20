@@ -14,6 +14,11 @@ export interface WebAudioGreetingPlayerOptions {
   readonly createAudioContext?: () => AudioContext;
 }
 
+export interface GreetingPlaybackHooks {
+  readonly onPlaybackStart?: () => void;
+  readonly onPlaybackEnd?: () => void;
+}
+
 export type GreetingPlayerReadiness =
   | { readonly ok: true }
   | {
@@ -34,6 +39,9 @@ interface PlaybackHandle {
   readonly settle: (error?: unknown) => void;
   readonly onAbort: () => void;
   readonly signal: AbortSignal;
+  readonly hooks: GreetingPlaybackHooks;
+  readonly started: () => boolean;
+  readonly end: () => void;
 }
 
 /**
@@ -229,7 +237,11 @@ export class WebAudioGreetingPlayer {
    * Resolves only from `onended` (or abort/stop). Abort listener is installed
    * before decode so cancellation during decode cannot hang.
    */
-  async play(wavBytes: ArrayBuffer, signal: AbortSignal): Promise<void> {
+  async play(
+    wavBytes: ArrayBuffer,
+    signal: AbortSignal,
+    hooks: GreetingPlaybackHooks = {},
+  ): Promise<void> {
     if (signal.aborted) return;
     const context = this.#context;
     if (context === undefined) {
@@ -241,7 +253,18 @@ export class WebAudioGreetingPlayer {
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      let started = false;
+      let ended = false;
       let source: AudioBufferSourceNode | undefined;
+      const end = (): void => {
+        if (!started || ended) return;
+        ended = true;
+        try {
+          hooks.onPlaybackEnd?.();
+        } catch {
+          // Hooks are package-private; never leave playback unsettled.
+        }
+      };
 
       const settle = (error?: unknown): void => {
         if (settled) return;
@@ -256,11 +279,20 @@ export class WebAudioGreetingPlayer {
 
       const onAbort = (): void => {
         if (source) this.#stopSource(source);
+        end();
         settle();
       };
 
       // Register before any await so decode-phase abort/stop settles once.
-      this.#playback = { source: undefined, settle, onAbort, signal };
+      this.#playback = {
+        source: undefined,
+        settle,
+        onAbort,
+        signal,
+        hooks,
+        started: () => started,
+        end,
+      };
       signal.addEventListener('abort', onAbort, { once: true });
       if (signal.aborted) {
         onAbort();
@@ -275,10 +307,21 @@ export class WebAudioGreetingPlayer {
           source = context.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(context.destination);
-          source.onended = () => settle();
+          source.onended = () => {
+            end();
+            settle();
+          };
           // Keep handle.source current for stop().
           if (this.#playback?.settle === settle) {
-            this.#playback = { source, settle, onAbort, signal };
+            this.#playback = {
+              source,
+              settle,
+              onAbort,
+              signal,
+              hooks,
+              started: () => started,
+              end,
+            };
           }
 
           if (signal.aborted) {
@@ -286,6 +329,14 @@ export class WebAudioGreetingPlayer {
             return;
           }
           source.start(0);
+          started = true;
+          try {
+            hooks.onPlaybackStart?.();
+          } catch {
+            this.#stopSource(source);
+            end();
+            settle();
+          }
         } catch (error) {
           if (source) this.#stopSource(source);
           settle(error);
@@ -303,6 +354,7 @@ export class WebAudioGreetingPlayer {
     this.#playback = undefined;
     current.signal.removeEventListener('abort', current.onAbort);
     if (current.source) this.#stopSource(current.source);
+    current.end();
     current.settle();
   }
 

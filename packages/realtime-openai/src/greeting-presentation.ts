@@ -2,6 +2,11 @@ import type { MessageId } from '@maelstrom-co/protocol';
 import type { GreetingSpeechResult } from '@maelstrom-co/realtime';
 import type { OpenAIBuiltInVoice } from '@maelstrom-co/realtime-protocol/openai';
 import type {
+  GreetingInterruption,
+  GreetingInterruptionOperation,
+  PreparedGreetingMicrophone,
+} from './greeting-interruption.js';
+import type {
   MicrophonePublicationGate,
   MicrophonePublicationLease,
 } from './microphone-publication-gate.js';
@@ -13,8 +18,10 @@ import {
 
 interface PresentationOperation {
   readonly controller: AbortController;
-  readonly lease: MicrophonePublicationLease;
+  readonly lease: MicrophonePublicationLease | undefined;
+  readonly interruption: GreetingInterruptionOperation | undefined;
   readonly generation: number;
+  terminal: Promise<void> | undefined;
 }
 
 export interface GreetingPresentationOptions {
@@ -25,7 +32,10 @@ export interface GreetingPresentationOptions {
   readonly channel: () => RTCDataChannel | undefined;
   readonly microphone: () => MediaStream | undefined;
   readonly generation: () => number;
-  readonly debug: (category: 'presentation-failed') => void;
+  readonly debug: (
+    category: 'presentation-failed' | 'interruption-failed',
+  ) => void;
+  readonly interruption?: GreetingInterruption;
 }
 
 /** Package-private owner of OpenAI greeting handoff, synthesis, and playback. */
@@ -41,6 +51,26 @@ export class GreetingPresentation {
   }
   get isPublicationGated(): boolean {
     return this.#options.gate.active;
+  }
+
+  async prepareMicrophone(
+    stream: MediaStream,
+  ): Promise<PreparedGreetingMicrophone | undefined> {
+    return this.#options.interruption?.prepareAndRemember(stream);
+  }
+
+  attachMicrophone(
+    descriptor: PreparedGreetingMicrophone | undefined,
+    sender: RTCRtpSender,
+    generation: number,
+  ): void {
+    if (descriptor)
+      this.#options.interruption?.commit(descriptor, sender, generation);
+  }
+
+  disconnect(): void {
+    this.abort();
+    void this.#options.interruption?.destroy();
   }
 
   activate(): void {
@@ -95,15 +125,29 @@ export class GreetingPresentation {
       return 'not_started';
     }
 
-    this.abort();
+    const previous = this.#operation;
+    if (previous) {
+      previous.controller.abort();
+      const terminal = this.#settle(previous);
+      // The disabled raw-gate path is synchronously released. Enabled owner
+      // operations must finish their bridge transition before replacement.
+      if (previous.interruption) await terminal;
+    }
     const controller = new AbortController();
+    const interruption = this.#options.interruption?.begin(() => {
+      this.#options.player.stop();
+    });
     const operation: PresentationOperation = {
       controller,
-      lease: this.#options.gate.acquire(
-        this.#options.microphone(),
-        this.#options.generation(),
-      ),
+      lease: interruption
+        ? undefined
+        : this.#options.gate.acquire(
+            this.#options.microphone(),
+            this.#options.generation(),
+          ),
+      interruption,
       generation: this.#options.generation(),
+      terminal: undefined,
     };
     this.#operation = operation;
     const onAbort = () => this.#abortExpected(operation);
@@ -120,12 +164,19 @@ export class GreetingPresentation {
       );
       if (synthesized.status === 'aborted' || controller.signal.aborted)
         return 'accepted';
-      await this.#options.player.play(synthesized.value, controller.signal);
+      await this.#options.player.play(synthesized.value, controller.signal, {
+        onPlaybackStart: () => {
+          if (this.#operation === operation) operation.interruption?.arm();
+        },
+        onPlaybackEnd: () => {
+          if (this.#operation === operation) operation.interruption?.disarm();
+        },
+      });
     } catch {
       this.#options.debug('presentation-failed');
     } finally {
       args.signal.removeEventListener('abort', onAbort);
-      this.#settle(operation);
+      await this.#settle(operation);
     }
     return 'accepted';
   }
@@ -136,13 +187,18 @@ export class GreetingPresentation {
     this.#settle(operation);
   }
 
-  #settle(operation: PresentationOperation): void {
-    // Lease identity, rather than a generation comparison that could strand a
-    // gate during teardown, prevents stale completion from restoring a newer
-    // operation. Clearing this operation remains safe after generation change.
-    if (this.#operation !== operation) return;
-    operation.lease.release();
-    this.#operation = undefined;
-    this.#options.player.stop();
+  #settle(operation: PresentationOperation): Promise<void> {
+    operation.terminal ??= (async () => {
+      const current = this.#operation === operation;
+      operation.interruption?.disarm();
+      if (current) {
+        this.#options.player.stop();
+        // Disabled-mode Skip must restore the raw gate synchronously.
+        operation.lease?.release();
+        this.#operation = undefined;
+      }
+      await operation.interruption?.settle();
+    })();
+    return operation.terminal;
   }
 }

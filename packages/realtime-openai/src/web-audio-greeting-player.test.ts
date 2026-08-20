@@ -244,8 +244,12 @@ describe('WebAudioGreetingPlayer', () => {
     const { player, latestContext } = makePlayer();
     player.activate();
     const controller = new AbortController();
+    const events: string[] = [];
 
-    const playPromise = player.play(new ArrayBuffer(8), controller.signal);
+    const playPromise = player.play(new ArrayBuffer(8), controller.signal, {
+      onPlaybackStart: () => events.push('start'),
+      onPlaybackEnd: () => events.push('end'),
+    });
     const playback = await waitForPlaybackSource(latestContext());
 
     const settleSpy = mock(() => {});
@@ -257,6 +261,7 @@ describe('WebAudioGreetingPlayer', () => {
     expect(playback.stopped).toBe(true);
     expect(playback.disconnected).toBe(true);
     expect(settleSpy).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['start', 'end']);
 
     // onended after abort must not double-settle / throw.
     playback.end();
@@ -315,6 +320,39 @@ describe('WebAudioGreetingPlayer', () => {
     await Promise.resolve();
     // Only the silent unlock source.
     expect(ctx.sources).toHaveLength(1);
+  });
+
+  it('never calls hooks when source start fails', async () => {
+    const { player, latestContext } = makePlayer();
+    player.activate();
+    const events: string[] = [];
+    const ctx = latestContext();
+    const originalCreate = ctx.createBufferSource.bind(ctx);
+    ctx.createBufferSource = () => {
+      const source = originalCreate();
+      if (ctx.sources.length > 1) source.startError = new Error('start failed');
+      return source;
+    };
+    await expect(
+      player.play(new ArrayBuffer(8), new AbortController().signal, {
+        onPlaybackStart: () => events.push('start'),
+        onPlaybackEnd: () => events.push('end'),
+      }),
+    ).rejects.toThrow('start failed');
+    expect(events).toEqual([]);
+  });
+
+  it('contains a throwing playback-start hook and settles playback', async () => {
+    const { player, latestContext } = makePlayer();
+    player.activate();
+    const play = player.play(new ArrayBuffer(8), new AbortController().signal, {
+      onPlaybackStart: () => {
+        throw new Error('hook failed');
+      },
+    });
+    const source = await waitForPlaybackSource(latestContext());
+    await play;
+    expect(source.stopped).toBe(true);
   });
 
   it('treats InvalidStateError from stop as benign', async () => {
@@ -405,6 +443,38 @@ describe('WebAudioGreetingPlayer', () => {
     } finally {
       FakeAudioContext.prototype.createBufferSource = originalCreate;
     }
+  });
+
+  it('calls playback hooks only after start and ends before play settles', async () => {
+    const { player, latestContext } = makePlayer();
+    player.activate();
+    const events: string[] = [];
+    const play = player.play(new ArrayBuffer(8), new AbortController().signal, {
+      onPlaybackStart: () => events.push('start'),
+      onPlaybackEnd: () => events.push('end'),
+    });
+    expect(events).toEqual([]);
+    const source = await waitForPlaybackSource(latestContext());
+    expect(events).toEqual(['start']);
+    source.end();
+    await play;
+    expect(events).toEqual(['start', 'end']);
+  });
+
+  it('emits one end hook for repeated stop after playback starts', async () => {
+    const { player, latestContext } = makePlayer();
+    player.activate();
+    let ends = 0;
+    const play = player.play(new ArrayBuffer(8), new AbortController().signal, {
+      onPlaybackEnd: () => {
+        ends += 1;
+      },
+    });
+    await waitForPlaybackSource(latestContext());
+    player.stop();
+    player.stop();
+    await play;
+    expect(ends).toBe(1);
   });
 
   it('overlapping activations: newer unlock failure is not cleared by older resume success', async () => {

@@ -381,7 +381,18 @@ afterEach(() => {
 // ============================================================================
 
 describe('OpenAIAdapter — greeting interruption configuration', () => {
-  const runtime = {} as GreetingInterruptionRuntime;
+  const generatedTrack = new FakeTrack();
+  const runtime = {
+    createLocalAudioPreRoll: async () => ({
+      track: generatedTrack as unknown as MediaStreamTrack,
+      startAutomaticTurn: async () => {},
+      startManualTurn: async () => {},
+      clear: async () => {},
+      endTurn: async () => {},
+      destroy: async () => {},
+    }),
+    createBrowserVad: async () => ({ destroy: async () => {} }),
+  } as unknown as GreetingInterruptionRuntime;
 
   it('accepts omitted, false, true, and valid object configurations synchronously', () => {
     for (const greetingInterruption of [
@@ -511,9 +522,14 @@ describe('OpenAIAdapter — greeting interruption configuration', () => {
     }
 
     const stream = FakeMediaStream.instances.at(-1);
+    const connection = FakeRTCPeerConnection.instances.at(-1);
     expect(adapter.getAudioStreams().mic).toBe(
       stream as unknown as MediaStream,
     );
+    expect(connection?.getSenders().map((sender) => sender.track)).toEqual([
+      generatedTrack,
+    ]);
+    expect(connection?.getSenders()[0]?.track).not.toBe(stream?.getTracks()[0]);
     expect(runtimeLoads).toBe(1);
   });
 });
@@ -4120,6 +4136,249 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     expect(signals.get('Greeting B')?.aborted).toBe(true);
     await expect(speakB).resolves.toBe('accepted');
     await expect(speakA).resolves.toBe('accepted');
+  });
+
+  it('enabled greeting publishes and gates only its generated track, then flushes one local boundary before teardown', async () => {
+    const raw = new FakeTrack('audio', true);
+    const generated = new FakeTrack('audio', true);
+    const video = new FakeTrack('video', true);
+    const stream = new FakeMediaStream([raw, video]);
+    getUserMediaImpl = async () => stream;
+    const order: string[] = [];
+    let localBoundary: (() => Promise<void>) | undefined;
+    let destroyed = 0;
+    const restoreRuntime = setGreetingInterruptionRuntimeImporterForTests(
+      async () =>
+        ({
+          createLocalAudioPreRoll: async () => ({
+            track: generated as unknown as MediaStreamTrack,
+            startAutomaticTurn: async (preRollMs: number) => {
+              order.push(`automatic:${preRollMs}`);
+            },
+            startManualTurn: async () => order.push('manual'),
+            clear: async () => {},
+            endTurn: async () => {},
+            destroy: async () => {
+              destroyed += 1;
+            },
+          }),
+          createBrowserVad: async (options: { startTurn(): Promise<void> }) => {
+            localBoundary = options.startTurn;
+            return { destroy: async () => order.push('vad-destroy') };
+          },
+        }) as never,
+    );
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      greetingInterruption: { preRollMs: 37 },
+      synthesizeGreeting: async () => new ArrayBuffer(8),
+    });
+    try {
+      const channel = await connectAndOpen(adapter);
+      adapter.activateAudio();
+      const connection = FakeRTCPeerConnection.instances.at(-1)!;
+      expect(connection.getSenders().map((sender) => sender.track)).toEqual([
+        generated,
+        video,
+      ]);
+      expect(adapter.getAudioStreams().mic).toBe(
+        stream as unknown as MediaStream,
+      );
+
+      const speak = adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      });
+      await waitForGreetingCondition(
+        () =>
+          GreetingFakeAudioContext.instances.at(-1)?.sources.at(-1)?.started ===
+            true && localBoundary !== undefined,
+        'enabled greeting playback did not start',
+      );
+      expect([raw.enabled, generated.enabled]).toEqual([true, false]);
+      await localBoundary?.();
+      expect(
+        GreetingFakeAudioContext.instances.at(-1)?.sources.at(-1)?.stopped,
+      ).toBe(true);
+      expect(order).toEqual(['automatic:37', 'vad-destroy']);
+      expect(generated.enabled).toBe(true);
+      expect(raw.enabled).toBe(true);
+      await expect(speak).resolves.toBe('accepted');
+      const frames = sentFrames(channel);
+      expect(
+        frames.filter((frame) => frame.type === 'conversation.item.create'),
+      ).toHaveLength(1);
+      expect(
+        frames.filter((frame) => frame.type === 'response.create'),
+      ).toHaveLength(0);
+      await adapter.disconnect();
+      expect(destroyed).toBe(1);
+      expect(generated.stopCalls).toBe(0);
+      expect(raw.stopCalls).toBe(1);
+    } finally {
+      restoreRuntime();
+    }
+  });
+
+  it('enabled natural completion and Skip settle through the manual bridge path', async () => {
+    const raw = new FakeTrack('audio', true);
+    const generated = new FakeTrack('audio', true);
+    const stream = new FakeMediaStream([raw]);
+    getUserMediaImpl = async () => stream;
+    const order: string[] = [];
+    const restoreRuntime = setGreetingInterruptionRuntimeImporterForTests(
+      async () =>
+        ({
+          createLocalAudioPreRoll: async () => ({
+            track: generated as unknown as MediaStreamTrack,
+            startAutomaticTurn: async () => order.push('automatic'),
+            startManualTurn: async () => {
+              order.push(`manual:${generated.enabled}`);
+            },
+            clear: async () => {},
+            endTurn: async () => {},
+            destroy: async () => {},
+          }),
+          createBrowserVad: async () => ({ destroy: async () => {} }),
+        }) as never,
+    );
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      greetingInterruption: true,
+      synthesizeGreeting: async () => new ArrayBuffer(8),
+    });
+    try {
+      await connectAndOpen(adapter);
+      adapter.activateAudio();
+      const natural = adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      });
+      await waitForGreetingCondition(() => {
+        const context = GreetingFakeAudioContext.instances.at(-1);
+        return (
+          context?.sources.length === 2 &&
+          context.sources.at(-1)?.started === true
+        );
+      }, 'natural enabled greeting did not start');
+      endLatestPlayback();
+      await expect(natural).resolves.toBe('accepted');
+      expect(order).toEqual(['manual:false']);
+      expect(generated.enabled).toBe(true);
+
+      const skip = new AbortController();
+      const skipped = adapter.speakAssistantText({
+        id: MessageId('greeting:skip'),
+        text: greetingText,
+        signal: skip.signal,
+      });
+      await waitForGreetingCondition(() => {
+        const context = GreetingFakeAudioContext.instances.at(-1);
+        return (
+          context?.sources.length === 3 &&
+          context.sources.at(-1)?.started === true
+        );
+      }, 'Skip enabled greeting did not start');
+      skip.abort();
+      await expect(skipped).resolves.toBe('accepted');
+      expect(order).toEqual(['manual:false', 'manual:false']);
+      expect([raw.enabled, generated.enabled]).toEqual([true, true]);
+    } finally {
+      restoreRuntime();
+    }
+  });
+
+  it('preserves immediate and transcript-confirmed arbitration after enabled greeting settlement', async () => {
+    const generated = new FakeTrack('audio', true);
+    const restoreRuntime = setGreetingInterruptionRuntimeImporterForTests(
+      async () =>
+        ({
+          createLocalAudioPreRoll: async () => ({
+            track: generated as unknown as MediaStreamTrack,
+            startAutomaticTurn: async () => {},
+            startManualTurn: async () => {},
+            clear: async () => {},
+            endTurn: async () => {},
+            destroy: async () => {},
+          }),
+          createBrowserVad: async () => ({ destroy: async () => {} }),
+        }) as never,
+    );
+    async function settleEnabledGreeting(
+      adapter: OpenAIAdapter,
+    ): Promise<void> {
+      adapter.activateAudio();
+      const speak = adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+      });
+      await waitForGreetingCondition(() => {
+        const context = GreetingFakeAudioContext.instances.at(-1);
+        return (
+          (context?.sources.length ?? 0) >= 2 &&
+          context?.sources.at(-1)?.started === true
+        );
+      }, 'enabled greeting playback did not start');
+      endLatestPlayback();
+      await expect(speak).resolves.toBe('accepted');
+    }
+    try {
+      const immediate = new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        greetingInterruption: true,
+        synthesizeGreeting: async () => new ArrayBuffer(8),
+      });
+      const immediateChannel = await connectAndOpen(immediate);
+      const immediateEvents: string[] = [];
+      immediate.on((event) => immediateEvents.push(event.type));
+      await settleEnabledGreeting(immediate);
+      immediateChannel.sent.length = 0;
+      immediateChannel.receive({
+        type: 'response.created',
+        response: { id: 'immediate-r1' },
+      });
+      immediateChannel.receive({ type: 'output_audio_buffer.started' });
+      immediateChannel.receive({ type: 'input_audio_buffer.speech_started' });
+      expect(sentFrames(immediateChannel)).toEqual([]);
+      expect(immediateEvents).toContain('speech_started');
+      expect(immediateEvents).not.toContain('turn_mode');
+      expect(
+        (immediate as { turnControl?: unknown }).turnControl,
+      ).toBeUndefined();
+
+      const confirmed = new OpenAIAdapter({
+        mintToken: async () => fakeToken,
+        greetingInterruption: true,
+        serverVad: { bargeInMode: 'transcript-confirmed' },
+        synthesizeGreeting: async () => new ArrayBuffer(8),
+      });
+      const confirmedChannel = await connectAndOpen(confirmed);
+      const confirmedEvents: string[] = [];
+      confirmed.on((event) => confirmedEvents.push(event.type));
+      await settleEnabledGreeting(confirmed);
+      confirmedChannel.sent.length = 0;
+      confirmedChannel.receive({
+        type: 'input_audio_buffer.committed',
+        item_id: 'post-greeting-item',
+      });
+      confirmedChannel.receive({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'post-greeting-item',
+        transcript: 'hello after greeting',
+      });
+      expect(sentFrames(confirmedChannel)).toEqual([
+        { type: 'response.create' },
+      ]);
+      expect(confirmedEvents).not.toContain('turn_mode');
+      expect(
+        (confirmed as { turnControl?: unknown }).turnControl,
+      ).toBeUndefined();
+    } finally {
+      restoreRuntime();
+    }
   });
 });
 
