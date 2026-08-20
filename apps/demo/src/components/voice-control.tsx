@@ -19,9 +19,14 @@ const STATE_LABEL: Record<VoiceSessionState, string> = {
   error: 'Voice error',
 };
 
-// Every state where the transport is live — mic on, session up.
 const CONNECTED_STATES: ReadonlySet<VoiceSessionState> = new Set([
   'connected',
+  'listening',
+  'thinking',
+  'speaking',
+]);
+
+const ACTIVE_STATES: ReadonlySet<VoiceSessionState> = new Set([
   'listening',
   'thinking',
   'speaking',
@@ -42,11 +47,31 @@ interface VoiceControlProps {
  * exposes `turnControl`. An active manual turn is ended before a mode change or
  * disconnect hides the control. Automatic-mode degradation shows generic
  * recovery guidance based only on diagnostic presence; the diagnostic itself
- * is never rendered or serialized.
+ * is never rendered or serialized. A configured greeting shows indeterminate
+ * preparation until it settles, while idle, error, and active-turn labels keep
+ * precedence over the preparation label.
  */
 export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
-  const { state, turnControl, turnMode, turnModeError } = m.useVoice();
+  const {
+    greetingState,
+    state,
+    turnControl,
+    turnMode,
+    turnModeError,
+    skipGreeting,
+  } = m.useVoice();
   const isConnected = CONNECTED_STATES.has(state);
+  const isPreparing =
+    greetingState === 'preparing' && state !== 'idle' && state !== 'error';
+  let statusLabel = STATE_LABEL[state];
+  if (isPreparing && !ACTIVE_STATES.has(state)) {
+    statusLabel = 'Preparing voice…';
+  } else if (
+    (greetingState === 'settled' || greetingState === 'skipped') &&
+    state === 'connected'
+  ) {
+    statusLabel = 'Listening';
+  }
   // Keep input handlers independent from the latest rendered session state.
   const pressActiveRef = useRef(false);
   const [pressActive, setPressActive] = useState(false);
@@ -96,17 +121,37 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
       {showOrb && <m.VoiceOrb size={20} />}
-      <span
-        className={`text-xs font-medium ${
+      <div
+        aria-live="polite"
+        className={`flex min-w-0 items-center gap-2 text-xs font-medium ${
           state === 'error' ? 'text-red-400' : 'text-ink-2'
         }`}
+        role="status"
       >
-        {STATE_LABEL[state]}
-      </span>
+        <span className="min-w-0 truncate">{statusLabel}</span>
+        {isPreparing && (
+          <span
+            aria-label="Voice preparation progress"
+            className="h-1 w-16 max-w-[20vw] shrink-0 overflow-hidden rounded-full bg-ink-2/20"
+            role="progressbar"
+          >
+            <span className="block h-full w-1/2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
+          </span>
+        )}
+      </div>
+      {isPreparing && (
+        <button
+          type="button"
+          onClick={skipGreeting}
+          className="status-pill min-h-11 shrink-0 whitespace-nowrap rounded-full px-3 py-2 font-mono text-xs uppercase tracking-[.1em] text-ink-2 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          Skip greeting
+        </button>
+      )}
       {turnMode === 'manual' && turnControl && turnModeError !== undefined && (
-        <span className="text-xs text-amber-300" role="status">
+        <span className="min-w-0 text-xs text-amber-300">
           Automatic voice detection unavailable; hold to talk.
         </span>
       )}

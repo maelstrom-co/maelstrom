@@ -89,6 +89,10 @@ function createAdapter(provider: 'livekit' | 'openai') {
 }
 
 type OpenAIOptions = {
+  greetingInterruption?: false | true | object;
+  serverVad?: {
+    threshold?: number;
+  };
   voice?: string;
   synthesizeGreeting?: (args: {
     text: string;
@@ -136,6 +140,9 @@ describe('demo voice provider wiring', () => {
     createAdapter('livekit');
 
     expect(state.liveKitAdapterOptions).toHaveLength(1);
+    expect(state.liveKitAdapterOptions[0]).not.toHaveProperty(
+      'greetingInterruption',
+    );
     expect(state.liveKitAdapterOptions[0]).toMatchObject({
       roomName: 'maelstrom-session-1',
       vad: {
@@ -152,12 +159,31 @@ describe('demo voice provider wiring', () => {
     });
   });
 
-  it('does not pass browser VAD configuration to OpenAI', () => {
+  it('leaves local OpenAI server VAD at adapter defaults', () => {
+    vi.stubEnv('VITE_HOSTED', '0');
     createAdapter('openai');
 
     expect(state.openAIAdapterOptions).toHaveLength(1);
     expect(state.openAIAdapterOptions[0]).toMatchObject({ debug: true });
     expect(state.openAIAdapterOptions[0]).not.toHaveProperty('vad');
+    expect(state.openAIAdapterOptions[0]).not.toHaveProperty('serverVad');
+    expect(
+      (state.openAIAdapterOptions[0] as OpenAIOptions).greetingInterruption,
+    ).toBe(true);
+    expect(state.liveKitAdapterOptions).toHaveLength(0);
+  });
+
+  it('requires a useful transcript before hosted OpenAI interrupts output', () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    createAdapter('openai');
+
+    const options = state.openAIAdapterOptions[0] as OpenAIOptions;
+    expect(options.serverVad).toEqual({
+      threshold: 0.8,
+      bargeInMode: 'transcript-confirmed',
+    });
+    expect(options).not.toHaveProperty('vad');
+    expect(options.greetingInterruption).toBe(true);
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 
@@ -239,6 +265,7 @@ describe('demo voice provider wiring', () => {
 
     expect(capturedUrl).toBe(DEMO_GREETING_TTS_URL);
     expect(capturedAuth).toBe('Bearer sk-local-browser-key-1234567890');
+    expect(options.greetingInterruption).toBe(true);
     await expect(options.mintToken?.()).rejects.toThrow(
       /createBrowserMintToken should not be called in tests/,
     );

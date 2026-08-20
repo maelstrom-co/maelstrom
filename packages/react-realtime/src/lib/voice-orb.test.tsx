@@ -19,6 +19,8 @@ class FakeRealtimeSession {
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   #resolveConnect: (() => void) | undefined;
+  #resolveDisconnect: (() => void) | undefined;
+  #holdDisconnect = false;
 
   constructor(readonly options: unknown) {
     FakeRealtimeSession.instances.push(this);
@@ -44,7 +46,22 @@ class FakeRealtimeSession {
 
   async disconnect(): Promise<void> {
     this.disconnectCalls += 1;
+    if (this.#holdDisconnect) {
+      await new Promise<void>((resolve) => {
+        this.#resolveDisconnect = resolve;
+      });
+    }
     this.emitState('idle');
+  }
+
+  holdDisconnect(): void {
+    this.#holdDisconnect = true;
+  }
+
+  resolveDisconnect(): void {
+    this.#holdDisconnect = false;
+    this.#resolveDisconnect?.();
+    this.#resolveDisconnect = undefined;
   }
 
   on(event: 'state' | 'transcript', handler: never): () => void {
@@ -148,7 +165,7 @@ describe('VoiceOrb', () => {
     expect(must(FakeRealtimeSession.instances[0]).connectCalls).toBe(1);
   });
 
-  it('disables the button and ignores a second click while connecting, avoiding the disconnect race', async () => {
+  it('lets the user cancel while connecting', async () => {
     const { m, connector } = setup();
 
     const { container } = await act(async () => {
@@ -168,17 +185,27 @@ describe('VoiceOrb', () => {
     const session = must(FakeRealtimeSession.instances[0]);
     expect(session.state).toBe('connecting');
     expect(button.dataset.state).toBe('connecting');
+    session.holdDisconnect();
 
     await act(async () => {
       fireEvent.click(button);
     });
 
-    // RealtimeSession itself now guards a disconnect() racing an in-flight
-    // connect() (an epoch check) — this UX-level disable is a second,
-    // belt-and-suspenders defense, not the only one: the button must still
-    // not let a click reach disconnect() while connecting.
-    expect(session.disconnectCalls).toBe(0);
+    expect(session.disconnectCalls).toBe(1);
     expect(button.disabled).toBe(true);
+    expect(button.dataset.state).toBe('connecting');
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(session.disconnectCalls).toBe(1);
+
+    await act(async () => {
+      session.resolveDisconnect();
+      await Promise.resolve();
+    });
+    expect(button.disabled).toBe(false);
+    expect(button.dataset.state).toBe('idle');
   });
 
   it('stops voice on click while connected', async () => {

@@ -28,22 +28,35 @@ const m = createMaelstrom({ vessels }).with(
 export function VoiceControl() {
   const {
     state,
+    greetingState,
     error,
     userTranscript,
     assistantTranscript,
     connect,
     disconnect,
+    skipGreeting,
   } = m.useVoice();
   const [operationFailed, setOperationFailed] = useState(false);
   const canStart = state === 'idle' || state === 'error';
   const hasFailure = operationFailed || error !== undefined;
+  const isPreparingGreeting = greetingState === 'preparing';
+  const hasActiveTurn =
+    state === 'listening' || state === 'thinking' || state === 'speaking';
+  const voiceLabel =
+    isPreparingGreeting && !hasActiveTurn
+      ? 'Preparing voice…'
+      : state === 'connected'
+        ? 'Listening'
+        : `Voice: ${state}`;
+  const canSkipGreeting =
+    greetingState === 'preparing' && state !== 'idle' && state !== 'error';
 
   return (
     <section aria-label="Voice controls">
       <button
         type="button"
-        disabled={state === 'connecting'}
         aria-describedby={hasFailure ? 'voice-error' : undefined}
+        aria-busy={isPreparingGreeting}
         onClick={() => {
           setOperationFailed(false);
           // connect() and disconnect() both reject on failure. A rejected
@@ -55,7 +68,13 @@ export function VoiceControl() {
       >
         {canStart ? 'Start voice' : 'Stop voice'}
       </button>
-      <p>Voice: {state}</p>
+      <p>{voiceLabel}</p>
+      {canSkipGreeting && (
+        <button type="button" onClick={skipGreeting}>
+          Skip greeting
+        </button>
+      )}
+      {isPreparingGreeting && <progress aria-label="Preparing voice" />}
       {userTranscript && <p>You: {userTranscript.text}</p>}
       {assistantTranscript && <p>Assistant: {assistantTranscript.text}</p>}
       {hasFailure && (

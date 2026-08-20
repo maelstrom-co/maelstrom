@@ -232,6 +232,41 @@ calls `adapter.activateAudio()` synchronously within the click so Web Audio unlo
 work begins before any async handshake. Failures after a successful provider-item
 send settle as `accepted` (terminal); only pre-send failures return `not_started`.
 
+The UI observes a retained, provider-neutral greeting presentation lifecycle
+rather than inferring progress from transport state. `preparing` starts before
+the provider handshake and includes the wait for Engine readiness, which has no
+timeout; `settled` says only that presentation for the current generation ended,
+not that provider speech succeeded or remains active. Retryable disconnects
+return to `pending`, while terminal coordinator proof survives provider-session
+recreation. Connection generations fence updates so abandoned work cannot change
+the replacement session's UI. This shared lifecycle lets custom controls and the
+demo show one compact indeterminate “Preparing voice…” treatment, then
+“Listening”, without creating a second timer or provider-specific state machine.
+
+### Why Skip is terminal
+
+`RealtimeSession.skipGreeting()` is the Phase 1 user-control action. It records
+`skipped` synchronously before aborting local work, does not disconnect the
+provider or change turn mode, and is idempotent. The retained proof survives a
+provider reconnect or session recreation for the same Maelstrom `SessionId`; a
+new `SessionId` starts independently. A completed presentation remains
+`presented` and an Engine-deduped presentation remains `suppressed`; Skip never
+rewrites either terminal reason.
+
+The irreversible-side-effect boundary is explicit. If Skip wins before or while
+waiting for Engine readiness, no acknowledgement, caption, provider item,
+synthesis, or playback begins. An acknowledgement already in flight may settle
+once, but after Skip no caption, provider item, synthesis, or playback begins.
+After Engine insertion or provider handoff, the existing history can remain at
+most once; local work aborts, the exact microphone enabled values are restored,
+and reconnect does not replay the greeting.
+
+Skip is the reliable immediate-control path in this phase. It does not add
+spoken greeting interruption, local VAD, pre-roll, or a real-device acoustic
+claim. Mobile timing, echo removal, VAD accuracy, and first-phoneme preservation
+remain unverified. Diagnostics continue to exclude audio, transcript content,
+streams and tracks, device identity, and complete media settings.
+
 ### OpenAI greeting TTS (demo)
 
 OpenAI retains the exact assistant item in provider conversation
@@ -305,18 +340,43 @@ Verify before you trust. Run these steps in order.
    needs the agent worker running (`bun --cwd apps/demo run dev-livekit` runs
    both; `voice-worker.ts` sits on top of `ws-server`).
 2. **OpenAI** (`bun --cwd apps/demo run dev`). Confirm the AI-voice disclosure is
-   visible before clicking. One click on the orb grants the mic, unlocks Web Audio,
-   and produces exactly one assistant caption matching the greeting text and one
+   visible before clicking. Delay Engine readiness, click the orb, and confirm
+   that the compact “Preparing voice…” treatment remains visible for the whole
+   wait with no invented timeout; Stop voice must remain usable. Restore Engine
+   readiness and confirm that the label becomes “Listening” only after greeting
+   presentation settles. One click grants the mic, unlocks Web Audio, and
+   produces exactly one assistant caption matching the greeting text and one
    audible TTS playback. Network shows bodyless same-origin
    `POST /api/demo-greeting-tts` with `Sec-Fetch-Site: same-origin`. In DevTools,
    expect a `conversation.item.create` (assistant, `completed`) on the data channel
    **before** the TTS request and **no** greeting `response.create`. Confirm the
-   engine history contains the greeting before the caption. Force a WS disconnect
-   and reconnect → no second caption, TTS request, or playback. A fresh session →
-   greets once again; local route cache means no second upstream OpenAI synthesis.
+   engine history contains the greeting before the caption. Disconnect during
+   the Engine wait and confirm that a late continuation does not change the
+   replacement UI. Reconnect and let the greeting complete once, then reconnect
+   again → no second caption, TTS request, or playback after terminal proof
+   exists. A fresh session → greets once again; local route cache means no second
+   upstream OpenAI synthesis. These checks establish lifecycle ordering, not
+   mobile behavior or acoustic effectiveness.
 3. **LiveKit** (`bun --cwd apps/demo run dev-livekit`). The greeting is spoken
-   only after `tts_ready` (worker log order shows track publish → `SPEAK_TOPIC`
+   only after `tts_ready`; “Preparing voice…” remains visible until greeting
+   presentation settles, then changes to “Listening” (worker log order shows
+   track publish → `SPEAK_TOPIC`
    registration → `tts_ready`). If readiness is absent or times out, confirm that
    no `SPEAK_TOPIC` send occurs; reconnecting may retry on the later connection
    generation. After a `SPEAK_TOPIC` send begins, reconnecting must not repeat the
    greeting. A new session greets once.
+
+## Package-private OpenAI ownership seams
+
+Four package-private modules concentrate implementation ownership without
+changing Phase 1 public interfaces. The response arbiter owns OpenAI response
+scheduling, cancellation, and output-clear policy. Greeting presentation owns
+the provider assistant-history handoff and local Web Audio playback. The
+microphone publication gate owns the exact prior `enabled` value for every
+unique microphone track while that presentation is active. The shared React
+session registry owns per-Orchestrator session lifetime and retains the greeting
+coordinator across provider-session recreation.
+
+These seams preserve Engine acknowledgement → caption → provider handoff →
+synthesis → playback ordering, existing privacy constraints, and LiveKit
+behavior. They add no acoustic or spoken-interruption claim.

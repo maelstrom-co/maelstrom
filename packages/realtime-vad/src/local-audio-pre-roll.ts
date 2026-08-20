@@ -1,41 +1,74 @@
 const PROCESSOR_NAME = 'maelstrom-local-audio-pre-roll';
-
 const MAX_LOCAL_AUDIO_PRE_ROLL_MS = 500;
 const WORKLET_ACK_TIMEOUT_MS = 250;
 const END_ACK_BASE_TIMEOUT_MS = 500;
 const END_ACK_PRE_ROLL_MULTIPLIER = 2;
 const MAX_END_ACK_WAIT_BEFORE_FALLBACK_MS = 1_500;
 
-/** Browser audio generation owned by one connected LiveKit microphone. */
+/**
+ * A browser-local audio publication bridge for one caller-owned source track.
+ *
+ * While closed it emits silence while retaining a bounded newest local tail.
+ * Automatic turns publish that tail before later live samples; manual turns
+ * discard it and publish live samples only. The caller owns `sourceTrack` and
+ * must arrange transport publication and pause ordering. This bridge owns only
+ * its generated `track` and Web Audio resources.
+ */
 export interface LocalAudioPreRoll {
-  /** Generated microphone track published to LiveKit instead of the raw mic. */
-  readonly track: MediaStreamTrack;
-  /** Replays the bounded local tail, or rejects when the worklet does not acknowledge. */
-  startAutomaticTurn(preRollMs: number): Promise<void>;
-  /** Discards the local tail, or rejects when the worklet does not acknowledge. */
-  startManualTurn(): Promise<void>;
   /**
-   * Resolves after drain. The acknowledgement bound is
-   * `min(1500, 500 + 2 * clamp(preRollMs, 0, 500))`: 500ms with no pre-roll,
-   * 1000ms at 250ms, and 1500ms at 500ms. Slow acknowledgements inside that
-   * bound complete normally; a missing acknowledgement rejects as uncertain so
-   * the adapter can pause upstream and retire automatic mode.
+   * The generated publication track, rather than the caller-owned source
+   * track. The bridge disables and stops this track during `destroy()`.
+   */
+  readonly track: MediaStreamTrack;
+
+  /**
+   * Opens automatic publication after the worklet acknowledges selection of
+   * the bounded newest local tail. The tail is emitted once, before live
+   * samples. Values are clamped to 0–500 ms (non-finite values mean zero), and
+   * a missing acknowledgement rejects after 250 ms.
+   */
+  startAutomaticTurn(preRollMs: number): Promise<void>;
+
+  /**
+   * Discards retained and queued samples, then opens live-only publication
+   * once the worklet acknowledges within 250 ms. It rejects on timeout or
+   * after destruction.
+   */
+  startManualTurn(): Promise<void>;
+
+  /**
+   * Discards retained and queued samples and returns to silent closed
+   * buffering after an ID-scoped worklet acknowledgement within 250 ms. It
+   * rejects on timeout or after destruction.
+   */
+  clear(): Promise<void>;
+
+  /**
+   * Stops accepting live automatic samples and resolves after already accepted
+   * pre-roll drains, returning to silent closed buffering. Its acknowledgement
+   * limit is `min(1500, 500 + 2 * clamp(activePreRollMs, 0, 500))` ms; it
+   * rejects if that acknowledgement never arrives or after destruction.
    */
   endTurn(): Promise<void>;
+
   /**
-   * Idempotently clears audio, releases pending requests, stops the generated
-   * track, and closes Web Audio. The caller-owned source track is not stopped.
+   * Idempotently clears the worklet, settles pending lifecycle requests, and
+   * releases bridge-owned Web Audio resources and the generated track. It
+   * never disables or stops the caller-owned source track; later lifecycle
+   * requests reject because the generation is destroyed.
    */
   destroy(): Promise<void>;
 }
 
 /**
- * Builds an AudioWorklet bridge that retains bounded raw mic audio locally and
- * exposes one generated track. Creation rejects when the required Web Audio
- * APIs cannot initialize, allowing the caller to fail closed to manual input.
- * The caller retains ownership of `sourceTrack`; `destroy()` stops only the
- * generated track and worklet resources. Lifecycle requests use bounded
- * acknowledgements so a stalled worklet cannot leave callers waiting forever.
+ * Creates a provider-neutral browser bridge that buffers a bounded local tail
+ * from `sourceTrack` while its generated publication track is closed and
+ * silent. Publish `track` only after the transport is ready to receive an
+ * automatic tail, because the caller owns transport ordering and the source
+ * track throughout its lifetime. Lifecycle operations settle only after their
+ * matching worklet acknowledgement (or their documented timeout); creation
+ * rejects when Web Audio is unsupported or a generated audio track cannot be
+ * established. `destroy()` releases only bridge-owned resources.
  */
 export async function createLocalAudioPreRoll(
   sourceTrack: MediaStreamTrack,
@@ -49,33 +82,101 @@ export async function createLocalAudioPreRoll(
   }
 
   const context = new AudioContextConstructor();
+  let source: MediaStreamAudioSourceNode | undefined;
   let generatedTrack: MediaStreamTrack | undefined;
   let objectUrl: string | undefined;
+  let node: AudioWorkletNode | undefined;
+  let objectUrlRevoked = false;
+  let sourceDisconnected = false;
+  let nodeDisconnected = false;
+  let portClosed = false;
+  let generatedTrackReleased = false;
+  let contextClosed = false;
+
+  const revokeObjectUrl = () => {
+    if (!objectUrl || objectUrlRevoked) return;
+    objectUrlRevoked = true;
+    const url = objectUrl;
+    objectUrl = undefined;
+    URL.revokeObjectURL(url);
+  };
+
+  /** Releases every acquired resource, retaining only the first normal teardown error. */
+  const cleanup = async (constructionFailed: boolean): Promise<void> => {
+    let cleanupError: unknown;
+    const attempt = (release: () => void) => {
+      try {
+        release();
+      } catch (error) {
+        if (!constructionFailed && cleanupError === undefined)
+          cleanupError = error;
+      }
+    };
+
+    attempt(revokeObjectUrl);
+    attempt(() => {
+      if (node && !portClosed) {
+        portClosed = true;
+        node.port.close();
+      }
+    });
+    attempt(() => {
+      if (node && !nodeDisconnected) {
+        nodeDisconnected = true;
+        node.disconnect();
+      }
+    });
+    attempt(() => {
+      if (source && !sourceDisconnected) {
+        sourceDisconnected = true;
+        source.disconnect();
+      }
+    });
+    const track = generatedTrack;
+    if (track && !generatedTrackReleased) {
+      generatedTrackReleased = true;
+      attempt(() => {
+        track.enabled = false;
+      });
+      attempt(() => {
+        track.stop();
+      });
+    }
+    if (!contextClosed) {
+      contextClosed = true;
+      try {
+        await context.close();
+      } catch (error) {
+        if (!constructionFailed && cleanupError === undefined)
+          cleanupError = error;
+      }
+    }
+    if (cleanupError !== undefined) throw cleanupError;
+  };
+
   try {
-    const source = context.createMediaStreamSource(
-      new MediaStream([sourceTrack]),
-    );
+    source = context.createMediaStreamSource(new MediaStream([sourceTrack]));
     const destination = context.createMediaStreamDestination();
+    generatedTrack = destination.stream.getAudioTracks()[0];
+    if (!generatedTrack)
+      throw new Error('AudioWorklet produced no audio track');
+
     const module = new Blob([AUDIO_WORKLET_SOURCE], {
       type: 'text/javascript',
     });
     objectUrl = URL.createObjectURL(module);
     await context.audioWorklet.addModule(objectUrl);
-    URL.revokeObjectURL(objectUrl);
-    objectUrl = undefined;
+    revokeObjectUrl();
 
     const maxSamples = Math.ceil(
       (context.sampleRate * MAX_LOCAL_AUDIO_PRE_ROLL_MS) / 1000,
     );
-    const node = new AudioWorkletNode(context, PROCESSOR_NAME, {
+    node = new AudioWorkletNode(context, PROCESSOR_NAME, {
       channelCount: 1,
       outputChannelCount: [1],
       processorOptions: { maxSamples },
     });
     source.connect(node).connect(destination);
-    generatedTrack = destination.stream.getAudioTracks()[0];
-    if (!generatedTrack)
-      throw new Error('AudioWorklet produced no audio track');
     await context.resume();
 
     let requestId = 0;
@@ -89,6 +190,7 @@ export async function createLocalAudioPreRoll(
         readonly timeout: ReturnType<typeof setTimeout>;
       }
     >();
+
     node.port.onmessage = (event: MessageEvent<{ readonly id?: number }>) => {
       const id = event.data.id;
       if (id === undefined) return;
@@ -98,40 +200,44 @@ export async function createLocalAudioPreRoll(
       clearTimeout(request.timeout);
       request.resolve();
     };
-    /**
-     * Sends one lifecycle request with an operation-specific acknowledgement
-     * bound. A timeout clears processor state before rejection so a late
-     * acknowledgement cannot affect the next turn.
-     */
+
+    const clearProcessor = () => {
+      try {
+        node?.port.postMessage({ type: 'clear' });
+      } catch {
+        // Teardown and timeout recovery remain best-effort if the port closed.
+      }
+    };
+
     const request = (
       type: string,
       data: Record<string, number> = {},
       timeoutMs = WORKLET_ACK_TIMEOUT_MS,
-    ) => {
+    ): Promise<void> => {
       if (destroyed)
         return Promise.reject(new Error('Audio pre-roll generation destroyed'));
       const id = ++requestId;
       return new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           pending.delete(id);
-          node.port.postMessage({ type: 'clear' });
+          clearProcessor();
           reject(new Error('Audio pre-roll worklet request timed out'));
         }, timeoutMs);
         pending.set(id, { resolve, reject, timeout });
-        node.port.postMessage({ type, id, ...data });
+        try {
+          node?.port.postMessage({ type, id, ...data });
+        } catch (error) {
+          pending.delete(id);
+          clearTimeout(timeout);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
       });
     };
 
     return {
       track: generatedTrack,
       startAutomaticTurn(preRollMs) {
-        const boundedMs = Math.max(
-          0,
-          Math.min(
-            MAX_LOCAL_AUDIO_PRE_ROLL_MS,
-            Number.isFinite(preRollMs) ? preRollMs : 0,
-          ),
-        );
+        const boundedMs = clampPreRollMs(preRollMs);
         return request('automatic-start', {
           samples: Math.round((context.sampleRate * boundedMs) / 1000),
         }).then(
@@ -149,54 +255,51 @@ export async function createLocalAudioPreRoll(
           activePreRollMs = 0;
         });
       },
-      endTurn() {
-        const timeoutMs = endAckTimeoutMs(activePreRollMs);
-        return request('end', {}, timeoutMs).finally(() => {
+      clear() {
+        return request('clear').finally(() => {
           activePreRollMs = 0;
         });
+      },
+      endTurn() {
+        return request('end', {}, endAckTimeoutMs(activePreRollMs)).finally(
+          () => {
+            activePreRollMs = 0;
+          },
+        );
       },
       async destroy() {
         if (destroyed) return;
         destroyed = true;
-        node.port.postMessage({ type: 'clear' });
-        for (const request of pending.values()) {
-          clearTimeout(request.timeout);
-          request.resolve();
+        clearProcessor();
+        for (const pendingRequest of pending.values()) {
+          clearTimeout(pendingRequest.timeout);
+          pendingRequest.resolve();
         }
         pending.clear();
-        node.port.close();
-        source.disconnect();
-        node.disconnect();
-        if (generatedTrack) generatedTrack.enabled = false;
-        generatedTrack?.stop();
-        await context.close();
+        await cleanup(false);
       },
     };
   } catch (error) {
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    generatedTrack?.stop();
-    await context.close().catch(() => {});
+    await cleanup(true);
     throw error;
   }
 }
 
-/**
- * Returns `min(1500, 500 + 2 * clamp(preRollMs, 0, 500))`. Non-finite and
- * negative inputs use the zero-pre-roll bound; oversized inputs use the hard
- * cap. This derived allowance contrasts with the fixed 250 ms lifecycle-request
- * timeout used by start operations.
- */
-function endAckTimeoutMs(preRollMs: number): number {
-  const boundedPreRollMs = Math.max(
+function clampPreRollMs(preRollMs: number): number {
+  return Math.max(
     0,
     Math.min(
       MAX_LOCAL_AUDIO_PRE_ROLL_MS,
       Number.isFinite(preRollMs) ? preRollMs : 0,
     ),
   );
+}
+
+function endAckTimeoutMs(preRollMs: number): number {
   return Math.min(
     MAX_END_ACK_WAIT_BEFORE_FALLBACK_MS,
-    END_ACK_BASE_TIMEOUT_MS + END_ACK_PRE_ROLL_MULTIPLIER * boundedPreRollMs,
+    END_ACK_BASE_TIMEOUT_MS +
+      END_ACK_PRE_ROLL_MULTIPLIER * clampPreRollMs(preRollMs),
   );
 }
 
@@ -241,6 +344,7 @@ class MaelstromPreRollProcessor extends AudioWorkletProcessor {
         this.clearQueue();
         this.endId = undefined;
         this.clearRing();
+        if (data.id !== undefined) this.port.postMessage({ id: data.id });
       }
     };
   }

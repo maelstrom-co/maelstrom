@@ -50,7 +50,8 @@
     "@maelstrom-co/client": "0.1.0-alpha.2",
     "@maelstrom-co/protocol": "0.1.0-alpha.2",
     "@maelstrom-co/realtime": "0.1.0-alpha.2",
-    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.2"
+    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.2",
+    "@maelstrom-co/realtime-vad": "0.1.0-alpha.2"
   },
   "devDependencies": {
     "@sinonjs/fake-timers": "catalog:"

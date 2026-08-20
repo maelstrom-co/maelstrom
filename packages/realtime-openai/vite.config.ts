@@ -28,6 +28,7 @@ export default defineConfig(() => ({
         '@maelstrom-co/realtime',
         '@maelstrom-co/realtime-protocol',
         '@maelstrom-co/realtime-protocol/openai',
+        /^@maelstrom-co\/realtime-vad(?:\/|$)/,
       ],
     },
   },

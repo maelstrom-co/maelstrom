@@ -2,6 +2,7 @@ import type {
   OpenAIBuiltInVoice,
   OpenAITokenGrant,
 } from '@maelstrom-co/realtime-protocol/openai';
+import type { BrowserVadOptions } from '@maelstrom-co/realtime-vad/config';
 
 /** Arguments passed to an injected greeting synthesizer. */
 export interface SynthesizeGreetingArgs {
@@ -40,6 +41,47 @@ export interface OpenAIAdapterOptions {
    * transcription config is sent in `session.update`.
    */
   readonly transcription?: false | { readonly model?: string };
+  /**
+   * Experimental local greeting-interruption configuration (default off).
+   * Omitted or `false` preserves the existing non-interruptible greeting gate.
+   * `true` selects shared defaults; an object selects validated browser-VAD
+   * settings. Enabled connections lazy-load the browser runtime. Local
+   * acceptance is playback-scoped: the first accepted local boundary stops
+   * greeting playback, then flushes one bounded pre-roll. Skip and normal
+   * completion discard the retained tail. Setup and worklet-command failure
+   * fall back to the non-interruptible gate.
+   */
+  readonly greetingInterruption?: false | true | BrowserVadOptions;
+  /**
+   * OpenAI server-VAD tuning and barge-in policy.
+   *
+   * The threshold defaults to `0.5` and must be a finite number in `[0, 1]`.
+   * Barge-in defaults to `immediate`, which preserves OpenAI-managed response
+   * creation and interruption. `transcript-confirmed` disables both provider
+   * flags so the adapter can interrupt on the first non-whitespace provisional
+   * transcription delta and create a response only after the same committed
+   * item has a non-whitespace completed transcript. Delta arrival latency is
+   * nondeterministic, and non-whitespace transcription does not prove that the
+   * sound came from a human speaker.
+   *
+   * This configures OpenAI's provider-side VAD only. LiveKit owns browser VAD,
+   * microphone gating, and turn boundaries through `LiveKitAdapter`'s separate
+   * `vad` option.
+   *
+   * `transcript-confirmed` requires input transcription. Combining it with
+   * `transcription: false` throws a synchronous `TypeError` from the constructor
+   * before token minting, microphone capture, peer creation, or connection.
+   */
+  readonly serverVad?: {
+    /** Finite OpenAI server-VAD activation threshold in `[0, 1]` (default `0.5`). */
+    readonly threshold?: number;
+    /**
+     * `immediate` (default) derives `create_response: true` and
+     * `interrupt_response: true`. `transcript-confirmed` derives both as false
+     * and requires input transcription.
+     */
+    readonly bargeInMode?: 'immediate' | 'transcript-confirmed';
+  };
   /**
    * Built-in Realtime/TTS output voice. Defaults to `marin`. Applied to the
    * initial `session.update` audio.output and passed to

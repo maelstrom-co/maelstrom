@@ -33,3 +33,12 @@ export function createOpenAIAdapter(): OpenAIAdapter {
   });
 }
 /* docs:openai-adapter-setup:end */
+
+/* docs:openai-greeting-interruption:start */
+new OpenAIAdapter({
+  mintToken: mintOpenAIToken,
+  greetingInterruption: {
+    assetBaseUrl: '/vad-web/',
+  },
+});
+/* docs:openai-greeting-interruption:end */

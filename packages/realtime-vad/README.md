@@ -4,12 +4,13 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
 
 `@maelstrom-co/realtime-vad` is the provider-neutral browser voice-activity
-detection (VAD) engine behind automatic turn-taking. It never acquires a
-microphone: a caller passes a `MediaStream` it already owns and never stops,
-plus `startTurn`, `endTurn`, and `onFailure` callbacks. Reacting to those
-speech edges — resuming upstream publication, flushing pre-roll audio, or
-whatever else a given transport needs — is the caller's responsibility, not
-this package's.
+detection (VAD) engine and local-audio pre-roll bridge for automatic
+turn-taking. VAD never acquires a microphone: a caller passes a `MediaStream`
+it already owns and never stops, plus `startTurn`, `endTurn`, and `onFailure`
+callbacks. The optional pre-roll bridge similarly accepts one caller-owned
+`MediaStreamTrack` and exposes a separate generated publication track.
+Reacting to speech edges — including transport publication and pause ordering
+— remains the caller's responsibility.
 
 📚 **Full documentation:** <https://docs.maelstrom-ai.co>
 
@@ -90,6 +91,44 @@ expose manual control, in that order. `destroy()` is idempotent, closes an
 established turn when no boundary or failure handler already owns
 finalization, and never stops the caller-owned microphone stream.
 
+## Local audio pre-roll
+
+```ts
+import {
+  createLocalAudioPreRoll,
+  type LocalAudioPreRoll,
+} from '@maelstrom-co/realtime-vad';
+
+const bridge: LocalAudioPreRoll = await createLocalAudioPreRoll(sourceTrack);
+// Publish bridge.track and make its upstream transport ready before an
+// automatic start, since the buffered samples may be emitted immediately.
+publishTrack(bridge.track);
+
+await bridge.startAutomaticTurn(250); // newest 250 ms tail, then live audio
+await bridge.endTurn(); // drains audio accepted before end, then closes
+
+await bridge.startManualTurn(); // discards retained audio; passes new input
+await bridge.clear(); // cancel a turn and return to silent buffering
+await bridge.destroy(); // disables/stops only bridge.track, not sourceTrack
+```
+
+While closed, the bridge emits silence and retains only the newest source tail.
+Automatic starts emit that tail exactly once before later live samples; manual
+starts and `clear()` discard retained and queued audio. Automatic pre-roll is
+clamped to 0–500 ms (non-finite values select zero). Start, manual, and clear
+acknowledgements time out after 250 ms. `endTurn()` waits for its accepted
+queue to drain, with an acknowledgement limit of `min(1500, 500 + 2 *
+preRollMs)` ms. A timeout clears uncertain worklet state, so a later operation
+can recover. The caller owns the source track and transport ordering; the
+bridge owns and releases its generated track, worklet, and audio context.
+
+The bridge loads its AudioWorklet from a Blob URL. Deployments using it must
+allow `blob:` worklet scripts in their Content Security Policy.
+
+`LiveKitAdapter` consumes this shared primitive today. The primitive owns local
+buffering and generated-track resources; LiveKit continues to own transport
+publication, pause/resume ordering, and turn policy.
+
 ## Deploy browser VAD assets
 
 Default-on VAD still requires a build-time asset step. The default
@@ -165,8 +204,13 @@ transport connection a fatal transport failure — that call is the adapter's.
 ## Entry points
 
 - `@maelstrom-co/realtime-vad` — `createBrowserVad`, `resolveBrowserVadConfig`,
-  and the `BrowserVad`, `BrowserVadOptions`, `BrowserVadProviderOptions`,
-  `CreateBrowserVadOptions`, `ResolvedBrowserVadConfig` types.
+  `createLocalAudioPreRoll`, and the `BrowserVad`, `BrowserVadOptions`,
+  `BrowserVadProviderOptions`, `CreateBrowserVadOptions`,
+  `ResolvedBrowserVadConfig`, and `LocalAudioPreRoll` types.
+- `@maelstrom-co/realtime-vad/config` — validation/type-only loading boundary
+  for browser-VAD configuration; it does not load the VAD runtime. OpenAI may
+  import that subpath for option validation without loading VAD, ONNX, or
+  worklet runtime.
 - `@maelstrom-co/realtime-vad/assets` — Node-only asset deployment helper;
   never import this subpath into browser code.
 

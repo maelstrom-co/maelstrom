@@ -10,13 +10,18 @@ import type {
 } from '@maelstrom-co/react';
 import type {
   AdapterTurnControl,
+  GreetingState,
   RealtimeInstance,
   RealtimeProviderAdapter,
   SummarizeFn,
 } from '@maelstrom-co/realtime';
-import { GreetingCoordinator, RealtimeSession } from '@maelstrom-co/realtime';
+import { RealtimeSession } from '@maelstrom-co/realtime';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
 
+import {
+  type SharedRealtimeSessionEntry,
+  SharedRealtimeSessionRegistry,
+} from './shared-realtime-session.js';
 import { createVoiceOrb, type VoiceOrbProps } from './voice-orb.js';
 
 /** Context passed to {@link MaelstromRealtimeOptions.createAdapter}. */
@@ -67,6 +72,20 @@ export interface MaelstromRealtimeOptions {
 export interface UseVoiceResult {
   /** Lifecycle state of the shared session, updated for every consumer. */
   readonly state: VoiceSessionState;
+  /**
+   * Retained fixed-greeting presentation lifecycle from the shared
+   * {@link RealtimeSession}, initialized synchronously from coordinator proof
+   * and updated for every `useVoice()` consumer. It is not a hook-local timer,
+   * caption, error, `VoiceSessionState`, or turn-mode derivation.
+   *
+   * `pending` is retryable; `preparing` starts before the provider handshake and
+   * can wait indefinitely for Engine readiness; `settled` ends presentation
+   * without implying provider activity or speech success; `skipped` is the
+   * terminal explicit user choice; and `not_configured` means that no greeting
+   * exists. Retained terminal proof survives shared session recreation, and
+   * stale connection generations cannot update it.
+   */
+  readonly greetingState: GreetingState;
   /** Failure behind the current `error` state, if any. */
   readonly error: unknown;
   /** Latest accumulated or final user transcript. */
@@ -106,6 +125,11 @@ export interface UseVoiceResult {
    * swallowed, so cleanup failures stay visible and can be retried.
    */
   readonly disconnect: () => Promise<void>;
+  /**
+   * Synchronously skip the shared configured greeting. This is idempotent,
+   * shared by every hook consumer, and never disconnects voice.
+   */
+  readonly skipGreeting: () => void;
 }
 
 function createBridge(orchestrator: Orchestrator): RealtimeInstance {
@@ -165,42 +189,26 @@ type RealtimeExtension = MaelstromExtension<{
 export function maelstromRealtime(
   options: MaelstromRealtimeOptions,
 ): RealtimeExtension {
-  const sessions = new WeakMap<Orchestrator, VoiceSessionEntry>();
-  const coordinators = new WeakMap<Orchestrator, GreetingCoordinator>();
+  const sessions = new SharedRealtimeSessionRegistry();
 
-  function getOrCreateSession(orchestrator: Orchestrator): VoiceSessionEntry {
-    const existing = sessions.get(orchestrator);
-    if (existing) return existing;
-
-    const sessionId = orchestrator.getConfig().sessionId;
-    const coordinator =
-      coordinators.get(orchestrator) ?? new GreetingCoordinator();
-    coordinators.set(orchestrator, coordinator);
-    const session = new RealtimeSession({
-      adapter: options.createAdapter({ sessionId }),
-      instance: createBridge(orchestrator),
-      sessionId,
-      summarize: options.summarize,
-      groundingDebounceMs: options.groundingDebounceMs,
-      onEvent: options.onEvent,
-      debug: options.debug,
-      ...(options.greeting
-        ? {
-            greeting: {
-              text: options.greeting.text,
-              coordinator,
-            },
-          }
-        : {}),
+  function getOrCreateSession(
+    orchestrator: Orchestrator,
+  ): SharedRealtimeSessionEntry {
+    return sessions.getOrCreate(orchestrator, (coordinator) => {
+      const sessionId = orchestrator.getConfig().sessionId;
+      return new RealtimeSession({
+        adapter: options.createAdapter({ sessionId }),
+        instance: createBridge(orchestrator),
+        sessionId,
+        summarize: options.summarize,
+        groundingDebounceMs: options.groundingDebounceMs,
+        onEvent: options.onEvent,
+        debug: options.debug,
+        ...(options.greeting
+          ? { greeting: { text: options.greeting.text, coordinator } }
+          : {}),
+      });
     });
-    const entry: VoiceSessionEntry = {
-      session,
-      consumerCount: 0,
-      phase: 'live',
-      retirementQueued: false,
-    };
-    sessions.set(orchestrator, entry);
-    return entry;
   }
 
   return (context: MaelstromExtensionContext) => {
@@ -209,6 +217,9 @@ export function maelstromRealtime(
       const entry = getOrCreateSession(orchestrator);
       const { session } = entry;
       const [state, setState] = useState<VoiceSessionState>(session.state);
+      const [greetingState, setGreetingState] = useState<GreetingState>(
+        session.greetingState,
+      );
       const [error, setError] = useState<unknown>(session.lastError);
       const [userTranscript, setUserTranscript] = useState<TranscriptEntry>();
       const [assistantTranscript, setAssistantTranscript] =
@@ -225,6 +236,12 @@ export function maelstromRealtime(
         });
         setState(session.state);
         setError(session.lastError);
+        return unsubscribe;
+      }, [session]);
+
+      useEffect(() => {
+        const unsubscribe = session.on('greeting_state', setGreetingState);
+        setGreetingState(session.greetingState);
         return unsubscribe;
       }, [session]);
 
@@ -246,19 +263,18 @@ export function maelstromRealtime(
         });
       }, [session]);
 
-      useEffect(() => {
-        entry.consumerCount += 1;
-        return () => {
-          entry.consumerCount = Math.max(0, entry.consumerCount - 1);
-          queueRetirement(orchestrator, entry, sessions);
-        };
-      }, [orchestrator, entry]);
+      useEffect(
+        () => sessions.retain(orchestrator, entry),
+        [orchestrator, entry],
+      );
 
       const connect = useCallback(() => session.connect(), [session]);
       const disconnect = useCallback(() => session.disconnect(), [session]);
+      const skipGreeting = useCallback(() => session.skipGreeting(), [session]);
 
       return {
         state,
+        greetingState,
         error,
         userTranscript,
         assistantTranscript,
@@ -268,6 +284,7 @@ export function maelstromRealtime(
         turnModeError: turnPolicy.error,
         connect,
         disconnect,
+        skipGreeting,
       };
     };
 
@@ -292,39 +309,8 @@ function accumulateTranscript(
   return { role: transcript.role, text: text + transcript.text, final: false };
 }
 
-/**
- * Queues retirement once for a live session entry. A reacquired or already
- * retired entry is a no-op when the microtask runs. Otherwise the microtask
- * marks the zero-consumer entry retired and evicts it before starting the
- * best-effort asynchronous disconnect, so a concurrent acquisition cannot
- * observe or reuse a session whose disconnect has begun.
- */
-function queueRetirement(
-  orchestrator: Orchestrator,
-  entry: VoiceSessionEntry,
-  sessions: WeakMap<Orchestrator, VoiceSessionEntry>,
-): void {
-  if (entry.retirementQueued) return;
-  entry.retirementQueued = true;
-  queueMicrotask(() => {
-    entry.retirementQueued = false;
-    if (entry.phase !== 'live' || entry.consumerCount > 0) return;
-
-    entry.phase = 'retired';
-    if (sessions.get(orchestrator) === entry) sessions.delete(orchestrator);
-    void entry.session.disconnect().catch(() => {});
-  });
-}
-
 interface TurnPolicy {
   readonly mode: 'automatic' | 'manual';
   readonly error: unknown;
   readonly turnControl: AdapterTurnControl | undefined;
-}
-
-interface VoiceSessionEntry {
-  readonly session: RealtimeSession;
-  consumerCount: number;
-  phase: 'live' | 'retired';
-  retirementQueued: boolean;
 }

@@ -176,9 +176,11 @@ For an operator-controlled CDN:
 
 The browser executes the worklet, JavaScript, and WebAssembly files. Treat the
 configured host as trusted executable infrastructure and never derive
-`assetBaseUrl` from user input. The local pre-roll processor also uses a
-Blob-backed AudioWorklet module, so the application's Content Security Policy
-must allow `blob:` for worklet scripts in supported browsers.
+`assetBaseUrl` from user input. LiveKit consumes the provider-neutral local
+pre-roll bridge from `@maelstrom-co/realtime-vad`, while this adapter still owns
+publication and turn ordering. The bridge uses a Blob-backed AudioWorklet
+module, so the application's Content Security Policy must allow `blob:` for
+worklet scripts in supported browsers.
 
 Missing, blocked, malformed, or version-mismatched assets cause safe manual
 degradation. They do not make an otherwise healthy LiveKit room a transport

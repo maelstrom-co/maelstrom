@@ -528,7 +528,11 @@ test('OpenAI fixture regions are compile checked and rendered verbatim', async (
     (await page.locator('main pre').allTextContents()).join('\n'),
   );
 
-  for (const name of ['browser-grant', 'adapter-setup']) {
+  for (const name of [
+    'browser-grant',
+    'adapter-setup',
+    'greeting-interruption',
+  ]) {
     expect(rendered).toContain(asRendered(region(fixture, `openai-${name}`)));
   }
   expect(rendered).toContain(asRendered(minimal));

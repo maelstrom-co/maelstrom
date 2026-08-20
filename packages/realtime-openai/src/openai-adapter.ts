@@ -16,6 +16,16 @@ import type {
   OpenAIBuiltInVoice,
   OpenAITokenGrant,
 } from '@maelstrom-co/realtime-protocol/openai';
+import {
+  type ResolvedBrowserVadConfig,
+  resolveBrowserVadConfig,
+} from '@maelstrom-co/realtime-vad/config';
+import {
+  GreetingInterruption,
+  type ReplacePublicationArgs,
+} from './greeting-interruption.js';
+import { GreetingPresentation } from './greeting-presentation.js';
+import { MicrophonePublicationGate } from './microphone-publication-gate.js';
 import type {
   OpenAIAdapterOptions,
   SynthesizeGreeting,
@@ -25,22 +35,13 @@ import {
   isRecord,
   parseOpenAIServerEvent,
 } from './parse-openai-event.js';
-import {
-  INITIAL_RESPONSE_LIFECYCLE_STATE,
-  markResponseActive,
-  markResponseInactive,
-  type ResponseLifecycleState,
-  requestResponseCreate,
-} from './response-lifecycle.js';
+import { ResponseArbiter } from './response-arbiter.js';
 import {
   createUnexpectedEventTracker,
   type UnexpectedEventTracker,
 } from './unexpected-event-tracker.js';
 import { deriveVoiceActivity } from './voice-activity.js';
-import {
-  raceAbortSignal,
-  WebAudioGreetingPlayer,
-} from './web-audio-greeting-player.js';
+import { WebAudioGreetingPlayer } from './web-audio-greeting-player.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 
@@ -116,6 +117,32 @@ function audioProcessingSettings(track: MediaStreamTrack | undefined) {
 }
 
 const DEFAULT_OUTPUT_VOICE: OpenAIBuiltInVoice = 'marin';
+const DEFAULT_SERVER_VAD_THRESHOLD = 0.5;
+const DEFAULT_BARGE_IN_MODE = 'immediate';
+
+/**
+ * Validates the OpenAI-specific opt-in without inheriting the VAD API's
+ * default-on `undefined` behavior. Phase 1 intentionally discards enabled
+ * configuration; later phases own its runtime lifecycle.
+ */
+function resolveGreetingInterruptionConfig(
+  greetingInterruption: unknown,
+): ResolvedBrowserVadConfig {
+  if (greetingInterruption === undefined || greetingInterruption === false) {
+    return { enabled: false };
+  }
+  try {
+    return resolveBrowserVadConfig(greetingInterruption);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new TypeError(
+        error.message.replace(/^vad\b/, 'greetingInterruption'),
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
 
 function toOpenAITool(spec: RealtimeToolSpec): unknown {
   return {
@@ -133,9 +160,9 @@ function toOpenAITool(spec: RealtimeToolSpec): unknown {
  * drives tool calls / grounding pushes over the `oai-events` data channel.
  *
  * The data-channel envelope → adapter-event mapping lives in
- * {@link parseOpenAIServerEvent}; this class is thin `RTCPeerConnection` glue
- * around it — the WebRTC transport itself is not unit-tested, but the
- * envelope parsing and response-lifecycle bookkeeping it delegates to are.
+ * {@link parseOpenAIServerEvent}; this class owns the provider-specific WebRTC,
+ * response lifecycle, and transcript-confirmed interruption bookkeeping around
+ * that mapping. The browser's WebRTC implementation itself is not unit-tested.
  *
  * @example
  * ```ts
@@ -152,9 +179,13 @@ export class OpenAIAdapter
   readonly #mintToken: () => Promise<OpenAITokenGrant>;
   readonly #logger: Logger;
   readonly #transcription: false | { readonly model?: string } | undefined;
+  readonly #serverVadThreshold: number;
+  readonly #bargeInMode: 'immediate' | 'transcript-confirmed';
   readonly #voice: OpenAIBuiltInVoice;
   readonly #synthesizeGreeting: SynthesizeGreeting | undefined;
-  readonly #greetingPlayer = new WebAudioGreetingPlayer();
+  readonly #greetingInterruption: ResolvedBrowserVadConfig;
+  readonly #greetingGate: MicrophonePublicationGate;
+  readonly #greetingPresentation: GreetingPresentation;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
 
   #pc: RTCPeerConnection | undefined;
@@ -173,18 +204,64 @@ export class OpenAIAdapter
   // aborts instead of clobbering the winner's shared state.
   readonly #connectGuard = new ConnectRaceGuard();
   #iceGraceTimer: ReturnType<typeof setTimeout> | undefined;
-  #responseLifecycle: ResponseLifecycleState = INITIAL_RESPONSE_LIFECYCLE_STATE;
+  #arbiter: ResponseArbiter | undefined;
   #voiceActivity: VoiceSessionState = 'connected';
   #unexpectedEvents: UnexpectedEventTracker = createUnexpectedEventTracker();
-  /** Operation-scoped controller for in-flight greeting synthesis/playback. */
-  #greetingOp: AbortController | undefined;
+  #connectionGeneration = 0;
 
   constructor(options: OpenAIAdapterOptions) {
+    this.#greetingInterruption = resolveGreetingInterruptionConfig(
+      options.greetingInterruption,
+    );
+    const serverVadThreshold =
+      options.serverVad?.threshold ?? DEFAULT_SERVER_VAD_THRESHOLD;
+    if (
+      !Number.isFinite(serverVadThreshold) ||
+      serverVadThreshold < 0 ||
+      serverVadThreshold > 1
+    ) {
+      throw new TypeError(
+        'OpenAIAdapter serverVad.threshold must be a finite number between 0 and 1',
+      );
+    }
+    const bargeInMode = options.serverVad?.bargeInMode ?? DEFAULT_BARGE_IN_MODE;
+    if (
+      bargeInMode === 'transcript-confirmed' &&
+      options.transcription === false
+    ) {
+      throw new TypeError(
+        'OpenAIAdapter transcript-confirmed barge-in requires input transcription',
+      );
+    }
+
     this.#mintToken = options.mintToken;
     this.#transcription = options.transcription;
+    this.#serverVadThreshold = serverVadThreshold;
+    this.#bargeInMode = bargeInMode;
     this.#voice = options.voice ?? DEFAULT_OUTPUT_VOICE;
     this.#synthesizeGreeting = options.synthesizeGreeting;
     this.#logger = new Logger(options.debug ?? false, 'OpenAIAdapter');
+    this.#greetingGate = new MicrophonePublicationGate(
+      () => this.#connectionGeneration,
+    );
+    this.#greetingPresentation = new GreetingPresentation({
+      synthesize: this.#synthesizeGreeting,
+      voice: this.#voice,
+      player: new WebAudioGreetingPlayer(),
+      gate: this.#greetingGate,
+      channel: () => this.#dc,
+      microphone: () => this.#micStream,
+      generation: () => this.#connectionGeneration,
+      debug: (category) => this.#logger.debug('greeting', { category }),
+      interruption: new GreetingInterruption({
+        config: this.#greetingInterruption,
+        gate: this.#greetingGate,
+        generation: () => this.#connectionGeneration,
+        replacePublication: (args) => this.#replacePublication(args),
+        debug: (category) => this.#logger.debug('greeting', { category }),
+      }),
+    });
+    this.#arbiter = this.#newArbiter();
   }
 
   /**
@@ -220,6 +297,10 @@ export class OpenAIAdapter
     // abandon exactly its own connection + mic without touching the winner's.
     let connection: RTCPeerConnection | undefined;
     let micStream: MediaStream | undefined;
+    let preparedMicrophone:
+      | Awaited<ReturnType<GreetingPresentation['prepareMicrophone']>>
+      | undefined;
+    let preparedCommitted = false;
     try {
       let token: OpenAITokenGrant;
       try {
@@ -253,12 +334,33 @@ export class OpenAIAdapter
           },
         });
       }
+      preparedMicrophone =
+        await this.#greetingPresentation.prepareMicrophone(micStream);
+      attempt.assertCurrent();
+      let publicationSender: RTCRtpSender | undefined;
       for (const track of micStream.getTracks()) {
-        connection.addTrack(track, micStream);
+        if (track.kind === 'audio' && preparedMicrophone?.generated) {
+          publicationSender ??= connection.addTrack(
+            preparedMicrophone.track,
+            micStream,
+          );
+          continue;
+        }
+        const sender = connection.addTrack(track, micStream);
+        if (track.kind === 'audio') publicationSender ??= sender;
       }
 
       // Past the post-getUserMedia check — this attempt is still current, so
       // publishing to the shared fields is safe.
+      this.#startConnectionGeneration();
+      if (preparedMicrophone && publicationSender) {
+        this.#greetingPresentation.attachMicrophone(
+          preparedMicrophone,
+          publicationSender,
+          this.#connectionGeneration,
+        );
+        preparedCommitted = true;
+      }
       this.#pc = connection;
       this.#micStream = micStream;
       this.#connecting = false;
@@ -288,6 +390,7 @@ export class OpenAIAdapter
       // Always close this attempt's own connection + mic. They may never have
       // reached the shared fields (e.g. a failure before the post-getUserMedia
       // publish), in which case teardown() alone wouldn't clean them up.
+      if (!preparedCommitted) await preparedMicrophone?.abandon();
       this.#closeAbandonedAttempt(connection, micStream);
       // Teardown may close a still-opening data channel, whose local readiness
       // promise rejects with DATA_CHANNEL_ERROR. Preserve the adapter-wide
@@ -313,12 +416,7 @@ export class OpenAIAdapter
     micStream?.getTracks().forEach((track) => {
       track.stop();
     });
-    if (connection) {
-      for (const sender of connection.getSenders()) {
-        sender.track?.stop();
-      }
-      connection.close();
-    }
+    connection?.close();
   }
 
   async disconnect(): Promise<void> {
@@ -351,12 +449,7 @@ export class OpenAIAdapter
           },
         }),
       );
-      // Only one response.create may be in flight at a time — if a prior
-      // response (e.g. one still driving another tool call) hasn't
-      // finished, defer this one; `response.done` flushes it later.
-      const { next, sendNow } = requestResponseCreate(this.#responseLifecycle);
-      this.#responseLifecycle = next;
-      if (sendNow) this.#sendResponseCreate();
+      this.#requestToolFollowUp();
     } catch (error) {
       this.#emit({ type: 'error', error });
     }
@@ -405,104 +498,18 @@ export class OpenAIAdapter
     };
   }
 
-  /**
-   * Unlock greeting audio synchronously within the initiating user gesture.
-   * Must never throw. Failures surface later as `not_started` from
-   * {@link speakAssistantText}. Only activates when a synthesizer is configured.
-   */
+  /** Unlocks retained Web Audio activation in the initiating gesture. */
   activateAudio(): void {
-    try {
-      if (this.#synthesizeGreeting === undefined) return;
-      this.#greetingPlayer.activate();
-    } catch {
-      // Never throw from the gesture path; readiness fails later.
-    }
+    this.#greetingPresentation.activate();
   }
 
-  /**
-   * Speak the exact configured greeting text once the coordinator hands off.
-   * Sends provider history first, then synthesizes and plays WAV bytes without
-   * waiting for any provider acknowledgement. Never issues `response.create`.
-   *
-   * Pre-send failures return `not_started`. Once the send call returns,
-   * every later outcome settles as `accepted`.
-   */
-  async speakAssistantText(args: {
+  /** Delegates provider handoff and local presentation to its package-private owner. */
+  speakAssistantText(args: {
     readonly id: MessageId;
     readonly text: string;
     readonly signal: AbortSignal;
   }): Promise<GreetingSpeechResult> {
-    if (!this.#dc || this.#dc.readyState !== 'open') return 'not_started';
-    if (this.#synthesizeGreeting === undefined) return 'not_started';
-    if (args.signal.aborted) return 'not_started';
-
-    const readiness = await this.#greetingPlayer.ensureReady(args.signal);
-    if (!readiness.ok) return 'not_started';
-    // Re-check channel after the readiness await — disconnect may have raced.
-    if (!this.#dc || this.#dc.readyState !== 'open') return 'not_started';
-    if (args.signal.aborted) return 'not_started';
-
-    const { text } = args;
-    const synthesize = this.#synthesizeGreeting;
-
-    try {
-      this.#dc.send(
-        JSON.stringify({
-          type: 'conversation.item.create',
-          item: {
-            // Engine message IDs can exceed OpenAI's 32-character item-ID limit.
-            type: 'message',
-            role: 'assistant',
-            status: 'completed',
-            content: [{ type: 'output_text', text }],
-          },
-        }),
-      );
-    } catch {
-      // No delivery began — the only retriable outcome after readiness.
-      return 'not_started';
-    }
-
-    // Send succeeded: every later outcome is terminal `accepted`.
-    const op = new AbortController();
-    this.#greetingOp = op;
-    const onCallerAbort = (): void => {
-      op.abort();
-    };
-    if (args.signal.aborted) {
-      op.abort();
-    } else {
-      args.signal.addEventListener('abort', onCallerAbort, { once: true });
-    }
-
-    try {
-      // Race the synthesizer against abort so an uncooperative pending fetch
-      // cannot hang the adapter (or the coordinator's speech-in-flight) after
-      // disconnect/abort. Late synth settlement is observed inside the race.
-      const synthRace = await raceAbortSignal(
-        synthesize({
-          text,
-          voice: this.#voice,
-          signal: op.signal,
-        }),
-        op.signal,
-      );
-      if (synthRace.status === 'aborted') return 'accepted';
-      if (op.signal.aborted) return 'accepted';
-      await this.#greetingPlayer.play(synthRace.value, op.signal);
-    } catch (error) {
-      // Synthesis/decode/playback failure after send — still accepted.
-      this.#logger.debug('greeting synthesis or playback failed', error);
-    } finally {
-      args.signal.removeEventListener('abort', onCallerAbort);
-      // Only the owning/current operation may clear the op pointer and stop
-      // the shared player. A stale session-A finally must not stop session B.
-      if (this.#greetingOp === op) {
-        this.#greetingOp = undefined;
-        this.#greetingPlayer.stop();
-      }
-    }
-    return 'accepted';
+    return this.#greetingPresentation.speak(args);
   }
 
   #wireConnectionEvents(connection: RTCPeerConnection): void {
@@ -598,10 +605,12 @@ export class OpenAIAdapter
     connectStart: number,
   ): Promise<RTCDataChannel> {
     const channel = connection.createDataChannel('oai-events');
+    const generation = this.#connectionGeneration;
     this.#dc = channel;
     channel.onmessage = (event: MessageEvent) => {
-      if (channel !== this.#dc) return;
-      this.#handleDataChannelMessage(event.data as unknown);
+      if (channel !== this.#dc || generation !== this.#connectionGeneration)
+        return;
+      this.#handleDataChannelMessage(event.data as unknown, generation);
     };
     return new Promise<RTCDataChannel>((resolve, reject) => {
       let settled = false;
@@ -754,39 +763,84 @@ export class OpenAIAdapter
     });
   }
 
-  // Audio slice of session.update: always sets output.voice; nests input
-  // transcription under `audio.input` when enabled (GA `type: 'realtime'`).
+  /**
+   * Builds the GA Realtime API audio configuration. The output voice and
+   * provider-owned input controls are always present; disabling transcription
+   * removes only the optional transcription model. Immediate barge-in delegates
+   * response creation and interruption to OpenAI. Transcript-confirmed mode
+   * disables both provider actions for adapter-controlled handling.
+   */
   #audioConfig(): Record<string, unknown> {
-    const output = { voice: this.#voice };
-    if (this.#transcription === false) {
-      return { audio: { output } };
-    }
-    const model = this.#transcription?.model ?? DEFAULT_TRANSCRIPTION_MODEL;
-    return {
-      audio: {
-        input: { transcription: { model } },
-        output,
+    const input = {
+      noise_reduction: { type: 'near_field' },
+      turn_detection: {
+        type: 'server_vad',
+        threshold: this.#serverVadThreshold,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 500,
+        create_response: this.#bargeInMode === 'immediate',
+        interrupt_response: this.#bargeInMode === 'immediate',
       },
+      ...(this.#transcription === false
+        ? {}
+        : {
+            transcription: {
+              model: this.#transcription?.model ?? DEFAULT_TRANSCRIPTION_MODEL,
+            },
+          }),
     };
-  }
-
-  #sendResponseCreate(): void {
-    this.#dc?.send(JSON.stringify({ type: 'response.create' }));
+    return { audio: { input, output: { voice: this.#voice } } };
   }
 
   #emit(event: RealtimeAdapterEvent): void {
     for (const handler of this.#handlers) handler(event);
   }
 
-  /**
-   * Abort in-flight greeting synthesis/playback without closing the session.
-   * Player AudioContext is retained across reconnects; only the current op stops.
-   */
   #abortGreetingPlayback(): void {
-    const greetingOp = this.#greetingOp;
-    this.#greetingOp = undefined;
-    greetingOp?.abort();
-    this.#greetingPlayer.stop();
+    this.#greetingPresentation.abort();
+  }
+
+  async #replacePublication(
+    args: ReplacePublicationArgs,
+  ): Promise<'replaced' | 'stale' | 'failed'> {
+    if (args.generation !== this.#connectionGeneration) return 'stale';
+    const sender = this.#pc
+      ?.getSenders()
+      .find((candidate) => candidate.track === args.generated);
+    if (!sender) return 'stale';
+    this.#greetingGate.acquire(
+      this.#micStream ??
+        ({ getAudioTracks: () => [args.raw] } as unknown as MediaStream),
+      args.generation,
+    );
+    args.generated.enabled = false;
+    try {
+      await sender.replaceTrack(args.raw);
+    } catch {
+      this.#logger.debug('greeting', {
+        category: 'publication-replace-failed',
+      });
+      this.#emit({
+        type: 'error',
+        error: new RealtimeVoiceError(
+          'CONNECTION_FAILED',
+          'Failed to restore the OpenAI microphone publication',
+        ),
+      });
+      return 'failed';
+    }
+    return sender.track === args.raw ? 'replaced' : 'failed';
+  }
+
+  /**
+   * Starts an isolated response-arbiter generation. Teardown and reconnect use
+   * this boundary to discard queued work, clear fatal send state, and prevent
+   * stale provider events from affecting the replacement session.
+   */
+  #startConnectionGeneration(): void {
+    this.#connectionGeneration += 1;
+    this.#arbiter?.close();
+    this.#arbiter = this.#newArbiter();
   }
 
   #teardown(): void {
@@ -794,20 +848,15 @@ export class OpenAIAdapter
     // attempt instead of clobbering shared state when its awaits resume.
     this.#connectGuard.supersede();
     this.#clearIceGraceTimer();
-    // Abort in-flight greeting synthesis/playback so disconnect cannot hang.
+    // Abort greeting work and release owner-generated publication resources.
     // Fresh lifecycle state for a later reconnect; player context is retained.
-    this.#abortGreetingPlayback();
+    this.#greetingPresentation.disconnect();
     this.#audioEl?.pause();
     if (this.#audioEl) this.#audioEl.srcObject = null;
     this.#audioEl = undefined;
     this.#playbackStream = undefined;
     this.#dc?.close();
-    if (this.#pc) {
-      for (const sender of this.#pc.getSenders()) {
-        sender.track?.stop();
-      }
-      this.#pc.close();
-    }
+    this.#pc?.close();
     this.#micStream?.getTracks().forEach((track) => {
       track.stop();
     });
@@ -816,12 +865,13 @@ export class OpenAIAdapter
     this.#micStream = undefined;
     this.#groundingItemExists = false;
     this.#connecting = false;
-    this.#responseLifecycle = INITIAL_RESPONSE_LIFECYCLE_STATE;
     this.#voiceActivity = 'connected';
     this.#unexpectedEvents = createUnexpectedEventTracker();
+    this.#startConnectionGeneration();
   }
 
-  #handleDataChannelMessage(raw: unknown): void {
+  #handleDataChannelMessage(raw: unknown, generation: number): void {
+    if (generation !== this.#connectionGeneration) return;
     let parsed: unknown;
     try {
       parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -831,11 +881,70 @@ export class OpenAIAdapter
       return;
     }
     const type = isRecord(parsed) ? asString(parsed.type) : undefined;
-    // Noisy transcript deltas flood the console — log only their type.
-    if (type === 'response.audio_transcript.delta') {
-      this.#logger.debug('←', type);
-    } else {
-      this.#logger.debug('←', type, parsed);
+    const isInputTranscriptDelta =
+      type === 'conversation.item.input_audio_transcription.delta';
+    const previousActivity = this.#voiceActivity;
+    let lifecycleCategory:
+      | 'speech_started'
+      | 'speech_stopped'
+      | 'committed'
+      | 'transcript_completed'
+      | undefined;
+    switch (type) {
+      case 'input_audio_buffer.speech_started':
+        lifecycleCategory = 'speech_started';
+        break;
+      case 'input_audio_buffer.speech_stopped':
+        lifecycleCategory = 'speech_stopped';
+        break;
+      case 'input_audio_buffer.committed':
+        lifecycleCategory = 'committed';
+        break;
+      case 'conversation.item.input_audio_transcription.completed':
+        lifecycleCategory = 'transcript_completed';
+        break;
+    }
+
+    // Lifecycle diagnostics are fixed projections: content and provider
+    // metadata are inspected only long enough to classify the event and are
+    // never retained by the logger.
+    if (lifecycleCategory === 'transcript_completed') {
+      const transcript = isRecord(parsed)
+        ? asString(parsed.transcript)
+        : undefined;
+      this.#logger.debug('input lifecycle', {
+        category: lifecycleCategory,
+        role: 'user',
+        final: true,
+        useful: transcript !== undefined && transcript.trim().length > 0,
+      });
+    } else if (lifecycleCategory !== undefined) {
+      this.#logger.debug(
+        'input lifecycle',
+        lifecycleCategory === 'speech_started'
+          ? {
+              category: lifecycleCategory,
+              greetingActive: this.#greetingPresentation.isActive,
+            }
+          : { category: lifecycleCategory },
+      );
+      if (
+        lifecycleCategory === 'speech_started' &&
+        previousActivity === 'speaking' &&
+        this.#bargeInMode === 'immediate'
+      ) {
+        this.#logger.debug('input lifecycle', {
+          category: 'assistant_interruption',
+        });
+      }
+    }
+    if (lifecycleCategory === undefined && !isInputTranscriptDelta) {
+      // Noisy transcript deltas flood the console — log only their type.
+      if (type === 'response.audio_transcript.delta') {
+        this.#logger.debug('←', type);
+      } else {
+        this.#logger.debug('←', type, parsed);
+      }
     }
 
     // Response-lifecycle bookkeeping is driven off the raw event type, not
@@ -845,11 +954,18 @@ export class OpenAIAdapter
     // field carries completed/cancelled/failed/incomplete) — there is no
     // separate `response.cancelled` server event.
     if (type === 'response.created') {
-      this.#responseLifecycle = markResponseActive(this.#responseLifecycle);
+      this.#arbiter?.responseCreated(this.#responseId(parsed));
     } else if (type === 'response.done') {
-      const { next, flush } = markResponseInactive(this.#responseLifecycle);
-      this.#responseLifecycle = next;
-      if (flush) this.#sendResponseCreate();
+      this.#arbiter?.responseDone(
+        this.#responseId(parsed),
+        this.#completedResponseHasExplicitlyEmptyOutput(parsed),
+      );
+    } else if (type === 'output_audio_buffer.started') {
+      this.#arbiter?.outputStarted();
+    } else if (type === 'output_audio_buffer.stopped') {
+      this.#arbiter?.outputStopped();
+    } else if (type === 'output_audio_buffer.cleared') {
+      this.#arbiter?.outputCleared();
     }
 
     if (type !== undefined) {
@@ -860,22 +976,98 @@ export class OpenAIAdapter
       }
     }
 
-    // Barge-in: stop adapter-owned greeting Web Audio only. Do not tear down
-    // the realtime session. Post-send speakAssistantText still settles
-    // `accepted`, so a later reconnect will not replay the greeting.
-    if (type === 'input_audio_buffer.speech_started') {
+    // Barge-in normally stops adapter-owned greeting Web Audio only. During the
+    // current decode/playback microphone gate, skip only that local abort; state
+    // derivation and provider-neutral speech_started propagation remain intact.
+    if (
+      type === 'input_audio_buffer.speech_started' &&
+      this.#bargeInMode === 'immediate' &&
+      !this.#greetingPresentation.isPublicationGated
+    ) {
       this.#abortGreetingPlayback();
+    }
+
+    if (isInputTranscriptDelta) {
+      const itemId = this.#itemId(parsed);
+      const useful =
+        isRecord(parsed) &&
+        typeof parsed.delta === 'string' &&
+        parsed.delta.trim().length > 0;
+      if (this.#bargeInMode === 'transcript-confirmed' && useful) {
+        this.#logger.debug('input interruption', {
+          category: 'useful-delta',
+          useful: true,
+        });
+        if (this.#greetingPresentation.isActive) this.#abortGreetingPlayback();
+        this.#arbiter?.usefulDelta(itemId);
+      }
+    }
+    if (this.#bargeInMode === 'transcript-confirmed') {
+      if (type === 'input_audio_buffer.committed') {
+        this.#arbiter?.committed(this.#itemId(parsed));
+      } else if (
+        type === 'conversation.item.input_audio_transcription.completed'
+      ) {
+        const useful =
+          isRecord(parsed) &&
+          typeof parsed.transcript === 'string' &&
+          parsed.transcript.trim().length > 0;
+        this.#arbiter?.completed(this.#itemId(parsed), useful);
+      }
     }
 
     const event = parseOpenAIServerEvent(parsed);
     if (event) {
-      this.#logger.debug('parsed →', event.type, event);
+      if (lifecycleCategory === undefined && !isInputTranscriptDelta) {
+        this.#logger.debug('parsed →', event.type, event);
+      }
       this.#emit(event);
     } else {
-      this.#logger.debug('unrecognized or unparsed event', type, parsed);
+      if (lifecycleCategory === undefined && !isInputTranscriptDelta) {
+        this.#logger.debug('unrecognized or unparsed event', type, parsed);
+      }
       if (type !== undefined && this.#unexpectedEvents.track(type)) {
         this.#logger.warn('unexpected realtime event type', type);
       }
     }
+  }
+
+  #newArbiter(): ResponseArbiter {
+    return new ResponseArbiter({
+      send: (command) => {
+        if (!this.#dc || this.#dc.readyState !== 'open') {
+          throw new Error('OpenAI realtime data channel not open');
+        }
+        this.#dc.send(JSON.stringify(command));
+      },
+      error: (error) => this.#emit({ type: 'error', error }),
+      debug: (category) => this.#logger.debug('response arbiter', { category }),
+    });
+  }
+
+  #responseId(event: unknown): string | undefined {
+    if (!isRecord(event) || !isRecord(event.response)) return undefined;
+    const id = asString(event.response.id);
+    return id !== undefined && id.length > 0 ? id : undefined;
+  }
+
+  #completedResponseHasExplicitlyEmptyOutput(event: unknown): boolean {
+    return (
+      isRecord(event) &&
+      isRecord(event.response) &&
+      asString(event.response.status) === 'cancelled' &&
+      Array.isArray(event.response.output) &&
+      event.response.output.length === 0
+    );
+  }
+
+  #itemId(event: unknown): string | undefined {
+    if (!isRecord(event)) return undefined;
+    const id = asString(event.item_id);
+    return id !== undefined && id.trim().length > 0 ? id : undefined;
+  }
+
+  #requestToolFollowUp(): void {
+    this.#arbiter?.requestToolFollowUp();
   }
 }

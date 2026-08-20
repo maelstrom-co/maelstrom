@@ -96,10 +96,19 @@ function createAdapter({
     mintToken: browserKeyMode
       ? hostedMintToken
       : () => mintOpenAIToken(sessionId),
+    ...(hosted
+      ? {
+          serverVad: {
+            threshold: 0.8,
+            bargeInMode: 'transcript-confirmed',
+          },
+        }
+      : {}),
     voice: DEMO_OPENAI_VOICE,
     synthesizeGreeting: browserKeyMode
       ? hostedSynthesizeGreeting
       : localSynthesizeGreeting,
+    greetingInterruption: true,
     debug: isDebugRequested(),
   });
 }

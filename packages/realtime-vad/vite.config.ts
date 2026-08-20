@@ -34,6 +34,7 @@ export default defineConfig(() => {
       lib: {
         entry: {
           index: 'src/index.ts',
+          config: 'src/browser-vad-config.ts',
           'vad-assets': 'src/vad-assets.ts',
           'bin/maelstrom-vad-assets': 'src/bin/maelstrom-vad-assets.ts',
         },

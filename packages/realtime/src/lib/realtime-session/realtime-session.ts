@@ -11,7 +11,10 @@ import type {
   SidechannelEvent,
   ToolCallId,
 } from '@maelstrom-co/protocol';
-import type { GreetingCoordinator } from '../greeting-coordinator.js';
+import type {
+  GreetingCoordinator,
+  GreetingRunDisposition,
+} from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import { groundedDebounce } from './grounding-debounce.js';
 import type {
@@ -27,6 +30,7 @@ import type {
 } from './provider-adapter.types.js';
 import { isRealtimeGreetingAdapter } from './provider-adapter.types.js';
 import type {
+  GreetingState,
   RealtimeInstance,
   RealtimeSessionOptions,
   SubmitIntentResult,
@@ -183,6 +187,7 @@ export class RealtimeSession implements VoiceSession {
     | undefined;
   #greetingAdapter: RealtimeGreetingAdapter | undefined;
   #greetingController: AbortController | undefined;
+  #greetingState: GreetingState;
 
   #state: VoiceSessionState = 'idle';
   #turnMode: TurnMode = 'automatic';
@@ -190,6 +195,7 @@ export class RealtimeSession implements VoiceSession {
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   readonly #turnModeHandlers = new Set<(event: TurnModeEvent) => void>();
+  readonly #greetingStateHandlers = new Set<(state: GreetingState) => void>();
   #unsubscribeAdapter: Unsubscribe | undefined;
   #unsubscribeSettled: Unsubscribe | undefined;
   #queuedIntent: QueuedIntent | undefined;
@@ -203,6 +209,7 @@ export class RealtimeSession implements VoiceSession {
   // clobbered when the handshake resolves and the connect() call resumes
   // into 'connected' with a hot mic and zero consumers.
   #connectEpoch = 0;
+  #disconnectInFlight: Promise<void> | undefined;
   // The connection generation that most recently established a mode. A
   // successful generation with no adapter event uses the automatic fallback;
   // failed or stale generations never clear the previously retained mode.
@@ -226,6 +233,7 @@ export class RealtimeSession implements VoiceSession {
     this.#onEvent = options.onEvent ?? (() => {});
     this.#logger = new Logger(options.debug ?? false, 'RealtimeSession');
     this.#greeting = options.greeting;
+    this.#greetingState = this.#initialGreetingState();
     this.#pushGrounding = groundedDebounce((snapshot: UIStructuralSnapshot) => {
       this.#adapter.injectGrounding(
         this.#clampGrounding(this.#summarize(snapshot)),
@@ -235,6 +243,17 @@ export class RealtimeSession implements VoiceSession {
 
   get state(): VoiceSessionState {
     return this.#state;
+  }
+
+  /**
+   * Retained fixed-greeting presentation lifecycle for this shared session.
+   * The value is initialized synchronously from coordinator proof and survives
+   * session recreation when that proof is terminal. It does not mirror
+   * provider activity, speech success, errors, transcripts, connection state,
+   * or turn mode. Subscribe to `greeting_state` for later retained changes.
+   */
+  get greetingState(): GreetingState {
+    return this.#greetingState;
   }
 
   /**
@@ -268,8 +287,10 @@ export class RealtimeSession implements VoiceSession {
 
   /**
    * The failure behind the most recent `error` state, if any. Cleared at the
-   * start of the next `connect()` attempt. Typed failures are
-   * `RealtimeVoiceError` — switch on `.code` for recovery UX.
+   * start of the next `connect()` attempt, but preserved by explicit
+   * `disconnect()` even after that method returns the public state to `idle`.
+   * Typed failures are `RealtimeVoiceError` — switch on `.code` for recovery
+   * UX.
    */
   get lastError(): unknown {
     return this.#lastError;
@@ -279,7 +300,13 @@ export class RealtimeSession implements VoiceSession {
    * Opens one provider connection. Re-entry from a live state is a no-op. A
    * successful connection that emitted no `turn_mode` establishes clean
    * automatic mode; a failed or stale attempt never synthesizes that fallback
-   * and rejects with the adapter failure.
+   * and rejects with the adapter failure. An eligible configured greeting moves
+   * to `preparing` synchronously before the provider handshake; retained
+   * terminal proof leaves it `settled` or `skipped` and skips greeting work. The connection
+   * generation owns both the greeting and `connecting` notifications: a
+   * synchronous disconnect from either notification stops before audio
+   * activation, adapter subscription, or provider connect. Audio activation
+   * still occurs synchronously inside this call, before the first await.
    */
   async connect(): Promise<void> {
     // Re-entry guard: connect() is only meaningful from a dormant session.
@@ -288,6 +315,10 @@ export class RealtimeSession implements VoiceSession {
     // top of the first's (only the last unsubscribe would ever be reachable),
     // so only idle or error may (re)connect.
     if (this.#state !== 'idle' && this.#state !== 'error') return;
+
+    const epoch = ++this.#connectEpoch;
+    this.#lastError = undefined;
+    let greetingController: AbortController | undefined;
 
     if (this.#greeting) {
       if (!isRealtimeGreetingAdapter(this.#adapter)) {
@@ -299,18 +330,29 @@ export class RealtimeSession implements VoiceSession {
         throw this.#lastError;
       }
       this.#greetingAdapter = this.#adapter;
-      // Inside the initiating user gesture: connect() runs synchronously to this
-      // point, so the unlock lands within the gesture.
-      this.#greetingAdapter.activateAudio();
+      greetingController = new AbortController();
+      this.#greetingController = greetingController;
+      const snapshot = this.#greeting.coordinator.getSnapshot(this.#sessionId);
+      if (snapshot.lifecycle === 'terminal') {
+        this.#setGreetingState(
+          snapshot.reason === 'skipped' ? 'skipped' : 'settled',
+        );
+      } else {
+        this.#setGreetingState('preparing');
+      }
+      if (epoch !== this.#connectEpoch) return;
     }
 
-    const epoch = ++this.#connectEpoch;
-    this.#lastError = undefined;
     this.#setState('connecting');
-    this.#unsubscribeAdapter = this.#adapter.on((event) => {
-      this.#handleAdapterEvent(event);
-    });
+    if (epoch !== this.#connectEpoch) return;
+
     try {
+      // Still inside the initiating user gesture: no await has occurred, so the
+      // unlock begins synchronously after re-entrant notifications are fenced.
+      this.#greetingAdapter?.activateAudio();
+      this.#unsubscribeAdapter = this.#adapter.on((event) => {
+        this.#handleAdapterEvent(event);
+      });
       await this.#adapter.connect({
         tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL, GET_CAPABILITIES_TOOL],
         instructions: DEFAULT_INSTRUCTIONS,
@@ -320,6 +362,7 @@ export class RealtimeSession implements VoiceSession {
       // don't stomp its 'idle' back to 'error'.
       if (epoch === this.#connectEpoch) {
         this.#cleanupConnection();
+        this.#resetGreetingAfterConnectionEnd();
         this.#lastError = error;
         this.#setState('error');
       }
@@ -345,20 +388,67 @@ export class RealtimeSession implements VoiceSession {
     });
     this.#setState('connected');
 
-    if (this.#greeting) {
-      this.#greetingController?.abort();
-      const controller = new AbortController();
-      this.#greetingController = controller;
-      void this.#runGreetingGeneration(controller.signal);
+    if (
+      this.#greeting &&
+      greetingController &&
+      this.#greetingState === 'preparing' &&
+      this.#greetingController === greetingController
+    ) {
+      void this.#runGreetingGeneration(greetingController, epoch);
     }
   }
 
-  async disconnect(): Promise<void> {
+  /**
+   * Synchronously and idempotently skip the configured fixed greeting without
+   * disconnecting voice or changing turn mode. The coordinator proof wins
+   * before local work is aborted, so stale async continuations cannot replay
+   * or replace the retained `skipped` state.
+   */
+  skipGreeting(): void {
+    if (!this.#greeting) return;
+    if (!this.#greeting.coordinator.skip(this.#sessionId)) return;
+    this.#greetingController?.abort();
+    this.#greetingController = undefined;
+    this.#setGreetingState('skipped');
+  }
+
+  /**
+   * Invalidates connection ownership and removes local subscriptions and
+   * greeting work before awaiting provider cleanup. Whether provider cleanup
+   * resolves or rejects, coordinator proof restores the greeting to retryable
+   * `pending` or terminal `settled`, and the public state becomes `idle`.
+   * `lastError` is preserved, and any provider rejection is rethrown unchanged.
+   */
+  disconnect(): Promise<void> {
+    if (this.#disconnectInFlight !== undefined) {
+      return this.#disconnectInFlight;
+    }
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const operation = new Promise<void>((operationResolve, operationReject) => {
+      resolve = operationResolve;
+      reject = operationReject;
+    });
+    this.#disconnectInFlight = operation;
+    void this.#performDisconnect().then(resolve, reject);
+    const clear = (): void => {
+      if (this.#disconnectInFlight === operation) {
+        this.#disconnectInFlight = undefined;
+      }
+    };
+    void operation.then(clear, clear);
+    return operation;
+  }
+
+  async #performDisconnect(): Promise<void> {
     this.#connectEpoch++;
     this.#cleanupConnection();
-    await this.#adapter.disconnect();
-    this.#lastError = undefined;
-    this.#setState('idle');
+    try {
+      await this.#adapter.disconnect();
+    } finally {
+      this.#resetGreetingAfterConnectionEnd();
+      this.#setState('idle');
+    }
   }
 
   /**
@@ -387,20 +477,64 @@ export class RealtimeSession implements VoiceSession {
     this.#queuedIntent = undefined;
   }
 
-  async #runGreetingGeneration(signal: AbortSignal): Promise<void> {
+  /** Applies a coordinator result only while its controller and epoch still own the connection. */
+  async #runGreetingGeneration(
+    controller: AbortController,
+    epoch: number,
+  ): Promise<void> {
     if (!this.#greeting || !this.#greetingAdapter) return;
-    try {
-      await this.#greeting.coordinator.run({
-        sessionId: this.#sessionId,
-        text: this.#greeting.text,
-        instance: this.#instance,
-        adapter: this.#greetingAdapter,
-        signal,
-        emitTranscript: (text) => this.#emitGreetingTranscript(text),
-      });
-    } catch (error) {
-      this.#logger.warn('greeting generation failed', error);
+    const disposition = await this.#greeting.coordinator.run({
+      sessionId: this.#sessionId,
+      text: this.#greeting.text,
+      instance: this.#instance,
+      adapter: this.#greetingAdapter,
+      signal: controller.signal,
+      emitTranscript: (text) => this.#emitGreetingTranscript(text),
+    });
+    if (
+      epoch !== this.#connectEpoch ||
+      controller !== this.#greetingController ||
+      disposition === 'stale'
+    )
+      return;
+    this.#applyGreetingDisposition(disposition);
+  }
+
+  /** Derives the constructor-visible state without adopting or running coordinator work. */
+  #initialGreetingState(): GreetingState {
+    if (!this.#greeting) return 'not_configured';
+    const snapshot = this.#greeting.coordinator.getSnapshot(this.#sessionId);
+    if (snapshot.lifecycle === 'pending') return 'pending';
+    return snapshot.reason === 'skipped' ? 'skipped' : 'settled';
+  }
+
+  /** Retains the current generation's retryable or terminal presentation result. */
+  #applyGreetingDisposition(disposition: GreetingRunDisposition): void {
+    if (disposition === 'skipped') {
+      this.#setGreetingState('skipped');
+      return;
     }
+    if (disposition === 'aborted') {
+      this.#setGreetingState('pending');
+      return;
+    }
+    if (disposition === 'failed') {
+      this.#logger.warn('greeting generation failed');
+    }
+    this.#setGreetingState('settled');
+  }
+
+  /** Restores retryable or terminal dormant state from durable coordinator proof after any teardown outcome. */
+  #resetGreetingAfterConnectionEnd(): void {
+    if (!this.#greeting) return;
+    const snapshot = this.#greeting.coordinator.getSnapshot(this.#sessionId);
+    this.#setGreetingState(
+      snapshot.lifecycle === 'pending'
+        ? 'pending'
+        : snapshot.reason === 'skipped'
+          ? 'skipped'
+          : 'settled',
+    );
   }
 
   #emitGreetingTranscript(text: string): void {
@@ -419,12 +553,24 @@ export class RealtimeSession implements VoiceSession {
   on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe;
   on(event: 'transcript', handler: (t: TranscriptEntry) => void): Unsubscribe;
   on(event: 'turn_mode', handler: (event: TurnModeEvent) => void): Unsubscribe;
+  /**
+   * Subscribes to retained fixed-greeting lifecycle changes. The handler runs
+   * after each change, not immediately on subscription; read
+   * {@link RealtimeSession.greetingState} first for the current retained value.
+   * Disconnects and stale connection generations cannot publish late changes
+   * into a replacement generation.
+   */
   on(
-    event: 'state' | 'transcript' | 'turn_mode',
+    event: 'greeting_state',
+    handler: (state: GreetingState) => void,
+  ): Unsubscribe;
+  on(
+    event: 'state' | 'transcript' | 'turn_mode' | 'greeting_state',
     handler:
       | ((s: VoiceSessionState) => void)
       | ((t: TranscriptEntry) => void)
-      | ((event: TurnModeEvent) => void),
+      | ((event: TurnModeEvent) => void)
+      | ((state: GreetingState) => void),
   ): Unsubscribe {
     if (event === 'transcript') {
       const h = handler as (t: TranscriptEntry) => void;
@@ -440,6 +586,13 @@ export class RealtimeSession implements VoiceSession {
         this.#turnModeHandlers.delete(h);
       };
     }
+    if (event === 'greeting_state') {
+      const h = handler as (state: GreetingState) => void;
+      this.#greetingStateHandlers.add(h);
+      return () => {
+        this.#greetingStateHandlers.delete(h);
+      };
+    }
     const h = handler as (s: VoiceSessionState) => void;
     this.#stateHandlers.add(h);
     return () => {
@@ -450,6 +603,18 @@ export class RealtimeSession implements VoiceSession {
   #setState(next: VoiceSessionState): void {
     this.#state = next;
     for (const handler of this.#stateHandlers) handler(next);
+  }
+
+  /**
+   * Retains a changed greeting state before synchronously notifying listeners;
+   * an equal value is a no-op. Listeners may re-enter session methods, including
+   * `disconnect()`, which invalidates the active connection generation, so the
+   * caller's generation guard must run after this notification returns.
+   */
+  #setGreetingState(next: GreetingState): void {
+    if (next === this.#greetingState) return;
+    this.#greetingState = next;
+    for (const handler of this.#greetingStateHandlers) handler(next);
   }
 
   /**
@@ -489,6 +654,7 @@ export class RealtimeSession implements VoiceSession {
           // back to 'connected'.
           this.#connectEpoch++;
           this.#cleanupConnection();
+          this.#resetGreetingAfterConnectionEnd();
           // The adapter itself is still "connected" from its own point of
           // view (mic track live, peer connection open) — teardown() is
           // idempotent, so tearing it down here is safe even if the caller

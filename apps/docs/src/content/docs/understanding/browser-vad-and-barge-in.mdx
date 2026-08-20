@@ -68,9 +68,11 @@ Two consequences reach your components. `turnControl` is dynamic: it is absent i
 
 ## Why none of this applies to OpenAI Realtime
 
-OpenAI Realtime is a speech-native provider session. Turn detection, response cancellation, and spoken output are all the provider's. Adding browser-side turn control there would create two owners for one boundary, and the two would eventually disagree about when your turn ended.
+OpenAI Realtime is a speech-native provider session. Ordinary turns stay provider-owned: turn detection, response cancellation, and spoken output remain OpenAI's. Adding browser-side turn control for those later turns would create two owners for one boundary, and the two would eventually disagree about when your turn ended.
 
-That is why the `vad` option lives on the LiveKit adapter rather than on the shared session. It is not a Maelstrom-wide voice setting; it is how one adapter solves a problem the other adapter does not have.
+There is one narrow exception. `greetingInterruption` is OpenAI-only and greeting-only. Local VAD may accept one boundary while the fixed greeting is actually playing. After greeting settlement, OpenAI server VAD owns later turns again. The shared session still has no `vad` option.
+
+That is why the `vad` option lives on the LiveKit adapter rather than on the shared session. It is not a Maelstrom-wide voice setting; it is how one adapter solves a problem the other adapter does not have for ordinary turns. See [Configure experimental greeting interruption](/guides/voice/openai-realtime/#configure-experimental-greeting-interruption) for the OpenAI greeting option.
 
 ## Browser processing is a request, not a result
 
@@ -105,3 +107,15 @@ Bluetooth and wired/USB routes are optional characterization unless separately m
 Only complete passing evidence supports `ACOUSTIC ACCEPTANCE PASSED` or a claim that the change works acoustically. Missing required iOS or Android hardware is `ACOUSTIC ACCEPTANCE BLOCKED—REQUIRED HARDWARE UNAVAILABLE`, not a pass. Any threshold or privacy failure is `ACOUSTIC ACCEPTANCE FAILED`; fix the behavior and rerun the complete matrix before release. Automated checks can establish implementation correctness, but they cannot replace this evidence or justify an acoustic release claim.
 
 To compare this with the provider-owned alternative, read [The voice boundary](/understanding/voice-architecture/).
+
+### OpenAI greeting-interruption evidence
+
+The LiveKit thresholds above do not apply to this experiment. A cell may change only after real-device evidence under the protocol on this page. Unit, bundle, build, and Playwright results cannot upgrade **Not tested**. Automated checks prove ordering only. Record revision, audio route, quiet/self-trigger trials, spoken-interruption trials, first-word observation, and latency evidence when you run the protocol; leave those fields empty until then.
+
+| Route | Result | Revision | Audio route | Quiet / self-trigger trials | Spoken-interruption trials | First-word observation | Latency evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| iOS Safari, built-in speaker/microphone | Not tested | | | | | | |
+| Android Chrome, built-in speaker/microphone | Not tested | | | | | | |
+| desktop Chromium, built-in speaker/microphone | Not tested | | | | | | |
+
+Configure the option in [Configure experimental greeting interruption](/guides/voice/openai-realtime/#configure-experimental-greeting-interruption).
