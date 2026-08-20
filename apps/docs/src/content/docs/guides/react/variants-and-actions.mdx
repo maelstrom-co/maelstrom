@@ -145,7 +145,7 @@ These Engine checks do not validate Actions invoked locally through `executeActi
 
 ## transitionsTo wiring
 
-When an action defines `transitionsTo`, invoking it does two things: it runs the action's handler, and it moves the instance into the named target variant. The engine validates at definition time that every `transitionsTo` names a real variant: `defineVessel` paired with the schema rejects a transition to a variant that doesn't exist, so a typo fails fast rather than at runtime.
+When an action defines `transitionsTo`, invoking it does two things: it runs the action's handler, and it moves the instance into the named target variant. `defineVessel` only preserves literal types for downstream inference — it performs no validation itself. Rejection happens at registration: `registerVessel()` runs `VesselSchema` (via `validateVessel`) and throws if a `transitionsTo` names a variant that doesn't exist, so a typo fails fast rather than at runtime.
 
 After a transition, your component re-renders with `variantProps` narrowed to the target variant. That is why `expand` above moves `card` → `expanded`: the next render hits the `expanded` branch and gains access to `message`. The target variant's `minSize` becomes the floor for later grid layout validation; it has no effect in tiling mode.
 

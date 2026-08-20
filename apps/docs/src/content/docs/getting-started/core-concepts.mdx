@@ -78,7 +78,7 @@ const weatherVessel = defineVessel({
 
 The Chart is the layout container. In grid mode, the engine returns row and column positions and enforces each active variant's `minSize`. In tiling mode, it returns a split tree whose leaves derive their size from the tree and container; tiling does not enforce `minSize`.
 
-The Chart also notifies the engine when it gets resized. When the container dimensions change, the client sends a `chart_resize` update to the engine so it can recalculate the layout and reposition Vessels that no longer fit.
+The Chart also notifies the engine when its whole-grid dimensions change. Tiling layouts reflow locally against the container's pixel size without any engine round trip; only when the pixel size crosses a whole grid-cell boundary does the client send a `chart_resize` update so the engine can recalculate the layout and reposition Vessels that no longer fit.
 
 ## Engine
 
