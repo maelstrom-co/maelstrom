@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-openai",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "OpenAI browser adapter for Maelstrom realtime voice: a RealtimeProviderAdapter over client-direct WebRTC to gpt-realtime.",
   "keywords": [
     "maelstrom",
@@ -47,11 +47,11 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.1.0-alpha.2",
-    "@maelstrom-co/protocol": "0.1.0-alpha.2",
-    "@maelstrom-co/realtime": "0.1.0-alpha.2",
-    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.2",
-    "@maelstrom-co/realtime-vad": "0.1.0-alpha.2"
+    "@maelstrom-co/client": "0.1.0-alpha.3",
+    "@maelstrom-co/protocol": "0.1.0-alpha.3",
+    "@maelstrom-co/realtime": "0.1.0-alpha.3",
+    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.3",
+    "@maelstrom-co/realtime-vad": "0.1.0-alpha.3"
   },
   "devDependencies": {
     "@sinonjs/fake-timers": "catalog:"
