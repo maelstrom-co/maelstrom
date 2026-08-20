@@ -4,7 +4,8 @@
   "license": "MIT",
   "scripts": {
     "audit:public-api-docs": "bun tools/public-api-docs/audit.ts",
-    "audit:strip-internal": "bun tools/public-api-docs/strip-internal-comparison.ts"
+    "audit:strip-internal": "bun tools/public-api-docs/strip-internal-comparison.ts",
+    "docs:lint": "bun scripts/assert-vale-version.ts && vale --no-global sync && vale --no-global --glob='!apps/docs/src/content/docs/reference/*' README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md docs apps/docs/src/content/docs apps/demo/README.md packages/*/README.md tools/*/README.md"
   },
   "private": true,
   "engines": {
