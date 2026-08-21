@@ -6,20 +6,23 @@ import { useStore } from '@tanstack/react-store';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssistantResponse } from '../components/assistant-response';
 import { Captions } from '../components/captions';
+import { DemoHeader } from '../components/demo-header';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from '../components/first-run-hint';
 import { KeyDrawer } from '../components/key-drawer';
+import { KeylessDemo } from '../components/keyless-demo';
 import { VesselOptionSync } from '../components/vessel-option-sync';
 import { VoiceControl } from '../components/voice-control';
 import { VoiceErrorNote } from '../components/voice-error-note';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
-import { DEFAULT_LAYOUT } from '../lib/default-layout';
+import { DEFAULT_LAYOUT, NARROW_LAYOUT } from '../lib/default-layout';
 import { STATUS_COLORS } from '../lib/design-tokens';
 import {
   isHosted,
   usesBrowserKey,
   usesBrowserOpenAIVoice,
 } from '../lib/hosted-mode';
+import { preloadHostedVadAssets } from '../lib/hosted-vad';
 import { m } from '../lib/maelstrom';
 import {
   clearPlaygroundKey,
@@ -42,6 +45,9 @@ function isInvalidKeyError(error: Error): boolean {
 }
 
 export const Route = createFileRoute('/')({
+  // The workspace is browser-owned in both deployment profiles. Local Start
+  // still serves server functions and the document shell.
+  ssr: false,
   component: HomePage,
 });
 
@@ -54,13 +60,16 @@ export const Route = createFileRoute('/')({
 export function HomePage() {
   const hosted = isHosted();
   const browserKeyMode = usesBrowserKey();
+  const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
+  // The Chart fills this host at 100% width, but its Provider needs the
+  // responsive initial tree before the Chart exists to measure itself.
+  const layoutHostRef = useRef<HTMLDivElement>(null);
+  const [layoutHostWidth, setLayoutHostWidth] = useState<number | null>(null);
   // Bumping this forces a fresh <m.Provider key={keyEpoch}>, which remounts
   // the connector/session cleanly. useMaelstrom() exposes no public
   // disconnect(), so remount-by-key is the supported way to force a clean
-  // session boundary from outside the provider tree — needed both when the
-  // key drawer saves a key (the Provider already connected once on mount
-  // without one, so that handshake skipped the playground.hello frame) and
-  // when it's cleared.
+  // session boundary from outside the provider tree — needed when an existing
+  // key changes or is cleared.
   const [keyEpoch, setKeyEpoch] = useState(0);
   // Start closed on both server and client to keep hydration deterministic.
   // A browser-owned localhost key is memory-only, so prompt after hydration
@@ -71,6 +80,11 @@ export function HomePage() {
       setDrawerOpen(true);
     }
   }, [hosted, browserKeyMode]);
+
+  useEffect(() => {
+    if (!hosted || !apiKey) return;
+    void preloadHostedVadAssets().catch(() => undefined);
+  }, [hosted, apiKey]);
 
   // Lifted above <m.Provider key={keyEpoch}> so a key-save remount doesn't
   // wipe whatever the visitor already typed while the drawer was blocking
@@ -105,39 +119,69 @@ export function HomePage() {
   // point is to mint a NEW id whenever the epoch bumps, which is exactly the
   // session boundary the Provider remount defines. It is not a stale dep.
   const sessionId = useMemo(() => SessionId(), [keyEpoch]);
-  const connector = useMemo(
+  const initialLayout = useMemo(
     () =>
-      createDemoConnector({
-        sessionId,
-        getApiKey: () => playgroundKeyStore.state.apiKey,
-      }),
-    [sessionId],
+      layoutHostWidth !== null && layoutHostWidth <= 640
+        ? NARROW_LAYOUT
+        : DEFAULT_LAYOUT,
+    [layoutHostWidth],
   );
+  const connector = useMemo(() => {
+    if (browserKeyMode && !apiKey) return null;
+    return createDemoConnector({
+      sessionId,
+      getApiKey: () => playgroundKeyStore.state.apiKey,
+    });
+  }, [apiKey, browserKeyMode, sessionId]);
+  useEffect(() => {
+    if (connector && layoutHostWidth !== null) return;
+    const layoutHost = layoutHostRef.current;
+    if (!layoutHost) return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width;
+      if (width && width > 0) setLayoutHostWidth(width);
+    });
+    observer.observe(layoutHost);
+    return () => observer.disconnect();
+  }, [connector, layoutHostWidth]);
   const debug = useMemo(() => isDebugRequested(), []);
 
   return (
-    <>
-      <m.Provider
-        key={keyEpoch}
-        sessionId={sessionId}
-        connector={connector}
-        initialLayout={DEFAULT_LAYOUT}
-        debug={debug}
-      >
-        <VesselOptionSync />
-        <DemoApp
+    <div ref={layoutHostRef} className="demo-layout-host">
+      {connector && layoutHostWidth !== null ? (
+        <m.Provider
+          key={keyEpoch}
+          sessionId={sessionId}
+          connector={connector}
+          initialLayout={initialLayout}
+          debug={debug}
+        >
+          <VesselOptionSync />
+          <DemoApp
+            onRequireKey={() => setDrawerOpen(true)}
+            onBlockedSubmit={() => {
+              setBlockedSubmit(true);
+              setDrawerOpen(true);
+            }}
+            onMintError={handleMintError}
+            intent={intent}
+            onIntentChange={setIntent}
+            resumeIntent={resumeIntent}
+            onResumeIntentHandled={() => setResumeIntent(false)}
+          />
+        </m.Provider>
+      ) : connector ? null : (
+        <KeylessDemo
+          intent={intent}
+          onIntentChange={setIntent}
           onRequireKey={() => setDrawerOpen(true)}
           onBlockedSubmit={() => {
             setBlockedSubmit(true);
             setDrawerOpen(true);
           }}
-          onMintError={handleMintError}
-          intent={intent}
-          onIntentChange={setIntent}
-          resumeIntent={resumeIntent}
-          onResumeIntentHandled={() => setResumeIntent(false)}
         />
-      </m.Provider>
+      )}
       {browserKeyMode && (
         <KeyDrawer
           isOpen={drawerOpen}
@@ -173,7 +217,7 @@ export function HomePage() {
           errorMessage={keyErrorMessage}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -223,37 +267,23 @@ function DemoApp({
   }, [browserOpenAIVoice, voiceState, voiceError, onMintError]);
 
   return (
-    <div className="h-screen flex flex-col relative z-[2]">
-      {/* Header */}
-      <header
-        className="border-b px-6 py-4 bg-bg-1"
-        style={{ borderColor: 'var(--line)' }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="eyebrow">Maelstrom Demo</h1>
-            <p className="text-sm text-ink-2 mt-1">
-              AI-Orchestrated Dynamic UI
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <VoiceControl showOrb={false} />
-            {browserKeyMode && (
-              <button
-                type="button"
-                onClick={onRequireKey}
-                className="status-pill flex items-center gap-2 rounded-full px-3 py-1 font-mono text-xs uppercase tracking-[.1em] text-ink-2"
-              >
-                API key
-              </button>
-            )}
-            <StatusIndicator />
-          </div>
-        </div>
-      </header>
+    <div className="demo-shell relative z-[2]">
+      <DemoHeader>
+        <VoiceControl showOrb={false} />
+        {browserKeyMode && (
+          <button
+            type="button"
+            onClick={onRequireKey}
+            className="status-pill flex items-center gap-2 rounded-full px-3 py-1 font-mono text-xs uppercase tracking-[.1em] text-ink-2"
+          >
+            API key
+          </button>
+        )}
+        <StatusIndicator />
+      </DemoHeader>
 
       {/* Main content */}
-      <main className="flex-1 relative">
+      <main className="demo-main flex-1 relative">
         <div
           className="chart-wrapper"
           data-thinking={thinking ? 'true' : undefined}
@@ -291,19 +321,25 @@ function ActionFlash() {
 function StatusIndicator() {
   const { connectionStatus } = m.useMaelstrom();
   const color = STATUS_COLORS[connectionStatus];
+  const statusLabel =
+    connectionStatus === 'error'
+      ? 'Workspace connection failed. Reload to retry.'
+      : `Connection status: ${connectionStatus}`;
 
   return (
     <div
       className="status-pill flex items-center gap-2 rounded-full px-3 py-1 font-mono text-xs uppercase tracking-[.1em] text-ink-2"
       role="status"
-      aria-label={`Connection status: ${connectionStatus}`}
+      aria-label={statusLabel}
     >
       <span
         aria-hidden="true"
         className="h-1.5 w-1.5 rounded-full"
         style={{ background: color, boxShadow: `0 0 8px ${color}` }}
       />
-      {connectionStatus}
+      {connectionStatus === 'error'
+        ? 'Workspace error: reload'
+        : connectionStatus}
     </div>
   );
 }
@@ -411,7 +447,7 @@ function IntentInput({
 
   return (
     <div
-      className="relative border-t p-4 bg-bg-1"
+      className="connected-input relative border-t p-4 bg-bg-1"
       style={{ borderColor: 'var(--line)' }}
     >
       <AssistantResponse
@@ -437,13 +473,15 @@ function IntentInput({
         AI-generated voice
       </p>
       <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
-        <div className="flex gap-2">
+        <div className="intent-row flex gap-2">
           <input
+            id="demo-intent"
+            name="intent"
             type="text"
             value={intent}
             onChange={(e) => onIntentChange(e.target.value)}
             placeholder="Tell Maelstrom what you want to arrange..."
-            className="intent-pill flex-1 px-4 py-3"
+            className="intent-pill flex-1 min-w-0 px-4 py-3"
             disabled={isProcessing}
           />
           <button

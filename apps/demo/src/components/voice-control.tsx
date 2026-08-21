@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import { m } from '../lib/maelstrom';
+import { getVoiceErrorStatusLabel } from './voice-error-copy';
 
 const STATE_LABEL: Record<VoiceSessionState, string> = {
   idle: 'Voice off',
@@ -55,6 +56,7 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   const {
     greetingState,
     state,
+    error,
     turnControl,
     turnMode,
     turnModeError,
@@ -64,7 +66,9 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   const isPreparing =
     greetingState === 'preparing' && state !== 'idle' && state !== 'error';
   let statusLabel = STATE_LABEL[state];
-  if (isPreparing && !ACTIVE_STATES.has(state)) {
+  if (state === 'error') {
+    statusLabel = getVoiceErrorStatusLabel(error);
+  } else if (isPreparing && !ACTIVE_STATES.has(state)) {
     statusLabel = 'Preparing voice…';
   } else if (
     (greetingState === 'settled' || greetingState === 'skipped') &&

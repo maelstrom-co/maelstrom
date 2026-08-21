@@ -16,5 +16,10 @@ export function usesBrowserKey(): boolean {
 
 /** Whether OpenAI voice, rather than LiveKit, uses the browser-owned key. */
 export function usesBrowserOpenAIVoice(): boolean {
-  return usesBrowserKey() && import.meta.env.VITE_VOICE_PROVIDER !== 'livekit';
+  return usesBrowserKey() && usesOpenAIVoice();
+}
+
+/** Hosted BYOK always uses OpenAI; LiveKit is available only to local profiles. */
+export function usesOpenAIVoice(): boolean {
+  return isHosted() || import.meta.env.VITE_VOICE_PROVIDER !== 'livekit';
 }

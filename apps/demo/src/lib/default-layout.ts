@@ -26,3 +26,8 @@ export const DEFAULT_LAYOUT: TilingLayout = {
     },
   ],
 };
+
+export const NARROW_LAYOUT: TilingLayout = {
+  ...DEFAULT_LAYOUT,
+  tree: ['H', CALENDAR, TASKS],
+};

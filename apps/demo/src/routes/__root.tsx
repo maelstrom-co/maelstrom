@@ -13,6 +13,11 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { title: 'Maelstrom Demo' },
+      {
+        name: 'description',
+        content:
+          'Try Maelstrom, an AI-orchestrated interface that arranges developer-authored components around your intent.',
+      },
     ],
     links: [
       { rel: 'stylesheet', href: appCss },
@@ -20,14 +25,11 @@ export const Route = createRootRoute({
     ],
   }),
   component: RootComponent,
+  shellComponent: RootDocument,
 });
 
 function RootComponent() {
-  return (
-    <RootDocument>
-      <Outlet />
-    </RootDocument>
-  );
+  return <Outlet />;
 }
 
 function RootDocument({ children }: { children: ReactNode }) {

@@ -43,8 +43,8 @@ function useFadingCaption(
  * a few seconds and then fades rather than disappearing abruptly.
  *
  * Always mounts a fixed-height band so showing or hiding captions cannot
- * resize the chart (and fire engine `chart_resize`). Each side is single-line
- * truncated and omitted when empty so one speaker does not claim half the row.
+ * resize the chart (and fire engine `chart_resize`). Lines clamp at two rows,
+ * stack on narrow screens, and use the full row when only one speaker is shown.
  */
 export function Captions() {
   const { state, userTranscript, assistantTranscript } = m.useVoice();
@@ -63,14 +63,15 @@ export function Captions() {
   return (
     <div
       data-testid="captions"
-      className="mx-auto mb-3 flex h-5 w-full max-w-4xl items-center justify-between gap-4"
+      className="mx-auto mb-3 grid h-24 w-full max-w-4xl grid-cols-1 content-center gap-x-4 gap-y-1 overflow-hidden sm:h-14 sm:grid-cols-2"
     >
       {showAssistant && assistant ? (
         <p
           data-role="assistant"
           data-faded={Boolean(assistant.faded)}
           className={cn(
-            'caption-line flex min-w-0 max-w-[50%] items-center gap-2 text-sm font-medium text-ink',
+            'caption-line flex min-w-0 items-start gap-2 text-sm font-medium text-ink',
+            !showUser && 'sm:col-span-2',
             assistant.faded && 'caption-line--faded',
           )}
         >
@@ -78,20 +79,23 @@ export function Captions() {
             className="caption-dot inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-brand-2"
             style={{ boxShadow: '0 0 8px var(--color-brand-2)' }}
           />
-          <span className="truncate">{assistant.text}</span>
+          <span className="line-clamp-2">{assistant.text}</span>
         </p>
       ) : null}
       {showUser && user ? (
-        <p
+        <div
+          role="note"
           data-role="user"
           data-faded={Boolean(user.faded)}
+          aria-label="Approximate user transcript"
           className={cn(
-            'caption-line ml-auto min-w-0 max-w-[50%] truncate text-right text-sm text-ink-3',
+            'caption-line min-w-0 text-right text-sm text-ink-3 line-clamp-2',
+            !showAssistant && 'sm:col-span-2',
             user.faded && 'caption-line--faded',
           )}
         >
           {user.text}
-        </p>
+        </div>
       ) : null}
     </div>
   );

@@ -7,3 +7,4 @@
 # Deployment configuration for the hosted playground.
 /apps/demo/infra/Website.ts @NachoVazquez @Jacarte @ktrz
 /apps/demo/infra/PreviewWebsite.ts @NachoVazquez @Jacarte @ktrz
+/apps/demo/infra/workerEnv.ts @NachoVazquez @Jacarte @ktrz

@@ -128,6 +128,16 @@ export function createBrowserMintToken(
       if (res.status === 401) {
         throw new Error('Invalid API key.');
       }
+      if (res.status === 403) {
+        throw new Error(
+          "This API key's project cannot use OpenAI Realtime. Check project permissions and model access.",
+        );
+      }
+      if (res.status === 429) {
+        throw new Error(
+          "OpenAI rate-limited voice startup. Check the API project's usage limits and try again.",
+        );
+      }
       throw new Error(
         `Failed to mint a realtime token (status ${res.status}).`,
       );

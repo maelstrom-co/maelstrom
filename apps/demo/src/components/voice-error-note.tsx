@@ -1,26 +1,7 @@
-import {
-  RealtimeVoiceError,
-  type RealtimeVoiceErrorCode,
-} from '@maelstrom-co/realtime';
+import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { usesBrowserOpenAIVoice } from '../lib/hosted-mode';
 import { m } from '../lib/maelstrom';
-
-const CONNECTION_DROPPED_MESSAGE =
-  'Voice connection dropped. Click the orb to reconnect.';
-
-// Local mode mints from a server-held OPENAI_API_KEY, so a mint failure
-// there really is a server misconfiguration and this copy is the only thing
-// that explains it.
-const MESSAGE_BY_CODE: Partial<Record<RealtimeVoiceErrorCode, string>> = {
-  MIC_PERMISSION_DENIED:
-    "Microphone access is blocked. Allow the mic in your browser's site settings, then click the orb to retry.",
-  TOKEN_MINT_FAILED:
-    "Voice couldn't start — the server couldn't mint a session token. Check the server logs or configuration, then try again.",
-  CONNECTION_FAILED: CONNECTION_DROPPED_MESSAGE,
-  DATA_CHANNEL_ERROR: CONNECTION_DROPPED_MESSAGE,
-};
-
-const FALLBACK_MESSAGE = 'Voice error. Click the orb to retry.';
+import { getVoiceErrorMessage } from './voice-error-copy';
 
 /**
  * Actionable recovery guidance shown as a slim toast above the voice orb
@@ -40,7 +21,7 @@ export function VoiceErrorNote() {
   // below because an OpenAI key cannot resolve them.
   if (code === 'TOKEN_MINT_FAILED' && usesBrowserOpenAIVoice()) return null;
 
-  const message = (code && MESSAGE_BY_CODE[code]) ?? FALLBACK_MESSAGE;
+  const message = getVoiceErrorMessage(error);
 
   return (
     <div

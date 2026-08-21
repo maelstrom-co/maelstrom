@@ -2,7 +2,11 @@
 
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { UseVoiceResult } from '@maelstrom-co/react-realtime';
-import type { AdapterTurnControl, GreetingState } from '@maelstrom-co/realtime';
+import {
+  type AdapterTurnControl,
+  type GreetingState,
+  RealtimeVoiceError,
+} from '@maelstrom-co/realtime';
 import {
   act,
   cleanup,
@@ -208,6 +212,33 @@ describe('VoiceControl greeting Skip action', () => {
       expect(container.textContent).toContain(label);
       unmount();
     }
+  });
+
+  it.each([
+    [
+      new RealtimeVoiceError(
+        'CONNECTION_FAILED',
+        'OpenAI realtime call setup failed with status 403',
+      ),
+      'OpenAI voice failed (HTTP 403)',
+    ],
+    [
+      new RealtimeVoiceError('MIC_PERMISSION_DENIED', 'blocked'),
+      'Microphone blocked',
+    ],
+    [new Error('provider payload must stay hidden'), 'Voice error'],
+  ])('shows a safe actionable error status', (error, expected) => {
+    voiceResult = {
+      ...makeVoiceResult('error', undefined, 'automatic'),
+      error,
+    };
+
+    const { getByRole, container } = render(<VoiceControl />);
+
+    expect(getByRole('status').textContent).toContain(expected);
+    expect(container.textContent).not.toContain(
+      'provider payload must stay hidden',
+    );
   });
 });
 

@@ -30,6 +30,7 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
+    "infra/workerEnv.ts",
     "vite.config.ts",
     "vad-web-dev-plugin.ts"
   ],

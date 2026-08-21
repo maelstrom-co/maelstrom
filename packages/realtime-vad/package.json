@@ -43,6 +43,12 @@
       "types": "./dist/browser-vad-config.d.ts",
       "import": "./dist/config.js",
       "default": "./dist/config.js"
+    },
+    "./asset-manifest": {
+      "@maelstrom-co/source": "./src/vad-asset-manifest.ts",
+      "types": "./dist/vad-asset-manifest.d.ts",
+      "import": "./dist/asset-manifest.js",
+      "default": "./dist/asset-manifest.js"
     }
   },
   "files": [

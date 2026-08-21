@@ -19,6 +19,11 @@ import {
   clearPlaygroundKey,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
+import { calendarActions, resetCalendarStore } from '../vessels/calendar.store';
+import {
+  __resetTasksStoreForTests,
+  tasksActions,
+} from '../vessels/tasks.store';
 
 function enumFor(
   vessel: VesselDefinition,
@@ -56,17 +61,27 @@ vi.mock('../lib/mint-token', () => ({
   },
 }));
 
+const hostedVad = vi.hoisted(() => ({ preloadCalls: 0 }));
+vi.mock('../lib/hosted-vad', () => ({
+  HOSTED_VAD_MODEL: 'legacy',
+  preloadHostedVadAssets: async () => {
+    hostedVad.preloadCalls += 1;
+  },
+}));
+
 // Lets individual tests swap in a connector whose process() rejects (e.g.
 // simulating a text-path 401), without each test needing its own vi.mock
 // factory. vi.hoisted so the ref exists before the vi.mock factory below runs.
 const connectorOverride = vi.hoisted(() => ({
   process: null as null | ((message: unknown) => Promise<unknown>),
+  createCalls: 0,
 }));
 
 // createDemoConnector opens a real WebSocketConnector — swapped for the
 // shared no-op mock so the route can mount without a live server.
 vi.mock('../lib/connector', () => ({
   createDemoConnector: () => {
+    connectorOverride.createCalls += 1;
     const base = createMockConnector();
     return connectorOverride.process
       ? { ...base, process: connectorOverride.process }
@@ -85,21 +100,50 @@ function closeInitialKeyPrompt(): void {
   expect(screen.queryByLabelText(/api key/i)).toBeNull();
 }
 
+class LayoutHostResizeObserver {
+  constructor(private readonly callback: ResizeObserverCallback) {}
+
+  observe(target: Element) {
+    if (!target.classList.contains('demo-layout-host')) return;
+    this.callback(
+      [
+        {
+          target,
+          contentRect: { width: 1440, height: 900 },
+        } as ResizeObserverEntry,
+      ],
+      this as unknown as ResizeObserver,
+    );
+  }
+
+  disconnect() {}
+  unobserve() {}
+}
+
 beforeEach(() => {
   vi.stubEnv('VITE_HOSTED', '1');
   vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
   FakeRealtimeSession.instances = [];
   localStorage.clear();
   clearPlaygroundKey();
+  resetCalendarStore();
+  __resetTasksStoreForTests();
   connectorOverride.process = null;
+  connectorOverride.createCalls = 0;
+  hostedVad.preloadCalls = 0;
+  vi.stubGlobal('ResizeObserver', LayoutHostResizeObserver);
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   localStorage.clear();
   clearPlaygroundKey();
+  resetCalendarStore();
+  __resetTasksStoreForTests();
   connectorOverride.process = null;
+  connectorOverride.createCalls = 0;
 });
 
 describe('key drawer gating (hosted, no key)', () => {
@@ -109,6 +153,29 @@ describe('key drawer gating (hosted, no key)', () => {
 
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.queryByLabelText(/api key/i)).toBeNull();
+    expect(connectorOverride.createCalls).toBe(0);
+    expect(FakeRealtimeSession.instances).toHaveLength(0);
+    expect(screen.getByRole('status', { name: /key required/i })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Docs' })).toBeTruthy();
+    expect(
+      screen.getByRole('link', { name: 'Join private beta' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Feedback on X' })).toBeTruthy();
+    expect(
+      screen.getByRole<HTMLAnchorElement>('link', { name: 'Feedback on X' })
+        .href,
+    ).toBe('https://x.com/maelstrom_co');
+  });
+
+  it('builds the keyless preview from the workspace seed stores', async () => {
+    calendarActions.addEvent('Lunch with Maya', '12:00');
+    tasksActions.addTask('Review launch feedback');
+    const { HomePage } = await import('./index');
+
+    render(<HomePage />);
+
+    expect(screen.getByText('Lunch with Maya')).toBeTruthy();
+    expect(screen.getByText('Review launch feedback')).toBeTruthy();
   });
 
   it('also prompts on localhost when the server has no OpenAI key', async () => {
@@ -401,6 +468,17 @@ describe('saving an unchanged key mid-session', () => {
   });
 });
 
+describe('hosted voice readiness', () => {
+  it('starts preloading VAD assets as soon as a browser key exists', async () => {
+    setPlaygroundKey('sk-existing-1234567890');
+    const { HomePage } = await import('./index');
+
+    render(<HomePage />);
+
+    await waitFor(() => expect(hostedVad.preloadCalls).toBe(1));
+  });
+});
+
 describe('mic-path key gating (browser-owned key)', () => {
   it('reopens the localhost drawer instead of starting voice after dismissal', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
@@ -412,8 +490,7 @@ describe('mic-path key gating (browser-owned key)', () => {
     fireEvent.click(screen.getByRole('button', { name: /voice/i }));
 
     expect(screen.getByLabelText(/api key/i)).toBeTruthy();
-    const session = must(FakeRealtimeSession.instances[0]);
-    expect(session.connectCalls).toBe(0);
+    expect(FakeRealtimeSession.instances).toHaveLength(0);
   });
 });
 
@@ -742,18 +819,112 @@ describe('the seeded first screen', () => {
     // default-layout.test.ts only checks the constant in isolation, and
     // would stay green even if `initialLayout={DEFAULT_LAYOUT}` were
     // deleted from the route.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+
+        observe(target: Element) {
+          const isLayoutHost = target.classList.contains('demo-layout-host');
+          const isChartContainer =
+            target.parentElement?.classList.contains('chart-wrapper');
+          if (!isLayoutHost && !isChartContainer) return;
+          this.callback(
+            [
+              {
+                target,
+                contentRect: {
+                  width: 1440,
+                  height: isLayoutHost ? 900 : 700,
+                },
+              } as ResizeObserverEntry,
+            ],
+            this as unknown as ResizeObserver,
+          );
+        }
+
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+    setPlaygroundKey('sk-seeded-layout-1234567890');
     const { HomePage } = await import('./index');
     await act(async () => {
       render(<HomePage />);
     });
 
+    expect(connectorOverride.createCalls).toBe(1);
     expect(screen.queryByTestId('first-run-hint')).toBeNull();
     // Positive assertions: both seeded tiles actually rendered their
     // content, which the hint's absence alone doesn't prove — a malformed
     // tree, an unregistered vesselId, or a bad variant name would all leave
     // the hint absent (instanceCount still 2) while the chart stays blank.
-    await screen.findByText(/Design review/);
-    await screen.findByText('Ship this sprint');
+    const calendar = must(
+      document.querySelector('[data-instance-id="calendar-main"]'),
+    );
+    const tasks = must(
+      document.querySelector('[data-instance-id="tasks-main"]'),
+    );
+    expect(calendar.textContent).toContain('Design review');
+    expect(tasks.textContent).toContain('Ship this sprint');
+    expect(
+      Number.parseFloat((calendar as HTMLElement).style.width),
+    ).toBeGreaterThan(0);
+    expect(
+      Number.parseFloat((tasks as HTMLElement).style.width),
+    ).toBeGreaterThan(0);
+  });
+
+  it('stacks the seeded vessels when the demo layout host is narrow', async () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+
+        observe(target: Element) {
+          const isLayoutHost = target.classList.contains('demo-layout-host');
+          const isChartContainer =
+            target.parentElement?.classList.contains('chart-wrapper');
+          if (!isLayoutHost && !isChartContainer) return;
+          this.callback(
+            [
+              {
+                target,
+                contentRect: {
+                  width: 500,
+                  height: isLayoutHost ? 900 : 760,
+                },
+              } as ResizeObserverEntry,
+            ],
+            this as unknown as ResizeObserver,
+          );
+        }
+
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+    setPlaygroundKey('sk-narrow-chart-1234567890');
+
+    const { HomePage } = await import('./index');
+    const { container } = render(<HomePage />);
+
+    await waitFor(() => {
+      const calendarElement = container.querySelector<HTMLElement>(
+        '[data-instance-id="calendar-main"]',
+      );
+      const tasksElement = container.querySelector<HTMLElement>(
+        '[data-instance-id="tasks-main"]',
+      );
+      expect(calendarElement).not.toBeNull();
+      expect(tasksElement).not.toBeNull();
+      const calendar = must(calendarElement);
+      const tasks = must(tasksElement);
+      expect(tasks.style.left).toBe(calendar.style.left);
+      expect(tasks.style.top).not.toBe(calendar.style.top);
+      expect(Number.parseFloat(calendar.style.width)).toBeGreaterThan(0);
+      expect(Number.parseFloat(tasks.style.width)).toBeGreaterThan(0);
+    });
   });
 
   it('keeps published action options in sync through the real provider tree', async () => {
@@ -763,6 +934,7 @@ describe('the seeded first screen', () => {
     // HomePage tree proves <VesselOptionSync /> is mounted where it matters
     // and republishes real store data (a seeded task title) through the
     // real orchestrator, not a mock.
+    setPlaygroundKey('sk-action-sync-1234567890');
     const updateVesselSpy = vi.spyOn(m, 'updateVessel');
 
     const { HomePage } = await import('./index');

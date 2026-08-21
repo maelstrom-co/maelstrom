@@ -18,25 +18,12 @@ import {
   sep,
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  expectedAssetNames,
+  onnxRuntimeAssetNames,
+  vadAssetNames,
+} from './vad-asset-manifest.js';
 
-const vadAssetNames = [
-  'silero_vad_legacy.onnx',
-  'silero_vad_v5.onnx',
-  'vad.worklet.bundle.min.js',
-] as const;
-
-const onnxRuntimeAssetNames = [
-  'ort-wasm-simd-threaded.asyncify.mjs',
-  'ort-wasm-simd-threaded.asyncify.wasm',
-  'ort-wasm-simd-threaded.jsep.mjs',
-  'ort-wasm-simd-threaded.jsep.wasm',
-  'ort-wasm-simd-threaded.jspi.mjs',
-  'ort-wasm-simd-threaded.jspi.wasm',
-  'ort-wasm-simd-threaded.mjs',
-  'ort-wasm-simd-threaded.wasm',
-] as const;
-
-const expectedAssetNames = [...vadAssetNames, ...onnxRuntimeAssetNames].sort();
 const transactionIdPattern =
   /^(?:backup|stage)-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

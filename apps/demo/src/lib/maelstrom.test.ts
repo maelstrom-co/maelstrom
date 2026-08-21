@@ -93,6 +93,7 @@ type OpenAIOptions = {
   serverVad?: {
     threshold?: number;
   };
+  transcription?: { model?: string };
   voice?: string;
   synthesizeGreeting?: (args: {
     text: string;
@@ -168,12 +169,15 @@ describe('demo voice provider wiring', () => {
     expect(state.openAIAdapterOptions[0]).not.toHaveProperty('vad');
     expect(state.openAIAdapterOptions[0]).not.toHaveProperty('serverVad');
     expect(
+      (state.openAIAdapterOptions[0] as OpenAIOptions).transcription,
+    ).toEqual({ model: 'gpt-4o-transcribe' });
+    expect(
       (state.openAIAdapterOptions[0] as OpenAIOptions).greetingInterruption,
     ).toBe(true);
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 
-  it('requires a useful transcript before hosted OpenAI interrupts output', () => {
+  it('uses server VAD with the hosted legacy greeting interrupter', () => {
     vi.stubEnv('VITE_HOSTED', '1');
     createAdapter('openai');
 
@@ -182,8 +186,11 @@ describe('demo voice provider wiring', () => {
       threshold: 0.8,
       bargeInMode: 'transcript-confirmed',
     });
+    expect(options.transcription).toEqual({ model: 'gpt-4o-transcribe' });
     expect(options).not.toHaveProperty('vad');
-    expect(options.greetingInterruption).toBe(true);
+    expect(options.greetingInterruption).toEqual({
+      providerOptions: { model: 'legacy' },
+    });
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 

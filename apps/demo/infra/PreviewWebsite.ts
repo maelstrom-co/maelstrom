@@ -4,6 +4,7 @@ import {
   workerObservability,
 } from '@maelstrom-co/platform-infra';
 import * as Cloudflare from 'alchemy/Cloudflare';
+import { workerEnv } from './workerEnv.js';
 
 const appRoot = resolve(import.meta.dirname, '..');
 
@@ -22,11 +23,6 @@ export const PreviewWebsite = (stage: string) =>
       // WebSocket route needs the Worker ahead of static assets.
       runWorkerFirst: ['/ws'],
     },
-    env: {
-      // The Worker uses the inherited fetch surface, not SessionDO RPC methods.
-      SESSION_DO: Cloudflare.DurableObject<object>('SESSION_DO', {
-        className: 'SessionDO',
-      }),
-    },
+    env: workerEnv(),
     observability: workerObservability,
   });

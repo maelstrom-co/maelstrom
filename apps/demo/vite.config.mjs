@@ -7,10 +7,16 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 import tsConfigPaths from 'vite-tsconfig-paths';
 
+import { browserVadAssetNamesForModel } from '../../packages/realtime-vad/src/vad-asset-manifest.ts';
+import { HOSTED_VAD_MODEL } from './src/lib/hosted-vad-model.ts';
+
 import {
   createBuildPublicAssetsPlugin,
   createVadWebDevPlugin,
 } from './vad-web-dev-plugin.ts';
+
+export const hostedVadAssetNames =
+  browserVadAssetNamesForModel(HOSTED_VAD_MODEL);
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(rootDir, '../..');
@@ -40,10 +46,10 @@ export default defineConfig(({ command, mode }) => {
   // Same VITE_HOSTED=1 switch every other hosted-mode branch in this app
   // reads (see src/lib/hosted-mode.ts's isHosted()) — this file runs in
   // Node, outside the client bundle, so it reads process.env directly
-  // rather than import.meta.env. The hosted (Cloudflare) build needs the
-  // SPA shell because the Worker serves static assets with no Node server
-  // behind it; the self-host path (`nx dev demo`, `bun run build && bun run
-  // start`) needs the opposite — real SSR — so this can't be unconditional.
+  // rather than import.meta.env. The hosted (Cloudflare) build needs a
+  // prerendered SPA shell because its Worker does not run the Start request
+  // handler. Self-hosted builds still emit that handler for server functions,
+  // even though the demo page itself is client-rendered in both profiles.
   const hosted = process.env.VITE_HOSTED === '1';
   // Expose only the custody mode, never the key. Client code uses this to
   // switch localhost to the same browser-key paths as hosted mode when the
@@ -100,6 +106,7 @@ export default defineConfig(({ command, mode }) => {
         applyToEnvironment: (environment) => environment.name === 'client',
         build: command === 'build' && !livekitBuild,
         publicDirectory: join(rootDir, 'public'),
+        requiredVadWebAssetNames: hosted ? hostedVadAssetNames : undefined,
       }),
       createVadWebDevPlugin({
         assetDirectory: join(rootDir, 'public', 'vad-web'),

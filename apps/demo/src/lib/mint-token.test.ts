@@ -165,6 +165,23 @@ describe('createBrowserMintToken', () => {
     await expect(mintToken()).rejects.toThrow(/invalid api key/i);
   });
 
+  it.each([
+    [403, /project permissions and model access/i],
+    [429, /project's usage limits/i],
+  ])('explains an OpenAI %s without guessing that the key is invalid', async (status, message) => {
+    globalThis.fetch = vi.fn(
+      async () => new Response('rejected', { status }),
+    ) as unknown as typeof fetch;
+    const mintToken = createBrowserMintToken(
+      () => 'sk-visitor-key',
+      'gpt-realtime',
+      'marin',
+    );
+
+    await expect(mintToken()).rejects.toThrow(message);
+    await expect(mintToken()).rejects.not.toThrow(/invalid api key/i);
+  });
+
   it('throws immediately when no key is set, without calling fetch', async () => {
     const fetchSpy = vi.fn(
       async () => new Response('{}', { status: 200 }),

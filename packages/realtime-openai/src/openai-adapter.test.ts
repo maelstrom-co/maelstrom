@@ -2203,6 +2203,119 @@ describe('OpenAIAdapter — lifecycle diagnostics', () => {
     }
   });
 
+  it('delivers assistant transcripts without logging their text', async () => {
+    const debugCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    try {
+      const { adapter, channel } = await connectDebugAdapter();
+      const transcripts: Array<{ text: string; final: boolean }> = [];
+      adapter.on((event) => {
+        if (event.type === 'transcript') {
+          transcripts.push({ text: event.text, final: event.final });
+        }
+      });
+      debugCalls.length = 0;
+      const deltaEvent = {
+        type: 'response.output_audio_transcript.delta',
+        ...sensitiveFields,
+        delta: sensitiveFields.transcript,
+      };
+      const doneEvent = {
+        type: 'response.output_audio_transcript.done',
+        ...sensitiveFields,
+      };
+
+      channel.receiveRaw(deltaEvent);
+      channel.receiveRaw(doneEvent);
+
+      expect(transcripts).toEqual([
+        { text: sensitiveFields.transcript, final: false },
+        { text: sensitiveFields.transcript, final: true },
+      ]);
+      expect(debugCalls).toEqual([
+        ['[OpenAIAdapter]', '←', 'event'],
+        ['[OpenAIAdapter]', 'parsed →', 'transcript'],
+        ['[OpenAIAdapter]', '←', 'event'],
+        ['[OpenAIAdapter]', 'parsed →', 'transcript'],
+      ]);
+      expectOnlySanitizedDebugArguments(debugCalls, deltaEvent);
+      expectOnlySanitizedDebugArguments(debugCalls, doneEvent);
+    } finally {
+      console.debug = originalDebug;
+    }
+  });
+
+  it('treats current output-audio payloads as benign metadata-only diagnostics', async () => {
+    const debugCalls: unknown[][] = [];
+    const warnCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    const originalWarn = console.warn;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    console.warn = (...args: unknown[]) => warnCalls.push(args);
+    try {
+      const { channel } = await connectDebugAdapter();
+      debugCalls.length = 0;
+      warnCalls.length = 0;
+      const rawEvent = {
+        type: 'response.output_audio.delta',
+        delta: sensitiveFields.audio,
+        ...sensitiveFields,
+      };
+
+      channel.receiveRaw(rawEvent);
+
+      expect(debugCalls).toEqual([
+        ['[OpenAIAdapter]', '←', 'response.output_audio.delta'],
+        [
+          '[OpenAIAdapter]',
+          'unrecognized or unparsed event',
+          'response.output_audio.delta',
+        ],
+      ]);
+      expect(warnCalls).toEqual([]);
+      expectOnlySanitizedDebugArguments(debugCalls, rawEvent);
+    } finally {
+      console.debug = originalDebug;
+      console.warn = originalWarn;
+    }
+  });
+
+  it('never logs an arbitrary provider-controlled event type', async () => {
+    const debugCalls: unknown[][] = [];
+    const warnCalls: unknown[][] = [];
+    const originalDebug = console.debug;
+    const originalWarn = console.warn;
+    console.debug = (...args: unknown[]) => debugCalls.push(args);
+    console.warn = (...args: unknown[]) => warnCalls.push(args);
+    try {
+      const { channel } = await connectDebugAdapter();
+      debugCalls.length = 0;
+      warnCalls.length = 0;
+      const rawEvent = {
+        type: Object.values(sensitiveFields).join(':'),
+        ...sensitiveFields,
+      };
+
+      channel.receiveRaw(rawEvent);
+
+      expect(debugCalls).toEqual([
+        ['[OpenAIAdapter]', '←', 'event'],
+        ['[OpenAIAdapter]', 'unrecognized or unparsed event', 'unknown'],
+      ]);
+      expect(warnCalls).toEqual([
+        ['[OpenAIAdapter]', 'unexpected realtime event type'],
+      ]);
+      expectOnlySanitizedDebugArguments(
+        [...debugCalls, ...warnCalls],
+        rawEvent,
+      );
+    } finally {
+      console.debug = originalDebug;
+      console.warn = originalWarn;
+    }
+  });
+
   it('distinguishes lifecycle categories with fixed sanitized projections', async () => {
     const cases: Array<{
       name: string;

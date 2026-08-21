@@ -15,6 +15,8 @@ const KNOWN_BENIGN_UNMAPPED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'response.function_call_arguments.delta',
   'response.audio.delta',
   'response.audio.done',
+  'response.output_audio.delta',
+  'response.output_audio.done',
   'response.text.delta',
   'response.text.done',
   'output_audio_buffer.started',
@@ -29,7 +31,13 @@ const KNOWN_BENIGN_UNMAPPED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'rate_limits.updated',
 ]);
 
+function isKnownBenignUnmappedEventType(type: string): boolean {
+  return KNOWN_BENIGN_UNMAPPED_EVENT_TYPES.has(type);
+}
+
 export interface UnexpectedEventTracker {
+  /** Returns a fixed known event type, or `undefined` for provider-controlled input. */
+  knownType(type: string | undefined): string | undefined;
   /** Records one occurrence of `type`. Returns `true` on its first sighting (warn), `false` otherwise. */
   track(type: string): boolean;
   /** Occurrence counts for every unexpected type seen so far. */
@@ -40,8 +48,13 @@ export function createUnexpectedEventTracker(): UnexpectedEventTracker {
   const counts = new Map<string, number>();
 
   return {
+    knownType(type: string | undefined): string | undefined {
+      return type !== undefined && isKnownBenignUnmappedEventType(type)
+        ? type
+        : undefined;
+    },
     track(type: string): boolean {
-      if (KNOWN_BENIGN_UNMAPPED_EVENT_TYPES.has(type)) return false;
+      if (isKnownBenignUnmappedEventType(type)) return false;
       const seenBefore = counts.has(type);
       counts.set(type, (counts.get(type) ?? 0) + 1);
       return !seenBefore;

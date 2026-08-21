@@ -284,11 +284,14 @@ describe('application infrastructure contract', () => {
 
   test('preserves the hosted demo and Durable Object contracts', () => {
     const website = read('apps/demo/infra/Website.ts');
+    const workerEnv = read('apps/demo/infra/workerEnv.ts');
     expect(website).toMatch(/Cloudflare\.Worker\(\s*'Website'/);
     expect(website).toContain('workersDev: false');
     expect(website).toContain("name: 'maelstrom-playground'");
     expect(website).toContain("main: resolve(appRoot, 'src/worker/index.ts')");
-    expect(website).toContain("className: 'SessionDO'");
+    expect(website).toContain('env: workerEnv()');
+    expect(workerEnv).toContain("className: 'SessionDO'");
+    expect(workerEnv).toContain("Cloudflare.RateLimit('WS_RATE_LIMITER'");
     expect(website).toContain("runWorkerFirst: ['/ws']");
     expect(readJson('apps/demo/package.json')).toMatchObject({
       nx: {
@@ -308,7 +311,7 @@ describe('application infrastructure contract', () => {
       `name: \`maelstrom-playground-alchemy-${'$'}{stage}\``,
     );
     expect(previewWebsite).toContain('workersDev: true');
-    expect(previewWebsite).toContain("className: 'SessionDO'");
+    expect(previewWebsite).toContain('env: workerEnv()');
     expect(previewWebsite).toContain("runWorkerFirst: ['/ws']");
     expect(previewWebsite).not.toContain('transferredFrom');
     expect(previewWebsite).not.toContain('domain:');
@@ -632,6 +635,7 @@ describe('application infrastructure contract', () => {
     const codeowners = read('.github/CODEOWNERS');
     expect(codeowners).toContain('/apps/demo/infra/Website.ts ');
     expect(codeowners).toContain('/apps/demo/infra/PreviewWebsite.ts ');
+    expect(codeowners).toContain('/apps/demo/infra/workerEnv.ts ');
   });
 
   test('has no direct Wrangler configuration, dependency, generated types, or executable', () => {
