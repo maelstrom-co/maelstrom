@@ -1,4 +1,4 @@
 {
   "extends": "../../infra/platform/tsconfig.infra.json",
-  "include": ["alchemy.run.ts", "infra/**/*.ts"]
+  "include": ["alchemy*.run.ts", "infra/**/*.ts"]
 }

@@ -1,6 +1,10 @@
 export { workerObservability } from './Observability.js';
 export { MaelstromPlatform } from './Stack.js';
-export { PRODUCTION_STAGE, requireProductionStage } from './Stage.js';
+export {
+  PRODUCTION_STAGE,
+  requirePreviewStage,
+  requireProductionStage,
+} from './Stage.js';
 export {
   WAITLIST_DATABASE_NAME,
   WAITLIST_SENDER_ADDRESS,
