@@ -3,6 +3,7 @@ import {
   type GridLayout,
   getVisibleInstanceIds,
   InstanceId,
+  isInstanceIdNode,
   type TilingLayout,
   VariantName,
   VesselId,
@@ -110,7 +111,7 @@ function expectEmittedLayoutToBeCoherent(snapshot: UIStructuralSnapshot) {
 
   if (snapshot.layout?.type === 'tiling') {
     for (const token of snapshot.layout.tree) {
-      if (token !== null && token !== 'H' && token !== 'V') {
+      if (isInstanceIdNode(token)) {
         expect(snapshotIds.has(token)).toBe(true);
       }
     }

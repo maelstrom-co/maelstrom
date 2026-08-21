@@ -1,14 +1,15 @@
 import type { TilingTreeNode } from '@maelstrom-co/client';
 import { parseTilingTree } from '@maelstrom-co/client';
-import type { InstanceId } from '@maelstrom-co/protocol';
+import { type InstanceId, isInstanceIdNode } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { calendarVessel } from '../vessels/calendar.vessel';
 import { tasksVessel } from '../vessels/tasks.vessel';
 import { DEFAULT_LAYOUT, NARROW_LAYOUT } from './default-layout';
 
-// Walks the parsed tree, asserting every split node has both children (a
-// malformed tree — e.g. a 'V' with only one leaf — silently drops a tile at
-// runtime instead of failing loudly), and collects the leaf instance ids.
+// Walks the parsed tree, asserting every split node filled every child slot
+// its weights declare (a malformed tree — e.g. a 'V' with only one leaf —
+// silently drops a tile at runtime instead of failing loudly), and collects
+// the leaf instance ids.
 function assertCompleteAndCollectLeaves(node: TilingTreeNode | null): string[] {
   if (node === null) {
     throw new Error('expected a non-null tiling tree');
@@ -17,12 +18,11 @@ function assertCompleteAndCollectLeaves(node: TilingTreeNode | null): string[] {
     expect(node.instanceId).not.toBeNull();
     return node.instanceId === null ? [] : [node.instanceId];
   }
-  expect(node.left).toBeDefined();
-  expect(node.right).toBeDefined();
-  return [
-    ...(node.left ? assertCompleteAndCollectLeaves(node.left) : []),
-    ...(node.right ? assertCompleteAndCollectLeaves(node.right) : []),
-  ];
+  expect(node.children).toHaveLength(node.weights.length);
+  return node.children.flatMap((child) => {
+    expect(child).toBeDefined();
+    return child ? assertCompleteAndCollectLeaves(child) : [];
+  });
 }
 
 describe('DEFAULT_LAYOUT', () => {
@@ -47,10 +47,7 @@ describe('DEFAULT_LAYOUT', () => {
     const declared = DEFAULT_LAYOUT.instances.map(
       (instance) => instance.instanceId as string,
     );
-    const leaves = DEFAULT_LAYOUT.tree.filter(
-      (node): node is InstanceId =>
-        node !== null && node !== 'H' && node !== 'V',
-    );
+    const leaves: InstanceId[] = DEFAULT_LAYOUT.tree.filter(isInstanceIdNode);
 
     expect(leaves.length).toBeGreaterThan(0);
     // Both directions: every leaf is declared (above) and every declared

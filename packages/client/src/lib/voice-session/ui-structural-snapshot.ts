@@ -2,6 +2,7 @@ import {
   type ChartDimensions,
   type GridLayout,
   getVisibleInstanceIds,
+  isInstanceIdNode,
   type LayoutMode,
   type TilingLayout,
   type VesselInstanceSnapshot,
@@ -66,7 +67,7 @@ export function readStructuralSnapshot(
     visibleLayout = {
       ...layout,
       tree: layout.tree.map((token) => {
-        if (token === null || token === 'H' || token === 'V') return token;
+        if (!isInstanceIdNode(token)) return token;
         return renderedInstanceIds.has(token) ? token : null;
       }),
       instances: layout.instances.filter(({ instanceId }) =>

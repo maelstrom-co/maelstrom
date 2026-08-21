@@ -1,6 +1,7 @@
 import {
   type InstanceId,
   isTilingSplit,
+  parseTilingSplitToken,
   type TilingNode,
   type TilingSplit,
 } from '@maelstrom-co/protocol';
@@ -26,10 +27,16 @@ export interface TilingSplitNode {
   readonly type: 'split';
   /** `H` divides top/bottom; `V` divides left/right. */
   readonly direction: TilingSplit;
-  /** First child, absent when the preorder input is incomplete. */
-  readonly left?: TilingTreeNode | undefined;
-  /** Second child, absent when the preorder input is incomplete. */
-  readonly right?: TilingTreeNode | undefined;
+  /**
+   * One weight per child slot, so `weights.length` is the split's arity and
+   * always matches `children.length`. A bare `H` / `V` token yields `[1, 1]`.
+   */
+  readonly weights: readonly number[];
+  /**
+   * One entry per declared child slot, `undefined` where the token array ran
+   * out before the slot could be filled.
+   */
+  readonly children: readonly (TilingTreeNode | undefined)[];
 }
 
 /** Leaf node that either names an Instance or reserves empty space. */
@@ -49,11 +56,13 @@ export interface ComputedTile {
 }
 
 /**
- * Parses the first preorder root from a flat tiling tree.
+ * Builds a tree from the flat preorder token array.
  *
- * Returns `null` for empty input. Malformed input is retained as a partial tree:
- * missing children are omitted and trailing tokens are ignored. Each malformed
- * split and any trailing input produces a warning.
+ * Each split token consumes exactly as many following subtrees as its weights
+ * declare — two for a bare `H` / `V`. Malformed input is reported on the
+ * console and rendered as far as it goes: an unfilled child slot stays
+ * `undefined`, and tokens trailing the first complete root are ignored.
+ * Returns `null` for empty input.
  */
 export function parseTilingTree(
   nodes: readonly TilingNode[],
@@ -73,19 +82,23 @@ export function parseTilingTree(
     index++;
 
     if (isTilingSplit(node)) {
-      const left = parseNode();
-      const right = parseNode();
-      if (!left || !right) {
+      const { axis, weights } = parseTilingSplitToken(node);
+      const children: (TilingTreeNode | undefined)[] = [];
+      let missing = 0;
+
+      for (let slot = 0; slot < weights.length; slot++) {
+        const child = parseNode();
+        if (child === null) missing++;
+        children.push(child ?? undefined);
+      }
+
+      if (missing > 0) {
         console.warn(
-          `[Maelstrom] Malformed tiling tree: split node '${node}' has missing ${!left && !right ? 'left and right' : !left ? 'left' : 'right'} child`,
+          `[Maelstrom] Malformed tiling tree: split node '${node}' declares ${weights.length} children but ${missing} are missing`,
         );
       }
-      return {
-        type: 'split',
-        direction: node,
-        left: left ?? undefined,
-        right: right ?? undefined,
-      };
+
+      return { type: 'split', direction: axis, weights, children };
     }
 
     return {
@@ -106,10 +119,14 @@ export function parseTilingTree(
 }
 
 /**
- * Projects a parsed tiling tree into padded pixel-space tiles.
+ * Assigns every leaf a rectangle inside `containerRect`.
  *
- * Empty trees and empty leaves produce no tile. Repeated Instance leaves are
- * merged into their bounding rectangle, and padding never yields negative size.
+ * A split divides its region along its axis in proportion to its weights, so
+ * the children tile it exactly: the cut positions are computed as cumulative
+ * edges and the last edge is the region's own far side, leaving no gap or
+ * overlap for any weighting. `padding` is then inset per leaf, never per
+ * split, so it never accumulates with depth. Empty trees and empty leaves
+ * produce no tile, and padding never yields negative size.
  */
 export function computeTilingLayout(
   tree: TilingTreeNode | null,
@@ -138,47 +155,41 @@ export function computeTilingLayout(
       return;
     }
 
-    if (node.direction === 'H') {
-      const topHeight = rect.height / 2;
-      const bottomHeight = rect.height - topHeight;
+    const alongHeight = node.direction === 'H';
+    const start = alongHeight ? rect.y : rect.x;
+    const extent = alongHeight ? rect.height : rect.width;
+    const total = node.weights.reduce((sum, weight) => sum + weight, 0);
+    const lastIndex = node.children.length - 1;
 
-      if (node.left) {
-        traverse(node.left, {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: topHeight,
-        });
-      }
-      if (node.right) {
-        traverse(node.right, {
-          x: rect.x,
-          y: rect.y + topHeight,
-          width: rect.width,
-          height: bottomHeight,
-        });
-      }
-    } else {
-      const leftWidth = rect.width / 2;
-      const rightWidth = rect.width - leftWidth;
+    // Cumulative edges rather than accumulated widths: each child spans
+    // [edge_i, edge_i+1), and the final edge is the region's own far side, so
+    // the children tile the region exactly with no float gap or overlap.
+    let edge = start;
+    let cumulative = 0;
 
-      if (node.left) {
-        traverse(node.left, {
-          x: rect.x,
-          y: rect.y,
-          width: leftWidth,
-          height: rect.height,
-        });
+    node.children.forEach((child, index) => {
+      cumulative += node.weights[index] ?? 0;
+      const nextEdge =
+        index === lastIndex
+          ? start + extent
+          : start + (extent * cumulative) / total;
+
+      if (child) {
+        traverse(
+          child,
+          alongHeight
+            ? { x: rect.x, y: edge, width: rect.width, height: nextEdge - edge }
+            : {
+                x: edge,
+                y: rect.y,
+                width: nextEdge - edge,
+                height: rect.height,
+              },
+        );
       }
-      if (node.right) {
-        traverse(node.right, {
-          x: rect.x + leftWidth,
-          y: rect.y,
-          width: rightWidth,
-          height: rect.height,
-        });
-      }
-    }
+
+      edge = nextEdge;
+    });
   }
 
   traverse(tree, containerRect);

@@ -2839,6 +2839,46 @@ describe('Orchestrator', () => {
       orchestrator.dispose();
     });
 
+    it('accepts a weighted seed and carries it to the wire unchanged', async () => {
+      // Phase 1's demoable deliverable: a hand-written weighted seed with no
+      // engine involvement. Both the seed validator and Gate 1 walk the tree
+      // asking "is this a leaf?", and a weighted token answered wrongly there
+      // is reported as an undeclared instance.
+      const weightedSeed: TilingLayout = {
+        type: 'tiling',
+        tree: [
+          'V:1,1,1',
+          InstanceId('calendar-main'),
+          InstanceId('calendar-two'),
+          InstanceId('calendar-three'),
+        ],
+        instances: ['calendar-main', 'calendar-two', 'calendar-three'].map(
+          (id) => ({
+            instanceId: InstanceId(id),
+            vesselId: VesselId('calendar'),
+            variant: VariantName('day'),
+          }),
+        ),
+      };
+
+      const { connector, orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [calendarVessel],
+        initialLayout: weightedSeed,
+      });
+
+      await orchestrator.connect();
+      orchestrator.chartManager.setDimensions({ columns: 10, rows: 6 });
+      await orchestrator.flushUpdates();
+
+      const { request } = (connector.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      expect(
+        request.layout.type === 'tiling' ? request.layout.tree : [],
+      ).toEqual(weightedSeed.tree);
+
+      orchestrator.dispose();
+    });
+
     // The store is an intermediate. What the feature promises is that the
     // engine *sees* the proposal, which means surviving buildChartRequest's
     // layout/mode reconciliation and landing on the wire.
