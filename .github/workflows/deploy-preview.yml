@@ -49,12 +49,6 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
-        # wrangler-action probes the toolchain with `npx wrangler --version` and
-        # silently falls back to `npm i wrangler` when that fails. The runner
-        # defaults to Node 20, wrangler 4 needs >= 22, so without this the probe
-        # fails and the npm fallback then dies on bun's `workspace:*` protocol —
-        # surfacing as an npm EUNSUPPORTEDPROTOCOL error that names neither Node
-        # nor the real cause.
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -70,17 +64,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Resolve the installed wrangler version
-        id: wrangler
-        # Read it from the workspace rather than hardcoding. wrangler-action
-        # probes `npx --no-install wrangler --version` and treats *any*
-        # mismatch against the version it was given as "incompatible", then
-        # falls back to `npm i wrangler@<pinned>` — which dies on bun's
-        # `workspace:*` protocol. So a stale pin here does not degrade to an
-        # older wrangler, it fails the deploy outright. A hardcoded value went
-        # stale within a day of landing; deriving it cannot.
-        run: echo "version=$(node -p "require('wrangler/package.json').version")" >> "$GITHUB_OUTPUT"
-
       # Build every independent artifact before the first deployment. The
       # website remains dependent on the deployed Playground URL.
       - name: Build independent preview artifacts
@@ -88,31 +71,21 @@ jobs:
           bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache
           bunx nx run @maelstrom-co/docs:build --skip-nx-cache
 
-      - name: Validate independent route-free preview configurations
-        run: >-
-          bun -e "import { unstable_readConfig } from 'wrangler';
-          for (const config of ['apps/demo/wrangler.jsonc',
-          'apps/docs/wrangler.json']) {
-            const resolved = unstable_readConfig({ config, env: 'preview' },
-            { hideWarnings: true });
-            if (resolved.workers_dev !== true || resolved.routes?.length) {
-              throw new Error(config + ' must enable workers.dev and define no preview routes');
-            }
-            if (resolved.kv_namespaces?.some((namespace) => !namespace.id)) {
-              throw new Error(config + ' must not auto-provision preview KV namespaces');
-            }
-          }"
-
       # Each PR gets an isolated Worker and SessionDO namespace.
-      - name: Deploy demo to Cloudflare
+      - name: Deploy demo to Cloudflare with Alchemy
         id: deploy-demo
-        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          workingDirectory: apps/demo
-          wranglerVersion: ${{ steps.wrangler.outputs.version }}
-          command: deploy --env preview --name maelstrom-playground-pr-${{ github.event.pull_request.number }}
+        working-directory: apps/demo
+        env:
+          ALCHEMY_PROFILE: preview-ci
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          bun alchemy deploy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
+          state="$(bun alchemy state get ../../infra/platform/state.run.ts --stack MaelstromDemoPreview --stage "$PREVIEW_STAGE" --fqn Website --profile preview-ci)"
+          url="$(printf '%s' "$state" | bun -e "const state = JSON.parse(await Bun.stdin.text()); const url = state?.attr?.url; if (typeof url !== 'string' || !url.startsWith('https://')) throw new Error('Demo preview state must contain an HTTPS Worker URL'); process.stdout.write(url);")"
+          printf 'deployment-url=%s\n' "$url" >> "$GITHUB_OUTPUT"
 
       - name: Validate Playground preview URL
         id: playground-url
@@ -267,6 +240,17 @@ jobs:
           PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
         run: bun alchemy destroy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
 
+      - name: Destroy demo preview with Alchemy
+        id: destroy-demo
+        if: always()
+        working-directory: apps/demo
+        env:
+          ALCHEMY_PROFILE: preview-ci
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
+        run: bun alchemy destroy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
+
       - name: Delete preview Workers
         id: delete-workers
         if: always()
@@ -285,6 +269,7 @@ jobs:
             "maelstrom-docs-pr-$PR_NUMBER"
             "maelstrom-docs-alchemy-pr-$PR_NUMBER"
             "maelstrom-playground-pr-$PR_NUMBER"
+            "maelstrom-playground-alchemy-pr-$PR_NUMBER"
           )
           delete_workers() {
             local failed=0
@@ -344,6 +329,7 @@ jobs:
           && steps.find-comment.outputs.comment-id != ''
           && steps.destroy-docs.outcome == 'success'
           && steps.destroy-www.outcome == 'success'
+          && steps.destroy-demo.outcome == 'success'
           && steps.delete-workers.outcome == 'success'
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
@@ -362,6 +348,7 @@ jobs:
           && steps.find-comment.outputs.comment-id != ''
           && (steps.destroy-docs.outcome != 'success'
             || steps.destroy-www.outcome != 'success'
+            || steps.destroy-demo.outcome != 'success'
             || steps.delete-workers.outcome != 'success')
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
