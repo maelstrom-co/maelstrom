@@ -1,0 +1,61 @@
+name: Invalidate PR Preview Approval
+
+on:
+  pull_request_target:
+    types: [synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  invalidate:
+    name: Invalidate Preview Approval
+    if: >-
+      github.event.pull_request.state == 'open'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && contains(github.event.pull_request.labels.*.name, 'deploy-preview')
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    concurrency:
+      group: deploy-preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+      # actionlint 1.7.12 predates GitHub's concurrency queue support.
+      queue: max
+    steps:
+      - name: Checkout trusted lifecycle code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Capture trusted Bun executable
+        id: trusted-bun
+        run: |
+          bun_executable="$(command -v bun)"
+          case "$bun_executable" in /*) ;; *) exit 1 ;; esac
+          case "$bun_executable" in *[[:space:][:cntrl:]]*) exit 1 ;; esac
+          test -x "$bun_executable"
+          bun_hash="$(/usr/bin/sha256sum "$bun_executable")"
+          printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
+
+      - name: Invalidate stale approval edge
+        env:
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
+          EVENT_AFTER_SHA: ${{ github.event.after }}
+          EVENT_BEFORE_SHA: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: ''
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
+        run: |
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts invalidate

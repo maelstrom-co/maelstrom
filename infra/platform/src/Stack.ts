@@ -7,7 +7,7 @@ export interface MaelstromPlatformOutputs {
   /** Whether Cloudflare reports transactional sending as enabled. */
   readonly sendingEnabled: boolean;
   /** Public site key for the exact managed production widget. */
-  readonly turnstileSitekey: string;
+  readonly turnstileSiteKey: string;
   /** Provider ID of the retained waitlist database. */
   readonly waitlistDatabaseId: string;
   /** Stable name of the retained waitlist database. */

@@ -1,5 +1,5 @@
 export { workerObservability } from './Observability.js';
-export { MaelstromPlatform } from './Stack.js';
+export { MaelstromPlatform, type MaelstromPlatformOutputs } from './Stack.js';
 export {
   PRODUCTION_STAGE,
   requirePreviewStage,
@@ -13,6 +13,7 @@ export {
 } from './Waitlist.js';
 export {
   CLOUDFLARE_TURNSTILE_TEST_SITE_KEY,
+  isWaitlistProductionHostname,
   WAITLIST_ORIGIN,
   WAITLIST_PRODUCTION_HOSTNAMES,
   WAITLIST_SENDER_ADDRESS,

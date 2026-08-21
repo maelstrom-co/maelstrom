@@ -50,6 +50,34 @@ describe('previewWorkerNames', () => {
 });
 
 describe('deletePreviewWorkers', () => {
+  for (const [workerScope, expectedNames] of [
+    ['legacy', legacyPreviewWorkerNames('42')],
+    ['current', currentPreviewWorkerNames('42')],
+  ] as const) {
+    test(`deletes only ${workerScope} Worker names when that scope is requested`, async () => {
+      const requestedNames: string[] = [];
+      const fetch = Object.assign(async (input: string | URL | Request) => {
+        requestedNames.push(
+          new URL(input.toString()).pathname.split('/').at(-1) ?? '',
+        );
+        return absentResponse();
+      }, globalThis.fetch);
+
+      await deletePreviewWorkers(
+        {
+          accountId: 'account',
+          apiToken: 'secret',
+          prNumber: '42',
+          attempts: 1,
+          workerScope,
+        },
+        dependencies(fetch),
+      );
+
+      expect(requestedNames).toEqual(expectedNames);
+    });
+  }
+
   test('repeats every deletion after success so a timed-out upload cannot become orphaned', async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const sleeps: number[] = [];
@@ -89,6 +117,34 @@ describe('deletePreviewWorkers', () => {
           init.signal instanceof AbortSignal,
       ),
     ).toBeTrue();
+  });
+
+  test('rechecks authorization before every direct deletion request', async () => {
+    const authorized: string[] = [];
+    const requested: string[] = [];
+    const fetch = Object.assign(async (input: string | URL | Request) => {
+      requested.push(
+        new URL(input.toString()).pathname.split('/').at(-1) ?? '',
+      );
+      return absentResponse();
+    }, globalThis.fetch);
+
+    await deletePreviewWorkers(
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        attempts: 1,
+        authorize: async (workerName) => {
+          authorized.push(workerName);
+          return !workerName.includes('-alchemy-');
+        },
+      },
+      dependencies(fetch),
+    );
+
+    expect(authorized).toEqual(previewWorkerNames('42'));
+    expect(requested).toEqual(legacyPreviewWorkerNames('42'));
   });
 
   test('recovers when transient API failures clear before the final pass', async () => {
@@ -142,7 +198,62 @@ describe('deletePreviewWorkers', () => {
     );
 
     expect(success).toBeTrue();
-    expect(sleeps).toEqual([60_000]);
+    expect(sleeps).toEqual([300_000]);
+  });
+
+  test('defers reconciliation when retry-after exceeds the remaining budget', async () => {
+    const sleeps: number[] = [];
+    const fetch = Object.assign(
+      async () =>
+        Response.json(
+          { success: false, errors: [{ code: 1015, message: 'Rate limit' }] },
+          { status: 429, headers: { 'Retry-After': '300' } },
+        ),
+      globalThis.fetch,
+    );
+
+    const success = await deletePreviewWorkers(
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        attempts: 2,
+        retryDelayMs: 0,
+        totalBudgetMs: 100_000,
+      },
+      dependencies(fetch, [], sleeps),
+    );
+
+    expect(success).toBeFalse();
+    expect(sleeps).toEqual([]);
+  });
+
+  test('honors retry-after on a temporary provider outage', async () => {
+    let request = 0;
+    const sleeps: number[] = [];
+    const fetch = Object.assign(async () => {
+      request += 1;
+      return request <= 6
+        ? Response.json(
+            { success: false, errors: [{ code: 10000, message: 'Outage' }] },
+            { status: 503, headers: { 'Retry-After': '120' } },
+          )
+        : absentResponse();
+    }, globalThis.fetch);
+
+    const success = await deletePreviewWorkers(
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        attempts: 2,
+        retryDelayMs: 0,
+      },
+      dependencies(fetch, [], sleeps),
+    );
+
+    expect(success).toBeTrue();
+    expect(sleeps).toEqual([120_000]);
   });
 
   test('validates credentials and bounded integer options before deletion', async () => {
@@ -308,6 +419,29 @@ describe('deletePreviewWorkers', () => {
     expect(success).toBeFalse();
   });
 
+  test('rejects a success envelope carrying provider errors', async () => {
+    const fetch = Object.assign(
+      async () =>
+        Response.json({
+          success: true,
+          errors: [{ code: 9109, message: 'Contradictory error' }],
+        }),
+      globalThis.fetch,
+    );
+
+    await expect(
+      deletePreviewWorkers(
+        {
+          accountId: 'account',
+          apiToken: 'secret',
+          prNumber: '42',
+          attempts: 1,
+        },
+        dependencies(fetch),
+      ),
+    ).resolves.toBeFalse();
+  });
+
   test('accepts Cloudflare success with or without an envelope', async () => {
     let request = 0;
     const fetch = Object.assign(async () => {
@@ -360,16 +494,71 @@ describe('discoverPreviewPrNumbers', () => {
   });
 
   test('fails closed on credentials, HTTP errors, and malformed envelopes', async () => {
-    const fetch = Object.assign(
+    const malformedFetch = Object.assign(
       async () => Response.json({ success: true, errors: [], result: {} }),
       globalThis.fetch,
     );
     await expect(
       discoverPreviewPrNumbers(
         { accountId: '', apiToken: 'secret' },
-        { fetch },
+        { fetch: malformedFetch },
       ),
     ).rejects.toThrow();
+    await expect(
+      discoverPreviewPrNumbers(
+        { accountId: 'account', apiToken: 'secret' },
+        { fetch: malformedFetch },
+      ),
+    ).rejects.toThrow('invalid Worker list');
+
+    const httpErrorFetch = Object.assign(
+      async () =>
+        Response.json(
+          { success: true, errors: [], result: [] },
+          { status: 500 },
+        ),
+      globalThis.fetch,
+    );
+    await expect(
+      discoverPreviewPrNumbers(
+        { accountId: 'account', apiToken: 'secret' },
+        { fetch: httpErrorFetch },
+      ),
+    ).rejects.toThrow('HTTP 500');
+  });
+
+  test('rejects a reconciliation matrix above its safety limit', async () => {
+    const fetch = Object.assign(
+      async () =>
+        Response.json({
+          success: true,
+          errors: [],
+          result: Array.from({ length: 201 }, (_, index) => ({
+            id: `maelstrom-www-pr-${index + 1}`,
+          })),
+        }),
+      globalThis.fetch,
+    );
+
+    await expect(
+      discoverPreviewPrNumbers(
+        { accountId: 'account', apiToken: 'secret' },
+        { fetch },
+      ),
+    ).rejects.toThrow('more than 200 candidates');
+  });
+
+  test('rejects Worker discovery success with provider errors', async () => {
+    const fetch = Object.assign(
+      async () =>
+        Response.json({
+          success: true,
+          errors: [{ code: 9109, message: 'Contradictory error' }],
+          result: [],
+        }),
+      globalThis.fetch,
+    );
+
     await expect(
       discoverPreviewPrNumbers(
         { accountId: 'account', apiToken: 'secret' },

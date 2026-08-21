@@ -1,7 +1,7 @@
 name: Deploy PR Preview
 
 on:
-  pull_request:
+  pull_request_target:
     types: [labeled]
 
 permissions:
@@ -12,323 +12,175 @@ env:
   NX_NO_CLOUD: 'true'
 
 jobs:
-  deploy:
-    name: Deploy Preview
-    # Forks cannot read repository secrets, so a fork PR gets no preview. The
-    # alternative, `pull_request_target`, would run untrusted code holding the
-    # Cloudflare token — not a trade we make.
-    #
-    # A closed PR can still receive a `labeled` event, and no `closed` event
-    # will ever fire for it again — the state check below is what stops
-    # re-labelling a closed PR from deploying a preview nothing can tear down.
-    #
-    # `labeled` fires for any label, not just `deploy-preview` — without the
-    # action/label check below, adding an unrelated label to a PR that already
-    # carries `deploy-preview` would redeploy an already-live, unchanged commit.
+  approve:
+    name: Record Preview Approval
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && github.event.pull_request.state == 'open'
+      github.event.sender.type == 'User'
       && github.event.action == 'labeled'
       && github.event.label.name == 'deploy-preview'
+      && github.event.pull_request.state == 'open'
+      && github.event.pull_request.head.repo.full_name == github.repository
       && contains(github.event.pull_request.labels.*.name, 'deploy-preview')
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    steps:
+      - name: Checkout trusted lifecycle code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Capture approval Bun executable
+        id: approval-bun
+        run: |
+          bun_executable="$(command -v bun)"
+          case "$bun_executable" in /*) ;; *) exit 1 ;; esac
+          case "$bun_executable" in *[[:space:][:cntrl:]]*) exit 1 ;; esac
+          test -x "$bun_executable"
+          bun_hash="$(/usr/bin/sha256sum "$bun_executable")"
+          printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
+
+      - name: Record exact approved revision
+        env:
+          BUN_EXECUTABLE: ${{ steps.approval-bun.outputs.path }}
+          BUN_OPTIONS: ''
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: ''
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TRUSTED_BUN_SHA256: ${{ steps.approval-bun.outputs.sha256 }}
+        run: |
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts approve
+
+  deploy:
+    name: Deploy Preview
+    needs: approve
+    if: needs.approve.result == 'success'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: preview
     timeout-minutes: 45
-    # Deploy and teardown share one group without interrupting active Cloudflare
-    # mutations. Every queued event rechecks the current intent after the lock.
     concurrency:
       group: deploy-preview-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
-      # actionlint 1.7.12 predates GitHub's May 2026 concurrency queue support.
+      # actionlint 1.7.12 predates GitHub's concurrency queue support.
       queue: max
     steps:
-      - name: Check current preview intent
-        id: preview-intent
-        env:
-          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          intent="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state, .head.sha, any(.labels[]; .name == "deploy-preview")] | @tsv')"
-          IFS=$'\t' read -r state head_sha has_label <<< "$intent"
-          if [ "$state" = open ] && [ "$head_sha" = "$EVENT_HEAD_SHA" ] && [ "$has_label" = true ]; then
-            echo 'current=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'current=false' >> "$GITHUB_OUTPUT"
-            echo "Skipping stale preview deployment event: state=$state head=$head_sha labeled=$has_label"
-          fi
+      - name: Checkout trusted lifecycle code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
 
-      # GitHub may suppress pull_request_target for SHA-like head names. Never
-      # deploy a preview that cannot receive its corresponding teardown event.
-      - name: Reject teardown-ineligible branch names
-        if: steps.preview-intent.outputs.current == 'true'
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          if [[ "$HEAD_REF" =~ ^[[:xdigit:]]+$ ]]; then
-            echo "::error::Preview deployment rejects SHA-like branch names because GitHub may suppress their pull_request_target teardown events."
-            exit 1
-          fi
-
-      - name: Checkout
-        if: steps.preview-intent.outputs.current == 'true'
+      - name: Checkout approved source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
+          path: source
 
       - name: Setup Node
-        if: steps.preview-intent.outputs.current == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
 
       - name: Setup Bun
-        if: steps.preview-intent.outputs.current == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          # This job holds a Cloudflare token that can delete Workers, so it
-          # must not take whatever toolchain ships that morning. Every workflow
-          # now reads the same pin from .bun-version.
           bun-version-file: .bun-version
 
-      - name: Install dependencies
-        if: steps.preview-intent.outputs.current == 'true'
+      - name: Capture trusted Bun executable
+        id: trusted-bun
+        run: |
+          bun_executable="$(command -v bun)"
+          case "$bun_executable" in /*) ;; *) exit 1 ;; esac
+          case "$bun_executable" in *[[:space:][:cntrl:]]*) exit 1 ;; esac
+          test -x "$bun_executable"
+          bun_hash="$(/usr/bin/sha256sum "$bun_executable")"
+          printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
+
+      - name: Install source dependencies
+        working-directory: source
         run: bun install --frozen-lockfile
 
-      # Build every independent artifact before the first deployment. The
-      # website remains dependent on the deployed Playground URL.
       - name: Build independent preview artifacts
-        if: steps.preview-intent.outputs.current == 'true'
+        working-directory: source
         timeout-minutes: 10
         run: |
           bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache
           bunx nx run @maelstrom-co/docs:build --skip-nx-cache
 
-      - name: Recheck demo preview intent
-        if: steps.preview-intent.outputs.current == 'true'
-        env:
-          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          intent="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state, .head.sha, any(.labels[]; .name == "deploy-preview")] | @tsv')"
-          IFS=$'\t' read -r state head_sha has_label <<< "$intent"
-          if [ "$state" != open ] || [ "$head_sha" != "$EVENT_HEAD_SHA" ] || [ "$has_label" != true ]; then
-            echo "::error::Preview approval became stale before demo deployment."
-            exit 1
-          fi
-
-      # Each PR gets an isolated Worker and SessionDO namespace.
-      - name: Deploy demo to Cloudflare with Alchemy
+      - name: Deploy demo preview
         id: deploy-demo
-        if: steps.preview-intent.outputs.current == 'true'
-        timeout-minutes: 5
-        working-directory: apps/demo
+        timeout-minutes: 6
         env:
-          ALCHEMY_PROFILE: preview-ci
+          APPROVED_SHA: ${{ github.event.pull_request.head.sha }}
+          BASH_ENV: /dev/null
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
+          ENV: /dev/null
+          GH_TOKEN: ${{ github.token }}
+          LD_PRELOAD: ''
+          NODE_OPTIONS: ''
           PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SOURCE_ROOT: ${{ github.workspace }}/source
+          TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
         run: |
           set -euo pipefail
-          bun alchemy deploy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
-          state="$(bun alchemy state get ../../infra/platform/state.run.ts --stack MaelstromDemoPreview --stage "$PREVIEW_STAGE" --fqn Website --profile preview-ci)"
-          state_url="$(printf '%s' "$state" | bun -e "const state = JSON.parse(await Bun.stdin.text()); const url = state?.attr?.url; if (typeof url !== 'string') throw new Error('Demo preview state must contain a Worker URL'); process.stdout.write(url);")"
-          url="$(bun ../../scripts/preview-worker-url.ts "$state_url" "maelstrom-playground-alchemy-$PREVIEW_STAGE" "$PREVIEW_WORKERS_DEV_SUFFIX")"
-          printf 'deployment-url=%s\n' "$url" >> "$GITHUB_OUTPUT"
-
-      - name: Validate Playground preview URL
-        id: playground-url
-        if: steps.preview-intent.outputs.current == 'true'
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy-demo.outputs.deployment-url }}
-        run: |
-          set -euo pipefail
-          bun -e "const value = process.env.DEPLOYMENT_URL; if (!value || !value.toLowerCase().startsWith('https://') || /\s/u.test(value)) throw new Error('Playground deploy must report one non-empty absolute HTTPS URL'); const parsed = new URL(value); if (parsed.username || parsed.password) throw new Error('Playground deploy must report an absolute HTTPS URL without credentials');"
-          printf 'url=%s\n' "$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+          test "$(/usr/bin/git --no-replace-objects rev-parse HEAD)" = "$TRUSTED_WORKFLOW_SHA"
+          for runtime_file in scripts/preview-lifecycle.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
+            test "$(/usr/bin/git hash-object "$runtime_file")" = "$(/usr/bin/git --no-replace-objects rev-parse "$TRUSTED_WORKFLOW_SHA:$runtime_file")"
+          done
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts deploy-app demo
 
       - name: Build website preview
-        if: steps.preview-intent.outputs.current == 'true'
+        working-directory: source
         timeout-minutes: 10
         env:
           CLOUDFLARE_ENV: preview
-          PUBLIC_PLAYGROUND_URL: ${{ steps.playground-url.outputs.url }}
+          PUBLIC_PLAYGROUND_URL: ${{ steps.deploy-demo.outputs.deployment-url }}
           PUBLIC_TURNSTILE_ENVIRONMENT: preview
         run: bunx nx run @maelstrom-co/www:build --skip-nx-cache
 
-      - name: Recheck www preview intent
-        if: steps.preview-intent.outputs.current == 'true'
+      - name: Deploy remaining previews
+        timeout-minutes: 15
         env:
-          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          intent="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state, .head.sha, any(.labels[]; .name == "deploy-preview")] | @tsv')"
-          IFS=$'\t' read -r state head_sha has_label <<< "$intent"
-          if [ "$state" != open ] || [ "$head_sha" != "$EVENT_HEAD_SHA" ] || [ "$has_label" != true ]; then
-            echo "::error::Preview approval became stale before www deployment."
-            exit 1
-          fi
-
-      - name: Deploy www to Cloudflare with Alchemy
-        id: deploy-www
-        if: steps.preview-intent.outputs.current == 'true'
-        timeout-minutes: 5
-        working-directory: apps/www
-        env:
-          ALCHEMY_PROFILE: preview-ci
+          APPROVED_SHA: ${{ github.event.pull_request.head.sha }}
+          BASH_ENV: /dev/null
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
-          PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
-        run: |
-          set -euo pipefail
-          bun alchemy deploy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
-          state="$(bun alchemy state get ../../infra/platform/state.run.ts --stack MaelstromWwwPreview --stage "$PREVIEW_STAGE" --fqn Website --profile preview-ci)"
-          state_url="$(printf '%s' "$state" | bun -e "const state = JSON.parse(await Bun.stdin.text()); const url = state?.attr?.url; if (typeof url !== 'string') throw new Error('Website preview state must contain a Worker URL'); process.stdout.write(url);")"
-          url="$(bun ../../scripts/preview-worker-url.ts "$state_url" "maelstrom-www-alchemy-$PREVIEW_STAGE" "$PREVIEW_WORKERS_DEV_SUFFIX")"
-          printf 'deployment-url=%s\n' "$url" >> "$GITHUB_OUTPUT"
-
-      - name: Recheck docs preview intent
-        if: steps.preview-intent.outputs.current == 'true'
-        env:
-          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DEMO_URL: ${{ steps.deploy-demo.outputs.deployment-url }}
+          ENV: /dev/null
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          intent="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state, .head.sha, any(.labels[]; .name == "deploy-preview")] | @tsv')"
-          IFS=$'\t' read -r state head_sha has_label <<< "$intent"
-          if [ "$state" != open ] || [ "$head_sha" != "$EVENT_HEAD_SHA" ] || [ "$has_label" != true ]; then
-            echo "::error::Preview approval became stale before docs deployment."
-            exit 1
-          fi
-
-      - name: Deploy docs to Cloudflare with Alchemy
-        id: deploy-docs
-        if: steps.preview-intent.outputs.current == 'true'
-        timeout-minutes: 5
-        working-directory: apps/docs
-        env:
-          ALCHEMY_PROFILE: preview-ci
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
+          LD_PRELOAD: ''
+          NODE_OPTIONS: ''
           PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SOURCE_ROOT: ${{ github.workspace }}/source
+          TRUSTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
         run: |
           set -euo pipefail
-          bun alchemy deploy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
-          state="$(bun alchemy state get ../../infra/platform/state.run.ts --stack MaelstromDocsPreview --stage "$PREVIEW_STAGE" --fqn Website --profile preview-ci)"
-          state_url="$(printf '%s' "$state" | bun -e "const state = JSON.parse(await Bun.stdin.text()); const url = state?.attr?.url; if (typeof url !== 'string') throw new Error('Docs preview state must contain a Worker URL'); process.stdout.write(url);")"
-          url="$(bun ../../scripts/preview-worker-url.ts "$state_url" "maelstrom-docs-alchemy-$PREVIEW_STAGE" "$PREVIEW_WORKERS_DEV_SUFFIX")"
-          printf 'deployment-url=%s\n' "$url" >> "$GITHUB_OUTPUT"
-
-      - name: Require all preview URLs
-        id: replacement
-        if: steps.preview-intent.outputs.current == 'true'
-        env:
-          WWW_URL: ${{ steps.deploy-www.outputs.deployment-url }}
-          DOCS_URL: ${{ steps.deploy-docs.outputs.deployment-url }}
-          DEMO_URL: ${{ steps.playground-url.outputs.url }}
-        run: |
-          set -euo pipefail
-          for app in WWW DOCS DEMO; do
-            url_variable="${app}_URL"
-            if [ -z "${!url_variable}" ]; then
-              echo "::error::$app deploy succeeded but reported no workers.dev URL. Check the preview account's workers.dev subdomain."
-              exit 1
-            fi
+          test "$(/usr/bin/git --no-replace-objects rev-parse HEAD)" = "$TRUSTED_WORKFLOW_SHA"
+          for runtime_file in scripts/preview-lifecycle.ts scripts/delete-preview-workers.ts scripts/preview-worker-url.ts scripts/preview-lifecycle.bunfig.toml; do
+            test "$(/usr/bin/git hash-object "$runtime_file")" = "$(/usr/bin/git --no-replace-objects rev-parse "$TRUSTED_WORKFLOW_SHA:$runtime_file")"
           done
-
-      # Current Alchemy names are now live, so old Wrangler-era names can be
-      # removed without creating a preview outage.
-      - name: Retire legacy preview Workers
-        if: steps.preview-intent.outputs.current == 'true'
-        timeout-minutes: 2
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          PREVIEW_DELETE_ATTEMPTS: '1'
-          PREVIEW_WORKER_SCOPE: legacy
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: bun scripts/delete-preview-workers.ts
-
-      - name: Roll back docs preview
-        if: failure() && steps.preview-intent.outputs.current == 'true' && steps.replacement.outcome != 'success'
-        timeout-minutes: 5
-        working-directory: apps/docs
-        env:
-          ALCHEMY_PROFILE: preview-ci
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
-        run: bun alchemy destroy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
-
-      - name: Roll back www preview
-        if: failure() && steps.preview-intent.outputs.current == 'true' && steps.replacement.outcome != 'success'
-        timeout-minutes: 5
-        working-directory: apps/www
-        env:
-          ALCHEMY_PROFILE: preview-ci
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
-        run: bun alchemy destroy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
-
-      - name: Roll back demo preview
-        if: failure() && steps.preview-intent.outputs.current == 'true' && steps.replacement.outcome != 'success'
-        timeout-minutes: 5
-        working-directory: apps/demo
-        env:
-          ALCHEMY_PROFILE: preview-ci
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
-        run: bun alchemy destroy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
-
-      - name: Delete partial preview Workers
-        if: failure() && steps.preview-intent.outputs.current == 'true' && steps.replacement.outcome != 'success'
-        timeout-minutes: 10
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: bun scripts/delete-preview-workers.ts
-
-      - name: Find existing preview comment
-        if: steps.preview-intent.outputs.current == 'true'
-        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
-        id: find-comment
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: '<!-- pr-preview-demo -->'
-          direction: last
-
-      - name: Comment the preview URL
-        # A new approval replaces the existing preview comment because the
-        # stable per-PR URLs do not justify another comment.
-        if: steps.preview-intent.outputs.current == 'true'
-        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-id: ${{ steps.find-comment.outputs.comment-id }}
-          edit-mode: replace
-          body: |
-            <!-- pr-preview-demo -->
-            **PR previews deployed** for commit ${{ github.event.pull_request.head.sha }}
-
-            | App | Preview |
-            | --- | --- |
-            | Website | ${{ steps.deploy-www.outputs.deployment-url }} |
-            | Documentation | ${{ steps.deploy-docs.outputs.deployment-url }} |
-            | Demo | ${{ steps.playground-url.outputs.url }} |
-
-            The demo is bring-your-own-key. This preview runs the PR branch's own code, so use a throwaway key or only open previews for branches you trust.
-
-            Remove the `deploy-preview` label or close this PR to tear the preview down.
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts finish-deployment

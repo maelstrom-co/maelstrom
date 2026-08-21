@@ -16,6 +16,29 @@ describe('validateWaitlistEmail', () => {
     });
   });
 
+  it('trims surrounding whitespace before using an address as a D1 identity', () => {
+    expect(validateWaitlistEmail({ email: '  User@Example.COM\n' })).toEqual({
+      ok: true,
+      email: 'user@example.com',
+    });
+  });
+
+  it('rejects an address beyond the practical mailbox limit', () => {
+    expect(
+      validateWaitlistEmail({ email: `${'a'.repeat(243)}@example.com` }).ok,
+    ).toBe(false);
+  });
+
+  for (const email of [
+    'user@-example.com',
+    'user@example-.com',
+    `user@${'a'.repeat(64)}.com`,
+  ]) {
+    it(`rejects invalid domain labels: ${JSON.stringify(email)}`, () => {
+      expect(validateWaitlistEmail({ email }).ok).toBe(false);
+    });
+  }
+
   // Each must stay rejected: a regression here lets junk into Resend, so the
   // cases pin the exact contract the route depends on.
   const INVALID = [

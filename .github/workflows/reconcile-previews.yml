@@ -1,0 +1,117 @@
+name: Reconcile PR Previews
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  discover:
+    name: Discover Preview Candidates
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    environment: preview
+    timeout-minutes: 5
+    outputs:
+      pr-numbers: ${{ steps.discover.outputs.pr-numbers }}
+    steps:
+      - name: Checkout trusted lifecycle code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Capture trusted Bun executable
+        id: trusted-bun
+        run: |
+          bun_executable="$(command -v bun)"
+          case "$bun_executable" in /*) ;; *) exit 1 ;; esac
+          case "$bun_executable" in *[[:space:][:cntrl:]]*) exit 1 ;; esac
+          test -x "$bun_executable"
+          bun_hash="$(/usr/bin/sha256sum "$bun_executable")"
+          printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
+
+      - name: Discover strict preview candidates
+        id: discover
+        env:
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          NODE_OPTIONS: ''
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
+        run: |
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts discover
+
+  reconcile:
+    name: Reconcile Preview ${{ matrix.pr-number }}
+    needs: discover
+    if: needs.discover.outputs.pr-numbers != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        pr-number: ${{ fromJSON(needs.discover.outputs.pr-numbers) }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: preview
+    timeout-minutes: 45
+    concurrency:
+      group: deploy-preview-pr-${{ matrix.pr-number }}
+      cancel-in-progress: false
+      # actionlint 1.7.12 predates GitHub's concurrency queue support.
+      queue: max
+    steps:
+      - name: Checkout trusted lifecycle code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Capture trusted Bun executable
+        id: trusted-bun
+        run: |
+          bun_executable="$(command -v bun)"
+          case "$bun_executable" in /*) ;; *) exit 1 ;; esac
+          case "$bun_executable" in *[[:space:][:cntrl:]]*) exit 1 ;; esac
+          test -x "$bun_executable"
+          bun_hash="$(/usr/bin/sha256sum "$bun_executable")"
+          printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
+
+      - name: Install trusted dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Reconcile known preview resources
+        env:
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: ''
+          PREVIEW_TRIGGER: schedule
+          PR_NUMBER: ${{ matrix.pr-number }}
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
+        run: |
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts teardown

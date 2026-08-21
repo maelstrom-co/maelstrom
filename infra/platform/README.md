@@ -16,22 +16,55 @@ and cross-stack references are exported by `@maelstrom-co/platform-infra`.
 
 Alchemy is authoritative for the platform, all three production applications,
 and all PR previews. A direct Cloudflare API deletion remains as a safety net
-for legacy preview Workers and uploads that finish after deployment timeout or
-interruption.
-Preview teardown runs through `pull_request_target` and executes only trusted
-default-branch code at the workflow revision; it never checks out the pull
-request branch. Deployment and teardown serialize Cloudflare mutations per PR,
-then recheck the current PR state and label before changing cloud resources.
-Preview deployment runs only for a fresh `deploy-preview` label event at the
-current head SHA. A push removes that approval through trusted, credential-free
-workflow code, so maintainers must review and re-add the label for the new SHA.
-Failed replacement deployments destroy all partial Alchemy stacks. A successful
-replacement retires only the three legacy Worker names.
+for exact known Worker names.
+
+Four event-specific workflows call `scripts/preview-lifecycle.ts` for preview
+policy and mutations:
+
+- `deploy-preview.yml` records a human label approval, builds the approved
+  same-repository source without credentials, and deploys the three apps.
+- `invalidate-preview-approval.yml` removes an approval after a source push
+  only when the recorded approval still belongs to the previous SHA.
+- `teardown-preview.yml` handles label removal, closure, and default-branch
+  manual reconciliation.
+- `reconcile-previews.yml` discovers at most 200 exact Worker-name candidates
+  and reconciles them through independent scheduled matrix jobs.
+
+The bot-owned preview comment stores separate hidden `approvedSha` and
+`deployedSha` values. A new approval changes only `approvedSha`; the previous
+deployed body remains until all replacement deployments and legacy cleanup
+succeed. The lifecycle also reads the historical visible deployed-SHA sentence
+when a comment predates hidden state. A push invalidator checks the event's
+before/after edge before every label-removal retry, so a completed later marker
+write normally makes a delayed run harmless. GitHub does not offer a conditional
+label deletion, so a small race remains between the final marker read and the
+REST deletion. Automation does not restore the label because that could override
+an intentional unlabel. Re-add the label to recover approval, or use manual
+reconciliation to finish cleanup after that provider race.
+Approval comment writes also make a final live pull and bot-comment read, but
+GitHub offers no conditional comment PATCH. A smaller final-read/write race
+therefore remains; retry the label approval for the current head if it occurs.
+
+Cloudflare mutations use one non-cancelling per-PR queue and recheck live pull
+request state, label, comment marker, repository, and approved SHA. Queue order
+and capacity are not durable correctness mechanisms; the marker and live checks
+provide authority. Before each credentialed deployment, fixed workflow shell
+commands verify the trusted lifecycle files against the workflow SHA. The
+lifecycle also rejects an approved source checkout with tracked or staged
+changes and invokes Alchemy through the absolute Bun path captured before source
+installation. Credentialed steps recheck that executable's hash and select a
+hashed lifecycle Bun config with environment-file loading and auto-install
+disabled. These checks preserve reviewed identities; they do not sandbox
+approved PR code. Failed replacement deployments leave the last per-application
+state intact. Fixed-name stacks have no safe explicit rollback. Remove and
+re-add the label to retry, or remove it once to request complete serialized
+teardown. A successful replacement retires only the three legacy Worker names.
 
 Fallback Worker deletion runs six ordered passes with at most six concurrent
-requests per pass. Provider retry delays are capped at one minute, and the hard
-nine-minute client budget remains below the 12-minute workflow step timeout.
-Only the final completed pass determines success.
+requests per pass. Provider `Retry-After` delays are honored when the next full
+pass still fits the hard nine-minute client budget. Otherwise cleanup stops and
+defers to the next reconciliation instead of retrying before the provider's
+deadline. Only the final completed pass determines success.
 
 ## Validate
 
@@ -66,14 +99,57 @@ migrations only. All three resources use retention policies.
 
 Production CI deploys this platform stack at the checked green revision before
 any application job. The platform job exposes only the managed widget's public
-`turnstileSitekey`. The credential-free `www` build validates and embeds that
+`turnstileSiteKey`. The credential-free `www` build validates and embeds that
 output; Cloudflare account credentials remain confined to deployment steps.
 
+### Waitlist confirmation rollout
+
+Migration `0004` adds an independent confirmation-attempt ledger without
+clearing the legacy subscriber columns. This keeps the old Worker compatible
+during the platform-first deployment window. The new Worker accepts only `v1`
+tokens, so application activation invalidates every earlier query-string token
+without an irreversible migration update. Rolling back after issuing `v1`
+links makes those new links unusable until the fixed Worker returns; recover by
+rolling forward, not by editing an applied migration.
+
+Confirmation links carry `v1` tokens in URL fragments, which browsers do not
+send in HTTP requests. Some mailbox security gateways rewrite complete links
+and may copy a fragment into their own request URL. Monitor confirmation rates
+and gateway behavior. If that exposure becomes unacceptable, replace clickable
+links with a separate code-entry flow; never move the token back to a query.
+
+After deploying the fixed Worker:
+
+1. Query PostHog for historical `$current_url` values containing
+   `/waitlist/confirm/?token=`. Use PostHog's person deletion API with event
+   deletion for affected identifiers, then verify its asynchronous deletion
+   status. Never export or paste the captured URLs.
+2. Record the last matching Cloudflare invocation timestamp. Workers Logs age
+   out after three days on Free plans and seven days on Paid plans. Inspect any
+   OpenTelemetry or Logpush destination separately because it has independent
+   retention.
+3. Record the deployment cutoff and completion of both checks in the release
+   log. Repository automation cannot perform either account-level deletion.
+
+An email result that cannot be persisted remains `attempting` and conservatively
+holds the ten-minute resend cooldown. During a D1 outage, immediate retry and
+duplicate-send prevention cannot both be guaranteed; the cooldown favors
+preventing a second accepted email while the provider result is unreconciled.
+Valid, Turnstile-approved signup requests return the same generic `202` whether
+the address is new, terminal, cooling down, or has an ambiguous provider result.
+After the durable claim, Email Sending and its state transition run through the
+Worker execution context so provider latency does not disclose address state.
+Permanent rejections permit a fresh claim; provider quota failures use the
+non-confirmable `retryable` state and create a provider-wide backoff without
+starting address cooldown; ambiguous results remain confirmable in case Email
+Service accepted before losing acknowledgement.
+
 The Pro zone also has an API-managed `http_ratelimit` rule named **Rate limit
-waitlist signup**. It applies a Managed Challenge after 10 requests per minute
-per IP to `/api/waitlist`. It stays outside Alchemy because the current Ruleset
-resource owns the entire phase and would also take ownership of the unrelated
-leaked-credential rule.
+waitlist signup**. Before deploying this change, extend it to both
+`/api/waitlist` and `/api/waitlist/confirm`; confirmation otherwise permits
+random-token requests to consume Worker and D1 quotas. It stays outside Alchemy
+because the current Ruleset resource owns the entire phase and would also take
+ownership of the unrelated leaked-credential rule.
 
 ## Application Ownership
 
@@ -153,39 +229,46 @@ while a production build fails unless CI supplies a managed `0x` site key.
 The public `PUBLIC_TURNSTILE_ENVIRONMENT` build input selects that fail-closed
 production path and is tracked by Nx together with the site key.
 
-Residual integration: concurrent waitlist delivery work owns
-`apps/www/src/pages/api/waitlist.ts` and
-`apps/www/src/lib/waitlist-confirmation-email.ts`. Those files still need to
-import the shared action, hostname, origin, and sender values. The API follow-up
-must also classify Siteverify failures and log only the category and provider
-error codes, never tokens, IP addresses, email addresses, or response bodies.
+The waitlist API and confirmation-email builder import this shared contract.
+Siteverify failures log only a sanitized category and allowlisted provider
+codes, never tokens, IP addresses, email addresses, hostnames, or response
+bodies.
 
 ## Preview Reconciliation
 
-The teardown workflow accepts a trusted `workflow_dispatch` pull request number
-and also reconciles daily. Scheduled discovery lists preview-account Workers and
-accepts only exact current or legacy names before extracting positive PR
-numbers. Every candidate then enters the same per-PR serialization group and
-rechecks the live PR state and `deploy-preview` label. An open, labeled preview
-cannot be deleted by a stale, manual, or scheduled request.
+The teardown workflow accepts a trusted `workflow_dispatch` pull request number.
+The separate scheduled workflow lists preview-account Workers and accepts only
+exact current or legacy names before extracting positive PR numbers. Every
+candidate then enters the same per-PR queue and rechecks the live PR state,
+label, and approval marker. A current open, labeled approval receives legacy
+cleanup only. A stale approval, closed PR, or unlabeled PR receives full known
+cleanup. A delayed event or manual request skips a current active approval.
 
-Cloudflare's Worker list cannot reveal detached Alchemy state that has no
-remaining Worker script. Scheduled reconciliation therefore cannot discover a
-state-only orphan. A targeted manual dispatch can reconcile its known PR number,
-and each normal teardown still runs all three Alchemy destroys before direct
-Worker cleanup.
+Cloudflare's Worker list cannot reveal PR-only resources, detached Alchemy state
+without a remaining Worker script, or resources whose names do not match the
+strict allowlist. Scheduled reconciliation is only a bounded backstop for
+discoverable exact Workers. A targeted manual dispatch can reconcile a known PR
+number. Full teardown attempts the three trusted default-branch Alchemy stacks
+before direct exact-name Worker cleanup, and continues independent cleanup after
+an individual failure.
 
-Trusted teardown intentionally runs only the fixed default-branch Alchemy
-entrypoints and exact Worker-name cleanup. It cannot enumerate or destroy an
-additional resource declared only by PR code without executing that untrusted
-declaration. Such a resource is outside scheduled ownership discovery; the
-reviewed preview token scope and maintainer label gate remain the preventive
-controls.
+Trusted teardown intentionally runs only fixed default-branch Alchemy entrypoints
+and exact Worker-name cleanup. It cannot enumerate or claim deletion of an
+additional resource declared only by approved PR code. Approved internal PR
+Alchemy configuration executes with the isolated preview token; it is not a
+sandbox. The reviewed token scope and maintainer label gate remain the
+preventive controls.
 
 ## Safety
 
+Production application resources activate before their domain smoke tests.
+A failed smoke test therefore stops CI but does not restore the previous Worker
+version. Versioned deployment plus explicit promotion is a separate
+architecture change; until then, recover a failed smoke test by rolling forward
+the previous known-good revision.
+
 All deployable stacks reject every stage other than `prod`. Use the dedicated
-resource-free entrypoint for state inspection because beta.72 evaluates a stack
+resource-free entrypoint for state inspection because beta.73 evaluates a stack
 under its internal `placeholder` stage:
 
 ```sh

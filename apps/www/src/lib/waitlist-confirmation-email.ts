@@ -1,13 +1,16 @@
-const CONFIRMATION_ORIGIN = 'https://maelstrom-ai.co';
+import {
+  WAITLIST_ORIGIN,
+  WAITLIST_SENDER_ADDRESS,
+} from '@maelstrom-co/platform-infra/waitlist-contract';
 
 export function buildWaitlistConfirmationEmail(token: string) {
-  const confirmationUrl = new URL('/waitlist/confirm/', CONFIRMATION_ORIGIN);
-  confirmationUrl.searchParams.set('token', token);
+  const confirmationUrl = new URL('/waitlist/confirm/', WAITLIST_ORIGIN);
+  confirmationUrl.hash = new URLSearchParams({ token }).toString();
   const url = confirmationUrl.href;
 
   return {
     from: {
-      email: 'waitlist@notifications.maelstrom-ai.co',
+      email: WAITLIST_SENDER_ADDRESS,
       name: 'Maelstrom',
     },
     subject: 'Confirm your email for Maelstrom',

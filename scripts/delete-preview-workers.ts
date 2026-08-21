@@ -14,23 +14,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Unknown error';
 
-const requiredEnvironmentVariable = (name: string) => {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`${name} is required`);
-  }
-  return value;
-};
-
-const optionalIntegerEnvironmentVariable = (name: string) => {
-  const value = process.env[name];
-  if (value === undefined) return undefined;
-  if (!/^\d+$/.test(value)) {
-    throw new Error(`${name} must be an unsigned integer`);
-  }
-  return Number(value);
-};
-
 const validatePrNumber = (prNumber: string) => {
   if (!/^[1-9]\d*$/.test(prNumber)) {
     throw new Error(`Invalid pull request number: ${prNumber}`);
@@ -106,13 +89,13 @@ const retryAfterMs = (response: Response, now: number) => {
 
   const seconds = Number(value);
   if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.min(seconds * 1_000, MAX_RETRY_DELAY_MS);
+    return Math.min(seconds * 1_000, MAX_TOTAL_BUDGET_MS);
   }
 
   const date = Date.parse(value);
   return Number.isNaN(date)
     ? 0
-    : Math.min(Math.max(0, date - now), MAX_RETRY_DELAY_MS);
+    : Math.min(Math.max(0, date - now), MAX_TOTAL_BUDGET_MS);
 };
 
 const validateCredential = (name: string, value: string) => {
@@ -161,6 +144,8 @@ export interface DeletePreviewWorkersOptions {
   readonly concurrency?: number;
   /** Name generation to use for migration cleanup or complete teardown. */
   readonly workerScope?: 'all' | 'current' | 'legacy';
+  /** Revalidates authority immediately before each direct deletion request. */
+  readonly authorize?: (workerName: string) => Promise<boolean>;
 }
 
 interface DeletePreviewWorkersDependencies {
@@ -199,6 +184,7 @@ export const deletePreviewWorkers = async (
     totalBudgetMs = 540_000,
     concurrency = 6,
     workerScope = 'all',
+    authorize,
   } = options;
   validateAccountId(accountId);
   validateCredential('apiToken', apiToken);
@@ -246,6 +232,12 @@ export const deletePreviewWorkers = async (
       const results = await Promise.all(
         workers.slice(offset, offset + concurrency).map(async (workerName) => {
           try {
+            if (authorize && !(await authorize(workerName))) {
+              dependencies.log(
+                `Skipped preview Worker ${workerName}; cleanup authority changed.`,
+              );
+              return { failed: false, retryAfterMs: 0 };
+            }
             const url = new URL(
               `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
             );
@@ -258,7 +250,11 @@ export const deletePreviewWorkers = async (
             const body = await response.text();
             const envelope = parseEnvelope(body);
 
-            if (response.ok && (envelope === undefined || envelope.success)) {
+            if (
+              response.ok &&
+              (envelope === undefined ||
+                (envelope.success && envelope.errors.length === 0))
+            ) {
               dependencies.log(`Deleted preview Worker ${workerName}.`);
               return { failed: false, retryAfterMs: 0 };
             }
@@ -275,7 +271,7 @@ export const deletePreviewWorkers = async (
             return {
               failed: true,
               retryAfterMs:
-                response.status === 429
+                response.status === 429 || response.status === 503
                   ? retryAfterMs(response, dependencies.now())
                   : 0,
             };
@@ -350,6 +346,7 @@ export const discoverPreviewPrNumbers = async (
     value.success !== true ||
     !Array.isArray(value.errors) ||
     !value.errors.every(isRecord) ||
+    value.errors.length !== 0 ||
     !Array.isArray(value.result) ||
     !value.result.every(isRecord)
   ) {
@@ -371,32 +368,3 @@ export const discoverPreviewPrNumbers = async (
   }
   return [...candidates].sort((left, right) => Number(left) - Number(right));
 };
-
-if (import.meta.main) {
-  const accountId = requiredEnvironmentVariable('CLOUDFLARE_ACCOUNT_ID');
-  const apiToken = requiredEnvironmentVariable('CLOUDFLARE_API_TOKEN');
-  if (Bun.argv[2] === 'discover') {
-    const candidates = await discoverPreviewPrNumbers({ accountId, apiToken });
-    process.stdout.write(JSON.stringify(candidates));
-  } else {
-    const success = await deletePreviewWorkers({
-      accountId,
-      apiToken,
-      prNumber: requiredEnvironmentVariable('PR_NUMBER'),
-      attempts: optionalIntegerEnvironmentVariable('PREVIEW_DELETE_ATTEMPTS'),
-      workerScope:
-        (process.env.PREVIEW_WORKER_SCOPE as
-          | 'all'
-          | 'current'
-          | 'legacy'
-          | undefined) ?? 'all',
-    });
-
-    if (!success) {
-      console.error(
-        'Preview Worker deletion still failed after the final attempt.',
-      );
-      process.exitCode = 1;
-    }
-  }
-}

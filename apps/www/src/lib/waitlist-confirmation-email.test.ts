@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { buildWaitlistConfirmationEmail } from './waitlist-confirmation-email';
 
-const token = 'a'.repeat(43);
-const confirmationUrl = `https://maelstrom-ai.co/waitlist/confirm/?token=${token}`;
+const token = `v1.${'a'.repeat(43)}`;
+const confirmationUrl = `https://maelstrom-ai.co/waitlist/confirm/#token=${token}`;
 
 function contrastRatio(first: string, second: string) {
   const luminance = (hex: string) => {
@@ -26,6 +28,8 @@ describe('waitlist confirmation email', () => {
     expect(message.html).toContain(`href="${confirmationUrl}"`);
     expect(message.text).toContain(confirmationUrl);
     expect(message.html.split(`href="${confirmationUrl}"`)).toHaveLength(3);
+    expect(message.html).not.toContain(`?token=${token}`);
+    expect(message.text).not.toContain(`?token=${token}`);
   });
 
   test('preserves expiry and unsolicited-request safety copy in both formats', () => {
@@ -63,5 +67,19 @@ describe('waitlist confirmation email', () => {
     ).toBeGreaterThanOrEqual(4.5);
     expect(message.html).toContain('<!--[if mso]>');
     expect(message.html).toContain('mso-padding-alt:14px 24px');
+  });
+
+  test('keeps analytics disabled while the confirmation page handles the token', () => {
+    const page = readFileSync(
+      resolve(import.meta.dir, '../pages/waitlist/confirm.astro'),
+      'utf8',
+    );
+    const layout = readFileSync(
+      resolve(import.meta.dir, '../layouts/Layout.astro'),
+      'utf8',
+    );
+
+    expect(page).toContain('analytics={false}');
+    expect(layout).toContain('{analytics && <PostHog />}');
   });
 });

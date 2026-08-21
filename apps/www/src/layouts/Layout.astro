@@ -1,4 +1,5 @@
 ---
+import { isWaitlistProductionHostname } from '@maelstrom-co/platform-infra/waitlist-contract';
 import Nav from '../components/Nav.astro';
 import PostHog from '../components/PostHog.astro';
 import ShaderBackground from '../components/ShaderBackground.astro';
@@ -6,17 +7,19 @@ import ShaderBackground from '../components/ShaderBackground.astro';
 interface Props {
   title: string;
   description?: string;
+  analytics?: boolean;
 }
 
 const {
   title,
   description = "An open-source library for AI-orchestrated UI: a model arranges, resizes, and triggers the components you built — in real time, from the user's intent. It never invents new ones.",
+  analytics = true,
 } = Astro.props;
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const ogImage = new URL('/og.png', Astro.site);
 const isPreview =
-  import.meta.env.PROD && !Astro.url.hostname.endsWith('maelstrom-ai.co');
+  import.meta.env.PROD && !isWaitlistProductionHostname(Astro.url.hostname);
 
 // Escape every `<` in the JSON-LD so a description containing `</script>`
 // can't break out of the inlined block; the escaped form parses back to `<`.
@@ -78,7 +81,7 @@ const jsonLd = JSON.stringify({
     <!-- Structured Data -->
     <script is:inline type="application/ld+json" set:html={jsonLd} />
 
-    <PostHog />
+    {analytics && <PostHog />}
   </head>
   <body class="bg-abyss text-text font-sans antialiased overflow-x-clip">
     <ShaderBackground />

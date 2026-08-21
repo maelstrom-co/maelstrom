@@ -44,22 +44,45 @@ interface PendingChallenge {
 }
 
 let turnstilePromise: Promise<TurnstileApi> | undefined;
+const TURNSTILE_LOAD_TIMEOUT_MS = 5_000;
 
 function loadTurnstile(): Promise<TurnstileApi> {
   if (window.turnstile) return Promise.resolve(window.turnstile);
   if (turnstilePromise) return turnstilePromise;
 
-  turnstilePromise = new Promise((resolve, reject) => {
+  const promise = new Promise<TurnstileApi>((resolve, reject) => {
     const script = document.createElement('script');
+    let settled = false;
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      script.remove();
+      reject(error);
+    };
+    const timeout = window.setTimeout(
+      () => fail(new Error('Turnstile load timed out')),
+      TURNSTILE_LOAD_TIMEOUT_MS,
+    );
     script.src =
       'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
     script.async = true;
-    script.onload = () =>
-      window.turnstile
-        ? resolve(window.turnstile)
-        : reject(new Error('Turnstile did not initialize'));
-    script.onerror = () => reject(new Error('Turnstile failed to load'));
+    script.onload = () => {
+      if (!window.turnstile) {
+        fail(new Error('Turnstile did not initialize'));
+        return;
+      }
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(window.turnstile);
+    };
+    script.onerror = () => fail(new Error('Turnstile failed to load'));
     document.head.insertAdjacentElement('beforeend', script);
+  });
+  turnstilePromise = promise;
+  promise.catch(() => {
+    if (turnstilePromise === promise) turnstilePromise = undefined;
   });
   return turnstilePromise;
 }
@@ -78,6 +101,7 @@ export default function WaitlistForm() {
   const turnstileWidget = useRef<string | null>(null);
   const pendingChallenge = useRef<PendingChallenge | null>(null);
   const widgetReady = useRef<Promise<string | null> | null>(null);
+  const mounted = useRef(false);
 
   function rejectPendingChallenge(message: string) {
     const pending = pendingChallenge.current;
@@ -88,11 +112,10 @@ export default function WaitlistForm() {
     setSecurityVisible(false);
   }
 
-  useEffect(() => {
-    let active = true;
-    widgetReady.current = loadTurnstile()
+  function initializeTurnstile() {
+    return loadTurnstile()
       .then((turnstile) => {
-        if (!active || !turnstileContainer.current) {
+        if (!mounted.current || !turnstileContainer.current) {
           throw new Error('Turnstile form is no longer mounted');
         }
         const widgetId = turnstile.render(turnstileContainer.current, {
@@ -151,14 +174,19 @@ export default function WaitlistForm() {
         return widgetId;
       })
       .catch(() => {
-        if (!active) return null;
+        if (!mounted.current) return null;
         setStatus('error');
         setErrorMessage('The security check could not load. Please refresh.');
         return null;
       });
+  }
+
+  useEffect(() => {
+    mounted.current = true;
+    widgetReady.current = initializeTurnstile();
 
     return () => {
-      active = false;
+      mounted.current = false;
       rejectPendingChallenge('The security check was cancelled.');
       if (turnstileWidget.current && window.turnstile) {
         window.turnstile.remove(turnstileWidget.current);
@@ -176,7 +204,11 @@ export default function WaitlistForm() {
     setSecurityStatus('Checking your browser...');
 
     try {
-      const widgetId = await widgetReady.current;
+      let widgetId = await widgetReady.current;
+      if (!widgetId) {
+        widgetReady.current = initializeTurnstile();
+        widgetId = await widgetReady.current;
+      }
       if (!widgetId || !window.turnstile) {
         throw new Error('The security check could not load. Please refresh.');
       }
@@ -241,7 +273,8 @@ export default function WaitlistForm() {
         aria-live="polite"
       >
         <span className="ws-dot" aria-hidden="true" />
-        Check your inbox to confirm your place.
+        If confirmation is needed, check your inbox. If it does not arrive, try
+        again in a few minutes.
       </div>
     );
   }
@@ -252,6 +285,7 @@ export default function WaitlistForm() {
         <input
           type="email"
           required
+          maxLength={254}
           placeholder="you@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}

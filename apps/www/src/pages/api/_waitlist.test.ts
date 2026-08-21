@@ -3,39 +3,32 @@
 // prerendered `/api/waitlist.test` endpoint and failed the build on its
 // top-level `bun:test` import. The underscore lets it stay colocated with the
 // route it covers without shipping as an endpoint. `bun test` still picks it up.
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test';
 import { hashWaitlistToken, isWaitlistToken } from '../../lib/waitlist-token';
 
 let preparedSql = '';
-let subscriber: {
-  status: 'pending' | 'confirmed' | 'unsubscribed';
-  should_send: 0 | 1;
-} | null = {
-  status: 'pending',
-  should_send: 1,
-};
-let previous: {
-  status: 'pending' | 'confirmed' | 'unsubscribed';
-  confirmation_token_hash: string | null;
-  confirmation_expires_at: string | null;
-  confirmation_sent_at: string | null;
-  unsubscribed_at: string | null;
-  updated_at: string;
-} | null = null;
+let deliveryAttempt: { id: string } | null = { id: 'attempt-id' };
 let confirmation: { email: string } | null = { email: 'user@example.com' };
-const first = mock(async () =>
-  preparedSql.includes('SELECT status, confirmation_token_hash')
-    ? previous
-    : preparedSql.includes("SET status = 'confirmed'")
-      ? confirmation
-      : subscriber,
-);
+let waitUntilTasks: Promise<unknown>[] = [];
+const first = mock(async () => deliveryAttempt);
 const run = mock(async () => ({ success: true }));
 const bind = mock(() => ({ first, run }));
 const prepare = mock((sql: string) => {
   preparedSql = sql;
   return { bind };
 });
+const batch = mock(async () => [
+  { results: [], success: true },
+  { results: confirmation ? [confirmation] : [], success: true },
+]);
 const send = mock(async () => ({ messageId: 'message-1' }));
 const siteverify = mock(
   async (_input: RequestInfo | URL, _init?: RequestInit) =>
@@ -51,7 +44,7 @@ globalThis.fetch = siteverify as typeof fetch;
 // `cloudflare:workers` import resolves to these stubs.
 mock.module('cloudflare:workers', () => ({
   env: {
-    WAITLIST_DB: { prepare },
+    WAITLIST_DB: { batch, prepare },
     EMAIL: { send },
     TURNSTILE_SECRET_KEY: 'turnstile-secret',
   },
@@ -69,6 +62,11 @@ const callPost = (body: string) =>
       headers: { 'Content-Type': 'application/json' },
       body,
     }),
+    locals: {
+      cfContext: {
+        waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+      },
+    },
   } as unknown as Parameters<typeof POST>[0]);
 const signupBody = (email = 'user@example.com') =>
   JSON.stringify({ email, turnstileToken: 'turnstile-token' });
@@ -79,16 +77,26 @@ const callConfirm = (token: string) =>
       body: new URLSearchParams({ token }),
     }),
   } as Parameters<typeof CONFIRM>[0]);
+const expectPrivateConfirmationResponse = (response: Response) => {
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+  expect(response.headers.get('x-robots-tag')).toBe('noindex');
+};
 
 beforeEach(() => {
   preparedSql = '';
-  subscriber = { status: 'pending', should_send: 1 };
-  previous = null;
+  deliveryAttempt = { id: 'attempt-id' };
   confirmation = { email: 'user@example.com' };
+  waitUntilTasks = [];
   first.mockClear();
   bind.mockClear();
   run.mockClear();
   prepare.mockClear();
+  batch.mockReset();
+  batch.mockResolvedValue([
+    { results: [], success: true },
+    { results: confirmation ? [confirmation] : [], success: true },
+  ]);
   send.mockReset();
   send.mockResolvedValue({ messageId: 'message-1' });
   siteverify.mockReset();
@@ -101,11 +109,54 @@ beforeEach(() => {
   );
 });
 
+afterEach(async () => {
+  await Promise.allSettled(waitUntilTasks);
+});
+
 describe('POST /api/waitlist', () => {
   it('400s on a malformed JSON body', async () => {
     const res = await callPost('not json{');
     expect(res.status).toBe(400);
     expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('415s on an unsupported signup media type before external work', async () => {
+    const res = await POST({
+      request: new Request('https://example.com/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: signupBody(),
+      }),
+    } as unknown as Parameters<typeof POST>[0]);
+
+    expect(res.status).toBe(415);
+    expect(siteverify).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('415s unsupported signup media types before syntax and size checks', async () => {
+    for (const body of ['not json{', 'x'.repeat(5000)]) {
+      const res = await POST({
+        request: new Request('https://example.com/api/waitlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body,
+        }),
+      } as unknown as Parameters<typeof POST>[0]);
+      expect(res.status).toBe(415);
+    }
+  });
+
+  it('accepts a case-insensitive JSON media type with parameters', async () => {
+    const res = await POST({
+      request: new Request('https://example.com/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'Application/JSON; Charset=UTF-8' },
+        body: signupBody(),
+      }),
+    } as unknown as Parameters<typeof POST>[0]);
+    expect(res.status).toBe(202);
   });
 
   it('400s on an invalid email without writing to D1', async () => {
@@ -116,10 +167,10 @@ describe('POST /api/waitlist', () => {
 
   it('stores a pending subscriber and sends a confirmation email', async () => {
     const res = await callPost(signupBody());
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ success: true });
-    expect(prepare).toHaveBeenCalledTimes(2);
-    expect(bind).toHaveBeenCalledTimes(2);
+    expect(prepare).toHaveBeenCalledTimes(3);
+    expect(bind).toHaveBeenCalledTimes(3);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -131,11 +182,12 @@ describe('POST /api/waitlist', () => {
       }),
     );
     expect(send.mock.calls[0]?.[0].text).toContain(
-      'https://maelstrom-ai.co/waitlist/confirm/?token=',
+      'https://maelstrom-ai.co/waitlist/confirm/#token=v1.',
     );
+    expect(send.mock.calls[0]?.[0].text).not.toContain('?token=');
     expect(send.mock.calls[0]?.[0].html).toContain('>Confirm my email</a>');
     const emailedToken = send.mock.calls[0]?.[0].text.match(
-      /[?&]token=([A-Za-z0-9_-]{43})/,
+      /#token=(v1\.[A-Za-z0-9_-]{43})/,
     )?.[1];
     expect(isWaitlistToken(emailedToken)).toBe(true);
     expect(await hashWaitlistToken(emailedToken ?? '')).toBe(
@@ -143,17 +195,48 @@ describe('POST /api/waitlist', () => {
     );
   });
 
-  it('does not resend confirmation to an already confirmed subscriber', async () => {
-    subscriber = { status: 'confirmed', should_send: 0 };
-    const res = await callPost(signupBody());
-    expect(res.status).toBe(200);
+  it('persists the delivery claim before calling Email Service', async () => {
+    const claim = Promise.withResolvers<{ id: string }>();
+    first.mockImplementationOnce(() => claim.promise);
+
+    const response = callPost(signupBody());
+    await Bun.sleep(0);
+
+    expect(first).toHaveBeenCalledTimes(1);
     expect(send).not.toHaveBeenCalled();
+
+    claim.resolve({ id: 'attempt-id' });
+    expect((await response).status).toBe(202);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it('does not resend confirmation during the per-address cooldown', async () => {
-    subscriber = { status: 'pending', should_send: 0 };
+  it('responds after the durable claim without awaiting Email Service', async () => {
+    const delivery = Promise.withResolvers<{ messageId: string }>();
+    send.mockImplementationOnce(() => delivery.promise);
+    let response: Response | undefined;
+
+    void callPost(signupBody()).then((value) => {
+      response = value;
+    });
+    await Bun.sleep(0);
+
+    expect(response?.status).toBe(202);
+    expect(waitUntilTasks).toHaveLength(1);
+    let deliverySettled = false;
+    void waitUntilTasks[0]?.then(() => {
+      deliverySettled = true;
+    });
+    await Bun.sleep(0);
+    expect(deliverySettled).toBe(false);
+    delivery.resolve({ messageId: 'message-1' });
+    await Promise.all(waitUntilTasks);
+    expect(deliverySettled).toBe(true);
+  });
+
+  it('accepts an unclaimed address state without sending', async () => {
+    deliveryAttempt = null;
     const res = await callPost(signupBody());
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -169,52 +252,179 @@ describe('POST /api/waitlist', () => {
   });
 
   it('500s with a generic message when D1 fails', async () => {
-    first.mockRejectedValueOnce(new Error('query contained private detail'));
-    const res = await callPost(signupBody());
-    expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({
-      error: 'Could not start your signup. Please try again.',
-    });
-    expect(send).not.toHaveBeenCalled();
+    const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+    first.mockRejectedValueOnce(
+      Object.assign(new Error('query contained private detail'), {
+        name: 'user@example.com',
+        code: `v1.${'a'.repeat(43)}`,
+      }),
+    );
+    try {
+      const res = await callPost(signupBody());
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({
+        error: 'Could not start your signup. Please try again.',
+      });
+      expect(send).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledWith({
+        message: 'waitlist signup failed',
+        category: 'signup_store_failed',
+      });
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+        'user@example.com',
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
-  it('500s when Cloudflare cannot send the confirmation', async () => {
+  it('keeps an ambiguous Email Service result generic and confirmable', async () => {
     send.mockRejectedValueOnce(new Error('delivery unavailable'));
     const res = await callPost(signupBody());
-    expect(res.status).toBe(500);
+    await Promise.all(waitUntilTasks);
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ success: true });
     expect(run).toHaveBeenCalledTimes(1);
-    expect(preparedSql).toContain('DELETE FROM waitlist_subscribers');
+    expect(first).toHaveBeenCalledTimes(2);
+    expect(bind.mock.calls.at(-1)?.[0]).toBe('unknown');
   });
 
-  it('restores the last delivered token when a resend fails', async () => {
-    previous = {
-      status: 'pending',
-      confirmation_token_hash: 'previous-hash',
-      confirmation_expires_at: '2026-08-22T00:00:00.000Z',
-      confirmation_sent_at: '2026-08-20T00:00:00.000Z',
-      unsubscribed_at: null,
-      updated_at: '2026-08-20T00:00:00.000Z',
-    };
-    send.mockRejectedValueOnce(new Error('delivery unavailable'));
+  it('records a definite provider rejection without treating delivery as ambiguous', async () => {
+    send.mockRejectedValueOnce(
+      Object.assign(new Error('recipient suppressed'), {
+        code: 'E_RECIPIENT_SUPPRESSED',
+      }),
+    );
     const res = await callPost(signupBody());
-    expect(res.status).toBe(500);
+    await Promise.all(waitUntilTasks);
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ success: true });
     expect(run).toHaveBeenCalledTimes(1);
-    expect(preparedSql).toContain('SET status = ?');
+    expect(first).toHaveBeenCalledTimes(2);
+    expect(bind.mock.calls.at(-1)?.[0]).toBe('rejected');
+    expect(bind.mock.calls.at(-1)?.[3]).toBe('E_RECIPIENT_SUPPRESSED');
+  });
+
+  it('cools down temporary Email Service limits without exposing address state', async () => {
+    const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+    batch.mockResolvedValueOnce([
+      { results: [{ state: 'retryable' }], success: true },
+      { results: [], success: true },
+    ]);
+    send.mockRejectedValueOnce(
+      Object.assign(new Error('provider rate limit'), {
+        code: 'E_RATE_LIMIT_EXCEEDED',
+      }),
+    );
+
+    try {
+      const res = await callPost(signupBody());
+      await Promise.all(waitUntilTasks);
+
+      expect(res.status).toBe(202);
+      expect(await res.json()).toEqual({ success: true });
+      expect(batch).toHaveBeenCalledTimes(1);
+      expect(
+        bind.mock.calls.some((call) => call.includes('E_RATE_LIMIT_EXCEEDED')),
+      ).toBe(true);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'waitlist email attempt failed',
+          category: 'email_send_retryable',
+          providerCode: 'E_RATE_LIMIT_EXCEEDED',
+        }),
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  it('separates accepted-email state failures from provider failures', async () => {
+    const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+    first.mockResolvedValueOnce(deliveryAttempt);
+    first.mockRejectedValueOnce(new Error('D1 transition unavailable'));
+    try {
+      const res = await callPost(signupBody());
+      await Promise.all(waitUntilTasks);
+      expect(res.status).toBe(202);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'waitlist delivery state update failed',
+          category: 'delivery_state_update_failed',
+        }),
+      );
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+        'waitlist email attempt failed',
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it('rejects a failed Turnstile challenge before writing or sending', async () => {
+    const errorLog = spyOn(console, 'error').mockImplementation(() => {});
     siteverify.mockResolvedValueOnce(
       Response.json({
         success: false,
+        'error-codes': ['timeout-or-duplicate', 'untrusted-code'],
         action: 'turnstile-spin-v1',
         hostname: 'maelstrom-ai.co',
       }),
     );
-    const res = await callPost(signupBody());
-    expect(res.status).toBe(400);
-    expect(prepare).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
+    try {
+      const res = await callPost(signupBody());
+      expect(res.status).toBe(400);
+      expect(prepare).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledWith({
+        message: 'waitlist Turnstile verification failed',
+        category: 'challenge_rejected',
+        providerCodes: ['timeout-or-duplicate'],
+      });
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+        'turnstile-token',
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
+
+  for (const result of [
+    {
+      success: true,
+      action: 'wrong-action',
+      hostname: 'maelstrom-ai.co',
+    },
+    {
+      success: true,
+      action: 'turnstile-spin-v1',
+      hostname: 'attacker.example',
+    },
+  ]) {
+    it('rejects successful Turnstile responses outside the waitlist contract', async () => {
+      siteverify.mockResolvedValueOnce(Response.json(result));
+
+      const res = await callPost(signupBody());
+
+      expect(res.status).toBe(400);
+      expect(prepare).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const providerCode of ['invalid-input-secret', 'internal-error']) {
+    it(`503s when Turnstile reports provider failure ${providerCode}`, async () => {
+      siteverify.mockResolvedValueOnce(
+        Response.json({ success: false, 'error-codes': [providerCode] }),
+      );
+
+      const res = await callPost(signupBody());
+
+      expect(res.status).toBe(503);
+      expect(prepare).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    });
+  }
 
   it('fails closed when bounded Turnstile verification is aborted', async () => {
     siteverify.mockImplementationOnce(async (_input, init) => {
@@ -229,28 +439,48 @@ describe('POST /api/waitlist', () => {
 });
 
 describe('POST /api/waitlist/confirm', () => {
+  it('415s unsupported confirmation media types before parsing', async () => {
+    const res = await CONFIRM({
+      request: new Request('https://maelstrom-ai.co/api/waitlist/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: `token=v1.${'a'.repeat(43)}`,
+      }),
+    } as Parameters<typeof CONFIRM>[0]);
+
+    expect(res.status).toBe(415);
+    expectPrivateConfirmationResponse(res);
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it('rejects a malformed token without querying D1', async () => {
     const res = await callConfirm('not-a-token');
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(
       'https://maelstrom-ai.co/waitlist/invalid/',
     );
+    expectPrivateConfirmationResponse(res);
     expect(prepare).not.toHaveBeenCalled();
   });
 
   it('confirms a pending subscriber with a live token', async () => {
-    const res = await callConfirm('a'.repeat(43));
+    const res = await callConfirm(`v1.${'a'.repeat(43)}`);
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(
       'https://maelstrom-ai.co/waitlist/confirmed/',
     );
+    expectPrivateConfirmationResponse(res);
     expect(preparedSql).toContain("SET status = 'confirmed'");
-    expect(bind).toHaveBeenCalledTimes(1);
+    expect(batch).toHaveBeenCalledTimes(1);
   });
 
   it('shows an invalid result for an expired or already-used token', async () => {
     confirmation = null;
-    const res = await callConfirm('a'.repeat(43));
+    batch.mockResolvedValueOnce([
+      { results: [], success: true },
+      { results: [], success: true },
+    ]);
+    const res = await callConfirm(`v1.${'a'.repeat(43)}`);
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(
       'https://maelstrom-ai.co/waitlist/invalid/',
@@ -258,10 +488,28 @@ describe('POST /api/waitlist/confirm', () => {
   });
 
   it('503s without leaking D1 failure details', async () => {
-    first.mockRejectedValueOnce(new Error('private database detail'));
-    const res = await callConfirm('a'.repeat(43));
-    expect(res.status).toBe(503);
-    expect(await res.text()).not.toContain('private database detail');
+    const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+    batch.mockRejectedValueOnce(
+      Object.assign(new Error('private database detail'), {
+        name: 'user@example.com',
+        code: `v1.${'a'.repeat(43)}`,
+      }),
+    );
+    try {
+      const res = await callConfirm(`v1.${'a'.repeat(43)}`);
+      expect(res.status).toBe(503);
+      expectPrivateConfirmationResponse(res);
+      expect(await res.text()).not.toContain('private database detail');
+      expect(errorLog).toHaveBeenCalledWith({
+        message: 'waitlist confirmation failed',
+        category: 'confirmation_store_failed',
+      });
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+        'user@example.com',
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it('413s before parsing an oversized confirmation body', async () => {
@@ -272,6 +520,7 @@ describe('POST /api/waitlist/confirm', () => {
       }),
     } as Parameters<typeof CONFIRM>[0]);
     expect(res.status).toBe(413);
+    expectPrivateConfirmationResponse(res);
     expect(prepare).not.toHaveBeenCalled();
   });
 });

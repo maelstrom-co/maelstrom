@@ -16,7 +16,7 @@ export default MaelstromPlatform.make(
     return {
       sendingDomain: sending.name.as<string>(),
       sendingEnabled: sending.enabled,
-      turnstileSitekey: turnstile.sitekey.as<string>(),
+      turnstileSiteKey: turnstile.sitekey.as<string>(),
       waitlistDatabaseId: waitlist.databaseId.as<string>(),
       waitlistDatabaseName: waitlist.databaseName.as<string>(),
     };

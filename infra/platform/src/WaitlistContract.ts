@@ -18,3 +18,10 @@ export const WAITLIST_TURNSTILE_ACTION = 'turnstile-spin-v1';
 
 /** Cloudflare's public always-pass visible-widget key for non-production use. */
 export const CLOUDFLARE_TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';
+
+/** Return whether a hostname is authorized for the production waitlist. */
+export function isWaitlistProductionHostname(hostname: string): boolean {
+  return WAITLIST_PRODUCTION_HOSTNAMES.some(
+    (candidate) => candidate === hostname,
+  );
+}
