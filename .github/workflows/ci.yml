@@ -40,13 +40,16 @@ jobs:
 
       # Vale scans the complete authored corpus. Reviewdog must not hide errors
       # outside the pull request diff when a rule or configuration changes.
+      - name: Select authored documentation
+        id: vale-files
+        run: bun scripts/vale-files.ts --github-output >> "$GITHUB_OUTPUT"
+
       - name: Lint documentation prose
         uses: vale-cli/vale-action@518a9136acc6e6668ce7c00d367051e0941e87ff # v3.0.0
         with:
           fail_on_error: true
-          files: '["README.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "docs", "apps/docs/src/content/docs", "apps/demo/README.md", "packages/client/README.md", "packages/engine/README.md", "packages/protocol/README.md", "packages/react/README.md", "packages/react-realtime/README.md", "packages/realtime/README.md", "packages/realtime-livekit/README.md", "packages/realtime-livekit-agent/README.md", "packages/realtime-livekit-server/README.md", "packages/realtime-openai/README.md", "packages/realtime-openai-server/README.md", "packages/realtime-protocol/README.md", "packages/realtime-vad/README.md", "tools/biome-plugin/README.md"]'
+          files: ${{ steps.vale-files.outputs.files }}
           filter_mode: nofilter
-          glob: '!apps/docs/src/content/docs/reference/*'
           min_alert_level: error
           reporter: github-pr-annotations
           vale_flags: --no-global
