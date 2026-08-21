@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  currentPreviewWorkerNames,
   deletePreviewWorkers,
+  discoverPreviewPrNumbers,
+  legacyPreviewWorkerNames,
   previewWorkerNames,
 } from './delete-preview-workers.ts';
 
@@ -19,19 +22,26 @@ const dependencies = (
   sleep: async (milliseconds: number) => {
     sleeps.push(milliseconds);
   },
+  now: Date.now,
   log: () => {},
   error: (message: string) => errors.push(message),
 });
 
 describe('previewWorkerNames', () => {
-  test('limits forced deletion to the six known names for one PR', () => {
-    expect(previewWorkerNames('42')).toEqual([
+  test('separates replaceable legacy names from current Alchemy names', () => {
+    expect(legacyPreviewWorkerNames('42')).toEqual([
       'maelstrom-www-pr-42',
-      'maelstrom-www-alchemy-pr-42',
       'maelstrom-docs-pr-42',
-      'maelstrom-docs-alchemy-pr-42',
       'maelstrom-playground-pr-42',
+    ]);
+    expect(currentPreviewWorkerNames('42')).toEqual([
+      'maelstrom-www-alchemy-pr-42',
+      'maelstrom-docs-alchemy-pr-42',
       'maelstrom-playground-alchemy-pr-42',
+    ]);
+    expect(previewWorkerNames('42')).toEqual([
+      ...legacyPreviewWorkerNames('42'),
+      ...currentPreviewWorkerNames('42'),
     ]);
     expect(() => previewWorkerNames('../production')).toThrow(
       'Invalid pull request number',
@@ -132,7 +142,119 @@ describe('deletePreviewWorkers', () => {
     );
 
     expect(success).toBeTrue();
-    expect(sleeps).toEqual([300_000]);
+    expect(sleeps).toEqual([60_000]);
+  });
+
+  test('validates credentials and bounded integer options before deletion', async () => {
+    const fetch = Object.assign(async () => absentResponse(), globalThis.fetch);
+    const invalidOptions = [
+      { accountId: '', apiToken: 'secret', prNumber: '42' },
+      { accountId: '../account', apiToken: 'secret', prNumber: '42' },
+      { accountId: 'account', apiToken: ' ', prNumber: '42' },
+      { accountId: 'account', apiToken: 'secret', prNumber: '42', attempts: 0 },
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        attempts: Number.NaN,
+      },
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        retryDelayMs: -1,
+      },
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        requestTimeoutMs: 0,
+      },
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        totalBudgetMs: 0,
+      },
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        concurrency: 7,
+      },
+    ];
+
+    for (const options of invalidOptions) {
+      expect(
+        deletePreviewWorkers(options, dependencies(fetch)),
+      ).rejects.toThrow();
+    }
+  });
+
+  test('deletes each pass concurrently without exceeding its bound', async () => {
+    let active = 0;
+    let peak = 0;
+    const pending: Array<() => void> = [];
+    const fetch = Object.assign(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise<void>((resolve) => pending.push(resolve));
+      active -= 1;
+      return absentResponse();
+    }, globalThis.fetch);
+
+    const result = deletePreviewWorkers(
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        attempts: 1,
+        concurrency: 3,
+      },
+      dependencies(fetch),
+    );
+    await Bun.sleep(0);
+    expect(peak).toBe(3);
+    while (pending.length > 0) pending.shift()?.();
+    await Bun.sleep(0);
+    while (pending.length > 0) pending.shift()?.();
+    expect(await result).toBeTrue();
+  });
+
+  test('fails within the total budget instead of starting a late pass', async () => {
+    let now = 0;
+    let requests = 0;
+    const fetch = Object.assign(async () => {
+      requests += 1;
+      now += 100;
+      return Response.json(
+        { success: false, errors: [{ code: 1015, message: 'Rate limit' }] },
+        { status: 429, headers: { 'Retry-After': '300' } },
+      );
+    }, globalThis.fetch);
+    const deps = {
+      ...dependencies(fetch),
+      now: () => now,
+      sleep: async (milliseconds: number) => {
+        now += milliseconds;
+      },
+    };
+
+    const success = await deletePreviewWorkers(
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        attempts: 6,
+        retryDelayMs: 60_000,
+        totalBudgetMs: 61_000,
+      },
+      deps,
+    );
+
+    expect(success).toBeFalse();
+    expect(now).toBeLessThanOrEqual(61_000);
+    expect(requests).toBe(6);
   });
 
   test('fails closed when the final response contradicts its HTTP status', async () => {
@@ -206,5 +328,53 @@ describe('deletePreviewWorkers', () => {
     );
 
     expect(success).toBeTrue();
+  });
+});
+
+describe('discoverPreviewPrNumbers', () => {
+  test('returns only PR numbers from exact current or legacy Worker names', async () => {
+    const fetch = Object.assign(
+      async () =>
+        Response.json({
+          success: true,
+          errors: [],
+          result: [
+            { id: 'maelstrom-www-pr-42' },
+            { id: 'maelstrom-docs-alchemy-pr-7' },
+            { id: 'maelstrom-playground-alchemy-pr-42' },
+            { id: 'maelstrom-www-pr-0' },
+            { id: 'maelstrom-www-pr-42-extra' },
+            { id: 'production' },
+            { id: 42 },
+          ],
+        }),
+      globalThis.fetch,
+    );
+
+    await expect(
+      discoverPreviewPrNumbers(
+        { accountId: 'account', apiToken: 'secret' },
+        { fetch },
+      ),
+    ).resolves.toEqual(['7', '42']);
+  });
+
+  test('fails closed on credentials, HTTP errors, and malformed envelopes', async () => {
+    const fetch = Object.assign(
+      async () => Response.json({ success: true, errors: [], result: {} }),
+      globalThis.fetch,
+    );
+    await expect(
+      discoverPreviewPrNumbers(
+        { accountId: '', apiToken: 'secret' },
+        { fetch },
+      ),
+    ).rejects.toThrow();
+    await expect(
+      discoverPreviewPrNumbers(
+        { accountId: 'account', apiToken: 'secret' },
+        { fetch },
+      ),
+    ).rejects.toThrow('invalid Worker list');
   });
 });

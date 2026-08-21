@@ -6,6 +6,9 @@ const stackSource = await Bun.file(
 const waitlistSource = await Bun.file(
   new URL('../src/Waitlist.ts', import.meta.url),
 ).text();
+const waitlistContractSource = await Bun.file(
+  new URL('../src/WaitlistContract.ts', import.meta.url),
+).text();
 const migration = await Bun.file(
   new URL('../migrations/0001_create_waitlist.sql', import.meta.url),
 ).text();
@@ -32,6 +35,25 @@ describe('platform stack contract', () => {
 
   test('retains subscriber data, sender configuration, and bot protection', () => {
     expect(waitlistSource.match(/retain\(true\)/g)).toHaveLength(3);
+    expect(waitlistSource).toContain('WAITLIST_PRODUCTION_HOSTNAMES');
+    expect(waitlistSource).not.toMatch(/localhost|127\.0\.0\.1/);
+  });
+
+  test('keeps the browser and infrastructure waitlist contract dependency-free', () => {
+    expect(waitlistContractSource).toContain(
+      "export const WAITLIST_TURNSTILE_ACTION = 'turnstile-spin-v1'",
+    );
+    expect(waitlistContractSource).toContain("'maelstrom-ai.co'");
+    expect(waitlistContractSource).toContain("'www.maelstrom-ai.co'");
+    expect(waitlistContractSource).toContain(
+      "export const WAITLIST_ORIGIN = 'https://maelstrom-ai.co'",
+    );
+    expect(waitlistContractSource).toContain(
+      'export const WAITLIST_SENDER_ADDRESS =',
+    );
+    expect(waitlistContractSource).not.toMatch(
+      /from ['"](?:alchemy|effect|node:)/,
+    );
   });
 
   test('does not hide resource takeover inside declarations', () => {

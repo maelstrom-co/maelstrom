@@ -11,6 +11,7 @@
     "@astrojs/react": "catalog:",
     "@astrojs/sitemap": "catalog:",
     "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/platform-infra": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
     "@radix-ui/react-scroll-area": "catalog:",
@@ -20,7 +21,6 @@
   },
   "devDependencies": {
     "@effect/platform-bun": "4.0.0-rc.111",
-    "@maelstrom-co/platform-infra": "workspace:*",
     "@astrojs/check": "catalog:",
     "@astrojs/cloudflare": "catalog:",
     "@playwright/test": "^1.61.1",
@@ -47,6 +47,12 @@
           },
           {
             "env": "PUBLIC_PLAYGROUND_URL"
+          },
+          {
+            "env": "PUBLIC_TURNSTILE_SITE_KEY"
+          },
+          {
+            "env": "PUBLIC_TURNSTILE_ENVIRONMENT"
           }
         ],
         "outputs": [

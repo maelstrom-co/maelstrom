@@ -31,6 +31,8 @@ const namedStep = (source: string, name: string) =>
   section(source, `      - name: ${name}\n`, '\n      - ');
 
 const workflowStep = (name: string) => namedStep(productionWorkflow, name);
+const workflowJob = (name: string, nextName: string) =>
+  section(productionWorkflow, `  ${name}:\n`, `\n  ${nextName}:\n`);
 
 const matrixApp = (name: string) =>
   section(
@@ -170,6 +172,39 @@ describe('application infrastructure contract', () => {
   });
 
   test('keeps production builds credential-free and deploys every app through Alchemy', () => {
+    const platformJob = workflowJob('platform', 'deploy');
+    const applicationJob = productionWorkflow.slice(
+      productionWorkflow.indexOf('  deploy:\n'),
+    );
+    expect(applicationJob).toContain('needs: platform');
+    expect(applicationJob).toContain(
+      "needs.platform.outputs.deployed == 'true'",
+    );
+
+    const platformRecheck = namedStep(
+      platformJob,
+      'Recheck platform deployment revision',
+    );
+    expect(platformRecheck).toContain('bun scripts/latest-green-ci.ts');
+    const platformDeploy = namedStep(
+      platformJob,
+      'Deploy platform to Cloudflare with Alchemy',
+    );
+    expect(platformDeploy).toContain(
+      "if: steps.platform-revision.outputs.current == 'true'",
+    );
+    expect(platformDeploy).toContain(
+      'bun alchemy deploy --stage prod --profile production-ci --yes',
+    );
+    expect(platformDeploy).toContain('CLOUDFLARE_ACCOUNT_ID:');
+    expect(platformDeploy).toContain('CLOUDFLARE_API_TOKEN:');
+    expect(platformDeploy).toContain('--fqn WaitlistTurnstile');
+    expect(platformDeploy).toContain('turnstile-sitekey=');
+    expect(platformDeploy).toMatch(/0x\[A-Za-z0-9/);
+    expect(platformJob).toContain(
+      `turnstile-sitekey: ${'$'}{{ steps.deploy-platform.outputs.turnstile-sitekey }}`,
+    );
+
     const www = matrixApp('www');
     expect(www).toContain('directory: apps/www');
     const docs = matrixApp('docs');
@@ -190,7 +225,13 @@ describe('application infrastructure contract', () => {
 
     const build = workflowStep('Build production artifact');
     expect(build).toContain("steps.revision.outputs.current == 'true'");
-    expect(build).not.toMatch(/CLOUDFLARE_|ALCHEMY_PROFILE/);
+    expect(build).not.toMatch(
+      /CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID)|ALCHEMY_PROFILE/,
+    );
+    expect(build).toContain('PUBLIC_TURNSTILE_ENVIRONMENT: production');
+    expect(build).toContain(
+      `PUBLIC_TURNSTILE_SITE_KEY: ${'$'}{{ matrix.app == 'www' && needs.platform.outputs.turnstile-sitekey || '' }}`,
+    );
 
     const recheck = workflowStep('Recheck deployment revision');
     expect(recheck).toContain('id: deploy-revision');
@@ -209,9 +250,9 @@ describe('application infrastructure contract', () => {
     expect(alchemyDeploy).toContain('CLOUDFLARE_API_TOKEN:');
 
     expect(productionWorkflow).not.toContain('wrangler deploy');
-    expect(productionWorkflow.match(/CLOUDFLARE_ACCOUNT_ID:/g)).toHaveLength(1);
-    expect(productionWorkflow.match(/CLOUDFLARE_API_TOKEN:/g)).toHaveLength(1);
-    expect(productionWorkflow.match(/ALCHEMY_PROFILE:/g)).toHaveLength(1);
+    expect(productionWorkflow.match(/CLOUDFLARE_ACCOUNT_ID:/g)).toHaveLength(2);
+    expect(productionWorkflow.match(/CLOUDFLARE_API_TOKEN:/g)).toHaveLength(2);
+    expect(productionWorkflow.match(/ALCHEMY_PROFILE:/g)).toHaveLength(2);
     expect(productionWorkflow).not.toContain('--adopt');
     expect(workflowStep('Smoke test primary domain')).toContain(
       "steps.deploy-revision.outputs.current == 'true'",
@@ -235,9 +276,14 @@ describe('application infrastructure contract', () => {
     expect(previews).not.toContain('cloudflare/wrangler-action@');
     expect(previews).not.toContain('Resolve the installed wrangler version');
     expect(previews).not.toContain('  teardown:');
+    expect(previews).toContain('types: [labeled]');
+    expect(previews).not.toContain('synchronize');
+    expect(previews).toContain("github.event.action == 'labeled'");
+    expect(previews).toContain("github.event.label.name == 'deploy-preview'");
     const deployIntent = namedStep(previews, 'Check current preview intent');
     expect(deployIntent).toContain('gh api');
     expect(deployIntent).toContain('.head.sha');
+    expect(deployIntent).toContain('EVENT_HEAD_SHA');
     expect(deployIntent).toContain('deploy-preview');
     expect(deployIntent).not.toContain('CLOUDFLARE_');
     const branchEligibility = namedStep(
@@ -249,8 +295,38 @@ describe('application infrastructure contract', () => {
     expect(previews).toContain('timeout-minutes: 45');
     expect(previews).toContain('cancel-in-progress: false');
     expect(previews).toContain('queue: max');
+    const checkout = namedStep(previews, 'Checkout');
+    expect(checkout).toContain(
+      `ref: ${'$'}{{ github.event.pull_request.head.sha }}`,
+    );
     expect(teardown).toContain('pull_request_target:');
-    expect(teardown).toContain('types: [unlabeled, closed]');
+    expect(teardown).toContain('types: [synchronize, unlabeled, closed]');
+    const teardownResolver = section(
+      teardown,
+      '  resolve:\n',
+      '\n  teardown:\n',
+    );
+    expect(teardownResolver).toContain("github.event.action == 'closed'");
+    expect(teardownResolver).not.toContain(
+      "(github.event.action == 'closed'\n            && contains",
+    );
+    const invalidateApproval = namedStep(
+      teardown,
+      'Remove stale preview approval',
+    );
+    expect(invalidateApproval).toContain('labels/deploy-preview');
+    expect(invalidateApproval).not.toContain('CLOUDFLARE_');
+    expect(teardown).toContain('workflow_dispatch:');
+    expect(teardown).toContain(
+      'github.ref_name == github.event.repository.default_branch',
+    );
+    expect(teardown).toContain('schedule:');
+    expect(teardown).toContain("cron: '17 4 * * *'");
+    expect(teardown).toContain('Discover strict preview candidates');
+    expect(teardown).toContain(
+      'bun scripts/delete-preview-workers.ts discover',
+    );
+    expect(teardown).toContain('fromJSON(needs.resolve.outputs.pr-numbers)');
     expect(teardown).toContain(`ref: ${'$'}{{ github.workflow_sha }}`);
     expect(teardown).not.toContain('github.event.pull_request.head.sha');
     expect(teardown).toContain('timeout-minutes: 60');
@@ -275,6 +351,12 @@ describe('application infrastructure contract', () => {
     expect(docsPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
     expect(docsPreviewDeploy).toContain('--stack MaelstromDocsPreview');
     expect(docsPreviewDeploy).toContain('deployment-url=%s');
+    expect(docsPreviewDeploy).toContain(
+      'CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX',
+    );
+    expect(docsPreviewDeploy).toContain(
+      'scripts/preview-worker-url.ts "$state_url" "maelstrom-docs-alchemy-$PREVIEW_STAGE"',
+    );
     expect(previews).toContain(
       `| Documentation | ${'$'}{{ steps.deploy-docs.outputs.deployment-url }} |`,
     );
@@ -295,8 +377,13 @@ describe('application infrastructure contract', () => {
     expect(wwwPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
     expect(wwwPreviewDeploy).toContain('--stack MaelstromWwwPreview');
     expect(wwwPreviewDeploy).toContain('deployment-url=%s');
+    expect(wwwPreviewDeploy).toContain(
+      'scripts/preview-worker-url.ts "$state_url" "maelstrom-www-alchemy-$PREVIEW_STAGE"',
+    );
     const websiteBuild = namedStep(previews, 'Build website preview');
     expect(websiteBuild).toContain('PUBLIC_PLAYGROUND_URL:');
+    expect(websiteBuild).toContain('CLOUDFLARE_ENV: preview');
+    expect(websiteBuild).toContain('PUBLIC_TURNSTILE_ENVIRONMENT: preview');
     expect(websiteBuild).not.toMatch(
       /CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID)|ALCHEMY_PROFILE/,
     );
@@ -317,15 +404,57 @@ describe('application infrastructure contract', () => {
     expect(demoPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
     expect(demoPreviewDeploy).toContain('--stack MaelstromDemoPreview');
     expect(demoPreviewDeploy).toContain('deployment-url=%s');
+    expect(demoPreviewDeploy).toContain(
+      'scripts/preview-worker-url.ts "$state_url" "maelstrom-playground-alchemy-$PREVIEW_STAGE"',
+    );
+    for (const deploy of [
+      demoPreviewDeploy,
+      wwwPreviewDeploy,
+      docsPreviewDeploy,
+    ]) {
+      expect(deploy).toContain('PREVIEW_WORKERS_DEV_SUFFIX:');
+      expect(deploy).not.toContain("url.startsWith('https://')");
+    }
+    for (const app of ['demo', 'www', 'docs']) {
+      const recheck = namedStep(previews, `Recheck ${app} preview intent`);
+      expect(recheck).toContain('.head.sha');
+      expect(recheck).toContain('deploy-preview');
+      expect(recheck).toContain('exit 1');
+      expect(recheck).not.toContain('CLOUDFLARE_');
+    }
     expectStepOrder(
       previews,
       'Build independent preview artifacts',
+      'Recheck demo preview intent',
       'Deploy demo to Cloudflare with Alchemy',
       'Validate Playground preview URL',
       'Build website preview',
+      'Recheck www preview intent',
       'Deploy www to Cloudflare with Alchemy',
+      'Recheck docs preview intent',
       'Deploy docs to Cloudflare with Alchemy',
+      'Require all preview URLs',
+      'Retire legacy preview Workers',
     );
+
+    const retireLegacy = namedStep(previews, 'Retire legacy preview Workers');
+    expect(retireLegacy).toContain(
+      "if: steps.preview-intent.outputs.current == 'true'",
+    );
+    expect(retireLegacy).toContain('PREVIEW_WORKER_SCOPE: legacy');
+    expect(retireLegacy).toContain('bun scripts/delete-preview-workers.ts');
+
+    for (const app of ['docs', 'www', 'demo']) {
+      const rollback = namedStep(previews, `Roll back ${app} preview`);
+      expect(rollback).toContain('if: failure()');
+      expect(rollback).toContain('alchemy destroy alchemy.preview.run.ts');
+    }
+    const rollbackWorkers = namedStep(
+      previews,
+      'Delete partial preview Workers',
+    );
+    expect(rollbackWorkers).toContain('if: failure()');
+    expect(rollbackWorkers).toContain('bun scripts/delete-preview-workers.ts');
 
     const independentBuild = namedStep(
       previews,
@@ -336,6 +465,7 @@ describe('application infrastructure contract', () => {
     const teardownIntent = namedStep(teardown, 'Check current preview intent');
     expect(teardownIntent).toContain('gh api');
     expect(teardownIntent).toContain('deploy-preview');
+    expect(teardownIntent).toContain('matrix.pr-number');
     expect(teardownIntent).not.toContain('CLOUDFLARE_');
 
     const docsPreviewDestroy = namedStep(
@@ -435,6 +565,21 @@ describe('application infrastructure contract', () => {
       'Deploy to Cloudflare with Alchemy',
       'Smoke test production domain',
     );
+  });
+
+  test('tracks the public Turnstile build input in Nx', () => {
+    expect(readJson('apps/www/package.json')).toMatchObject({
+      nx: {
+        targets: {
+          build: {
+            inputs: expect.arrayContaining([
+              { env: 'PUBLIC_TURNSTILE_SITE_KEY' },
+              { env: 'PUBLIC_TURNSTILE_ENVIRONMENT' },
+            ]),
+          },
+        },
+      },
+    });
   });
 
   test('installs the reviewed Alchemy ownership patch', () => {

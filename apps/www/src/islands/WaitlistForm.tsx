@@ -1,5 +1,7 @@
+import { WAITLIST_TURNSTILE_ACTION } from '@maelstrom-co/platform-infra/waitlist-contract';
 import { useEffect, useRef, useState } from 'react';
-import { submitWaitlist, WAITLIST_TURNSTILE_SITE_KEY } from '../lib/waitlist';
+import { WAITLIST_TURNSTILE_SITE_KEY } from '../data/turnstile-site-key';
+import { submitWaitlist } from '../lib/waitlist';
 
 declare global {
   interface Window {
@@ -95,7 +97,7 @@ export default function WaitlistForm() {
         }
         const widgetId = turnstile.render(turnstileContainer.current, {
           sitekey: WAITLIST_TURNSTILE_SITE_KEY,
-          action: 'turnstile-spin-v1',
+          action: WAITLIST_TURNSTILE_ACTION,
           appearance: 'interaction-only',
           execution: 'execute',
           language: 'auto',

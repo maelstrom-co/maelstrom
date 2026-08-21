@@ -1,7 +1,6 @@
 // Email validation for the waitlist signup, kept pure so it can be unit-tested
 // without the Worker runtime.
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export const WAITLIST_TURNSTILE_SITE_KEY = '0x4AAAAAAEXK9DFwilhX3Cla';
 
 export type WaitlistEmailResult =
   | { ok: true; email: string }
